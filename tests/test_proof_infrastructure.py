@@ -47,7 +47,7 @@ class InfrastructureProofTests(unittest.TestCase):
             "workspace": "/work",
             "run_dir": str(self.run),
             "status": "RUNNING",
-            "next_stage": "astra_review",
+            "next_stage": "review_completion",
             "current_task": {"id": "task", "milestone_id": "M1"},
             "stages": [
                 {
@@ -82,11 +82,11 @@ class InfrastructureProofTests(unittest.TestCase):
             patch.object(workflow, "enabled", return_value=False),
             patch.object(schedule, "proof_intact", return_value=intact),
         ):
-            completion.before_review(self.state, "astra_review", "/work", self.run)
+            completion.before_review(self.state, "review_completion", "/work", self.run)
 
     def test_current_authenticated_pass_settles_only_the_runner_disk_collection_finding(self):
         self.state["findings_ledger"].append(
-            {"id": "human-review", "source": "sol", "status": "open", "blocking": True}
+            {"id": "human-review", "source": "tester", "status": "open", "blocking": True}
         )
         before = copy.deepcopy(self.state)
         self.review()

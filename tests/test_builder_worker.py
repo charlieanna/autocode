@@ -62,7 +62,7 @@ class WorkerBoundaryTests(unittest.TestCase):
                 "provider": "opencode",
                 "roles": {
                     name: {"model": "fixture-" + name, "reasoning_effort": "high"}
-                    for name in ("terra", "sol", "completion", "task_planner")
+                    for name in ("builder", "tester", "completion", "task_planner")
                 },
                 "builder_retry": dict(runner.autopilot.builder_policy.DEFAULTS),
                 "report_repair": {"max_attempts": 2},
@@ -102,7 +102,7 @@ class WorkerBoundaryTests(unittest.TestCase):
             "addressed_requirements": [],
         }
 
-    def attempt(self, state, stage="terra", *, report_only=False):
+    def attempt(self, state, stage="builder", *, report_only=False):
         base = self.directory / (stage + "-fixture")
         output = base.with_suffix(".json")
         before = self.snapshot(self.workspace)
@@ -111,7 +111,7 @@ class WorkerBoundaryTests(unittest.TestCase):
         after = self.snapshot(self.workspace)
         value = self.report(state, output)
         record = {
-            "role": "terra",
+            "role": "builder",
             "stage": stage,
             "iteration": 1,
             "output": str(output),
@@ -131,7 +131,7 @@ class WorkerBoundaryTests(unittest.TestCase):
             "diff_ref": None,
         }
         if report_only:
-            record.update(report_only=True, original_stage="terra")
+            record.update(report_only=True, original_stage="builder")
         runner.write_json(output, value)
         Path(record["events"]).write_text(json.dumps({"type": "turn.completed"}) + "\n")
         runner.write_json(Path(record["before_ref"]), before)
@@ -148,7 +148,7 @@ class WorkerBoundaryTests(unittest.TestCase):
         report_only = kwargs.get("report_only", False)
         stage = kwargs["state"]["next_stage"] + ("_report_repair" if report_only else "")
         self.calls.append(stage)
-        self.assertEqual("terra", kwargs["role"], "No subsequent diagnosis may be paid for")
+        self.assertEqual("builder", kwargs["role"], "No subsequent diagnosis may be paid for")
         value, record = self.attempt(kwargs["state"], stage, report_only=report_only)
         if self.invalid_builder and not report_only:
             value.pop("evidence_refs")
@@ -183,24 +183,24 @@ class WorkerBoundaryTests(unittest.TestCase):
         self.seed()
         self.intervention = "pause"
         self.assertEqual(2, worker.main(self.directory))
-        self.assertEqual(["terra"], self.calls)
+        self.assertEqual(["builder"], self.calls)
         self.assertEqual("PAUSED_INTERVENTION", self.result()["status"])
         self.assertIn("explicitly resume", self.result()["reason"])
         self.assertFalse((self.workspace / "greet.py").exists())
         self.assertEqual([], runner.interventions.pending(self.directory))
         self.assertEqual(2, worker.main(self.directory, "recover"))
-        self.assertEqual(["terra"], self.calls)
+        self.assertEqual(["builder"], self.calls)
         self.assertEqual("PAUSED_INTERVENTION", self.result()["status"])
 
     def test_queued_stop_at_no_change_commit_admits_no_subsequent_paid_call(self):
         self.seed()
         self.intervention = "stop"
         self.assertEqual(2, worker.main(self.directory))
-        self.assertEqual(["terra"], self.calls)
+        self.assertEqual(["builder"], self.calls)
         self.assertEqual("PAUSED_INTERVENTION", self.result()["status"])
         self.assertEqual(runner.stop_policy.STOP_REASON, self.result()["reason"])
         self.assertEqual(2, worker.main(self.directory, "retry"))
-        self.assertEqual(["terra"], self.calls)
+        self.assertEqual(["builder"], self.calls)
 
     def test_recovered_completed_builder_commit_respects_queued_operator_hold(self):
         self.recovered_hold("pause")
@@ -233,7 +233,7 @@ class WorkerBoundaryTests(unittest.TestCase):
                     for key in ("events", "before_ref", "after_ref", "schema")
                 },
             }
-            value, record = self.attempt(state, "terra_report_repair", report_only=True)
+            value, record = self.attempt(state, "builder_report_repair", report_only=True)
         state["active_stage"] = record
         runner.write_json(self.directory / "state.json", state)
         self.intervention = kind
@@ -243,7 +243,7 @@ class WorkerBoundaryTests(unittest.TestCase):
             if report_only:
                 runner.accept_repaired_report(current, directory, workspace, value, record)
             else:
-                runner.commit_stage_result(current, "terra", value, record, workspace, directory)
+                runner.commit_stage_result(current, "builder", value, record, workspace, directory)
 
         with patch.object(runner, "reconcile_active", side_effect=recover):
             self.assertEqual(2, worker.main(self.directory, mode))
@@ -264,7 +264,7 @@ class WorkerBoundaryTests(unittest.TestCase):
         self.invalid_builder = True
         self.intervention = kind
         self.assertEqual(2, worker.main(self.directory))
-        self.assertEqual(["terra", "terra_report_repair"], self.calls)
+        self.assertEqual(["builder", "builder_report_repair"], self.calls)
         self.assertEqual("PAUSED_INTERVENTION", self.result()["status"])
         self.assert_operator_hold(kind)
         self.assertFalse((self.workspace / "greet.py").exists())
@@ -313,7 +313,7 @@ class WorkerBoundaryTests(unittest.TestCase):
         self.seed(status="PAUSED_BUDGET", stop_reason="Provider quota stopped this member")
         self.complete = True
         self.assertEqual(0, worker.main(self.directory, "retry"))
-        self.assertEqual(["terra"], self.calls)
+        self.assertEqual(["builder"], self.calls)
         self.assertEqual("BUILT", self.result()["status"])
         self.assertEqual("print('Hello')\n", (self.workspace / "greet.py").read_text())
 
@@ -326,7 +326,7 @@ class WorkerBoundaryTests(unittest.TestCase):
         )
         self.complete = True
         self.assertEqual(0, worker.main(self.directory, "retry"))
-        self.assertEqual(["terra"], self.calls)
+        self.assertEqual(["builder"], self.calls)
         self.assertEqual("BUILT", self.result()["status"])
         saved = runner.read_json(self.directory / "state.json")
         self.assertTrue(saved["pause_intent"]["acknowledged_at"])
@@ -344,7 +344,7 @@ class WorkerBoundaryTests(unittest.TestCase):
             side_effect=runner.support.Paused("PAUSED_INTERRUPTED", "Stopped Builder fixture requires explicit retry"),
         ):
             self.assertEqual(0, worker.main(self.directory, "retry"))
-        self.assertEqual(["terra"], self.calls)
+        self.assertEqual(["builder"], self.calls)
         self.assertEqual("BUILT", self.result()["status"])
         self.assertEqual(1, len(list(self.directory.glob("archived-terra-fixture-*"))))
 
@@ -353,7 +353,7 @@ class WorkerBoundaryTests(unittest.TestCase):
         self.complete = True
         self.intervention = "pause"
         self.assertEqual(2, worker.main(self.directory))
-        self.assertEqual(["terra"], self.calls)
+        self.assertEqual(["builder"], self.calls)
         self.assertEqual("PAUSED_INTERVENTION", self.result()["status"])
         self.assertEqual("print('Hello')\n", (self.workspace / "greet.py").read_text())
 
@@ -362,7 +362,7 @@ class WorkerBoundaryTests(unittest.TestCase):
         key = runner.autopilot.builder_policy.key(state)
         state["builder_retries"] = {
             key: {
-                "initial_route": dict(state["settings"]["roles"]["terra"]),
+                "initial_route": dict(state["settings"]["roles"]["builder"]),
                 "failures": ["ordinary", "retry", "strong"],
                 "action": "pause",
             }
@@ -376,7 +376,7 @@ class WorkerBoundaryTests(unittest.TestCase):
     def test_explicit_exhausted_report_retry_preserves_spent_repair_allowance(self):
         state = self.seed(status="PAUSED_REPORT_REPAIR_LIMIT")
         _, original = self.attempt(state, "prior-terra")
-        original["stage"] = "terra"
+        original["stage"] = "builder"
         original["rejected"] = True
         state["stages"] = [original]
         state["pending_report_repair"] = {
@@ -391,7 +391,7 @@ class WorkerBoundaryTests(unittest.TestCase):
         runner.write_json(self.directory / "state.json", state)
         self.complete = True
         self.assertEqual(0, worker.main(self.directory, "retry"))
-        self.assertEqual(["terra"], self.calls)
+        self.assertEqual(["builder"], self.calls)
         self.assertEqual("BUILT", self.result()["status"])
         saved = runner.read_json(self.directory / "state.json")
         self.assertEqual(2, saved["report_repair_archive"][0]["repair"]["attempts"])

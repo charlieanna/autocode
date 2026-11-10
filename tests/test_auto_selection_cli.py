@@ -81,12 +81,12 @@ data = json.loads(prompt.split""",
         before = run.status()
         self.assertEqual("approve_plan", before["needs"]["kind"], before)
         routes = before["routes"]
-        self.assertEqual("auto_selected", routes["terra"]["origin"])
+        self.assertEqual("auto_selected", routes["builder"]["origin"])
         # No Luna in this catalogue, so the Builder is GPT-6 Sol (#1729). The fixture advertises
         # no reasoning levels ({"variants": {}}), so the table's medium is vetoed: the model's own default.
-        self.assertEqual("openai/gpt-6-sol", routes["terra"]["model"])
-        self.assertEqual("zai-coding-plan/glm-5.3", routes["sol"]["model"])
-        self.assertIsNone(routes["terra"]["reasoning_effort"])
+        self.assertEqual("openai/gpt-6-sol", routes["builder"]["model"])
+        self.assertEqual("zai-coding-plan/glm-5.3", routes["tester"]["model"])
+        self.assertIsNone(routes["builder"]["reasoning_effort"])
         self.assertTrue(self.operations("probe"))
         # Changing the local catalogue cannot reselect a saved run.
         listings = sum(row.get("metadata", False) for row in self.operations("models"))
@@ -102,10 +102,10 @@ data = json.loads(prompt.split""",
         self.assertTrue((self.workspace / "greet.py").is_file())
 
     def test_explicit_model_and_tool_win_over_default_selection(self):
-        run = self.start(("--sol-model", "fixture-claude", "--role-transport", "sol=fixture_command"))
+        run = self.start(("--tester-model", "fixture-claude", "--role-transport", "sol=fixture_command"))
         shown = run.status()
         self.assertEqual("approve_plan", shown["needs"]["kind"], shown)
-        self.assertEqual("fixture-claude", shown["routes"]["sol"]["model"])
+        self.assertEqual("fixture-claude", shown["routes"]["tester"]["model"])
         probes = self.operations("probe")
         self.assertTrue(any(row["tool"] == "fixture_command" and "fixture-claude" in row["argv"] for row in probes))
         self.assertFalse(any(row["tool"] == "opencode" and "fixture-claude" in row["argv"] for row in probes))

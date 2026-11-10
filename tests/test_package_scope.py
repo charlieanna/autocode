@@ -414,7 +414,7 @@ class PackageSuite(unittest.TestCase):
         original = settings["protected_tests"]
         self.assertEqual([f"{GREET}/test_greet.py"], sorted(original["files"]))
         self.project.write({f"{GREET}/test_greet.py": references.BUGFIX_REFERENCE["test_greet.py"]})
-        paused = {"status": "PAUSED_VALIDATION", "next_stage": "sol"}
+        paused = {"status": "PAUSED_VALIDATION", "next_stage": "tester"}
         proposal = self.run_dir / "revision.json"
         for files, accepted in (
             (protected_oracles.inventory(root, verify.is_test_path), False),

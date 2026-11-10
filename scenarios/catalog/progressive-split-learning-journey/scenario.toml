@@ -5,4 +5,4 @@ check = "python3 -m unittest test_journey"
 fault = "progressive_split"
 [run]
 max_steps = 60
-requires_stages = ["glm_revise", "astra_finalize", "terra", "sol"]
+requires_stages = ["revise_plan", "finalize_plan", "builder", "tester"]

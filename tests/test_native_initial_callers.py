@@ -61,13 +61,18 @@ class OriginalCheckFailureTests(_ControlledNativeCheckFixture, unittest.TestCase
                 self.context,
                 self.state,
                 persist=self.sink.write,
-                review_record={"stage": "sol", "role": "sol", "source_revision": self.raw["revision"], "exit_code": 0},
+                review_record={
+                    "stage": "tester",
+                    "role": "tester",
+                    "source_revision": self.raw["revision"],
+                    "exit_code": 0,
+                },
             )
 
 
 class OriginalStageCallerTests(unittest.TestCase):
     def test_actual_commit_threads_native_and_observes_only_after_publication(self):
-        state, record, value = {"marker": "original"}, {"stage": "sol"}, {}
+        state, record, value = {"marker": "original"}, {"stage": "tester"}, {}
         order = []
         native = SimpleNamespace(
             review_progress=Mock(side_effect=lambda *args: order.append("observe") or {"marker": "observed"})
@@ -89,7 +94,7 @@ class OriginalStageCallerTests(unittest.TestCase):
             patch.object(runner, "commit_boundary_candidate", side_effect=boundary),
         ):
             runner.commit_stage_result(
-                state, "sol", value, record, Path("/controlled"), Path("/controlled/run"), native=native
+                state, "tester", value, record, Path("/controlled"), Path("/controlled/run"), native=native
             )
         self.assertIs(apply.call_args.kwargs["native"], native)
         self.assertEqual(order, ["apply", "publish", "parent-saved", "durable-return", "observe", "parent-observed"])
@@ -102,7 +107,7 @@ class OriginalStageCallerTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(util.Paused, "original publication failed"):
                 runner.commit_stage_result(
-                    {}, "sol", {}, {}, Path("/controlled"), Path("/controlled/run"), native=native
+                    {}, "tester", {}, {}, Path("/controlled"), Path("/controlled/run"), native=native
                 )
         native.review_progress.assert_not_called()
 
@@ -113,7 +118,7 @@ class OriginalStageCallerTests(unittest.TestCase):
             patch.object(runner.job_failure, "completed"),
         ):
             self.assertEqual(
-                runner.apply_result({}, "sol", {}, {}, Path("/controlled"), Path("/controlled/run"), native=calls),
+                runner.apply_result({}, "tester", {}, {}, Path("/controlled"), Path("/controlled/run"), native=calls),
                 "applied",
             )
         self.assertIs(apply.call_args.args[0].native_calls, calls)
@@ -143,7 +148,7 @@ class CompletionResumeControls(unittest.TestCase):
 
     def test_completion_decision_resume_replays_actual_current_review_or_rejection(self):
         native = self.caller()
-        state = {"current_task": {"kind": "implement"}, "next_stage": "astra_review"}
+        state = {"current_task": {"kind": "implement"}, "next_stage": "review_completion"}
         native.require_supported_action(SimpleNamespace(run_dir="original"), state)
         native.current_review.assert_called_once_with(state, {"revision": "current"})
         native.context.factory.decision_review_proof.assert_called_once_with(
@@ -153,7 +158,7 @@ class CompletionResumeControls(unittest.TestCase):
 
     def test_resolver_requires_genuine_ordinary_request_after_current_evidence(self):
         native = self.caller()
-        state = {"current_task": {"kind": "implement"}, "next_stage": "astra_resolve"}
+        state = {"current_task": {"kind": "implement"}, "next_stage": "resolve"}
         native.context.factory.require_resolver_request.side_effect = util.Paused("HELD", "missing genuine request")
         with self.assertRaisesRegex(util.Paused, "missing genuine request"):
             native.require_supported_action(SimpleNamespace(run_dir="original"), state)
@@ -166,13 +171,13 @@ class CompletionResumeControls(unittest.TestCase):
         with self.assertRaisesRegex(util.Paused, "missing current committed review"):
             native.require_supported_action(
                 SimpleNamespace(run_dir="original"),
-                {"current_task": {"kind": "implement"}, "next_stage": "astra_review"},
+                {"current_task": {"kind": "implement"}, "next_stage": "review_completion"},
             )
         native.context.factory.decision_review_proof.assert_not_called()
 
     def test_terminal_completion_requires_fresh_all_case_integration_even_after_decision(self):
         native = self.caller()
-        state = {"current_task": {"kind": "implement"}, "next_stage": "astra_review"}
+        state = {"current_task": {"kind": "implement"}, "next_stage": "review_completion"}
         native.context.factory.require_final_integration.side_effect = util.Paused(
             "HELD", "missing all-case integration"
         )
@@ -183,7 +188,7 @@ class CompletionResumeControls(unittest.TestCase):
         )
 
     def test_readonly_writer_and_later_routes_remain_held_before_proof(self):
-        for kind, stage in (("validate", "terra"), ("validate", "astra_checkpoint")):
+        for kind, stage in (("validate", "builder"), ("validate", "review_checkpoint")):
             native = self.caller()
             with self.subTest(kind=kind, stage=stage), self.assertRaises(util.Paused):
                 native.require_supported_action(

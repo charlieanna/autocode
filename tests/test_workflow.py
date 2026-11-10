@@ -45,7 +45,7 @@ class WorkflowTests(unittest.TestCase):
             + "\n"
         )
         return {
-            "stage": "astra_checkpoint",
+            "stage": "review_checkpoint",
             "role": "task_planner",
             "iteration": 5,
             "events": str(events),
@@ -99,15 +99,15 @@ class WorkflowTests(unittest.TestCase):
 
     def apply(self, report=None, record=None):
         runner.apply_result(
-            self.state, "astra_checkpoint", report or self.report(), record or self.record(), self.root, self.run
+            self.state, "review_checkpoint", report or self.report(), record or self.record(), self.root, self.run
         )
 
     def test_activation_preserves_completed_work_contract_sessions_and_models(self):
         approve_fixture(self.state, goals)
-        self.state.update(status="PAUSED_REQUESTED", next_stage="sol")
+        self.state.update(status="PAUSED_REQUESTED", next_stage="tester")
         before = copy.deepcopy(self.state)
         workflow.activate(self.state, approval_source="user said yes")
-        self.assertEqual("astra_checkpoint", self.state["next_stage"])
+        self.assertEqual("review_checkpoint", self.state["next_stage"])
         for key in ("goal_contract", "sessions", "stages", "history", "acceptance_criteria", "iteration"):
             self.assertEqual(before[key], self.state[key])
         self.assertEqual(before["settings"]["roles"], self.state["settings"]["roles"])
@@ -134,7 +134,7 @@ class WorkflowTests(unittest.TestCase):
                 self.state.pop(field)
 
     def test_legacy_policy_unchanged(self):
-        self.assertEqual("sol", workflow.review_stage(self.state))
+        self.assertEqual("tester", workflow.review_stage(self.state))
 
     def test_rollback_preserves_work_but_requires_sol_revalidation(self):
         self.enable()
@@ -142,7 +142,7 @@ class WorkflowTests(unittest.TestCase):
         stages = copy.deepcopy(self.state["stages"])
         sessions = copy.deepcopy(self.state["sessions"])
         workflow.rollback(self.state)
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
         self.assertEqual(stages, self.state["stages"])
         self.assertEqual(sessions, self.state["sessions"])
@@ -216,7 +216,7 @@ class WorkflowTests(unittest.TestCase):
             if mode == "failed":
                 report["validation"]["checks"][0]["exit_code"] = 1
             if mode == "wrong-role":
-                record["role"] = "terra"
+                record["role"] = "builder"
             with self.subTest(mode=mode), self.assertRaises((s.Paused, ValueError)):
                 self.apply(report, record)
 
@@ -271,14 +271,14 @@ class WorkflowTests(unittest.TestCase):
         report["decision"]["next_task"]["kind"] = "validate"
         current = copy.deepcopy(self.state.get("current_task"))
         self.apply(report)
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertEqual(current, self.state.get("current_task"))
         self.assertEqual("RUNNING", self.state["status"])
 
     def test_context_contains_approved_policy_actual_diff_and_exact_contract(self):
         self.enable()
         self.state["diff_ref"] = "exact.diff"
-        prompt, _ = stage_context.context_packet(self.state, "astra_checkpoint", self.run / "state.json")
+        prompt, _ = stage_context.context_packet(self.state, "review_checkpoint", self.run / "state.json")
         data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
         self.assertEqual("exact.diff", data["diff_ref"])
         self.assertEqual(self.state["goal_contract"], data["goal_contract"])
@@ -299,7 +299,7 @@ class WorkflowSubprocessTests(unittest.TestCase):
         self.launch(["--run-dir", str(run), "--approve-goal", state["displayed_goal"], "--no-chat"], 0)
         self.launch(["--run-dir", str(run), "--pause-after-stage", "--no-chat"], 2)
         run, state = self.saved()
-        self.assertEqual("terra", state["next_stage"])
+        self.assertEqual("builder", state["next_stage"])
         # This suite exercises preservation of a legacy opt-in workflow.
         state["settings"].pop("milestone_checkpoints", None)
         workflow.activate(state, approval_source="explicit test approval")
@@ -312,8 +312,12 @@ class WorkflowSubprocessTests(unittest.TestCase):
         _, state = self.saved()
         self.assertEqual("COMPLETE", state["phase"])
         self.assertEqual(
-            ["terra", "astra_checkpoint"],
-            [r["stage"] for r in state["stages"] if r["stage"] in ("terra", "sol", "astra_review", "astra_checkpoint")],
+            ["builder", "review_checkpoint"],
+            [
+                r["stage"]
+                for r in state["stages"]
+                if r["stage"] in ("builder", "tester", "review_completion", "review_checkpoint")
+            ],
         )
         before = (run / "state.json").read_bytes()
         self.launch(["--run-dir", str(run), "--no-chat"], 0)
@@ -324,18 +328,20 @@ class WorkflowSubprocessTests(unittest.TestCase):
         self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 0)
         _, state = self.saved()
         stages = [
-            r["stage"] for r in state["stages"] if r["stage"] in ("terra", "sol", "astra_review", "astra_checkpoint")
+            r["stage"]
+            for r in state["stages"]
+            if r["stage"] in ("builder", "tester", "review_completion", "review_checkpoint")
         ]
-        self.assertEqual(["terra", "astra_checkpoint", "terra", "astra_checkpoint"], stages)
+        self.assertEqual(["builder", "review_checkpoint", "builder", "review_checkpoint"], stages)
 
     def test_provider_quota_keeps_checkpoint_and_does_not_call_sol(self):
         run = self.prepare("no-human")
-        self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "astra_checkpoint"
+        self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "review_checkpoint"
         self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
         _, state = self.saved()
         self.assertNotEqual("COMPLETE", state["phase"])
-        self.assertEqual("astra_checkpoint", state["next_stage"])
-        self.assertNotIn("sol", [r["stage"] for r in state["stages"]])
+        self.assertEqual("review_checkpoint", state["next_stage"])
+        self.assertNotIn("tester", [r["stage"] for r in state["stages"]])
 
 
 @unittest.skipUnless(sys.platform.startswith("linux"), "supervised fake-provider workflow requires supported Linux")
@@ -360,7 +366,7 @@ class ChangedCodeSavedWorkflowTests(unittest.TestCase):
         # single task. A legacy saved workflow dispatches that assignment directly.
         self.assertEqual("implement", state["current_task"]["kind"])
         self.assertEqual("orchestrator", state["next_stage"])
-        state["next_stage"] = "terra"
+        state["next_stage"] = "builder"
         workflow.activate(state, approval_source="explicit legacy saved-mode fixture approval")
         s.atomic_json(path, state)
         self.run.resume_paused()
@@ -370,11 +376,13 @@ class ChangedCodeSavedWorkflowTests(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", view["status"], self.diagnostic())
         self.assertEqual(self.approved_token, view["approved_contract"]["token"])
         attempts = self.attempts()
-        execution = [row for row in attempts if row["stage"] in ("terra", "sol", "astra_checkpoint", "astra_review")]
+        execution = [
+            row for row in attempts if row["stage"] in ("builder", "tester", "review_checkpoint", "review_completion")
+        ]
         self.assertEqual(
-            ["terra", "astra_checkpoint", "terra", "astra_checkpoint"], [row["stage"] for row in execution]
+            ["builder", "review_checkpoint", "builder", "review_checkpoint"], [row["stage"] for row in execution]
         )
-        first, final = [row for row in execution if row["stage"] == "astra_checkpoint"]
+        first, final = [row for row in execution if row["stage"] == "review_checkpoint"]
         self.assertEqual(
             "COMPLETE", first["report"]["decision"]["status"], "The first completion claim cannot overwrite rework"
         )

@@ -64,7 +64,7 @@ def install(fake, configuration: dict, trace) -> None:
         candidates = []
         for row in data.get("recent_stages", []):
             path = Path(row.get("output", ""))
-            if str(row.get("stage", "")).startswith("astra_discovery") and path.is_file():
+            if str(row.get("stage", "")).startswith("draft_plan") and path.is_file():
                 try:
                     report = json.loads(path.read_text())
                 except (ValueError, OSError):
@@ -129,7 +129,7 @@ def install(fake, configuration: dict, trace) -> None:
         counts_file.write_text(json.dumps(counts))
         repair = bool(data.get("report_repair"))
         mark("provider_stage", stage=stage, invocation=counts[stage], repair=repair)
-        if attack.startswith("builder_permission_") and stage == "terra":
+        if attack.startswith("builder_permission_") and stage == "builder":
             partial = Path("greet.py")
             if counts[stage] == 1:
                 partial.write_text("# retained partial implementation\n")
@@ -170,7 +170,7 @@ def install(fake, configuration: dict, trace) -> None:
         if attack.startswith("investigator_"):
             if stage == "investigate_stuck":
                 return investigator(data)
-            if stage == "astra_discovery":
+            if stage == "draft_plan":
                 report = original_report(stage, data)
                 if "INVESTIGATOR GUIDANCE" not in fake.PROMPT:
                     report["code_refs"] = [MISSING_REF]
@@ -180,11 +180,11 @@ def install(fake, configuration: dict, trace) -> None:
                 return report
         if (
             attack in ("truncated_once", "truncated_repeated")
-            and stage == "astra_discovery"
+            and stage == "draft_plan"
             and (attack == "truncated_repeated" or counts[stage] == 1)
         ):
             pending_truncation = True
-        if attack == "completion_denial" and stage == "astra_review":
+        if attack == "completion_denial" and stage == "review_completion":
             validation = data.get("validation") or {}
             mark(
                 "completion_handoff",

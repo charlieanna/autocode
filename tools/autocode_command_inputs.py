@@ -206,7 +206,7 @@ def _planning(state: RunState, need, resume_flags):
         or need.get("new_run_required")
         or need.get("edit_required")
         or action not in (PLANNING_ACTION, PLANNING_RESUME_ACTION, PLANNING_SAVE_THEN_RESUME)
-        or state.get("next_stage") not in ("astra_challenge", "astra_finalize")
+        or state.get("next_stage") not in ("review_plan", "finalize_plan")
         or any(state.get(key) for key in ("active_stage", "pending_report_repair", "uncertain_artifacts"))
     ):
         return None

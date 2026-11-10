@@ -632,7 +632,7 @@ class Attempt:
             "Unexpected model substitution",
         )
         receipts = {}
-        for stage, slug, role in (("terra", "builder", "builder"), ("sol", "validator", "validator")):
+        for stage, slug, role in (("builder", "builder", "builder"), ("tester", "validator", "validator")):
             require(
                 all(row["model"] == self.profile["models"][role] for row in finished if row.get("stage") == stage),
                 f"Unexpected {role} model substitution",

@@ -31,18 +31,18 @@ URL = "https://www.figma.com/design/Example123/Task?node-id=1-2"
 class FigmaWorkflow(unittest.TestCase):
     def test_execution_prompt_scopes_figma_to_current_task(self):
         settings = {"figma_file": URL}
-        scoped = figma.instructions(settings, stage="terra", current_task={"objective": "Repair benchmark tests"})
+        scoped = figma.instructions(settings, stage="builder", current_task={"objective": "Repair benchmark tests"})
         self.assertIn("bounded test, parser, or harness repair", scoped)
         self.assertIn("If the repair affects presentation", scoped)
         self.assertNotIn("before planning, implementation or validation", scoped)
         self.assertIn("preserve all required final visual checks", scoped)
-        for stage in ("sol", "astra_review", "astra_checkpoint"):
+        for stage in ("tester", "review_completion", "review_checkpoint"):
             self.assertIn(
                 "Scope design work to current_task",
                 figma.instructions(settings, stage=stage, current_task={"id": "bounded"}),
             )
         self.assertIn("before planning, implementation or validation", figma.instructions(settings))
-        self.assertEqual("", figma.instructions({}, stage="terra", current_task={"id": "bounded"}))
+        self.assertEqual("", figma.instructions({}, stage="builder", current_task={"id": "bounded"}))
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -123,9 +123,9 @@ class FigmaWorkflow(unittest.TestCase):
         self.assertEqual(str(root), command[command.index("--ui-run") + 1])
         self.assertEqual("codex", command[command.index("--engine") + 1])
         self.assertIn("--no-chat", command)
-        self.assertEqual("gpt-5.6-terra", command[command.index("--terra-model") + 1])
-        self.assertEqual("gpt-5.6-sol", command[command.index("--astra-model") + 1])
-        self.assertEqual("high", command[command.index("--astra-reasoning-effort") + 1])
+        self.assertEqual("gpt-5.6-terra", command[command.index("--builder-model") + 1])
+        self.assertEqual("gpt-5.6-sol", command[command.index("--task-planner-model") + 1])
+        self.assertEqual("high", command[command.index("--task-planner-reasoning-effort") + 1])
         state = json.loads((root / "state.json").read_text())
         self.assertEqual(7, len(state["stages"]))
         self.assertEqual(URL, state["figma_file"])
@@ -425,8 +425,8 @@ class FigmaWorkflow(unittest.TestCase):
             old: current["artifacts"][new]
             for old, new in {
                 "brief": "brief",
-                "terra": "builder",
-                "sol": "validator",
+                "builder": "builder",
+                "tester": "validator",
                 "task_planner": "decision_owner",
             }.items()
         }

@@ -31,15 +31,15 @@ FIXTURE_OPTIONS = (
     "--engine",
     "codex",
     "--joint-planning",
-    "--astra-model",
+    "--task-planner-model",
     "gpt-6-astra",
-    "--terra-model",
+    "--builder-model",
     "gpt-5.6-terra",
-    "--sol-model",
+    "--tester-model",
     "gpt-5.6-sol",
     "--completion-model",
     "gpt-6-astra",
-    "--glm-model",
+    "--planner-model",
     "gpt-5.6-sol",
     "--plan-reviewer-model",
     "gpt-6-astra",
@@ -285,7 +285,7 @@ class FakeSchemaCompatibilityTests(unittest.TestCase):
                 with self.subTest(repeated=repeated):
                     data = {
                         "report_repair": True,
-                        "original": {"stage": "sol", "events": str(events)},
+                        "original": {"stage": "tester", "events": str(events)},
                         "report_identity": {
                             key: report[key] for key in ("contract_revision", "contract_hash", "task_id")
                         },
@@ -475,8 +475,8 @@ class BuildAndIntegrateTests(unittest.TestCase):
         self.assertFalse(results["beta"].ready_to_integrate)
         self.assertIn("Component plan", results["beta"].view["stop_reason"])
         stages = {json.loads(path.read_text())["stage"] for path in observations.glob("*.json")}
-        self.assertIn("astra_discovery", stages)
-        self.assertNotIn("terra", stages)
+        self.assertIn("draft_plan", stages)
+        self.assertNotIn("builder", stages)
         self.assertFalse((results["beta"].workspace / "shared/leak.txt").exists())
 
     def test_component_proves_its_own_tests_with_isolated_stdlib_runtime(self):
@@ -588,7 +588,7 @@ class BuildAndIntegrateTests(unittest.TestCase):
                 )
         self.assertFalse(outside.exists())
         stages = {json.loads(path.read_text())["stage"] for path in observations.glob("*.json")}
-        self.assertNotIn("terra", stages)
+        self.assertNotIn("builder", stages)
 
 
 class LegacyComponentRunTests(unittest.TestCase):
@@ -682,7 +682,9 @@ class LegacyComponentRunTests(unittest.TestCase):
         before = checkpoint.read_bytes()
         run.resume_paused()
         self.assertEqual(before, checkpoint.read_bytes())
-        self.assertFalse(any(json.loads(path.read_text())["stage"] == "terra" for path in observations.glob("*.json")))
+        self.assertFalse(
+            any(json.loads(path.read_text())["stage"] == "builder" for path in observations.glob("*.json"))
+        )
         self.assertFalse((self.repo / "components").exists())
         corrected = copy.deepcopy(view["approved_contract"]["body"])
         corrected["deliverables"] = ["components/alpha/message.txt"]
@@ -709,7 +711,9 @@ class LegacyComponentRunTests(unittest.TestCase):
         self.assertEqual("PAUSED_COMPONENT_PLAN", view["status"])
         self.assertIn("explicitly deferred", view["stop_reason"])
         self.assertFalse(view["done"])
-        self.assertFalse(any(json.loads(path.read_text())["stage"] == "terra" for path in observations.glob("*.json")))
+        self.assertFalse(
+            any(json.loads(path.read_text())["stage"] == "builder" for path in observations.glob("*.json"))
+        )
         old_token = view["approved_contract"]["token"]
         run.feedback("Component-local check correction.")
         revised = run.advance_until_input()
@@ -755,7 +759,9 @@ class LegacyComponentRunTests(unittest.TestCase):
                     run.feedback("Component-local check correction.")
                 self.assertEqual(before, checkpoint.read_bytes())
                 self.assertEqual(attempts, {path.name: path.read_bytes() for path in observations.glob("*.json")})
-        self.assertFalse(any(json.loads(path.read_text())["stage"] == "terra" for path in observations.glob("*.json")))
+        self.assertFalse(
+            any(json.loads(path.read_text())["stage"] == "builder" for path in observations.glob("*.json"))
+        )
         fresh = self.root / "fresh-component"
         git(self.root, "clone", "--quiet", str(self.repo), str(fresh))
         started = TaskRun.start(

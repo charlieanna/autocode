@@ -21,8 +21,8 @@ from tools.providers import command
 from . import test_subprocess
 
 ROLES = "\n[roles]\n" + "\n".join(
-    f'{role} = {{ model = "demo/{"builder" if role == "terra" else "reviewer"}", effort = "medium" }}'
-    for role in ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")
+    f'{role} = {{ model = "demo/{"builder" if role == "builder" else "reviewer"}", effort = "medium" }}'
+    for role in ("task_planner", "builder", "tester", "completion", "planner", "plan_reviewer")
 )
 CANARY = "fixture-secret-value-never-print-975"
 WRAPPER = """import json, os, sys
@@ -107,7 +107,7 @@ class ConfiguredEnvironmentTests(unittest.TestCase):
     def preflight(self, **kwargs):
         self.provider.local_settings(self.root, **kwargs)
         self.assertEqual({"demo/builder", "demo/reviewer"}, self.provider.available_models(self.root, **kwargs))
-        self.provider.check_subscription_routes({"terra": {"model": "demo/builder"}}, self.root, **kwargs)
+        self.provider.check_subscription_routes({"builder": {"model": "demo/builder"}}, self.root, **kwargs)
 
     def test_implicit_preflights_use_stage_credential_projection(self):
         with mock.patch.dict(os.environ, self.mapping, clear=True):
@@ -124,7 +124,7 @@ class ConfiguredEnvironmentTests(unittest.TestCase):
             with self.subTest(passed=bool(passed)), mock.patch.dict(os.environ, mapping, clear=True):
                 self.preflight()
                 _, launched, _ = self.provider.launch(
-                    "terra", self.root, self.root, None, "demo/builder", "medium", True
+                    "builder", self.root, self.root, None, "demo/builder", "medium", True
                 )
             self.assertEqual(agent_env.scrubbed(mapping), launched)
             for call in self.calls()[-3:]:
@@ -138,7 +138,7 @@ class ConfiguredEnvironmentTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"PATH": "/nonexistent"}, clear=True):
             self.preflight(env=self.mapping)
             _, launched, _ = self.provider.launch(
-                "terra", self.root, self.root, None, "demo/builder", "medium", True, env=self.mapping
+                "builder", self.root, self.root, None, "demo/builder", "medium", True, env=self.mapping
             )
         self.assertEqual(before, self.mapping)
         self.assertEqual(before, launched)
@@ -164,7 +164,7 @@ class ConfiguredEnvironmentTests(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(RuntimeError, "FIXTURE_API_KEY.*subscription") as error:
                     self.provider.check_subscription_routes(
-                        {"terra": {"model": "demo/builder"}}, self.root, env=explicit
+                        {"builder": {"model": "demo/builder"}}, self.root, env=explicit
                     )
                 self.assertNotIn(CANARY, str(error.exception))
         self.assertFalse(self.log.exists())
@@ -173,7 +173,7 @@ class ConfiguredEnvironmentTests(unittest.TestCase):
         mapping = {**self.mapping, "AUTOCODE_TEST_AUTH_REQUIRES": "1"}
         with mock.patch.dict(os.environ, mapping, clear=True):
             with self.assertRaisesRegex(RuntimeError, "AUTOCODE_PASS_ENV") as error:
-                self.provider.check_subscription_routes({"terra": {"model": "demo/builder"}}, self.root)
+                self.provider.check_subscription_routes({"builder": {"model": "demo/builder"}}, self.root)
         self.assertIn("FIXTURE_API_KEY", str(error.exception))
         self.assertNotIn("AUTOCODE_RESOLVER_TOKEN", str(error.exception))
         self.assertNotIn(CANARY, str(error.exception))

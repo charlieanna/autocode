@@ -79,7 +79,7 @@ def _direct_environment(directory, env, fault):
                 "endpoint": endpoint,
                 "roles": {
                     role: DIRECT_MODEL
-                    for role in ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")
+                    for role in ("task_planner", "builder", "tester", "completion", "planner", "plan_reviewer")
                 },
             }
         )

@@ -785,7 +785,7 @@ class VerificationCommandRecoveryTests(unittest.TestCase):
         import autocode_verification_config as verification_config
 
         # A blocker hold on a verification-command correction.
-        proposal = {"scope": "blocker", "origin": {"stage": "astra_review"}, "request": {}}
+        proposal = {"scope": "blocker", "origin": {"stage": "review_completion"}, "request": {}}
         # blocker_hold returns the proposal when the identity checks pass.
         # For this test, verify the detection logic directly.
         self.assertTrue(verification_config._blocker(proposal))

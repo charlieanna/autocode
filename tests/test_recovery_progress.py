@@ -19,7 +19,7 @@ class RecoveryProgressTests(unittest.TestCase):
             "stages": [
                 {"stage": "requirements_gather", "automatic_recovery": True},
                 {"stage": "resolver", "runner_owned": True},
-                {"stage": "astra_finalize"},
+                {"stage": "finalize_plan"},
             ],
             "resolver": {
                 "human_escalations": {
@@ -62,7 +62,7 @@ class RecoveryProgressTests(unittest.TestCase):
 
     def test_implementation_or_parallel_worker_history_keeps_its_counter(self):
         for mutation in (
-            lambda s: s["stages"].append({"stage": "terra"}),
+            lambda s: s["stages"].append({"stage": "builder"}),
             lambda s: s.update(orchestration_history=[{"workers": [{"status": "FAILED"}]}]),
             lambda s: s.update(orchestration_batch={"status": "BUILDING"}),
             lambda s: s.update(implementation={"summary": "candidate"}),

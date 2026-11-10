@@ -747,7 +747,7 @@ class ControlReplyTests(unittest.TestCase):
         output.write_text(json.dumps(report))
         events = output.with_suffix(".jsonl")
         events.write_text(json.dumps({"type": "item.completed"}) + "\n")
-        record = {"stage": "astra_finalize", "output": str(output), "events": str(events)}
+        record = {"stage": "finalize_plan", "output": str(output), "events": str(events)}
         state["task_id"] = "task"
         sealed = trace.reviewed(state, draft, report["source_trace"], record, records)
         trace.verify(state, sealed, records, ready=True)
@@ -868,7 +868,7 @@ class SealTests(unittest.TestCase):
         self.state = make_state()
         self.state["task_id"] = "task"
 
-    def record(self, report, *, stage="astra_finalize"):
+    def record(self, report, *, stage="finalize_plan"):
         output = self.root / "review.json"
         output.write_text(json.dumps(report))
         events = self.root / "review.jsonl"
@@ -1017,7 +1017,7 @@ class SealTests(unittest.TestCase):
         )
         self.assertIn("source_trace", sealed)
         with self.assertRaisesRegex(ValueError, "execution evidence|report"):
-            obligations.reviewed_body(self.state, self.draft(), [], {"stage": "astra_finalize", "output": "final.json"})
+            obligations.reviewed_body(self.state, self.draft(), [], {"stage": "finalize_plan", "output": "final.json"})
 
 
 class CompletionVerdictSchemaTests(unittest.TestCase):
@@ -1029,7 +1029,7 @@ class CompletionVerdictSchemaTests(unittest.TestCase):
         root = Path(state["workspace"])
         schema_dir = root / f"schemas-{tag}"
         shutil.copytree(Path(__file__).resolve().parents[1] / "tools" / "autocode-schemas", schema_dir)
-        request = autoreview.prepare(state, "astra_review", root / "state.json", schema_dir)
+        request = autoreview.prepare(state, "review_completion", root / "state.json", schema_dir)
         return request.schema
 
     def test_schema_follows_the_seal(self):
@@ -1122,7 +1122,7 @@ class CompletionVerdictConsistencyTests(unittest.TestCase):
         before = fixture.state["status"]
         with self.assertRaisesRegex(ValueError, "source_verdict is FAIL"):
             test_autocode.runner.apply_result(
-                fixture.state, "astra_review", self.review(fixture, self.FAIL), {}, fixture.root, fixture.run
+                fixture.state, "review_completion", self.review(fixture, self.FAIL), {}, fixture.root, fixture.run
             )
         self.assertEqual(before, fixture.state["status"])
 
@@ -1136,7 +1136,7 @@ class CompletionVerdictConsistencyTests(unittest.TestCase):
         fixture = self.approved_run()
         with self.assertRaises(util.Paused) as paused:
             test_autocode.runner.apply_result(
-                fixture.state, "astra_review", self.review(fixture, self.PASS), {}, fixture.root, fixture.run
+                fixture.state, "review_completion", self.review(fixture, self.PASS), {}, fixture.root, fixture.run
             )
         self.assertIn("Completion rejected", str(paused.exception))
 
@@ -1148,7 +1148,7 @@ class CompletionVerdictConsistencyTests(unittest.TestCase):
         fixture = self.approved_run()
         stale = self.review(fixture, self.FAIL, contract_revision=fixture.state["goal_contract"]["revision"] + 1)
         with self.assertRaises(util.Paused) as paused:
-            test_autocode.runner.apply_result(fixture.state, "astra_review", stale, {}, fixture.root, fixture.run)
+            test_autocode.runner.apply_result(fixture.state, "review_completion", stale, {}, fixture.root, fixture.run)
         self.assertEqual("PAUSED_STALE_GOAL", paused.exception.status)
 
 

@@ -364,20 +364,24 @@ class ImportTests(unittest.TestCase):
         # deviations the import reports (none: the PASS verifies).
         variants = [
             (
+                # The fixture records Arena's options under the old spellings, which are read by the job names.
                 [value("--terra-model", "openai/gpt-6-sol")],
                 {"models": {"builder": "openai/gpt-6-sol"}},
                 [
                     "models differ from the declared profile for builder",
-                    differ + f"--terra-model openai/gpt-6-sol instead of {glm}",
+                    differ + f"--builder-model openai/gpt-6-sol instead of {glm}",
                 ],
             ),
             # A role's own effort flag beats --reasoning-effort, which the harness writes as the builder's effort.
             (
-                [add("--terra-reasoning-effort", "low")],
+                [add("--builder-reasoning-effort", "low")],
                 {"effort": {"builder": "low"}},
-                ["effort differ from the declared profile for builder", differ + "--terra-reasoning-effort low added"],
+                [
+                    "effort differ from the declared profile for builder",
+                    differ + "--builder-reasoning-effort low added",
+                ],
             ),
-            # --resolver-* set the resolver over the --astra-* role, which is unchanged.
+            # --resolver-* set the resolver over the --task-planner-* role, which is unchanged.
             (
                 [value("--resolver-model", glm), value("--resolver-reasoning-effort", "low")],
                 {"models": {"resolver": glm}, "effort": {"resolver": "low"}},
@@ -406,9 +410,9 @@ class ImportTests(unittest.TestCase):
             ),
             ([drop("--max-iterations=3")], {}, [differ + "--max-iterations 3 missing"]),
             (
-                [add("--engine", "codex", "--investigator-model", glm, "--pin-model-role", "terra")],
+                [add("--engine", "codex", "--investigator-model", glm, "--pin-model-role", "builder")],
                 {},
-                [differ + f"--engine codex added, --investigator-model {glm} added, --pin-model-role terra added"],
+                [differ + f"--engine codex added, --investigator-model {glm} added, --pin-model-role builder added"],
             ),
             # The declaration leaves each case's test command to the evaluator.
             ([lambda options: options.__setitem__(-1, "--test-command=pytest -q")], {}, []),

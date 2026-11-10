@@ -722,7 +722,7 @@ class DraftValidationTests(unittest.TestCase):
             r"AC1 declares test_ac1_fixed_returns_two but refers to "
             r"TestFixedReturnsTwo .*binds nothing",
         ):
-            lifecycle.install_draft(state, plan(ALIASED), origin="astra_finalize")
+            lifecycle.install_draft(state, plan(ALIASED), origin="finalize_plan")
         self.assertNotIn("goal_contract", state)
         with self.assertRaisesRegex(ValueError, "AC3 declares test_ac3_preserves_crash"):
             lifecycle.validate_body(self.state(), plan(ALIASED), ready=True)
@@ -734,7 +734,7 @@ class DraftValidationTests(unittest.TestCase):
         state = self.state(task=ORIGINAL_BRIEF.strip(), task_id="task-1", version=3, status="RUNNING")
         self.assertEqual(NAMES, native.requested(state))
         with self.assertRaisesRegex(ValueError, "AC1 declares test_ac1_fixed_returns_two"):
-            lifecycle.install_draft(state, plan(ALIASED), origin="astra_finalize")
+            lifecycle.install_draft(state, plan(ALIASED), origin="finalize_plan")
         self.assertNotIn("goal_contract", state)
         lifecycle.validate_body(state, plan(CORRECTED), ready=True)
 
@@ -883,7 +883,7 @@ class DraftValidationTests(unittest.TestCase):
         self.assertEqual("user_cli_edit", state["goal_contract"]["origin"])
         # The planners' later drafts keep what the user's edit kept; names it dropped are no longer requested.
         self.assertEqual([], native.requested(state))
-        lifecycle.validate_body(state, plan(CONVENTION), ready=True, origin="astra_finalize")
+        lifecycle.validate_body(state, plan(CONVENTION), ready=True, origin="finalize_plan")
         kept = self.state(goal_contract={"origin": "user_cli_edit", "body": plan(CORRECTED[:1] + CONVENTION[1:])})
         self.assertEqual(["TestFixedReturnsTwo"], native.requested(kept))
 
@@ -928,7 +928,7 @@ class DraftValidationTests(unittest.TestCase):
         lifecycle.approve(edited, edited["displayed_goal"])
         self.assertEqual("approved", edited["goal_contract"]["approval_status"])
         with mock.patch.object(native, "requested", return_value=[]):  # a draft saved before this check
-            saved = self.presented(plan(ALIASED), "astra_finalize")
+            saved = self.presented(plan(ALIASED), "finalize_plan")
         with self.assertRaisesRegex(ValueError, "AC1 declares test_ac1_fixed_returns_two"):
             lifecycle.approve(saved, saved["displayed_goal"])
 
@@ -983,7 +983,7 @@ class PlannerPromptTests(unittest.TestCase):
         return planning.context(state, stage, Path("/run/state.json"))[0]
 
     def test_planning_and_review_stages_name_the_requested_tests(self):
-        for stage in ("astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"):
+        for stage in ("draft_plan", "review_plan", "revise_plan", "finalize_plan"):
             with self.subTest(stage=stage):
                 text = self.prompt(stage)
                 rule = text.split("NATIVE TEST NAMES:", 1)[1].split("\n", 1)[0]
@@ -992,14 +992,14 @@ class PlannerPromptTests(unittest.TestCase):
 
     def test_the_rule_asks_for_a_requested_subtest_path_as_the_user_wrote_it(self):
         # #651 A: a brief naming a subtest path got no rule at all.
-        text = self.prompt("glm_revise", task="Add the Go test TestCacheExpiry/expired.")
+        text = self.prompt("revise_plan", task="Add the Go test TestCacheExpiry/expired.")
         self.assertIn("NATIVE TEST NAMES:", text)
         rule = text.split("NATIVE TEST NAMES:", 1)[1].split("\n", 1)[0]
         self.assertIn("the user asked for the Go tests TestCacheExpiry/expired.", rule)
         self.assertIn('("test: TestCacheExpiry/expired"), keeping the user\'s spelling and any subtest path', rule)
 
     def test_no_rule_without_requested_names_or_before_planning(self):
-        self.assertNotIn("NATIVE TEST NAMES", self.prompt("glm_revise", task="Fix Fixed to return 2."))
+        self.assertNotIn("NATIVE TEST NAMES", self.prompt("revise_plan", task="Fix Fixed to return 2."))
         self.assertNotIn("NATIVE TEST NAMES", self.prompt("requirements_gather"))
 
     def test_the_builder_is_told_to_use_a_declared_native_name(self):

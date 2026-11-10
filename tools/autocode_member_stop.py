@@ -1,13 +1,13 @@
 """The one way forward at a parallel Builder member's model stop once its question is answered otherwise (#541).
 
 A batch member stopped by its quota or by its provider's content filter (quota_route.STATUSES) asks the
-parent's route-terra question (autocode_worker_quota). A person may answer that request with corrective
+parent's route-builder question (autocode_worker_quota). A person may answer that request with corrective
 information or leave the run paused instead (autocode_resolver_human.respond_operational). Neither names a
 model or authorizes another attempt, and neither leaves a question open. One control continues from there,
 ``--resume-paused --retry-builder M``:
 
 - a member its provider's content filter refused never reruns on that model (#465): the control collects its
-  saved stop again, so AutoResolver asks its route-terra question again, and nothing launches;
+  saved stop again, so AutoResolver asks its route-builder question again, and nothing launches;
 - a quota-stopped member reruns unchanged (#458), for example once its quota has reset.
 
 The request's advice, the response's acknowledgement and stop reason, AutoResolver's evaluation of the
@@ -113,7 +113,7 @@ def reason(found):
         model_kind = _model_kind(row["status"])
         return (
             f"Builder {milestone} {quota_route.stop_description(row['status'])}{on}, and information cannot name "
-            f"the model it continues on; --retry-builder {milestone} asks its route-terra question again, "
+            f"the model it continues on; --retry-builder {milestone} asks its route-builder question again, "
             f"without rerunning the {model_kind} model"
         )
     return (
@@ -132,7 +132,7 @@ def next_step(state: RunState):
         model_kind = _model_kind(found[0]["status"])
         return (
             f"That answer names no model for Builder {milestone}: --resume-paused --retry-builder {milestone} "
-            f"asks its route-terra question again, and nothing reruns the {model_kind} model."
+            f"asks its route-builder question again, and nothing reruns the {model_kind} model."
         )
     return (
         f"That answer does not retry Builder {milestone}: once its quota resets, --resume-paused "
@@ -196,7 +196,7 @@ def ask_again(state: RunState, error, *, at):
 
 
 def restore(state: RunState, error, *, detail=True):
-    """``error`` as the answered member's own stop, so AutoResolver asks its route-terra question again.
+    """``error`` as the answered member's own stop, so AutoResolver asks its route-builder question again.
 
     Its reason is the stop the request first reported, followed by ``error``'s own reason when
     ``detail``; any other stop is returned unchanged.

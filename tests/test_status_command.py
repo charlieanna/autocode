@@ -51,20 +51,20 @@ class ConsistentSampleTests(unittest.TestCase):
             run = Path(tmp).resolve() / "run"
             run.mkdir()
             path = run / "state.json"
-            path.write_text(json.dumps(state_at("terra")))
+            path.write_text(json.dumps(state_at("builder")))
             before = json.loads(path.read_text())
             calls = []
 
             def inspect(state, run_dir, workspace, **_):
                 calls.append(state["next_stage"])
                 if len(calls) == 1:  # the controller finishes a stage and exits during the first inspection
-                    path.write_text(json.dumps(state_at("sol")))
+                    path.write_text(json.dumps(state_at("tester")))
                 return {"kind": "boundary", "reason": "fixture", "receipt": None, "checked": True, "alive": False}
 
             view = self.render(before, run, inspect)
-        self.assertEqual(["terra", "sol"], calls)
-        self.assertEqual("sol", view["next_stage"])
-        self.assertEqual(util.digest(state_at("sol")), view["observation"]["checkpoint_token"])
+        self.assertEqual(["builder", "tester"], calls)
+        self.assertEqual("tester", view["next_stage"])
+        self.assertEqual(util.digest(state_at("tester")), view["observation"]["checkpoint_token"])
         self.assertEqual("continue", view["needs"]["kind"])
 
     def test_an_unchanged_checkpoint_is_inspected_once(self):
@@ -73,22 +73,22 @@ class ConsistentSampleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             run = Path(tmp).resolve() / "run"
             run.mkdir()
-            (run / "state.json").write_text(json.dumps(state_at("terra")))
+            (run / "state.json").write_text(json.dumps(state_at("builder")))
             calls = []
 
             def inspect(state, run_dir, workspace, **_):
                 calls.append(state["next_stage"])
                 return {"kind": "boundary", "reason": "fixture", "receipt": None, "checked": True, "alive": False}
 
-            view = self.render(state_at("terra"), run, inspect)
-        self.assertEqual(["terra"], calls)
-        self.assertEqual(util.digest(state_at("terra")), view["observation"]["checkpoint_token"])
+            view = self.render(state_at("builder"), run, inspect)
+        self.assertEqual(["builder"], calls)
+        self.assertEqual(util.digest(state_at("builder")), view["observation"]["checkpoint_token"])
 
     def test_a_requirements_question_names_its_origin_instead_of_the_queued_planner(self):
         question = {"id": "Q1", "question": "Which history entries are affected?"}
         for origin, pending, status, expected in (
             ("requirements_gather", "pending", "WAITING_FOR_USER", "Requirements"),
-            ("astra_discovery", "pending", "WAITING_FOR_USER", "Planner"),
+            ("draft_plan", "pending", "WAITING_FOR_USER", "Planner"),
             ("requirements_gather", "consumed", "WAITING_FOR_USER", "Planner"),
             ("requirements_gather", "pending", "PAUSED_INVALID_OUTPUT", "Planner"),
         ):
@@ -96,7 +96,7 @@ class ConsistentSampleTests(unittest.TestCase):
                 run = Path(tmp).resolve() / "run"
                 run.mkdir()
                 saved = {
-                    **state_at("astra_discovery"),
+                    **state_at("draft_plan"),
                     "status": status,
                     "settings": {"spec_first": True},
                     "pending_questions": [question],
@@ -128,7 +128,7 @@ class ConsistentSampleTests(unittest.TestCase):
                 )
                 self.assertEqual(expected, shown["progress"]["stage"])
                 self.assertEqual("Waiting for you", shown["progress"]["headline"])
-                self.assertEqual("astra_discovery", shown["next_stage"])
+                self.assertEqual("draft_plan", shown["next_stage"])
                 self.assertEqual("Q1", shown["needs"]["questions"][0]["id"])
 
     def test_a_checkpoint_that_keeps_changing_is_bounded(self):

@@ -51,7 +51,7 @@ MUTATIONS = [
     (
         "M03",
         "tools/autopilot.py",
-        'correction_open = bool(state.get("resolution_request")) and state.get("next_stage") == "astra_resolve"',
+        'correction_open = bool(state.get("resolution_request")) and state.get("next_stage") == "resolve"',
         "correction_open = False",
         ["tests.test_catalogue_t04"],
     ),
@@ -118,7 +118,7 @@ MUTATIONS = [
         "M12",
         "tools/autocode_completion_result.py",
         'commit_fields({"status": "TASK_COMPLETE", "completed_at": now(), "final_decision": decision, "next_stage": None})',
-        'commit_fields({"status": "TASK_COMPLETE", "completed_at": now(), "final_decision": decision, "next_stage": "terra"})',
+        'commit_fields({"status": "TASK_COMPLETE", "completed_at": now(), "final_decision": decision, "next_stage": "builder"})',
         ["tests.test_catalogue_t08", "tests.test_catalogue_t04"],
     ),
 ]
@@ -165,7 +165,7 @@ class M12Detector(t06.SolControllerCase):
         from goal_fixtures import envelope
         out = Path(tempfile.mkdtemp()) / "complete.json"
         out.write_text(json.dumps(decision))
-        runner.apply_result(self.state, "astra_review", decision, {"output": str(out)},
+        runner.apply_result(self.state, "review_completion", decision, {"output": str(out)},
                             self.root, self.run)
         self.assertIsNone(self.state.get("next_stage"))
 """,
@@ -227,7 +227,7 @@ class SystematicCase(t08.CrashCase):
             compare(case, state, oracle, step)
 
         for step in range(60):
-            source = rng.choice(["sol", "task_planner"])
+            source = rng.choice(["tester", "task_planner"])
             action = rng.choice(["open", "open", "refresh", "dispose", "blocked", "omit"])
             if action == "open":
                 text = rng.choice(wording)
@@ -307,7 +307,7 @@ class SystematicCase(t08.CrashCase):
 
         first, second = run_order("sol-first"), run_order("astra-first")
         self.check("canonical_outcomes_equal", canonical(first), canonical(second))
-        self.check("both_sources_present", {"sol", "task_planner"}, {row["source"] for row in first["entries"]})
+        self.check("both_sources_present", {"tester", "task_planner"}, {row["source"] for row in first["entries"]})
         self.finish(summary="EQUIVALENT_CANONICAL_OUTCOMES: independent orderings converge")
 
     def test_sys03_fault_at_each_transition_boundary(self):
@@ -320,14 +320,14 @@ class SystematicCase(t08.CrashCase):
             runner.reconcile_active(self.state, self.run, self.root)
         matrix.append(
             (
-                "sol: crash before apply",
+                "tester: crash before apply",
                 "RECOVERED",
-                self.state["stages"] and self.state["stages"][-1].get("stage") == "sol",
+                self.state["stages"] and self.state["stages"][-1].get("stage") == "tester",
             )
         )
 
         rework = self.decision("REWORK", "Cut finding")
-        base = self.run / "iterations/006/astra_review-01"
+        base = self.run / "iterations/006/review_completion-01"
         base.parent.mkdir(parents=True)
         support.atomic_json(base.with_suffix(".json"), rework)
         base.with_suffix(".jsonl").write_text('{"type":"turn.completed"}\n')
@@ -340,7 +340,7 @@ class SystematicCase(t08.CrashCase):
         )
         self.state["active_stage"] = {
             "role": "task_planner",
-            "stage": "astra_review",
+            "stage": "review_completion",
             "iteration": 6,
             "output": str(base.with_suffix(".json")),
             "events": str(base.with_suffix(".jsonl")),
@@ -349,7 +349,7 @@ class SystematicCase(t08.CrashCase):
         }
         with self.forbid_real_launches(runner):
             runner.reconcile_active(self.state, self.run, self.root)
-        matrix.append(("astra_review: crash before apply", "RECOVERED", self.state["next_stage"] == "astra_resolve"))
+        matrix.append(("review_completion: crash before apply", "RECOVERED", self.state["next_stage"] == "resolve"))
 
         for name, expected, recovered in matrix:
             self.bundle.log("transition_cut", boundary=name, expected=expected, recovered=bool(recovered))
@@ -502,7 +502,7 @@ def astra_report(text):
 
 def apply_source(state, source, report, step, blocked=False):
     record = {"output": f"{source}-{step}.json"}
-    if source == "sol":
+    if source == "tester":
         findings.record_validation(state, report, record)
     else:
         findings.record_decision(state, {**report, "status": "BLOCKED" if blocked else "REWORK"}, record)

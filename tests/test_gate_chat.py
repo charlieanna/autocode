@@ -21,7 +21,7 @@ def requirements():
         "settings": {"spec_first": True, "roles": {"requirements": {}, "plan_reviewer": {}}},
         "status": "WAITING_FOR_USER",
         "phase": "DISCOVERING",
-        "next_stage": "astra_discovery",
+        "next_stage": "draft_plan",
         "requirements_handoff": {
             "report": {
                 "job": "build",
@@ -53,7 +53,7 @@ def plan():
     state.update(
         status="AWAITING_GOAL_APPROVAL",
         phase="AWAITING_GOAL_APPROVAL",
-        next_stage="astra_plan",
+        next_stage="plan_task",
         goal_contract=contract,
         displayed_goal=goals.token(contract),
         displayed_handoff=util.digest(state["requirements_handoff"]["report"])[:12],
@@ -65,7 +65,7 @@ def plan():
 class GateRoutingRegressionTests(unittest.TestCase):
     def test_returning_to_requirements_waiting_retires_stale_stop_text(self):
         state = {"status": "RUNNING", "stop_reason": "old stop"}
-        run_status.waiting_for_user(state, "DISCOVERING", next_stage="astra_discovery")
+        run_status.waiting_for_user(state, "DISCOVERING", next_stage="draft_plan")
         self.assertEqual("WAITING_FOR_USER", state["status"])
         self.assertEqual("DISCOVERING", state["phase"])
         self.assertNotIn("stop_reason", state)
@@ -85,7 +85,7 @@ class GateRoutingRegressionTests(unittest.TestCase):
         state = plan()
         previous = copy.deepcopy(state["goal_contract"])
         goals.feedback(state, "yes this plan is complete")
-        self.assertEqual("astra_finalize", state["next_stage"])
+        self.assertEqual("finalize_plan", state["next_stage"])
         self.assertEqual("plan_reviewer", planner.route_for(state, state["next_stage"]))
         self.assertEqual(previous, state["goal_contract"])
         self.assertEqual([], state["brief_feedback"])
@@ -106,7 +106,7 @@ class GateChatTests(unittest.TestCase):
         }
 
     def test_the_model_receives_the_literal_reply_and_exact_displayed_evidence(self):
-        for factory, stage in ((requirements, "requirements_gather"), (plan, "astra_finalize")):
+        for factory, stage in ((requirements, "requirements_gather"), (plan, "finalize_plan")):
             state = factory()
             self.assertTrue(self.chat.begin(state, "yes coplete"))
             prompt, _ = self.chat.context(state)
@@ -128,7 +128,7 @@ class GateChatTests(unittest.TestCase):
         state["planning"] = {"astra_calls": 2, "review_call_limit": 2, "reports": {}}
         self.chat.begin(state, "yes coplete")
         before = copy.deepcopy(state["planning"])
-        planner.charge(state, "astra_finalize", {})
+        planner.charge(state, "finalize_plan", {})
         self.assertEqual(before, state["planning"])
 
     def test_stage_result_restores_the_gate_and_projects_the_interpretation(self):

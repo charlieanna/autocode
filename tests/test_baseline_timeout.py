@@ -144,7 +144,7 @@ class BaselineTimeoutTests(unittest.TestCase):
 
         with mock.patch.object(verify, "run_suite", side_effect=run):
             proof = regression.prove(state, self.project.root, run_dir)
-            regression.before_review(state, "astra_review", self.project.root, run_dir)
+            regression.before_review(state, "review_completion", self.project.root, run_dir)
         self.assertEqual(["suite-on-base"], self.calls, "Review must receive the unverified result without a retry")
         self.assertEqual(verify.UNVERIFIED, proof["verdict"])
         recorded = json.loads(Path(proof["path"]).read_text())

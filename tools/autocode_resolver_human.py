@@ -193,7 +193,7 @@ def queue(
     }
     revision = proposal["request"].get("recommended_revision")
     if revision is not None:
-        if scope != "blocker" or origin.get("stage") != "astra_resolve":
+        if scope != "blocker" or origin.get("stage") != "resolve":
             raise ValueError("Only a diagnosed Resolver blocker may propose a criterion revision")
         body = (state.get("goal_contract") or {}).get("body") or {}
         recommendation.compose(body, revision)
@@ -316,7 +316,7 @@ def _decision(state: RunState, proposal):
             final_stage = (
                 "plan_finalize"
                 if roles.planning_flow(state) == "v2"
-                else (planning.get("adaptive") or {}).get("final_stage") or "astra_finalize"
+                else (planning.get("adaptive") or {}).get("final_stage") or "finalize_plan"
             )
             final = planning.get("reports", {}).get(final_stage, {})
             record = next(
@@ -398,12 +398,12 @@ def _decision(state: RunState, proposal):
         return "recover", "A permitted bounded recovery remains; do not ask the user yet"
     # These references must be constructed from recorded runner evidence, not
     # copied from model output. Their concrete pins are rechecked by the caller.
-    if proposal["origin"].get("stage") == "astra_resolve" and evidence.get("diagnosis") and evidence.get("output"):
+    if proposal["origin"].get("stage") == "resolve" and evidence.get("diagnosis") and evidence.get("output"):
         resolved = next(
             (
                 row
                 for row in reversed(state.get("stages", []))
-                if row.get("stage") == "astra_resolve"
+                if row.get("stage") == "resolve"
                 and row.get("output") == evidence["output"]
                 and row.get("exit_code") == 0
                 and not row.get("rejected")
@@ -982,7 +982,7 @@ def release_stranded_operational(state: RunState):
         proposal.get("scope") != "operational_exhaustion"
         or state.get("status") != "RESOLVER_PENDING"
         or not pause.startswith("PAUSED_")
-        or (state.get("next_stage") == "astra_resolve" and state.get("resolution_request"))
+        or (state.get("next_stage") == "resolve" and state.get("resolution_request"))
     ):
         return False
     binding = _binding(state)

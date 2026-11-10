@@ -32,7 +32,7 @@ class LiveMessageCliTests(unittest.TestCase):
         amendment = textwrap.dedent(f"""
             with Path({str(calls)!r}).open('a') as log:
                 log.write(stage + (' conversation' if data.get('message') else '') + '\\n')
-            if stage == 'astra_discovery' and not Path({str(ready)!r}).exists():
+            if stage == 'draft_plan' and not Path({str(ready)!r}).exists():
                 Path({str(ready)!r}).write_text('ready')
                 with Path({str(gate)!r}).open() as signal:
                     signal.read()
@@ -87,7 +87,7 @@ class LiveMessageCliTests(unittest.TestCase):
         self.assertEqual(1, texts.count(QUESTION))
         self.assertEqual(1, texts.count(REPLY))
         stages = calls.read_text().splitlines()
-        self.assertEqual(1, stages.count("astra_discovery"), stages)
+        self.assertEqual(1, stages.count("draft_plan"), stages)
         self.assertEqual(1, stages.count("requirements_gather conversation"), stages)
         self.assertFalse((workspace / "greet.py").exists(), "No question authorizes Builder")
         self.assertNotIn(QUESTION, "\n".join(row["text"] for row in reviewed["request_sources"]))

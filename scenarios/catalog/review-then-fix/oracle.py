@@ -88,6 +88,6 @@ def conversation_checks(run):
         ]
         checks += [
             Check(f"fix_turn_{c.name}", c.ok, c.detail)
-            for c in run_checks(fix, workflow="build", after_requirements="astra_discovery", max_questions=0)
+            for c in run_checks(fix, workflow="build", after_requirements="draft_plan", max_questions=0)
         ]
     return checks

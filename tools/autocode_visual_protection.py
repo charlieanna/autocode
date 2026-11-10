@@ -250,7 +250,7 @@ def check_finished_record(original, final, *, source_after=None):
         expected = original.get(name)
         if name == "source_revision" and source_after is not None:
             _require(
-                original["stage"] == original["role"] == "terra" and final.get(name) == source_after["revision"],
+                original["stage"] == original["role"] == "builder" and final.get(name) == source_after["revision"],
                 "writer final source differs from the actual stopped snapshot",
             )
             continue
@@ -1755,7 +1755,7 @@ class NativeProtection:
             and p["body"]["binding"]["contract"] == binding["contract"]
             and isinstance(p["body"]["binding"]["task"], dict)
         ]
-        builders = [(p, f) for p, f in assigned if p["body"]["record_identity"]["stage"] == "terra"]
+        builders = [(p, f) for p, f in assigned if p["body"]["record_identity"]["stage"] == "builder"]
         lineage = assignments.readonly_lineage(rows, binding)
         planning_pins = {}
         if lineage["kind"] == "native_builder":
@@ -1794,7 +1794,7 @@ class NativeProtection:
         reviews = [
             (p, f)
             for p, f in assigned
-            if p["body"]["binding"]["task"] == binding["task"] and p["body"]["record_identity"]["stage"] == "sol"
+            if p["body"]["binding"]["task"] == binding["task"] and p["body"]["record_identity"]["stage"] == "tester"
         ]
         _require(len(reviews) <= 1, "multiple original Sol reviews for one task are unsupported")
         active = state.get("active_stage")
@@ -1854,8 +1854,8 @@ class NativeProtection:
                 len(assigned) == 1
                 and original["id"] == assigned[0]["id"]
                 and original["body"]["binding"] == binding
-                and original["body"]["record_identity"]["stage"] == "sol"
-                and original["body"]["record_identity"]["role"] == "sol"
+                and original["body"]["record_identity"]["stage"] == "tester"
+                and original["body"]["record_identity"]["role"] == "tester"
                 and original["body"]["grants"] == []
                 and stopped["body"]["after"] == snapshot
                 and review_record.get("exit_code") == 0
@@ -1938,7 +1938,7 @@ class NativeProtection:
         _require(
             body["grants"] == []
             and body["boundary"]["allow_write"] is False
-            and body["record_identity"]["stage"] == body["record_identity"]["role"] == "sol"
+            and body["record_identity"]["stage"] == body["record_identity"]["role"] == "tester"
             and stopped["body"]["record"]["exit_code"] == 0
             and context.get("native_isolation") == descriptor
             and body["command_sha256"] == util.digest(context["command"])
@@ -2717,7 +2717,7 @@ class NativeProtection:
             if row["kind"] == "finished"
             and isinstance(prepared[ident]["body"]["binding"]["task"], dict)
             and prepared[ident]["body"]["binding"]["contract"] == binding["contract"]
-            and prepared[ident]["body"]["record_identity"]["stage"] == "terra"
+            and prepared[ident]["body"]["record_identity"]["stage"] == "builder"
         ]
         if not writers:
             lineage = assignments.readonly_lineage(rows, binding)
@@ -2776,9 +2776,9 @@ class NativeProtection:
             body = builder_launch["body"]
             actual = builder_finish["body"]["record"]
             _require(
-                actual["stage"] == actual["role"] == "terra"
+                actual["stage"] == actual["role"] == "builder"
                 and actual["engine"] == "opencode"
-                and actual["route_role"] in (None, "terra")
+                and actual["route_role"] in (None, "builder")
                 and actual["exit_code"] == 0
                 and not any(
                     actual.get(name)
@@ -2858,7 +2858,7 @@ class NativeProtection:
             and rows[0]["body"]["source"] == original_approval["body"]["snapshot"]
             and not any(
                 row["kind"] == "prepared"
-                and (row["body"]["grants"] or row["body"]["record_identity"]["stage"] == "terra")
+                and (row["body"]["grants"] or row["body"]["record_identity"]["stage"] == "builder")
                 for row in rows[: review_launch["sequence"]]
             ),
             "operator source lacks original committed first-task approval or has prior writer provenance",

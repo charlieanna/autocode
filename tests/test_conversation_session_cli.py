@@ -34,7 +34,7 @@ OPTIONS = (
     "--joint-planning",
     "--requirements-reasoning-effort",
     "medium",
-    "--glm-reasoning-effort",
+    "--planner-reasoning-effort",
     "medium",
     "--plan-reviewer-reasoning-effort",
     "medium",
@@ -289,8 +289,8 @@ class ConversationSessionCliTests(unittest.TestCase):
         self.assertEqual("current", conversation["current_draft"]["freshness"])
         records = {row["stage"]: row for row in conversation["planning_records"]}
         for stage, role, model in (
-            ("astra_discovery", "Planner", "openai/gpt-6-sol"),
-            ("astra_challenge", "Plan Reviewer", "zai-coding-plan/glm-5.3"),
+            ("draft_plan", "Planner", "openai/gpt-6-sol"),
+            ("review_plan", "Plan Reviewer", "zai-coding-plan/glm-5.3"),
         ):
             with self.subTest(stage=stage):
                 self.assertIn(stage, records)
@@ -298,7 +298,7 @@ class ConversationSessionCliTests(unittest.TestCase):
                 self.assertEqual(model, records[stage]["model"])
                 self.assertEqual("medium", records[stage]["reasoning_effort"])
                 self.assertEqual("saved_accepted", records[stage]["availability"])
-        self.assertFalse(any(row["stage"] in ("terra", "builder") for row in self.attempts(run)))
+        self.assertFalse(any(row["stage"] in ("builder", "builder") for row in self.attempts(run)))
         self.assertEqual(self.before, self.footprint())
 
     def test_same_run_queue_saved_action_restart_refresh_and_unapproved_handoff(self):
@@ -437,8 +437,8 @@ class ConversationSessionCliTests(unittest.TestCase):
         self.assertNotEqual(initial["current_draft"]["token"], refreshed["current_draft"]["token"])
         self.assertGreater(len(self.attempts(run)), len(attempts))
         new_calls = self.calls()[len(calls) :]
-        self.assertTrue(any(row["stage"] == "astra_discovery" for row in new_calls), new_calls)
-        self.assertTrue(any(row["stage"] == "astra_challenge" for row in new_calls), new_calls)
+        self.assertTrue(any(row["stage"] == "draft_plan" for row in new_calls), new_calls)
+        self.assertTrue(any(row["stage"] == "review_plan" for row in new_calls), new_calls)
         attempts, calls = self.attempts(run), self.calls()
         replayed = attached.refresh_conversation(request_id="refresh-1", expected_revision=2)
         self.assertTrue(replayed["refresh_noop"])
@@ -482,7 +482,7 @@ class ConversationSessionCliTests(unittest.TestCase):
         # Only the provider substitutes I/O; answers and refusals use the real CLI.
         source = (ROOT / "tools" / "live_fixture_provider.py").read_text()
         amendment = textwrap.dedent("""
-            if stage == "astra_discovery":
+            if stage == "draft_plan":
                 questions = [
                     {"id": "readme-audience", "question": "Should the README target beginners or experienced Python users?",
                      "why": "The audience is not specified.", "options": ["Beginners", "Experienced Python users"],
@@ -667,7 +667,7 @@ class ConversationSessionCliTests(unittest.TestCase):
         self.assertFalse(run.status().get("approved_contract"))
 
     def test_model_route_rejection_can_be_corrected_and_acknowledged_without_requirements_feedback(self):
-        self.env["AUTOCODE_FIXTURE_CONTENT_FILTER_STAGE"] = "astra_discovery"
+        self.env["AUTOCODE_FIXTURE_CONTENT_FILTER_STAGE"] = "draft_plan"
         self.env["AUTOCODE_FIXTURE_CONTENT_FILTER_MODEL"] = "openai/gpt-6-sol"
         run = TaskRun.start_conversation(
             self.workspace,
@@ -680,14 +680,14 @@ class ConversationSessionCliTests(unittest.TestCase):
             timeout=300,
         )
         need = run.status()["needs"]
-        self.assertEqual("route-glm", need["questions"][0]["id"])
+        self.assertEqual("route-planner", need["questions"][0]["id"])
         calls = self.calls()
         run.send_conversation("not-a-model", request_id="bad-model", expected_revision=1)
         with self.assertRaises(TaskRunError):
             run.refresh_conversation(
                 request_id="rejected-route",
                 expected_revision=2,
-                question_id="route-glm",
+                question_id="route-planner",
                 resolver_token=need["resolver_token"],
             )
         rejected = run.read_conversation()
@@ -704,7 +704,7 @@ class ConversationSessionCliTests(unittest.TestCase):
         refreshed = run.refresh_conversation(
             request_id="accepted-route",
             expected_revision=3,
-            question_id="route-glm",
+            question_id="route-planner",
             resolver_token=current["resolver_token"],
         )
         self.assertEqual(3, refreshed["applied_revision"])
@@ -721,13 +721,13 @@ class ConversationSessionCliTests(unittest.TestCase):
         replay = run.refresh_conversation(
             request_id="accepted-route",
             expected_revision=3,
-            question_id="route-glm",
+            question_id="route-planner",
             resolver_token=token,
         )
         self.assertTrue(replay["refresh_noop"])
         # Retry the actual retained receipt after its operational token was consumed.
         request = request_path(run.run_dir, "accepted-route")
-        run.apply_conversation_request(request, "openai/gpt-6-luna", question_id="route-glm", resolver_token=token)
+        run.apply_conversation_request(request, "openai/gpt-6-luna", question_id="route-planner", resolver_token=token)
         self.assertEqual(refreshed["actions"], run.read_conversation()["actions"])
         self.assertEqual(calls, self.calls())
         self.assertEqual(self.before, self.footprint())
@@ -765,7 +765,7 @@ class ConversationSessionCliTests(unittest.TestCase):
                 + '        runpy.run_path(target, run_name="__main__")',
             )
         )
-        self.env["AUTOCODE_FIXTURE_CONTENT_FILTER_STAGE"] = "astra_discovery"
+        self.env["AUTOCODE_FIXTURE_CONTENT_FILTER_STAGE"] = "draft_plan"
         self.env["AUTOCODE_FIXTURE_CONTENT_FILTER_MODEL"] = "openai/gpt-6-sol"
         run = TaskRun.start_conversation(
             self.workspace,
@@ -785,7 +785,7 @@ class ConversationSessionCliTests(unittest.TestCase):
             run.refresh_conversation(
                 request_id="crash-route",
                 expected_revision=2,
-                question_id="route-glm",
+                question_id="route-planner",
                 resolver_token=need["resolver_token"],
             )
         self.assertEqual(71, stopped.exception.process.returncode)
@@ -798,7 +798,7 @@ class ConversationSessionCliTests(unittest.TestCase):
         recovered = run.refresh_conversation(
             request_id="crash-route",
             expected_revision=2,
-            question_id="route-glm",
+            question_id="route-planner",
             resolver_token=need["resolver_token"],
         )
         self.assertEqual(retained["actions"], recovered["actions"])

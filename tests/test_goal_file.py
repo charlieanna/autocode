@@ -23,7 +23,7 @@ from units import autoplanner
 from tests import test_native_test_names as go
 
 BRIEF = "Build `todo.py list`, which prints `ID TEXT [open|done]` for each to-do."
-REVIEW = {"stage": "astra_challenge", "events": "/run/a/plan-challenge-01.jsonl", "events_sha256": "1" * 64}
+REVIEW = {"stage": "review_plan", "events": "/run/a/plan-challenge-01.jsonl", "events_sha256": "1" * 64}
 QUESTION = {
     "id": "Q-format",
     "question": "Which columns does `todo.py list` print?",

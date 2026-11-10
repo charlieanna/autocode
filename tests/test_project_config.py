@@ -93,7 +93,7 @@ class ProjectConfigTests(unittest.TestCase):
     def test_a_typed_flag_wins_with_every_file_key_it_cannot_be_combined_with(self):
         self.write('engine = "codex"\nsol-model = "file-sol"\nunlimited-iterations = true\nmax-stage-seconds = 9\n')
         args, _ = self.parse("Build it", "--engine", "opencode", "--single-model", "one", "--max-iterations", "4")
-        self.assertEqual(("opencode", "one", None), (args.engine, args.single_model, args.sol_model))
+        self.assertEqual(("opencode", "one", None), (args.engine, args.single_model, args.tester_model))
         self.assertEqual((4, False, 9), (args.max_iterations, args.unlimited_iterations, args.max_stage_seconds))
         self.write('single-model = "file-one"\n')
         args, _ = self.parse("Build it", "--astra-model", "typed")

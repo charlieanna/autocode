@@ -609,7 +609,7 @@ def main() -> int:
                     }
                 ],
             )
-    elif stage == "astra_discovery":
+    elif stage == "draft_plan":
         report = {
             "summary": "Handwritten greeting plan",
             "contract": _cite(_planning_contract(repair_error) if adaptive else _contract(), data),
@@ -623,7 +623,7 @@ def main() -> int:
             "access_blockers": [],
             "requirement_trace": _trace(*TRACE_ROWS),
         }
-    elif stage == "astra_challenge":
+    elif stage == "review_plan":
         draft = (data.get("goal_contract") or {}).get("body") or {}
         report = {
             "summary": "Handwritten plan review; no concerns",
@@ -631,7 +631,7 @@ def main() -> int:
             "concerns": [],
             "source_trace": _source_trace(draft, data),
         }
-    elif stage == "astra_finalize":
+    elif stage == "finalize_plan":
         finalized = _cite(_planning_contract(repair_error), data)
         report = {
             "summary": "Handwritten final plan",
@@ -643,7 +643,7 @@ def main() -> int:
             "conflict_resolutions": [],
             "requirement_trace": _trace(*TRACE_ROWS),
         }
-    elif stage == "glm_revise":
+    elif stage == "revise_plan":
         report = {
             "summary": "Handwritten revision; nothing to revise",
             "contract": _cite(_planning_contract(repair_error) if adaptive else _contract(), data),
@@ -656,7 +656,7 @@ def main() -> int:
             "access_blockers": [],
             "requirement_trace": _trace(*TRACE_ROWS),
         }
-    elif stage == "terra":
+    elif stage == "builder":
         changed = _write_files()
         report = {
             **common,
@@ -670,7 +670,7 @@ def main() -> int:
             "untested_behavior": [],
             "recommended_checks": ["Execute greeting and invalid-input regression checks"],
         }
-    elif stage in ("sol", "astra_checkpoint"):
+    elif stage in ("tester", "review_checkpoint"):
         report = {
             **common,
             "verdict": "PASS",
@@ -688,7 +688,7 @@ def main() -> int:
                 "pending_human_criteria": [],
             },
         }
-    elif stage in ("astra_review", "astra_plan", "astra_resolve"):
+    elif stage in ("review_completion", "plan_task", "resolve"):
         report = {
             **common,
             "status": "COMPLETE",
@@ -752,7 +752,7 @@ def main() -> int:
         report.setdefault("failure_class", "unknown")
         report.setdefault("failure_id", "offline-fixture-failure")
     saved = _saved_report(data) if repairing else {}
-    if stage in ("sol", "astra_checkpoint") and "changed_code_exceptions" in properties:
+    if stage in ("tester", "review_checkpoint") and "changed_code_exceptions" in properties:
         report["changed_code_exceptions"] = _changed_code_reasons(data)
     handoff = (data.get("requirements_handoff") or {}).get("report") or {}
     if "requirement_trace" in report and any(row.get("id") == "R5" for row in handoff.get("requirements", [])):
@@ -764,13 +764,13 @@ def main() -> int:
     if "source_verdict" in saved:
         report["source_verdict"] = copy.deepcopy(saved["source_verdict"])
     if "source_verdict" in properties or (
-        stage == "astra_review" and ((contract.get("body") or {}).get("source_trace") is not None)
+        stage == "review_completion" and ((contract.get("body") or {}).get("source_trace") is not None)
     ):
         report.setdefault(
             "source_verdict",
             {"verdict": "PASS", "uncovered": [], "summary": "Handwritten: every criterion traces to the brief"},
         )
-    if stage == "astra_finalize" and "retain_contract" in properties.get("contract", {}).get("properties", {}):
+    if stage == "finalize_plan" and "retain_contract" in properties.get("contract", {}).get("properties", {}):
         draft = report["contract"]
         report["contract"] = {
             "retain_contract": data.get("retained_contract")

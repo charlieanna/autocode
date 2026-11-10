@@ -62,7 +62,7 @@ class RecoveryAttacks(AdversarialCase):
         probe = self.assert_citation_reached_investigator()
         self.assertEqual([True, False], [row["exists"] for row in probe["cited_files"]])
         self.assertFalse(self.trace("guided_planner_retry"), self.root)
-        self.assertFalse(self.trace("stage_enter", "terra"), self.root)
+        self.assertFalse(self.trace("stage_enter", "builder"), self.root)
         self.assertNotEqual("TASK_COMPLETE", view["status"], view)
         self.assertLessEqual(len(self.trace("stage_enter", "investigate_stuck")), 3)
 
@@ -73,7 +73,7 @@ class RecoveryAttacks(AdversarialCase):
         self.assertTrue(probe["cited_files"][0]["exists"])
         self.assertIn("run/state.json", probe["probe"])
         self.assertFalse(self.trace("guided_planner_retry"), self.root)
-        self.assertFalse(self.trace("stage_enter", "terra"), self.root)
+        self.assertFalse(self.trace("stage_enter", "builder"), self.root)
         self.assertNotEqual("TASK_COMPLETE", view["status"], view)
         self.assertLessEqual(len(self.trace("stage_enter", "investigate_stuck")), 3)
 
@@ -81,7 +81,7 @@ class RecoveryAttacks(AdversarialCase):
         view = self.run_fault("truncated_once")
         self.assertEqual(1, len(self.trace("truncated_report_emitted")), self.root)
         self.assertTrue(
-            any(row["repair"] for row in self.trace("stage_enter", "astra_discovery")),
+            any(row["repair"] for row in self.trace("stage_enter", "draft_plan")),
             f"Fault must reach report-only repair: {self.root}",
         )
         self.assertEqual("TASK_COMPLETE", view["status"], view)
@@ -91,11 +91,11 @@ class RecoveryAttacks(AdversarialCase):
         view = self.run_fault("truncated_repeated")
         faults = self.trace("truncated_report_emitted")
         self.assertGreaterEqual(len(faults), 2, self.root)
-        self.assertTrue(any(row["repair"] for row in self.trace("stage_enter", "astra_discovery")), self.root)
+        self.assertTrue(any(row["repair"] for row in self.trace("stage_enter", "draft_plan")), self.root)
         self.assertLessEqual(
             len(faults), 4, f"Persistent report failure must stop with a bounded repair count: {self.root}"
         )
-        self.assertFalse(self.trace("stage_enter", "terra"), self.root)
+        self.assertFalse(self.trace("stage_enter", "builder"), self.root)
         self.assertNotEqual("TASK_COMPLETE", view["status"], view)
         self.assertIn(view["needs"]["kind"], ("resume", "answer"), view)
 

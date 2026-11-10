@@ -141,9 +141,9 @@ class FailureRoutingCLI(unittest.TestCase):
                 "--engine",
                 "codex",
                 "--in-place",
-                "--terra-model",
+                "--builder-model",
                 "gpt-6-luna",
-                "--sol-model",
+                "--tester-model",
                 checker,
                 "--completion-model",
                 checker,
@@ -161,7 +161,7 @@ class FailureRoutingCLI(unittest.TestCase):
         self.approved_token = initial["contract_token"]
         self.call("autoplanner", ["--run-dir", str(self.run), "--approve-goal", self.approved_token, "--no-chat"])
         self.initial_routes = self.status()["view"]["routes"]
-        self.assertEqual([], self.trace("terra"))
+        self.assertEqual([], self.trace("builder"))
 
     def seed_parallel(self, *, wrong_plan=False, checker="gpt-5.6-sol"):
         output = "goodbye" if wrong_plan else "hello"
@@ -208,8 +208,8 @@ class FailureRoutingCLI(unittest.TestCase):
         self.approve(spec, max_parallel=2, checker=checker)
 
     def assert_retained_sibling(self):
-        siblings = [row for row in self.trace("terra") if row["handoff"]["current_task"]["milestone_id"] == "M2"]
-        self.assertEqual(1, len(siblings), self.call_order("terra"))
+        siblings = [row for row in self.trace("builder") if row["handoff"]["current_task"]["milestone_id"] == "M2"]
+        self.assertEqual(1, len(siblings), self.call_order("builder"))
         workspace = Path(siblings[0]["workspace"]).resolve()
         self.assertTrue(workspace.is_relative_to(self.project / ".autocode/builders"))
         self.assertEqual("preserved sibling\n", (workspace / "sibling.txt").read_text())
@@ -218,7 +218,7 @@ class FailureRoutingCLI(unittest.TestCase):
         return self.call("autocode", ["--run-dir", str(self.run), "--no-chat", *extra], codes)
 
     def assert_no_strong(self):
-        self.assertTrue(all(row["model"] == "gpt-6-luna" for row in self.trace("terra")), self.trace("terra"))
+        self.assertTrue(all(row["model"] == "gpt-6-luna" for row in self.trace("builder")), self.trace("builder"))
         routes = self.status()["view"]["routes"]
         self.assertEqual(
             self.initial_routes,
@@ -254,7 +254,7 @@ class FailureRoutingCLI(unittest.TestCase):
         status = self.status()
         self.assertIsNone(status["milestone_checkpoint"]["limits"]["stalled_reviews"])
         self.assertIsNone(status["settings"]["milestone_checkpoints"]["stalled_reviews"])
-        self.assertEqual([], self.trace("terra"), "Inspection and approval must not launch a Builder")
+        self.assertEqual([], self.trace("builder"), "Inspection and approval must not launch a Builder")
         self.assertEqual(self.approved_token, status["contract_token"])
 
     def test_fresh_positive_stalled_review_limit_is_saved_before_any_builder(self):
@@ -262,7 +262,7 @@ class FailureRoutingCLI(unittest.TestCase):
         status = self.status()
         self.assertEqual(1, status["milestone_checkpoint"]["limits"]["stalled_reviews"])
         self.assertEqual(1, status["settings"]["milestone_checkpoints"]["stalled_reviews"])
-        self.assertEqual([], self.trace("terra"), "Configuration must not grant or spend an attempt")
+        self.assertEqual([], self.trace("builder"), "Configuration must not grant or spend an attempt")
         self.assertEqual(self.approved_token, status["contract_token"])
 
     def test_uncertain_no_source_change_investigates_before_spending_and_refuses(self):
@@ -273,8 +273,8 @@ class FailureRoutingCLI(unittest.TestCase):
         self.assertEqual("PAUSED_BUILDER_CLASSIFICATION", status["status"])
         self.assertIn("without source changes", status["view"]["stop_reason"])
         self.assertEqual(
-            ["terra", "investigate_stuck"],
-            [row["stage"] for row in self.trace() if row["stage"] in ("terra", "investigate_stuck")],
+            ["builder", "investigate_stuck"],
+            [row["stage"] for row in self.trace() if row["stage"] in ("builder", "investigate_stuck")],
         )
         self.assert_bound_read_only()
         self.assert_no_strong()
@@ -291,14 +291,14 @@ class FailureRoutingCLI(unittest.TestCase):
         self.assertEqual("WAITING_FOR_USER", status["status"])
         self.assertIn(status["human_escalation"]["scope"], ("operational_recovery", "operational_exhaustion"))
         self.assertNotEqual("TASK_COMPLETE", status["status"])
-        self.assertEqual(1, len(self.trace("terra")))
+        self.assertEqual(1, len(self.trace("builder")))
         self.assertEqual([], self.trace("investigate_stuck"))
         self.assert_no_strong()
         self.assertFalse((self.project / "main.py").exists())
-        self.assertIn("terra exited 9", status["view"]["stop_reason"])
-        before = self.call_order("terra")
+        self.assertIn("builder exited 9", status["view"]["stop_reason"])
+        before = self.call_order("builder")
         self.drive("--resume-paused", codes=(2,))
-        self.assertEqual(before, self.call_order("terra"))
+        self.assertEqual(before, self.call_order("builder"))
         self.assert_no_strong()
 
     def test_permission_request_never_self_grants_or_escalates(self):
@@ -312,7 +312,7 @@ class FailureRoutingCLI(unittest.TestCase):
         self.assertEqual("permission", status["user_request"]["kind"])
         self.assertEqual("Required external access is unavailable", status["user_request"]["discovered"])
         self.assertEqual("Replan or stop?", status["pending_questions"][0]["question"])
-        self.assertEqual(1, len(self.trace("terra")))
+        self.assertEqual(1, len(self.trace("builder")))
         self.assert_no_strong()
         self.assertFalse((self.project / "main.py").exists())
         before = self.call_order()
@@ -337,7 +337,7 @@ class FailureRoutingCLI(unittest.TestCase):
         self.assertNotEqual(packet["failure_id"], draft["failure_id"])
         self.assertTrue(set(draft["evidence_refs"]) <= set(packet["evidence_refs"]))
         self.assertTrue(draft["probe"])
-        self.assertEqual(1, len(self.trace("terra")))
+        self.assertEqual(1, len(self.trace("builder")))
         self.assert_no_strong()
         self.assertFalse((self.project / "main.py").exists())
         before = self.call_order()
@@ -351,7 +351,7 @@ class FailureRoutingCLI(unittest.TestCase):
         status = self.status()
         self.assertNotEqual("TASK_COMPLETE", status["status"])
         self.assertIn("without source changes", status["view"]["stop_reason"])
-        self.assertEqual(2, len(self.trace("terra")))
+        self.assertEqual(2, len(self.trace("builder")))
         self.assert_bound_read_only()
         self.assert_no_strong()
         self.assert_retained_sibling()
@@ -375,7 +375,7 @@ class FailureRoutingCLI(unittest.TestCase):
             FAILURE_ROUTING_MALFORMED_DIAGNOSIS="1",
         )
         self.call("autocode_build", ["--run-dir", str(self.run), "--no-chat"])
-        builders = self.trace("terra")
+        builders = self.trace("builder")
         self.assertEqual(
             ["gpt-6-luna", "gpt-6-luna"],
             [row["model"] for row in builders if row["handoff"]["current_task"]["milestone_id"] == "M1"],
@@ -396,7 +396,7 @@ class FailureRoutingCLI(unittest.TestCase):
         status = self.status()
         self.assertEqual("TASK_COMPLETE", status["status"])
         self.assertTrue(status["completion_current"])
-        builders = [row for row in self.trace("terra") if row["handoff"]["current_task"]["milestone_id"] == "M1"]
+        builders = [row for row in self.trace("builder") if row["handoff"]["current_task"]["milestone_id"] == "M1"]
         self.assertEqual(["gpt-6-luna", "gpt-6-luna", "gpt-5.4"], [row["model"] for row in builders])
         self.assertEqual(
             str(self.project), builders[-1]["workspace"], "Only the parent may spend the colliding strong slot"
@@ -406,10 +406,10 @@ class FailureRoutingCLI(unittest.TestCase):
         sibling_check = next(
             i
             for i, row in enumerate(calls)
-            if row["stage"] == "sol" and row["handoff"]["current_task"]["milestone_id"] == "M2"
+            if row["stage"] == "tester" and row["handoff"]["current_task"]["milestone_id"] == "M2"
         )
         self.assertLess(sibling_check, strong)
-        for row in self.trace("sol"):
+        for row in self.trace("tester"):
             if row["handoff"]["current_task"]["milestone_id"] == "M1":
                 self.assertNotEqual(
                     "gpt-5.4", row["model"].removeprefix("openai/"), "The escalated Builder cannot check its own work"
@@ -424,7 +424,7 @@ class FailureRoutingCLI(unittest.TestCase):
         self.env.update(BUILD_AUDIT_FAULT="no_change", FAILURE_ROUTING_DIAGNOSIS="plan")
         self.call("autocode_build", ["--run-dir", str(self.run), "--no-chat"], (2,))
         self.assertNotEqual("TASK_COMPLETE", self.status()["status"])
-        self.assertEqual(2, len(self.trace("terra")))
+        self.assertEqual(2, len(self.trace("builder")))
         self.assert_bound_read_only()
         self.assert_no_strong()
         self.assert_retained_sibling()
@@ -448,8 +448,8 @@ class FailureRoutingCLI(unittest.TestCase):
         self.call("autocode_build", ["--run-dir", str(self.run), "--no-chat"], (2,))
         status = self.status()
         self.assertNotEqual("TASK_COMPLETE", status["status"])
-        self.assertIn("terra exited 9", status["view"]["stop_reason"])
-        self.assertEqual(2, len(self.trace("terra")))
+        self.assertIn("builder exited 9", status["view"]["stop_reason"])
+        self.assertEqual(2, len(self.trace("builder")))
         self.assertEqual([], self.trace("investigate_stuck"))
         self.assert_no_strong()
         self.assert_retained_sibling()
@@ -471,8 +471,8 @@ class FailureRoutingCLI(unittest.TestCase):
         status = self.status()
         calls = self.trace()
         stages = [row["stage"] for row in calls]
-        self.assertLess(stages.index("investigate_stuck"), stages.index("astra_review"))
-        self.assertEqual(1, len(self.trace("terra")), "An unchanged CONTINUE is not an authorized replan")
+        self.assertLess(stages.index("investigate_stuck"), stages.index("review_completion"))
+        self.assertEqual(1, len(self.trace("builder")), "An unchanged CONTINUE is not an authorized replan")
         self.assert_no_strong()
         self.assert_bound_read_only()
         self.assertEqual(self.approved_token, status["contract_token"])
@@ -494,15 +494,15 @@ class FailureRoutingCLI(unittest.TestCase):
         self.drive(codes=(2,))
         status = self.status()
         calls = self.trace()
-        reviewer = next(row for row in calls if row["stage"] == "astra_review")
+        reviewer = next(row for row in calls if row["stage"] == "review_completion")
         self.assertFalse(
             reviewer["handoff"].get("validation"), "Control must reach REWORK before any independent validation"
         )
         stages = [row["stage"] for row in calls]
-        self.assertLess(stages.index("investigate_stuck"), stages.index("astra_review"))
-        if "sol" in stages:
-            self.assertLess(stages.index("astra_review"), stages.index("sol"))
-        unchanged = self.trace("astra_review", "unchanged_rework")[0]["report"]
+        self.assertLess(stages.index("investigate_stuck"), stages.index("review_completion"))
+        if "tester" in stages:
+            self.assertLess(stages.index("review_completion"), stages.index("tester"))
+        unchanged = self.trace("review_completion", "unchanged_rework")[0]["report"]
         self.assertEqual("REWORK", unchanged["status"])
         self.assertEqual(reviewer["handoff"]["current_task"]["objective"], unchanged["next_objective"])
         self.assertEqual(reviewer["handoff"]["current_task"]["requirements"], unchanged["next_task"]["requirements"])
@@ -510,7 +510,7 @@ class FailureRoutingCLI(unittest.TestCase):
             reviewer["handoff"]["current_task"]["validation_plan"], unchanged["next_task"]["validation_plan"]
         )
         self.assertTrue(unchanged["evidence"])
-        self.assertEqual(1, len(self.trace("terra")), "Nonempty evidence is not a materially changed approach")
+        self.assertEqual(1, len(self.trace("builder")), "Nonempty evidence is not a materially changed approach")
         self.assert_no_strong()
         self.assertNotEqual("TASK_COMPLETE", status["status"])
         self.assertEqual(self.approved_token, status["contract_token"])
@@ -527,7 +527,7 @@ class FailureRoutingCLI(unittest.TestCase):
         self.assertNotEqual("TASK_COMPLETE", status["status"])
         self.assertIn("Should this run stop or continue", json.dumps(status))
         self.assert_bound_read_only()
-        self.assertEqual(1, len(self.trace("terra")))
+        self.assertEqual(1, len(self.trace("builder")))
         self.assert_no_strong()
         self.assertFalse((self.project / "main.py").exists())
         diagnosis = self.trace("investigate_stuck", "diagnosis")[0]["report"]
@@ -561,15 +561,15 @@ class FailureRoutingCLI(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", status["status"])
         self.assertTrue(status["completion_current"])
         self.assertEqual(self.approved_token, status["contract_token"])
-        self.assertEqual(2, len(self.trace("terra")))
+        self.assertEqual(2, len(self.trace("builder")))
         self.assert_no_strong()
         self.assert_bound_read_only()
         calls = self.trace()
         stages = [row["stage"] for row in calls]
-        self.assertLess(stages.index("investigate_stuck"), stages.index("astra_review"))
-        self.assertLess(stages.index("astra_review"), stages.index("astra_resolve"))
-        self.assertLess(stages.index("astra_resolve"), stages.index("sol"))
-        first, corrected = self.trace("terra")
+        self.assertLess(stages.index("investigate_stuck"), stages.index("review_completion"))
+        self.assertLess(stages.index("review_completion"), stages.index("resolve"))
+        self.assertLess(stages.index("resolve"), stages.index("tester"))
+        first, corrected = self.trace("builder")
         self.assertNotEqual(first["handoff"]["current_task"]["id"], corrected["handoff"]["current_task"]["id"])
         self.assertNotEqual(
             first["handoff"]["current_task"]["requirements"], corrected["handoff"]["current_task"]["requirements"]
@@ -577,7 +577,7 @@ class FailureRoutingCLI(unittest.TestCase):
         self.assertNotEqual(
             first["handoff"]["current_task"]["validation_plan"], corrected["handoff"]["current_task"]["validation_plan"]
         )
-        for tester in self.trace("sol"):
+        for tester in self.trace("tester"):
             self.assertIn("hello", tester["handoff"]["current_task"]["validation_plan"][0])
         oracle = subprocess.run([sys.executable, "main.py"], cwd=self.project, capture_output=True, text=True)
         self.assertEqual(0, oracle.returncode)
@@ -614,7 +614,7 @@ class FailureRoutingCLI(unittest.TestCase):
         status = self.status()
         self.assertEqual("TASK_COMPLETE", status["status"])
         self.assertTrue(status["completion_current"])
-        self.assertEqual(1, len(self.trace("terra")))
+        self.assertEqual(1, len(self.trace("builder")))
         self.assertEqual([], self.trace("investigate_stuck"))
         self.assert_no_strong()
         self.assertEqual(document, (self.project / "docs/checklist.md").read_text())
@@ -636,7 +636,7 @@ class FailureRoutingCLI(unittest.TestCase):
         # increases the Builder lane cap.
         self.assertEqual(
             ["gpt-6-luna", "gpt-6-luna", "gpt-5.4"],
-            [row["model"] for row in self.trace("terra")],
+            [row["model"] for row in self.trace("builder")],
             status["view"]["stop_reason"],
         )
         self.assertNotIn("No causal progress", status["view"]["stop_reason"])
@@ -650,15 +650,15 @@ class FailureRoutingCLI(unittest.TestCase):
         self.assertEqual(3, status["milestone_checkpoint"]["limits"]["stalled_reviews"])
         self.assertTrue(status["milestone_checkpoint"]["current"]["needs_replan"])
         self.assertEqual(3, status["milestone_checkpoint"]["current"]["reviews_without_progress"])
-        self.assertEqual(2, len(self.trace("astra_resolve")), "Plan/novelty hold must suppress a third paid Resolver")
+        self.assertEqual(2, len(self.trace("resolve")), "Plan/novelty hold must suppress a third paid Resolver")
         self.assertNotEqual("TASK_COMPLETE", status["status"])
         self.assertEqual(self.approved_token, status["contract_token"])
-        self.assertGreaterEqual(len(self.trace("sol")), 2)
-        final_builders = self.call_order("terra")
+        self.assertGreaterEqual(len(self.trace("tester")), 2)
+        final_builders = self.call_order("builder")
         final_source = (self.project / "main.py").read_text()
         self.drive("--resume-paused", codes=(2,))
         self.assertEqual(
-            final_builders, self.call_order("terra"), "A retained pause must not renew the spent strong slot"
+            final_builders, self.call_order("builder"), "A retained pause must not renew the spent strong slot"
         )
         self.assertEqual(final_source, (self.project / "main.py").read_text())
         checked = subprocess.run([sys.executable, "main.py"], cwd=self.project, capture_output=True, text=True)
@@ -704,7 +704,7 @@ class FailureRoutingCLI(unittest.TestCase):
         self.assertEqual(
             "Repository changed during read-only review; preserve result and revalidate", status["view"]["stop_reason"]
         )
-        self.assertEqual(1, len(self.trace("terra")))
+        self.assertEqual(1, len(self.trace("builder")))
         self.assertEqual(1, len(self.trace("investigate_stuck")))
         self.assert_no_strong()
         self.assertEqual(user_source, (self.project / "main.py").read_text())
@@ -762,7 +762,7 @@ class FailureRoutingCLI(unittest.TestCase):
         self.assertEqual("WAITING_FOR_USER", status["status"])
         self.assertIn(status["human_escalation"]["scope"], ("operational_recovery", "operational_exhaustion"))
         self.assertIn("lacks a verified uninterrupted result", status["view"]["stop_reason"])
-        self.assertEqual(1, len(self.trace("terra")))
+        self.assertEqual(1, len(self.trace("builder")))
         self.assert_bound_read_only()
         before = self.call_order()
         self.drive("--resume-paused", codes=(2,))

@@ -24,16 +24,16 @@ class ResolverDedupRecoveryTests(unittest.TestCase):
         self.fixture.state["settings"]["regression"] = {"regression_command": "old regression"}
 
     def diagnose(self):
-        self.fixture.apply("astra_review", self.fixture.decision())
+        self.fixture.apply("review_completion", self.fixture.decision())
         diagnosis = {**self.fixture.decision(), "diagnosis": "The regression command needs corrective information"}
-        record = self.fixture.apply("astra_resolve", diagnosis)
+        record = self.fixture.apply("resolve", diagnosis)
         self.assertEqual("escalate", human.evaluate(self.fixture.state))
         request = human.current(self.fixture.state)
         self.assertIsNotNone(request)
         return record, request
 
     def diagnosis_count(self):
-        return sum(row.get("stage") == "astra_resolve" for row in self.fixture.state["stages"])
+        return sum(row.get("stage") == "resolve" for row in self.fixture.state["stages"])
 
     def review_decision(self, status="BLOCKED"):
         value = self.fixture.decision(status)
@@ -67,7 +67,7 @@ class ResolverDedupRecoveryTests(unittest.TestCase):
         for status in ("BLOCKED", "REWORK"):
             for repetition in range(3):
                 with self.subTest(status=status, repetition=repetition):
-                    reviewed = self.fixture.apply("astra_review", self.review_decision(status))
+                    reviewed = self.fixture.apply("review_completion", self.review_decision(status))
                     self.assertFalse(reviewed.get("rejected"))
                     self.assertEqual(reviewed["output"], self.fixture.state["stages"][-1]["output"])
                     self.assertIsNone(human.current(self.fixture.state))
@@ -75,7 +75,7 @@ class ResolverDedupRecoveryTests(unittest.TestCase):
                     self.assertEqual(pending, human.current(self.fixture.state))
                     self.assertEqual(ledger, self.fixture.state["resolver"]["human_escalations"])
                     self.assertEqual(1, self.diagnosis_count())
-                    self.assertEqual("astra_review", self.fixture.state["next_stage"])
+                    self.assertEqual("review_completion", self.fixture.state["next_stage"])
 
     def test_corrective_information_then_duplicate_reviews_do_not_rearm_the_answered_request(self):
         _, pending = self.diagnose()
@@ -83,13 +83,13 @@ class ResolverDedupRecoveryTests(unittest.TestCase):
         for status in ("BLOCKED", "REWORK"):
             for repetition in range(3):
                 with self.subTest(status=status, repetition=repetition):
-                    reviewed = self.fixture.apply("astra_review", self.review_decision(status))
+                    reviewed = self.fixture.apply("review_completion", self.review_decision(status))
                     self.assertFalse(reviewed.get("rejected"))
                     self.assertEqual(reviewed["output"], self.fixture.state["stages"][-1]["output"])
                     self.assertEqual("defer", human.evaluate(self.fixture.state))
                     self.assertIsNone(human.current(self.fixture.state))
                     self.assertEqual("RESOLVER_PENDING", human.projection(self.fixture.state)["status"])
-                    self.assertEqual("astra_review", self.fixture.state["next_stage"])
+                    self.assertEqual("review_completion", self.fixture.state["next_stage"])
                     self.assertEqual(1, self.diagnosis_count())
                     self.assertEqual([event], self.fixture.state["resolver"]["human_responses"])
                     self.assertEqual(
@@ -101,10 +101,10 @@ class ResolverDedupRecoveryTests(unittest.TestCase):
         value = self.review_decision("REWORK")
         value["acceptance_criteria"][0]["criterion"] = "A different unapproved requirement"
         before = copy.deepcopy(self.fixture.state)
-        record = self.fixture.record("astra_review", value)
+        record = self.fixture.record("review_completion", value)
         with self.assertRaisesRegex(support.Paused, "change approved acceptance criteria"):
             autopilot.apply_result(
-                runner, self.fixture.state, "astra_review", value, record, self.fixture.root, self.fixture.root
+                runner, self.fixture.state, "review_completion", value, record, self.fixture.root, self.fixture.root
             )
         self.assertEqual(before, self.fixture.state)
         self.assertNotIn(record["output"], [row["output"] for row in self.fixture.state["stages"]])
@@ -129,23 +129,23 @@ class ResolverDedupRecoveryTests(unittest.TestCase):
                     patch.object(support, "snapshot", return_value=snapshot),
                     patch.object(util, "snapshot", return_value=snapshot),
                 ):
-                    reviewed = self.apply_at_source("astra_review", self.fixture.decision(), snapshot)
+                    reviewed = self.apply_at_source("review_completion", self.fixture.decision(), snapshot)
                     self.assertFalse(reviewed.get("rejected"))
-                    self.assertEqual("astra_resolve", self.fixture.state["next_stage"])
+                    self.assertEqual("resolve", self.fixture.state["next_stage"])
                     fresh = {
                         **self.fixture.decision(),
                         "diagnosis": "The changed setting or source was investigated once",
                     }
-                    self.apply_at_source("astra_resolve", fresh, snapshot)
+                    self.apply_at_source("resolve", fresh, snapshot)
                     self.assertEqual("escalate", human.evaluate(self.fixture.state))
                     pending = human.current(self.fixture.state)
                     self.assertIsNotNone(pending)
                     self.assertEqual(2, self.diagnosis_count())
-                    self.apply_at_source("astra_review", self.fixture.decision(), snapshot)
+                    self.apply_at_source("review_completion", self.fixture.decision(), snapshot)
                     self.assertEqual("escalate", human.evaluate(self.fixture.state))
                     self.assertEqual(pending, human.current(self.fixture.state))
                     self.assertEqual(2, self.diagnosis_count())
-                    self.assertEqual("astra_review", self.fixture.state["next_stage"])
+                    self.assertEqual("review_completion", self.fixture.state["next_stage"])
 
     def test_consumed_or_forged_public_marker_cannot_authorize_a_pending_question(self):
         _, pending = self.diagnose()
@@ -157,7 +157,7 @@ class ResolverDedupRecoveryTests(unittest.TestCase):
                 # Fault injection replays a marker, not a user response or request receipt.
                 self.fixture.state[human.PUBLIC] = copy.deepcopy(marker)
                 self.assertIsNone(human.current(self.fixture.state))
-                reviewed = self.fixture.apply("astra_review", self.fixture.decision())
+                reviewed = self.fixture.apply("review_completion", self.fixture.decision())
                 self.assertFalse(reviewed.get("rejected"))
                 self.assertEqual("defer", human.evaluate(self.fixture.state))
                 self.assertIsNone(human.current(self.fixture.state))
@@ -175,7 +175,7 @@ class ResolverDedupRecoveryTests(unittest.TestCase):
                 self.fixture.state = copy.deepcopy(original)
                 self.fixture.state[human.PUBLIC][field] = "forged"
                 self.assertIsNone(human.current(self.fixture.state))
-                reviewed = self.fixture.apply("astra_review", self.fixture.decision())
+                reviewed = self.fixture.apply("review_completion", self.fixture.decision())
                 self.assertFalse(reviewed.get("rejected"))
                 self.assertEqual("defer", human.evaluate(self.fixture.state))
                 self.assertIsNone(human.current(self.fixture.state))
@@ -199,7 +199,7 @@ class ResolverDedupRecoveryTests(unittest.TestCase):
                     if active_seconds is not None:
                         self.fixture.state["active_seconds"] = active_seconds
                     self.fixture.state[human.PRIVATE] = copy.deepcopy(proposal)
-                    reviewed = self.fixture.apply("astra_review", self.review_decision(status))
+                    reviewed = self.fixture.apply("review_completion", self.review_decision(status))
                     self.assertFalse(reviewed.get("rejected"))
                     self.assertEqual("defer", human.evaluate(self.fixture.state))
                     self.assertIsNone(human.current(self.fixture.state))
@@ -235,7 +235,7 @@ class ResolverDedupRecoveryTests(unittest.TestCase):
                     entry["identity"]["action"] = "hold"
                 self.fixture.state["active_seconds"] = 100
                 self.fixture.state[human.PRIVATE] = proposal
-                reviewed = self.fixture.apply("astra_review", self.review_decision("REWORK"))
+                reviewed = self.fixture.apply("review_completion", self.review_decision("REWORK"))
                 self.assertFalse(reviewed.get("rejected"))
                 self.assertEqual("escalate", human.evaluate(self.fixture.state))
                 live = human.current(self.fixture.state)
@@ -249,7 +249,7 @@ class ResolverDedupRecoveryTests(unittest.TestCase):
         self.fixture.state[human.PRIVATE] = {"issuer": "resolver"}
         before = copy.deepcopy(self.fixture.state)
         with self.assertRaisesRegex(ValueError, "invalid proposal"):
-            self.fixture.apply("astra_review", self.fixture.decision())
+            self.fixture.apply("review_completion", self.fixture.decision())
         self.assertEqual(before, self.fixture.state)
         self.assertIsNone(human.current(self.fixture.state))
         self.assertEqual(1, self.diagnosis_count())

@@ -147,19 +147,19 @@ class ContentFilterRouteTests(unittest.TestCase):
         # The glm-mimo scenario profile: MiMo builds and plans, GLM checks.
         shutil.copyfile(source, self.events)
         roles = {
-            "terra": {"engine": "opencode", "model": MIMO},
+            "builder": {"engine": "opencode", "model": MIMO},
             "task_planner": {"engine": "opencode", "model": MIMO},
-            "sol": {"engine": "opencode", "model": GLM},
+            "tester": {"engine": "opencode", "model": GLM},
             "completion": {"engine": "opencode", "model": GLM},
             **{role: {"engine": "opencode", "model": model} for role, model in extra_roles.items()},
         }
         return {
             "status": "WAITING_FOR_USER",
             "settings": {"engine": "opencode", "roles": roles},
-            "sessions": {"terra": "ses_builder"},
+            "sessions": {"builder": "ses_builder"},
             "active_stage": {
-                "stage": "terra",
-                "role": "terra",
+                "stage": "builder",
+                "role": "builder",
                 "iteration": 1,
                 "exit_code": exit_code,
                 "output": str(self.root / "builder-01.json"),
@@ -175,10 +175,10 @@ class ContentFilterRouteTests(unittest.TestCase):
     def test_the_refused_builder_is_asked_for_another_model_and_no_configured_one_fits(self):
         attempt, asked = self.question(self.state())
         self.assertEqual(
-            ("terra", "001/builder-01", MIMO, "PAUSED_CONTENT_FILTER", True),
+            ("builder", "001/builder-01", MIMO, "PAUSED_CONTENT_FILTER", True),
             tuple(attempt[key] for key in ("role", "attempt_id", "model", "pause_status", "active")),
         )
-        self.assertEqual("route-terra", asked["id"])
+        self.assertEqual("route-builder", asked["id"])
         self.assertTrue(asked["question"].startswith("Builder's model was refused by its provider's content filter"))
         self.assertIn(f"The Builder stopped on {MIMO}", asked["why"])
         self.assertEqual(
@@ -193,8 +193,8 @@ class ContentFilterRouteTests(unittest.TestCase):
             asked["recommendation"],
         )
         advice = quota_route.advice(asked, attempt["attempt_id"])
-        self.assertIn("--answer route-terra=MODEL --resolver-token - (reads AUTOCODE_RESOLVER_TOKEN)", advice)
-        self.assertIn("--abandon-stage 001/builder-01, then --resume-paused --terra-model MODEL", advice)
+        self.assertIn("--answer route-builder=MODEL --resolver-token - (reads AUTOCODE_RESOLVER_TOKEN)", advice)
+        self.assertIn("--abandon-stage 001/builder-01, then --resume-paused --builder-model MODEL", advice)
         self.assertTrue(advice.endswith(asked["recommendation"]))
 
     def test_a_finish_only_refusal_at_a_clean_exit_asks_the_same_question(self):
@@ -202,11 +202,11 @@ class ContentFilterRouteTests(unittest.TestCase):
             with self.subTest(source=source.name, exit_code=exit_code):
                 attempt, asked = self.question(self.state(source=source, exit_code=exit_code))
                 self.assertEqual(
-                    ("terra", MIMO, "PAUSED_CONTENT_FILTER", True),
+                    ("builder", MIMO, "PAUSED_CONTENT_FILTER", True),
                     tuple(attempt[key] for key in ("role", "model", "pause_status", "active")),
                 )
                 self.assertEqual(
-                    ("route-terra", "content_filter", MIMO), (asked["id"], asked["cause"], asked["stopped_model"])
+                    ("route-builder", "content_filter", MIMO), (asked["id"], asked["cause"], asked["stopped_model"])
                 )
                 self.assertTrue(
                     asked["question"].startswith("Builder's model was refused by its provider's content filter")
@@ -231,7 +231,7 @@ class ContentFilterRouteTests(unittest.TestCase):
         for mid in ("M1", "M2"):
             directory = self.root / mid
             directory.mkdir()
-            (directory / "state.json").write_text(json.dumps({"settings": {"roles": {"terra": {"model": MIMO}}}}))
+            (directory / "state.json").write_text(json.dumps({"settings": {"roles": {"builder": {"model": MIMO}}}}))
             rows[mid] = {
                 "milestone_id": mid,
                 "run_dir": str(directory),
@@ -241,7 +241,7 @@ class ContentFilterRouteTests(unittest.TestCase):
             results[mid] = {
                 "status": "PAUSED_CONTENT_FILTER",
                 "quota_worker": {
-                    "role": "terra",
+                    "role": "builder",
                     "milestone_id": mid,
                     "run_dir": str(directory),
                     "workspace": str(directory),
@@ -257,7 +257,7 @@ class ContentFilterRouteTests(unittest.TestCase):
         state = {
             "status": "PAUSED_CONTENT_FILTER",
             "next_stage": "orchestrator",
-            "settings": {"roles": {"terra": {"model": MIMO}}},
+            "settings": {"roles": {"builder": {"model": MIMO}}},
             "orchestration_batch": {"status": "BUILDING", "workers": list(rows.values())},
             "resolver": {
                 "human_response_frontier": {"request_id": "r1", "pause_status": "PAUSED_CONTENT_FILTER"},
@@ -265,7 +265,7 @@ class ContentFilterRouteTests(unittest.TestCase):
             },
         }
         retry = lambda mid, asked: worker_quota.refused_retry(state, rows[mid], results[mid], asked=asked)
-        self.assertIn("in answer to its open route-terra question", str(retry("M1", "M1")))
+        self.assertIn("in answer to its open route-builder question", str(retry("M1", "M1")))
         self.assertIn("once the open request about Builder M1 is answered", str(retry("M2", "M1")))
         again = retry("M1", None)
         self.assertEqual(("PAUSED_CONTENT_FILTER", "M1"), (again.status, again.quota_worker["milestone_id"]))
@@ -285,10 +285,10 @@ class ContentFilterRouteTests(unittest.TestCase):
         # and the answer must also leave that worker's model family (#458): a MiMo elsewhere is not listed.
         moved, mimo_elsewhere = "openai/gpt-6-luna", "openrouter/xiaomi/mimo-v2.6"
         state = self.state(plan_reviewer=mimo_elsewhere)
-        state["settings"]["roles"]["terra"]["model"] = moved
+        state["settings"]["roles"]["builder"]["model"] = moved
         member = {
-            "role": "terra",
-            "stage": "terra",
+            "role": "builder",
+            "stage": "builder",
             "milestone_id": "M2",
             "model": MIMO,
             "pause_status": "PAUSED_CONTENT_FILTER",
@@ -302,14 +302,14 @@ class ContentFilterRouteTests(unittest.TestCase):
             (asked["job"], asked["current_model"], asked["stopped_model"], asked["candidates"]),
         )
         self.assertEqual(
-            [mimo_elsewhere, moved],
+            [moved, mimo_elsewhere],
             worker_quota.question(state, member, cross_check=dispatch.enforce_cross_model_verification)["candidates"],
         )
         # Every listed model passes the parallel answer path's checks; the unlisted MiMo fails one.
         for model in asked["candidates"]:
             quota_route.validate(
                 state,
-                "terra",
+                "builder",
                 model,
                 configured_tool=False,
                 current=MIMO,
@@ -318,7 +318,7 @@ class ContentFilterRouteTests(unittest.TestCase):
             worker_quota.validate_model(model, member, dispatch._model_family)
         quota_route.validate(
             state,
-            "terra",
+            "builder",
             mimo_elsewhere,
             configured_tool=False,
             current=MIMO,
@@ -326,7 +326,7 @@ class ContentFilterRouteTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "choose another model family"):
             worker_quota.validate_model(mimo_elsewhere, member, dispatch._model_family)
-        record = quota_route.assign(state, "terra", moved, at="t", via="answer", attempt=member, current=MIMO)
+        record = quota_route.assign(state, "builder", moved, at="t", via="answer", attempt=member, current=MIMO)
         self.assertEqual((MIMO, moved, "PAUSED_CONTENT_FILTER"), (record["from"], record["to"], record["pause_status"]))
 
     def test_the_view_answer_and_record_carry_the_refusal(self):
@@ -335,8 +335,8 @@ class ContentFilterRouteTests(unittest.TestCase):
         state["pending_questions"] = [asked]
         self.assertEqual(
             {
-                "question_id": "route-terra",
-                "role": "terra",
+                "question_id": "route-builder",
+                "role": "builder",
                 "job": "Builder",
                 "current_model": MIMO,
                 "engine": "opencode",
@@ -348,13 +348,13 @@ class ContentFilterRouteTests(unittest.TestCase):
         )
         origin = {"pause_status": "PAUSED_CONTENT_FILTER"}
         model = "anthropic/claude-sonnet-5-5"
-        self.assertEqual((asked, model), quota_route.parse_answer([f"route-terra={model}"], [asked], origin))
-        record = quota_route.assign(state, "terra", model, at="t", via="answer", attempt=attempt)
+        self.assertEqual((asked, model), quota_route.parse_answer([f"route-builder={model}"], [asked], origin))
+        record = quota_route.assign(state, "builder", model, at="t", via="answer", attempt=attempt)
         self.assertEqual(
             ("Builder", MIMO, model, "PAUSED_CONTENT_FILTER"),
             (record["job"], record["from"], record["to"], record["pause_status"]),
         )
-        self.assertNotIn("terra", state["sessions"])
+        self.assertNotIn("builder", state["sessions"])
 
     def test_a_flag_alone_under_the_uncertain_refusal_is_refused_with_the_cause(self):
         state = self.state()
@@ -362,7 +362,7 @@ class ContentFilterRouteTests(unittest.TestCase):
             **state["settings"],
             "roles": {
                 **state["settings"]["roles"],
-                "terra": {"engine": "opencode", "model": "anthropic/claude-sonnet-5-5"},
+                "builder": {"engine": "opencode", "model": "anthropic/claude-sonnet-5-5"},
             },
         }
         refusal = quota_route.resume_refusal(
@@ -378,12 +378,12 @@ class ContentFilterRouteTests(unittest.TestCase):
     def test_the_flag_refusal_offers_the_answer_only_where_the_request_takes_it(self):
         # The saved events classify as a refusal whether or not the published request asks for a model:
         # a stop published as uncertain (a session-ID mismatch, or a run paused before #464 typed a
-        # finish-only refusal) asks no route question, and --answer route-terra is refused there.
+        # finish-only refusal) asks no route question, and --answer route-builder is refused there.
         state = self.state(source=FINISH_ONLY, exit_code=0)
         model = "anthropic/claude-sonnet-5-5"
         changed = {
             **state["settings"],
-            "roles": {**state["settings"]["roles"], "terra": {"engine": "opencode", "model": model}},
+            "roles": {**state["settings"]["roles"], "builder": {"engine": "opencode", "model": model}},
         }
         _, asked = self.question(state)
         uncertain, refused = {"pause_status": "PAUSED_UNCERTAIN_STAGE"}, {"pause_status": "PAUSED_CONTENT_FILTER"}
@@ -403,17 +403,17 @@ class ContentFilterRouteTests(unittest.TestCase):
                     questions=questions,
                     origin=origin,
                 )
-                self.assertIn("is still uncertain; --terra-model is not saved", refusal)
-                self.assertIn("--abandon-stage 001/builder-01, then --resume-paused --terra-model MODEL", refusal)
+                self.assertIn("is still uncertain; --builder-model is not saved", refusal)
+                self.assertIn("--abandon-stage 001/builder-01, then --resume-paused --builder-model MODEL", refusal)
                 # Every command the refusal names is one the CLI accepts at this request (#288/#301).
-                self.assertEqual(answerable, "--answer route-terra=MODEL" in refusal, refusal)
+                self.assertEqual(answerable, "--answer route-builder=MODEL" in refusal, refusal)
                 if answerable:
                     self.assertEqual(
-                        (asked, model), quota_route.parse_answer([f"route-terra={model}"], questions, origin)
+                        (asked, model), quota_route.parse_answer([f"route-builder={model}"], questions, origin)
                     )
                 else:
                     with self.assertRaises(ValueError):
-                        quota_route.parse_answer([f"route-terra={model}"], questions, origin)
+                        quota_route.parse_answer([f"route-builder={model}"], questions, origin)
 
 
 class ContentFilterAtCleanExitTests(unittest.TestCase):
@@ -443,15 +443,15 @@ class ContentFilterAtCleanExitTests(unittest.TestCase):
             "task": "Fixture",
             "status": "RUNNING",
             "iteration": 1,
-            "sessions": {"terra": saved_session} if saved_session else {},
+            "sessions": {"builder": saved_session} if saved_session else {},
             "stages": [],
             "history": [],
             "settings": {
                 "engine": "opencode",
                 "roles": {
-                    "terra": {"model": MIMO},
+                    "builder": {"model": MIMO},
                     "task_planner": {"model": MIMO},
-                    "sol": {"model": GLM},
+                    "tester": {"model": GLM},
                     "completion": {"model": GLM},
                 },
             },
@@ -478,7 +478,7 @@ class ContentFilterAtCleanExitTests(unittest.TestCase):
         ):
             with self.assertRaises(support.Paused) as caught:
                 runner.run_role(
-                    role="terra",
+                    role="builder",
                     prompt="Fixture",
                     sandbox="workspace-write",
                     workspace=self.root,
@@ -508,7 +508,7 @@ class ContentFilterAtCleanExitTests(unittest.TestCase):
                 stop, state = self.build([json.loads(line) for line in source.read_text().splitlines()])
                 refused = REFUSED_ON_MIMO + f"({detail}); the same model is likely to refuse it again"
                 self.assertEqual("PAUSED_CONTENT_FILTER", stop.status)
-                self.assertTrue(str(stop).startswith(refused + ". terra exited 0; reconcile "), str(stop))
+                self.assertTrue(str(stop).startswith(refused + ". builder exited 0; reconcile "), str(stop))
                 self.assertIn("no automatic replay", str(stop))
                 self.assertEqual(
                     (0, MIMO), (state["active_stage"]["exit_code"], state["active_stage"]["launch_route"]["model"])
@@ -519,7 +519,7 @@ class ContentFilterAtCleanExitTests(unittest.TestCase):
                 self.assertIn("--abandon-stage 001/builder-01", str(resumed))
                 attempt = quota_route.stopped_attempt(state, failure_status=support.failure_status)
                 self.assertEqual(
-                    ("terra", MIMO, "PAUSED_CONTENT_FILTER"),
+                    ("builder", MIMO, "PAUSED_CONTENT_FILTER"),
                     (attempt["role"], attempt["model"], attempt["pause_status"]),
                 )
 
@@ -568,7 +568,7 @@ class ContentFilterAtCleanExitTests(unittest.TestCase):
                         else:
                             self.assertEqual(("PAUSED_UNCERTAIN_STAGE", recovered), (resumed.status, str(resumed)))
                         self.assertIn("active_stage", state)
-                        self.assertEqual({"terra": saved} if saved else {}, state["sessions"])
+                        self.assertEqual({"builder": saved} if saved else {}, state["sessions"])
                         # The retained stop asks no model question for either ownership route.
                         self.assertTrue(
                             runner.resolver_runtime.record_operational_exhaustion(runner, state, self.run, resumed)
@@ -601,7 +601,7 @@ class ContentFilterAtCleanExitTests(unittest.TestCase):
                                 runner.automatically_recover_timed_out_stage(state, self.run, self.root, resumed)
                             )
                         self.assertNotIn("active_stage", state)
-                        self.assertNotIn("terra", state["sessions"])
+                        self.assertNotIn("builder", state["sessions"])
 
     def test_a_timed_out_refusal_resumes_as_its_timeout_from_any_session(self):
         # The resumed stop agrees with run_role's first one whatever the session: the timeout is named before

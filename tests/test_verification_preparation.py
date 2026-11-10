@@ -1307,7 +1307,7 @@ class PublicPreparationFrontierTests(unittest.TestCase):
             "project_workspace": str(workspace),
             "run_dir": str(run_dir),
             "status": "PAUSED_VERIFICATION_UNCERTAIN",
-            "next_stage": "sol",
+            "next_stage": "tester",
             "iteration": 2,
             "sessions": {},
             "stages": [],

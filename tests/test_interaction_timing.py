@@ -218,8 +218,8 @@ class BuilderTimingBoundaryTests(unittest.TestCase):
                 state = {
                     "status": "RUNNING",
                     "iteration": 1,
-                    "next_stage": "terra",
-                    "settings": {"engine": "codex", "roles": {"terra": {"model": "builder"}}, "limits": {}},
+                    "next_stage": "builder",
+                    "settings": {"engine": "codex", "roles": {"builder": {"model": "builder"}}, "limits": {}},
                 }
                 timing.begin(state, LAUNCH)
                 prepared = (["unused-provider"], {}, {}, {"engine": "codex"})
@@ -229,7 +229,7 @@ class BuilderTimingBoundaryTests(unittest.TestCase):
                     patch.object(runner.supervision, "launch", side_effect=OSError("provider spawn failed")) as spawn,
                 ):
                     arguments = {
-                        "role": "terra",
+                        "role": "builder",
                         "prompt": "Fixture",
                         "sandbox": "workspace-write",
                         "workspace": workspace,

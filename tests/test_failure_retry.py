@@ -15,9 +15,9 @@ class FailureRetryTests(unittest.TestCase):
     tearDown = test_autocode.RetrofitTest.tearDown
 
     def seed(self):
-        self.state.update(status="PAUSED_REPEATED_FAILURE", next_stage="terra")
+        self.state.update(status="PAUSED_REPEATED_FAILURE", next_stage="builder")
         revision = support.snapshot(self.root)["revision"]
-        for stage, attempts in (("sol", 1), ("terra", 3)):
+        for stage, attempts in (("tester", 1), ("builder", 3)):
             for index in range(attempts):
                 record = {
                     "stage": stage,
@@ -69,7 +69,7 @@ class FailureRetryTests(unittest.TestCase):
             {"active_stage": {"exit_code": 1}},
             {"uncertain_artifacts": "unresolved"},
             {"pending_report_repair": {"attempts": 2}},
-            {"next_stage": "sol"},
+            {"next_stage": "tester"},
             {"status": "RUNNING"},
             {"failure_history": {}},
         ):
@@ -161,8 +161,8 @@ class FailureRetryCLITests(unittest.TestCase):
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
         self.launch(["Build greeting", "--chat"], 0, answers="CLI\nyes\n")
         run, state = self.saved()
-        original = next(row for row in state["stages"] if row["stage"] == "sol")
-        state.update(status="PAUSED_REPEATED_FAILURE", phase="PAUSED_OR_BLOCKED", next_stage="sol")
+        original = next(row for row in state["stages"] if row["stage"] == "tester")
+        state.update(status="PAUSED_REPEATED_FAILURE", phase="PAUSED_OR_BLOCKED", next_stage="tester")
         state["settings"]["report_repair"] = {"max_attempts": 0}
         # Seed the same failure the corrupted provider below reproduces: a saved report
         # without its verdict. Only consecutive identical failures count as repetition.
@@ -189,7 +189,7 @@ class FailureRetryCLITests(unittest.TestCase):
         # writing Builder changes the source and therefore the failure identity.
         provider = self.root / "fixture-bin" / "codex"
         provider.write_text(
-            provider.read_text() + '\nif stage == "sol":\n'
+            provider.read_text() + '\nif stage == "tester":\n'
             '    result.pop("verdict", None)\n'
             '    Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))\n'
         )
@@ -206,7 +206,7 @@ class FailureRetryCLITests(unittest.TestCase):
             ],
         )
         self.assertEqual(4, retried["failure_history"][record["failure_key"]]["count"])
-        self.assertEqual(["sol"], [row["stage"] for row in model_stages(retried["stages"])[count:]])
+        self.assertEqual(["tester"], [row["stage"] for row in model_stages(retried["stages"])[count:]])
         count = len(model_stages(retried["stages"]))
         self.launch(args, 2)
         self.assertEqual(count, len(model_stages(self.saved()[1]["stages"])))

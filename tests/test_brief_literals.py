@@ -151,7 +151,7 @@ class PlannerPromptTests(unittest.TestCase):
         return planning.context(state, stage, Path("/run/state.json"))[0]
 
     def test_each_drafting_stage_names_every_literal(self):
-        for stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+        for stage in ("draft_plan", "revise_plan", "finalize_plan"):
             text = self.prompt(stage)
             with self.subTest(stage=stage):
                 self.assertIn("BRIEF LITERALS", text)

@@ -40,9 +40,7 @@ class ResolverRetryRouteCLI(unittest.TestCase):
         self.assertNotIn("No causal progress", before["stop_reason"])
         state = driver.state()
         grants = state["failure_retry_authorizations"]
-        self.assertEqual(
-            [("autocode", "astra_resolve"), ("autocode", "terra")], [(g["actor"], g["stage"]) for g in grants]
-        )
+        self.assertEqual([("autocode", "resolve"), ("autocode", "builder")], [(g["actor"], g["stage"]) for g in grants])
         self.assertFalse([g for g in grants if g.get("resolver_route_change")])
         receipts = [row["recovery_novelty"] for row in state["stages"] if row.get("recovery_novelty")]
         self.assertEqual(

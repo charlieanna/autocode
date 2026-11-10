@@ -20,13 +20,13 @@ def legacy_checkpoint(*, scope="operational_exhaustion", origin=None, request=No
     contract.update(approval_status="approved", approval_event=approval)
     state = {
         "status": "PAUSED_RESOLVER",
-        "next_stage": "sol",
+        "next_stage": "tester",
         "goal_contract": contract,
         "current_task": {"id": "task-3", "kind": "validate"},
         "validation": {"contract_hash": contract["hash"], "source_revision": "rev", "output": "v2"},
-        "findings_ledger": [{"id": "F-1", "source": "sol", "status": "open", "blocking": True}],
+        "findings_ledger": [{"id": "F-1", "source": "tester", "status": "open", "blocking": True}],
         "user_events": [approval],
-        "settings": {"roles": {"sol": {"model": "saved-model"}}, "limits": {"max_seconds": 20}},
+        "settings": {"roles": {"tester": {"model": "saved-model"}}, "limits": {"max_seconds": 20}},
         "automatic_recoveries_since_resume": 2,
         "stages": [],
     }
@@ -44,7 +44,7 @@ def legacy_checkpoint(*, scope="operational_exhaustion", origin=None, request=No
     human.queue(
         state,
         scope,
-        origin or {"stage": "sol", "pause_status": "PAUSED_RESOLVER"},
+        origin or {"stage": "tester", "pause_status": "PAUSED_RESOLVER"},
         request=request
         or {
             "kind": "blocker",
@@ -82,8 +82,8 @@ class ValidationRecovery(unittest.TestCase):
         cases = (
             {"scope": "permission"},
             {"scope": "blocker"},
-            {"origin": {"stage": "terra", "pause_status": "PAUSED_RESOLVER"}},
-            {"origin": {"stage": "sol", "pause_status": "PAUSED_TIME_LIMIT"}},
+            {"origin": {"stage": "builder", "pause_status": "PAUSED_RESOLVER"}},
+            {"origin": {"stage": "tester", "pause_status": "PAUSED_TIME_LIMIT"}},
             *(
                 {"request": {"kind": kind, "finding_ids": ids, "decision_needed": "A different gate"}}
                 for kind, ids in (

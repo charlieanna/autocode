@@ -18,7 +18,7 @@ def _refusal_checks(run):
     reason = ((run or {}).get("view") or {}).get("stop_reason") or ""
     stages = (run or {}).get("model_stages") or []
     return [
-        Check("validator_ran", "sol" in stages, f"stages={stages}"),
+        Check("validator_ran", "tester" in stages, f"stages={stages}"),
         Check(
             "did_not_complete_on_lazy_citations",
             status.startswith(("PAUSED_", "WAITING_FOR_USER", "BLOCKED_")),
@@ -39,7 +39,7 @@ def check(project, scenario, run=None):
 def diagnosis(project, run=None):
     hybrid = "scripted_outputs" in (run or {})
     stages = (run or {}).get("model_stages") or []
-    sol_ran = "sol" in stages
+    sol_ran = "tester" in stages
     checks = [
         *_refusal_checks(run),
         Check("hybrid_route_recorded", hybrid, f"scripted_outputs in run={hybrid}"),

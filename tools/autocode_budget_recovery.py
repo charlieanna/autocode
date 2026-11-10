@@ -78,7 +78,7 @@ def _planning_evidence(state: RunState, planning, stages, clock):
     # is the only additional authority. Independent final review still must run.
     if (
         state["settings"].get("joint_planning") is not True
-        or state.get("next_stage") != "astra_finalize"
+        or state.get("next_stage") != "finalize_plan"
         or planning.get("final_token")
         or planning.get("recovery_review_grants", []) != []
         or type(planning.get("recovery_review_calls_used", 0)) is not int
@@ -115,7 +115,7 @@ def _planning_evidence(state: RunState, planning, stages, clock):
     if not isinstance(reports, dict) or not isinstance(history, list):
         return None
     bound = {}
-    for name in ("astra_discovery", "astra_challenge", "glm_revise"):
+    for name in ("draft_plan", "review_plan", "revise_plan"):
         entry = reports.get(name)
         if (
             not isinstance(entry, dict)
@@ -142,9 +142,9 @@ def _planning_evidence(state: RunState, planning, stages, clock):
             for previous in cycle["reports"].values():
                 if not isinstance(previous, dict) or previous.get("output") == entry["output"]:
                     return None
-    draft_index, draft_row = bound["astra_discovery"]
-    challenge_index, challenge_row = bound["astra_challenge"]
-    revised_index, revised_row = bound["glm_revise"]
+    draft_index, draft_row = bound["draft_plan"]
+    challenge_index, challenge_row = bound["review_plan"]
+    revised_index, revised_row = bound["revise_plan"]
     finished = _timestamp(revised_row.get("finished_at"))
     source = revised_row.get("source_revision")
     if (
@@ -158,10 +158,10 @@ def _planning_evidence(state: RunState, planning, stages, clock):
         or challenge_row.get("source_revision") != source
     ):
         return None
-    draft = reports["astra_discovery"]["report"].get("contract")
-    revised = reports["glm_revise"]["report"].get("contract")
-    concerns = reports["astra_challenge"]["report"].get("concerns")
-    responses = reports["glm_revise"]["report"].get("responses")
+    draft = reports["draft_plan"]["report"].get("contract")
+    revised = reports["revise_plan"]["report"].get("contract")
+    concerns = reports["review_plan"]["report"].get("concerns")
+    responses = reports["revise_plan"]["report"].get("responses")
     if (
         not isinstance(draft, dict)
         or not isinstance(revised, dict)
@@ -489,7 +489,7 @@ def recover(state: RunState, *, kind, now) -> bool:
             for index, row in reversed(list(enumerate(stages))):
                 finished = _timestamp(row.get("finished_at"))
                 if (
-                    row.get("stage") == "sol"
+                    row.get("stage") == "tester"
                     and row.get("output") == validation["output"]
                     and row.get("source_revision") == validation.get("source_revision")
                     and finished is not None

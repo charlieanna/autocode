@@ -1577,7 +1577,7 @@ class CoordinationTests(unittest.TestCase):
 
     def test_changed_profile_is_rejected_and_export_does_not_copy_approvals_or_sessions(self):
         settings = {
-            "roles": {"terra": {"model": "selected", "effort": "high"}},
+            "roles": {"builder": {"model": "selected", "effort": "high"}},
             "engine": "codex",
             "limits": {"max_seconds": 90, "max_cost_usd": 2},
         }
@@ -1596,7 +1596,11 @@ class CoordinationTests(unittest.TestCase):
     def test_new_related_runs_use_standard_planning_even_from_a_legacy_profile(self):
         for flow in (None, "standard", "legacy"):
             with self.subTest(flow=flow):
-                settings = {"roles": {"terra": {"model": "selected"}}, "engine": "codex", "limits": {"max_cost_usd": 2}}
+                settings = {
+                    "roles": {"builder": {"model": "selected"}},
+                    "engine": "codex",
+                    "limits": {"max_cost_usd": 2},
+                }
                 if flow:
                     settings["implementation_flow"] = flow
                 exported = profiles.project({"settings": settings})

@@ -54,7 +54,7 @@ class AcceptReviewedSourceTests(unittest.TestCase):
         self.state = {
             "workspace": str(self.root),
             "run_dir": str(self.run),
-            "settings": {"roles": {"terra": {"model_pinned": True}}},
+            "settings": {"roles": {"builder": {"model_pinned": True}}},
             "goal_contract": {
                 "task_id": "approved-job",
                 "hash": "h",
@@ -68,7 +68,7 @@ class AcceptReviewedSourceTests(unittest.TestCase):
                 "acceptance_criteria": ["C1"],
                 "affected_paths": ["app.py"],
             },
-            "stages": [{"stage": "sol", "output": str(self.validator), "events": str(self.events)}],
+            "stages": [{"stage": "tester", "output": str(self.validator), "events": str(self.events)}],
             "validation": {
                 "task_id": "T1",
                 "output": str(self.validator),
@@ -76,7 +76,7 @@ class AcceptReviewedSourceTests(unittest.TestCase):
                 "checks": [{"command": "python -m unittest test_app", "exit_code": 1, "evidence_ref": "event:check"}],
             },
         }
-        self.record = {"stage": "astra_review", "output": str(self.output), "source_revision": "s1"}
+        self.record = {"stage": "review_completion", "output": str(self.output), "source_revision": "s1"}
         self.request = {
             "contract_hash": "h",
             "task_id": "T1",
@@ -135,7 +135,7 @@ class AcceptReviewedSourceTests(unittest.TestCase):
 
     def test_a_settings_change_is_refused_and_the_request_stays_bound(self):
         before = copy.deepcopy(self.state)
-        self.state["settings"]["roles"]["terra"]["model"] = "other"
+        self.state["settings"]["roles"]["builder"]["model"] = "other"
         with self.assertRaisesRegex(ValueError, "settings_hash"):
             self.accept()
         self.assertEqual(before["resolution_request"], self.state["resolution_request"])
@@ -192,12 +192,12 @@ class AcceptSourceEditCliTests(unittest.TestCase):
             runner.opencode.DEFAULT_MODELS,
         )
         self.state["settings"] = runner.configure(args, self.state)
-        runner.apply_result(self.state, "astra_plan", self.decision(), {"output": "plan"}, self.root, self.run)
+        runner.apply_result(self.state, "plan_task", self.decision(), {"output": "plan"}, self.root, self.run)
         value = self.decision("REWORK")
         output = self.run / "review.json"
         output.write_text(json.dumps(value))
         record = {"output": str(output), "source_revision": support.snapshot(self.root)["revision"]}
-        runner.apply_result(self.state, "astra_review", value, record, self.root, self.run)
+        runner.apply_result(self.state, "review_completion", value, record, self.root, self.run)
         return support.snapshot(self.root)["revision"]
 
     def test_the_flag_continues_the_resolver_on_the_edited_source(self):
@@ -232,7 +232,7 @@ class AcceptSourceEditCliTests(unittest.TestCase):
 
         code = self.invoke("--resume-paused", "--accept-source-edit", role=admit)
         self.assertEqual(2, code)
-        self.assertEqual({"stage": "astra_resolve", "revision": current, "packet": False}, seen)
+        self.assertEqual({"stage": "resolve", "revision": current, "packet": False}, seen)
         self.assertEqual(current, self.state["resolution_request"]["source_revision"])
         self.assertNotIn("recovery_packet", self.state["resolution_request"])
         self.assertEqual(contract, self.state["goal_contract"])

@@ -68,7 +68,7 @@ class ChangesetBarrierTests(unittest.TestCase):
             "displayed_goal": token,
             "status": "RUNNING",
             "phase": "READY_TO_EXECUTE",
-            "next_stage": "terra",
+            "next_stage": "builder",
         }
 
     def save(self, state):
@@ -271,7 +271,7 @@ class ChangesetBarrierTests(unittest.TestCase):
                     "goal_approval",
                     barrier.reapproval_origin(self.a),
                     status="AWAITING_GOAL_APPROVAL",
-                    next_stage="terra",
+                    next_stage="builder",
                 )
                 self.assertEqual("escalate", human.evaluate(self.a))
                 request = human.current(self.a)
@@ -291,7 +291,7 @@ class ChangesetBarrierTests(unittest.TestCase):
                     "goal_approval",
                     {"stage": "changeset_reapproval"},
                     status="AWAITING_GOAL_APPROVAL",
-                    next_stage="terra",
+                    next_stage="builder",
                 )
                 self.assertEqual("reject", human.evaluate(candidate))
                 self.assertIsNone(human.current(candidate))

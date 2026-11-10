@@ -103,7 +103,7 @@ def enabled(state: RunState):
 
 
 def build_stage(state: RunState):
-    return "orchestrator" if enabled(state) else "terra"
+    return "orchestrator" if enabled(state) else "builder"
 
 
 def valid_path(path):
@@ -386,7 +386,7 @@ def finish_preparation(state: RunState, workspace, run_dir, batch):
             iteration=1,
             status="RUNNING",
             phase="EXECUTING",
-            next_stage="terra",
+            next_stage="builder",
             sessions={},
             stages=[],
             history=[],
@@ -654,7 +654,7 @@ def collect(state: RunState, workspace, run_dir, batch):
         if result.get("status") == builder_policy.SERIAL:
             deferred.append((row, deferred_worker(batch, row)))
             continue
-        stopped = worker_quota.stop(state, row, result, directory)  # quota or a refusal: route-terra (#458, #465)
+        stopped = worker_quota.stop(state, row, result, directory)  # quota or a refusal: route-builder (#458, #465)
         if stopped:
             raise stopped
         if result.get("status") != "BUILT":
@@ -800,7 +800,7 @@ def integrate(state: RunState, workspace, run_dir, batch):
             "next_action": combined["objective"],
             "changed_files": batch["changed_files"],
             "diff_ref": batch["patch"],
-            "next_stage": "sol",
+            "next_stage": "tester",
             "phase": "EXECUTING",
         }
     )
@@ -817,7 +817,9 @@ def integrate(state: RunState, workspace, run_dir, batch):
         "contract_hash": batch["contract_hash"],
     }
     goals.invalidate(state, "Parallel Builders integrated; validate the combined artifact")
-    state["sessions"] = {k: v for k, v in state.get("sessions", {}).items() if k not in ("terra", "sol", "completion")}
+    state["sessions"] = {
+        k: v for k, v in state.get("sessions", {}).items() if k not in ("builder", "tester", "completion")
+    }
     batch.update(status="INTEGRATED", finished_at=s.now())
     state.setdefault("orchestration_history", []).append(copy.deepcopy(batch))
     state.pop("orchestration_batch")
@@ -826,7 +828,7 @@ def integrate(state: RunState, workspace, run_dir, batch):
         state["milestone_progress"].get(f"{batch['contract_hash']}:{t['milestone_id']}", {}).get("seconds", 0)
         for t in tasks
     )
-    progress["seconds_by_role"] = {"terra": progress["seconds"]}
+    progress["seconds_by_role"] = {"builder": progress["seconds"]}
 
 
 def dispatch(state: RunState, workspace, run_dir):
@@ -863,7 +865,7 @@ def dispatch(state: RunState, workspace, run_dir):
         builder_policy.guard(state)
         selected = select(state)
         if not selected:
-            state["next_stage"] = "terra"
+            state["next_stage"] = "builder"
         else:
             batch = prepare(state, workspace, run_dir, selected)
     if batch:
@@ -886,7 +888,7 @@ def dispatch(state: RunState, workspace, run_dir):
             batch.update(status="DEFERRED", finished_at=s.now())
             state.setdefault("orchestration_history", []).append(copy.deepcopy(batch))
             state.pop("orchestration_batch")
-            state["next_stage"] = "terra"
+            state["next_stage"] = "builder"
         else:
             integrate(state, workspace, run_dir, batch)
     record = {
@@ -983,7 +985,7 @@ def member_retry_refusal(state: RunState, selected, *, issued=None):
 
 def request_retry(state: RunState, run_dir, selected, *, issued=None):
     """Explicitly retry a stopped serial milestone or named parallel members."""
-    if state.get("next_stage") == "terra":
+    if state.get("next_stage") == "builder":
         goals.execution_guard(state)
         try:
             from . import autocode_builder_recovery as recovery

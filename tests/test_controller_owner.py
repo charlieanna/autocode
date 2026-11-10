@@ -34,15 +34,15 @@ OPTIONS = (
     "--workflow",
     "build",
     "--joint-planning",
-    "--astra-model",
+    "--task-planner-model",
     "gpt-6-astra",
-    "--terra-model",
+    "--builder-model",
     "gpt-5.6-terra",
-    "--sol-model",
+    "--tester-model",
     "gpt-5.6-sol",
     "--completion-model",
     "gpt-6-astra",
-    "--glm-model",
+    "--planner-model",
     "gpt-5.6-sol",
     "--plan-reviewer-model",
     "gpt-6-astra",
@@ -60,7 +60,7 @@ class OwnerInspectionTests(unittest.TestCase):
             "task": "A task",
             "workspace": str(self.workspace),
             "status": "RUNNING",
-            "next_stage": "astra_discovery",
+            "next_stage": "draft_plan",
             "phase": "DISCOVERING",
             "stages": [],
         }
@@ -84,7 +84,7 @@ class OwnerInspectionTests(unittest.TestCase):
         with util.run_lock(self.run_dir), owners.Owner(self.state, self.run_dir, self.persist) as owner:
             owner.result(0, ready=True)
         self.assertEqual("ready", owners.inspect(self.state, self.run_dir, self.workspace)["kind"])
-        altered = {**self.state, "next_stage": "terra"}
+        altered = {**self.state, "next_stage": "builder"}
         with patch.object(processes, "process_table", return_value={}):
             observed = owners.inspect(altered, self.run_dir, self.workspace)
             self.assertEqual("ended", observed["kind"])
@@ -110,7 +110,7 @@ class OwnerInspectionTests(unittest.TestCase):
             before = (self.run_dir / owners.FILE).read_bytes()
             self.persist(self.run_dir / "stage-result.json", {"stage": "different", "status": "TASK_COMPLETE"})
             self.assertEqual(before, (self.run_dir / owners.FILE).read_bytes())
-            self.state["next_stage"] = "terra"
+            self.state["next_stage"] = "builder"
             self.persist(self.run_dir / "state.json", self.state)
             self.assertEqual(util.digest(self.state), util.read(self.run_dir / owners.FILE)["checkpoint"])
             self.assertNotEqual(before, (self.run_dir / owners.FILE).read_bytes())
@@ -132,7 +132,7 @@ class OwnerInspectionTests(unittest.TestCase):
                 self.assertEqual(owners.STATUS, util.read(self.run_dir / "state.json")["status"])
 
     def test_owner_exit_does_not_replace_retained_attempt_recovery(self):
-        self.state["active_stage"] = {"stage": "terra", "exit_code": 2}
+        self.state["active_stage"] = {"stage": "builder", "exit_code": 2}
         self.persist(self.run_dir / "state.json", self.state)
         with util.run_lock(self.run_dir), owners.Owner(self.state, self.run_dir, self.persist) as owner:
             owner.result(2)
@@ -143,7 +143,7 @@ class OwnerInspectionTests(unittest.TestCase):
         output = self.run_dir / "completed-review.json"
         output.write_text("{}")
         self.state["active_stage"] = {
-            "stage": "astra_challenge",
+            "stage": "review_plan",
             "iteration": 1,
             "output": str(output),
             "finished_at": owners.now(),
@@ -445,7 +445,7 @@ class ControllerExitCliTests(unittest.TestCase):
             def after_save(path, state):
                 result = persist(path, state)
                 if (Path(path).name == 'state.json' and state.get('status') == 'RUNNING'
-                        and state.get('next_stage') == 'astra_discovery'
+                        and state.get('next_stage') == 'draft_plan'
                         and any(row.get('stage') == 'requirements_gather' for row in state.get('stages', []))):
                     os._exit(71)
                 return result
@@ -581,7 +581,7 @@ class ControllerExitCliTests(unittest.TestCase):
         for key in ("active_stage", "active_runner_check"):
             with self.subTest(attempt=key):
                 record = {
-                    "stage": "astra_challenge",
+                    "stage": "review_plan",
                     "iteration": 1,
                     "role": "task_planner",
                     "started_at": "now",
@@ -600,7 +600,7 @@ class ControllerExitCliTests(unittest.TestCase):
                         "iteration": 1,
                         "sessions": {},
                         "stages": [],
-                        "next_stage": "astra_challenge",
+                        "next_stage": "review_plan",
                         key: record,
                     },
                 )

@@ -24,14 +24,14 @@ FILE_SLUGS = {
     "recognize_workflow": "recognize-workflow",
     "collect_design": "design-inventory",
     "requirements_gather": "requirements-gather",
-    "astra_discovery": "discovery",
-    "glm_revise": "requirements-revise",
-    "astra_challenge": "plan-challenge",
-    "astra_finalize": "plan-finalize",
-    "astra_plan": "task-plan",
+    "draft_plan": "discovery",
+    "revise_plan": "requirements-revise",
+    "review_plan": "plan-challenge",
+    "finalize_plan": "plan-finalize",
+    "plan_task": "task-plan",
     "plan_review": "plan-review",
-    "terra": "builder",
-    "sol": "validator",
+    "builder": "builder",
+    "tester": "validator",
     "orchestrator": "orchestrator",
     "review_change": "review-change",
     "review_design": "design-review",
@@ -39,10 +39,10 @@ FILE_SLUGS = {
     "investigate_stuck": "stuck-investigation",
     "investigate_bug": "bug-investigation",
     "answer_question": "analyst",
-    "astra_review": "completion-review",
-    "astra_checkpoint": "completion-checkpoint",
-    "astra_resolve": "resolver",
-    "astra_diagnose": "diagnosis",
+    "review_completion": "completion-review",
+    "review_checkpoint": "completion-checkpoint",
+    "resolve": "resolver",
+    "diagnose": "diagnosis",
     "write_acceptance_tests": "acceptance-tests",
 }
 
@@ -51,7 +51,7 @@ RESERVED_SUFFIXES = (".json", ".jsonl", ".prompt.md")
 
 
 def slug(stage: str) -> str:
-    """File-stem prefix for a stage: 'terra' -> 'builder', 'terra_report_repair' -> 'builder-report-repair'."""
+    """File-stem prefix for a stage: 'builder' -> 'builder', 'builder_report_repair' -> 'builder-report-repair'."""
     repair = str(stage or "").endswith(REPAIR_SUFFIX)
     base = str(stage or "").removesuffix(REPAIR_SUFFIX)
     name = FILE_SLUGS.get(base, base.replace("_", "-"))

@@ -23,8 +23,8 @@ ROUTES = {
 }
 
 # The old route names this runtime no longer runs: a run saved with one is refused at resume
-# (autocode_workflows.retired_stage). Step 2 renamed these; ``terra`` and ``sol`` follow with the stages.
-RETIRED_ROUTES = ("glm", "astra")
+# (autocode_workflows.retired_stage). Steps 2 and 3 renamed them, and the stages with them.
+RETIRED_ROUTES = ("glm", "astra", "terra", "sol")
 
 # Stage code name -> its job name. The v2 planning flow already runs ``plan``, ``plan_review``,
 # ``plan_revise`` and ``plan_finalize``, so the legacy flow's new names do not reuse them.
@@ -34,8 +34,8 @@ STAGES = {
     "glm_revise": "revise_plan",
     "astra_finalize": "finalize_plan",
     "astra_plan": "plan_task",
-    "terra": "build",
-    "sol": "test",
+    "terra": "builder",
+    "sol": "tester",
     "astra_review": "review_completion",
     "astra_checkpoint": "review_checkpoint",
     "astra_resolve": "resolve",
@@ -118,3 +118,20 @@ def renamed_routes(table: dict, where: str) -> dict:
 def file_stem(route: str) -> str:
     """The stem of a route's schema file, which keeps the old name until the files are renamed."""
     return next((old for old in RETIRED_ROUTES if ROUTES[old] == route), route)
+
+
+# The stages that run on the per-task Planner's route: the ones once named ``astra_*``.
+TASK_PLANNER_STAGES = frozenset(new for old, new in STAGES.items() if old.startswith("astra"))
+
+
+def task_planner_stage(stage) -> bool:
+    """Whether ``stage`` (or its report repair) runs on the per-task Planner's route."""
+    return str(stage or "").removesuffix("_report_repair") in TASK_PLANNER_STAGES
+
+
+def stage_route(stage) -> str:
+    """The route a stage record ran on when the record names none, read from the stage's own name."""
+    base = str(stage or "").removesuffix("_report_repair")
+    if base in TASK_PLANNER_STAGES:
+        return "task_planner"
+    return "planner" if base == "revise_plan" else base

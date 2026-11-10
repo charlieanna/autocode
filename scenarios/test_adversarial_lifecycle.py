@@ -30,7 +30,7 @@ class LifecycleAttacks(AdversarialCase):
         )
         self.assertEqual(0, check.returncode, check.stdout + check.stderr)
 
-    def held_builder(self, *, stage="terra", completed_report=False):
+    def held_builder(self, *, stage="builder", completed_report=False):
         self.approve(self.start_to_approval())
         barrier = ProviderBarrier(self.root, stage)
         self.addCleanup(barrier.close)
@@ -104,7 +104,7 @@ class LifecycleAttacks(AdversarialCase):
     def test_control_uninterrupted_run_completes(self):
         self.approve(self.start_to_approval())
         self.assert_completed(self.finish())
-        self.assertEqual(1, len(self.trace("stage_enter", "terra")))
+        self.assertEqual(1, len(self.trace("stage_enter", "builder")))
 
     def test_continue_cannot_bypass_unapproved_plan(self):
         approval = self.start_to_approval()
@@ -145,13 +145,13 @@ class LifecycleAttacks(AdversarialCase):
         self.assertEqual(2, replay.returncode, replay.stdout + replay.stderr)
         self.assertEqual(count, len(self.trace("stage_enter")))
         self.assertTrue(self.status()["done"])
-        self.assertEqual(1, len(self.trace("stage_enter", "terra")))
+        self.assertEqual(1, len(self.trace("stage_enter", "builder")))
 
     def test_concurrent_continue_cannot_start_second_writer(self):
         barrier, controller, _, provider = self.held_builder()
         second = self.invoke(timeout=15)
         self.assertEqual(2, second.returncode, second.stdout + second.stderr)
-        self.assertEqual(1, len(self.trace("stage_enter", "terra")))
+        self.assertEqual(1, len(self.trace("stage_enter", "builder")))
         self.assertTrue(provider.is_running(), "Rejected continuation must leave the legitimate writer alive")
         barrier.release()
         self.assertEqual(0, controller.wait(timeout=45))
@@ -167,10 +167,10 @@ class LifecycleAttacks(AdversarialCase):
         self.assertEqual(2, second.returncode, second.stdout + second.stderr)
         self.assertFalse(self.status()["done"])
         self.assertEqual(
-            1, len(self.trace("stage_enter", "terra")), "An interrupted attempt cannot authorize a competing Builder"
+            1, len(self.trace("stage_enter", "builder")), "An interrupted attempt cannot authorize a competing Builder"
         )
         self.assert_cleaned(provider)
-        self.assertEqual([], self.trace("stage_exit", "terra"), "Cleanup must not finish an interrupted report")
+        self.assertEqual([], self.trace("stage_exit", "builder"), "Cleanup must not finish an interrupted report")
 
     def entered_beyond_requirements(self):
         """Stages entered, but Requirements: it only reads the checkout, so a second run's Requirements may run
@@ -217,7 +217,7 @@ class LifecycleAttacks(AdversarialCase):
             self.driver.run_dir = original
         self.assertEqual(
             2,
-            len(self.trace("stage_enter", "terra")),
+            len(self.trace("stage_enter", "builder")),
             "A new Builder is allowed only after verified cleanup and fresh approval",
         )
 
@@ -245,7 +245,7 @@ class LifecycleAttacks(AdversarialCase):
         # can no longer grow.
         receipt = self.stopped_receipt(cause="owner_lost")
         admitted = (receipt["provider"]["pid"], receipt["provider"]["birth_identity"])
-        entered = self.trace("stage_enter", "terra")
+        entered = self.trace("stage_enter", "builder")
         self.assertIn(
             [(row["pid"], row["birth_identity"]) for row in entered],
             ([], [admitted]),
@@ -257,7 +257,7 @@ class LifecycleAttacks(AdversarialCase):
         second = self.second_run_in_same_checkout()
         self.assertEqual(2, second.returncode, second.stdout + second.stderr)
         self.assertEqual(
-            entered, self.trace("stage_enter", "terra"), "No Builder may launch without fresh approval after cleanup"
+            entered, self.trace("stage_enter", "builder"), "No Builder may launch without fresh approval after cleanup"
         )
         run_lines = [line.removeprefix("Run: ") for line in second.stdout.splitlines() if line.startswith("Run: ")]
         self.assertEqual(1, len(run_lines), second.stdout)
@@ -284,7 +284,7 @@ class LifecycleAttacks(AdversarialCase):
         view = self.status()
         if view["done"]:
             self.assertGreaterEqual(
-                len(self.trace("stage_enter", "terra")),
+                len(self.trace("stage_enter", "builder")),
                 2,
                 "The killed provider produced no code; completion requires a new Builder",
             )
@@ -292,14 +292,14 @@ class LifecycleAttacks(AdversarialCase):
         else:
             self.assertIsNotNone(view["needs"], view)
             self.assertNotEqual("TASK_COMPLETE", view["status"])
-        self.assertEqual(1, len(self.trace("attack_injected", "terra")))
+        self.assertEqual(1, len(self.trace("attack_injected", "builder")))
 
     def test_finished_orphan_report_resumes_without_second_builder(self):
         barrier, controller, parent, provider = self.held_builder(completed_report=True)
         barrier.release()
         completed = barrier.wait()
         self.assertEqual(controller.pid, completed["pid"], "Controller must publish the completed artifact")
-        self.assertEqual(1, len(self.trace("stage_exit", "terra")))
+        self.assertEqual(1, len(self.trace("stage_exit", "builder")))
         # Both are normal endings: the keeper saw the provider exit, or the controller's
         # "finished" notice, sent only after it reaped the provider, reached the keeper first.
         self.stopped_receipt(provider=provider, cause=("provider_stopped", "controller_finished"))
@@ -312,7 +312,7 @@ class LifecycleAttacks(AdversarialCase):
         self.assert_completed(self.status())
         self.assertEqual(
             1,
-            len(self.trace("stage_enter", "terra")),
+            len(self.trace("stage_enter", "builder")),
             "A completed, current orphan report must not repeat implementation",
         )
 
@@ -330,14 +330,14 @@ class LifecycleAttacks(AdversarialCase):
         abandoned = self.invoke("--abandon-stage", attempt)
         self.assertEqual(0, abandoned.returncode, abandoned.stdout + abandoned.stderr)
         self.assertEqual(
-            1, len(self.trace("stage_enter", "terra")), "Abandoning a response must not launch another model"
+            1, len(self.trace("stage_enter", "builder")), "Abandoning a response must not launch another model"
         )
         result = self.invoke("--resume-paused", timeout=45)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assert_completed(self.status())
         self.assertEqual(
             2,
-            len(self.trace("stage_enter", "terra")),
+            len(self.trace("stage_enter", "builder")),
             "Exactly one replacement Builder should follow the killed attempt",
         )
 
@@ -349,7 +349,7 @@ class LifecycleAttacks(AdversarialCase):
         cannot inherit a claim: the attempt is uncertain, the person sets it aside through the
         public `--status`/`--abandon-stage` boundary, and only a fresh Validator may complete the run.
         """
-        _, controller, parent, provider = self.held_builder(stage="sol")
+        _, controller, parent, provider = self.held_builder(stage="tester")
         # The ask that follows names the attempt; read it from the public view, never private state.
         attempt = json.loads(self.invoke("--status").stdout)["attempt_id"]
         self.assertTrue(attempt, "An interrupted Validation must be identifiable for the person to set aside")
@@ -368,10 +368,10 @@ class LifecycleAttacks(AdversarialCase):
                 break
         view = self.finish()
         self.assert_completed(view)
-        self.assertEqual(1, len(self.trace("attack_injected", "sol")), "One injected Validator was the fault")
-        self.assertEqual(1, len(self.trace("stage_enter", "terra")), "Recovery duplicated the Builder")
+        self.assertEqual(1, len(self.trace("attack_injected", "tester")), "One injected Validator was the fault")
+        self.assertEqual(1, len(self.trace("stage_enter", "builder")), "Recovery duplicated the Builder")
         self.assertGreaterEqual(
-            len(self.trace("stage_enter", "sol")), 2, "The delivered code was completed without a Validator"
+            len(self.trace("stage_enter", "tester")), 2, "The delivered code was completed without a Validator"
         )
 
 

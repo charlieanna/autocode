@@ -45,7 +45,7 @@ def completed_gate_repair(state: RunState):
     pins = pending.get("pins") or {}
     if (
         not str(pending.get("error", "")).startswith(ORIGINAL_GATE_FAILED)
-        or original.get("stage") not in ("sol", "astra_checkpoint")
+        or original.get("stage") not in ("tester", "review_checkpoint")
         or original.get("exit_code") != 0
         or not original.get("finished_at")
         or original.get("timed_out")
@@ -96,7 +96,7 @@ def proposal(state: RunState, record):
     if (
         not record
         or state.get("status") not in ("PAUSED_INTERVENTION", "PAUSED_REQUESTED", "PAUSED_INVALID_OUTPUT")
-        or state.get("next_stage") not in ("sol", "astra_checkpoint")
+        or state.get("next_stage") not in ("tester", "review_checkpoint")
         or any(
             state.get(key)
             for key in (

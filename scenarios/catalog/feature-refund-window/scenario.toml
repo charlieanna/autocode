@@ -22,4 +22,4 @@ check = "python3 -m unittest discover -s tests -t ."
 fault = "refund_store_clock"
 
 [run]
-requires_stages = ["astra_resolve"]
+requires_stages = ["resolve"]

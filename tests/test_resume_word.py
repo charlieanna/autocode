@@ -59,7 +59,7 @@ class ResumeWordTests(unittest.TestCase):
         self.state.update(
             status=status,
             phase="PAUSED_OR_BLOCKED",
-            next_stage="astra_review",
+            next_stage="review_completion",
             stop_reason="Completion report could not be produced",
         )
 
@@ -71,14 +71,14 @@ class ResumeWordTests(unittest.TestCase):
             ([], "PAUSED_INVALID_OUTPUT"), (calls, self.state["status"]), "a bare relaunch never acknowledges a pause"
         )
         self.assertEqual(2, self.main("resume", "--no-chat", role=provider))
-        self.assertEqual(["astra_review"], calls, "resume admitted the next stage")
+        self.assertEqual(["review_completion"], calls, "resume admitted the next stage")
         self.assertEqual("PAUSED_TEST_LAUNCH", self.state["status"])
 
     def test_resume_with_the_run_dir_acknowledges_it_too(self):
         self.paused()
         calls, provider = self.provider()
         self.assertEqual(2, self.invoke("resume", "--no-chat", role=provider))
-        self.assertEqual(["astra_review"], calls)
+        self.assertEqual(["review_completion"], calls)
 
     def held_then_resumed(self, status):
         """A plain relaunch launches nothing at ``status``; `autocode resume` admits the next stage."""
@@ -87,7 +87,7 @@ class ResumeWordTests(unittest.TestCase):
         self.assertEqual(2, self.main("--no-chat", role=provider))
         self.assertEqual(([], status), (calls, self.state["status"]), "a bare relaunch only shows the stop")
         self.assertEqual(2, self.main("resume", "--no-chat", role=provider))
-        self.assertEqual(["astra_review"], calls, "resume continues it as --resume-paused does")
+        self.assertEqual(["review_completion"], calls, "resume continues it as --resume-paused does")
 
     # A plain relaunch only shows these and --resume-paused continues them, so the word does too (#412).
     def test_resume_continues_a_resolver_wait(self):

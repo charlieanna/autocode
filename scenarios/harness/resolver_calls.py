@@ -24,7 +24,7 @@ import subprocess
 import tarfile
 from pathlib import Path
 
-STAGE = "astra_resolve"
+STAGE = "resolve"
 REPAIR = STAGE + "_report_repair"
 
 

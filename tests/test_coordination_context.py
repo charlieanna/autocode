@@ -132,7 +132,7 @@ class CoordinationContextTests(unittest.TestCase):
 
     def test_planning_and_report_repair_receive_exact_scope_assignment_without_catalog_rediscovery(self):
         receipt = self.assigned_scope()
-        for stage in ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"):
+        for stage in ("requirements_gather", "draft_plan", "review_plan", "revise_plan", "finalize_plan"):
             with self.subTest(stage=stage):
                 prompt, _ = autoplanner.context(self.state, stage, self.run / "state.json")
                 packets = [json.loads(line) for line in prompt.splitlines() if line.startswith('{"task":')]
@@ -293,12 +293,12 @@ class CoordinationContextTests(unittest.TestCase):
         joint = self.bind_participant("Joint regression (2)", role="joint")
         self.assertIsNone(coordination.context(joint))
         self.assertEqual("ordinary proof rule", coordination.proxy_rule(joint, "ordinary proof rule"))
-        for stage in ("requirements_gather", "astra_discovery", "astra_challenge", "astra_finalize"):
+        for stage in ("requirements_gather", "draft_plan", "review_plan", "finalize_plan"):
             with self.subTest(stage=stage):
                 prompt, _ = autoplanner.context(joint, stage, self.run / "state.json")
                 self.assertNotIn("REAL JOINT PROOF IS NOT A LOCAL PROXY", prompt)
                 self.assertNotIn("coordinated_member", repair.clarification_context(joint, stage))
-        prompt, _ = runtime.context_packet(joint, "terra", self.run / "state.json")
+        prompt, _ = runtime.context_packet(joint, "builder", self.run / "state.json")
         packets = [json.loads(line) for line in prompt.splitlines() if line.startswith('{"task":')]
         self.assertNotIn("coordinated_member", packets[-1])
 
@@ -353,12 +353,12 @@ class CoordinationContextTests(unittest.TestCase):
         self.assertIn("verbatim in required_behaviors/constraints", instruction)
         self.assertIn("do not create separate global coordinator-only", instruction.lower())
         self.assertIn("Observable boundary preservation", instruction)
-        for stage in ("requirements_gather", "astra_discovery", "astra_challenge"):
+        for stage in ("requirements_gather", "draft_plan", "review_plan"):
             with self.subTest(stage=stage):
                 prompt, _ = autoplanner.context(self.state, stage, self.run / "state.json")
                 packets = [json.loads(line) for line in prompt.splitlines() if line.startswith('{"task":')]
                 self.assertEqual(expected, packets[-1]["coordinated_member"])
-        prompt, _ = runtime.context_packet(self.state, "terra", self.run / "state.json")
+        prompt, _ = runtime.context_packet(self.state, "builder", self.run / "state.json")
         packets = [json.loads(line) for line in prompt.splitlines() if line.startswith('{"task":')]
         self.assertEqual(expected, packets[-1]["coordinated_member"])
         repaired = repair.clarification_context(self.state, "requirements_gather")
@@ -377,10 +377,10 @@ class CoordinationContextTests(unittest.TestCase):
             if automatic:
                 self.automatic()
             with self.subTest(automatic=automatic):
-                prompt, _ = autoplanner.context(self.state, "astra_challenge", self.run / "state.json")
+                prompt, _ = autoplanner.context(self.state, "review_plan", self.run / "state.json")
                 self.assertIn("OUT-OF-CHECKOUT PROXY", prompt)
                 self.assertEqual(automatic, "REAL JOINT PROOF IS NOT A LOCAL PROXY" in prompt)
-                repaired = repair.clarification_context(self.state, "astra_finalize")
+                repaired = repair.clarification_context(self.state, "finalize_plan")
                 if automatic:
                     self.assertIn(
                         "REAL JOINT PROOF IS NOT A LOCAL PROXY", repaired["coordinated_member"]["instruction"]

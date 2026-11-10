@@ -338,7 +338,7 @@ class CallerTimeoutTests(unittest.TestCase):
         ):
             with self.assertRaises(runner.support.Paused) as caught:
                 runner.run_role(
-                    role="terra",
+                    role="builder",
                     prompt="controlled complete handoff",
                     sandbox="workspace-write",
                     workspace=self.root,

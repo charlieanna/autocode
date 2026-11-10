@@ -272,7 +272,7 @@ class RequirementsReviewCliTests(unittest.TestCase):
     @staticmethod
     def stages(run):
         """Stages that ran, from their retained artifacts (iterations/NNN/<slug>-NN.jsonl)."""
-        slugs = {"requirements-gather": "requirements_gather", "discovery": "astra_discovery"}
+        slugs = {"requirements-gather": "requirements_gather", "discovery": "draft_plan"}
         found = [
             path.stem.rsplit("-", 1)[0] for path in sorted(Path(run.run_dir).glob("iterations/*/*-[0-9][0-9].jsonl"))
         ]
@@ -283,7 +283,7 @@ class RequirementsReviewCliTests(unittest.TestCase):
         self.assertEqual("answer", need.get("kind"), {key: view.get(key) for key in ("status", "next_stage", "needs")})
         ids = [row["id"] for row in need["questions"]]
         self.assertTrue(ids[-1].startswith(review.PREFIX), ids)
-        self.assertEqual("astra_discovery", view["next_stage"])
+        self.assertEqual("draft_plan", view["next_stage"])
         return need, ids[-1]
 
     def test_without_the_setting_requirements_flow_straight_into_planning(self):
@@ -324,7 +324,7 @@ class RequirementsReviewCliTests(unittest.TestCase):
         view = run.advance_until_input()
         self.assertEqual("approve_plan", (view.get("needs") or {}).get("kind"), view.get("needs"))
         self.assertIn("requirements_gather", self.stages(run))
-        self.assertIn("astra_discovery", self.stages(run))
+        self.assertIn("draft_plan", self.stages(run))
         self.assertFalse(view.get("approved_contract"))
         self.assertFalse(any(path.name.startswith("builder-") for path in run.run_dir.glob("iterations/*/*")))
 
@@ -338,19 +338,19 @@ class RequirementsReviewCliTests(unittest.TestCase):
         self.assertEqual([clarifying.QUESTION_ID], [row["id"] for row in need["questions"]])
         self.assertEqual("Requirements", view["progress"]["stage"])
         self.assertEqual("Waiting for you", view["progress"]["headline"])
-        self.assertNotIn("astra_discovery", self.stages(run))
+        self.assertNotIn("draft_plan", self.stages(run))
         run.answer(clarifying.QUESTION_ID, "Both", resolver_token=need["resolver_token"])
         view = run.advance_until_input()
         self.assertEqual("approve_plan", (view.get("needs") or {}).get("kind"), view.get("needs"))
         stages = self.stages(run)
         self.assertEqual(2, stages.count("requirements_gather"), stages)
-        self.assertIn("astra_discovery", stages)
+        self.assertIn("draft_plan", stages)
 
     def test_plan_releases_the_planner_after_the_user_sees_the_requirements(self):
         run, view = self.start(*JOINT, "--spec-first")
         need, question = self.review_need(view)
         self.assertIn("Here’s what I understand", need["questions"][-1]["question"])
-        self.assertNotIn("astra_discovery", self.stages(run))
+        self.assertNotIn("draft_plan", self.stages(run))
         view = run.answer(question, "plan", resolver_token=need["resolver_token"])
         self.assertEqual("continue", view["needs"]["kind"])
         self.assertIn("--no-chat", view["next_command"], "the client must be able to advance the approved brief")
@@ -358,7 +358,7 @@ class RequirementsReviewCliTests(unittest.TestCase):
         self.assertEqual("approve_plan", (view.get("needs") or {}).get("kind"), view.get("needs"))
         stages = self.stages(run)
         self.assertEqual(1, stages.count("requirements_gather"), stages)
-        self.assertIn("astra_discovery", stages)
+        self.assertIn("draft_plan", stages)
 
     def test_a_correction_runs_requirements_again_and_asks_again(self):
         run, view = self.start(*JOINT, "--spec-first")
@@ -369,7 +369,7 @@ class RequirementsReviewCliTests(unittest.TestCase):
         self.assertNotEqual(question, second)
         stages = self.stages(run)
         self.assertEqual(2, stages.count("requirements_gather"), stages)
-        self.assertNotIn("astra_discovery", stages)
+        self.assertNotIn("draft_plan", stages)
 
     def test_adaptive_planning_does_not_skip_a_spec_first_runs_requirements(self):
         run, view = self.start("--joint-planning", "--spec-first")

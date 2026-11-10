@@ -152,7 +152,7 @@ def main():
     data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
     repair = bool(data.get("report_repair"))
     stage = data["original"]["stage"] if repair else data["stage"]
-    if repair and stage == "astra_discovery" and os.environ["STAGE_REPAIR_CASE"] == "discovery-trailing-comma":
+    if repair and stage == "draft_plan" and os.environ["STAGE_REPAIR_CASE"] == "discovery-trailing-comma":
         text = data["rejected_report"]["content"]
         assert text.endswith(",}")
         value = json.loads(text[:-2] + "}")
@@ -162,7 +162,7 @@ def main():
         print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}))
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
         return 0
-    if repair and stage == "glm_revise" and os.environ["STAGE_REPAIR_CASE"].startswith("empty-planning-repair"):
+    if repair and stage == "revise_plan" and os.environ["STAGE_REPAIR_CASE"].startswith("empty-planning-repair"):
         case = os.environ["STAGE_REPAIR_CASE"]
         previous = traced(stage, True)
         output = Path(sys.argv[sys.argv.index("-o") + 1])
@@ -195,7 +195,7 @@ def main():
         print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}))
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
         return 0
-    if repair and stage == "glm_revise" and os.environ["STAGE_REPAIR_CASE"] == "json-syntax-diagnostic":
+    if repair and stage == "revise_plan" and os.environ["STAGE_REPAIR_CASE"] == "json-syntax-diagnostic":
         source = data["rejected_report"]
         text = source["content"]
         diagnostic = source.get("parse_error")
@@ -219,7 +219,7 @@ def main():
         print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}))
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
         return 0
-    if repair and stage == "sol" and os.environ["STAGE_REPAIR_CASE"] == "criterion-evidence":
+    if repair and stage == "tester" and os.environ["STAGE_REPAIR_CASE"] == "criterion-evidence":
         value = copy.deepcopy(data["rejected_report"]["content"])
         missing = [row for row in value["criterion_results"] if row["status"] == "PASS" and not row["evidence_refs"]]
         for row in missing:
@@ -239,7 +239,7 @@ def main():
         print(json.dumps({"type": "thread.started", "thread_id": session}))
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
         return 0
-    if repair and stage == "astra_discovery" and os.environ["STAGE_REPAIR_CASE"].startswith("discovery-edits"):
+    if repair and stage == "draft_plan" and os.environ["STAGE_REPAIR_CASE"].startswith("discovery-edits"):
         case = os.environ["STAGE_REPAIR_CASE"]
         source = data["rejected_report"]
         text_mode = "-text" in case
@@ -280,7 +280,7 @@ def main():
         print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}))
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
         return 0
-    if repair and stage == "glm_revise" and os.environ["STAGE_REPAIR_CASE"].startswith("bounded-report-edits"):
+    if repair and stage == "revise_plan" and os.environ["STAGE_REPAIR_CASE"].startswith("bounded-report-edits"):
         case = os.environ["STAGE_REPAIR_CASE"]
         operations = [{"op": "remove", "path": ["acceptance_test"], "value_json": "null"}]
         if case.endswith("protected"):
@@ -301,7 +301,7 @@ def main():
         print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}))
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
         return 0
-    if repair and stage == "glm_revise" and os.environ["STAGE_REPAIR_CASE"].startswith("malformed-text-edits"):
+    if repair and stage == "revise_plan" and os.environ["STAGE_REPAIR_CASE"].startswith("malformed-text-edits"):
         case = os.environ["STAGE_REPAIR_CASE"]
         source = data["rejected_report"]
         if not isinstance(source["content"], str):
@@ -366,7 +366,7 @@ def main():
     event_rows = [json.loads(line) for line in stdout.getvalue().splitlines() if line.strip()]
     case = os.environ["STAGE_REPAIR_CASE"]
     row = {"stage": stage, "repair": repair, "error": data.get("error", ""), "output": str(output)}
-    if case == "verification-claims" and stage in ("terra", "sol", "astra_review") and not repair:
+    if case == "verification-claims" and stage in ("builder", "tester", "review_completion") and not repair:
         checks = data["verification_obligations"]["checks"]
         referenced = [check for check in checks if "claim_ref" in check]
         assert referenced, "Expected identity-bound claim references in the actual stage handoff"
@@ -386,15 +386,15 @@ def main():
             assert isinstance(check["commands"], list) and isinstance(check["collection_recipe"], list)
         row["claim_references"] = len(referenced)
         row["verification_obligations"] = len(checks)
-    if stage == "sol" and case == "criterion-evidence":
+    if stage == "tester" and case == "criterion-evidence":
         value["criterion_results"][0]["evidence_refs"] = []
         row["missing_evidence_id"] = value["criterion_results"][0]["id"]
-    if stage == "astra_discovery" and case == "criteria-delta-weakened-proof":
+    if stage == "draft_plan" and case == "criteria-delta-weakened-proof":
         # Mark the draft proof as runner-enforced. A free-form unapproved
         # proposal may legitimately change, so it is not a protected-proof
         # negative control (autocode_contract_revision.draft_proof_corrections).
         value["contract"]["acceptance_criteria"][0]["verification_method"] = "test: test_c1_greeting"
-    if stage == "astra_discovery" and case in (
+    if stage == "draft_plan" and case in (
         "criteria-delta-proof-only",
         "criteria-delta-proof-only-repair",
         "criteria-delta-proof-weakened",
@@ -404,7 +404,7 @@ def main():
             if case == "criteria-delta-proof-weakened"
             else "test: python3 -m unittest -v test_greet.py"
         )
-    if stage == "astra_challenge" and case == "review-policy":
+    if stage == "review_plan" and case == "review-policy":
         # Follow the actual active writer commands, rather than returning PASS
         # regardless of the instructions. Contextual audit rules are data.
         active = prompt.split("CURRENT HANDOFF DATA\n", 1)[0]
@@ -416,7 +416,7 @@ def main():
         row["active_contract_commands"] = [field for field, command in commands.items() if command in active]
         for field in row["active_contract_commands"]:
             value[field] = {} if field == "contract" else []
-    if stage == "glm_revise" and case.startswith("revision-reference"):
+    if stage == "revise_plan" and case.startswith("revision-reference"):
         if repair:
             value = copy.deepcopy(data["rejected_report"]["content"])
             value["summary"] = "Addressed concern with exact inherited obligations"
@@ -454,7 +454,7 @@ def main():
             }
         row["revision_reference"] = copy.deepcopy(value["contract"])
         row["reference_instruction"] = "REVISE ONLY CHANGED FIELDS" in prompt
-    if stage == "glm_revise" and case == "batched-protected-diagnostics":
+    if stage == "revise_plan" and case == "batched-protected-diagnostics":
         exact = "Reject an empty name with nonzero exit status"
         if not repair:
             value["contract"]["important_failure_cases"] = ["Reject empty input with a failing exit code"]
@@ -469,10 +469,10 @@ def main():
                 for item in differences
             ) or exact in data.get("error", ""):
                 value["contract"]["important_failure_cases"] = [exact]
-    if stage == "glm_revise" and case == "revision-concerns":
+    if stage == "revise_plan" and case == "revision-concerns":
         if repair:
             value = copy.deepcopy(data["rejected_report"]["content"])
-            review = (data.get("planning_exchange") or {}).get("astra_challenge") or {}
+            review = (data.get("planning_exchange") or {}).get("review_plan") or {}
             concerns = (review.get("report") or {}).get("concerns", [])
             value["responses"] = [
                 {
@@ -515,7 +515,7 @@ def main():
                 for key in ("criterion", "verification_method", "human_review"):
                     item[key] = copy.deepcopy(old[item["id"]].get(key, False))
     if (
-        stage == "glm_revise"
+        stage == "revise_plan"
         and case == "unchanged-rewording"
         and (repair or any(event.get("kind") == "goal_approval" for event in data.get("user_events", [])))
     ):
@@ -535,7 +535,7 @@ def main():
                 }
             ]
         row["spurious_rewording"] = True
-    elif stage == "glm_revise" and case.startswith("criteria-delta"):
+    elif stage == "revise_plan" and case.startswith("criteria-delta"):
         if repair:
             value = copy.deepcopy(data["rejected_report"]["content"])
             value["summary"] = "Added whitespace case without retranscribing retained criteria"
@@ -581,7 +581,7 @@ def main():
             if not repair:
                 row["criteria_before"] = copy.deepcopy(data["goal_contract"]["body"]["acceptance_criteria"])
         row["criteria_delta"] = copy.deepcopy(delta)
-    elif stage == "glm_revise" and case in ("retained-criteria", "retained-criteria-large"):
+    elif stage == "revise_plan" and case in ("retained-criteria", "retained-criteria-large"):
         if repair:
             token = data.get("retained_contract")
             if not token or "CRITERIA DELTA." not in prompt or "retained_criteria" in data:
@@ -605,7 +605,7 @@ def main():
                 # Stay below the per-artifact 128 KiB bound, while two copies
                 # plus the real repair instructions exceed the handoff bound.
                 value["summary"] += "x" * (129000 - len(json.dumps(value).encode()))
-    elif stage == "astra_finalize" and case == "repair-limit":
+    elif stage == "finalize_plan" and case == "repair-limit":
         # Distinct schema errors keep the consecutive-failure guard from ending
         # this run before its two report-only repair attempts are exhausted.
         value["contract"]["initial_task"] = initial_task(value["contract"])
@@ -618,7 +618,7 @@ def main():
         elif attempt == 1:
             value["decisions"] = "not an array"
         # A wrongly admitted third repair succeeds, exposing an off-by-one gate.
-    elif stage == "astra_finalize" and case == "finalizer":
+    elif stage == "finalize_plan" and case == "finalizer":
         if repair:
             value = repair_finalizer(prompt, data["rejected_report"]["content"])
         else:
@@ -630,13 +630,13 @@ def main():
             if "initial_task" in value
             else "missing"
         )
-    elif case == "oversized" and not repair and stage in ("astra_discovery", "astra_challenge", "glm_revise"):
+    elif case == "oversized" and not repair and stage in ("draft_plan", "review_plan", "revise_plan"):
         value["summary"] += " " + "x" * OVERSIZED_REPORT_PADDING
-    elif stage == "astra_finalize" and case == "oversized":
+    elif stage == "finalize_plan" and case == "oversized":
         # Only the first final review is rejected; a repair of it would be a runner fault.
         if not repair and not traced(stage, False):
             value["contract"].pop("initial_task")
-    elif stage == "astra_finalize" and case == "investigator":
+    elif stage == "finalize_plan" and case == "investigator":
         # A persistent empty concern response is an explicit fixture fault. The
         # Investigator is the behavior under test, and its guidance ends it.
         if "INVESTIGATOR GUIDANCE" not in prompt.split("CURRENT HANDOFF DATA\n", 1)[0]:
@@ -651,7 +651,7 @@ def main():
             source = next(
                 item["output"]
                 for item in reversed(data["recent_stages"])
-                if item["stage"].startswith("astra_finalize") and item.get("rejected")
+                if item["stage"].startswith("finalize_plan") and item.get("rejected")
             )
             value = investigator_report(source)
             # The event is a real, independently observed read, but the job's
@@ -680,27 +680,27 @@ def main():
             probe=value["probe"],
             has_scratch_map=bool((data.get("investigation_context") or {}).get("evidence_files")),
         )
-    if stage == "glm_revise" and case.startswith("bounded-report-edits") and not repair:
+    if stage == "revise_plan" and case.startswith("bounded-report-edits") and not repair:
         value["acceptance_test"] = "Already covered by the retained criteria"
-    if stage == "astra_discovery" and case.startswith("discovery-edits") and data.get("saved_answers") and not repair:
+    if stage == "draft_plan" and case.startswith("discovery-edits") and data.get("saved_answers") and not repair:
         if "-text" not in case:
             value["contract"]["contract_changes_placeholder"] = None
         row["discovery_fault"] = True
     text = json.dumps(value)
-    if stage == "astra_discovery" and case == "discovery-trailing-comma" and not repair:
+    if stage == "draft_plan" and case == "discovery-trailing-comma" and not repair:
         text = text[:-1] + ",}"
     if row.get("discovery_fault") and "-text" in case:
         assert ', "summary":' in text
         text = text.replace(', "summary":', '"summary":', 1)
-    if stage == "glm_revise" and (case == "json-syntax-diagnostic" or case.startswith("empty-planning-repair")):
+    if stage == "revise_plan" and (case == "json-syntax-diagnostic" or case.startswith("empty-planning-repair")):
         text = json.dumps(value, separators=(",", ":"))
         assert not repair and ',"summary":' in text
         text = text.replace(',"summary":', '"summary":', 1)
-    if stage == "glm_revise" and case.startswith("malformed-text-edits") and not repair:
+    if stage == "revise_plan" and case.startswith("malformed-text-edits") and not repair:
         contract = value.pop("contract")
         value.pop("access_blockers", None)
         text = json.dumps(contract) + "," + json.dumps(value)[1:]
-    if stage == "glm_revise" and case.endswith("original-empty"):
+    if stage == "revise_plan" and case.endswith("original-empty"):
         text = ""
     output.write_text(text)
     append_trace(row)

@@ -46,15 +46,15 @@ def run_state(origin="runner", strong=STRONG):
             "engine": "opencode",
             "builder_retry": retry,
             "roles": {
-                "terra": {"engine": "opencode", "model": "plan/mimo", "reasoning_effort": "high"},
-                "sol": {"engine": "opencode", "model": STRONG, "reasoning_effort": "high"},
+                "builder": {"engine": "opencode", "model": "plan/mimo", "reasoning_effort": "high"},
+                "tester": {"engine": "opencode", "model": STRONG, "reasoning_effort": "high"},
                 "task_planner": {"engine": "opencode", "model": "plan/glm", "reasoning_effort": "high"},
             },
         },
         "goal_contract": {"hash": "approved", "revision": 3},
         "current_task": {"id": "task1", "milestone_id": "M1"},
         "status": "RUNNING",
-        "sessions": {"terra": "builder-session", "sol": "tester-session"},
+        "sessions": {"builder": "builder-session", "tester": "tester-session"},
     }
 
 
@@ -62,7 +62,7 @@ def escalated(origin="runner", strong=STRONG):
     state = run_state(origin, strong)
     assert policy.failure(state, "e1", "failure") == "retry"
     assert policy.failure(state, "e2", "failure") == "escalate"
-    state["sessions"] = {"terra": "strong-session", "sol": "checker-session"}
+    state["sessions"] = {"builder": "strong-session", "tester": "checker-session"}
     return state
 
 
@@ -82,8 +82,8 @@ class EscalationRoutes(unittest.TestCase):
         state = escalated()
         self.assertEqual(
             [
-                {"terra": ("plan/mimo", "high"), "sol": (STRONG, "high")},
-                {"terra": (STRONG, "xhigh"), "sol": (policy.DEFAULTS["checker_model"], "high")},
+                {"builder": ("plan/mimo", "high"), "tester": (STRONG, "high")},
+                {"builder": (STRONG, "xhigh"), "tester": (policy.DEFAULTS["checker_model"], "high")},
             ],
             policy.escalation_routes(state),
         )
@@ -150,11 +150,11 @@ class Withdraw(unittest.TestCase):
     def test_a_legacy_run_on_the_default_stronger_route_is_autocodes_choice(self):
         state = escalated(None)
         self.assertTrue(self.withdraw(state))
-        self.assertEqual("plan/mimo", state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual("plan/mimo", state["settings"]["roles"]["builder"]["model"])
 
     def test_a_builder_whose_own_route_was_the_stronger_model_is_left_alone(self):
         state = run_state()
-        state["settings"]["roles"]["terra"]["model"] = STRONG
+        state["settings"]["roles"]["builder"]["model"] = STRONG
         state["builder_retries"] = {
             policy.key(state): {"action": "escalate", "failures": ["e"], "initial_route": {"model": STRONG}}
         }
@@ -177,8 +177,8 @@ class HeldRepair(unittest.TestCase):
         state = escalated()
         on_strong = recovery._binding(state, "rev")
         undone = copy.deepcopy(state)
-        undone["settings"]["roles"]["terra"].update(model="plan/mimo", reasoning_effort="high")
-        undone["settings"]["roles"]["sol"].update(model=STRONG, reasoning_effort="high")
+        undone["settings"]["roles"]["builder"].update(model="plan/mimo", reasoning_effort="high")
+        undone["settings"]["roles"]["tester"].update(model=STRONG, reasoning_effort="high")
         self.assertNotEqual(on_strong, recovery._binding(undone, "rev"))
         self.assertTrue(recovery._holds(on_strong, undone, "rev"))
         self.assertTrue(recovery._holds(recovery._binding(undone, "rev"), state, "rev"))
@@ -187,14 +187,14 @@ class HeldRepair(unittest.TestCase):
         state = escalated()
         saved = recovery._binding(state, "rev")
         for terra, sol in (("plan/other", "high"), ("plan/mimo", "xhigh")):
-            with self.subTest(terra=terra, sol=sol):
+            with self.subTest(builder=terra, tester=sol):
                 moved = copy.deepcopy(state)
-                moved["settings"]["roles"]["terra"].update(model=terra, reasoning_effort="high")
-                moved["settings"]["roles"]["sol"].update(model=STRONG, reasoning_effort=sol)
+                moved["settings"]["roles"]["builder"].update(model=terra, reasoning_effort="high")
+                moved["settings"]["roles"]["tester"].update(model=STRONG, reasoning_effort=sol)
                 self.assertFalse(recovery._holds(saved, moved, "rev"))
         # Half the lane's route (the Builder put back, its checker not) is not one of its routes.
         half = copy.deepcopy(state)
-        half["settings"]["roles"]["terra"].update(model="plan/mimo", reasoning_effort="high")
+        half["settings"]["roles"]["builder"].update(model="plan/mimo", reasoning_effort="high")
         self.assertFalse(recovery._holds(saved, half, "rev"))
 
 
@@ -225,7 +225,7 @@ class Preflight(unittest.TestCase):
                 "config_sha256": "a" * 64,
             }
         }
-        state["next_stage"] = "terra"
+        state["next_stage"] = "builder"
 
         def execute(**kwargs):
             kwargs["directory"].mkdir(parents=True, exist_ok=True)
@@ -270,7 +270,7 @@ class Preflight(unittest.TestCase):
         with self.assertRaises(support.Paused) as caught:
             self.check(state, self.events())
         self.assertEqual("PAUSED_AUTH", caught.exception.status)
-        self.assertEqual(STRONG, state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual(STRONG, state["settings"]["roles"]["builder"]["model"])
 
 
 if __name__ == "__main__":

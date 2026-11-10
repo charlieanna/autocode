@@ -93,7 +93,7 @@ class History:
                     "settings": {},
                     "iteration": 1,
                     "phase": "BUILDING",
-                    "next_stage": "terra",
+                    "next_stage": "builder",
                     "stop_reason": "paused on request",
                     "stages": [],
                     "turns": [],

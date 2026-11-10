@@ -25,7 +25,7 @@ def approved_run(workspace, **extra):
     contract = {"task_id": "run-task", "revision": 1, "body": body()}
     contract["hash"] = util.digest(contract)
     approval = {"kind": "goal_approval", "actor": "user_cli", "token": identity.token(contract), "at": util.now()}
-    contract.update(approval_status="approved", approval_event=approval, origin="astra_discovery")
+    contract.update(approval_status="approved", approval_event=approval, origin="draft_plan")
     return {
         "version": 3,
         "task_id": "run-task",
@@ -111,7 +111,7 @@ class SpendCarriesOver(unittest.TestCase):
     TOKENS = {"input_tokens": 1000, "output_tokens": 200}
 
     def stage(self, model="gpt-5.6-terra", tokens=None):
-        return {"stage": "terra", "model": model, "metrics": {"provider_tokens": tokens or self.TOKENS}}
+        return {"stage": "builder", "model": model, "metrics": {"provider_tokens": tokens or self.TOKENS}}
 
     def test_a_restore_keeps_counting_what_the_original_spent(self):
         original = approved_run(PROJECT, stages=[self.stage()], settings={"limits": {"max_cost_usd": 5}})

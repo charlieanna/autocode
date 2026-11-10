@@ -67,7 +67,7 @@ class PlanningCalls:
         stage = stage or state.get("next_stage")
         if state.get("current_task") is not None:
             if (
-                stage not in ("terra", "sol", "astra_review", "astra_resolve")
+                stage not in ("builder", "tester", "review_completion", "resolve")
                 or report_only
                 or state.get("pending_report_repair")
                 or any(
@@ -85,7 +85,7 @@ class PlanningCalls:
                     "PAUSED_VISUAL_EVIDENCE", "Native task is outside the same-owner reviewed execution path"
                 )
             current = self.snapshot(state)
-            if stage == "terra":
+            if stage == "builder":
                 if allow_write is False or cast(dict, state["current_task"]).get("kind") != "implement":
                     raise util.Paused(
                         "PAUSED_VISUAL_EVIDENCE", "Original Builder must use its exact writable task route"
@@ -94,9 +94,9 @@ class PlanningCalls:
                 return
             if allow_write:
                 raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Readonly review cannot borrow writer permission")
-            if stage in ("astra_review", "astra_resolve"):
+            if stage in ("review_completion", "resolve"):
                 self.review_proof(state, current)
-                if stage == "astra_resolve":
+                if stage == "resolve":
                     self.context.factory.require_resolver_request(state, snapshot=current)
                 return
             binding = self.context.factory.protection.readonly_task_authority(state, snapshot=current)["binding"]
@@ -219,7 +219,7 @@ class PlanningCalls:
 
     def dispatch_guard(self, state: RunState, stage, ordinary_guard):
         """Thread the original typed first-writer scope into existing guards."""
-        if stage != "terra":
+        if stage != "builder":
             return ordinary_guard(state, stage)
         current = self.snapshot(state)
         proof = self.context.factory.first_writer_proof(state, snapshot=current)
@@ -245,8 +245,8 @@ class PlanningCalls:
         boundary = worker_context["tool_containment"]
         if (
             report_only
-            or record.get("stage") != "terra"
-            or record.get("role") != "terra"
+            or record.get("stage") != "builder"
+            or record.get("role") != "builder"
             or boundary.get("allow_write") is not True
         ):
             return None
@@ -346,19 +346,19 @@ class PlanningCalls:
             self.repair_pending(state, state.get("next_stage"))  # Only a plain resume of the bounded repair.
         if state.get("current_task") is not None:
             stage = state.get("next_stage")
-            if stage not in ("terra", "sol", "astra_review", "astra_resolve"):
+            if stage not in ("builder", "tester", "review_completion", "resolve"):
                 raise util.Paused(
                     "PAUSED_VISUAL_EVIDENCE",
                     "Only the same-owner Builder, Tester, Completion and Resolver path is enabled",
                 )
             current = self.snapshot(state)
-            if stage == "terra":
+            if stage == "builder":
                 if cast(dict, state["current_task"]).get("kind") != "implement":
                     raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Readonly task cannot resume as Builder")
                 self.context.factory.first_writer_proof(state, snapshot=current)
-            elif stage in ("astra_review", "astra_resolve"):
+            elif stage in ("review_completion", "resolve"):
                 self.review_proof(state, current)
-                if stage == "astra_resolve":
+                if stage == "resolve":
                     self.context.factory.require_resolver_request(state, snapshot=current)
             else:
                 self.context.factory.protection.readonly_task_authority(state, snapshot=current)
@@ -387,7 +387,7 @@ class PlanningCalls:
     def verification_execution(self, state: RunState, record):
         self.sink.require_ready()
         self.require_initial_input(state)
-        if record.get("stage") != "sol" or record.get("role") != "sol":
+        if record.get("stage") != "tester" or record.get("role") != "tester":
             raise util.Paused(
                 "PAUSED_VISUAL_EVIDENCE", "Native clean replay requires the original independent Sol review"
             )

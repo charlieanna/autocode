@@ -88,7 +88,7 @@ except ImportError:
 SOURCE = "runner"
 # The dispatches the candidate is judged before: the Tester and the Completion Reviewer (the checkpoint
 # stage is either, autocode_roles). The Builder's own dispatch is not one; its handoff names the scope.
-STAGES = ("sol", "astra_checkpoint", "astra_review")
+STAGES = ("tester", "review_checkpoint", "review_completion")
 
 
 def context(settings) -> dict | None:

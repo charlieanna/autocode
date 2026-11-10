@@ -114,7 +114,7 @@ def show(client, summary):
         if identity not in client.seen:
             client.seen.add(identity)
             stage = (
-                "astra_finalize"
+                "finalize_plan"
                 if (row.get("context") or {}).get("kind") == "coordinated_plan"
                 else "requirements_gather"
             )

@@ -42,8 +42,8 @@ class ActivityRuntimeTests(unittest.TestCase):
         values = dict(
             engine="codex",
             task_planner_model=None,
-            terra_model=None,
-            sol_model=None,
+            builder_model=None,
+            tester_model=None,
             reasoning_effort=None,
             headroom=None,
             context_soft_tokens=None,
@@ -62,7 +62,7 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.approve()
         self.state["settings"]["milestone_checkpoints"] = copy.deepcopy(milestones.DEFAULTS)
         lifecycle.assign_task(self.state, self.decision(), support.snapshot(self.root))
-        self.state.update(next_stage="terra", status="RUNNING", phase="EXECUTING")
+        self.state.update(next_stage="builder", status="RUNNING", phase="EXECUTING")
 
     def invoke(self, *args):
         output, error = io.StringIO(), io.StringIO()
@@ -158,8 +158,8 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.state["settings"]["limits"]["stage_timeout_seconds"] = 1800
         self.state["active_stage"] = {
             "iteration": 1,
-            "role": "terra",
-            "stage": "terra",
+            "role": "builder",
+            "stage": "builder",
             "output": str(self.run / "iterations/001/terra-01.json"),
             "activity": observed,
         }
@@ -221,7 +221,7 @@ class ActivityRuntimeTests(unittest.TestCase):
                     self.assertRaises(support.Paused) as caught,
                 ):
                     runner.run_role(
-                        role="terra",
+                        role="builder",
                         prompt="Finish the bounded greeting task",
                         sandbox="workspace-write",
                         workspace=self.root,
@@ -313,7 +313,7 @@ class ActivityRuntimeTests(unittest.TestCase):
             self.assertRaises(support.Paused) as caught,
         ):
             runner.run_role(
-                role="terra",
+                role="builder",
                 prompt="Finish the bounded greeting task",
                 sandbox="workspace-write",
                 workspace=self.root,
@@ -373,7 +373,7 @@ class ActivityRuntimeTests(unittest.TestCase):
 
         with patch.object(runner.idle_policy, "effective", spy):
             stalled, _ = self.idle_stop(supervisor_first=False)
-        self.assertEqual([(300, "runner_default", "terra")], seen)
+        self.assertEqual([(300, "runner_default", "builder")], seen)
         self.assertIn("idle=300s/300", stalled)
 
     def interrupted_builder(self, launch):
@@ -388,7 +388,7 @@ class ActivityRuntimeTests(unittest.TestCase):
         ):
             try:
                 runner.run_role(
-                    role="terra",
+                    role="builder",
                     prompt="Finish the bounded greeting task",
                     sandbox="workspace-write",
                     workspace=self.root,
@@ -416,7 +416,7 @@ class ActivityRuntimeTests(unittest.TestCase):
             self.assertRaises(type(error)),
         ):
             runner.run_role(
-                role="terra",
+                role="builder",
                 prompt="Finish the bounded greeting task",
                 sandbox="workspace-write",
                 workspace=self.root,
@@ -447,7 +447,7 @@ class ActivityRuntimeTests(unittest.TestCase):
         error, active = self.interrupted_builder(launch)
         self.assertEqual("PAUSED_INTERRUPTED", error.status)
         self.assertIn("SIGINT", str(error))
-        self.assertEqual("terra", active["stage"], "the admitted attempt stays for inspection")
+        self.assertEqual("builder", active["stage"], "the admitted attempt stays for inspection")
         self.assertTrue(Path(active["events"]).is_file())
 
     def test_a_first_signal_after_the_provider_was_collected_pauses_as_interrupted(self):
@@ -528,8 +528,8 @@ class ActivityRuntimeTests(unittest.TestCase):
         source = self.root / "greet.py"
         source.write_text("print('retained partial greeting')\n")
         record = {
-            "role": "terra",
-            "stage": "terra",
+            "role": "builder",
+            "stage": "builder",
             "iteration": 1,
             "output": str(base.with_suffix(".json")),
             "events": str(base.with_suffix(".jsonl")),
@@ -542,7 +542,7 @@ class ActivityRuntimeTests(unittest.TestCase):
             "timeout_reason": "No meaningful activity for 5 seconds",
         }
         self.state["active_stage"] = record
-        self.state["sessions"]["terra"] = "expired-session"
+        self.state["sessions"]["builder"] = "expired-session"
         return source, record
 
     def test_partial_timeout_archives_once_preserves_work_and_routes_to_astra(self):
@@ -566,9 +566,9 @@ class ActivityRuntimeTests(unittest.TestCase):
             )
         self.assertEqual(original_source, source.read_bytes())
         self.assertEqual(original_goal, self.state["goal_contract"])
-        self.assertEqual("astra_review", self.state["next_stage"])
+        self.assertEqual("review_completion", self.state["next_stage"])
         self.assertNotIn("active_stage", self.state)
-        self.assertNotIn("terra", self.state["sessions"])
+        self.assertNotIn("builder", self.state["sessions"])
         self.assertEqual(1, len(self.state["automatic_timeout_recoveries"]))
         recovery = self.state["recovery_context"]
         self.assertEqual(self.state["current_task"]["id"], recovery["task_id"])
@@ -596,10 +596,10 @@ class ActivityRuntimeTests(unittest.TestCase):
                     self.state, self.run, self.root, support.Paused("PAUSED_PROVIDER_TIMEOUT", "idle")
                 )
             )
-        self.assertEqual("astra_review", self.state["next_stage"])
+        self.assertEqual("review_completion", self.state["next_stage"])
         retained = source.read_bytes()
         with patch.object(runner.regression, "prove", side_effect=AssertionError("Inspect the failed attempt first")):
-            completion_result.before_review(self.state, "astra_review", self.root, self.run)
+            completion_result.before_review(self.state, "review_completion", self.root, self.run)
         self.assertEqual(retained, source.read_bytes())
         self.assertNotIn("regression_proof", self.state)
         self.assertFalse(
@@ -607,7 +607,7 @@ class ActivityRuntimeTests(unittest.TestCase):
         )
         # A later validation launch runs the proof even while the recovery note is still current.
         with patch.object(runner.regression, "prove") as prove:
-            completion_result.before_review(self.state, "sol", self.root, self.run)
+            completion_result.before_review(self.state, "tester", self.root, self.run)
         prove.assert_called_once()
 
     def test_a_timeout_that_exited_0_before_any_session_row_recovers_on_resume(self):
@@ -621,7 +621,7 @@ class ActivityRuntimeTests(unittest.TestCase):
                 Path(record["events"]).write_text("")
                 record.update(exit_code=0, supports_sessions=True, expected_session=saved)
                 if not saved:
-                    self.state["sessions"].pop("terra")
+                    self.state["sessions"].pop("builder")
                 original_source = source.read_bytes()
                 with self.assertRaises(support.Paused) as caught:
                     runner.reconcile_active(self.state, self.run, self.root)
@@ -633,7 +633,7 @@ class ActivityRuntimeTests(unittest.TestCase):
                         runner.automatically_recover_timed_out_stage(self.state, self.run, self.root, caught.exception)
                     )
                 self.assertNotIn("active_stage", self.state)
-                self.assertNotIn("terra", self.state["sessions"])
+                self.assertNotIn("builder", self.state["sessions"])
                 self.assertEqual(original_source, source.read_bytes())
 
     def test_uncertain_recovery_requires_a_durable_timeout_not_just_an_error_label(self):
@@ -655,8 +655,8 @@ class ActivityRuntimeTests(unittest.TestCase):
         )
         decision = self.decision("VALIDATE")
         decision["next_task"]["kind"] = "validate"
-        runner.apply_result(self.state, "astra_review", decision, {"output": "review.json"}, self.root, self.run)
-        self.assertEqual("sol", self.state["next_stage"], "Retained work still needs independent verification")
+        runner.apply_result(self.state, "review_completion", decision, {"output": "review.json"}, self.root, self.run)
+        self.assertEqual("tester", self.state["next_stage"], "Retained work still needs independent verification")
         self.assertFalse(
             completion_gate.completion_ready(self.state, self.decision("TASK_COMPLETE"), support.snapshot(self.root))
         )
@@ -680,7 +680,7 @@ class ActivityRuntimeTests(unittest.TestCase):
         }
         schema = self.run / "terra.schema.json"
         support.atomic_json(
-            schema, goals.role_schema(support.read(runner.SCHEMA_DIR / "v2/terra-report.schema.json"), "terra")
+            schema, goals.role_schema(support.read(runner.SCHEMA_DIR / "v2/terra-report.schema.json"), "builder")
         )
         record["schema"] = str(schema)
         support.atomic_json(Path(record["output"]), report)
@@ -694,9 +694,9 @@ class ActivityRuntimeTests(unittest.TestCase):
             runner.reconcile_active(self.state, self.run, self.root)
             runner.reconcile_active(self.state, self.run, self.root)
         self.assertEqual(original_source, source.read_bytes())
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertNotIn("active_stage", self.state)
-        self.assertEqual(1, sum(row.get("stage") == "terra" for row in self.state["stages"]))
+        self.assertEqual(1, sum(row.get("stage") == "builder" for row in self.state["stages"]))
         self.assertFalse(self.state.get("automatic_timeout_recoveries"))
 
     def test_timeout_does_not_recover_while_a_recorded_worker_is_live(self):
@@ -714,18 +714,18 @@ class ActivityRuntimeTests(unittest.TestCase):
 
     def test_repeated_astra_timeout_recovery_stops_before_another_provider_launch(self):
         self.start_task()
-        self.state["next_stage"] = "astra_review"
+        self.state["next_stage"] = "review_completion"
         for attempt in range(3):
             runner.timeout_recovery_guard(self.state)
             _, record = self.interrupted_attempt()
-            record.update(role="task_planner", stage="astra_review", iteration=attempt + 1)
+            record.update(role="task_planner", stage="review_completion", iteration=attempt + 1)
             self.assertTrue(
                 runner.automatically_recover_timed_out_stage(
                     self.state, self.run, self.root, support.Paused("PAUSED_PROVIDER_TIMEOUT", "idle")
                 )
             )
             self.assertEqual(attempt + 1, self.state["consecutive_timeout_recoveries"])
-            self.assertEqual("astra_review", self.state["next_stage"])
+            self.assertEqual("review_completion", self.state["next_stage"])
         with (
             patch.object(runner.subprocess, "Popen", side_effect=AssertionError("Recovery budget must stop launch")),
             self.assertRaises(support.Paused) as caught,
@@ -753,7 +753,7 @@ class ActivityRuntimeTests(unittest.TestCase):
 
     def stalled_tester(self, iteration):
         _, record = self.interrupted_attempt()
-        record.update(role="sol", stage="sol", iteration=iteration)
+        record.update(role="tester", stage="tester", iteration=iteration)
         return runner.automatically_recover_timed_out_stage(
             self.state, self.run, self.root, support.Paused("PAUSED_PROVIDER_TIMEOUT", "idle")
         )
@@ -764,7 +764,7 @@ class ActivityRuntimeTests(unittest.TestCase):
         events.write_text('{"type":"turn.completed"}\n')
         self.state["stages"].append(
             {
-                "role": "task_planner" if stage == "astra_review" else "sol",
+                "role": "task_planner" if stage == "review_completion" else "tester",
                 "stage": stage,
                 "output": str(self.run / f"{name}.json"),
                 "events": str(events),
@@ -777,7 +777,7 @@ class ActivityRuntimeTests(unittest.TestCase):
 
     def test_only_the_investigator_of_an_exhausted_recovery_budget_passes_its_guard(self):
         state = test_stuck_job.state_for(
-            next_stage="astra_review", automatic_recoveries_since_resume=3, consecutive_timeout_recoveries=3
+            next_stage="review_completion", automatic_recoveries_since_resume=3, consecutive_timeout_recoveries=3
         )
         with self.assertRaises(support.Paused) as stopped:
             runner.timeout_recovery_guard(state)
@@ -790,7 +790,7 @@ class ActivityRuntimeTests(unittest.TestCase):
             other["stuck_investigation"].update(change)
             with self.subTest(change=change), self.assertRaises(support.Paused):
                 runner.timeout_recovery_guard(other)
-        other = {**copy.deepcopy(state), "next_stage": "astra_review"}
+        other = {**copy.deepcopy(state), "next_stage": "review_completion"}
         with self.assertRaises(support.Paused):
             runner.timeout_recovery_guard(other)
 
@@ -798,33 +798,33 @@ class ActivityRuntimeTests(unittest.TestCase):
         # 2026-11-06 live run: each stalled Tester was re-issued by a Completion Reviewer whose valid
         # report ended the failure streak, so six Testers stalled and none reached the Investigator.
         self.start_task()
-        self.state["next_stage"] = "sol"
+        self.state["next_stage"] = "tester"
         self.assertTrue(self.stalled_tester(1))
         self.assertEqual("RUNNING", self.state["status"])
-        self.saved_report("astra_review", "completion-review-01")
+        self.saved_report("review_completion", "completion-review-01")
         self.assertEqual(0, self.state["consecutive_timeout_recoveries"])
-        self.state["next_stage"] = "sol"
+        self.state["next_stage"] = "tester"
         self.assertTrue(self.stalled_tester(2))
         self.assertEqual("PAUSED_REPEATED_FAILURE", self.state["status"])
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertIn("Tester stopped 2 times on unchanged source", self.state["stop_reason"])
         self.assertIn("idle timeout", self.state["stop_reason"])
         self.assertEqual("PAUSED_REPEATED_FAILURE", support.read(self.run / "state.json")["status"])
         # The pause is one the Investigator takes before anyone is asked.
         self.assertTrue(stuck_job.intercept(self.state, self.state["status"], self.state["stop_reason"]))
         self.assertEqual("investigate_stuck", self.state["next_stage"])
-        self.assertEqual("sol", self.state["stuck_investigation"]["stage"])
+        self.assertEqual("tester", self.state["stuck_investigation"]["stage"])
 
     def test_a_valid_tester_report_or_changed_source_starts_the_stall_count_again(self):
         self.start_task()
-        self.state["next_stage"] = "sol"
+        self.state["next_stage"] = "tester"
         self.assertTrue(self.stalled_tester(1))
-        self.saved_report("sol", "validator-01")
-        self.state["next_stage"] = "sol"
+        self.saved_report("tester", "validator-01")
+        self.state["next_stage"] = "tester"
         self.assertTrue(self.stalled_tester(2))
         self.assertEqual("RUNNING", self.state["status"])
         (self.root / "other.py").write_text("print('changed by a Builder')\n")
-        self.state["next_stage"] = "sol"
+        self.state["next_stage"] = "tester"
         self.assertTrue(self.stalled_tester(3))
         self.assertEqual("RUNNING", self.state["status"])
         self.assertEqual(3, len(self.state["automatic_timeout_recoveries"]))
@@ -832,19 +832,19 @@ class ActivityRuntimeTests(unittest.TestCase):
     def completion_review_timeout(self):
         """A stopped non-terminal Completion Review over a source the Validator already passed."""
         self.start_task()
-        self.state["next_stage"] = "astra_review"
+        self.state["next_stage"] = "review_completion"
         _, record = self.interrupted_attempt()
         # The retained edit belongs to the earlier Builder attempt: this review writes nothing, so
         # its own before/after snapshots are the same source.
         support.atomic_json(Path(record["before_ref"]), support.snapshot(self.root))
         evidence = self.run / "tester-evidence.txt"
         evidence.write_text("Executed the approved checks.\n")
-        record.update(role="task_planner", stage="astra_review", original_stage="astra_review")
-        self.state["sessions"].pop("terra", None)
+        record.update(role="task_planner", stage="review_completion", original_stage="review_completion")
+        self.state["sessions"].pop("builder", None)
         self.state["sessions"]["task_planner"] = "expired-session"
         self.state["validation"] = {
             "verdict": "PASS",
-            "reviewer_role": "sol",
+            "reviewer_role": "tester",
             "source_revision": support.snapshot(self.root)["revision"],
             "criteria_revision": self.state["criteria_revision"],
             "contract_revision": self.state["goal_contract"]["revision"],
@@ -864,10 +864,10 @@ class ActivityRuntimeTests(unittest.TestCase):
     def tester_timeout(self, *, changed_source=False):
         self.start_task()
         _, record = self.interrupted_attempt()
-        record.update(role="sol", stage="sol", original_stage="sol")
-        self.state["next_stage"] = "sol"
-        self.state["sessions"].pop("terra")
-        self.state["sessions"]["sol"] = "expired-session"
+        record.update(role="tester", stage="tester", original_stage="tester")
+        self.state["next_stage"] = "tester"
+        self.state["sessions"].pop("builder")
+        self.state["sessions"]["tester"] = "expired-session"
         if not changed_source:
             support.atomic_json(Path(record["before_ref"]), support.snapshot(self.root))
 
@@ -877,18 +877,18 @@ class ActivityRuntimeTests(unittest.TestCase):
         with patch.object(runner, "run_role", side_effect=AssertionError("Recovery must not run a provider")):
             self.assertTrue(self.timed_out_review(self.state))
         saved = support.read(self.run / "state.json")
-        self.assertEqual("sol", saved["next_stage"])
+        self.assertEqual("tester", saved["next_stage"])
         self.assertEqual(original_task, saved["current_task"])
         self.assertNotIn("validation", saved)
-        self.assertNotIn("sol", saved["sessions"])
+        self.assertNotIn("tester", saved["sessions"])
         self.assertEqual(1, len(saved["automatic_timeout_recoveries"]))
         self.assertIn("no accepted Tester report", saved["recovery_context"]["instruction"])
-        self.assertTrue(any(row.get("abandoned") and row["stage"] == "sol" for row in saved["stages"]))
+        self.assertTrue(any(row.get("abandoned") and row["stage"] == "tester" for row in saved["stages"]))
 
     def test_tester_timeout_with_source_changes_keeps_the_recovery_review(self):
         self.tester_timeout(changed_source=True)
         self.assertTrue(self.timed_out_review(self.state))
-        self.assertEqual("astra_review", self.state["next_stage"])
+        self.assertEqual("review_completion", self.state["next_stage"])
         self.assertEqual(["greet.py"], self.state["recovery_context"]["changed_files"])
 
     def test_completion_review_timeout_keeps_current_validation_and_retries_completion(self):
@@ -902,18 +902,18 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertEqual({"C1": "accepted"}, self.state["human_reviews"])
         self.assertEqual("review-token", self.state["displayed_review"])
         self.assertFalse(self.state.get("validation_archive"))
-        self.assertEqual("astra_review", self.state["next_stage"])
+        self.assertEqual("review_completion", self.state["next_stage"])
         self.assertEqual(1, len(self.state["automatic_timeout_recoveries"]))
         self.assertEqual(original, support.read(self.run / "state.json")["validation"])
 
     def test_completion_review_timeout_revalidates_when_the_evidence_no_longer_binds(self):
         for binding, expected in (
-            ("source", "sol"),
-            ("contract", "sol"),
-            ("criteria", "sol"),
-            ("task", "sol"),
-            ("pin", "sol"),
-            ("absent", "astra_review"),
+            ("source", "tester"),
+            ("contract", "tester"),
+            ("criteria", "tester"),
+            ("task", "tester"),
+            ("pin", "tester"),
+            ("absent", "review_completion"),
         ):
             with self.subTest(binding=binding):
                 record, evidence = self.completion_review_timeout()
@@ -933,7 +933,9 @@ class ActivityRuntimeTests(unittest.TestCase):
                 with patch.object(runner, "run_role", side_effect=AssertionError("Recovery must not replay a verdict")):
                     self.assertTrue(self.timed_out_review(self.state))
                 if binding == "absent":
-                    self.assertEqual("astra_review", self.state["next_stage"], "Nothing was retired to route around")
+                    self.assertEqual(
+                        "review_completion", self.state["next_stage"], "Nothing was retired to route around"
+                    )
                     continue
                 archived = self.state["validation_archive"][-1]
                 self.assertEqual("Timed-out implementation automatically archived", archived["reason"])
@@ -946,9 +948,9 @@ class ActivityRuntimeTests(unittest.TestCase):
         # The retry must ask the reviewer that this routing uses for independent verification, and a
         # final-audit-only run has no separate Validator: its own audit stage re-produces the evidence.
         for mode, policy, expected in (
-            (None, None, "sol"),
-            (runner.workflow.MODE, runner.workflow.APPROVAL_TEXT, "astra_checkpoint"),
-            (runner.workflow.FINAL_MODE, runner.workflow.FINAL_APPROVAL, "astra_review"),
+            (None, None, "tester"),
+            (runner.workflow.MODE, runner.workflow.APPROVAL_TEXT, "review_checkpoint"),
+            (runner.workflow.FINAL_MODE, runner.workflow.FINAL_APPROVAL, "review_completion"),
         ):
             with self.subTest(mode=mode):
                 self.completion_review_timeout()
@@ -979,7 +981,7 @@ class ActivityRuntimeTests(unittest.TestCase):
         evidence.write_text("Executed the approved checks.\n")
         self.state["validation"] = {
             "verdict": "PASS",
-            "reviewer_role": "sol",
+            "reviewer_role": "tester",
             "source_revision": support.snapshot(self.root)["revision"],
             "criteria_revision": self.state["criteria_revision"],
             "contract_revision": self.state["goal_contract"]["revision"],
@@ -997,7 +999,7 @@ class ActivityRuntimeTests(unittest.TestCase):
             self.assertTrue(self.timed_out_review(self.state))
         self.assertNotIn("validation", self.state)
         self.assertEqual({}, self.state["human_reviews"])
-        self.assertEqual("astra_review", self.state["next_stage"])
+        self.assertEqual("review_completion", self.state["next_stage"])
 
     def test_only_an_accepted_result_resets_consecutive_timeout_recoveries(self):
         self.start_task()
@@ -1016,8 +1018,8 @@ class ActivityRuntimeTests(unittest.TestCase):
             "evidence_refs": [str(evidence)],
         }
         record = {
-            "role": "terra",
-            "stage": "terra",
+            "role": "builder",
+            "stage": "builder",
             "events": str(events),
             "output": str(self.run / "completed-terra.json"),
             "schema": str(self.run / "terra.schema.json"),
@@ -1029,12 +1031,14 @@ class ActivityRuntimeTests(unittest.TestCase):
             "finished_at": support.now(),
         }
         with self.assertRaises(support.Paused) as caught:
-            runner.apply_result(self.state, "terra", {**report, "contract_hash": "stale"}, record, self.root, self.run)
+            runner.apply_result(
+                self.state, "builder", {**report, "contract_hash": "stale"}, record, self.root, self.run
+            )
         self.assertEqual("PAUSED_STALE_GOAL", caught.exception.status)
         self.assertEqual(2, self.state["consecutive_timeout_recoveries"])
-        runner.apply_result(self.state, "terra", report, record, self.root, self.run)
+        runner.apply_result(self.state, "builder", report, record, self.root, self.run)
         self.assertEqual(0, self.state.get("consecutive_timeout_recoveries", 0))
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
 
     def test_zero_no_progress_budget_does_not_disable_aggregate_recovery_ceiling(self):
         self.state["settings"]["limits"]["no_progress_batches"] = 0
@@ -1089,10 +1093,10 @@ class ActivityRuntimeTests(unittest.TestCase):
 
     def test_explicit_resume_reopens_recovery_budget_without_erasing_history(self):
         self.start_task()
-        history = [{"attempt_id": f"001/astra_review-{n:02d}", "timeout_kind": "idle"} for n in range(1, 4)]
+        history = [{"attempt_id": f"001/review_completion-{n:02d}", "timeout_kind": "idle"} for n in range(1, 4)]
         self.state.update(
             status="PAUSED_TIMEOUT_RECOVERY",
-            next_stage="astra_review",
+            next_stage="review_completion",
             consecutive_timeout_recoveries=3,
             no_progress_batches=3,
             automatic_timeout_recoveries=copy.deepcopy(history),
@@ -1137,10 +1141,10 @@ class ActivityRuntimeTests(unittest.TestCase):
     def real_terra(self):
         schema = self.run / "fixture-terra.schema.json"
         support.atomic_json(
-            schema, goals.role_schema(support.read(runner.SCHEMA_DIR / "v2/terra-report.schema.json"), "terra")
+            schema, goals.role_schema(support.read(runner.SCHEMA_DIR / "v2/terra-report.schema.json"), "builder")
         )
         return runner.run_role(
-            role="terra",
+            role="builder",
             prompt="Complete the greeting fixture",
             sandbox="workspace-write",
             workspace=self.root,
@@ -1198,8 +1202,8 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertEqual(0, command["exit_code"])
         self.assertEqual("Hello, fixture\n", command["aggregated_output"])
         self.assertEqual([], runner.processes.live_processes(record.get("processes", [])))
-        runner.apply_result(self.state, "terra", value, record, self.root, self.run)
-        self.assertEqual("sol", self.state["next_stage"])
+        runner.apply_result(self.state, "builder", value, record, self.root, self.run)
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertEqual("Hello, fixture", (self.root / "greet.py").read_text().split("'")[1])
         self.assertNotIn("active_stage", self.state)
 
@@ -1237,7 +1241,7 @@ class ActivityRuntimeTests(unittest.TestCase):
             runner.automatically_recover_timed_out_stage(self.state, self.run, self.root, caught.exception)
         )
         self.assertEqual(original, source.read_bytes())
-        self.assertEqual("astra_review", self.state["next_stage"])
+        self.assertEqual("review_completion", self.state["next_stage"])
         self.assertEqual(1, len(self.state["automatic_timeout_recoveries"]))
         archived = [row for row in self.state["stages"] if not row.get("runner_owned")][-1]
         self.assertEqual("idle", archived["timeout_kind"])

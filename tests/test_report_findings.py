@@ -23,8 +23,8 @@ def disposition(fid="F-1", *, action="resolved", evidence="event:check"):
     return {"id": fid, "disposition": action, "evidence": evidence}
 
 
-def report(*rows, source="sol", outcome=None):
-    field, default = ("verdict", "PASS") if source == "sol" else ("status", "COMPLETE")
+def report(*rows, source="tester", outcome=None):
+    field, default = ("verdict", "PASS") if source == "tester" else ("status", "COMPLETE")
     return {
         field: default if outcome is None else outcome,
         "finding_dispositions": list(rows),
@@ -34,7 +34,11 @@ def report(*rows, source="sol", outcome=None):
 
 class PreservedDispositionsTests(unittest.TestCase):
     def test_citation_repair_retains_exact_dispositions_without_mutating_inputs(self):
-        for stage, source in (("sol", "sol"), ("astra_review", "task_planner"), ("astra_plan", "task_planner")):
+        for stage, source in (
+            ("tester", "tester"),
+            ("review_completion", "task_planner"),
+            ("plan_task", "task_planner"),
+        ):
             with self.subTest(stage=stage):
                 record = {"stage": stage, "exit_code": 0, "rejected": True}
                 original = report(disposition(), disposition("F-2", action="retracted"), source=source)
@@ -57,20 +61,20 @@ class PreservedDispositionsTests(unittest.TestCase):
             with self.subTest(change=change):
                 changed = {**disposition(), **change}
                 self.assertEqual(
-                    {}, preserved_dispositions({"stage": "sol", "exit_code": 0}, original, report(changed))
+                    {}, preserved_dispositions({"stage": "tester", "exit_code": 0}, original, report(changed))
                 )
         kept = preserved_dispositions(
-            {"stage": "sol", "exit_code": 0}, original, report(disposition(), disposition("F-new"))
+            {"stage": "tester", "exit_code": 0}, original, report(disposition(), disposition("F-new"))
         )
-        self.assertEqual({"sol": [disposition()]}, kept)
+        self.assertEqual({"tester": [disposition()]}, kept)
 
     def test_checkpoint_preserves_each_reviewers_rows_without_crossing_sources(self):
         original = {
             "validation": report(disposition("F-sol")),
             "decision": report(disposition("F-astra", action="retracted"), source="task_planner"),
         }
-        record = {"stage": "astra_checkpoint", "exit_code": 0}
-        expected = {"sol": [disposition("F-sol")], "task_planner": [disposition("F-astra", action="retracted")]}
+        record = {"stage": "review_checkpoint", "exit_code": 0}
+        expected = {"tester": [disposition("F-sol")], "task_planner": [disposition("F-astra", action="retracted")]}
         self.assertEqual(expected, preserved_dispositions(record, original, copy.deepcopy(original)))
         swapped = {"validation": original["decision"], "decision": original["validation"]}
         self.assertEqual({}, preserved_dispositions(record, original, swapped))
@@ -79,9 +83,9 @@ class PreservedDispositionsTests(unittest.TestCase):
 
     def test_blocked_missing_or_unknown_original_outcome_cannot_gain_authority(self):
         for stage, source, field in (
-            ("sol", "sol", "verdict"),
-            ("astra_review", "task_planner", "status"),
-            ("astra_plan", "task_planner", "status"),
+            ("tester", "tester", "verdict"),
+            ("review_completion", "task_planner", "status"),
+            ("plan_task", "task_planner", "status"),
         ):
             record = {"stage": stage, "exit_code": 0}
             repaired = report(disposition(), source=source)
@@ -96,8 +100,8 @@ class PreservedDispositionsTests(unittest.TestCase):
 
     def test_recognized_original_outcomes_retain_existing_dispositions(self):
         for source, stage, outcomes in (
-            ("sol", "sol", ("PASS", "FAIL")),
-            ("task_planner", "astra_review", ("CONTINUE", "REWORK", "COMPLETE", "TASK_COMPLETE")),
+            ("tester", "tester", ("PASS", "FAIL")),
+            ("task_planner", "review_completion", ("CONTINUE", "REWORK", "COMPLETE", "TASK_COMPLETE")),
         ):
             for outcome in outcomes:
                 with self.subTest(source=source, outcome=outcome):
@@ -108,14 +112,14 @@ class PreservedDispositionsTests(unittest.TestCase):
                     )
 
     def test_checkpoint_outcome_authority_is_separate_for_each_reviewer(self):
-        record = {"stage": "astra_checkpoint", "exit_code": 0}
+        record = {"stage": "review_checkpoint", "exit_code": 0}
         valid = {
             "validation": report(disposition("F-sol")),
             "decision": report(disposition("F-astra"), source="task_planner"),
         }
         for blocked_source, section, field, retained_source, retained_id in (
-            ("sol", "validation", "verdict", "task_planner", "F-astra"),
-            ("task_planner", "decision", "status", "sol", "F-sol"),
+            ("tester", "validation", "verdict", "task_planner", "F-astra"),
+            ("task_planner", "decision", "status", "tester", "F-sol"),
         ):
             for outcome in ("BLOCKED", "UNKNOWN", None):
                 with self.subTest(source=blocked_source, outcome=outcome):
@@ -130,10 +134,10 @@ class PreservedDispositionsTests(unittest.TestCase):
 
     def test_incomplete_stopped_or_already_repaired_original_cannot_authorize(self):
         original = report(disposition())
-        record = {"stage": "sol", "exit_code": 0}
+        record = {"stage": "tester", "exit_code": 0}
         for change in (
-            {"stage": "terra"},
-            {"stage": "sol_report_repair"},
+            {"stage": "builder"},
+            {"stage": "tester_report_repair"},
             {"exit_code": 1},
             {"exit_code": None},
             {"exit_code": False},
@@ -162,7 +166,7 @@ class PreservedDispositionsTests(unittest.TestCase):
                 self.assertEqual({}, preserved_dispositions(record, extracted, original))
 
     def test_malformed_or_duplicate_ids_fail_closed_for_original_and_repair(self):
-        record = {"stage": "sol", "exit_code": 0}
+        record = {"stage": "tester", "exit_code": 0}
         good = report(disposition())
         bad_reports = [
             report(disposition(), disposition()),
@@ -180,7 +184,7 @@ class PreservedDispositionsTests(unittest.TestCase):
                 self.assertEqual({}, preserved_dispositions(record, good, bad))
 
     def test_absent_dispositions_do_not_gain_authority_from_a_repair(self):
-        record = {"stage": "sol", "exit_code": 0}
+        record = {"stage": "tester", "exit_code": 0}
         self.assertEqual({}, preserved_dispositions(record, {"verdict": "PASS"}, report(disposition())))
         self.assertEqual({}, preserved_dispositions(record, report(disposition()), {"verdict": "PASS"}))
 
@@ -188,7 +192,7 @@ class PreservedDispositionsTests(unittest.TestCase):
 class UnretainedDispositionTests(unittest.TestCase):
     """#459: a refused repair names the row and what differs, but is still refused."""
 
-    SOL = {"stage": "sol", "exit_code": 0}
+    SOL = {"stage": "tester", "exit_code": 0}
 
     def test_retained_grants_exactly_the_preserved_rows(self):
         original = report(disposition(), disposition("F-2", action="retracted"))
@@ -204,8 +208,8 @@ class UnretainedDispositionTests(unittest.TestCase):
             (self.SOL, None, original),
             ({**self.SOL, "report_repaired": True}, original, original),
             (self.SOL, report(disposition(), disposition()), report(disposition())),
-            ({"stage": "astra_checkpoint", "exit_code": 0}, checkpoint, copy.deepcopy(checkpoint)),
-            ({"stage": "terra", "exit_code": 0}, original, original),
+            ({"stage": "review_checkpoint", "exit_code": 0}, checkpoint, copy.deepcopy(checkpoint)),
+            ({"stage": "builder", "exit_code": 0}, original, original),
         ]
         for record, before, after in cases:
             with self.subTest(record=record, before=before, after=after):
@@ -236,17 +240,19 @@ class UnretainedDispositionTests(unittest.TestCase):
         ):
             with self.subTest(row=repaired_row):
                 fields = retained(self.SOL, original, report(repaired_row))
-                self.assertEqual({"sol": {repaired_row["id"]: why}}, fields["unretained_finding_dispositions"])
+                self.assertEqual({"tester": {repaired_row["id"]: why}}, fields["unretained_finding_dispositions"])
         # A kept row is not explained; only the new one is.
         fields = retained(self.SOL, original, report(disposition(), disposition("F-new")))
-        self.assertEqual({"sol": [disposition()]}, fields["preserved_finding_dispositions"])
-        self.assertEqual({"sol": {"F-new": "is not in the original review"}}, fields["unretained_finding_dispositions"])
+        self.assertEqual({"tester": [disposition()]}, fields["preserved_finding_dispositions"])
+        self.assertEqual(
+            {"tester": {"F-new": "is not in the original review"}}, fields["unretained_finding_dispositions"]
+        )
         # An exact row lost only because another repaired row is malformed is not told it cannot be kept.
         fields = retained(self.SOL, original, report(disposition(), {"id": "F-2", "disposition": "resolved"}))
         self.assertEqual({}, fields["preserved_finding_dispositions"])
         self.assertEqual(
             {"F-1": MALFORMED_ELSEWHERE, "F-2": "is not in the original review"},
-            fields["unretained_finding_dispositions"]["sol"],
+            fields["unretained_finding_dispositions"]["tester"],
         )
 
     def test_a_row_without_authority_says_it_cannot_be_kept_even_when_edited(self):
@@ -272,11 +278,11 @@ class UnretainedDispositionTests(unittest.TestCase):
                 with self.subTest(record=record, before=before, repaired=repaired):
                     fid = repaired["finding_dispositions"][0]["id"]
                     self.assertEqual(
-                        {"sol": {fid: UNAUTHORIZED}},
+                        {"tester": {fid: UNAUTHORIZED}},
                         retained(record, before, repaired)["unretained_finding_dispositions"],
                     )
         self.assertEqual(
-            {}, retained({"stage": "terra", "exit_code": 0}, exact, exact)["unretained_finding_dispositions"]
+            {}, retained({"stage": "builder", "exit_code": 0}, exact, exact)["unretained_finding_dispositions"]
         )
 
     def test_checkpoint_explains_each_reviewer_separately(self):
@@ -286,20 +292,20 @@ class UnretainedDispositionTests(unittest.TestCase):
         }
         repaired = copy.deepcopy(original)
         repaired["validation"]["finding_dispositions"][0]["evidence"] = "receipt.json"
-        fields = retained({"stage": "astra_checkpoint", "exit_code": 0}, original, repaired)
+        fields = retained({"stage": "review_checkpoint", "exit_code": 0}, original, repaired)
         self.assertEqual({"task_planner": [disposition("F-astra")]}, fields["preserved_finding_dispositions"])
         self.assertEqual(
-            {"sol": {"F-sol": "changed its evidence from the original review's row"}},
+            {"tester": {"F-sol": "changed its evidence from the original review's row"}},
             fields["unretained_finding_dispositions"],
         )
         # A blocked reviewer authorizes nothing; the other reviewer's difference is still named.
         original["decision"]["status"] = "BLOCKED"
         repaired["decision"]["finding_dispositions"][0]["evidence"] = "receipt.json"
-        fields = retained({"stage": "astra_checkpoint", "exit_code": 0}, original, repaired)
+        fields = retained({"stage": "review_checkpoint", "exit_code": 0}, original, repaired)
         self.assertEqual({}, fields["preserved_finding_dispositions"])
         self.assertEqual(
             {
-                "sol": {"F-sol": "changed its evidence from the original review's row"},
+                "tester": {"F-sol": "changed its evidence from the original review's row"},
                 "task_planner": {"F-astra": UNAUTHORIZED},
             },
             fields["unretained_finding_dispositions"],
@@ -308,10 +314,10 @@ class UnretainedDispositionTests(unittest.TestCase):
     def test_refusal_names_each_row_and_falls_back_without_an_explanation(self):
         record = {
             "unretained_finding_dispositions": {
-                "sol": {"F-1": "changed its evidence", "F-2": "is not in the original review"}
+                "tester": {"F-1": "changed its evidence", "F-2": "is not in the original review"}
             }
         }
-        message = refusal("sol", ["F-1"], record)
+        message = refusal("tester", ["F-1"], record)
         self.assertTrue(
             message.startswith(
                 "A report-only repair cannot close findings: sol finding_dispositions row F-1 changed its evidence. "
@@ -322,13 +328,13 @@ class UnretainedDispositionTests(unittest.TestCase):
         self.assertIn(
             "A report-only repair cannot close findings: sol finding_dispositions row F-1 changed its "
             "evidence; sol finding_dispositions row F-2 is not in the original review. ",
-            refusal("sol", ["F-1", "F-2", "F-1"], record),
+            refusal("tester", ["F-1", "F-2", "F-1"], record),
         )
         self.assertIn(
             "astra finding_dispositions row F-1 is not an exact row of the original completed review",
             refusal("task_planner", ["F-1"], record),
         )
-        self.assertIn("row F-2 is not an exact row", refusal("sol", ["F-2"], {}))
+        self.assertIn("row F-2 is not an exact row", refusal("tester", ["F-2"], {}))
 
     def test_the_ledger_still_refuses_a_changed_row_and_names_it(self):
         state = {}
@@ -395,7 +401,7 @@ class UnretainedDispositionTests(unittest.TestCase):
         message = str(caught.exception)
         for fid in (first, third):
             self.assertIn(
-                f"sol finding_dispositions row {fid} changed its evidence from the original review's row", message
+                f"tester finding_dispositions row {fid} changed its evidence from the original review's row", message
             )
         self.assertNotIn(second, message)
         self.assertNotIn("F-closed", message)
@@ -421,7 +427,7 @@ class OriginalReportExtractionTests(unittest.TestCase):
             before = path.read_bytes()
             self.assertEqual(
                 {"report": value, "extraction_error": None},
-                original_report_for_repair({"stage": "sol", "output": str(path)}),
+                original_report_for_repair({"stage": "tester", "output": str(path)}),
             )
             self.assertEqual(before, path.read_bytes())
             path.write_text("{invalid")

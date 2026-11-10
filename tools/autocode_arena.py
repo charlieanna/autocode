@@ -229,16 +229,21 @@ EFFORT_FLAGS = (
     "resolver-reasoning-effort",
     "investigator-reasoning-effort",
 )
-PIN_ROLES = ("task_planner", "terra", "sol", "completion")
+PIN_ROLES = ("task_planner", "builder", "tester", "completion")
+
+
+def _dest(name: str) -> str:
+    """The runner's destination for a flag: its job-named spelling (``terra-model`` -> ``builder_model``)."""
+    return names.flag("--" + name).removeprefix("--").replace("-", "_")
 
 
 def runner_options(options) -> argparse.Namespace:
     """Check the runner options an attempt forwards; ArenaError for an unsupported flag or value."""
     config = argparse.ArgumentParser(add_help=False, allow_abbrev=False, exit_on_error=False)
     for name in RUNNER_VALUES:
-        config.add_argument(*names.spellings("--" + name), dest=name.replace("-", "_"))
+        config.add_argument(*names.spellings("--" + name), dest=_dest(name))
     for name in EFFORT_FLAGS:
-        config.add_argument(*names.spellings("--" + name), dest=name.replace("-", "_"), choices=EFFORTS)
+        config.add_argument(*names.spellings("--" + name), dest=_dest(name), choices=EFFORTS)
     # An old route name (astra) names its renamed route, as the runner's own flag takes it.
     config.add_argument("--pin-model-role", action="append", type=names.current_route, choices=PIN_ROLES)
     config.add_argument("--joint-planning", action="store_true")

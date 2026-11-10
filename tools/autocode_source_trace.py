@@ -64,7 +64,7 @@ except ImportError:
 
 KEY = "source_trace"
 TRACE_VERSION = 1
-REVIEW_STAGES = frozenset({"astra_challenge", "astra_finalize", "plan_finalize"})
+REVIEW_STAGES = frozenset({"review_plan", "finalize_plan", "plan_finalize"})
 WRAPPER_KEYS = {"version", "out_of_scope", "negation_waivers", "review"}
 REVIEW_KEYS = {"stage", "events", "events_sha256", "output", "output_sha256", "trace_sha256"}
 
@@ -603,7 +603,7 @@ def prepare(state: RunState, body, origin, record=None):
     if supplied is None and previous is not None:
         result[KEY] = previous
         return result
-    if origin in {"astra_finalize", "plan_finalize", "adaptive_review_approval"}:
+    if origin in {"finalize_plan", "plan_finalize", "adaptive_review_approval"}:
         if supplied is not None and (record or {}).get("stage") != supplied["review"]["stage"]:
             raise ValueError("Source-trace observations do not belong to this Plan Reviewer execution")
         return result

@@ -18,7 +18,7 @@ data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
 repair = bool(data.get("report_repair"))
 stage = data["original"]["stage"] if repair else data["stage"]
 output = Path(sys.argv[sys.argv.index("-o") + 1])
-if repair and stage == "sol":
+if repair and stage == "tester":
     source = data["rejected_report"]
     report = source["content"]
     with Path(os.environ["FORMATTING_REPAIR_TRACE"]).open("a") as stream:
@@ -34,7 +34,7 @@ else:
     except SystemExit as error:
         if error.code not in (None, 0):
             raise
-    if stage == "sol" and not repair:
+    if stage == "tester" and not repair:
         report = json.loads(output.read_text())
         report["extraneous_field"] = [{"line": i, "reason": "retained"} for i in range(2200)]
         output.write_text(json.dumps(report, indent=2))

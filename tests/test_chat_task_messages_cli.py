@@ -30,7 +30,7 @@ class TaskMessageScreenTests(unittest.TestCase):
         amendment = textwrap.dedent(f"""
             with Path({str(calls)!r}).open('a') as log:
                 log.write(stage + (' conversation' if data.get('message') else '') + '\\n')
-            if stage == 'astra_discovery' and not Path({str(ready)!r}).exists():
+            if stage == 'draft_plan' and not Path({str(ready)!r}).exists():
                 Path({str(ready)!r}).write_text('ready')
                 with Path({str(gate)!r}).open() as signal:
                     signal.read()
@@ -153,7 +153,7 @@ with ChatTUI() as ui:
             screen.keys("C-d")
             self.assertEqual(0, screen.exit_status(15))
         events = calls.read_text().splitlines()
-        self.assertEqual(1, events.count("astra_discovery"), events)
+        self.assertEqual(1, events.count("draft_plan"), events)
         self.assertEqual(1, events.count("requirements_gather conversation"), events)
-        self.assertNotIn("terra", events)
+        self.assertNotIn("builder", events)
         self.assertEqual("approve_plan", peer.status()["needs"]["kind"])

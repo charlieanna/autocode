@@ -19,8 +19,8 @@ import autocode_run_view as run_view
 
 class RecoveryViewTests(unittest.TestCase):
     def test_paused_discussion_explains_queued_requirements_handoff_without_resuming(self):
-        state = self.state("PAUSED_INTERVENTION", next_stage="astra_discovery", goal_contract={})
-        state["workflow"] = {"kind": "discuss", "then": "astra_discovery"}
+        state = self.state("PAUSED_INTERVENTION", next_stage="draft_plan", goal_contract={})
+        state["workflow"] = {"kind": "discuss", "then": "draft_plan"}
         state["settings"]["spec_first"] = True
         state["pause_intent"] = {"request_ids": ["pause-1"], "acknowledged_at": None}
         state["user_events"] = [{"kind": "run_message", "id": "run-message-1", "text": "Please fix it.", "live": True}]
@@ -125,11 +125,11 @@ class RecoveryViewTests(unittest.TestCase):
         return {
             "status": status,
             "iteration": 4,
-            "next_stage": "terra",
+            "next_stage": "builder",
             "current_task": {"id": "t", "milestone_id": "M1", "kind": "implement"},
             "settings": {
                 "builder_retry": {"enabled": True},
-                "roles": {"terra": {"model": "p/builder", "reasoning_effort": "high", "model_pinned": True}},
+                "roles": {"builder": {"model": "p/builder", "reasoning_effort": "high", "model_pinned": True}},
             },
             "goal_contract": {"hash": "approved", "revision": 1},
             "stages": [],
@@ -198,7 +198,7 @@ class RecoveryViewTests(unittest.TestCase):
                 self.assertTrue(
                     {"feedback", "decision", "new_conversation"} & {row["kind"] for row in result["actions"]}
                 )
-                self.assertNotIn("terra", result["what_happened"])
+                self.assertNotIn("builder", result["what_happened"])
                 self.assertEqual(before, state)
         for status in recovery.ACTIVE:
             self.assertIsNone(self.card(self.state(status)))
@@ -214,7 +214,7 @@ class RecoveryViewTests(unittest.TestCase):
             ("status", "RUNNING"),
             ("iteration", 5),
             ("current_task", {"id": "different"}),
-            ("settings", {"roles": {"terra": {"model": "other"}}}),
+            ("settings", {"roles": {"builder": {"model": "other"}}}),
             ("goal_contract", {"hash": "new"}),
             ("stages", [{"finished_at": "now"}]),
             ("user_events", [{"kind": "feedback"}]),
@@ -239,9 +239,9 @@ class RecoveryViewTests(unittest.TestCase):
         self.assertNotIn("stronger", action["effect"])
         self.assertEqual(before, state)
         for field, value in [
-            ("active_stage", {"stage": "terra"}),
+            ("active_stage", {"stage": "builder"}),
             ("active_runner_check", {"stage": "regression_proof"}),
-            ("pending_report_repair", {"stage": "terra"}),
+            ("pending_report_repair", {"stage": "builder"}),
             ("parent_run", "/parent"),
         ]:
             with self.subTest(field=field):
@@ -286,7 +286,7 @@ class RecoveryViewTests(unittest.TestCase):
             ),
             ("PAUSED_REQUESTED", {"active_runner_check": {"stage": "regression_proof"}}),
             ("PAUSED_REQUESTED", {"uncertain_artifacts": ["partial.py"]}),
-            ("PAUSED_REQUESTED", {"pending_report_repair": {"original": {"stage": "sol"}}}),
+            ("PAUSED_REQUESTED", {"pending_report_repair": {"original": {"stage": "tester"}}}),
             ("PAUSED_INTERVENTION", {"applied_interventions": [{"kind": "stop"}]}),
         ):
             with self.subTest(status=status, fields=fields):
@@ -296,7 +296,7 @@ class RecoveryViewTests(unittest.TestCase):
     def test_interruption_is_exact_abandon_without_resume_and_missing_attempt_has_no_guess(self):
         state = self.state(
             "PAUSED_PROVIDER_UNCERTAIN",
-            active_stage={"iteration": 4, "stage": "terra", "output": "/run/iterations/004/builder-02.json"},
+            active_stage={"iteration": 4, "stage": "builder", "output": "/run/iterations/004/builder-02.json"},
         )
         actions = self.card(state)["actions"]
         selected = next(row for row in actions if row["kind"] == "abandon")
@@ -310,7 +310,7 @@ class RecoveryViewTests(unittest.TestCase):
         state = self.state(
             "PAUSED_BUDGET",
             stop_reason="Quota restored; inspect the uncertain attempt.",
-            active_stage={"iteration": 4, "stage": "terra", "output": "/run/iterations/004/builder-02.json"},
+            active_stage={"iteration": 4, "stage": "builder", "output": "/run/iterations/004/builder-02.json"},
             failure_history={"quota": {"count": 1, "attempts": ["004/builder-02"]}},
         )
         before = copy.deepcopy(state)
@@ -326,7 +326,7 @@ class RecoveryViewTests(unittest.TestCase):
     def test_quota_abandonment_requires_matching_public_need_and_saved_attempt(self):
         state = self.state(
             "PAUSED_BUDGET",
-            active_stage={"iteration": 4, "stage": "terra", "output": "/run/iterations/004/builder-02.json"},
+            active_stage={"iteration": 4, "stage": "builder", "output": "/run/iterations/004/builder-02.json"},
         )
         for need in (
             {"kind": "resume"},
@@ -354,7 +354,7 @@ class RecoveryViewTests(unittest.TestCase):
                 )
 
     def test_quota_recovery_preserves_decision_source_stop_and_report_precedence(self):
-        active = {"iteration": 4, "stage": "terra", "output": "/run/iterations/004/builder-02.json"}
+        active = {"iteration": 4, "stage": "builder", "output": "/run/iterations/004/builder-02.json"}
         cases = [
             (
                 "answer",
@@ -408,7 +408,7 @@ class RecoveryViewTests(unittest.TestCase):
             active_stage=active,
             pending_report_repair={
                 "error": "Check is not supported by an exact executed Validator event",
-                "original": {"stage": "sol"},
+                "original": {"stage": "tester"},
                 "attempts": 2,
                 "latest_rejected": {"iteration": 4, "output": "/run/validator-01.json"},
             },
@@ -436,14 +436,14 @@ class RecoveryViewTests(unittest.TestCase):
             "PAUSED_REPEATED_FAILURE",
             failure_history={
                 "a": {
-                    "identity": {"stage": "terra", "artifact_hash": "first"},
+                    "identity": {"stage": "builder", "artifact_hash": "first"},
                     "count": 3,
                     "attempts": ["1", "2", "3"],
                     "last_error": "assertion failed",
                     "last_seen": "2026-10-01",
                 },
                 "b": {
-                    "identity": {"stage": "sol", "artifact_hash": "second"},
+                    "identity": {"stage": "tester", "artifact_hash": "second"},
                     "count": 1,
                     "attempts": ["4"],
                     "last_seen": "2026-10-02",
@@ -528,7 +528,7 @@ class RecoveryViewTests(unittest.TestCase):
                 ],
             )
             # While a question is open it is the next step, and no retry is offered (#465).
-            state["pending_questions"] = [{"id": "route-terra", "question": "Name the model"}]
+            state["pending_questions"] = [{"id": "route-builder", "question": "Name the model"}]
             self.assertFalse(any(row["kind"] == "retry_builder" for row in self.card(state)["actions"]))
 
     def test_job_report_and_dependency_actions_are_specific(self):
@@ -560,7 +560,7 @@ class RecoveryViewTests(unittest.TestCase):
         )
         interrupted = self.state(
             "PAUSED_PROVIDER_UNCERTAIN",
-            active_stage={"iteration": 4, "stage": "terra", "output": "/run/iterations/004/builder-02.json"},
+            active_stage={"iteration": 4, "stage": "builder", "output": "/run/iterations/004/builder-02.json"},
         )
         source_edit = self.state(
             "PAUSED_STALE_HANDOFF",
@@ -675,7 +675,7 @@ class AuthenticationStopTests(unittest.TestCase):
 
     def test_account_access_denial_does_not_claim_expired_credentials_or_grant_retry(self):
         for stage in (
-            {"status": "PAUSED_PROVIDER_UNCERTAIN", "active_stage": {"stage": "glm_revise"}},
+            {"status": "PAUSED_PROVIDER_UNCERTAIN", "active_stage": {"stage": "revise_plan"}},
             {"status": "PAUSED_AUTH"},
         ):
             with self.subTest(stage=stage):

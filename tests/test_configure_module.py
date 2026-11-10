@@ -109,8 +109,8 @@ class ConfigureModuleSurfaceTests(unittest.TestCase):
         self.assertEqual(
             {
                 "task_planner": "gpt-5.6-sol",
-                "terra": "gpt-5.6-terra",
-                "sol": "gpt-5.6-sol",
+                "builder": "gpt-5.6-terra",
+                "tester": "gpt-5.6-sol",
                 "completion": "gpt-5.6-sol",
             },
             autocode_configure.DEFAULT_ROLE_MODELS,
@@ -360,7 +360,7 @@ class SelectedProviderFacadeTests(unittest.TestCase):
             self.assertEqual("fixturetool", settings["provider"])
             self.assertEqual("fixturetool", settings["transport_identity"]["engine"])
             self.assertEqual("fixture-reviewer", settings["roles"]["task_planner"]["model"])
-            self.assertEqual("fixture-builder", settings["roles"]["terra"]["model"])
+            self.assertEqual("fixture-builder", settings["roles"]["builder"]["model"])
             self.assertEqual("high", settings["roles"]["task_planner"]["reasoning_effort"])
 
     # The regression-proof gate discovers criterion cases as test_ac<id>_*;

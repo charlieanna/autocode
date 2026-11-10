@@ -28,7 +28,7 @@ def event(ident="part-1", session="session-1", **changes):
     }
 
 
-def record(model=GLM, stage="terra", **changes):
+def record(model=GLM, stage="builder", **changes):
     row = {
         "stage": stage,
         "command": ["opencode", "run", "--model", model],
@@ -90,7 +90,7 @@ class CostSemanticsTest(unittest.TestCase):
         self.assertAlmostEqual(0.0028, sum([one] * 1000))
 
     def test_launch_model_beats_current_settings_and_record_label(self):
-        state = {"settings": {"roles": {"terra": {"model": MIMO}}}, "stages": [record(model=GLM)]}
+        state = {"settings": {"roles": {"builder": {"model": MIMO}}}, "stages": [record(model=GLM)]}
         state["stages"][0]["model"] = MIMO
         before = copy.deepcopy(state)
         row = scorer.stage_token_rows(state)[0]
@@ -98,7 +98,10 @@ class CostSemanticsTest(unittest.TestCase):
         self.assertEqual(before, state)
 
     def test_missing_launch_does_not_guess_from_current_settings(self):
-        state = {"settings": {"roles": {"terra": {"model": GLM}}}, "stages": [record(command=["opencode", "--model"])]}
+        state = {
+            "settings": {"roles": {"builder": {"model": GLM}}},
+            "stages": [record(command=["opencode", "--model"])],
+        }
         row = scorer.stage_token_rows(state)[0]
         self.assertEqual("", row["model"])
         self.assertIsNone(row["estimated_usd"])
@@ -207,7 +210,7 @@ class SavedRunTest(unittest.TestCase):
         second = self.log("terra-02.jsonl", [event()])
         self.save(
             {
-                "settings": {"roles": {"terra": {"model": "new-model"}}},
+                "settings": {"roles": {"builder": {"model": "new-model"}}},
                 "stages": [record(events=first), record(model=MIMO, events=second)],
             }
         )
@@ -215,7 +218,7 @@ class SavedRunTest(unittest.TestCase):
         self.assertEqual([GLM, MIMO], [s["model"] for s in samples])
         expected = sum(scorer.estimate_cost(m, event()["part"]["tokens"]) for m in (GLM, MIMO))
         self.assertAlmostEqual(expected, summary["total"]["est_usd"])
-        self.assertEqual(sorted([GLM, MIMO]), summary["per_stage"]["terra"]["models"])
+        self.assertEqual(sorted([GLM, MIMO]), summary["per_stage"]["builder"]["models"])
 
     def test_missing_tokens_and_zero_reported_subscription_cost_stay_unknown(self):
         row = event()
@@ -255,7 +258,7 @@ class SavedRunTest(unittest.TestCase):
         self.save({"stages": [record(events="events/terra-100.jsonl")]})
         samples, _ = sampler.sample_run(self.root)
         self.assertEqual(1, len(samples))
-        self.assertEqual("terra", samples[0]["stage"])
+        self.assertEqual("builder", samples[0]["stage"])
 
     def test_cli_entry_points_emit_unknown_and_leave_saved_run_unchanged(self):
         self.save({"stages": [record(metrics={})]})
@@ -303,8 +306,8 @@ class ModelRoutingTests(unittest.TestCase):
                 run = Path(temp)
                 state = {
                     "status": "RUNNING",
-                    "settings": {"roles": {"terra": {"model": model}, "sol": {"model": "openai/gpt-6-sol"}}},
-                    "stages": [{"stage": "terra", "command": ["opencode", "run", "--model", model]}],
+                    "settings": {"roles": {"builder": {"model": model}, "tester": {"model": "openai/gpt-6-sol"}}},
+                    "stages": [{"stage": "builder", "command": ["opencode", "run", "--model", model]}],
                 }
                 (run / "state.json").write_text(json.dumps(state))
                 routing = scorer.model_route_checks(state, run)

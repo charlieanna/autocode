@@ -120,7 +120,7 @@ class JoinedGraphCLI(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", final["status"])
         self.assertTrue(final["completion_current"])
         self.assertEqual(22, len(self.events()), "Only the crashed worker may have a second invocation")
-        repairs = self.events("batch_repair", stage="sol_report_repair")
+        repairs = self.events("batch_repair", stage="tester_report_repair")
         self.assertEqual(5, len(repairs))
         self.assertEqual(waves[:-1], [set(row["scope"]["milestone_ids"]) for row in repairs])
         check = subprocess.run(
@@ -141,7 +141,7 @@ class JoinedGraphCLI(unittest.TestCase):
         status = self.status()
         self.assertEqual(1, status["view"]["progress"]["tasks"]["done"])
         self.assertEqual(starts, self.events(), "A reporting failure must not replay the Builder")
-        repairs = self.events("citation_repair", stage="sol_report_repair")
+        repairs = self.events("citation_repair", stage="tester_report_repair")
         self.assertEqual(2, len(repairs))
         self.assertEqual(repairs[0]["error"], repairs[1]["original_error"])
         self.assertNotEqual(repairs[0]["error"], repairs[1]["error"])
@@ -156,7 +156,7 @@ class JoinedGraphCLI(unittest.TestCase):
         status = self.status()
         self.assertEqual(1, status["view"]["progress"]["tasks"]["done"])
         self.assertEqual(starts, self.events())
-        repairs = self.events("citation_repair", stage="sol_report_repair")
+        repairs = self.events("citation_repair", stage="tester_report_repair")
         self.assertEqual(1, len(repairs))
         self.assertTrue(repairs[0]["context"]["proof_reference"].endswith("/verification.json"))
         self.assertTrue(any(row["kind"] == "report_repaired" for row in status["view"]["recoveries"]))
@@ -178,7 +178,7 @@ class JoinedGraphCLI(unittest.TestCase):
         status = self.status()
         self.assertEqual(3, status["view"]["progress"]["tasks"]["done"])
         self.assertEqual(starts, self.events(), "Report repair never launches another Builder")
-        repairs = self.events("batch_repair", stage="sol_report_repair")
+        repairs = self.events("batch_repair", stage="tester_report_repair")
         self.assertEqual(1, len(repairs), "The exact member inventory repairs the first rejected report")
         self.assertEqual(["M2", "M3"], repairs[0]["scope"]["milestone_ids"])
         self.assertEqual(["C2", "C3"], repairs[0]["scope"]["acceptance_criteria"])
@@ -226,7 +226,7 @@ class JoinedGraphCLI(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", final["status"])
         self.assertTrue(final["completion_current"])
         self.assertEqual(10, len(self.events()))
-        self.assertEqual([], self.events(stage="astra_resolve"))
+        self.assertEqual([], self.events(stage="resolve"))
         check = subprocess.run(
             [sys.executable, "-c", f"from graph_nodes.node_10 import value; assert value() == {values[10]}"],
             cwd=self.project,

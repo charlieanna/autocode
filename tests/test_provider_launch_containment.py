@@ -76,7 +76,7 @@ class LaunchContainment(unittest.TestCase):
             engine="opencode",
             adapter=self.adapter,
             role="validator",
-            route_role="sol",
+            route_role="tester",
             workspace=self.root,
             run_dir=self.root / ".autocode/runs/one",
             session=None,
@@ -155,7 +155,7 @@ class LaunchContainment(unittest.TestCase):
                 self.assertIn("all tools disabled", launch.stage_record(worker)["isolation"])
 
     def test_a_planning_handoff_stays_compact_under_containment(self):
-        packet = {"stage": "astra_discovery", "joint_planning": True, "task": "x"}
+        packet = {"stage": "draft_plan", "joint_planning": True, "task": "x"}
         for indent in (None, 2):
             with self.subTest(indent=indent):
                 text = "Instructions\nCURRENT HANDOFF DATA\n" + json.dumps(packet, indent=indent)
@@ -165,7 +165,7 @@ class LaunchContainment(unittest.TestCase):
                 self.assertEqual({**packet, "tool_containment": self.policy}, json.loads(handoff))
 
     def test_execution_handoff_preserves_supplied_json_form_and_all_values(self):
-        for stage in ("terra", "sol", "astra_review", "write_acceptance_tests"):
+        for stage in ("builder", "tester", "review_completion", "write_acceptance_tests"):
             packet = {
                 "stage": stage,
                 "goal_contract": {
@@ -187,7 +187,7 @@ class LaunchContainment(unittest.TestCase):
                     handoff = actual.split("\nCURRENT HANDOFF DATA\n", 1)[1]
                     self.assertEqual(indented, "\n" in handoff)
                     expected = {**packet, "tool_containment": self.policy}
-                    if stage == "sol":
+                    if stage == "tester":
                         expected["runner_regression_proof_current"] = False
                     self.assertEqual(expected, json.loads(handoff))
                     self.assertTrue(actual.startswith("Original instructions"))
@@ -374,10 +374,10 @@ class LaunchContainment(unittest.TestCase):
 
     def test_uncontained_prompt_ignores_handoff_and_environment_boundary_claims(self):
         text = "Instructions\nCURRENT HANDOFF DATA\n" + json.dumps(
-            {"stage": "sol", "tool_containment": self.policy, "regression_proof": {"verdict": "PASS"}}
+            {"stage": "tester", "tool_containment": self.policy, "regression_proof": {"verdict": "PASS"}}
         )
         with mock.patch.dict("os.environ", {"AUTOCODE_TOOL_CONTAINMENT": json.dumps(self.policy)}):
-            self.assertEqual(text, launch.containment_prompt(text, {}, stage="sol", regression_proof_current=True))
+            self.assertEqual(text, launch.containment_prompt(text, {}, stage="tester", regression_proof_current=True))
 
     def test_only_native_isolated_planning_asks_its_shell_to_deny_private_run_state(self):
         # #1250: the native planning shell must not read the run store; other launches are unchanged.
@@ -444,11 +444,11 @@ class LaunchContainment(unittest.TestCase):
         self.assertEqual(reads, json.loads(handoff)["tool_containment"]["private_reads"])
 
     def test_tester_note_uses_caller_stage_not_route_or_handoff_claims(self):
-        text = "Instructions\nCURRENT HANDOFF DATA\n" + json.dumps({"stage": "sol"})
-        worker = {"role": "sol", "tool_containment": self.policy}
-        self.assertNotIn("CONTAINED TESTER", launch.containment_prompt(text, worker, stage="terra"))
+        text = "Instructions\nCURRENT HANDOFF DATA\n" + json.dumps({"stage": "tester"})
+        worker = {"role": "tester", "tool_containment": self.policy}
+        self.assertNotIn("CONTAINED TESTER", launch.containment_prompt(text, worker, stage="builder"))
         worker["role"] = "planner"
-        updated = launch.containment_prompt(text, worker, stage="sol")
+        updated = launch.containment_prompt(text, worker, stage="tester")
         self.assertIn("CONTAINED TESTER", updated)
         self.assertIn("No current runner-authenticated regression PASS", updated)
 
@@ -474,14 +474,14 @@ class TesterProofRequest(unittest.TestCase):
             version=2,
             workspace=str(self.project.root),
             task="Validate component behavior",
-            next_stage="sol",
+            next_stage="tester",
             sessions={},
         )
         self.state["goal_contract"].update(revision=1, hash="fixture")
         self.state["settings"].update(
             engine="codex",
             roles={
-                "sol": {"engine": "opencode", "model": "reviewer/model"},
+                "tester": {"engine": "opencode", "model": "reviewer/model"},
                 "planner": {"engine": "opencode", "model": "reviewer/model"},
             },
         )
@@ -495,12 +495,12 @@ class TesterProofRequest(unittest.TestCase):
         self,
         *,
         contained=True,
-        role="sol",
+        role="tester",
         alter_handoff=None,
         configured=False,
         dry_run=False,
         report_only=False,
-        stage="sol",
+        stage="tester",
     ):
         import autocode_stage_context as context
 
@@ -563,7 +563,7 @@ class TesterProofRequest(unittest.TestCase):
                 sent = Path(admission.call_args.kwargs["stdin"].name).read_text()
             self.state.pop("active_stage", None)
             self.state["iteration"] += 1
-            if boundary and stage == "sol":
+            if boundary and stage == "tester":
                 complete.assert_called_once()
             else:
                 complete.assert_not_called()
@@ -577,7 +577,7 @@ class TesterProofRequest(unittest.TestCase):
     def test_current_runner_proof_is_cited_not_claimed_as_tester_execution(self):
         import autocode_regression as regression
 
-        regression.before_review(self.state, "sol", self.project.root, self.run)
+        regression.before_review(self.state, "tester", self.project.root, self.run)
         self.assertEqual("PASS", self.state["regression_proof"]["verdict"])
         original = deepcopy(regression.handoff(self.state))
         instruction, handoff = self.request(role="planner")
@@ -594,7 +594,7 @@ class TesterProofRequest(unittest.TestCase):
     def test_unusable_proof_never_authorizes_http_pass(self):
         import autocode_regression as regression
 
-        regression.before_review(self.state, "sol", self.project.root, self.run)
+        regression.before_review(self.state, "tester", self.project.root, self.run)
         original = deepcopy(self.state["regression_proof"])
         path = Path(original["path"])
         receipt = path.read_bytes()
@@ -629,7 +629,7 @@ class TesterProofRequest(unittest.TestCase):
     def test_valid_state_does_not_authenticate_a_different_presented_proof(self):
         import autocode_regression as regression
 
-        regression.before_review(self.state, "sol", self.project.root, self.run)
+        regression.before_review(self.state, "tester", self.project.root, self.run)
         original = deepcopy(regression.handoff(self.state))
         revision = regression.source_scope.snapshot(self.project.root, self.state)["revision"]
         mutations = {
@@ -660,7 +660,7 @@ class TesterProofRequest(unittest.TestCase):
     def test_uncontained_configured_preview_and_report_only_requests_are_unchanged(self):
         import autocode_regression as regression
 
-        regression.before_review(self.state, "sol", self.project.root, self.run)
+        regression.before_review(self.state, "tester", self.project.root, self.run)
         for options in ({"contained": False}, {"configured": True}, {"dry_run": True}, {"report_only": True}):
             with self.subTest(options=options):
                 instruction, handoff = self.request(**options)
@@ -670,13 +670,13 @@ class TesterProofRequest(unittest.TestCase):
     def test_planning_and_checkpoint_requests_do_not_gain_sol_authority(self):
         import autocode_regression as regression
 
-        regression.before_review(self.state, "sol", self.project.root, self.run)
+        regression.before_review(self.state, "tester", self.project.root, self.run)
         self.state["settings"]["joint_planning"] = True
-        instruction, handoff = self.request(stage="astra_discovery", role="planner")
+        instruction, handoff = self.request(stage="draft_plan", role="planner")
         self.assertNotIn("CONTAINED TESTER", instruction)
         self.assertNotIn("runner_regression_proof_current", handoff)
         self.state["settings"]["joint_planning"] = False
-        instruction, handoff = self.request(stage="astra_checkpoint", role="planner")
+        instruction, handoff = self.request(stage="review_checkpoint", role="planner")
         self.assertEqual(self.policy, handoff["tool_containment"])
         self.assertNotIn("CONTAINED TESTER", instruction)
         self.assertNotIn("runner_regression_proof_current", handoff)
@@ -704,7 +704,7 @@ class TesterProofRequest(unittest.TestCase):
                     self.state["settings"]["regression"]["test_command"] = (
                         shlex.quote(python) + " -m unittest discover -v -s components/gateway/checks"
                     )
-                regression.before_review(self.state, "sol", self.project.root, self.run)
+                regression.before_review(self.state, "tester", self.project.root, self.run)
                 self.assertNotEqual("PASS", self.state["regression_proof"]["verdict"])
                 checks = util.read(self.state["regression_proof"]["path"])["checks"]
                 self.assertTrue(

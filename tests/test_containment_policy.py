@@ -16,14 +16,14 @@ OPENCODE = {
     "engine": "opencode",
     "provider": "opencode",
     "roles": {
-        "terra": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
-        "sol": {"engine": "opencode", "model": "openai/gpt-6-sol"},
+        "builder": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
+        "tester": {"engine": "opencode", "model": "openai/gpt-6-sol"},
     },
 }
 CODEX = {
     "engine": "codex",
     "provider": "opencode",
-    "roles": {"terra": {"model": "gpt-5.6-terra"}, "sol": {"model": "gpt-5.6-sol"}},
+    "roles": {"builder": {"model": "gpt-5.6-terra"}, "tester": {"model": "gpt-5.6-sol"}},
 }
 AT = "2026-10-04T00:00:00+00:00"
 
@@ -41,7 +41,7 @@ class ContainmentPolicyTests(unittest.TestCase):
         self.assertTrue(policy.applies({**OPENCODE, "provider": None}))
         self.assertTrue(policy.applies({"engine": "opencode", "provider": "opencode", "roles": {}}))
         self.assertFalse(policy.applies(CODEX))
-        self.assertFalse(policy.applies({"roles": {"terra": {"model": "gpt-5.6-terra"}}}))
+        self.assertFalse(policy.applies({"roles": {"builder": {"model": "gpt-5.6-terra"}}}))
         self.assertFalse(policy.applies({**OPENCODE, "provider": "kilocode"}))
         self.assertFalse(policy.applies(OPENCODE, configured_tool=True))
         self.assertFalse(policy.applies(None))
@@ -139,9 +139,9 @@ class ContainmentPolicyTests(unittest.TestCase):
             return {"stage": stage, "iteration": iteration, "started_at": f"{stage}-{iteration}", **record}
 
         linux = {"backend": "bubblewrap", "backend_version": "bubblewrap 0.9.0", "scratch": "/w/.autocode/x/scratch"}
-        builder = launch("terra", 1, linux)
-        waived = launch("sol", 1, None, uncontained_tools=True)
-        plan = {"stage": "astra_plan", "iteration": 1, "planning": True}
+        builder = launch("builder", 1, linux)
+        waived = launch("tester", 1, None, uncontained_tools=True)
+        plan = {"stage": "plan_task", "iteration": 1, "planning": True}
 
         def named(stages, active=None):
             state = {"status": "RUNNING", "settings": OPENCODE, "stages": stages}
@@ -154,18 +154,18 @@ class ContainmentPolicyTests(unittest.TestCase):
         expected = {
             "backend": "bubblewrap",
             "backend_version": "bubblewrap 0.9.0",
-            "stage": "terra",
+            "stage": "builder",
             "iteration": 1,
             "started_at": "terra-1",
         }
         self.assertEqual(expected, named([plan, builder, waived]))
         self.assertEqual(expected, named([plan, builder], active=waived))
-        running = launch("sol", 2, {"backend": "seatbelt", "backend_version": "macOS 15.3"})
+        running = launch("tester", 2, {"backend": "seatbelt", "backend_version": "macOS 15.3"})
         self.assertEqual(
             {
                 "backend": "seatbelt",
                 "backend_version": "macOS 15.3",
-                "stage": "sol",
+                "stage": "tester",
                 "iteration": 2,
                 "started_at": "sol-2",
             },

@@ -34,13 +34,13 @@ class DraftVerificationRevisionTests(unittest.TestCase):
     def test_unapproved_proof_can_be_corrected_without_changing_the_behavior(self):
         state, after = self.inputs()
         before = copy.deepcopy(state)
-        revision_guard(state, after, [], "glm_revise")
+        revision_guard(state, after, [], "revise_plan")
         self.assertEqual(before, state)
 
     def follow_up_draft(self):
         state, _ = self.inputs()
         contract = state["goal_contract"]
-        contract["origin"] = "astra_discovery"
+        contract["origin"] = "draft_plan"
         approved = copy.deepcopy(contract)
         approved.update(approval_status="approved", revision=6, hash="older")
         state["contract_history"] = [approved]
@@ -62,7 +62,7 @@ class DraftVerificationRevisionTests(unittest.TestCase):
     def test_older_approval_does_not_make_a_new_draft_criterion_approved(self):
         state, after = self.follow_up_draft()
         before = copy.deepcopy(state)
-        self.assertEqual([], revision_guard(state, after, [], "glm_revise"))
+        self.assertEqual([], revision_guard(state, after, [], "revise_plan"))
         self.assertEqual(before, state)
 
     def test_new_criterion_correction_keeps_approved_ids_and_source_quotes_protected(self):
@@ -94,7 +94,7 @@ class DraftVerificationRevisionTests(unittest.TestCase):
             else:
                 after["acceptance_criteria"][-1]["verification_method"] = "Run any aggregate command"
             with self.subTest(kind=kind), self.assertRaises(ValueError):
-                revision_guard(state, after, [], "glm_revise")
+                revision_guard(state, after, [], "revise_plan")
 
     def test_a_declared_agent_proof_correction_is_accepted_before_approval(self):
         state, after = self.inputs()
@@ -107,7 +107,7 @@ class DraftVerificationRevisionTests(unittest.TestCase):
                 "replacement": after["acceptance_criteria"][0]["verification_method"],
             }
         ]
-        revision_guard(state, after, changes, "astra_finalize")
+        revision_guard(state, after, changes, "finalize_plan")
 
     def test_malformed_draft_guard_selector_can_be_repaired_without_weakening_coverage(self):
         state, after = self.inputs()
@@ -116,11 +116,11 @@ class DraftVerificationRevisionTests(unittest.TestCase):
         old["verification_method"] = "guard: retain all three existing tests"
         after["acceptance_criteria"][0] = {**old, "verification_method": "guard: test_ac5_all_existing_behaviors"}
         retained = copy.deepcopy((state, after))
-        revision_guard(state, after, [], "astra_finalize")
+        revision_guard(state, after, [], "finalize_plan")
         self.assertEqual(retained, (state, after))
         after["acceptance_criteria"][0]["verification_method"] = "Run python3 -m unittest discover"
         with self.assertRaises(ValueError):
-            revision_guard(state, after, [], "astra_finalize")
+            revision_guard(state, after, [], "finalize_plan")
 
     def test_guard_selector_correction_keeps_approved_and_user_authored_proofs_protected(self):
         for protection in ({"approval_status": "approved"}, {"origin": "user_cli_edit"}):
@@ -131,7 +131,7 @@ class DraftVerificationRevisionTests(unittest.TestCase):
                 )
                 after["acceptance_criteria"][0]["verification_method"] = "guard: test_ac5_corrected"
                 with self.assertRaises(ValueError):
-                    revision_guard(state, after, [], "astra_finalize")
+                    revision_guard(state, after, [], "finalize_plan")
 
     def test_mismarked_literal_suite_can_lose_only_its_erroneous_test_marker_before_approval(self):
         command = "python3 -m pytest test_totals.py -q"
@@ -139,12 +139,12 @@ class DraftVerificationRevisionTests(unittest.TestCase):
         old = state["goal_contract"]["body"]["acceptance_criteria"][0]
         old["verification_method"] = "test: " + command
         after["acceptance_criteria"][0]["verification_method"] = command
-        revision_guard(state, after, [], "glm_revise")
+        revision_guard(state, after, [], "revise_plan")
         for fields in ({"approval_status": "approved"}, {"origin": "user_cli_edit"}):
             with self.subTest(fields=fields):
                 state["goal_contract"].update({"approval_status": "draft", "origin": "glm_draft", **fields})
                 with self.assertRaises(ValueError):
-                    revision_guard(state, after, [], "glm_revise")
+                    revision_guard(state, after, [], "revise_plan")
 
     def test_marker_correction_cannot_weaken_a_real_test_guard_or_change_the_command(self):
         for old, new in (
@@ -158,7 +158,7 @@ class DraftVerificationRevisionTests(unittest.TestCase):
             state["goal_contract"]["body"]["acceptance_criteria"][0]["verification_method"] = old
             after["acceptance_criteria"][0]["verification_method"] = new
             with self.subTest(old=old, new=new), self.assertRaises(ValueError):
-                revision_guard(state, after, [], "glm_revise")
+                revision_guard(state, after, [], "revise_plan")
 
     def revision_report(self):
         state, after = self.inputs()
@@ -202,7 +202,7 @@ class DraftVerificationRevisionTests(unittest.TestCase):
     def test_live_report_overdeclared_engineering_deltas_do_not_require_permission(self):
         state, after, changes = self.revision_report()
         retained = copy.deepcopy((state, after, changes))
-        revision_guard(state, after, changes, "glm_revise")
+        revision_guard(state, after, changes, "revise_plan")
         self.assertEqual(retained, (state, after, changes))
 
     def test_engineering_delta_alias_does_not_authorize_a_protected_change(self):
@@ -228,7 +228,7 @@ class DraftVerificationRevisionTests(unittest.TestCase):
                         "test: test_ac5_old"
                     )
                 with self.assertRaises(ValueError):
-                    revision_guard(state, after, changes, "glm_revise")
+                    revision_guard(state, after, changes, "revise_plan")
 
     def test_synthetic_deltas_do_not_resolve_real_or_forged_user_changes(self):
         for kind in ("existing_addition", "unknown", "forged_user", "protected_collision", "removed"):
@@ -247,7 +247,7 @@ class DraftVerificationRevisionTests(unittest.TestCase):
                 else:
                     changes[0]["change"] = "removed"
                 with self.assertRaises(ValueError):
-                    revision_guard(state, after, changes, "glm_revise")
+                    revision_guard(state, after, changes, "revise_plan")
 
     def test_rejection_identifies_the_declared_item_for_bounded_repair(self):
         state, after = self.inputs()
@@ -256,7 +256,7 @@ class DraftVerificationRevisionTests(unittest.TestCase):
                 state,
                 after,
                 [{"item": "unknown.proposal", "change": "reworded", "basis": "agent_proposed", "answer_id": ""}],
-                "glm_revise",
+                "revise_plan",
             )
 
     def test_current_or_invalidated_user_approval_keeps_verification_protected(self):
@@ -267,7 +267,7 @@ class DraftVerificationRevisionTests(unittest.TestCase):
             with self.subTest(fields=fields):
                 state, after = self.inputs(**fields)
                 with self.assertRaisesRegex(ValueError, "without a user-backed"):
-                    revision_guard(state, after, [], "glm_revise")
+                    revision_guard(state, after, [], "revise_plan")
 
     def test_clearing_the_current_receipt_does_not_erase_saved_user_approval(self):
         state, after = self.inputs()
@@ -276,7 +276,7 @@ class DraftVerificationRevisionTests(unittest.TestCase):
             dict(copy.deepcopy(state["goal_contract"]), revision=1, hash="previously-approved")
         ]
         with self.assertRaisesRegex(ValueError, "without a user-backed"):
-            revision_guard(state, after, [], "glm_revise")
+            revision_guard(state, after, [], "revise_plan")
 
     def test_proof_correction_does_not_authorize_a_changed_behavior_or_permission(self):
         for change in ("behavior", "permission", "required_behavior", "remove", "human_review"):
@@ -293,7 +293,7 @@ class DraftVerificationRevisionTests(unittest.TestCase):
                 else:
                     after["acceptance_criteria"] = []
                 with self.assertRaisesRegex(ValueError, "without a user-backed"):
-                    revision_guard(state, after, [], "glm_revise")
+                    revision_guard(state, after, [], "revise_plan")
 
     def test_unrelated_prior_turn_approval_does_not_freeze_a_new_draft(self):
         state, after = self.inputs()
@@ -302,7 +302,7 @@ class DraftVerificationRevisionTests(unittest.TestCase):
         old.update(revision=1, hash="old")
         old["body"]["acceptance_criteria"][0]["id"] = "PREVIOUS"
         state["contract_history"] = [old]
-        revision_guard(state, after, [], "glm_revise")
+        revision_guard(state, after, [], "revise_plan")
 
     def test_user_set_methods_remain_protected(self):
         for origin in ("user_cli_edit", "user_answer", "user_feedback"):
@@ -317,7 +317,7 @@ class DraftVerificationRevisionTests(unittest.TestCase):
                 ]
             state["contract_history"] = [prior]
             with self.subTest(origin=origin), self.assertRaises(ValueError):
-                revision_guard(state, after, [], "glm_revise")
+                revision_guard(state, after, [], "revise_plan")
 
     def test_runner_enforced_proof_cannot_be_replaced_by_prose(self):
         for mark in ("test:", "guard:"):
@@ -326,7 +326,7 @@ class DraftVerificationRevisionTests(unittest.TestCase):
                 mark + " test_ac5_behavior"
             )
             with self.subTest(mark=mark), self.assertRaises(ValueError):
-                revision_guard(state, after, [], "glm_revise")
+                revision_guard(state, after, [], "revise_plan")
 
     def test_approved_human_review_cannot_be_removed_with_unchanged_proof(self):
         state, _ = self.inputs(approval_status="approved")
@@ -335,7 +335,7 @@ class DraftVerificationRevisionTests(unittest.TestCase):
         after = copy.deepcopy(before)
         after["acceptance_criteria"][0]["human_review"] = False
         with self.assertRaises(ValueError):
-            revision_guard(state, after, [], "glm_revise")
+            revision_guard(state, after, [], "revise_plan")
 
     def test_an_explicit_user_proof_change_is_consumed_once(self):
         state, after = self.inputs()
@@ -352,7 +352,7 @@ class DraftVerificationRevisionTests(unittest.TestCase):
                     "replacement": after["acceptance_criteria"][0]["verification_method"],
                 }
             ],
-            "glm_revise",
+            "revise_plan",
         )
 
     def test_draft_can_add_human_review_but_approved_or_user_set_review_stays_protected(self):
@@ -367,10 +367,10 @@ class DraftVerificationRevisionTests(unittest.TestCase):
             after["acceptance_criteria"][0]["human_review"] = True
             with self.subTest(kind=kind):
                 if kind == "draft":
-                    revision_guard(state, after, [], "glm_revise")
+                    revision_guard(state, after, [], "revise_plan")
                 else:
                     with self.assertRaisesRegex(ValueError, "without a user-backed"):
-                        revision_guard(state, after, [], "glm_revise")
+                        revision_guard(state, after, [], "revise_plan")
 
 
 class GreetingRevisionTests(unittest.TestCase):
@@ -439,7 +439,7 @@ class GreetingRevisionTests(unittest.TestCase):
     def test_greeting_revision_accepts_aggregate_additions_without_dropping_criteria(self):
         state, report = self.report()
         retained = copy.deepcopy((state, report))
-        changes = revision_guard(state, report["contract"], report["contract_changes"], "glm_revise")
+        changes = revision_guard(state, report["contract"], report["contract_changes"], "revise_plan")
         self.assertEqual(report["contract_changes"], changes)
         self.assertEqual(retained, (state, report))
 
@@ -481,7 +481,7 @@ class GreetingRevisionTests(unittest.TestCase):
                 if kind == "removed_delta":
                     report["contract_changes"][0]["change"] = "removed"
                 with self.assertRaises(ValueError):
-                    revision_guard(state, after, report["contract_changes"], "glm_revise")
+                    revision_guard(state, after, report["contract_changes"], "revise_plan")
 
     def test_aggregate_additions_do_not_normalize_a_changed_command_backslash(self):
         state, report = self.report()
@@ -490,7 +490,7 @@ class GreetingRevisionTests(unittest.TestCase):
         ]
         retained = copy.deepcopy((state, report))
         with self.assertRaisesRegex(ValueError, "drops or changes .*Single empty-string argument"):
-            revision_guard(state, report["contract"], report["contract_changes"], "glm_revise")
+            revision_guard(state, report["contract"], report["contract_changes"], "revise_plan")
         self.assertEqual(retained, (state, report))
 
 
@@ -526,7 +526,7 @@ class DraftExampleRevisionTests(unittest.TestCase):
         state = {
             "task": "Count all logical data records in the CSV.",
             "goal_contract": {"body": body, "origin": "glm_draft", "approval_status": "draft", "approval_event": None},
-            "planning": {"reports": {"astra_challenge": {"report": {"concerns": [concern]}}}},
+            "planning": {"reports": {"review_plan": {"report": {"concerns": [concern]}}}},
         }
         revised = copy.deepcopy(body)
         revised["acceptance_criteria"][0]["criterion"] = criterion.replace(before, after)
@@ -545,7 +545,7 @@ class DraftExampleRevisionTests(unittest.TestCase):
     def test_reviewer_supported_numeric_draft_example_correction_preserves_original_state(self):
         state, after, changes = self.inputs()
         snapshot = copy.deepcopy(state)
-        revision_guard(state, after, changes, "glm_revise")
+        revision_guard(state, after, changes, "revise_plan")
         self.assertEqual(snapshot, state)
 
     def test_approval_and_user_authorship_always_protect_the_example(self):
@@ -589,7 +589,7 @@ class DraftExampleRevisionTests(unittest.TestCase):
             else:
                 state["brief_feedback"] = [{"text": "Expected stdout: " + changes[0]["example_correction"]["before"]}]
             with self.subTest(kind=kind), self.assertRaises(ValueError):
-                revision_guard(state, after, changes, "glm_revise")
+                revision_guard(state, after, changes, "revise_plan")
 
     def test_a_receipt_cannot_authorize_an_input_behavior_proof_or_permission_change(self):
         for kind in ("input", "command", "exit", "proof", "human", "permission", "behavior", "output_shape"):
@@ -616,7 +616,7 @@ class DraftExampleRevisionTests(unittest.TestCase):
                 )
             changes[0]["replacement"] = row["criterion"]
             with self.subTest(kind=kind), self.assertRaises(ValueError):
-                revision_guard(state, after, changes, "glm_revise")
+                revision_guard(state, after, changes, "revise_plan")
 
     def test_missing_stale_or_invented_review_receipts_do_not_allow_rewording(self):
         for kind in ("missing", "unknown_concern", "no_review", "advisory", "wrong_result", "duplicate", "no_origin"):
@@ -628,7 +628,7 @@ class DraftExampleRevisionTests(unittest.TestCase):
             elif kind == "no_review":
                 state["planning"]["reports"] = {}
             elif kind == "advisory":
-                state["planning"]["reports"]["astra_challenge"]["report"]["concerns"][0]["blocking"] = False
+                state["planning"]["reports"]["review_plan"]["report"]["concerns"][0]["blocking"] = False
             elif kind == "wrong_result":
                 changes[0]["example_correction"]["after"] = '{"rows": 3, "errors": []}\\n'
             elif kind == "duplicate":
@@ -636,7 +636,7 @@ class DraftExampleRevisionTests(unittest.TestCase):
             else:
                 state["goal_contract"].pop("origin")
             with self.subTest(kind=kind), self.assertRaises(ValueError):
-                revision_guard(state, after, changes, "glm_revise")
+                revision_guard(state, after, changes, "revise_plan")
 
     def test_tab_separated_word_counts_can_be_recomputed_without_changing_words(self):
         state, after, changes = self.inputs()
@@ -649,16 +649,16 @@ class DraftExampleRevisionTests(unittest.TestCase):
         )
         receipt.update(before=old, after=new)
         changes[0]["replacement"] = after["acceptance_criteria"][0]["criterion"]
-        state["planning"]["reports"]["astra_challenge"]["report"]["concerns"][0]["concern"] = (
+        state["planning"]["reports"]["review_plan"]["report"]["concerns"][0]["concern"] = (
             f"AC1: `{old}` should be `{new}`."
         )
-        revision_guard(state, after, changes, "glm_revise")
+        revision_guard(state, after, changes, "revise_plan")
         after["acceptance_criteria"][0]["criterion"] = after["acceptance_criteria"][0]["criterion"].replace(
             "red", "green"
         )
         changes[0]["replacement"] = after["acceptance_criteria"][0]["criterion"]
         with self.assertRaises(ValueError):
-            revision_guard(state, after, changes, "glm_revise")
+            revision_guard(state, after, changes, "revise_plan")
 
     def test_a_numeric_receipt_cannot_hide_duplicate_keys_or_change_non_numeric_output(self):
         for old, new in (
@@ -677,11 +677,11 @@ class DraftExampleRevisionTests(unittest.TestCase):
             )
             changes[0]["replacement"] = after["acceptance_criteria"][0]["criterion"]
             receipt.update(before=old, after=new)
-            state["planning"]["reports"]["astra_challenge"]["report"]["concerns"][0]["concern"] = (
+            state["planning"]["reports"]["review_plan"]["report"]["concerns"][0]["concern"] = (
                 f"AC1: `{old}` should be `{new}`."
             )
             with self.subTest(new=new), self.assertRaises(ValueError):
-                revision_guard(state, after, changes, "glm_revise")
+                revision_guard(state, after, changes, "revise_plan")
 
 
 class LayoutExampleRevisionTests(unittest.TestCase):
@@ -717,7 +717,7 @@ class LayoutExampleRevisionTests(unittest.TestCase):
         state = {
             "task": "Show the hours per project, right-aligned in the same 0.00h column.",
             "goal_contract": {"body": body, "origin": "glm_draft", "approval_status": "draft", "approval_event": None},
-            "planning": {"reports": {"astra_challenge": {"report": {"concerns": [concern]}}}},
+            "planning": {"reports": {"review_plan": {"report": {"concerns": [concern]}}}},
         }
         revised = copy.deepcopy(body)
         revised["acceptance_criteria"][0]["criterion"] = criterion.replace(before, after)
@@ -737,7 +737,7 @@ class LayoutExampleRevisionTests(unittest.TestCase):
         before = "total" + " " * 10 + "15.50h\\n"
         after = "total" + " " * 12 + "15.50h\\n"
         state, revised, changes = self.inputs(before, after)
-        self.assertEqual(changes, revision_guard(state, revised, changes, "glm_revise"))
+        self.assertEqual(changes, revision_guard(state, revised, changes, "revise_plan"))
 
     def quoted_lines(self, after="2025-W10     7.50h\\n2025-W11     8.00h\\ntotal       15.50h\\n"):
         before = "2025-W10     7.50h\\n2025-W11    8.00h\\ntotal       15.50h\\n"
@@ -752,7 +752,7 @@ class LayoutExampleRevisionTests(unittest.TestCase):
 
     def test_a_quoted_line_example_can_use_canonical_stdout_for_a_padding_correction(self):
         state, revised, changes = self.quoted_lines()
-        self.assertEqual(changes, revision_guard(state, revised, changes, "glm_revise"))
+        self.assertEqual(changes, revision_guard(state, revised, changes, "revise_plan"))
 
     def test_quoted_lines_still_require_exact_scope_and_reviewer_authority(self):
         for kind in ("number", "tab", "newline", "command", "count", "duplicate", "approval", "user_row", "concern"):
@@ -783,9 +783,9 @@ class LayoutExampleRevisionTests(unittest.TestCase):
             elif kind == "user_row":
                 state["task"] += ' Preserve the line "2025-W11    8.00h".'
             else:
-                state["planning"]["reports"]["astra_challenge"]["report"]["concerns"][0]["blocking"] = False
+                state["planning"]["reports"]["review_plan"]["report"]["concerns"][0]["blocking"] = False
             with self.subTest(kind=kind), self.assertRaises(ValueError):
-                revision_guard(state, revised, changes, "glm_revise")
+                revision_guard(state, revised, changes, "revise_plan")
 
     def test_a_word_or_number_inside_the_row_cannot_change_under_the_padding_receipt(self):
         before = "total" + " " * 10 + "15.50h\\n"
@@ -796,7 +796,7 @@ class LayoutExampleRevisionTests(unittest.TestCase):
         ):
             state, revised, changes = self.inputs(before, after)
             with self.subTest(after=after), self.assertRaises(ValueError):
-                revision_guard(state, revised, changes, "glm_revise")
+                revision_guard(state, revised, changes, "revise_plan")
 
     def test_a_padding_literal_the_user_wrote_is_protected(self):
         before = "total" + " " * 10 + "15.50h\\n"
@@ -804,7 +804,7 @@ class LayoutExampleRevisionTests(unittest.TestCase):
         state, revised, changes = self.inputs(before, after)
         state["task"] += " Expected: `" + before + "`"
         with self.assertRaises(ValueError):
-            revision_guard(state, revised, changes, "glm_revise")
+            revision_guard(state, revised, changes, "revise_plan")
 
     def test_a_row_without_a_number_is_not_padding(self):
         from autocode_draft_examples import layout_padding
@@ -830,7 +830,7 @@ class ExampleCorrectionSchemaTests(unittest.TestCase):
         from autocode_util import model_output_schema, validate_schema
         from units import autoplanner
 
-        for stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+        for stage in ("draft_plan", "revise_plan", "finalize_plan"):
             item = model_output_schema(autoplanner.SCHEMAS[stage])["properties"]["contract_changes"]["items"]
             self.assertIn("example_correction", item["required"], stage)
             validate_schema(self.change(None), item)
@@ -879,10 +879,10 @@ class PermissionReplacementTests(unittest.TestCase):
         for basis, answer_id in (("user_feedback", "feedback-1"), ("user_answer", "Q1")):
             with self.subTest(basis=basis):
                 state, after = self.inputs()
-                revision_guard(state, after, [self.row(self.DOCS, self.CODE, basis, answer_id)], "astra_discovery")
+                revision_guard(state, after, [self.row(self.DOCS, self.CODE, basis, answer_id)], "draft_plan")
         # Declaring the new boundary in a row of its own still works.
         state, after = self.inputs()
-        revision_guard(state, after, [self.row(self.DOCS), self.row(self.CODE)], "astra_discovery")
+        revision_guard(state, after, [self.row(self.DOCS), self.row(self.CODE)], "draft_plan")
 
     def test_a_permission_change_still_needs_a_user_basis_and_a_matching_replacement(self):
         cases = {
@@ -898,19 +898,19 @@ class PermissionReplacementTests(unittest.TestCase):
         for name, (changes, refusal) in cases.items():
             with self.subTest(name), self.assertRaisesRegex(ValueError, refusal):
                 state, after = self.inputs()
-                revision_guard(state, after, changes, "astra_discovery")
+                revision_guard(state, after, changes, "draft_plan")
         # A second boundary added beside the replacement needs its own row.
         state, after = self.inputs()
         after["permission_boundaries"].append("Network allowed")
         with self.assertRaisesRegex(ValueError, "adds permission boundary 'Network allowed' without a user-backed"):
-            revision_guard(state, after, [self.row(self.DOCS, self.CODE)], "astra_discovery")
+            revision_guard(state, after, [self.row(self.DOCS, self.CODE)], "draft_plan")
 
     def test_a_declared_assumption_the_revision_dropped_is_not_an_error_and_a_leftover_row_is_named(self):
         state, after = self.inputs()
         assumption = state["goal_contract"]["body"]["accepted_assumptions"][0]["text"]
         after["accepted_assumptions"] = []
         revision_guard(
-            state, after, [self.row(self.DOCS, self.CODE), self.row(assumption, change="removed")], "astra_discovery"
+            state, after, [self.row(self.DOCS, self.CODE), self.row(assumption, change="removed")], "draft_plan"
         )
         # Declared but kept, or a protected item declared but unchanged: refused, naming the row.
         state, after = self.inputs()
@@ -921,7 +921,7 @@ class PermissionReplacementTests(unittest.TestCase):
                 state,
                 after,
                 [self.row(self.DOCS, self.CODE), self.row(assumption, change="removed")],
-                "astra_discovery",
+                "draft_plan",
             )
 
 
@@ -968,13 +968,13 @@ class UnapprovedRewordingTests(unittest.TestCase):
 
     def test_a_planner_corrects_its_own_unapproved_criterion(self):
         state, after, changes = self.inputs()
-        self.assertEqual(changes, revision_guard(state, after, changes, "glm_revise"))
+        self.assertEqual(changes, revision_guard(state, after, changes, "revise_plan"))
 
     def test_a_rewording_that_drops_a_request_quote_is_still_refused(self):
         state, after, changes = self.inputs()
         after["acceptance_criteria"][0]["sources"] = []
         with self.assertRaisesRegex(ValueError, "needs a saved user answer"):
-            revision_guard(state, after, changes, "glm_revise")
+            revision_guard(state, after, changes, "revise_plan")
 
     def test_a_refused_rewording_names_the_quotes_it_dropped(self):
         # #1630: a live revision dropped one of AC7's request quotes while rewording it, and the refusal only said
@@ -984,14 +984,14 @@ class UnapprovedRewordingTests(unittest.TestCase):
         with self.assertRaisesRegex(
             ValueError, r"needs a saved user answer.*still cites every request quote.*Keep"
         ) as raised:
-            revision_guard(state, after, changes, "glm_revise")
+            revision_guard(state, after, changes, "revise_plan")
         self.assertIn(str(self.QUOTE["quote"])[:40], str(raised.exception))
 
     def test_an_approved_contract_gets_no_citation_hint_because_the_person_decides(self):
         state, after, changes = self.inputs(approval_status="approved")
         after["acceptance_criteria"][0]["sources"] = []
         with self.assertRaises(ValueError) as raised:
-            revision_guard(state, after, changes, "glm_revise")
+            revision_guard(state, after, changes, "revise_plan")
         self.assertNotIn("nobody approved", str(raised.exception))
 
     def test_a_refused_proof_downgrade_says_to_keep_the_named_test(self):
@@ -1006,7 +1006,7 @@ class UnapprovedRewordingTests(unittest.TestCase):
             ValueError,
             r"AC2.*without a user-backed contract change\. AC2's verification_method names a proof.*own criterion",
         ):
-            revision_guard(state, after, [], "glm_revise")
+            revision_guard(state, after, [], "revise_plan")
 
     def test_a_refusal_with_nothing_to_explain_is_unchanged(self):
         state, after, _ = self.inputs()
@@ -1014,7 +1014,7 @@ class UnapprovedRewordingTests(unittest.TestCase):
         state["goal_contract"]["body"]["acceptance_criteria"][0]["human_review"] = False
         state["goal_contract"]["approval_event"] = {"kind": "goal_approval"}
         with self.assertRaises(ValueError) as raised:
-            revision_guard(state, after, [], "glm_revise")
+            revision_guard(state, after, [], "revise_plan")
         self.assertNotIn(". AC2", str(raised.exception).split("contract change", 1)[-1])
 
     def test_a_declared_example_correction_is_not_a_plain_rewording(self):
@@ -1024,7 +1024,7 @@ class UnapprovedRewordingTests(unittest.TestCase):
         state, after, changes = self.inputs()
         changes[0]["example_correction"] = {"concern_id": "C_COUNT", "before": self.WRONG, "after": self.RIGHT}
         with self.assertRaisesRegex(ValueError, "needs a saved user answer"):
-            revision_guard(state, after, changes, "glm_revise")
+            revision_guard(state, after, changes, "revise_plan")
 
     def test_a_user_backed_rewording_keeps_its_declaration_with_a_matching_proof(self):
         # #1764: the person backed this rewording, so it is a declared change and not the Planner's own
@@ -1033,14 +1033,14 @@ class UnapprovedRewordingTests(unittest.TestCase):
         changes[0].update(basis="user_answer", answer_id="A1")
         after["acceptance_criteria"][0]["verification_method"] += " | head -20"
         state["answers"] = {"A1": {"kind": "answer", "text": "compare only the first two rows"}}
-        self.assertEqual(changes, revision_guard(state, after, changes, "glm_revise"))
+        self.assertEqual(changes, revision_guard(state, after, changes, "revise_plan"))
 
     def test_an_allowable_rewording_may_correct_its_unmarked_proof(self):
         # A live revision (2026-10-21) aligned AC9's wording with the person's storage answer, kept the request
         # quote, and moved its unmarked verification with it; the guard refused only because the proof moved.
         state, after, changes = self.inputs()
         after["acceptance_criteria"][0]["verification_method"] = "Run python3 -m unittest discover -s tests -t ."
-        self.assertEqual(changes, revision_guard(state, after, changes, "glm_revise"))
+        self.assertEqual(changes, revision_guard(state, after, changes, "revise_plan"))
 
     def test_a_proof_the_runner_checks_still_cannot_become_a_plain_command_with_a_rewording(self):
         state, after, changes = self.inputs()
@@ -1049,7 +1049,7 @@ class UnapprovedRewordingTests(unittest.TestCase):
         )
         after["acceptance_criteria"][0]["verification_method"] = "Run python3 -m unittest discover"
         with self.assertRaisesRegex(ValueError, "names a proof.*own criterion"):
-            revision_guard(state, after, changes, "glm_revise")
+            revision_guard(state, after, changes, "revise_plan")
 
     def test_once_approved_every_rewording_needs_the_person(self):
         for fields, history in (
@@ -1062,7 +1062,7 @@ class UnapprovedRewordingTests(unittest.TestCase):
                 state, after, changes = self.inputs(**fields)
                 state["contract_history"] = history
                 with self.assertRaisesRegex(ValueError, "needs a saved user answer"):
-                    revision_guard(state, after, changes, "glm_revise")
+                    revision_guard(state, after, changes, "revise_plan")
 
 
 class PersonTracedAssumptionTests(unittest.TestCase):
@@ -1107,20 +1107,20 @@ class PersonTracedAssumptionTests(unittest.TestCase):
                     else []
                 )
                 changes = [self.row(change)]
-                self.assertEqual(changes, revision_guard(state, after, changes, "glm_revise"))
+                self.assertEqual(changes, revision_guard(state, after, changes, "revise_plan"))
 
     def test_a_wrapped_assumption_reference_is_recognized(self):
         state, after = self.inputs(basis="agent_proposed")
         after["accepted_assumptions"] = [{"text": self.PROPOSED, "basis": "agent_proposed", "answer_id": ""}]
         changes = [dict(self.row(), item=f'accepted_assumptions: "{self.TEXT}"')]
-        returned = revision_guard(state, after, changes, "glm_revise")
+        returned = revision_guard(state, after, changes, "revise_plan")
         self.assertEqual(self.TEXT, returned[0]["item"])
 
     def test_a_reworded_assumption_saved_from_the_answer_asks_the_person(self):
         state, after = self.inputs()
         after["accepted_assumptions"] = [{"text": self.PROPOSED, "basis": "agent_proposed", "answer_id": ""}]
         with self.assertRaises(rewording.ProtectedRewording) as caught:
-            revision_guard(state, after, [self.row()], "glm_revise")
+            revision_guard(state, after, [self.row()], "revise_plan")
         self.assertEqual(
             [{"item": self.TEXT, "approved": self.TEXT, "proposed": self.PROPOSED, "traced": True}],
             caught.exception.rewordings,
@@ -1136,7 +1136,7 @@ class PersonTracedAssumptionTests(unittest.TestCase):
                     state["user_events"] = [event]
                 after["accepted_assumptions"] = []
                 with self.assertRaises(rewording.ProtectedRewording) as caught:
-                    revision_guard(state, after, [], "glm_revise")
+                    revision_guard(state, after, [], "revise_plan")
                 self.assertEqual(
                     [
                         {
@@ -1160,19 +1160,19 @@ class PersonTracedAssumptionTests(unittest.TestCase):
                     else []
                 )
                 changes = [self.row(change)]
-                self.assertEqual(changes, revision_guard(state, after, changes, "glm_revise"))
+                self.assertEqual(changes, revision_guard(state, after, changes, "revise_plan"))
 
     def test_an_undeclared_rewording_of_the_persons_assumption_names_the_new_text(self):
         state, after = self.inputs()
         after["accepted_assumptions"] = [{"text": self.PROPOSED, "basis": "agent_proposed", "answer_id": ""}]
         with self.assertRaises(rewording.ProtectedRewording) as caught:
-            revision_guard(state, after, [], "glm_revise")
+            revision_guard(state, after, [], "revise_plan")
         self.assertEqual(self.PROPOSED, caught.exception.rewordings[0]["proposed"])
 
     def test_wording_the_person_accepted_stays_theirs_in_the_next_revision(self):
         state, after = self.inputs()
         after["accepted_assumptions"] = [{"text": self.PROPOSED, "basis": "agent_proposed", "answer_id": ""}]
-        revision_guard(state, after, [self.row(basis="user_answer", answer_id="A1")], "glm_revise")
+        revision_guard(state, after, [self.row(basis="user_answer", answer_id="A1")], "revise_plan")
         self.assertEqual(
             [{"text": self.PROPOSED, "basis": "user_answer", "answer_id": "A1"}], after["accepted_assumptions"]
         )
@@ -1181,13 +1181,13 @@ class PersonTracedAssumptionTests(unittest.TestCase):
         again["accepted_assumptions"] = []
         changes = [{"item": self.PROPOSED, "change": "removed", "basis": "agent_proposed", "answer_id": ""}]
         with self.assertRaises(rewording.ProtectedRewording):
-            revision_guard(state, again, changes, "glm_revise")
+            revision_guard(state, again, changes, "revise_plan")
 
     def test_a_declared_replacement_the_revision_does_not_keep_is_refused(self):
         state, after = self.inputs()
         after["accepted_assumptions"] = [{"text": "Something else.", "basis": "agent_proposed", "answer_id": ""}]
         with self.assertRaisesRegex(ValueError, "which the revision does not keep"):
-            revision_guard(state, after, [self.row(basis="user_answer", answer_id="A1")], "glm_revise")
+            revision_guard(state, after, [self.row(basis="user_answer", answer_id="A1")], "revise_plan")
 
     def test_a_forged_or_agent_basis_does_not_authorize_dropping_the_persons_assumption(self):
         cases = ({"basis": "agent_proposed", "answer_id": ""}, {"basis": "delegated", "answer_id": "A1"})
@@ -1195,7 +1195,7 @@ class PersonTracedAssumptionTests(unittest.TestCase):
             with self.subTest(fields=fields), self.assertRaises(rewording.ProtectedRewording):
                 state, after = self.inputs()
                 after["accepted_assumptions"] = []
-                revision_guard(state, after, [self.row("removed", **fields)], "glm_revise")
+                revision_guard(state, after, [self.row("removed", **fields)], "revise_plan")
 
     def test_the_persons_answer_lets_the_revision_drop_the_assumption(self):
         for change in ("reworded", "removed"):
@@ -1207,7 +1207,7 @@ class PersonTracedAssumptionTests(unittest.TestCase):
                     else []
                 )
                 changes = [self.row(change, basis="user_answer", answer_id="A1")]
-                self.assertEqual(changes, revision_guard(state, after, changes, "glm_revise"))
+                self.assertEqual(changes, revision_guard(state, after, changes, "revise_plan"))
 
 
 class ReviewerRequestedOwnTextTests(unittest.TestCase):
@@ -1243,7 +1243,7 @@ class ReviewerRequestedOwnTextTests(unittest.TestCase):
             "Python standard library only.",
             "goal_contract": {"body": body, "approval_status": "draft", "approval_event": None, "revision": 2},
             "planning": {
-                "reports": {"astra_challenge": {"report": {"concerns": [{**self.CONCERN, "blocking": blocking}]}}}
+                "reports": {"review_plan": {"report": {"concerns": [{**self.CONCERN, "blocking": blocking}]}}}
             },
             "answers": {},
             "user_events": [],
@@ -1267,7 +1267,7 @@ class ReviewerRequestedOwnTextTests(unittest.TestCase):
     def test_a_revision_applies_the_reviewers_request_to_the_planners_own_lines(self):
         state, after = self.inputs()
         before = copy.deepcopy(state)
-        declared = revision_guard(state, after, self.changes(), "glm_revise")
+        declared = revision_guard(state, after, self.changes(), "revise_plan")
         self.assertEqual(before, state)
         self.assertEqual([self.SPLIT, self.BOUNDARY], [row["item"] for row in declared])
         self.assertEqual([["C1"], ["C1"]], [row["review_concerns"] for row in declared], "shown at approval")
@@ -1276,14 +1276,14 @@ class ReviewerRequestedOwnTextTests(unittest.TestCase):
         state, after = self.inputs()
         after["constraints"] = [self.BRIEF_LINE]
         changes = [self.row(self.SPLIT, "removed"), self.row(self.BOUNDARY, "permission_changed", self.NEW_BOUNDARY)]
-        self.assertEqual(["C1"], revision_guard(state, after, changes, "glm_revise")[0]["review_concerns"])
+        self.assertEqual(["C1"], revision_guard(state, after, changes, "revise_plan")[0]["review_concerns"])
 
     def test_a_line_that_repeats_the_persons_words_stays_theirs(self):
         state, after = self.inputs()
         after["constraints"] = [self.BRIEF_LINE + " (Python 3.12)", self.REBALANCED]
         changes = [self.row(self.BRIEF_LINE, "reworded", self.BRIEF_LINE + " (Python 3.12)"), *self.changes()]
         with self.assertRaisesRegex(ValueError, "repeats the person's own words"):
-            revision_guard(state, after, changes, "glm_revise")
+            revision_guard(state, after, changes, "revise_plan")
         # Their feedback and their answers are their words too, whichever sentence of theirs the line repeats.
         for source in ("brief_feedback", "answers"):
             with self.subTest(source=source):
@@ -1300,29 +1300,29 @@ class ReviewerRequestedOwnTextTests(unittest.TestCase):
                     )
                 )
                 with self.assertRaisesRegex(ValueError, "needs a saved user answer"):
-                    revision_guard(state, after, self.changes(), "glm_revise")
+                    revision_guard(state, after, self.changes(), "revise_plan")
 
     def test_without_the_reviewers_blocking_concern_or_a_declaration_the_rule_is_unchanged(self):
         cases = {
-            "non-blocking concern": (self.inputs(blocking=False), self.changes(), "glm_revise", "needs a saved user"),
+            "non-blocking concern": (self.inputs(blocking=False), self.changes(), "revise_plan", "needs a saved user"),
             "no review yet": (
                 self.inputs(planning={"reports": {}}),
                 self.changes(),
-                "glm_revise",
+                "revise_plan",
                 "needs a saved user",
             ),
-            "undeclared": (self.inputs(), [], "glm_revise", "drops or changes"),
-            "the final review": (self.inputs(), self.changes(), "astra_finalize", "needs a saved user"),
+            "undeclared": (self.inputs(), [], "revise_plan", "drops or changes"),
+            "the final review": (self.inputs(), self.changes(), "finalize_plan", "needs a saved user"),
             "a forged answer": (
                 self.inputs(),
                 [self.row(self.SPLIT, "reworded", self.REBALANCED, "user_answer", "Q9"), self.changes()[1]],
-                "glm_revise",
+                "revise_plan",
                 "needs a saved user",
             ),
             "a dropped boundary": (
                 self.inputs(),
                 [self.changes()[0], self.row(self.BOUNDARY, "permission_changed")],
-                "glm_revise",
+                "revise_plan",
                 "needs a saved user",
             ),
         }
@@ -1338,23 +1338,23 @@ class ReviewerRequestedOwnTextTests(unittest.TestCase):
             with self.subTest(name), self.assertRaises(ValueError):
                 state, after = self.inputs()
                 state["goal_contract"].update(fields)
-                revision_guard(state, after, self.changes(), "glm_revise")
+                revision_guard(state, after, self.changes(), "revise_plan")
         with self.subTest("edited earlier"), self.assertRaises(ValueError):
             state, after = self.inputs(contract_history=[{"origin": "user_cli_edit", "approval_status": "draft"}])
-            revision_guard(state, after, self.changes(), "glm_revise")
+            revision_guard(state, after, self.changes(), "revise_plan")
 
     def test_behaviors_exclusions_and_failure_cases_are_never_the_planners_own(self):
         state, after = self.inputs()
         after["required_behaviors"] = []
         changes = [*self.changes(), self.row("Students can start a practice session", "removed")]
         with self.assertRaisesRegex(ValueError, "'Students can start a practice session'"):
-            revision_guard(state, after, changes, "glm_revise")
+            revision_guard(state, after, changes, "revise_plan")
         # A constraint that is also a required behavior is the person's whichever list the Planner changes it in.
         state, after = self.inputs()
         state["goal_contract"]["body"]["required_behaviors"].append(self.SPLIT)
         after["required_behaviors"].append(self.SPLIT)
         with self.assertRaisesRegex(ValueError, "needs a saved user"):
-            revision_guard(state, after, self.changes(), "glm_revise")
+            revision_guard(state, after, self.changes(), "revise_plan")
 
     def test_quoting_is_judged_on_the_persons_text_alone(self):
         state, _ = self.inputs()
@@ -1400,7 +1400,7 @@ class BaselineCorrectionTests(unittest.TestCase):
             "hash": "h2",
             "approval_status": "approved" if approved else "draft",
             "approval_event": {"id": "e1"} if approved else None,
-            "origin": "glm_revise" if approved else "glm_draft",
+            "origin": "revise_plan" if approved else "glm_draft",
         }
         state = {
             "goal_contract": contract,
@@ -1430,7 +1430,7 @@ class BaselineCorrectionTests(unittest.TestCase):
     def test_the_bound_diagnosis_text_is_accepted_with_a_receipt_and_no_question(self):
         state, after = self.inputs()
         before = copy.deepcopy(state)
-        self.assertEqual([self.receipt()], revision_guard(state, after, [], "glm_revise"))
+        self.assertEqual([self.receipt()], revision_guard(state, after, [], "revise_plan"))
         self.assertEqual(before, state)
 
     def test_the_planners_rewording_row_for_the_box_alone_is_folded_into_the_receipt(self):
@@ -1444,12 +1444,12 @@ class BaselineCorrectionTests(unittest.TestCase):
                 "replacement": self.OBSERVED,
             }
         ]
-        self.assertEqual([self.receipt()], revision_guard(state, after, declared, "glm_revise"))
+        self.assertEqual([self.receipt()], revision_guard(state, after, declared, "revise_plan"))
 
     def test_whitespace_in_the_copied_text_does_not_matter(self):
         state, after = self.inputs()
         after["acceptance_criteria"][0]["current_behavior"] = "  " + self.OBSERVED.replace(" for ", "  for\n")
-        self.assertEqual("current_behavior", revision_guard(state, after, [], "glm_revise")[0]["change"])
+        self.assertEqual("current_behavior", revision_guard(state, after, [], "revise_plan")[0]["change"])
 
     def test_another_text_on_a_protected_criterion_is_refused_with_the_evidence_to_copy(self):
         state, after = self.inputs()
@@ -1457,7 +1457,7 @@ class BaselineCorrectionTests(unittest.TestCase):
         with self.assertRaisesRegex(
             ValueError, r"'AC2' needs a saved user answer.*current_behavior.*copy bug_diagnosis\.observed exactly"
         ) as raised:
-            revision_guard(state, after, [], "glm_revise")
+            revision_guard(state, after, [], "revise_plan")
         self.assertIn(self.OBSERVED[:60], str(raised.exception))
         self.assertIn(self.WRONG[:40], str(raised.exception))
 
@@ -1465,7 +1465,7 @@ class BaselineCorrectionTests(unittest.TestCase):
         state, after = self.inputs()
         after["acceptance_criteria"][0]["criterion"] = "The weekly report prints 3.5h for a 3h30m entry."
         with self.assertRaisesRegex(ValueError, r"drops or changes 'AC2' without a user-backed contract change"):
-            revision_guard(state, after, [], "glm_revise")
+            revision_guard(state, after, [], "revise_plan")
 
     def test_without_a_bound_diagnosis_the_box_is_not_evidence(self):
         for name, found in (
@@ -1480,12 +1480,12 @@ class BaselineCorrectionTests(unittest.TestCase):
                 if found:
                     state["investigation"] = found
                 with self.assertRaisesRegex(ValueError, r"'AC2' needs a saved user answer.*no reproduced diagnosis"):
-                    revision_guard(state, after, [], "glm_revise")
+                    revision_guard(state, after, [], "revise_plan")
 
     def test_an_empty_box_may_be_filled_with_any_text(self):
         state, after = self.inputs(box="")
         after["acceptance_criteria"][0]["current_behavior"] = "the report rounds down"
-        self.assertEqual([], revision_guard(state, after, [], "glm_revise"))
+        self.assertEqual([], revision_guard(state, after, [], "revise_plan"))
 
     def test_a_saved_user_answer_authorizes_another_text(self):
         state, after = self.inputs()
@@ -1500,10 +1500,10 @@ class BaselineCorrectionTests(unittest.TestCase):
                 "replacement": "the report rounds down",
             }
         ]
-        self.assertEqual(declared, revision_guard(state, after, declared, "glm_revise"))
+        self.assertEqual(declared, revision_guard(state, after, declared, "revise_plan"))
 
     def test_the_planners_own_unapproved_criterion_may_change_its_box(self):
         state, after = self.inputs(approved=False)
         after["acceptance_criteria"][0]["current_behavior"] = "the report rounds down"
-        self.assertEqual([], revision_guard(state, after, [], "glm_revise"))
-        self.assertEqual([self.receipt()], revision_guard(*self.inputs(approved=False)[:2], [], "glm_revise"))
+        self.assertEqual([], revision_guard(state, after, [], "revise_plan"))
+        self.assertEqual([self.receipt()], revision_guard(*self.inputs(approved=False)[:2], [], "revise_plan"))

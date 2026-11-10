@@ -313,7 +313,8 @@ class ConversationPolicyTests(unittest.TestCase):
 
     def test_python_and_cli_creation_authority_has_no_action_or_controller_escape(self):
         self.assertEqual(
-            ("--glm-model", "model", "--planning-v2"), policy.creation_options(("--glm-model=model", "--planning-v2"))
+            ("--planner-model", "model", "--planning-v2"),
+            policy.creation_options(("--planner-model=model", "--planning-v2")),
         )
         for selection in ("--auto-select", "--no-auto-select"):
             self.assertEqual((selection,), policy.creation_options((selection,)))

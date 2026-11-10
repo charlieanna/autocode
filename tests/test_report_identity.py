@@ -33,7 +33,7 @@ class Fixture(unittest.TestCase):
     def setUp(self):
         self.setUp_base()
         self.state.update(
-            next_stage="astra_review",
+            next_stage="review_completion",
             goal_contract={"revision": 2, "hash": HASH},
             contract_history=[{"revision": 1, "hash": OLD_HASH}],
             current_task={"id": TASK, "contract_revision": 2, "contract_hash": HASH},
@@ -197,10 +197,10 @@ class SavedReportBindingTests(Fixture):
         events.write_text("")
         schema = directory / "completion-reviewer-01.schema.json"
         schema.write_text(
-            json.dumps(support.review_generation_schema(support.read(self.schema), self.state, "astra_review"))
+            json.dumps(support.review_generation_schema(support.read(self.schema), self.state, "review_completion"))
         )
         record = {
-            "stage": "astra_review",
+            "stage": "review_completion",
             "role": "task_planner",
             "iteration": 5,
             "output": str(output),
@@ -248,7 +248,7 @@ class SavedReportBindingTests(Fixture):
 
     def test_other_stages_and_corrected_reports_keep_their_freshness_checks(self):
         report = self.report(contract_hash=MISTYPED)
-        for stage in ("terra", "astra_plan"):
+        for stage in ("builder", "plan_task"):
             record = {"stage": stage, "output": "x", "events": "y", "contract_hash": HASH, "contract_revision": 2}
             self.state["active_stage"] = record
             self.assertEqual((report, []), report_identity.bind(report, {}, record, self.state))

@@ -38,7 +38,7 @@ class RetainedWorkTests(unittest.TestCase):
         start = self.snapshot("a.before", {}, "r0")
         left = self.snapshot("a.after", after_files, "r1")
         first = {
-            "stage": "terra",
+            "stage": "builder",
             "iteration": 1,
             "task_id": "task-1",
             "started_at": "t1",
@@ -47,7 +47,7 @@ class RetainedWorkTests(unittest.TestCase):
             "changed_files": sorted(after_files),
         }
         retry = {
-            "stage": "terra",
+            "stage": "builder",
             "iteration": 1,
             "task_id": "task-1",
             "started_at": "t2",
@@ -192,7 +192,7 @@ class RetainedWorkTests(unittest.TestCase):
         state, retry = self.held_reapproval()
         before = copy.deepcopy(state)
         with patch.object(builder_failure.source_scope, "snapshot", return_value={"revision": "r1"}):
-            builder_failure.dispatch_guard(state, "terra", self.workspace)
+            builder_failure.dispatch_guard(state, "builder", self.workspace)
         before.pop("builder_failure_hold")
         self.assertEqual(before, state, "retire only the hold; keep all history, limits and proof requirements")
 
@@ -208,7 +208,7 @@ class RetainedWorkTests(unittest.TestCase):
             change(state, retry)
             with patch.object(builder_failure.source_scope, "snapshot", return_value={"revision": "r1"}):
                 with self.assertRaises(builder_failure.util.Paused):
-                    builder_failure.dispatch_guard(state, "terra", self.workspace)
+                    builder_failure.dispatch_guard(state, "builder", self.workspace)
             self.assertIn("builder_failure_hold", state)
 
     def test_repair_does_not_hide_an_earlier_out_of_scope_edit(self):
@@ -298,7 +298,7 @@ class OwnRepairSourceTests(unittest.TestCase):
 
     def attempt(self, name, before, after, packet=PACKET, **row):
         return {
-            "stage": "terra",
+            "stage": "builder",
             "before_ref": self.snapshot(name + ".before", *before),
             "after_ref": self.snapshot(name + ".after", *after),
             "recovery_novelty": {"packet": packet},
@@ -309,7 +309,7 @@ class OwnRepairSourceTests(unittest.TestCase):
         """The live attempt: a test edit in scope and a backup the runner then removed."""
         left = {**self.BOUND, "tests/test_stock.py": "t1", "stock_current.py": "s0"}
         return [
-            {"stage": "astra_resolve", "recovery_novelty": {"packet": self.PACKET}},
+            {"stage": "resolve", "recovery_novelty": {"packet": self.PACKET}},
             self.attempt("builder-01", (self.BOUND, "r0"), (left, "r1"), rejected=True),
         ]
 

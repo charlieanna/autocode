@@ -32,7 +32,7 @@ def approved_state(root, paths, *, task_kind="build"):
         "goal_contract": contract,
         "user_events": [event],
         "current_task": copy.deepcopy(body["initial_task"]),
-        "settings": {"roles": {role: {"engine": "codex"} for role in ("task_planner", "terra", "sol")}},
+        "settings": {"roles": {role: {"engine": "codex"} for role in ("task_planner", "builder", "tester")}},
     }
 
 
@@ -217,7 +217,7 @@ class ReviewSourceContextTests(unittest.TestCase):
             state = approved_state(root, ["totals.py"])
             before = copy.deepcopy(state)
             with mock.patch.object(stage_context.source_scope, "snapshot", return_value=current):
-                for stage in ("sol", "astra_checkpoint", "astra_review"):
+                for stage in ("tester", "review_checkpoint", "review_completion"):
                     with self.subTest(stage=stage):
                         prompt, _ = stage_context.context_packet(state, stage, root / ".autocode/state.json")
                         data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
@@ -234,12 +234,12 @@ class ReviewSourceContextTests(unittest.TestCase):
             state = approved_state(root, ["source.py"])
             current = snapshot({"source.py": hashlib.sha256(path.read_bytes()).hexdigest()})
             with mock.patch.object(stage_context.source_scope, "snapshot", return_value=current):
-                for stage in ("terra", "astra_plan"):
+                for stage in ("builder", "plan_task"):
                     prompt, _ = stage_context.context_packet(state, stage, root / ".autocode/state.json")
                     data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
                     self.assertNotIn("review_source", data)
                 path.write_bytes(b"changed after the snapshot\n")
-                for stage in ("sol", "astra_review", "astra_checkpoint"):
+                for stage in ("tester", "review_completion", "review_checkpoint"):
                     with self.subTest(stage=stage):
                         prompt, _ = stage_context.context_packet(state, stage, root / ".autocode/state.json")
                         data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
@@ -262,12 +262,12 @@ class BuilderSourceContextTests(unittest.TestCase):
         self.state = approved_state(self.root, list(self.contents), task_kind="bugfix")
         self.state["workflow"] = {"kind": "bugfix", "clarity": "clear", "brief_size": "small"}
         self.state["planning"] = {"adaptive": {"size": "small"}}
-        self.state["settings"]["roles"]["terra"].update(model="selected/model", reasoning_effort="high")
+        self.state["settings"]["roles"]["builder"].update(model="selected/model", reasoning_effort="high")
 
     def current(self):
         return snapshot({name: hashlib.sha256((self.root / name).read_bytes()).hexdigest() for name in self.contents})
 
-    def render(self, *, current=None, state=None, stage="terra"):
+    def render(self, *, current=None, state=None, stage="builder"):
         with mock.patch.object(stage_context.source_scope, "snapshot", return_value=current or self.current()):
             prompt, _ = stage_context.context_packet(state or self.state, stage, self.root / ".autocode/state.json")
         return prompt, json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
@@ -388,8 +388,8 @@ class BuilderSourceContextTests(unittest.TestCase):
         state = approved_state(self.root, list(self.contents), task_kind="build")
         state.update(workflow=self.state["workflow"], planning=self.state["planning"])
         self.assert_omitted(self.render(state=state)[1])
-        self.assert_omitted(self.render(stage="astra_plan")[1])
-        for stage in ("sol", "astra_review", "astra_checkpoint"):
+        self.assert_omitted(self.render(stage="plan_task")[1])
+        for stage in ("tester", "review_completion", "review_checkpoint"):
             with self.subTest(stage=stage):
                 _, data = self.render(stage=stage)
                 self.assertIn("review_source", data)

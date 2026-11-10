@@ -17,7 +17,7 @@ from . import test_report_repair as repair_fixtures
 class ClarificationContextTests(unittest.TestCase):
     def test_author_repair_without_a_pinned_schema_keeps_legacy_references(self):
         clarification = {"retained_contract": "r1:" + "a" * 64, "retained_criteria": [{"id": "C1"}]}
-        instruction, references = context.criterion_retention(clarification, "glm_revise")
+        instruction, references = context.criterion_retention(clarification, "revise_plan")
         self.assertEqual(retention.RULE, instruction)
         self.assertEqual(clarification, references)
 
@@ -31,7 +31,7 @@ class ClarificationContextTests(unittest.TestCase):
         latest["checks"][0]["command"] = "changed by a failed repair"
         latest["verdict"] = "PASS"
         source = {"path": "original.json", "sha256": "a" * 64, "format": "json", "content": original}
-        for stage in ("sol", "astra_review", "astra_checkpoint"):
+        for stage in ("tester", "review_completion", "review_checkpoint"):
             with self.subTest(stage=stage):
                 instruction, compact = context.historical_author_report(stage, source, {**source, "content": latest})
                 self.assertNotIn("content", list(compact))
@@ -51,20 +51,20 @@ class ClarificationContextTests(unittest.TestCase):
     def test_batch_scope_is_copied_and_omitted_from_serial_and_unrelated_repairs(self):
         task = {"id": "batch-task", "milestone_id": "B", "milestone_ids": ["B", "C"], "acceptance_criteria": ["C2"]}
         state = {"current_task": task}
-        supplied = context.batch_validation_context(state, "sol")
+        supplied = context.batch_validation_context(state, "tester")
         supplied["milestone_ids"].append("A")
         supplied["acceptance_criteria"].clear()
         self.assertEqual(["B", "C"], task["milestone_ids"])
         self.assertEqual(["C2"], task["acceptance_criteria"])
-        for stage in ("terra", "requirements_gather", "astra_discovery", "investigate_stuck"):
+        for stage in ("builder", "requirements_gather", "draft_plan", "investigate_stuck"):
             with self.subTest(stage=stage):
                 self.assertEqual({}, context.batch_validation_context(state, stage))
         for serial in ({}, {"current_task": None}, {"current_task": {"id": "single", "milestone_id": "B"}}):
             with self.subTest(state=serial):
-                self.assertEqual({}, context.batch_validation_context(serial, "sol"))
+                self.assertEqual({}, context.batch_validation_context(serial, "tester"))
 
     def test_plan_reviewer_repair_includes_source_trace_review_guidance(self):
-        instruction = context.baseline_instruction("astra_challenge")
+        instruction = context.baseline_instruction("review_plan")
 
         self.assertIn("review_source_sentences", instruction)
         self.assertIn("criterion_ids", instruction)
@@ -155,7 +155,7 @@ class ClarificationContextTests(unittest.TestCase):
         }
         source = {"format": "json", "truncated": False, "content": original}
         before = copy.deepcopy((source, latest))
-        instruction, compact = context.historical_author_report("glm_revise", source, {**source, "content": latest})
+        instruction, compact = context.historical_author_report("revise_plan", source, {**source, "content": latest})
         self.assertIn("No file access is needed", instruction)
         self.assertEqual("rejected_report.content", compact["content_base"])
         restored = copy.deepcopy(latest)
@@ -179,12 +179,12 @@ class ClarificationContextTests(unittest.TestCase):
     def test_historical_compaction_is_skipped_when_distinct_content_would_grow(self):
         original = {"format": "json", "truncated": False, "content": {"summary": "a" * 1000}}
         latest = {**original, "content": {"summary": "b" * 1000}}
-        self.assertEqual(("", original), context.historical_author_report("glm_revise", original, latest))
+        self.assertEqual(("", original), context.historical_author_report("revise_plan", original, latest))
 
     def test_historical_reference_compaction_preserves_other_repair_baselines(self):
         original = {"format": "json", "truncated": False, "content": {"summary": "original"}}
         latest = {"format": "json", "truncated": False, "content": {"summary": "latest"}}
-        for stage in ("terra", "sol", "astra_finalize", "requirements_gather"):
+        for stage in ("builder", "tester", "finalize_plan", "requirements_gather"):
             with self.subTest(stage=stage):
                 self.assertEqual(("", original), context.historical_author_report(stage, original, latest))
         for source in (
@@ -193,13 +193,13 @@ class ClarificationContextTests(unittest.TestCase):
             {**original, "content": []},
         ):
             with self.subTest(source=source):
-                self.assertEqual(("", source), context.historical_author_report("glm_revise", source, latest))
-                self.assertEqual(("", original), context.historical_author_report("glm_revise", original, source))
+                self.assertEqual(("", source), context.historical_author_report("revise_plan", source, latest))
+                self.assertEqual(("", original), context.historical_author_report("revise_plan", original, source))
 
     def test_revision_and_finalization_repairs_get_only_the_current_planning_exchange(self):
         reports = {
-            "astra_discovery": {"output": "current-discovery.json", "report": {"contract": {"scope": ["greet.py"]}}},
-            "astra_challenge": {
+            "draft_plan": {"output": "current-discovery.json", "report": {"contract": {"scope": ["greet.py"]}}},
+            "review_plan": {
                 "output": "current-review.json",
                 "report": {
                     "concerns": [
@@ -207,54 +207,54 @@ class ClarificationContextTests(unittest.TestCase):
                     ]
                 },
             },
-            "glm_revise": {"output": "current-revision.json", "report": {"responses": [{"concern_id": "C1"}]}},
-            "astra_finalize": {"report": {"summary": "unrelated final"}},
+            "revise_plan": {"output": "current-revision.json", "report": {"responses": [{"concern_id": "C1"}]}},
+            "finalize_plan": {"report": {"summary": "unrelated final"}},
         }
         state = {
             "planning": {"reports": reports},
-            "planning_history": [{"reports": {"astra_challenge": {"report": {"concerns": [{"id": "OLD"}]}}}}],
+            "planning_history": [{"reports": {"review_plan": {"report": {"concerns": [{"id": "OLD"}]}}}}],
         }
         before = copy.deepcopy(state)
         for stage, names in (
-            ("glm_revise", ("astra_discovery", "astra_challenge")),
-            ("astra_finalize", ("astra_discovery", "astra_challenge", "glm_revise")),
+            ("revise_plan", ("draft_plan", "review_plan")),
+            ("finalize_plan", ("draft_plan", "review_plan", "revise_plan")),
         ):
             with self.subTest(stage=stage):
                 result = context.clarification_context(state, stage)
                 self.assertEqual({name: reports[name] for name in names}, result["planning_exchange"])
-                result["planning_exchange"]["astra_challenge"]["report"]["concerns"][0]["id"] = "changed"
+                result["planning_exchange"]["review_plan"]["report"]["concerns"][0]["id"] = "changed"
                 self.assertEqual(before, state)
         self.assertEqual({}, context.clarification_context(state, "requirements_gather")["planning_exchange"])
-        self.assertEqual({}, context.clarification_context({}, "glm_revise")["planning_exchange"])
+        self.assertEqual({}, context.clarification_context({}, "revise_plan")["planning_exchange"])
 
     def test_the_planning_exchange_carries_only_the_draft_under_review(self):
         # #1337: the superseded discovery draft rode beside the revised one in every plan-finalize repair.
         reports = {
-            "astra_discovery": {"output": "discovery.json", "report": {"summary": "First", "contract": {"v": 1}}},
-            "astra_challenge": {"output": "review.json", "report": {"concerns": [{"id": "C1"}]}},
-            "glm_revise": {"output": "revision.json", "report": {"responses": [], "contract": {"v": 2}}},
+            "draft_plan": {"output": "discovery.json", "report": {"summary": "First", "contract": {"v": 1}}},
+            "review_plan": {"output": "review.json", "report": {"concerns": [{"id": "C1"}]}},
+            "revise_plan": {"output": "revision.json", "report": {"responses": [], "contract": {"v": 2}}},
         }
         state = {"planning": {"reports": reports}}
         before = copy.deepcopy(state)
 
-        final = context.clarification_context(state, "astra_finalize")["planning_exchange"]
+        final = context.clarification_context(state, "finalize_plan")["planning_exchange"]
 
-        self.assertEqual({"output": "discovery.json", "report": {"summary": "First"}}, final["astra_discovery"])
-        self.assertEqual(reports["astra_challenge"], final["astra_challenge"])
-        self.assertEqual(reports["glm_revise"], final["glm_revise"])
+        self.assertEqual({"output": "discovery.json", "report": {"summary": "First"}}, final["draft_plan"])
+        self.assertEqual(reports["review_plan"], final["review_plan"])
+        self.assertEqual(reports["revise_plan"], final["revise_plan"])
         self.assertEqual(before, state)
 
     def test_repair_instruction_requires_actual_saved_concern_ids_and_substantive_responses(self):
-        text = context.instruction("glm_revise")
-        self.assertIn("planning_exchange.astra_challenge.report.concerns", text)
+        text = context.instruction("revise_plan")
+        self.assertIn("planning_exchange.review_plan.report.concerns", text)
         self.assertIn("every saved concern ID exactly once", text)
         self.assertIn("Do not invent a replacement concern ID", text)
         self.assertIn("existing evidence_refs", text)
 
     def test_finalizer_repair_instructions_use_only_final_report_fields(self):
-        text = context.instruction("astra_finalize")
+        text = context.instruction("finalize_plan")
 
-        self.assertIn("planning_exchange.astra_challenge.report.concerns", text)
+        self.assertIn("planning_exchange.review_plan.report.concerns", text)
         self.assertIn("every saved concern ID exactly once in decisions", text)
         self.assertIn("substantive rationale", text)
         self.assertIn("contract.initial_task", text)
@@ -273,8 +273,8 @@ class ClarificationContextTests(unittest.TestCase):
     def test_finalizer_decision_shape_matches_the_strict_saved_schema(self):
         from units import autoplanner
 
-        text = context.instruction("astra_finalize")
-        fields = autoplanner.SCHEMAS["astra_finalize"]["properties"]["decisions"]["items"]["properties"]
+        text = context.instruction("finalize_plan")
+        fields = autoplanner.SCHEMAS["finalize_plan"]["properties"]["decisions"]["items"]["properties"]
         self.assertIn("Each decision contains only " + ", ".join(fields), text)
         self.assertNotIn("evidence_refs", fields)
         self.assertNotIn("Add evidence_refs", text)
@@ -304,19 +304,19 @@ class ClarificationContextTests(unittest.TestCase):
             "requirement_trace": [],
             "initial_task": initial_task,
         }
-        schema = autoplanner.SCHEMAS["astra_finalize"]
+        schema = autoplanner.SCHEMAS["finalize_plan"]
         with self.assertRaisesRegex(ValueError, r"\$: unexpected fields"):
             validate_schema(report, schema)
         without_extra = {key: value for key, value in report.items() if key != "initial_task"}
         with self.assertRaisesRegex(ValueError, r"\$\.contract: missing initial_task"):
             validate_schema(without_extra, schema)
 
-        text = context.instruction("astra_finalize")
+        text = context.instruction("finalize_plan")
         self.assertIn("Remove a root-level initial_task", text)
         self.assertIn("preserving that task inside contract.initial_task", text)
 
     def test_finalizer_repair_defers_to_alternate_progressive_review_schemas(self):
-        text = context.instruction("astra_finalize")
+        text = context.instruction("finalize_plan")
 
         self.assertIn("For alternate progressive review schemas, follow only their saved fields", text)
         self.assertIn("do not add contract, initial_task or decisions", text)
@@ -365,7 +365,7 @@ class ClarificationContextTests(unittest.TestCase):
         self.assertNotIn("Q9", result["saved_answers"])
 
     def test_human_clarification_is_not_a_machine_resolution(self):
-        text = context.instruction("astra_discovery")
+        text = context.instruction("draft_plan")
         self.assertIn("Human answers and feedback are never machine_resolutions", text)
         self.assertIn("only when clarification_context has an investigation_request", text)
         self.assertIn("Without that matching request, machine_resolutions and access_blockers must be []", text)
@@ -375,27 +375,27 @@ class ClarificationContextTests(unittest.TestCase):
 
     def test_nonplanning_report_repair_has_no_clarification_payload_or_rule(self):
         state = {"requirements_handoff": {"sensitive": "unrelated"}}
-        self.assertEqual({}, context.clarification_context(state, "terra"))
-        self.assertEqual("", context.instruction("terra"))
-        self.assertEqual("", context.instruction("sol"))
+        self.assertEqual({}, context.clarification_context(state, "builder"))
+        self.assertEqual("", context.instruction("builder"))
+        self.assertEqual("", context.instruction("tester"))
 
     def test_original_planning_draft_is_not_an_immutable_answer_baseline(self):
         text = context.baseline_instruction("requirements_gather")
         self.assertIn("original_report is historical planning context", text)
         self.assertIn("Do not restore invalid machine_resolutions", text)
         self.assertNotIn("immutable execution-history baseline", text)
-        self.assertIn("immutable execution-history baseline", context.baseline_instruction("terra"))
+        self.assertIn("immutable execution-history baseline", context.baseline_instruction("builder"))
 
 
 class DecisionRepairContextTests(unittest.TestCase):
     setUp = repair_fixtures.base.RetrofitTest.setUp
 
     def test_later_repair_retains_the_original_rejection_beside_its_format_error(self):
-        self.state["next_stage"] = "sol"
+        self.state["next_stage"] = "tester"
         original_error = "Missing changed-code decision L183 for parser.py:160"
         original = {"verdict": "PASS", "changed_code_exceptions": []}
         repair_fixtures.RepairTests.queue(
-            self, stage="sol", role="sol", report=json.dumps(original), error=ValueError(original_error)
+            self, stage="tester", role="tester", report=json.dumps(original), error=ValueError(original_error)
         )
         with self.assertRaises(repair_fixtures.runner.ReportRepairQueued):
             repair_fixtures.RepairTests.reject_repair(
@@ -410,7 +410,7 @@ class DecisionRepairContextTests(unittest.TestCase):
         self.assertTrue(request["report_only"])
 
     def test_tester_repair_names_enclosing_proof_without_changing_rejected_judgments(self):
-        for stage, role in (("sol", "sol"), ("astra_checkpoint", "task_planner")):
+        for stage, role in (("tester", "tester"), ("review_checkpoint", "task_planner")):
             with self.subTest(stage=stage):
                 self.setUp()
                 self.state["next_stage"] = stage
@@ -452,7 +452,7 @@ class DecisionRepairContextTests(unittest.TestCase):
     def test_citation_context_omits_stale_missing_or_non_tester_proofs(self):
         pending = {"original": {"source_revision": "current"}}
         proof = {"path": "/run/proof/verification.json", "source_revision": "current"}
-        for stage in ("terra", "astra_review", "glm_revise"):
+        for stage in ("builder", "review_completion", "revise_plan"):
             self.assertEqual({}, context.changed_code_citation_context({"regression_proof": proof}, pending, stage))
         for invalid in (
             {},
@@ -462,7 +462,9 @@ class DecisionRepairContextTests(unittest.TestCase):
             {**proof, "path": ""},
             {**proof, "path": ["bad"]},
         ):
-            self.assertEqual({}, context.changed_code_citation_context({"regression_proof": invalid}, pending, "sol"))
+            self.assertEqual(
+                {}, context.changed_code_citation_context({"regression_proof": invalid}, pending, "tester")
+            )
 
     def test_combined_review_repair_receives_exact_batch_scope_without_reading_state(self):
         runner = repair_fixtures.runner
@@ -482,14 +484,14 @@ class DecisionRepairContextTests(unittest.TestCase):
         }
         before = copy.deepcopy(self.state)
         rejected = {"verdict": "PASS", "milestone_results": [{"milestone_id": "B", "status": "PASS"}]}
-        for stage in ("sol", "astra_checkpoint", "astra_review", "astra_plan", "astra_resolve"):
+        for stage in ("tester", "review_checkpoint", "review_completion", "plan_task", "resolve"):
             with self.subTest(stage=stage):
                 self.state = copy.deepcopy(before)
                 self.state["next_stage"] = stage
                 repair_fixtures.RepairTests.queue(
                     self,
                     stage=stage,
-                    role="sol" if stage == "sol" else "task_planner",
+                    role="tester" if stage == "tester" else "task_planner",
                     report=json.dumps(rejected),
                     error=ValueError("Combined validation must report every batch milestone exactly once"),
                 )
@@ -509,7 +511,7 @@ class DecisionRepairContextTests(unittest.TestCase):
         runner = repair_fixtures.runner
         approve_fixture(self.state, runner.goals)
         self.state["settings"]["roles"]["planner"] = copy.deepcopy(self.state["settings"]["roles"]["task_planner"])
-        self.state["next_stage"] = "glm_revise"
+        self.state["next_stage"] = "revise_plan"
         exact = "Nonpositive size must still raise ValueError after the change"
         self.state["goal_contract"]["body"]["important_failure_cases"] = [exact]
         value = {
@@ -523,7 +525,7 @@ class DecisionRepairContextTests(unittest.TestCase):
         before = copy.deepcopy(value)
         repair_fixtures.RepairTests.queue(
             self,
-            stage="glm_revise",
+            stage="revise_plan",
             role="planner",
             report=json.dumps(value),
             error=ValueError("Planner report is missing requirement_trace[0].requirement_id"),
@@ -536,7 +538,7 @@ class DecisionRepairContextTests(unittest.TestCase):
         self.assertIn("retain the saved text verbatim", request["prompt"])
         self.assertIn("grants no change authority", request["prompt"])
         with self.assertRaisesRegex(ValueError, "drops or changes"):
-            runner.goals.revision_guard(self.state, value["contract"], [], "glm_revise")
+            runner.goals.revision_guard(self.state, value["contract"], [], "revise_plan")
 
     def test_revision_repair_receives_current_review_even_when_execution_findings_are_empty(self):
         concerns = [
@@ -549,19 +551,19 @@ class DecisionRepairContextTests(unittest.TestCase):
         ]
         review = {"output": "current-review.json", "report": {"summary": "Second review", "concerns": concerns}}
         self.state.update(
-            next_stage="glm_revise",
+            next_stage="revise_plan",
             planning={
                 "reports": {
-                    "astra_discovery": {"report": {"contract": {"intended_outcome": "superseded-draft"}}},
-                    "astra_challenge": review,
+                    "draft_plan": {"report": {"contract": {"intended_outcome": "superseded-draft"}}},
+                    "review_plan": review,
                 }
             },
-            planning_history=[{"reports": {"astra_challenge": {"report": {"concerns": [{"id": "OLD"}]}}}}],
+            planning_history=[{"reports": {"review_plan": {"report": {"concerns": [{"id": "OLD"}]}}}}],
         )
         self.state["settings"]["roles"]["planner"] = copy.deepcopy(self.state["settings"]["roles"]["task_planner"])
         repair_fixtures.RepairTests.queue(
             self,
-            stage="glm_revise",
+            stage="revise_plan",
             role="planner",
             report=json.dumps({"responses": []}),
             error=ValueError("Every plan-review concern needs exactly one response/decision using its ID"),
@@ -571,7 +573,7 @@ class DecisionRepairContextTests(unittest.TestCase):
         data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
 
         self.assertEqual([], data["open_findings"])
-        self.assertEqual({"astra_challenge": review}, data["planning_exchange"])
+        self.assertEqual({"review_plan": review}, data["planning_exchange"])
         self.assertNotIn("superseded-draft", request["prompt"])
         self.assertNotIn('"OLD"', request["prompt"])
         self.assertIn("open_findings is the execution findings ledger", request["prompt"])
@@ -583,7 +585,7 @@ class DecisionRepairContextTests(unittest.TestCase):
         approve_fixture(self.state, runner.goals)
         self.state["settings"]["roles"]["planner"] = copy.deepcopy(self.state["settings"]["roles"]["task_planner"])
         before = copy.deepcopy(self.state)
-        for stage in ("astra_discovery", "glm_revise"):
+        for stage in ("draft_plan", "revise_plan"):
             for legacy in (False, True):
                 with self.subTest(stage=stage, legacy=legacy):
                     self.state = copy.deepcopy(before)
@@ -599,7 +601,7 @@ class DecisionRepairContextTests(unittest.TestCase):
                     data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
                     self.assertEqual(retention.token(self.state), data["retained_contract"])
                     self.assertEqual(not legacy, retention.DELTA_RULE in request["prompt"])
-                    if stage == "glm_revise" and not legacy:
+                    if stage == "revise_plan" and not legacy:
                         self.assertNotIn("retained_criteria", data)
                         self.assertNotIn(retention.RULE, request["prompt"])
                     self.assertEqual(original_bytes, path.read_bytes())
@@ -633,7 +635,7 @@ class DecisionRepairContextTests(unittest.TestCase):
     def test_unrelated_repair_does_not_receive_criterion_retention_references(self):
         runner = repair_fixtures.runner
         approve_fixture(self.state, runner.goals)
-        repair_fixtures.RepairTests.queue(self, stage="terra", role="terra")
+        repair_fixtures.RepairTests.queue(self, stage="builder", role="builder")
         request = repair_fixtures.RepairTests.repair_request(self)
         data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
         self.assertNotIn("retained_criteria", data)
@@ -642,8 +644,8 @@ class DecisionRepairContextTests(unittest.TestCase):
     def test_author_without_a_current_contract_gets_no_retention_rule_or_inventory(self):
         self.state.pop("goal_contract", None)
         self.state["settings"]["roles"]["planner"] = copy.deepcopy(self.state["settings"]["roles"]["task_planner"])
-        self.state["next_stage"] = "glm_revise"
-        repair_fixtures.RepairTests.queue(self, stage="glm_revise", role="planner")
+        self.state["next_stage"] = "revise_plan"
+        repair_fixtures.RepairTests.queue(self, stage="revise_plan", role="planner")
         request = repair_fixtures.RepairTests.repair_request(self)
         data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
         self.assertNotIn("retained_criteria", data)
@@ -652,8 +654,8 @@ class DecisionRepairContextTests(unittest.TestCase):
     def test_final_review_keeps_its_existing_contract_reference_context(self):
         runner = repair_fixtures.runner
         approve_fixture(self.state, runner.goals)
-        self.state["next_stage"] = "astra_finalize"
-        repair_fixtures.RepairTests.queue(self, stage="astra_finalize", role="task_planner")
+        self.state["next_stage"] = "finalize_plan"
+        repair_fixtures.RepairTests.queue(self, stage="finalize_plan", role="task_planner")
         request = repair_fixtures.RepairTests.repair_request(self)
         data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
         self.assertNotIn("retained_criteria", data)
@@ -664,11 +666,11 @@ class DecisionRepairContextTests(unittest.TestCase):
         runner = repair_fixtures.runner
         approve_fixture(self.state, runner.goals)
         self.state["settings"]["roles"]["planner"] = copy.deepcopy(self.state["settings"]["roles"]["task_planner"])
-        self.state["next_stage"] = "glm_revise"
+        self.state["next_stage"] = "revise_plan"
         original = {"summary": "retained " + "x" * 120000}
         latest = {**original, "repair_fault": True}
         pending = repair_fixtures.RepairTests.queue(
-            self, stage="glm_revise", role="planner", report=json.dumps(original)
+            self, stage="revise_plan", role="planner", report=json.dumps(original)
         )
         original_source = runner.repair_report_source(pending["original"])
         with self.assertRaises(runner.ReportRepairQueued):
@@ -688,13 +690,13 @@ class DecisionRepairContextTests(unittest.TestCase):
     def test_large_tester_repair_retains_both_reports_and_offers_bounded_edits(self):
         runner = repair_fixtures.runner
         approve_fixture(self.state, runner.goals)
-        self.state["next_stage"] = "sol"
+        self.state["next_stage"] = "tester"
         original = {"summary": "x" * 120000, "checks": [{"command": r"echo \\u00e9"}]}
         latest = {**original, "repair_fault": True}
         schema = self.run / "review.schema.json"
         schema.write_text(json.dumps({"type": "object", "properties": {"summary": {"type": "string"}}}))
         repair_fixtures.RepairTests.queue(
-            self, stage="sol", role="sol", report=json.dumps(original), schema=str(schema)
+            self, stage="tester", role="tester", report=json.dumps(original), schema=str(schema)
         )
         with self.assertRaises(runner.ReportRepairQueued):
             repair_fixtures.RepairTests.reject_repair(self, 6, ValueError("Invalid receipt"), report=json.dumps(latest))
@@ -711,9 +713,9 @@ class DecisionRepairContextTests(unittest.TestCase):
         runner = repair_fixtures.runner
         approve_fixture(self.state, runner.goals)
         self.state["settings"]["roles"]["planner"] = copy.deepcopy(self.state["settings"]["roles"]["task_planner"])
-        self.state["next_stage"] = "astra_discovery"
+        self.state["next_stage"] = "draft_plan"
         expected = runner.goals.protected_contract_snapshot(self.state)
-        repair_fixtures.RepairTests.queue(self, stage="astra_discovery", role="planner")
+        repair_fixtures.RepairTests.queue(self, stage="draft_plan", role="planner")
         prompt = repair_fixtures.RepairTests.repair_request(self)["prompt"]
         data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
         self.assertIsInstance(data["protected_contract"], dict)
@@ -724,7 +726,7 @@ class DecisionRepairContextTests(unittest.TestCase):
         approve_fixture(self.state, runner.goals)
         self.state["settings"]["roles"]["resolver"] = copy.deepcopy(self.state["settings"]["roles"]["task_planner"])
         before = copy.deepcopy(self.state)
-        for stage in ("astra_plan", "astra_review", "astra_checkpoint", "astra_resolve"):
+        for stage in ("plan_task", "review_completion", "review_checkpoint", "resolve"):
             with self.subTest(stage=stage):
                 self.state = copy.deepcopy(before)
                 self.state["next_stage"] = stage
@@ -741,14 +743,14 @@ class DecisionRepairContextTests(unittest.TestCase):
                         "validation_plan": ["python3 -m unittest"],
                     },
                 }
-                if stage == "astra_resolve":
+                if stage == "resolve":
                     decision.update(status="REWORK", evidence=[str(self.evidence)])
                     decision["next_task"]["kind"] = "implement"
                 with self.assertRaisesRegex(ValueError, "Task must belong to an approved milestone") as rejected:
                     lifecycle.assign_task(self.state, decision, runner.support.snapshot(self.root))
                 report = (
                     {"decision": decision, "validation": {"verdict": "FAIL"}}
-                    if stage == "astra_checkpoint"
+                    if stage == "review_checkpoint"
                     else decision
                 )
                 repair_fixtures.RepairTests.queue(
@@ -792,14 +794,14 @@ class DecisionRepairContextTests(unittest.TestCase):
     def test_missing_requirements_and_unknown_ids_are_not_repaired_by_guessing(self):
         runner = repair_fixtures.runner
         approve_fixture(self.state, runner.goals)
-        self.state["next_stage"] = "astra_review"
+        self.state["next_stage"] = "review_completion"
         report = {
             "next_task": {"milestone_id": "unknown-milestone", "requirements": []},
             "acceptance_criteria": [{"id": "C1", "status": "unverified", "evidence": ""}],
         }
         repair_fixtures.RepairTests.queue(
             self,
-            stage="astra_review",
+            stage="review_completion",
             role="task_planner",
             error=ValueError("The bounded task needs requirements"),
             report=json.dumps(report),
@@ -858,7 +860,7 @@ class DecisionRepairContextTests(unittest.TestCase):
             "If original_report is also supplied, it is the immutable execution-history baseline; "
             "rejected_report is the latest failed repair and error applies to that draft. "
         )
-        for stage in ("terra", "sol", "astra_diagnose", "investigate_stuck", "unknown-stage"):
+        for stage in ("builder", "tester", "diagnose", "investigate_stuck", "unknown-stage"):
             with self.subTest(stage=stage):
                 self.assertEqual(expected, context.baseline_instruction(stage))
 
@@ -889,21 +891,21 @@ class ProtectedContractRepairContextTests(unittest.TestCase):
             "permission_boundaries",
         )
         expected = {field: self.body[field] for field in fields}
-        for stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+        for stage in ("draft_plan", "revise_plan", "finalize_plan"):
             with self.subTest(stage=stage):
                 payload = context.clarification_context(self.state, stage)
                 self.assertEqual(expected, payload.get("protected_contract"))
 
     def test_discovery_repair_snapshot_cannot_mutate_the_approved_contract(self):
         before = copy.deepcopy(self.state)
-        payload = context.clarification_context(self.state, "astra_discovery")
+        payload = context.clarification_context(self.state, "draft_plan")
         self.assertIsInstance(payload.get("protected_contract"), dict)
         payload["protected_contract"]["constraints"].clear()
         payload["protected_contract"]["acceptance_criteria"][0]["criterion"] = "weakened"
         self.assertEqual(before, self.state)
 
     def test_requirement_only_and_nonplanning_repairs_do_not_receive_a_contract(self):
-        for stage in ("requirements_gather", "terra", "astra_review", "unknown-stage"):
+        for stage in ("requirements_gather", "builder", "review_completion", "unknown-stage"):
             with self.subTest(stage=stage):
                 self.assertIsNone(context.clarification_context(self.state, stage).get("protected_contract"))
 
@@ -915,7 +917,7 @@ class ProtectedContractRepairContextTests(unittest.TestCase):
                 changed = copy.deepcopy(self.body)
                 changed["constraints"].remove(clause)
                 with self.assertRaisesRegex(ValueError, "without a user-backed contract change"):
-                    revision_guard(self.state, changed, [], "astra_discovery")
+                    revision_guard(self.state, changed, [], "draft_plan")
 
     def test_repair_payloads_keep_the_contract_separate_and_copies_isolated(self):
         fields = (
@@ -928,7 +930,7 @@ class ProtectedContractRepairContextTests(unittest.TestCase):
         )
         expected = {field: self.body[field] for field in fields}
         before = copy.deepcopy(self.state)
-        for stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+        for stage in ("draft_plan", "revise_plan", "finalize_plan"):
             with self.subTest(stage=stage):
                 clarification, protected = context.repair_payloads(self.state, stage)
                 self.assertNotIn("protected_contract", clarification)
@@ -936,7 +938,7 @@ class ProtectedContractRepairContextTests(unittest.TestCase):
                 self.assertIn("requirements_handoff", clarification)
                 protected["constraints"].clear()
                 self.assertEqual(before, self.state)
-        for stage in ("requirements_gather", "terra", "unknown-stage"):
+        for stage in ("requirements_gather", "builder", "unknown-stage"):
             with self.subTest(stage=stage):
                 clarification, protected = context.repair_payloads(self.state, stage)
                 self.assertIsNone(protected)

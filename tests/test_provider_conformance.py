@@ -339,20 +339,20 @@ class ProbeLaunchRoleTests(unittest.TestCase):
             self.execute(self.adapter(), directory="read")
         with self.assertRaises(self.Stopped):
             self.execute(self.adapter(), allow_write=True, directory="write")
-        self.assertEqual(["sol", "terra"], self.roles)
+        self.assertEqual(["tester", "builder"], self.roles)
 
     def test_a_tool_effort_refusal_is_the_named_pause_its_stage_launch_reports(self):
         from providers.kilocode import KiloEffortError
 
         error = KiloEffortError(
             "Kilo model zai-coding-plan/glm-5.3 does not support reasoning variant 'medium'; "
-            "supported variants: high, low, max. Name one of them with --glm-reasoning-effort high; "
+            "supported variants: high, low, max. Name one of them with --planner-reasoning-effort high; "
             "no model request was launched"
         )
         with self.assertRaises(support.Paused) as caught:
             self.execute(self.adapter(error), role="planner")
         self.assertEqual("PAUSED_TRANSPORT_UNVERIFIED", caught.exception.status)
-        self.assertIn("--glm-reasoning-effort high", str(caught.exception))
+        self.assertIn("--planner-reasoning-effort high", str(caught.exception))
         self.assertIs(error, caught.exception.__cause__)
 
     def test_a_policy_timeout_retains_its_cause_and_never_starts_a_provider(self):

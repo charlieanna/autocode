@@ -75,7 +75,7 @@ def report(data):
             "probe": "",
             "untestable": "",
         }
-    if data["stage"] == "astra_discovery":
+    if data["stage"] == "draft_plan":
         return {"contract": _cite(plan(), data), "summary": "Two independent outputs, then combine"}
     common = {
         "contract_revision": data["goal_contract"]["revision"],
@@ -91,7 +91,7 @@ def report(data):
             "proposed_delta": "",
         },
     }
-    if data["stage"] == "sol":
+    if data["stage"] == "tester":
         command = [
             sys.executable,
             "-c",
@@ -166,7 +166,7 @@ def report(data):
         "finding_dispositions": [],
     }
     if (
-        data["stage"] == "astra_review"
+        data["stage"] == "review_completion"
         and ((data.get("goal_contract") or {}).get("body") or {}).get("source_trace") is not None
     ):
         value["source_verdict"] = dict(SOURCE_VERDICT)
@@ -176,11 +176,11 @@ def report(data):
 def repair_report(data):
     original = data["original"]
     result = json.loads(Path(original["output"]).read_text())
-    if original.get("stage") == "terra":
+    if original.get("stage") == "builder":
         result.setdefault("summary", "Repaired report without replaying implementation")
     if isinstance(result.get("contract"), dict):
         _cite(result["contract"], data)
-        if original.get("stage") in ("astra_challenge", "astra_finalize"):
+        if original.get("stage") in ("review_plan", "finalize_plan"):
             result.setdefault("source_trace", _source_trace(result["contract"]))
     return result
 
@@ -214,7 +214,7 @@ def main():
         write_report(result)
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}))
         return
-    if data["stage"] != "terra":
+    if data["stage"] != "builder":
         write_report(report(data))
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}))
         return

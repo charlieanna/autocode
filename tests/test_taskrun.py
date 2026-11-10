@@ -42,15 +42,15 @@ FIXTURE_OPTIONS = (
     "--engine",
     "codex",
     "--joint-planning",
-    "--astra-model",
+    "--task-planner-model",
     "gpt-6-astra",
-    "--terra-model",
+    "--builder-model",
     "gpt-5.6-terra",
-    "--sol-model",
+    "--tester-model",
     "gpt-5.6-sol",
     "--completion-model",
     "gpt-6-astra",
-    "--glm-model",
+    "--planner-model",
     "gpt-5.6-sol",
     "--plan-reviewer-model",
     "gpt-6-astra",
@@ -91,7 +91,7 @@ class RunViewTests(unittest.TestCase):
 
     def test_continue_with_a_retained_attempt_or_runner_check_names_no_advance(self):
         for retained in (
-            {"active_stage": {"stage": "terra"}},
+            {"active_stage": {"stage": "builder"}},
             {"active_stage": {}},
             {"active_runner_check": {"stage": "regression"}},
             {"active_runner_check": {}},
@@ -124,7 +124,7 @@ class RunViewTests(unittest.TestCase):
     def test_contract_fields(self):
         self.assertIn("gate", run_view.view({"status": "RUNNING"})["chat"])
         copy_record = run_view.view(
-            {"status": "RUNNING", "stages": [{"role": "sol", "events": "tester.jsonl", "verification_copy": {}}]}
+            {"status": "RUNNING", "stages": [{"role": "tester", "events": "tester.jsonl", "verification_copy": {}}]}
         )["replay_source"]["records"][0]["verification_copy"]
         self.assertEqual({"version", "manifest", "sha256", "source_revision"}, set(copy_record))
         self.assertEqual(
@@ -233,7 +233,7 @@ class RunViewTests(unittest.TestCase):
         shown = run_view.view(
             {
                 "status": "RUNNING",
-                "stages": [{"stage": "terra", "role": "terra", "engine": "codex", "model": "gpt-6-sol"}],
+                "stages": [{"stage": "builder", "role": "builder", "engine": "codex", "model": "gpt-6-sol"}],
             }
         )
         attempts = shown["usage"]["accounting"]["attempts"]
@@ -243,7 +243,7 @@ class RunViewTests(unittest.TestCase):
 
     def test_accounting_attempt_inventory_names_count_only_tool_activity(self):
         shown = run_view.view(
-            {"status": "RUNNING", "stages": [{"stage": "terra", "engine": "codex", "model": "gpt-6-sol"}]}
+            {"status": "RUNNING", "stages": [{"stage": "builder", "engine": "codex", "model": "gpt-6-sol"}]}
         )
         activity = shown["usage"]["accounting"]["attempts"][0]["tool_activity"]
         self.assertEqual(
@@ -585,7 +585,7 @@ class RunViewTests(unittest.TestCase):
                     "status": "open",
                     "severity": "low",
                     "finding": "Prefer a clearer name",
-                    "source": "sol",
+                    "source": "tester",
                     "blocking": False,
                     "evidence": "parser.py:14",
                     "times_reported": 2,
@@ -642,7 +642,7 @@ class RunViewTests(unittest.TestCase):
                     "status": "open",
                     "severity": "low",
                     "finding": "Prefer a clearer name",
-                    "source": "sol",
+                    "source": "tester",
                     "blocking": False,
                     "evidence": "parser.py:14",
                 }
@@ -775,7 +775,7 @@ class RunViewTests(unittest.TestCase):
         state = {
             "status": "PAUSED_BUDGET",
             "stop_reason": "quota restored; set the attempt aside",
-            "active_stage": {"iteration": 1, "output": "/run/terra-01.json", "stage": "terra"},
+            "active_stage": {"iteration": 1, "output": "/run/terra-01.json", "stage": "builder"},
         }
         need = run_view.needs(state)
         self.assertEqual("continue", need["kind"], "the core has already classified the exact recovery")
@@ -793,7 +793,7 @@ class RunViewTests(unittest.TestCase):
             "settings": {"report_repair": {"max_attempts": 2}},
             "pending_report_repair": {
                 "error": "Check is not supported by an exact executed Validator event",
-                "original": {"stage": "sol"},
+                "original": {"stage": "tester"},
                 "attempts": 2,
                 "latest_rejected": {"iteration": 1, "output": "/run/sol_report_repair-02.json"},
             },
@@ -903,15 +903,15 @@ class TaskRunTests(unittest.TestCase):
                 stages = [row["stage"] for row in util.read(run.run_dir / "state.json")["stages"]]
                 self.assertEqual("requirements_gather", stages[0], stages)
                 self.assertNotIn("recognize_workflow", stages)
-                self.assertNotIn("astra_finalize", stages, "approved at the first review")
+                self.assertNotIn("finalize_plan", stages, "approved at the first review")
                 # The same decision, said in the status view's one record of what ran and what was skipped.
                 self.assertEqual(
                     [
                         ("requirements_gather", "run"),
-                        ("astra_discovery", "run"),
-                        ("astra_challenge", "run"),
-                        ("glm_revise", "skip"),
-                        ("astra_finalize", "skip"),
+                        ("draft_plan", "run"),
+                        ("review_plan", "run"),
+                        ("revise_plan", "skip"),
+                        ("finalize_plan", "skip"),
                     ],
                     [(row["stage"], row["decision"]) for row in view["stage_decisions"]],
                 )
@@ -1040,7 +1040,7 @@ class TaskRunTests(unittest.TestCase):
         contract["hash"] = util.digest({key: contract[key] for key in ("task_id", "revision", "body")})
         state["planning"]["final_token"] = "r" + str(contract["revision"]) + ":" + contract["hash"]
         state["displayed_goal"] = state["planning"]["final_token"]
-        final = next((row for row in state["stages"] if row.get("stage") == "astra_finalize"), None)
+        final = next((row for row in state["stages"] if row.get("stage") == "finalize_plan"), None)
         if final:
             # The checkpoint predates retained final reviews (#1858) too: its final review was asked for
             # the full contract, so its saved schema, which the report repair reuses, asks for one.
@@ -1231,7 +1231,7 @@ class TaskRunTests(unittest.TestCase):
         provider = Path(self.env["PATH"].split(os.pathsep)[0]) / "codex"
         source = provider.read_text()
         amendment = textwrap.dedent("""
-            if stage == "astra_discovery":
+            if stage == "draft_plan":
                 questions = (contract.get("body") or {}).get("open_blocking_questions", [])
                 if os.environ.get("FIXTURE_GENUINE_QUESTIONS"):
                     questions = [{"id": "readme-audience", "question": "Should the README target beginners or experienced Python users?",
@@ -1370,7 +1370,7 @@ class TaskRunTests(unittest.TestCase):
                 timeout=60,
             )
         paused = run.status()
-        self.assertEqual("astra_discovery", paused["next_stage"], paused)
+        self.assertEqual("draft_plan", paused["next_stage"], paused)
         self.assertFalse(list(run.run_dir.glob("iterations/*/*")), "no stage ran before the upgrade")
         upgraded = taskrun.TaskRun(self.workspace, run.run_dir, options=FIXTURE_OPTIONS, env=self.env, timeout=120)
         view = upgraded.advance_until_input()
@@ -1390,7 +1390,7 @@ class TaskRunTests(unittest.TestCase):
         self.assertIn(anchor, script)
         amendment = (
             textwrap.dedent("""
-            if stage in ("astra_discovery", "glm_revise", "astra_finalize") and os.environ.get("FOLLOW_UP_PROVENANCE_TEST") == "1":
+            if stage in ("draft_plan", "revise_plan", "finalize_plan") and os.environ.get("FOLLOW_UP_PROVENANCE_TEST") == "1":
                 previous = "Print Hello, NAME for one nonempty name and exit 0"
                 event = next((e for e in data.get("brief_feedback", []) if e.get("text") == REQUEST), {})
                 report["contract"].setdefault("initial_task", _planning_contract()["initial_task"])
@@ -1398,7 +1398,7 @@ class TaskRunTests(unittest.TestCase):
                 report["requirement_trace"][0]["evidence"] = REPLACEMENT
                 # Re-cite after rewording so source_trace seals against the new corpus (#595).
                 report["contract"] = _cite(report["contract"], data)
-                if stage == "astra_finalize":
+                if stage == "finalize_plan":
                     report["source_trace"] = _source_trace(report["contract"], data)
                 behaviors = ((data.get("goal_contract") or {}).get("body") or {}).get("required_behaviors", [])
                 if previous in behaviors or not behaviors:
@@ -1430,9 +1430,7 @@ class TaskRunTests(unittest.TestCase):
         )
         boundary = gathering.advance()
         # The follow-up began at Requirements (#1860), which refreshed the prior handoff and named a build.
-        self.assertEqual(
-            ("PAUSED_REQUESTED", "astra_discovery"), (boundary["status"], boundary["next_stage"]), boundary
-        )
+        self.assertEqual(("PAUSED_REQUESTED", "draft_plan"), (boundary["status"], boundary["next_stage"]), boundary)
         # Reattach: retain the recorded request and authorization identity.
         run = taskrun.TaskRun(self.workspace, run.run_dir, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
         view = run.resume_paused()
@@ -1539,56 +1537,56 @@ class TaskRunClientTests(unittest.TestCase):
         run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
         need = {
             "kind": "answer",
-            "questions": [{"id": "route-sol"}],
-            "route": {"question_id": "route-sol", "role": "sol", "cause": "cross_model"},
+            "questions": [{"id": "route-tester"}],
+            "route": {"question_id": "route-tester", "role": "tester", "cause": "cross_model"},
         }
         with (
             patch.object(run, "status", return_value={"needs": need}),
             patch.object(run, "_act", return_value={}) as act,
         ):
-            run.answer("route-sol", "claude-opus-5-5")
-        act.assert_called_once_with("answer", "--answer", "route-sol=claude-opus-5-5")
+            run.answer("route-tester", "claude-opus-5-5")
+        act.assert_called_once_with("answer", "--answer", "route-tester=claude-opus-5-5")
 
     def test_only_the_current_cross_model_route_can_answer_without_a_resolver_token(self):
         run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
         for route in (
             {},
-            {"question_id": "route-sol", "cause": "quota"},
+            {"question_id": "route-tester", "cause": "quota"},
             {"question_id": "route-completion", "cause": "cross_model"},
         ):
-            need = {"kind": "answer", "questions": [{"id": "route-sol"}], "route": route}
+            need = {"kind": "answer", "questions": [{"id": "route-tester"}], "route": route}
             with (
                 self.subTest(route=route),
                 patch.object(run, "status", return_value={"needs": need}),
                 patch.object(run, "_act") as act,
             ):
                 with self.assertRaisesRegex(taskrun.TaskRunError, "no current AutoResolver request"):
-                    run.answer("route-sol", "claude-opus-5-5")
+                    run.answer("route-tester", "claude-opus-5-5")
                 act.assert_not_called()
 
     def test_model_assignment_refreshes_every_saved_override_before_resume(self):
         cases = (
             (
-                "sol",
+                "tester",
                 (
-                    "--terra-model=builder",
-                    "--sol-model",
+                    "--builder-model=builder",
+                    "--tester-model",
                     "old-first",
-                    "--feedback=keep --sol-model=old-in-note",
-                    "--sol-model=old-middle",
-                    "--sol-model",
+                    "--feedback=keep --tester-model=old-in-note",
+                    "--tester-model=old-middle",
+                    "--tester-model",
                     "old-last",
-                    "--sol-reasoning-effort=high",
+                    "--tester-reasoning-effort=high",
                 ),
                 (
-                    "--terra-model=builder",
-                    "--sol-model",
+                    "--builder-model=builder",
+                    "--tester-model",
                     "selected",
-                    "--feedback=keep --sol-model=old-in-note",
-                    "--sol-model=selected",
-                    "--sol-model",
+                    "--feedback=keep --tester-model=old-in-note",
+                    "--tester-model=selected",
+                    "--tester-model",
                     "selected",
-                    "--sol-reasoning-effort=high",
+                    "--tester-reasoning-effort=high",
                 ),
             ),
             (
@@ -1610,7 +1608,7 @@ class TaskRunClientTests(unittest.TestCase):
         for role, options in (
             ("investigator", ("--investigator-model=stuck", "--investigator-model", "stuck-last")),
             ("architect", ("--pause-after-stage",)),
-            ("sol", ("--terra-model=builder",)),
+            ("tester", ("--builder-model=builder",)),
         ):
             with self.subTest(role=role):
                 run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"), options=options)
@@ -1709,7 +1707,7 @@ class TaskRunClientTests(unittest.TestCase):
                 run = taskrun.TaskRun(
                     Path("/work/repo"),
                     Path("/work/repo/.autocode/runs/one"),
-                    options=("--sol-model", "gpt-5.6-sol"),
+                    options=("--tester-model", "gpt-5.6-sol"),
                 )
                 message = reason + "\n" + guidance
                 completed = subprocess.CompletedProcess(
@@ -1723,11 +1721,11 @@ class TaskRunClientTests(unittest.TestCase):
                     patch.object(run, "status") as status,
                     self.assertRaisesRegex(taskrun.TaskRunError, "Cross-model verification violated") as raised,
                 ):
-                    run.assign_model("sol", "gpt-5.6-terra", resolver_token="opaque-token")
+                    run.assign_model("tester", "gpt-5.6-terra", resolver_token="opaque-token")
                 self.assertIs(completed, raised.exception.process)
                 self.assertLess(len(str(raised.exception)), 900)
                 self.assertNotIn("Next command:", str(raised.exception))
-                self.assertEqual(("--sol-model", "gpt-5.6-sol"), run.options)
+                self.assertEqual(("--tester-model", "gpt-5.6-sol"), run.options)
                 status.assert_not_called()
 
     def test_retry_failed_stage_uses_explicit_inspected_retry(self):
@@ -2217,8 +2215,8 @@ with tempfile.TemporaryDirectory(dir=log.parent) as temporary:
     report = json.loads(output.read_text())
     reviews = [json.loads(line) for line in log.read_text().splitlines()
                if json.loads(line).get('operation') == 'launch'
-               and json.loads(line).get('stage') == 'astra_review']
-    if data['stage'] == 'astra_review' and len(reviews) == 1:
+               and json.loads(line).get('stage') == 'review_completion']
+    if data['stage'] == 'review_completion' and len(reviews) == 1:
         # A deliberate fake permission stop gives the real CLI one continuation
         # on the same reader role. It grants no artifact/product acceptance.
         report.update(status='BLOCKED', blocker='Await the fixture read-only confirmation permission',
@@ -2302,7 +2300,7 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
             'version_command = ["fixture_command", "--version"]\n[roles]\n'
             + "\n".join(
                 f'{role} = {{ model = "fixture-claude", effort = "high" }}'
-                for role in ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")
+                for role in ("task_planner", "builder", "tester", "completion", "planner", "plan_reviewer")
             )
             + "\n"
         )
@@ -2331,11 +2329,11 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
             "zai-coding-plan/glm-5.3-flash",
             "--requirements-reasoning-effort",
             "high",
-            "--glm-model",
+            "--planner-model",
             "zai-coding-plan/glm-5.3",
-            "--glm-reasoning-effort",
+            "--planner-reasoning-effort",
             "high",
-            "--terra-model",
+            "--builder-model",
             "zai-coding-plan/glm-5.3",
             "--plan-reviewer-model",
             "xiaomi-token-plan-sgp/mimo-v2.6-pro",
@@ -2345,18 +2343,18 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
             "xiaomi-token-plan-sgp/mimo-v2.6-pro",
             "--resolver-reasoning-effort",
             "high",
-            "--astra-model",
+            "--task-planner-model",
             "fixture-claude",
-            "--sol-model",
+            "--tester-model",
             "fixture-claude",
             "--completion-model",
             "fixture-claude",
             "--pin-model-role",
             "task_planner",
             "--pin-model-role",
-            "terra",
+            "builder",
             "--pin-model-role",
-            "sol",
+            "tester",
             "--pin-model-role",
             "completion",
             "--max-parallel-builders",
@@ -2365,7 +2363,7 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
         )
         self.start_options = tuple(
             value
-            for role in ("task_planner", "sol", "completion")
+            for role in ("task_planner", "tester", "completion")
             for value in ("--role-transport", role + "=fixture_command")
         )
 
@@ -2386,7 +2384,7 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
         self.assertEqual("zai-coding-plan/glm-5.3", before["routes"]["planner"]["model"])
         self.assertEqual("xiaomi-token-plan-sgp/mimo-v2.6-pro", before["routes"]["plan_reviewer"]["model"])
         self.assertEqual("xiaomi-token-plan-sgp/mimo-v2.6-pro", before["routes"]["resolver"]["model"])
-        self.assertEqual("fixture-claude", before["routes"]["sol"]["model"])
+        self.assertEqual("fixture-claude", before["routes"]["tester"]["model"])
         # Reattach without repeating the immutable start-only selection.
         attached = taskrun.TaskRun(self.workspace, run.run_dir, options=self.options, env=self.env, timeout=300)
         attached.approve_plan(before["needs"]["token"])
@@ -2407,17 +2405,17 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
         self.assertTrue(all(row["resume_session"] in (None, row["session"]) for row in launches))
         expected = {
             "requirements_gather": ("opencode", "zai-coding-plan/glm-5.3-flash"),
-            "astra_discovery": ("opencode", "zai-coding-plan/glm-5.3"),
-            "astra_challenge": ("opencode", "xiaomi-token-plan-sgp/mimo-v2.6-pro"),
-            "terra": ("opencode", "zai-coding-plan/glm-5.3"),
-            "sol": ("fixture_command", "fixture-claude"),
-            "astra_review": ("fixture_command", "fixture-claude"),
+            "draft_plan": ("opencode", "zai-coding-plan/glm-5.3"),
+            "review_plan": ("opencode", "xiaomi-token-plan-sgp/mimo-v2.6-pro"),
+            "builder": ("opencode", "zai-coding-plan/glm-5.3"),
+            "tester": ("fixture_command", "fixture-claude"),
+            "review_completion": ("fixture_command", "fixture-claude"),
         }
         for stage, wanted in expected.items():
             actual = [row for row in launches if row["stage"] == stage]
             self.assertTrue(actual, stage)
             self.assertTrue(all((row["tool"], row["model"]) == wanted for row in actual), actual)
-        readers = [row for row in launches if row["stage"] == "astra_review"]
+        readers = [row for row in launches if row["stage"] == "review_completion"]
         self.assertEqual(2, len(readers), readers)
         self.assertEqual("fixture_command", readers[0]["tool"])
         self.assertIsNone(readers[0]["resume_session"])
@@ -2431,8 +2429,8 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
         self.assertTrue(all("fixture-claude" not in row["models"] for row in catalogues if row["tool"] == "opencode"))
         evidence = attached.evidence_report()["document"]
         stages = {row["stage"]: row for row in evidence["attempts"] if not row["runner_owned"]}
-        self.assertEqual("fixture-claude", stages["sol"]["model"])
-        self.assertEqual(0, stages["sol"]["exit_code"])
+        self.assertEqual("fixture-claude", stages["tester"]["model"])
+        self.assertEqual(0, stages["tester"]["exit_code"])
         self.assertEqual("TASK_COMPLETE", taskrun.TaskRun.attach(self.workspace, env=self.env).status()["status"])
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "Kilo native version/policy admission requires Linux")
@@ -2447,7 +2445,7 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
         )
         self.start_options = tuple(
             value
-            for role in ("task_planner", "sol", "completion")
+            for role in ("task_planner", "tester", "completion")
             for value in ("--role-transport", role + "=kilocode")
         )
         # macOS uses the portable read-only policy covered in

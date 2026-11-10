@@ -35,7 +35,7 @@ class PlanningTests(unittest.TestCase):
         state["active_seconds"] = 1500
         state["settings"]["limits"] = {"max_seconds": 1800, "stage_timeout_seconds": 900, "max_cost_usd": 4}
         before = copy.deepcopy(state)
-        for stage in ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"):
+        for stage in ("requirements_gather", "draft_plan", "review_plan", "revise_plan", "finalize_plan"):
             with self.subTest(stage=stage):
                 prompt, _ = planning.context(state, stage, Path("/fixture/state.json"))
                 packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
@@ -55,7 +55,7 @@ class PlanningTests(unittest.TestCase):
         state = self.state()
         state["workspace"] = "/fixture"
         state["settings"]["roles"] = {"planner": {}}
-        for stage in ("astra_discovery", "glm_revise"):
+        for stage in ("draft_plan", "revise_plan"):
             with self.subTest(stage=stage):
                 request = planning.prepare(state, stage, Path("/fixture/state.json"), None)
                 data = json.loads(request.prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
@@ -64,9 +64,9 @@ class PlanningTests(unittest.TestCase):
                 self.assertTrue(planning.retention.allows_delta(request.schema))
                 delta = {"retain_from": data["retained_contract"], "upsert": [], "remove": []}
                 contract = request.schema["properties"]["contract"]
-                # #2374 offers glm_revise a revision-reference anyOf before the compatible full
+                # #2374 offers revise_plan a revision-reference anyOf before the compatible full
                 # contract form; the delta is bound to the current contract in whichever branch
-                # carries it (astra_discovery still has the plain form).
+                # carries it (draft_plan still has the plain form).
                 branches = contract.get("anyOf", [contract])
                 reference = next(
                     (branch for branch in branches if "revise_contract" in branch.get("properties", {})), None
@@ -93,7 +93,7 @@ class PlanningTests(unittest.TestCase):
                     support.validate_schema({**delta, "upsert": [{"id": "C1"}]}, criteria["anyOf"][1])
         # The final review stays a verdict against the exact plan; its reference offers the criteria
         # delta and nothing else of the contract (#1991).
-        request = planning.prepare(state, "astra_finalize", Path("/fixture/state.json"), None)
+        request = planning.prepare(state, "finalize_plan", Path("/fixture/state.json"), None)
         data = json.loads(request.prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
         self.assertTrue(planning.retention.allows_delta(request.schema))
         self.assertNotIn(planning.retention.DELTA_RULE, request.prompt)
@@ -108,7 +108,7 @@ class PlanningTests(unittest.TestCase):
     def test_progressive_prompts_distinguish_the_product_milestone_from_slices(self):
         state = self.state()
         state["workspace"] = "/fixture"
-        for stage in ("astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"):
+        for stage in ("draft_plan", "review_plan", "revise_plan", "finalize_plan"):
             with self.subTest(stage=stage):
                 prompt, _ = planning.context(state, stage, Path("/fixture/state.json"))
                 self.assertIn("exactly one whole-product milestone", prompt)
@@ -121,7 +121,7 @@ class PlanningTests(unittest.TestCase):
     def test_revision_prompt_requires_each_citation_and_a_safe_protected_conflict_exit(self):
         state = self.state()
         state["workspace"] = "/fixture"
-        prompt, _ = planning.context(state, "glm_revise", Path("/fixture/state.json"))
+        prompt, _ = planning.context(state, "revise_plan", Path("/fixture/state.json"))
         self.assertIn("Each responses[].evidence_refs must be nonempty", prompt)
         self.assertIn("code_refs does not satisfy this per-response requirement", prompt)
         self.assertIn("retain the protected text and add a blocking decision", prompt)
@@ -134,7 +134,7 @@ class PlanningTests(unittest.TestCase):
         # requirements-only empty rule stays with Requirements.
         state = self.state()
         state["workspace"] = "/fixture"
-        for stage in ("astra_discovery", "glm_revise"):
+        for stage in ("draft_plan", "revise_plan"):
             with self.subTest(stage=stage):
                 prompt, _ = planning.context(state, stage, Path("/fixture/state.json"))
                 self.assertIn("code_refs name the actual repository-relative source files you read", prompt)
@@ -164,7 +164,7 @@ class PlanningTests(unittest.TestCase):
         state.update(workspace="/fixture")
         state["settings"]["roles"] = {"task_planner": {}}
 
-        prompt, _ = planning.context(state, "astra_finalize", Path("/fixture/state.json"))
+        prompt, _ = planning.context(state, "finalize_plan", Path("/fixture/state.json"))
 
         self.assertIn("contract.initial_task", prompt)
         self.assertIn("use [] for obligation_decisions", prompt)
@@ -174,7 +174,7 @@ class PlanningTests(unittest.TestCase):
     def test_planner_obligation_instructions_do_not_request_reviewer_fields(self):
         state = self.state()
         state["workspace"] = "/fixture"
-        for stage in ("astra_discovery", "glm_revise"):
+        for stage in ("draft_plan", "revise_plan"):
             with self.subTest(stage=stage):
                 request = planning.prepare(state, stage, Path("/fixture/state.json"), None)
                 self.assertIn("remediation_records", request.schema["properties"])
@@ -186,7 +186,7 @@ class PlanningTests(unittest.TestCase):
     def test_first_reviewer_obligation_instructions_do_not_request_planner_fields(self):
         state = self.state()
         state["workspace"] = "/fixture"
-        request = planning.prepare(state, "astra_challenge", Path("/fixture/state.json"), None)
+        request = planning.prepare(state, "review_plan", Path("/fixture/state.json"), None)
         self.assertIn("obligation_decisions", request.schema["properties"])
         self.assertNotIn("remediation_records", request.schema["properties"])
         self.assertIn("use [] for obligation_decisions", request.prompt)
@@ -196,7 +196,7 @@ class PlanningTests(unittest.TestCase):
     def test_first_reviewer_checks_progressive_proposals_without_returning_one(self):
         state = self.state()
         state["workspace"] = "/fixture"
-        request = planning.prepare(state, "astra_challenge", Path("/fixture/state.json"), None)
+        request = planning.prepare(state, "review_plan", Path("/fixture/state.json"), None)
         self.assertNotIn("progressive_proposal", request.schema["properties"])
         self.assertNotIn("schema always includes progressive_proposal", request.prompt)
         self.assertNotIn("return\nits empty form", request.prompt)
@@ -225,13 +225,13 @@ class PlanningTests(unittest.TestCase):
             "requirement_trace": [],
             "remediation_records": [],
         }
-        schema = planning.prepare(state, "astra_discovery", Path("/fixture/state.json"), None).schema
+        schema = planning.prepare(state, "draft_plan", Path("/fixture/state.json"), None).schema
         support.validate_schema(draft, schema)
         with self.assertRaisesRegex(ValueError, "unexpected fields: obligation_decisions"):
             support.validate_schema({**draft, "obligation_decisions": []}, schema)
 
         review = {"summary": "Review", "concerns": [], "obligation_decisions": []}
-        schema = planning.prepare(state, "astra_challenge", Path("/fixture/state.json"), None).schema
+        schema = planning.prepare(state, "review_plan", Path("/fixture/state.json"), None).schema
         support.validate_schema(review, schema)
         for field in ("remediation_records", "progressive_proposal"):
             with self.subTest(field=field), self.assertRaisesRegex(ValueError, "unexpected fields: " + field):
@@ -297,7 +297,7 @@ class PlanningTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "declare depends_on"):
             autopilot.apply_planning(
                 state,
-                "astra_discovery",
+                "draft_plan",
                 {
                     "contract": bare,
                     "summary": "draft",
@@ -358,23 +358,23 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual(["greet.py", "test_greeting.py"], state["current_task"]["affected_paths"])
 
     def test_new_plan_review_route_uses_opencode_cursor_opus(self):
-        args = SimpleNamespace(task_planner_model=None, terra_model=None, sol_model=None, planner_model=None)
+        args = SimpleNamespace(task_planner_model=None, builder_model=None, tester_model=None, planner_model=None)
         settings = {
             "engine": "opencode",
-            "roles": {r: {} for r in ("task_planner", "terra", "sol")},
+            "roles": {r: {} for r in ("task_planner", "builder", "tester")},
             "transport_identity": {"engine": "opencode"},
         }
         autocode_configure.configure_joint(settings, args, fresh=True, planning=planning)
         state = {"settings": settings}
         self.assertEqual("openai/gpt-6-sol", settings["roles"]["plan_reviewer"]["model"])
         self.assertEqual("opencode", settings["roles"]["plan_reviewer"]["engine"])
-        for stage in ("astra_challenge", "astra_finalize"):
+        for stage in ("review_plan", "finalize_plan"):
             self.assertEqual("plan_reviewer", planning.route_for(state, stage))
-        self.assertEqual("task_planner", planning.route_for({"settings": {"joint_planning": True}}, "astra_challenge"))
-        self.assertIn("depends_on", planning.PROMPTS["astra_discovery"])
-        self.assertIn("claimed independent milestone", planning.PROMPTS["astra_challenge"])
-        self.assertIn("depends_on", planning.PROMPTS["glm_revise"])
-        self.assertIn("dependencies are complete and acyclic", planning.PROMPTS["astra_finalize"])
+        self.assertEqual("task_planner", planning.route_for({"settings": {"joint_planning": True}}, "review_plan"))
+        self.assertIn("depends_on", planning.PROMPTS["draft_plan"])
+        self.assertIn("claimed independent milestone", planning.PROMPTS["review_plan"])
+        self.assertIn("depends_on", planning.PROMPTS["revise_plan"])
+        self.assertIn("dependencies are complete and acyclic", planning.PROMPTS["finalize_plan"])
         command, environment, _ = oc.launch(
             "plan_reviewer",
             Path("/tmp/fixture"),
@@ -394,8 +394,8 @@ class PlanningTests(unittest.TestCase):
     def test_three_planner_roles_can_use_distinct_models_and_efforts(self):
         args = SimpleNamespace(
             task_planner_model=None,
-            terra_model=None,
-            sol_model=None,
+            builder_model=None,
+            tester_model=None,
             requirements_model="openai/gpt-6-luna",
             requirements_reasoning_effort="high",
             planner_model="openai/gpt-6-sol",
@@ -405,7 +405,7 @@ class PlanningTests(unittest.TestCase):
         )
         settings = {
             "engine": "opencode",
-            "roles": {r: {} for r in ("task_planner", "terra", "sol")},
+            "roles": {r: {} for r in ("task_planner", "builder", "tester")},
             "transport_identity": {"engine": "opencode"},
         }
         autocode_configure.configure_joint(settings, args, fresh=True, planning=planning)
@@ -443,7 +443,7 @@ class PlanningTests(unittest.TestCase):
                         "provider": provider,
                         "roles": {
                             role: {"model": "gpt-5.6-sol", "reasoning_effort": "medium"}
-                            for role in ("task_planner", "terra", "sol")
+                            for role in ("task_planner", "builder", "tester")
                         },
                         "transport_identity": {"auth_mode": "ChatGPT", "engine": engine},
                     }
@@ -481,7 +481,7 @@ class PlanningTests(unittest.TestCase):
                     "workspace": "/tmp/fixture",
                     "settings": saved,
                     "status": "PAUSED_INTERVENTION",
-                    "next_stage": "astra_plan",
+                    "next_stage": "plan_task",
                 }
                 before = copy.deepcopy(state)
                 with (
@@ -500,13 +500,13 @@ class PlanningTests(unittest.TestCase):
                 self.assertEqual(before, state)
 
     def test_requirements_inherits_the_glm_override_when_not_named_itself(self):
-        # #889: the primary reason to pass --glm-model is to re-point the GLM family away
+        # #889: the primary reason to pass --planner-model is to re-point the GLM family away
         # from a stale default; Requirements is part of that family, so the override must
         # reach it instead of falling through to the provider default the user is escaping.
         args = SimpleNamespace(
             task_planner_model=None,
-            terra_model=None,
-            sol_model=None,
+            builder_model=None,
+            tester_model=None,
             requirements_model=None,
             requirements_reasoning_effort=None,
             planner_model="alibaba-token-plan/glm-5.3",
@@ -516,7 +516,7 @@ class PlanningTests(unittest.TestCase):
         )
         settings = {
             "engine": "opencode",
-            "roles": {r: {} for r in ("task_planner", "terra", "sol")},
+            "roles": {r: {} for r in ("task_planner", "builder", "tester")},
             "transport_identity": {"engine": "opencode"},
         }
         autocode_configure.configure_joint(settings, args, fresh=True, planning=planning)
@@ -528,8 +528,8 @@ class PlanningTests(unittest.TestCase):
     def test_requirements_still_prefers_its_own_flag_over_the_glm_override(self):
         args = SimpleNamespace(
             task_planner_model=None,
-            terra_model=None,
-            sol_model=None,
+            builder_model=None,
+            tester_model=None,
             requirements_model="openai/gpt-6-luna",
             requirements_reasoning_effort="high",
             planner_model="alibaba-token-plan/glm-5.3",
@@ -539,7 +539,7 @@ class PlanningTests(unittest.TestCase):
         )
         settings = {
             "engine": "opencode",
-            "roles": {r: {} for r in ("task_planner", "terra", "sol")},
+            "roles": {r: {} for r in ("task_planner", "builder", "tester")},
             "transport_identity": {"engine": "opencode"},
         }
         autocode_configure.configure_joint(settings, args, fresh=True, planning=planning)
@@ -552,7 +552,7 @@ class PlanningTests(unittest.TestCase):
         state = self.state()
         state["workspace"] = "/fixture"
         state["task"] = "Conversation reference: demo. You: Kubernetes with re-teaching."
-        prompt, _ = planning.context(state, "astra_discovery", Path("/fixture/state.json"))
+        prompt, _ = planning.context(state, "draft_plan", Path("/fixture/state.json"))
         self.assertIn('basis=original_request with answer_id=""', prompt)
         self.assertIn("Conversation IDs and message labels are not saved feedback IDs", prompt)
         self.assertIn("Your suggestions and model-written drafts are basis=agent_proposed", prompt)
@@ -597,12 +597,12 @@ class PlanningTests(unittest.TestCase):
         autopilot.apply_planning(
             state, "requirements_gather", requirements, {"output": "/run/requirements_gather-01.json"}
         )
-        self.assertEqual("astra_discovery", state["next_stage"])
+        self.assertEqual("draft_plan", state["next_stage"])
         self.assertEqual("/run/requirements_gather-01.json", state["requirements_handoff"]["output"])
         self.assertNotIn("milestones", state["requirements_handoff"]["report"])
         self.assertEqual("requirements", planning.role_for(state, "requirements_gather"))
-        self.assertEqual("planner", planning.role_for(state, "astra_discovery"))
-        self.assertEqual("plan_reviewer", planning.route_for(state, "astra_challenge"))
+        self.assertEqual("planner", planning.role_for(state, "draft_plan"))
+        self.assertEqual("plan_reviewer", planning.route_for(state, "review_plan"))
         requirements_prompt, _ = planning.context(
             {
                 **state,
@@ -622,7 +622,7 @@ class PlanningTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "dropped unresolved requirements questions"):
             autopilot.apply_planning(
                 state,
-                "astra_discovery",
+                "draft_plan",
                 {
                     "contract": draft,
                     "summary": "plan",
@@ -634,7 +634,7 @@ class PlanningTests(unittest.TestCase):
                 },
                 {"output": "/run/draft.json"},
             )
-        self.assertEqual("astra_discovery", state["next_stage"])
+        self.assertEqual("draft_plan", state["next_stage"])
         self.assertNotIn("planning", state)
 
     def state(self):
@@ -645,7 +645,7 @@ class PlanningTests(unittest.TestCase):
 
     def test_reviewed_draft_proof_repair_retains_report_and_prior_contract(self):
         state = self.state()
-        state["planning"]["reports"]["astra_challenge"] = {"report": {"concerns": []}}
+        state["planning"]["reports"]["review_plan"] = {"report": {"concerns": []}}
         before = copy.deepcopy(state["goal_contract"])
         draft = copy.deepcopy(before["body"])
         draft["acceptance_criteria"][0]["verification_method"] = "test: test_c1_contract_holds"
@@ -669,11 +669,11 @@ class PlanningTests(unittest.TestCase):
             "responses": [],
             "code_refs": [],
         }
-        autopilot.apply_planning(state, "glm_revise", report, {"output": "retained-revision.json"})
-        self.assertEqual("astra_finalize", state["next_stage"])
+        autopilot.apply_planning(state, "revise_plan", report, {"output": "retained-revision.json"})
+        self.assertEqual("finalize_plan", state["next_stage"])
         self.assertEqual(before, state["contract_history"][-1])
         self.assertEqual([dict(changes[0], item="C1"), *changes[1:]], state["goal_contract"]["declared_changes"])
-        self.assertEqual(changes, state["planning"]["reports"]["glm_revise"]["report"]["contract_changes"])
+        self.assertEqual(changes, state["planning"]["reports"]["revise_plan"]["report"]["contract_changes"])
         self.assertEqual("draft", state["goal_contract"]["approval_status"])
         self.assertEqual(before["body"]["required_behaviors"], state["goal_contract"]["body"]["required_behaviors"])
         self.assertEqual(
@@ -691,10 +691,10 @@ class PlanningTests(unittest.TestCase):
             "responses": [{"concern_id": item, "response": item} for item in ids],
             "decisions": [{"concern_id": item, "decision": item} for item in ids],
         }
-        state["planning"]["reports"] = {"astra_challenge": {"report": report}}
-        prompt, _ = planning.context(state, "glm_revise", Path("/fixture/state.json"))
+        state["planning"]["reports"] = {"review_plan": {"report": report}}
+        prompt, _ = planning.context(state, "revise_plan", Path("/fixture/state.json"))
         packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
-        retained = packet["planning"]["reports"]["astra_challenge"]["report"]
+        retained = packet["planning"]["reports"]["review_plan"]["report"]
         self.assertEqual(ids, [row["id"] for row in retained["concerns"]])
         self.assertEqual(ids, [row["concern_id"] for row in retained["responses"]])
         self.assertEqual(ids, [row["concern_id"] for row in retained["decisions"]])
@@ -711,7 +711,7 @@ class PlanningTests(unittest.TestCase):
         state["requirements_handoff"] = {
             "report": {"requirements": [{"id": "R1", "text": "Blank records are ignored", "source_quote": quote}]}
         }
-        for stage in ("astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"):
+        for stage in ("draft_plan", "review_plan", "revise_plan", "finalize_plan"):
             with self.subTest(stage=stage):
                 prompt, _ = planning.context(state, stage, Path("/fixture/state.json"))
                 data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
@@ -724,7 +724,7 @@ class PlanningTests(unittest.TestCase):
 
     def test_draft_cannot_be_approved_before_both_partners_finish(self):
         state = self.state()
-        self.assertEqual("astra_challenge", state["next_stage"])
+        self.assertEqual("review_plan", state["next_stage"])
         draft_token = goals.token(state["goal_contract"])
         lifecycle.human.evaluate(state)
         lifecycle.present(state)
@@ -741,10 +741,10 @@ class PlanningTests(unittest.TestCase):
 
     def test_astra_budget_includes_failed_attempts_and_requires_explicit_new_cycle(self):
         state = self.state()
-        planning.charge(state, "astra_challenge")
-        planning.charge(state, "astra_finalize")
+        planning.charge(state, "review_plan")
+        planning.charge(state, "finalize_plan")
         with self.assertRaises(support.Paused) as error:
-            planning.charge(state, "astra_finalize")
+            planning.charge(state, "finalize_plan")
         self.assertEqual("PAUSED_PLANNING_BUDGET", error.exception.status)
         self.assertEqual(2, state["planning"]["astra_calls"])
         state["status"] = "PAUSED_PLANNING_BUDGET"
@@ -770,7 +770,7 @@ class PlanningTests(unittest.TestCase):
             ],
         }
         record = {"output": "challenge.json"}
-        autopilot.apply_planning(state, "astra_challenge", challenge, record)
+        autopilot.apply_planning(state, "review_plan", challenge, record)
         original = copy.deepcopy(state)
         revision = {
             "summary": "Revised",
@@ -781,7 +781,7 @@ class PlanningTests(unittest.TestCase):
             "requirement_trace": [],
         }
         with self.assertRaisesRegex(ValueError, "Every plan-review concern"):
-            runner.apply_result(state, "glm_revise", revision, record, None, None)
+            runner.apply_result(state, "revise_plan", revision, record, None, None)
         self.assertEqual(original, state)
         final_body = body()
         final_body["initial_task"] = {
@@ -809,14 +809,14 @@ class PlanningTests(unittest.TestCase):
             ],
         }
         with self.assertRaisesRegex(ValueError, "blocking questions"):
-            runner.apply_result(state, "astra_finalize", final, record, None, None)
+            runner.apply_result(state, "finalize_plan", final, record, None, None)
         self.assertEqual(original, state)
 
     def test_explicit_review_allowance_preserves_cycle_and_failed_charges(self):
         state = self.state()
-        planning.charge(state, "astra_challenge")
-        planning.charge(state, "astra_challenge")
-        state.update(status="PAUSED_PLANNING_BUDGET", next_stage="astra_finalize")
+        planning.charge(state, "review_plan")
+        planning.charge(state, "review_plan")
+        state.update(status="PAUSED_PLANNING_BUDGET", next_stage="finalize_plan")
         before = copy.deepcopy(state)
         planning.set_review_call_limit(state, 3)
         self.assertEqual(before["goal_contract"], state["goal_contract"])
@@ -831,11 +831,11 @@ class PlanningTests(unittest.TestCase):
         self.assertIn("2/3 plan-review calls used", lifecycle.render(state))
         state.update(workspace="/fixture")
         state["settings"]["roles"] = {"task_planner": {}}
-        prompt, _ = planning.context(state, "astra_finalize", Path("/fixture/state.json"))
+        prompt, _ = planning.context(state, "finalize_plan", Path("/fixture/state.json"))
         self.assertIn("3 plan-review calls in this cycle", prompt)
-        planning.charge(state, "astra_finalize")
+        planning.charge(state, "finalize_plan")
         with self.assertRaises(support.Paused):
-            planning.charge(state, "astra_finalize")
+            planning.charge(state, "finalize_plan")
         self.assertEqual(3, state["planning"]["astra_calls"])
         goals.feedback(state, "Start a genuinely new cycle")
         lifecycle.install_draft(state, body(), origin="glm_draft")
@@ -845,7 +845,7 @@ class PlanningTests(unittest.TestCase):
 
     def test_review_allowance_rejects_invalid_limits_and_unreconciled_boundaries(self):
         state = self.state()
-        state.update(status="PAUSED_PLANNING_BUDGET", next_stage="astra_finalize")
+        state.update(status="PAUSED_PLANNING_BUDGET", next_stage="finalize_plan")
         state["planning"]["astra_calls"] = 2
         for limit in (None, True, -1, 1, 2.5, "3"):
             before = copy.deepcopy(state)
@@ -860,7 +860,7 @@ class PlanningTests(unittest.TestCase):
         for change in (
             {"status": "RUNNING"},
             {"status": "AWAITING_GOAL_APPROVAL"},
-            {"next_stage": "terra"},
+            {"next_stage": "builder"},
             {"active_stage": {"pid": 1}},
             {"pending_report_repair": {"pending": True}},
             {"uncertain_artifacts": "pending"},
@@ -873,17 +873,17 @@ class PlanningTests(unittest.TestCase):
         for invalid in (-1, True, "3"):
             state["planning"]["review_call_limit"] = invalid
             with self.subTest(stored_limit=invalid), self.assertRaises(ValueError):
-                planning.charge(state, "astra_finalize")
+                planning.charge(state, "finalize_plan")
 
     def test_explicit_unlimited_review_preserves_usage_and_survives_new_cycle(self):
         state = self.state()
-        state.update(status="PAUSED_PLANNING_BUDGET", next_stage="astra_finalize")
+        state.update(status="PAUSED_PLANNING_BUDGET", next_stage="finalize_plan")
         state["planning"]["astra_calls"] = 7
         contract = copy.deepcopy(state["goal_contract"])
         planning.set_review_call_limit(state, 0)
         self.assertEqual(7, state["planning"]["astra_calls"])
         for _ in range(10):
-            planning.charge(state, "astra_finalize")
+            planning.charge(state, "finalize_plan")
         self.assertEqual(17, state["planning"]["astra_calls"])
         self.assertEqual(contract, state["goal_contract"])
         self.assertIn("17 plan-review calls used; unlimited", lifecycle.render(state))
@@ -895,7 +895,7 @@ class PlanningTests(unittest.TestCase):
 
     def test_unlimited_can_be_saved_at_stopped_checkpoint_but_not_during_a_stage(self):
         state = self.state()
-        state.update(status="PAUSED_STAGE_ABANDONED", next_stage="sol")
+        state.update(status="PAUSED_STAGE_ABANDONED", next_stage="tester")
         state["active_stage"] = {"pid": 123}
         with self.assertRaises(ValueError):
             planning.set_review_call_limit(state, 0)
@@ -903,7 +903,7 @@ class PlanningTests(unittest.TestCase):
         planning.set_review_call_limit(state, 0)
         self.assertEqual(0, planning.review_call_limit(state))
         self.assertEqual("PAUSED_STAGE_ABANDONED", state["status"])
-        self.assertEqual("sol", state["next_stage"])
+        self.assertEqual("tester", state["next_stage"])
 
     def test_planner_permissions_deny_shell_custom_tools_and_delegation(self):
         with patch.dict(
@@ -940,23 +940,23 @@ class PlanningTests(unittest.TestCase):
             self.assertEqual("PAUSED_BILLING_ROUTE", error.exception.status)
 
     def test_sol_defaults_to_opencode_and_saved_model_choices_are_preserved(self):
-        args = SimpleNamespace(task_planner_model=None, terra_model=None, sol_model=None, planner_model=None)
+        args = SimpleNamespace(task_planner_model=None, builder_model=None, tester_model=None, planner_model=None)
         settings = {
             "engine": "opencode",
-            "roles": {r: {} for r in ("task_planner", "terra", "sol")},
+            "roles": {r: {} for r in ("task_planner", "builder", "tester")},
             "transport_identity": {"engine": "opencode"},
         }
         with patch.object(support, "local_settings", side_effect=AssertionError("No Codex login required")):
             autocode_configure.configure_joint(settings, args, fresh=True, planning=planning)
         self.assertEqual(
             {"engine": "opencode", "provider": None, "model": "openai/gpt-6-sol", "reasoning_effort": "high"},
-            settings["roles"]["sol"],
+            settings["roles"]["tester"],
         )
-        settings["roles"]["sol"] = {"engine": "opencode", "provider": None, "model": "zai-coding-plan/glm-5.3"}
+        settings["roles"]["tester"] = {"engine": "opencode", "provider": None, "model": "zai-coding-plan/glm-5.3"}
         saved = copy.deepcopy(settings)
         autocode_configure.configure_joint(settings, args, fresh=False, planning=planning)
         self.assertEqual(saved, settings)
-        settings["roles"]["sol"]["model"] = "gpt-5.6-sol"
+        settings["roles"]["tester"]["model"] = "gpt-5.6-sol"
         with self.assertRaisesRegex(ValueError, "session engines cannot be switched"):
             autocode_configure.configure_joint(settings, args, fresh=False, planning=planning)
 
@@ -966,15 +966,15 @@ class PlanningTests(unittest.TestCase):
             joint_planning=False,
             planner_model=None,
             task_planner_model=None,
-            terra_model=None,
-            sol_model=None,
+            builder_model=None,
+            tester_model=None,
             task_planner_provider=None,
-            terra_provider=None,
-            sol_provider=None,
+            builder_provider=None,
+            tester_provider=None,
             reasoning_effort=None,
             task_planner_reasoning_effort=None,
-            terra_reasoning_effort=None,
-            sol_reasoning_effort=None,
+            builder_reasoning_effort=None,
+            tester_reasoning_effort=None,
             headroom=None,
             context_soft_tokens=None,
             rotate_after_input_tokens=None,
@@ -1003,36 +1003,36 @@ class PlanningTests(unittest.TestCase):
             )
         self.assertTrue(settings["joint_planning"])
         self.assertEqual("opencode", settings["engine"])
-        self.assertEqual("planner", planning.role_for({"settings": settings}, "astra_discovery"))
+        self.assertEqual("planner", planning.role_for({"settings": settings}, "draft_plan"))
         self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["planner"]["model"])
-        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["terra"]["model"])
+        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["builder"]["model"])
         self.assertEqual(
             {"engine": "opencode", "provider": None, "model": "openai/gpt-6-astra"},
             {key: settings["roles"]["task_planner"][key] for key in ("engine", "provider", "model")},
         )
         self.assertEqual(
             {"engine": "opencode", "provider": None, "model": "openai/gpt-6-sol"},
-            {key: settings["roles"]["sol"][key] for key in ("engine", "provider", "model")},
+            {key: settings["roles"]["tester"][key] for key in ("engine", "provider", "model")},
         )
         self.assertEqual(
-            {"task_planner": "high", "terra": "medium", "sol": "high", "completion": "medium"},
+            {"task_planner": "high", "builder": "medium", "tester": "high", "completion": "medium"},
             {
                 role: settings["roles"][role]["reasoning_effort"]
-                for role in ("task_planner", "terra", "sol", "completion")
+                for role in ("task_planner", "builder", "tester", "completion")
             },
         )
         routed = {"settings": settings}
-        self.assertEqual("plan_reviewer", planning.route_for(routed, "astra_finalize"))
-        self.assertEqual("completion", planning.route_for(routed, "astra_review"))
-        self.assertEqual("completion", planning.route_for(routed, "astra_checkpoint"))
+        self.assertEqual("plan_reviewer", planning.route_for(routed, "finalize_plan"))
+        self.assertEqual("completion", planning.route_for(routed, "review_completion"))
+        self.assertEqual("completion", planning.route_for(routed, "review_checkpoint"))
 
     def test_single_model_mode_routes_every_role_and_keeps_reasoning_overrides(self):
         state = {"workspace": "/tmp/fixture", "iteration": 0}
         args = self.configure_args(
             single_model="openai/gpt-6-sol",
             reasoning_effort="medium",
-            terra_reasoning_effort="low",
-            sol_reasoning_effort="high",
+            builder_reasoning_effort="low",
+            tester_reasoning_effort="high",
             plan_reviewer_reasoning_effort="xhigh",
         )
         with (
@@ -1048,8 +1048,8 @@ class PlanningTests(unittest.TestCase):
         self.assertTrue(settings["builder_retry"]["enabled"])
         self.assertEqual("openai/gpt-6-sol", settings["builder_retry"]["strong_model"])
         self.assertEqual("openai/gpt-6-sol", settings["builder_retry"]["checker_model"])
-        self.assertEqual("low", settings["roles"]["terra"]["reasoning_effort"])
-        self.assertEqual("high", settings["roles"]["sol"]["reasoning_effort"])
+        self.assertEqual("low", settings["roles"]["builder"]["reasoning_effort"])
+        self.assertEqual("high", settings["roles"]["tester"]["reasoning_effort"])
         self.assertEqual("xhigh", settings["roles"]["plan_reviewer"]["reasoning_effort"])
 
     def test_single_model_fits_runner_chosen_efforts_to_the_models_variants_and_refuses_a_named_one(self):
@@ -1064,14 +1064,14 @@ class PlanningTests(unittest.TestCase):
             patch("builtins.print", side_effect=lambda *a, **k: printed.append(" ".join(map(str, a)))),
         ):
             settings = autocode_configure.configure(
-                self.configure_args(single_model="zai-coding-plan/glm-5.3", terra_reasoning_effort="low"),
+                self.configure_args(single_model="zai-coding-plan/glm-5.3", builder_reasoning_effort="low"),
                 state,
                 planning=planning,
                 milestones=milestones,
                 autopilot=autopilot,
             )
         efforts = {role: route["reasoning_effort"] for role, route in settings["roles"].items()}
-        self.assertEqual("low", efforts["terra"], "a named effort the model declares stays")
+        self.assertEqual("low", efforts["builder"], "a named effort the model declares stays")
         self.assertTrue(set(efforts.values()) <= {"low", "high", "max"}, efforts)
         self.assertIn("completion", settings["effort_fits"])
         self.assertEqual({"from": "medium", "to": "high"}, settings["effort_fits"]["completion"])
@@ -1113,8 +1113,8 @@ class PlanningTests(unittest.TestCase):
         state = {"workspace": "/tmp/fixture", "iteration": 0}
         codex_args = {
             "task_planner_model": "gpt-5.6-sol",
-            "terra_model": "gpt-5.6-terra",
-            "sol_model": "gpt-5.6-sol",
+            "builder_model": "gpt-5.6-terra",
+            "tester_model": "gpt-5.6-sol",
             "completion_model": "gpt-5.6-sol",
         }
         with patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT", "model": "local"}):
@@ -1128,7 +1128,7 @@ class PlanningTests(unittest.TestCase):
         self.assertFalse(settings.get("joint_planning"))
         self.assertEqual("codex", settings["engine"])
         self.assertNotIn("planner", settings["roles"])
-        self.assertEqual("task_planner", planning.role_for({"settings": settings}, "astra_discovery"))
+        self.assertEqual("task_planner", planning.role_for({"settings": settings}, "draft_plan"))
         with patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}):
             joint = autocode_configure.configure(
                 self.configure_args(engine="codex", joint_planning=True, **codex_args),
@@ -1146,8 +1146,8 @@ class PlanningTests(unittest.TestCase):
                 "joint_planning": False,
                 "roles": {
                     "task_planner": {"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro"},
-                    "terra": {"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro"},
-                    "sol": {"model": "zai-coding-plan/glm-5.3"},
+                    "builder": {"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro"},
+                    "tester": {"model": "zai-coding-plan/glm-5.3"},
                 },
             },
             "sessions": {"task_planner": "saved"},
@@ -1156,7 +1156,7 @@ class PlanningTests(unittest.TestCase):
             self.configure_args(), saved, planning=planning, milestones=milestones, autopilot=autopilot
         )
         self.assertFalse(kept.get("joint_planning"))
-        self.assertEqual("xiaomi-token-plan-sgp/mimo-v2.6-pro", kept["roles"]["terra"]["model"])
+        self.assertEqual("xiaomi-token-plan-sgp/mimo-v2.6-pro", kept["roles"]["builder"]["model"])
         with self.assertRaisesRegex(ValueError, "Start a new run"):
             autocode_configure.configure(
                 self.configure_args(joint_planning=True),
@@ -1167,7 +1167,7 @@ class PlanningTests(unittest.TestCase):
             )
 
     def test_a_new_native_plan_reviewer_never_defaults_to_the_planners_model(self):
-        base = {"task_planner_model": "gpt-5.6-sol", "terra_model": "gpt-5.6-terra", "sol_model": "gpt-5.6-sol"}
+        base = {"task_planner_model": "gpt-5.6-sol", "builder_model": "gpt-5.6-terra", "tester_model": "gpt-5.6-sol"}
         for extra, expected in (
             ({}, "gpt-6-astra"),
             ({"planner_model": "gpt-6-astra"}, "gpt-5.6-sol"),
@@ -1198,8 +1198,8 @@ class PlanningTests(unittest.TestCase):
                     engine="codex",
                     joint_planning=True,
                     task_planner_model="gpt-5.6-sol",
-                    terra_model="gpt-5.6-terra",
-                    sol_model="gpt-5.6-sol",
+                    builder_model="gpt-5.6-terra",
+                    tester_model="gpt-5.6-sol",
                     completion_model="gpt-5.6-sol",
                     requirements_model="gpt-5.6-sol",
                     planner_model="gpt-5.6-sol",
@@ -1239,8 +1239,8 @@ class PlanningTests(unittest.TestCase):
                     unlimited_iterations=True,
                     max_seconds=0,
                     task_planner_model="gpt-5.6-sol",
-                    terra_model="gpt-5.6-terra",
-                    sol_model="gpt-5.6-sol",
+                    builder_model="gpt-5.6-terra",
+                    tester_model="gpt-5.6-sol",
                     completion_model="gpt-5.6-sol",
                 ),
                 {"workspace": "/tmp/fixture", "iteration": 1},
@@ -1253,8 +1253,8 @@ class PlanningTests(unittest.TestCase):
             "workspace": "/tmp/fixture",
             "settings": settings,
             "status": "PAUSED_INTERVENTION",
-            "next_stage": "astra_discovery",
-            "sessions": {"terra": "retained"},
+            "next_stage": "draft_plan",
+            "sessions": {"builder": "retained"},
         }
         before = copy.deepcopy(state)
         selected = autocode_configure.configure(
@@ -1286,7 +1286,7 @@ class PlanningTests(unittest.TestCase):
             ):
                 settings = autocode_configure.configure(
                     self.configure_args(
-                        terra_model="xiaomi-token-plan-sgp/mimo-v2.6-pro", terra_reasoning_effort=effort
+                        builder_model="xiaomi-token-plan-sgp/mimo-v2.6-pro", builder_reasoning_effort=effort
                     ),
                     {"workspace": "/tmp/fixture", "iteration": 0},
                     planning=planning,
@@ -1300,12 +1300,12 @@ class PlanningTests(unittest.TestCase):
                     "model": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
                     "reasoning_effort": effort or "medium",
                 },
-                settings["roles"]["terra"],
+                settings["roles"]["builder"],
             )
-            self.assertEqual("planner", planning.role_for({"settings": settings}, "astra_discovery"))
+            self.assertEqual("planner", planning.role_for({"settings": settings}, "draft_plan"))
             self.assertEqual("opencode", planning.engine_for(settings, "planner"))
             self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["planner"]["model"])
-            state = {"settings": settings, "sessions": {"terra": "opencode-terra-session"}}
+            state = {"settings": settings, "sessions": {"builder": "opencode-terra-session"}}
             before = copy.deepcopy(state)
             resumed = autocode_configure.configure(
                 self.configure_args(), state, planning=planning, milestones=milestones, autopilot=autopilot
@@ -1314,7 +1314,7 @@ class PlanningTests(unittest.TestCase):
             self.assertEqual(before, state)
             with self.assertRaisesRegex(ValueError, "OpenCode provider/model"):
                 autocode_configure.configure(
-                    self.configure_args(terra_model="gpt-5.6-terra"),
+                    self.configure_args(builder_model="gpt-5.6-terra"),
                     state,
                     planning=planning,
                     milestones=milestones,
@@ -1334,7 +1334,7 @@ class PlanningTests(unittest.TestCase):
                 milestones=milestones,
                 autopilot=autopilot,
             )
-        state = {"settings": settings, "sessions": {"terra": "opencode-existing-session"}}
+        state = {"settings": settings, "sessions": {"builder": "opencode-existing-session"}}
         before = copy.deepcopy(state)
         self.assertEqual(
             settings,
@@ -1344,7 +1344,7 @@ class PlanningTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "OpenCode provider/model"):
             autocode_configure.configure(
-                self.configure_args(terra_model="gpt-5.6-terra"),
+                self.configure_args(builder_model="gpt-5.6-terra"),
                 state,
                 planning=planning,
                 milestones=milestones,
@@ -1489,7 +1489,7 @@ class JointFlow(unittest.TestCase):
         self.assertEqual("COMPLETE", final["phase"])
         # A build that changes product code owes the runner's proof (#2474), recorded as its own stage.
         self.assertEqual(
-            ["orchestrator", "terra", "regression_proof", "sol", "astra_review"],
+            ["orchestrator", "builder", "regression_proof", "tester", "review_completion"],
             [r["stage"] for r in final["stages"][6:]],
         )
         self.assertEqual(
@@ -1499,14 +1499,14 @@ class JointFlow(unittest.TestCase):
         self.assertEqual("openai/gpt-6-sol", sol["command"][sol["command"].index("--model") + 1])
         self.assertEqual("high", sol["command"][sol["command"].index("--variant") + 1])
         config = json.loads(Path(sol["output"]).with_suffix(".opencode.json").read_text())
-        self.assertEqual("deny", config["agent"]["autocode_sol"]["permission"]["edit"])
+        self.assertEqual("deny", config["agent"]["autocode_tester"]["permission"]["edit"])
         completion = final["stages"][10]
         self.assertEqual("task_planner", completion["role"])
         self.assertEqual("completion", completion["route_role"])
         self.assertEqual("openai/gpt-6-sol", completion["command"][completion["command"].index("--model") + 1])
         self.assertEqual("medium", completion["command"][completion["command"].index("--variant") + 1])
         self.assertIn("autocode_completion", completion["command"])
-        self.assertEqual(3, len({final["sessions"][role] for role in ("plan_reviewer", "sol", "completion")}))
+        self.assertEqual(3, len({final["sessions"][role] for role in ("plan_reviewer", "tester", "completion")}))
         self.assertEqual(2, final["planning"]["astra_calls"])
 
     def test_gpt_sol_revalidates_terras_rework_in_its_own_opencode_session(self):
@@ -1521,30 +1521,30 @@ class JointFlow(unittest.TestCase):
         self.assertEqual(
             [
                 "orchestrator",
-                "terra",
+                "builder",
                 "regression_proof",
-                "sol",
+                "tester",
                 "regression_proof",
-                "astra_review",
-                "astra_resolve",
+                "review_completion",
+                "resolve",
                 "orchestrator",
-                "terra",
+                "builder",
                 "regression_proof",
-                "sol",
-                "astra_review",
+                "tester",
+                "review_completion",
             ],
             [r["stage"] for r in final["stages"][6:]],
         )
-        resolution = next(r for r in final["stages"] if r["stage"] == "astra_resolve")
+        resolution = next(r for r in final["stages"] if r["stage"] == "resolve")
         self.assertEqual("resolver", resolution["route_role"])
         self.assertIsNone(resolution["expected_session"])
         self.assertNotEqual(final["sessions"]["resolver"], final["sessions"]["completion"])
-        validations = [r for r in final["stages"] if r["stage"] == "sol"]
+        validations = [r for r in final["stages"] if r["stage"] == "tester"]
         self.assertEqual(["opencode", "opencode"], [r["engine"] for r in validations])
         # Session reuse is a simulated-transport contract, not native qualification.
         self.assertTrue(all(r.get("tool_containment") is None for r in validations))
         self.assertTrue(all("no OS sandbox" in r["isolation"] for r in validations))
-        self.assertEqual(final["sessions"]["sol"], validations[1]["expected_session"])
+        self.assertEqual(final["sessions"]["tester"], validations[1]["expected_session"])
         self.assertNotEqual(final["sessions"]["plan_reviewer"], validations[1]["expected_session"])
         self.assertNotEqual(final["sessions"]["completion"], validations[1]["expected_session"])
         self.assertEqual("FAIL", final["validation_archive"][-1]["validation"]["verdict"])
@@ -1556,9 +1556,9 @@ class JointFlow(unittest.TestCase):
             [
                 "Build a greeting tool",
                 "--no-chat",
-                "--terra-model",
+                "--builder-model",
                 "xiaomi-token-plan-sgp/mimo-v2.6-pro",
-                "--terra-reasoning-effort",
+                "--builder-reasoning-effort",
                 "high",
             ],
             2,
@@ -1573,7 +1573,7 @@ class JointFlow(unittest.TestCase):
         self.launch([*args, "--no-chat"], 0)
         final = self.saved()[1]
         self.assertEqual("COMPLETE", final["phase"])
-        stages = [r for r in final["stages"] if r["stage"] == "terra"]
+        stages = [r for r in final["stages"] if r["stage"] == "builder"]
         self.assertEqual(2, len(stages))
         for stage in stages:
             self.assertEqual("opencode", stage["engine"])
@@ -1581,7 +1581,7 @@ class JointFlow(unittest.TestCase):
             self.assertEqual(
                 "xiaomi-token-plan-sgp/mimo-v2.6-pro", stage["command"][stage["command"].index("--model") + 1]
             )
-            self.assertEqual("autocode_terra", stage["command"][stage["command"].index("--agent") + 1])
+            self.assertEqual("autocode_builder", stage["command"][stage["command"].index("--agent") + 1])
         # The requested effort applies to every build. Builder retry policy owns
         # the rework route: the ordinary retry keeps the configured effort and
         # rotates the session instead of climbing the reasoning ladder.
@@ -1591,8 +1591,8 @@ class JointFlow(unittest.TestCase):
         self.assertIsNone(stages[1]["expected_session"])
         self.assertEqual("retry", final["builder_retry_decisions"][-1]["action"])
         self.assertEqual("high", final["builder_retry_decisions"][-1]["selected_effort"])
-        self.assertNotEqual(final["sessions"]["terra"], final["sessions"]["sol"])
-        self.assertNotEqual(final["sessions"]["terra"], final["sessions"]["completion"])
+        self.assertNotEqual(final["sessions"]["builder"], final["sessions"]["tester"])
+        self.assertNotEqual(final["sessions"]["builder"], final["sessions"]["completion"])
 
     def test_openai_api_connection_reaches_the_requirements_question(self):
         self.prepare()
@@ -1602,9 +1602,9 @@ class JointFlow(unittest.TestCase):
             [
                 "Build a greeting tool",
                 "--no-chat",
-                "--terra-model",
+                "--builder-model",
                 "openai/gpt-5.6-terra",
-                "--sol-model",
+                "--tester-model",
                 "zai-coding-plan/glm-5.3",
                 "--completion-model",
                 "zai-coding-plan/glm-5.3",
@@ -1633,7 +1633,7 @@ class JointFlow(unittest.TestCase):
         # The rejected final was investigated once (autocode_stuck_job); the fixture's Investigator
         # pauses, so the original pause stands and no review allowance was granted.
         self.assertEqual(
-            [("astra_finalize:PAUSED_INVALID_OUTPUT", "paused")],
+            [("finalize_plan:PAUSED_INVALID_OUTPUT", "paused")],
             [(row["identity"], row["outcome"]) for row in state["stuck_investigations"]],
         )
         self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
@@ -1664,7 +1664,7 @@ class JointFlow(unittest.TestCase):
         path.write_text(json.dumps(edited))
         self.launch(["--run-dir", str(run), "--edit-goal", str(path)], 0)
         revised = self.saved()[1]
-        self.assertEqual("astra_challenge", revised["next_stage"])
+        self.assertEqual("review_plan", revised["next_stage"])
         self.launch(["--run-dir", str(run), "--approve-goal", old_token], 2)
         # The edited draft is not presented for approval until jointly reviewed.
         self.assertNotIn("displayed_goal", revised)
@@ -1693,14 +1693,14 @@ class JointFlow(unittest.TestCase):
         # test_failed_extended_review_...). Stop at the pre-final checkpoint with
         # an explicit pause request to inspect the same boundary as before.
         result = self.launch([*args, "--pause-after-stage"], 2)
-        for expected_stage in ("astra_challenge", "glm_revise", "astra_finalize"):
+        for expected_stage in ("review_plan", "revise_plan", "finalize_plan"):
             checkpoint = self.saved()[1]
             # Reconcile the one deliberately timed-out challenge if its keeper
             # required a cleanup checkpoint. Other blocked outcomes must fail.
             if (
-                expected_stage == "glm_revise"
+                expected_stage == "revise_plan"
                 and checkpoint["status"] == "PAUSED_PROCESS_CLEANUP"
-                and checkpoint["next_stage"] == "astra_challenge"
+                and checkpoint["next_stage"] == "review_plan"
             ):
                 result = self.launch([*args, "--resume-paused", "--pause-after-stage"], 2)
                 checkpoint = self.saved()[1]
@@ -1709,14 +1709,14 @@ class JointFlow(unittest.TestCase):
                 (checkpoint["status"], checkpoint["next_stage"]),
                 f"Planning checkpoint blocked: {checkpoint.get('stop_reason')}\n" + result.stdout + result.stderr,
             )
-            if expected_stage != "astra_finalize":
+            if expected_stage != "finalize_plan":
                 result = self.launch([*args, "--resume-paused", "--pause-after-stage"], 2)
         paused = self.saved()[1]
         self.assertEqual("PAUSED_REQUESTED", paused["status"])
         # Only the challenge that returned a report counts: the timed-out attempt was given back.
         self.assertEqual(1, paused["planning"]["astra_calls"])
         self.assertEqual("stage", paused["automatic_timeout_recoveries"][-1]["timeout_kind"])
-        self.assertIn("glm_revise", paused["planning"]["reports"])
+        self.assertIn("revise_plan", paused["planning"]["reports"])
         self.assertFalse(paused["planning"].get("recovery_review_grants"))
         pre_final = goals.token(paused["goal_contract"])
         self.launch([*args, "--approve-goal", pre_final], 2)
@@ -1728,11 +1728,11 @@ class JointFlow(unittest.TestCase):
         # the allowance, so no recovery grant and no runner-owned resolver stage; no replanning
         # or extra debate round.
         added = final["stages"][len(paused["stages"]) :]
-        self.assertEqual(["astra_finalize"], [r["stage"] for r in added if not r.get("runner_owned")])
+        self.assertEqual(["finalize_plan"], [r["stage"] for r in added if not r.get("runner_owned")])
         self.assertEqual([], [r["stage"] for r in added if r.get("runner_owned")])
         self.assertFalse(final["planning"].get("recovery_review_calls_used"))
         self.assertFalse(final["planning"].get("recovery_review_grants"))
-        self.assertEqual(1, sum(r["stage"] == "glm_revise" for r in final["stages"]))
+        self.assertEqual(1, sum(r["stage"] == "revise_plan" for r in final["stages"]))
         self.assertEqual(
             paused["goal_contract"]["body"]["open_blocking_questions"],
             final["goal_contract"]["body"]["open_blocking_questions"],
@@ -1793,7 +1793,7 @@ class JointFlow(unittest.TestCase):
         run, _ = self.saved()
         args = ["--run-dir", str(run), "--no-chat"]
         self.launch(["--run-dir", str(run), "--answer", "Q1=CLI"], 0)
-        for next_stage, count in (("astra_challenge", 0), ("glm_revise", 1), ("astra_finalize", 1)):
+        for next_stage, count in (("review_plan", 0), ("revise_plan", 1), ("finalize_plan", 1)):
             self.launch([*args, "--resume-paused", "--pause-after-stage"], 2)
             state = self.saved()[1]
             self.assertEqual(next_stage, state["next_stage"])
@@ -1815,7 +1815,7 @@ class JointFlow(unittest.TestCase):
 
     def test_quota_pauses_without_fallback_or_automatic_replay(self):
         self.prepare()
-        self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "astra_challenge"
+        self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "review_plan"
         self.launch(["Build a greeting tool", "--no-chat"], 2)
         run, _ = self.saved()
         args = ["--run-dir", str(run), "--no-chat"]
@@ -1843,11 +1843,11 @@ class NativeJointFlow(unittest.TestCase):
         "--engine",
         "codex",
         "--joint-planning",
-        "--astra-model",
+        "--task-planner-model",
         "gpt-5.6-sol",
-        "--terra-model",
+        "--builder-model",
         "gpt-5.6-terra",
-        "--sol-model",
+        "--tester-model",
         "gpt-5.6-sol",
         "--completion-model",
         "gpt-5.6-sol",
@@ -1868,11 +1868,11 @@ class NativeJointFlow(unittest.TestCase):
         self.assertEqual(
             [
                 "requirements_gather",
-                "astra_discovery",
-                "astra_discovery",
-                "astra_challenge",
-                "glm_revise",
-                "astra_finalize",
+                "draft_plan",
+                "draft_plan",
+                "review_plan",
+                "revise_plan",
+                "finalize_plan",
             ],
             [record["stage"] for record in state["stages"]],
         )
@@ -1882,7 +1882,7 @@ class NativeJointFlow(unittest.TestCase):
             self.assertIsNone(record["expected_session"])
             self.assertEqual("read-only", record["command"][record["command"].index("--sandbox") + 1])
             self.assertEqual([], record["changed_files"])
-            if record["stage"] in ("astra_challenge", "astra_finalize"):
+            if record["stage"] in ("review_plan", "finalize_plan"):
                 self.assertEqual("plan_reviewer", record["route_role"])
                 self.assertEqual("gpt-6-astra", record["command"][record["command"].index("--model") + 1])
         self.assertFalse((self.project / "greet.py").exists())
@@ -1891,10 +1891,10 @@ class NativeJointFlow(unittest.TestCase):
         final = self.saved()[1]
         self.assertEqual("TASK_COMPLETE", final["status"])
         self.assertEqual(
-            ["orchestrator", "terra", "regression_proof", "sol", "astra_review"],
+            ["orchestrator", "builder", "regression_proof", "tester", "review_completion"],
             [record["stage"] for record in final["stages"][6:]],
         )
-        self.assertEqual(3, len({final["sessions"][role] for role in ("plan_reviewer", "sol", "completion")}))
+        self.assertEqual(3, len({final["sessions"][role] for role in ("plan_reviewer", "tester", "completion")}))
 
     def test_saved_codex_work_reenters_requirements_before_independent_review(self):
         self.prepare()
@@ -1948,7 +1948,7 @@ class NativeJointFlow(unittest.TestCase):
         self.assertEqual(before["stages"], migrated["stages"][:-1])
         self.assertEqual(before["settings"]["limits"], migrated["settings"]["limits"])
         self.assertEqual(before["settings"]["figma_file"], migrated["settings"]["figma_file"])
-        self.assertEqual(before["sessions"]["terra"], migrated["sessions"]["terra"])
+        self.assertEqual(before["sessions"]["builder"], migrated["sessions"]["builder"])
         self.assertEqual(built, (self.project / "greet.py").read_bytes())
         self.assertEqual("draft", migrated["goal_contract"]["approval_status"])
         backup = json.loads(Path(migrated["planning_migrations"][-1]["backup"]).read_text())
@@ -1956,7 +1956,7 @@ class NativeJointFlow(unittest.TestCase):
         self.launch([*base, "--resume-paused", "--no-chat"], 2)
         reviewed = self.saved()[1]
         self.assertEqual("AWAITING_GOAL_APPROVAL", reviewed["status"])
-        self.assertEqual("astra_finalize", reviewed["stages"][-1]["stage"])
+        self.assertEqual("finalize_plan", reviewed["stages"][-1]["stage"])
         self.assertEqual("plan_reviewer", reviewed["stages"][-1]["route_role"])
         self.assertEqual(built, (self.project / "greet.py").read_bytes())
 
@@ -2065,7 +2065,7 @@ class ReviewDepthPolicyTests(unittest.TestCase):
     def state(self, **extra):
         base = {
             "status": "RUNNING",
-            "next_stage": "astra_challenge",
+            "next_stage": "review_plan",
             "planning": {"astra_calls": 0, "reports": {}},
             "workflow": {"kind": "build", "clarity": "clear", "brief_size": "small"},
             "settings": {"planning_review_call_limit": 2},
@@ -2075,58 +2075,58 @@ class ReviewDepthPolicyTests(unittest.TestCase):
 
     def test_small_clear_brief_keeps_its_total_across_cycles(self):
         state = self.state()
-        planning.charge(state, "astra_challenge")
+        planning.charge(state, "review_plan")
         self.assertTrue(state["planning"]["review_depth_reduced"])
         state["planning"]["astra_calls"] = 2
         cycle.new_cycle(state)
         self.assertEqual(state["planning"]["astra_calls"], 2, "a revision restarts the record, not the counter")
         self.assertTrue(state["planning"]["review_depth_reduced"])
         with self.assertRaises(Exception) as raised:
-            planning.charge(state, "astra_challenge")
+            planning.charge(state, "review_plan")
         self.assertIn("PAUSED_PLANNING_BUDGET", str(raised.exception) + getattr(raised.exception, "status", ""))
 
     def test_an_internal_answer_restart_renews_the_spent_total_once(self):
         # Live 2026-10-20: the Plan Reviewer's final question was settled by AutoCode, planning restarted,
         # and the redrafted plan could never be reviewed (2/2 carried); the run waited for a person.
         state = self.state()
-        planning.charge(state, "astra_challenge")
+        planning.charge(state, "review_plan")
         state["planning"]["astra_calls"] = 2
         cycle.internal_answer_restart(state)
         cycle.new_cycle(state)
         self.assertEqual(0, state["planning"]["astra_calls"])
         self.assertEqual(1, state["planning"]["internal_answer_renewals"])
-        planning.charge(state, "astra_challenge")
-        planning.charge(state, "astra_finalize")
+        planning.charge(state, "review_plan")
+        planning.charge(state, "finalize_plan")
         cycle.internal_answer_restart(state)
         cycle.new_cycle(state)
         self.assertEqual(2, state["planning"]["astra_calls"], "only one renewal per run")
         with self.assertRaises(support.Paused):
-            planning.charge(state, "astra_challenge")
+            planning.charge(state, "review_plan")
 
     def spent_revision(self, *, blocking=True, **extra):
         """2/2 spent on challenges; the Planner answered the last one's concerns and the final review is next."""
         state = self.state(**extra)
-        planning.charge(state, "astra_challenge")
+        planning.charge(state, "review_plan")
         state["planning"]["astra_calls"] = 2
         concern = {"id": "C1", "concern": "AC6 uses a value Python lacks", "blocking": blocking}
         state["planning"]["reports"] = {
-            "astra_challenge": {"report": {"concerns": [concern]}, "output": "/run/plan-challenge-02.json"},
-            "glm_revise": {"report": {"responses": [{"id": "C1"}]}, "output": "/run/requirements-revise-02.json"},
+            "review_plan": {"report": {"concerns": [concern]}, "output": "/run/plan-challenge-02.json"},
+            "revise_plan": {"report": {"responses": [{"id": "C1"}]}, "output": "/run/requirements-revise-02.json"},
         }
-        state["next_stage"] = "astra_finalize"
+        state["next_stage"] = "finalize_plan"
         return state
 
     def test_a_revision_answering_blocking_concerns_gets_its_final_review_once(self):
         # #1815: a live worker run spent 2/2 on two blocking challenges and stopped before the final review.
         state = self.spent_revision()
-        planning.charge(state, "astra_finalize")
+        planning.charge(state, "finalize_plan")
         self.assertEqual((3, 3), (state["planning"]["astra_calls"], state["planning"]["review_call_limit"]))
         self.assertEqual(["C1"], state["planning"]["revision_review_renewal"]["blocking_ids"])
         cycle.new_cycle(state)
         state["planning"]["reports"] = self.spent_revision()["planning"]["reports"]
-        state.update(next_stage="astra_finalize")
+        state.update(next_stage="finalize_plan")
         with self.assertRaises(support.Paused) as raised:
-            planning.charge(state, "astra_finalize")
+            planning.charge(state, "finalize_plan")
         self.assertEqual("PAUSED_PLANNING_BUDGET", raised.exception.status, "only one renewal per run")
         self.assertIn("--planning-review-call-limit N", str(raised.exception))
 
@@ -2138,15 +2138,15 @@ class ReviewDepthPolicyTests(unittest.TestCase):
             ),
         ):
             with self.subTest(state=state["settings"]), self.assertRaises(support.Paused):
-                planning.charge(state, "astra_finalize")
+                planning.charge(state, "finalize_plan")
         state = self.spent_revision()
-        state["next_stage"] = "astra_challenge"
+        state["next_stage"] = "review_plan"
         with self.assertRaises(support.Paused):
-            planning.charge(state, "astra_challenge")  # never another challenge, only the revision's final review
+            planning.charge(state, "review_plan")  # never another challenge, only the revision's final review
 
     def test_an_ordinary_restart_still_carries_the_small_brief_total(self):
         state = self.state()
-        planning.charge(state, "astra_challenge")
+        planning.charge(state, "review_plan")
         state["planning"]["astra_calls"] = 2
         cycle.new_cycle(state)
         self.assertEqual(2, state["planning"]["astra_calls"])
@@ -2154,7 +2154,7 @@ class ReviewDepthPolicyTests(unittest.TestCase):
 
     def test_normal_brief_resets_per_cycle_as_today(self):
         state = self.state(workflow={"kind": "build", "clarity": "vague"})
-        planning.charge(state, "astra_challenge")
+        planning.charge(state, "review_plan")
         self.assertNotIn("review_depth_reduced", state["planning"])
         state["planning"]["astra_calls"] = 2
         cycle.new_cycle(state)
@@ -2164,24 +2164,24 @@ class ReviewDepthPolicyTests(unittest.TestCase):
         state = self.state(settings={"planning_review_call_limit": 2, "joint_planning": True})
         state["task_id"] = "t"
         state["goal_contract"] = {"task_id": "t", "revision": 1, "hash": "h", "body": {}, "approval_status": "draft"}
-        planning.charge(state, "astra_challenge")
+        planning.charge(state, "review_plan")
         state["planning"]["astra_calls"] = 7
-        state.update(status="PAUSED_PLANNING_BUDGET", next_stage="astra_challenge")
+        state.update(status="PAUSED_PLANNING_BUDGET", next_stage="review_plan")
         planning.set_review_call_limit(state, 8)
         settings = copy.deepcopy(state["settings"])
         cycle.start(state)
         self.assertEqual(8, planning.review_call_limit(state))
         self.assertIn("7/8 plan-review calls used", lifecycle.render(state))
-        planning.charge(state, "astra_challenge")
+        planning.charge(state, "review_plan")
         with self.assertRaises(support.Paused):
-            planning.charge(state, "astra_challenge")
+            planning.charge(state, "review_plan")
         self.assertIn("8/8 plan-review calls used", lifecycle.render(state))
         self.assertEqual(settings, state["settings"])
         self.assertEqual("user_explicit", state["planning"]["review_call_limit_origin"])
 
     def test_automatic_allowance_is_not_promoted_to_explicit_on_restart(self):
         state = self.state()
-        planning.charge(state, "astra_challenge")
+        planning.charge(state, "review_plan")
         state["planning"]["review_call_limit"] = 8
         cycle.start(state)
         self.assertEqual(2, planning.review_call_limit(state))
@@ -2189,7 +2189,7 @@ class ReviewDepthPolicyTests(unittest.TestCase):
 
     def test_full_depth_flag_opts_out(self):
         state = self.state(settings={"planning_review_call_limit": 2, "plan_review_full": True})
-        planning.charge(state, "astra_challenge")
+        planning.charge(state, "review_plan")
         self.assertNotIn("review_depth_reduced", state["planning"])
 
     def test_finalized_small_plan_activates_and_counts_earlier_cycles(self):
@@ -2199,7 +2199,7 @@ class ReviewDepthPolicyTests(unittest.TestCase):
         # Activation happens at admission: the two full-depth reviews already run
         # join the total, so this admission pauses instead of granting a fresh cycle.
         with self.assertRaises(support.Paused) as raised:
-            planning.charge(state, "astra_challenge")
+            planning.charge(state, "review_plan")
         self.assertIn("2/2 plan-review calls used", str(raised.exception))
         self.assertTrue(state["planning"]["review_depth_reduced"])
         self.assertEqual(state["planning"]["astra_calls"], 2, "full-depth reviews already run join the total")
@@ -2224,7 +2224,7 @@ class ReviewerEffortTierTests(unittest.TestCase):
     def state(self, **extra):
         base = {
             "status": "RUNNING",
-            "next_stage": "astra_challenge",
+            "next_stage": "review_plan",
             "planning": {"astra_calls": 0, "reports": {}},
             "workflow": {"kind": "build", "clarity": "clear", "brief_size": "small"},
             "settings": {
@@ -2244,10 +2244,10 @@ class ReviewerEffortTierTests(unittest.TestCase):
 
     def test_ac1_effort_steps_down_when_policy_active(self):
         state = self.state()
-        planning.charge(state, "astra_challenge")
+        planning.charge(state, "review_plan")
         self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
         cycle.new_cycle(state)
-        planning.charge(state, "astra_challenge")
+        planning.charge(state, "review_plan")
         self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
         self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["plan_reviewer"]["model"])
         self.assertIs(True, state["settings"]["roles"]["plan_reviewer"]["model_pinned"])
@@ -2255,7 +2255,7 @@ class ReviewerEffortTierTests(unittest.TestCase):
     def test_ac2_provider_light_effort_is_the_tier(self):
         state = self.state()
         state["settings"]["roles"]["plan_reviewer"]["light_effort"] = "low"
-        planning.charge(state, "astra_challenge")
+        planning.charge(state, "review_plan")
         self.assertEqual("low", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
         self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["plan_reviewer"]["model"])
         self.assertIs(True, state["settings"]["roles"]["plan_reviewer"]["model_pinned"])
@@ -2267,7 +2267,7 @@ class ReviewerEffortTierTests(unittest.TestCase):
         state = self.state()
         state["settings"]["roles"]["plan_reviewer"]["model"] = "zai-coding-plan/glm-5.3"
         state["settings"]["declared_variants"] = {"zai-coding-plan/glm-5.3": ["low", "high", "max"]}
-        planning.charge(state, "astra_challenge")
+        planning.charge(state, "review_plan")
         self.assertEqual("high", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
         self.assertEqual(
             {"from": "medium", "to": "high", "reason": "review_depth"},
@@ -2278,14 +2278,14 @@ class ReviewerEffortTierTests(unittest.TestCase):
         selected["settings"]["roles"]["plan_reviewer"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
         selected["settings"]["route_selection"] = {
             "candidates": {
-                "sol": [{"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro", "levels": ["low", "medium", "high"]}]
+                "tester": [{"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro", "levels": ["low", "medium", "high"]}]
             }
         }
-        planning.charge(selected, "astra_challenge")
+        planning.charge(selected, "review_plan")
         self.assertEqual("medium", selected["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
         self.assertNotIn("effort_fits", selected["settings"])
         unknown = self.state()
-        planning.charge(unknown, "astra_challenge")
+        planning.charge(unknown, "review_plan")
         self.assertEqual("medium", unknown["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
         self.assertNotIn("effort_fits", unknown["settings"])
 
@@ -2300,8 +2300,8 @@ class ReviewerEffortTierTests(unittest.TestCase):
                 state["settings"]["roles"]["plan_reviewer"].update(reasoning_effort="medium", light_effort="low")
                 state["settings"]["roles"]["investigator"] = {"model": "different/model", "reasoning_effort": "high"}
                 state["planning_history"] = [{"astra_calls": 2}]
-                planning.route_for(state, "astra_challenge")
-                planning.charge(state, "astra_challenge")
+                planning.route_for(state, "review_plan")
+                planning.charge(state, "review_plan")
                 self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
                 self.assertEqual("high", state["settings"]["roles"]["investigator"]["reasoning_effort"])
                 self.assertEqual(2, state["planning"]["review_calls_before_policy"])
@@ -2340,18 +2340,18 @@ class ReviewerEffortTierTests(unittest.TestCase):
     def test_ac8_first_launch_consumes_reduced_tier(self):
         state = self.state()
         state["planning_history"] = [{"astra_calls": 3, "reports": {}}]
-        self.assertEqual("plan_reviewer", planning.route_for(state, "astra_challenge"))
+        self.assertEqual("plan_reviewer", planning.route_for(state, "review_plan"))
         self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
-        planning.charge(state, "astra_challenge")
+        planning.charge(state, "review_plan")
         self.assertEqual(3, state["planning"]["review_calls_before_policy"])
         self.assertEqual(4, state["planning"]["astra_calls"])
         cycle.new_cycle(state)
-        self.assertEqual("plan_reviewer", planning.route_for(state, "astra_challenge"))
+        self.assertEqual("plan_reviewer", planning.route_for(state, "review_plan"))
         self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
-        planning.charge(state, "astra_challenge")
+        planning.charge(state, "review_plan")
         self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
         vague = self.state(workflow={"clarity": "vague"})
-        self.assertEqual("plan_reviewer", planning.route_for(vague, "astra_challenge"))
+        self.assertEqual("plan_reviewer", planning.route_for(vague, "review_plan"))
         self.assertEqual("high", vague["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
 
 
@@ -2375,7 +2375,7 @@ class InternalAnswerInheritanceTests(unittest.TestCase):
     def reviewed(self, *, calls=1, limit=None, blocking=True, **extra):
         state = {
             "status": "RUNNING",
-            "next_stage": "glm_revise",
+            "next_stage": "revise_plan",
             "workflow": {"kind": "build", "clarity": "vague"},
             "settings": {"planning_review_call_limit": 2, "joint_planning": True},
             "planning": {
@@ -2383,11 +2383,11 @@ class InternalAnswerInheritanceTests(unittest.TestCase):
                 "final_token": None,
                 "review_charges": ["charge-1"],
                 "reports": {
-                    "astra_challenge": {
+                    "review_plan": {
                         "report": {"concerns": [{"id": "C1", "concern": "M1 owns no tests", "blocking": blocking}]},
                         "output": "/run/plan-challenge-01.json",
                     },
-                    "glm_revise": {
+                    "revise_plan": {
                         "report": {
                             "responses": [{"concern_id": "C1"}],
                             "contract": {"open_blocking_questions": [self.QUESTION]},
@@ -2411,29 +2411,29 @@ class InternalAnswerInheritanceTests(unittest.TestCase):
         self.assertEqual(1, len(state["planning_history"]))
         self.assertEqual(1, record["astra_calls"], "the redraft answers the review the cycle already paid for")
         self.assertEqual(["charge-1"], record["review_charges"])
-        self.assertEqual({"astra_challenge", "glm_revise"}, set(record["reports"]))
+        self.assertEqual({"review_plan", "revise_plan"}, set(record["reports"]))
         self.assertEqual(state["planning_history"][0]["adaptive"], record["adaptive"])
         self.assertIsNone(record["final_token"])
         self.assertEqual(
             {
                 "cycle": 0,
                 "astra_calls": 1,
-                "reports": ["astra_challenge", "glm_revise"],
-                "next_stage": "astra_finalize",
+                "reports": ["review_plan", "revise_plan"],
+                "next_stage": "finalize_plan",
             },
             record["inherited_review"],
         )
         self.assertEqual(
-            ("RUNNING", "PLANNING", "astra_finalize"), (state["status"], state["phase"], state["next_stage"])
+            ("RUNNING", "PLANNING", "finalize_plan"), (state["status"], state["phase"], state["next_stage"])
         )
-        planning.charge(state, "astra_finalize")
+        planning.charge(state, "finalize_plan")
         self.assertEqual(2, record["astra_calls"])
 
     def test_with_two_calls_left_the_redraft_is_reviewed_again_with_its_earlier_review(self):
         state = self.reviewed(limit=3)
         cycle.internal_answer_restart(state)
         cycle.start(state)
-        self.assertEqual("astra_challenge", state["next_stage"])
+        self.assertEqual("review_plan", state["next_stage"])
         self.assertEqual(3, state["planning"]["review_call_limit"])
         state["user_events"] = [
             {
@@ -2460,8 +2460,8 @@ class InternalAnswerInheritanceTests(unittest.TestCase):
             (2, 3, 1), (record["astra_calls"], record["review_call_limit"], record["internal_answer_renewals"])
         )
         self.assertEqual({"from": 2, "to": 3}, record["inherited_review"]["renewed"])
-        self.assertEqual("astra_finalize", state["next_stage"])
-        planning.charge(state, "astra_finalize")
+        self.assertEqual("finalize_plan", state["next_stage"])
+        planning.charge(state, "finalize_plan")
         self.assertEqual(3, record["astra_calls"])
         # A second internal restart with nothing left still stops: one renewal per run.
         cycle.internal_answer_restart(state)
@@ -2474,9 +2474,9 @@ class InternalAnswerInheritanceTests(unittest.TestCase):
                 state["planning"]["internal_answer_renewals"],
             ),
         )
-        self.assertEqual("astra_finalize", state["next_stage"])
+        self.assertEqual("finalize_plan", state["next_stage"])
         with self.assertRaises(support.Paused) as raised:
-            planning.charge(state, "astra_finalize")
+            planning.charge(state, "finalize_plan")
         self.assertEqual("PAUSED_PLANNING_BUDGET", raised.exception.status)
 
     def test_a_limit_the_person_chose_is_never_raised(self):
@@ -2490,28 +2490,28 @@ class InternalAnswerInheritanceTests(unittest.TestCase):
                 cycle.start(state)
                 self.assertEqual(2, state["planning"]["astra_calls"])
                 self.assertNotIn("renewed", state["planning"]["inherited_review"])
-                self.assertEqual("astra_finalize", state["next_stage"])
+                self.assertEqual("finalize_plan", state["next_stage"])
                 with self.assertRaises(support.Paused):
-                    planning.charge(state, "astra_finalize")
+                    planning.charge(state, "finalize_plan")
 
     def test_an_unlimited_allowance_reviews_the_redraft_again(self):
         state = self.reviewed(calls=5, limit=0)
         cycle.internal_answer_restart(state)
         cycle.start(state)
-        self.assertEqual("astra_challenge", state["next_stage"])
+        self.assertEqual("review_plan", state["next_stage"])
         self.assertNotIn("renewed", state["planning"]["inherited_review"])
 
     def test_other_restarts_begin_a_fresh_cycle_as_before(self):
         plain = self.reviewed()
         unreviewed = self.reviewed()
-        del unreviewed["planning"]["reports"]["astra_challenge"]
+        del unreviewed["planning"]["reports"]["review_plan"]
         cycle.internal_answer_restart(unreviewed)
         for name, state in (("no internal answer", plain), ("no first review yet", unreviewed)):
             with self.subTest(name):
                 cycle.start(state)
                 self.assertEqual((0, {}), (state["planning"]["astra_calls"], state["planning"]["reports"]))
                 self.assertNotIn("inherited_review", state["planning"])
-                self.assertEqual("astra_challenge", state["next_stage"])
+                self.assertEqual("review_plan", state["next_stage"])
 
     def test_the_small_brief_total_keeps_its_own_one_time_renewal(self):
         state = self.reviewed(calls=2)

@@ -437,7 +437,7 @@ class HandoffTests(unittest.TestCase):
 
     def test_the_note_appears_only_when_a_mutant_survived(self):
         self.assertIn("mutation_check", regression.SUMMARY_KEYS)
-        for stage in ("sol", "astra_checkpoint", "astra_review"):
+        for stage in ("tester", "review_checkpoint", "review_completion"):
             with self.subTest(stage=stage):
                 shown = self.prompt(self.state({"C2": [SURVIVOR]}), stage)
                 self.assertEqual(1, shown.count("MUTATION CHECK:"))

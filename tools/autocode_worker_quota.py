@@ -1,7 +1,7 @@
 """Parallel Builder quota handoff across the parent and isolated worker checkpoint.
 
 A worker stopped on its model, by quota or by its provider's content filter (quota_route.STATUSES),
-hands the parent the same route-terra question a serial Builder asks (#184, #458, #465). The answer
+hands the parent the same route-builder question a serial Builder asks (#184, #458, #465). The answer
 reruns only that member, on the named model. Nothing reruns the model a content filter refused. Once
 the question was answered without a model, --retry-builder is that member's one control
 (autocode_member_stop, #541).
@@ -38,7 +38,7 @@ def payload(state: RunState, directory, workspace):
     if not record or not record.get("events"):
         return None
     return {
-        "role": "terra",
+        "role": "builder",
         "milestone_id": cast(dict, state["current_task"])["milestone_id"],
         "run_dir": str(directory),
         "workspace": str(workspace),
@@ -64,7 +64,7 @@ def stop(state: RunState, row, result, directory):
     elif status == quota_route.CONTEXT_STATUS:
         reason = f"Builder {milestone} ran out of its model's context window on {worker.get('model')}"
     else:
-        job = roles.screen_name("terra", state)
+        job = roles.screen_name("builder", state)
         reason = f"Milestone {milestone}: " + (
             provider_refusal.explain(support.events(worker["events"]), job=job, model=worker.get("model"))
             or f"{job}: the provider's content filter refused the response"
@@ -78,7 +78,7 @@ def stopped(state: RunState, error):
     worker = getattr(error, "quota_worker", None)
     if not worker or error.status not in quota_route.STATUSES:
         return None
-    return {**worker, "stage": "terra", "pause_status": error.status, "active": True}
+    return {**worker, "stage": "builder", "pause_status": error.status, "active": True}
 
 
 def question(state: RunState, attempt, *, family=None, **options):
@@ -143,8 +143,8 @@ ROUTE = ("engine", "model", "provider", "reasoning_effort")
 
 def _builder_route(settings):
     """The effective Builder route, including inherited engine and provider defaults."""
-    route = ((settings.get("roles") or {}).get("terra") or {}).copy()
-    route["engine"] = quota_route.engine(settings, "terra")
+    route = ((settings.get("roles") or {}).get("builder") or {}).copy()
+    route["engine"] = quota_route.engine(settings, "builder")
     route["provider"] = (
         route.get("provider") or "openai" if route["engine"] == "codex" else settings.get("provider") or "opencode"
     )
@@ -154,18 +154,18 @@ def _builder_route(settings):
 def retry_route_refusal(state: RunState, selected, before, after, *, asked=None):
     """Why a member retry would silently use a route different from its parent's settings.
 
-    The child's saved route is changed by assign_child when its route-terra question is answered.
+    The child's saved route is changed by assign_child when its route-builder question is answered.
     A settings flag on the parent alone, saved with the retry or earlier, cannot move that route.
     Unreadable child settings leave the existing worker-checkpoint recovery checks in charge.
     """
-    old, new = (((settings.get("roles") or {}).get("terra") or {}) for settings in (before, after))
+    old, new = (((settings.get("roles") or {}).get("builder") or {}) for settings in (before, after))
     changed = any(old.get(key) != new.get(key) for key in ROUTE)
     current_route = _builder_route(after)
     rows = {row["milestone_id"]: row for row in (state.get("orchestration_batch") or {}).get("workers", [])}
     for mid in (mid for mid in selected if mid in rows):
         try:
             child_settings = util.read(Path(rows[mid]["run_dir"]) / "state.json")["settings"]
-            model = child_settings["roles"]["terra"].get("model")
+            model = child_settings["roles"]["builder"].get("model")
             child_route = _builder_route(child_settings)
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             model, child_route = None, None
@@ -192,8 +192,8 @@ def retry_route_refusal(state: RunState, selected, before, after, *, asked=None)
             return (
                 message
                 + (
-                    "; it continues on another model named in answer to its route-terra question "
-                    "(--answer route-terra=MODEL), keeping the member's other route settings"
+                    "; it continues on another model named in answer to its route-builder question "
+                    "(--answer route-builder=MODEL), keeping the member's other route settings"
                 )
                 + (
                     "; restore the run's other Builder route settings separately to match the member before retrying"
@@ -223,11 +223,11 @@ def refused_retry(state: RunState, row, result, *, asked):
     """The error --retry-builder raises for this batch member, or None when it may rerun it.
 
     A member its provider's content filter refused reruns only on another model: the one a person names
-    in answer to its route-terra question, which moves its saved route (#465). While a request is open
+    in answer to its route-builder question, which moves its saved route (#465). While a request is open
     (``asked``, from asked_member) the retry is refused (ValueError) and points at that member's question
     only when it is the one asked. With none open (the request was answered with information or left
     paused, #541) the member's saved stop is collected again instead: the returned Paused carries it, so
-    AutoResolver asks its route-terra question again, and nothing launches. That is the answered member's
+    AutoResolver asks its route-builder question again, and nothing launches. That is the answered member's
     control (autocode_member_stop); another refused member is asked about after the answered member
     continues, whichever way it stopped. A quota stop keeps
     #458's explicit same-model retry.
@@ -239,7 +239,7 @@ def refused_retry(state: RunState, row, result, *, asked):
     ):
         return None
     try:
-        routed = util.read(Path(row["run_dir"]) / "state.json")["settings"]["roles"]["terra"].get("model")
+        routed = util.read(Path(row["run_dir"]) / "state.json")["settings"]["roles"]["builder"].get("model")
     except (OSError, ValueError, KeyError, TypeError):
         routed = None  # unreadable: never assume the route moved
     if worker.get("model") and routed and routed != worker["model"]:
@@ -255,8 +255,8 @@ def refused_retry(state: RunState, row, result, *, asked):
         )
     elif asked == milestone:
         then = (
-            "It continues on the model a person names in answer to its open route-terra question "
-            "(--answer route-terra=MODEL)."
+            "It continues on the model a person names in answer to its open route-builder question "
+            "(--answer route-builder=MODEL)."
         )
     else:
         then = (
@@ -295,7 +295,7 @@ def assign_child(row, worker, model, *, abandon):
         ):
             raise ValueError("The quota-stopped Builder attempt is no longer current")
         abandon(child, directory, workspace, worker["attempt_id"])
-        child["settings"]["roles"]["terra"]["model"] = model
-        child.setdefault("sessions", {}).pop("terra", None)
+        child["settings"]["roles"]["builder"]["model"] = model
+        child.setdefault("sessions", {}).pop("builder", None)
         autocode_status.persist(directory / "state.json", child)
     row["retry_requested"] = True

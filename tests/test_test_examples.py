@@ -120,7 +120,7 @@ class BuilderPromptTests(unittest.TestCase):
         body = "import app\r\n" + "# preserve the project's existing test conventions\r\n" * 35
         (self.root / "test_app.py").write_bytes(body.encode())
         data = {
-            "stage": "terra",
+            "stage": "builder",
             "review_source": {
                 "files": [{"path": "test_app.py", "sha256": hashlib.sha256(body.encode()).hexdigest(), "content": body}]
             },
@@ -151,7 +151,7 @@ class BuilderPromptTests(unittest.TestCase):
         body = "import app\n" + "# existing conventions\n" * 35
         (self.root / "test_app.py").write_text(body)
         original = {
-            "stage": "terra",
+            "stage": "builder",
             "review_source": {
                 "files": [{"path": "test_app.py", "sha256": hashlib.sha256(body.encode()).hexdigest(), "content": body}]
             },
@@ -163,7 +163,7 @@ class BuilderPromptTests(unittest.TestCase):
                 if change == "absent":
                     data.pop("review_source")
                 elif change == "stage":
-                    data["stage"] = "sol"
+                    data["stage"] = "tester"
                 elif change in ("path", "escape"):
                     row["path"] = "other_test.py" if change == "path" else "../test_app.py"
                 elif change in ("changed", "truncated", "content_only"):
@@ -185,7 +185,7 @@ class BuilderPromptTests(unittest.TestCase):
             with self.subTest(content_bytes=len(content)):
                 (self.root / "test_app.py").write_bytes(content)
                 data = {
-                    "stage": "terra",
+                    "stage": "builder",
                     "review_source": {
                         "files": [
                             {
@@ -222,8 +222,8 @@ class BuilderRequestTests(unittest.TestCase):
         subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
         schemas = Path(examples.__file__).with_name("autocode-schemas")
         with patch.object(examples, "add_to_prompt", side_effect=lambda prompt, *_: prompt):
-            canonical = common.execution_request(state, "terra", root / "state.json", schemas)
-        builder = common.execution_request(state, "terra", root / "state.json", schemas)
+            canonical = common.execution_request(state, "builder", root / "state.json", schemas)
+        builder = common.execution_request(state, "builder", root / "state.json", schemas)
         prefix, handoff = builder.prompt.split("\nCURRENT HANDOFF DATA\n")
         self.assertEqual(canonical.prompt.split("\nCURRENT HANDOFF DATA\n")[1], handoff)
         data = json.loads(handoff)
@@ -246,10 +246,10 @@ class BuilderRequestTests(unittest.TestCase):
         (root / "tests" / "test_client.py").write_text("import unittest  # the house style\n")
         subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
         schemas = Path(examples.__file__).with_name("autocode-schemas")
-        builder = common.execution_request(state, "terra", root / "state.json", schemas)
+        builder = common.execution_request(state, "builder", root / "state.json", schemas)
         self.assertIn("import unittest  # the house style", builder.prompt.split("\nCURRENT HANDOFF DATA\n")[0])
         self.assertEqual((len(builder.prompt.encode()) + 3) // 4, builder.metrics["estimated_prompt_tokens"])
-        validator = common.execution_request(state, "sol", root / "state.json", schemas)
+        validator = common.execution_request(state, "tester", root / "state.json", schemas)
         self.assertNotIn("EXISTING TEST STYLE", validator.prompt)
 
     def test_the_examples_follow_the_static_notes_in_the_builders_request(self):
@@ -263,7 +263,7 @@ class BuilderRequestTests(unittest.TestCase):
         (root / "tests" / "test_client.py").write_text("import unittest\n")
         subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
         schemas = Path(examples.__file__).with_name("autocode-schemas")
-        builder = common.execution_request(state, "terra", root / "state.json", schemas)
+        builder = common.execution_request(state, "builder", root / "state.json", schemas)
         prefix = builder.prompt.split("\nCURRENT HANDOFF DATA\n")[0]
         self.assertLess(
             prefix.find("BUILD OUTPUT: do not leave compiled programs"),

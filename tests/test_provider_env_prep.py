@@ -151,13 +151,13 @@ class ProviderEnvPrepTests(unittest.TestCase):
                 )
         self.assertEqual(MODELS, oc.available_models(self.workspace, env=mapping))
         command, env, overrides = oc.launch(
-            "terra", self.workspace, self.root / "run", None, "zai-coding-plan/glm-5.3", "medium", True, env=mapping
+            "builder", self.workspace, self.root / "run", None, "zai-coding-plan/glm-5.3", "medium", True, env=mapping
         )
         self.assertEqual("opencode", command[0])
         self.assertEqual(mapping["PATH"], env["PATH"])
         inline = json.loads(env["OPENCODE_CONFIG_CONTENT"])
-        self.assertIn("autocode_terra", inline["agent"])
-        self.assertEqual("deny", inline["agent"]["autocode_terra"]["permission"]["task"])
+        self.assertIn("autocode_builder", inline["agent"])
+        self.assertEqual("deny", inline["agent"]["autocode_builder"]["permission"]["task"])
 
     def test_ac2_parent_environment_unchanged_success_and_failure(self):
         saved = dict(os.environ)
@@ -236,7 +236,7 @@ class ProviderEnvPrepTests(unittest.TestCase):
         with contextlib.redirect_stdout(captured_out), contextlib.redirect_stderr(captured_err):
             settings = oc.local_settings(self.workspace, env=mapping)
             models = oc.available_models(self.workspace, env=mapping)
-            oc.check_subscription_routes({"sol": {"model": "openai/gpt-6-sol"}}, env=mapping)
+            oc.check_subscription_routes({"tester": {"model": "openai/gpt-6-sol"}}, env=mapping)
         self.assertEqual(MODELS, models)
         for text in (captured_out.getvalue(), captured_err.getvalue(), json.dumps(settings)):
             self.assertNotIn(api_secret, text)
@@ -401,7 +401,7 @@ class ProviderEnvPrepTests(unittest.TestCase):
             os.environ.pop(key, None)
 
         env = self.mapping_for(wrapper_bin, INVOCATION_LOG=str(log), OPENAI_API_KEY="ac13-mapping-secret")
-        oc.check_subscription_routes({"sol": {"model": "openai/gpt-6-sol"}}, env=env)
+        oc.check_subscription_routes({"tester": {"model": "openai/gpt-6-sol"}}, env=env)
         self.assertTrue(not log.exists() or not log.read_text().strip(), "an auth-list subprocess ran")
 
         marker = self.root / "ac13-auth-ran"
@@ -432,7 +432,7 @@ class ProviderEnvPrepTests(unittest.TestCase):
         self.assertFalse(marker.exists())
 
         os.environ["OPENAI_API_KEY"] = "ac13-process-secret"
-        oc.check_subscription_routes({"sol": {"model": "openai/gpt-6-sol"}})
+        oc.check_subscription_routes({"tester": {"model": "openai/gpt-6-sol"}})
         with self.assertRaisesRegex(RuntimeError, "OPENAI_API_KEY") as raised:
             provider.check_subscription_routes({"task_planner": {"model": "openai/x"}})
         self.assertIn("will not silently change billing", str(raised.exception))

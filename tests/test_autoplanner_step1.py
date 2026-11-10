@@ -211,7 +211,7 @@ def ask(current, questions):
     current["goal_contract"] = _contract(
         **{**current.get("goal_contract", {}), "body": {"open_blocking_questions": list(questions)}}
     )
-    lifecycle.human.queue(current, "clarification", {"stage": "astra_discovery"}, questions=questions)
+    lifecycle.human.queue(current, "clarification", {"stage": "draft_plan"}, questions=questions)
 
 
 def ask_permission(current):
@@ -219,7 +219,7 @@ def ask_permission(current):
     lifecycle.human.queue(
         current,
         "permission",
-        {"stage": "terra"},
+        {"stage": "builder"},
         request={
             "kind": "permission",
             "discovered": "A write outside the workspace is needed",
@@ -234,7 +234,7 @@ def ask_permission(current):
 def await_approval(current):
     """The goal-approval stop (non-joint planning, so no final-plan evidence is required)."""
     current["settings"]["joint_planning"] = False
-    lifecycle.human.queue(current, "goal_approval", {"stage": "astra_discovery"}, status="AWAITING_GOAL_APPROVAL")
+    lifecycle.human.queue(current, "goal_approval", {"stage": "draft_plan"}, status="AWAITING_GOAL_APPROVAL")
 
 
 class DelegateAllTests(unittest.TestCase):

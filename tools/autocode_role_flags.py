@@ -18,8 +18,8 @@ def add_arguments(parser, default_models, role_models, efforts) -> None:
     for role, model in role_models.items():
         label = {
             "task_planner": "per-task Planner (and, in a run without their own routes, the reviewers')",
-            "terra": "Builder",
-            "sol": "Tester",
+            "builder": "Builder",
+            "tester": "Tester",
             "completion": "Completion Reviewer",
         }[role]
         parser.add_argument(
@@ -38,13 +38,13 @@ def add_arguments(parser, default_models, role_models, efforts) -> None:
     )
     parser.add_argument(
         *names.spellings("--terra-provider"),
-        dest="terra_provider",
+        dest="builder_provider",
         metavar="PROVIDER",
         help="Codex model_provider override for the Builder (e.g. ZAI); default is the local Codex login",
     )
     parser.add_argument(
         *names.spellings("--sol-provider"),
-        dest="sol_provider",
+        dest="tester_provider",
         metavar="PROVIDER",
         help="Codex model_provider override for the Tester (e.g. ZAI); default is the local Codex login",
     )
@@ -61,13 +61,13 @@ def add_arguments(parser, default_models, role_models, efforts) -> None:
     )
     parser.add_argument(
         *names.spellings("--terra-reasoning-effort"),
-        dest="terra_reasoning_effort",
+        dest="builder_reasoning_effort",
         choices=efforts,
         help="Override reasoning effort for the Builder only",
     )
     parser.add_argument(
         *names.spellings("--sol-reasoning-effort"),
-        dest="sol_reasoning_effort",
+        dest="tester_reasoning_effort",
         choices=efforts,
         help="Override reasoning effort for the Tester only",
     )

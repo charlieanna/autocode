@@ -162,7 +162,7 @@ class SetupTests(unittest.TestCase):
 
     def test_setup_offers_the_stage_picker_once_defaulting_to_yes_until_choices_are_saved(self):
         claude = {"id": "claude", "label": "Claude Code"}
-        for saved, answer, picks in (({}, "", True), ({}, "n", False), ({"claude": {"terra": {}}}, "", False)):
+        for saved, answer, picks in (({}, "", True), ({}, "n", False), ({"claude": {"builder": {}}}, "", False)):
             asked, chosen = [], []
             with self.subTest(saved=bool(saved), answer=answer):
                 offered = setup.offer_stages(
@@ -262,7 +262,7 @@ class SetupTests(unittest.TestCase):
             setup.say_routes(
                 {"id": "opencode", "label": "OpenCode"},
                 stream=shown,
-                load=lambda: {"opencode": {"terra": {"model": "m", "effort": None}}},
+                load=lambda: {"opencode": {"builder": {"model": "m", "effort": None}}},
                 view=lambda backend: current,
             )
         self.assertIn("Stages on OpenCode", shown.getvalue())

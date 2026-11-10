@@ -37,7 +37,7 @@ except ImportError:
     import autocode_test_cases as test_cases
     from autocode_user_authority import saved_user_basis
 
-PLANNER_ORIGINS = {"glm_draft", "glm_revise", "astra_finalize", "astra_discovery"}
+PLANNER_ORIGINS = {"glm_draft", "revise_plan", "finalize_plan", "draft_plan"}
 PROTECTED_LISTS = ("required_behaviors", "scope_exclusions", "constraints", "important_failure_cases")
 # The lists a revision may change on its own when the Plan Reviewer blocked the draft and the line is the
 # Planner's own (reviewer_requested_own_text): a constraint or a permission boundary that only restates how the
@@ -335,7 +335,7 @@ def reviewer_backed(state: RunState, item) -> str | None:
         return None
     reports = (state.get("planning") or {}).get("reports") or {}
     pattern = re.compile(r"(?<![\w-])" + re.escape(item) + r"(?![\w-])")
-    for stage in ("astra_challenge", "plan_review"):
+    for stage in ("review_plan", "plan_review"):
         report = (reports.get(stage) or {}).get("report") or {}
         for concern in report.get("concerns") or []:
             if not isinstance(concern, dict) or not concern.get("blocking") or not concern.get("id"):
@@ -349,7 +349,7 @@ def blocking_review_concerns(state: RunState) -> list[str]:
     """The ids of the blocking concerns in this planning cycle's saved first review, in report order."""
     reports = (state.get("planning") or {}).get("reports") or {}
     ids = []
-    for stage in ("astra_challenge", "plan_review"):
+    for stage in ("review_plan", "plan_review"):
         report = (reports.get(stage) or {}).get("report") or {}
         for concern in report.get("concerns") or []:
             if isinstance(concern, dict) and concern.get("blocking") and concern.get("id"):
@@ -392,7 +392,7 @@ def reviewer_requested_own_text(state: RunState, previous_contract: dict, previo
     protected list and every approved contract keep the saved-basis rule here; failure_correction owns its
     separately receipted exception."""
     if (
-        origin != "glm_revise"
+        origin != "revise_plan"
         or previous_contract.get("approval_status") != "draft"
         or previous_contract.get("approval_event")
         or any(
@@ -524,7 +524,7 @@ def revision_guard(state: RunState, body, changes, origin):
     protected_history = bool(protected_revisions)
     interpretation_corrections = assumption_provenance.corrections(feedback_interpretations(state), body)
     if (
-        origin in ("glm_draft", "astra_discovery")
+        origin in ("glm_draft", "draft_plan")
         and previous_contract.get("approval_status") != "approved"
         and not (internal_restart and protected_history)
     ):
@@ -622,7 +622,7 @@ def revision_guard(state: RunState, body, changes, origin):
         approved = protected_history or previous_contract.get("approval_status") == "approved"
         if (
             not approved
-            and origin == "glm_revise"
+            and origin == "revise_plan"
             and any(raw.get("item") in previous.get(key, []) for key in PLANNER_OWN_LISTS)
             and quotes_person_text(state, raw.get("item"))
         ):

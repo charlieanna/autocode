@@ -233,7 +233,7 @@ def _check_projection(state: RunState, records):
             (
                 (index, record)
                 for index, record in enumerate(records)
-                if record.get("stage") in ("sol", "astra_checkpoint", "astra_review")
+                if record.get("stage") in ("tester", "review_checkpoint", "review_completion")
                 and record.get("source_revision") == proof.get("source_revision")
                 and record.get("started_at", "") >= proof.get("proved_at", "")
             ),

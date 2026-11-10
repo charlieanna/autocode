@@ -22,8 +22,8 @@ class DiscardStaleRecoveredTests(unittest.TestCase):
         self.output.write_text('{"summary": "stale"}')
         self.prompt.write_text("prompt")
         self.record = {
-            "stage": "terra",
-            "role": "terra",
+            "stage": "builder",
+            "role": "builder",
             "iteration": 1,
             "output": str(self.output),
             "prompt": str(self.prompt),
@@ -34,7 +34,7 @@ class DiscardStaleRecoveredTests(unittest.TestCase):
         actions.discard_stale_recovered(self.state, self.run_dir, self.record)
         saved = json.loads((self.run_dir / "state.json").read_text())
         self.assertEqual("RUNNING", saved["status"])
-        self.assertEqual("terra", saved["next_stage"])
+        self.assertEqual("builder", saved["next_stage"])
         self.assertNotIn("active_stage", saved)
         self.assertFalse(self.output.exists())
         self.assertFalse(self.prompt.exists())

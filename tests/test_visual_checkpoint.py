@@ -51,7 +51,7 @@ class VisualCheckpointTests(unittest.TestCase):
             "settings": {
                 "design_manifest": {"body": self.manifest},
                 "milestone_checkpoints": {"enabled": True},
-                "roles": {"sol": {"model": "independent", "reasoning_effort": "high"}},
+                "roles": {"tester": {"model": "independent", "reasoning_effort": "high"}},
                 "limits": {"max_seconds": 120},
             },
             "milestone_progress": {},
@@ -195,7 +195,7 @@ class VisualCheckpointTests(unittest.TestCase):
     def test_context_is_bound_to_exact_settings_task_contract_and_source(self):
         proof = self.facts()
         mutations = (
-            lambda state, current: state["settings"]["roles"]["sol"].update(model="self-review"),
+            lambda state, current: state["settings"]["roles"]["tester"].update(model="self-review"),
             lambda state, current: state["settings"]["limits"].update(max_seconds=150),
             lambda state, current: state["current_task"].update(id="borrowed-task"),
             lambda state, current: state["current_task"]["affected_paths"].append("ui/extra.py"),

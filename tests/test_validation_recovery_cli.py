@@ -30,9 +30,9 @@ class RetainedValidationCLI(unittest.TestCase):
         # this setup use the public CLI; the runtime hash models an upgrade.
         revision = source_scope.snapshot(self.project, state, base_snapshot=support.snapshot)["revision"]
         contract = state["goal_contract"]["hash"]
-        state.update(next_stage="sol", current_task={"id": "legacy-validation-3", "kind": "validate"})
+        state.update(next_stage="tester", current_task={"id": "legacy-validation-3", "kind": "validate"})
         state["validation"] = {"source_revision": revision, "contract_hash": contract, "output": "legacy-v2"}
-        state["findings_ledger"] = [{"id": "F-1", "source": "sol", "status": "open", "blocking": True}]
+        state["findings_ledger"] = [{"id": "F-1", "source": "tester", "status": "open", "blocking": True}]
         frontier = {
             "contract_hash": contract,
             "source_revision": revision,

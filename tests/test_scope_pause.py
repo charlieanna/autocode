@@ -30,7 +30,7 @@ class ScopePauseTests(unittest.TestCase):
             "task_id": "fixture",
             "task": "Fix history",
             "status": "RUNNING",
-            "next_stage": "astra_discovery",
+            "next_stage": "draft_plan",
             "settings": {},
             "answers": {},
             "user_events": [],
@@ -40,10 +40,10 @@ class ScopePauseTests(unittest.TestCase):
         human.queue(
             self.state,
             "clarification",
-            {"stage": "astra_discovery"},
+            {"stage": "draft_plan"},
             questions=[question],
             phase="DISCOVERING",
-            next_stage="astra_discovery",
+            next_stage="draft_plan",
         )
         self.assertEqual("escalate", human.evaluate(self.state))
         self.question = copy.deepcopy(self.state["pending_questions"])
@@ -97,7 +97,7 @@ class ScopePauseTests(unittest.TestCase):
             "settings": lambda s: s["settings"].update(max_seconds=999),
             "accounting": lambda s: s.update(active_seconds=18),
             "feedback": lambda s: s["user_events"].append({"text": "change the task"}),
-            "active": lambda s: s.update(active_stage={"stage": "astra_discovery"}),
+            "active": lambda s: s.update(active_stage={"stage": "draft_plan"}),
             "stop": lambda s: s.update(stop_intent={"request_ids": ["stop"]}),
             "held": lambda s: s["pause_intent"].update(held_pause={"status": "PAUSED_COST_LIMIT"}),
             "unmatched": lambda s: s["pause_intent"].update(request_ids=["other"]),

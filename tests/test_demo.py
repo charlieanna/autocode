@@ -70,7 +70,7 @@ class DemoTests(unittest.TestCase):
                 os.environ,
                 AUTOCODE_PROVIDER="nonexistent-provider-for-demo-control",
                 AUTOCODE_FIXTURE_MODE="stalled",
-                AUTOCODE_FIXTURE_QUOTA_STAGE="astra_discovery",
+                AUTOCODE_FIXTURE_QUOTA_STAGE="draft_plan",
                 AUTOCODE_APPROVE_GOAL_TOKEN="unrelated-approval",
                 OPENAI_API_KEY=sentinel,
                 GIT_DIR="/nonexistent-demo-git-control",

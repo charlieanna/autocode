@@ -33,11 +33,11 @@ class OutputLengthRouteCliTests(unittest.TestCase):
         return run, state
 
     def test_builder_length_stop_accepts_only_an_explicit_valid_model_then_resumes(self):
-        run, state = self.stopped("terra")
+        run, state = self.stopped("builder")
         view = run.status()
         self.assertFalse(view["done"])
         route = view["needs"]["route"]
-        self.assertEqual(("terra", "Builder", "output_limit"), tuple(route[k] for k in ("role", "job", "cause")))
+        self.assertEqual(("builder", "Builder", "output_limit"), tuple(route[k] for k in ("role", "job", "cause")))
         self.assertIn("output", view["stop_reason"])
         record = state["active_stage"]
         event_path = Path(record["events"])
@@ -56,11 +56,11 @@ class OutputLengthRouteCliTests(unittest.TestCase):
         ):
             with self.subTest(model=model):
                 with self.assertRaises(TaskRunError) as rejected:
-                    run.assign_model("terra", model)
+                    run.assign_model("builder", model)
                 self.assertRegex(rejected.exception.process.stderr, message)
                 self.assertEqual(original_state, (run.run_dir / "state.json").read_bytes())
         self.env.pop("AUTOCODE_FIXTURE_TRUNCATE_STAGE")
-        answered = run.assign_model("terra", "openai/gpt-6-luna")
+        answered = run.assign_model("builder", "openai/gpt-6-luna")
         self.assertFalse(answered["done"])
         self.assertEqual("output_limit", route["cause"])
         switched, assignment = answered["route_assignments"]
@@ -87,7 +87,7 @@ class OutputLengthRouteCliTests(unittest.TestCase):
         self.assertEqual(original_events, event_path.read_bytes())
 
     def test_planner_length_stop_offers_a_route_without_replaying_on_plain_resume(self):
-        run, state = self.stopped("astra_discovery")
+        run, state = self.stopped("draft_plan")
         view = run.status()
         route = view["needs"]["route"]
         self.assertEqual("output_limit", route["cause"])

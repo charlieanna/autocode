@@ -228,19 +228,20 @@ class FollowUpTests(unittest.TestCase):
             settings={
                 "joint_planning": True,
                 "roles": {
-                    role: {"model": role[0]} for role in ("requirements", "planner", "plan_reviewer", "terra", "sol")
+                    role: {"model": role[0]}
+                    for role in ("requirements", "planner", "plan_reviewer", "builder", "tester")
                 }
                 | {"task_planner": {"model": "a", "engine": "codex"}},
             },
         )
         follow_up.accept(self.state, "Fix them.", self.workspace, "t1")
         workflows.from_requirements(self.state, {"job": "build"})
-        prompt, _ = autoplanner.context(self.state, "astra_discovery", self.workspace / "state.json")
+        prompt, _ = autoplanner.context(self.state, "draft_plan", self.workspace / "state.json")
         self.assertIn(autoplanner.REVIEW_FINDINGS_RULE, prompt)
         self.assertIn('"review_findings"', prompt)
         self.assertIn("Timeout resends without asking the registry", prompt)
         workflows.from_requirements(self.state, {"job": "discuss"})
-        other, _ = autoplanner.context(self.state, "astra_discovery", self.workspace / "state.json")
+        other, _ = autoplanner.context(self.state, "draft_plan", self.workspace / "state.json")
         self.assertNotIn(autoplanner.REVIEW_FINDINGS_RULE, other)
 
     def test_only_a_finished_run_takes_a_follow_up_and_the_message_must_say_something(self):
@@ -328,7 +329,7 @@ class FollowUpTests(unittest.TestCase):
             "answer_id": event["id"],
             "replacement": after["required_behaviors"][0],
         }
-        self.assertEqual([change], revision.revision_guard(self.state, after, [change], "astra_discovery"))
+        self.assertEqual([change], revision.revision_guard(self.state, after, [change], "draft_plan"))
         for fault in ("forged_id", "missing_event", "undeclared_permission", "undeclared_criterion"):
             state, proposed, declared = copy.deepcopy((self.state, after, [change]))
             if fault == "forged_id":
@@ -340,7 +341,7 @@ class FollowUpTests(unittest.TestCase):
             else:
                 proposed["acceptance_criteria"] = []
             with self.subTest(fault=fault), self.assertRaises(ValueError):
-                revision.revision_guard(state, proposed, declared, "astra_discovery")
+                revision.revision_guard(state, proposed, declared, "draft_plan")
 
     def test_a_turn_records_where_its_stages_start_and_its_receipt(self):
         self.state["stages"] = [stage("recognize_workflow"), stage("review_change")]
@@ -356,7 +357,7 @@ class FollowUpTests(unittest.TestCase):
         write(self.workspace, "docs/design/cache.md")
         write(self.workspace, "docs/design/README.md")
         write(self.workspace, "app/notes.txt")
-        state = finished_design(self.workspace, [start, stage("terra"), stage("sol")])
+        state = finished_design(self.workspace, [start, stage("builder"), stage("tester")])
         del state["design_review"]
         self.assertEqual(
             {"mode": "propose", "documents": ["docs/design/cache.md"]}, follow_up.carried_design(state, self.workspace)
@@ -367,7 +368,7 @@ class FollowUpTests(unittest.TestCase):
         )
         # A design turn that wrote no document carries nothing, and another job's run carries no design.
         (self.workspace / "docs" / "design" / "cache.md").unlink()
-        empty = finished_design(self.workspace, [began(self.workspace), stage("terra")])
+        empty = finished_design(self.workspace, [began(self.workspace), stage("builder")])
         del empty["design_review"]
         self.assertIsNone(follow_up.carried_design(empty, self.workspace))
         empty["workflow"]["kind"] = "build"
@@ -384,11 +385,11 @@ class FollowUpTests(unittest.TestCase):
         write(self.workspace, "docs/design/cache.md")
         stages = [
             first,
-            stage("sol"),
+            stage("tester"),
             start,
             stage("review_design", "app/stray.py", rejected=True),
-            stage("terra", "docs/design/cache.md", rejected=True, abandoned=True),
-            stage("terra"),
+            stage("builder", "docs/design/cache.md", rejected=True, abandoned=True),
+            stage("builder"),
         ]
         turn = {"at": "t0", "say": "Design it.", "stage_index": 2, "previous": {}}
         state = finished_design(self.workspace, stages, turns=[turn])

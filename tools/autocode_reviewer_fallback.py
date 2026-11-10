@@ -32,7 +32,7 @@ except ImportError:
     import autocode_support as support
 
 
-REVIEW_STAGES = frozenset({"astra_challenge", "astra_finalize", "plan_review", "plan_finalize"})
+REVIEW_STAGES = frozenset({"review_plan", "finalize_plan", "plan_review", "plan_finalize"})
 SCOPE = "planning_reviewer_provider_stream_silence"
 
 
@@ -88,7 +88,7 @@ def _input_pins(state: RunState):
 def _cycle(state: RunState, stage):
     planning = state.get("planning") or {}
     reports = planning.get("reports") or {}
-    discovery = reports.get("astra_discovery") or reports.get("plan") or {}
+    discovery = reports.get("draft_plan") or reports.get("plan") or {}
     contract = state.get("goal_contract") or {}
     return support.digest(
         {

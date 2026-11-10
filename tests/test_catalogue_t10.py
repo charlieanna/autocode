@@ -190,7 +190,7 @@ class ParallelScenarios(ParallelCase):
         self.check_false(
             "individual_acceptance_cannot_complete", completion_gate.completion_ready(self.state, complete, current)
         )
-        self.check("fresh_review_required", "astra_review", self.state["next_stage"])
+        self.check("fresh_review_required", "review_completion", self.state["next_stage"])
         self.finish(summary="READY_REVIEW: integrated manifest requires its own review")
 
     def test_par09_repair_keeps_combined_acceptance_scope(self):
@@ -202,7 +202,7 @@ class ParallelScenarios(ParallelCase):
         support.atomic_json(self.run / "rework.json", rework)
         runner.apply_result(
             self.state,
-            "astra_review",
+            "review_completion",
             rework,
             {"output": str(self.run / "rework.json"), "source_revision": support.snapshot(self.root)["revision"]},
             self.root,
@@ -229,7 +229,7 @@ class ParallelScenarios(ParallelCase):
             support.Paused,
             runner.apply_result,
             self.state,
-            "astra_review",
+            "review_completion",
             old_decision,
             {"output": "stale.json"},
             self.root,

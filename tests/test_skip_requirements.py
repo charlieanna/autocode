@@ -48,7 +48,7 @@ class WorkerFlowTests(unittest.TestCase):
         self.assertEqual({skip.DELEGATED}, {event["source"] for event in delegated})
         self.assertIn("--skip-requirements: answered by default: Q1", result.stdout)
         self.assertEqual([], events(state, "goal_approval"), "never approves its own plan")
-        self.assertIn("astra_challenge", [row["stage"] for row in state["stages"]], "the Plan Reviewer still runs")
+        self.assertIn("review_plan", [row["stage"] for row in state["stages"]], "the Plan Reviewer still runs")
         self.assertFalse((self.project / "greet.py").exists())
 
     def test_skip_to_build_approves_the_reviewed_plan_and_builds(self):
@@ -62,7 +62,7 @@ class WorkerFlowTests(unittest.TestCase):
         self.assertIn("--skip-to-build", approvals[0]["provenance"]["command"])
         self.assertIn("--skip-to-build: plan", result.stdout)
         stages = [row["stage"] for row in state["stages"]]
-        self.assertLess(stages.index("astra_challenge"), stages.index("terra"))
+        self.assertLess(stages.index("review_plan"), stages.index("builder"))
         view = json.loads(self.launch(["--run-dir", str(run), "--status", "--json"], 0).stdout)["view"]
         self.assertEqual(skip.APPROVED, view["approvals"][0]["source"])
         self.assertEqual(skip.APPROVED, view["approved_contract"]["approval_source"])

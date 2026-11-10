@@ -24,7 +24,7 @@ from tests.test_native_assignment import fixture
 
 def setup_caller():
     state, source, decision = fixture()
-    state.update(task="controlled exact operator input", next_stage="sol")
+    state.update(task="controlled exact operator input", next_stage="tester")
     native = object.__new__(calls.PlanningCalls)
     native.initial_task = state["task"]
     native.sink = SimpleNamespace(require_ready=lambda: None, write=lambda *a, **k: None)
@@ -100,13 +100,13 @@ class CaptureCacheCallerTests(unittest.TestCase):
         native, state, source, decision, observed, acquisition = setup_caller()
         original_task, original_source = deepcopy(state["current_task"]), deepcopy(source)
         with patch.object(calls.captures, "NativeCaptureExecution", acquisition):
-            native.guard(state, "sol")
+            native.guard(state, "tester")
             self.assertEqual(assign_final_validate(state, source, decision), "validate")
             self.assertNotEqual(state["current_task"]["id"], original_task["id"])
             self.assertEqual(state["task_archive"], [original_task])
             self.assertEqual(source, original_source)
             self.assertEqual(state["current_task"]["acceptance_criteria"], ["C1", "C2"])
-            native.guard(state, "sol")
+            native.guard(state, "tester")
         self.assertEqual(
             [row["id"] for row in observed["acquisitions"]], [original_task["id"], state["current_task"]["id"]]
         )
@@ -115,23 +115,23 @@ class CaptureCacheCallerTests(unittest.TestCase):
     def test_same_authenticated_binding_reuses_acquisition_despite_new_journal_pins(self):
         native, state, source, decision, observed, acquisition = setup_caller()
         with patch.object(calls.captures, "NativeCaptureExecution", acquisition):
-            native.guard(state, "sol")
-            native.guard(state, "sol")
+            native.guard(state, "tester")
+            native.guard(state, "tester")
             assign_final_validate(state, source, decision)
-            native.guard(state, "sol")
-            native.guard(state, "sol")
+            native.guard(state, "tester")
+            native.guard(state, "tester")
         self.assertEqual(len(observed["acquisitions"]), 2)
         self.assertEqual(observed["published"], 2)
 
     def test_failed_new_task_acquisition_cannot_publish_old_capture_for_new_task(self):
         native, state, source, decision, observed, acquisition = setup_caller()
         with patch.object(calls.captures, "NativeCaptureExecution", acquisition):
-            native.guard(state, "sol")
+            native.guard(state, "tester")
             old = deepcopy(native._captures)
             assign_final_validate(state, source, decision)
             observed["fail_next"] = True
             with self.assertRaisesRegex(util.Paused, "acquisition failed before return"):
-                native.guard(state, "sol")
+                native.guard(state, "tester")
             self.assertEqual(native._captures, old)
             with self.assertRaisesRegex(util.Paused, "another exact task binding"):
                 native.image_capture_authority(state=state, snapshot=source, captures=old)

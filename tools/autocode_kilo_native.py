@@ -21,7 +21,7 @@ MODE = "isolated-mixed-kilo-claude"
 RELEASE_VERSION = "7.8.3"
 VERSION = "7.8.3-issue1063-source"
 MODEL = "anthropic/claude-opus-5-5"
-ROLES = frozenset({"sol", "completion"})
+ROLES = frozenset({"tester", "completion"})
 CONFIG_ENV = "KILO_CONFIG_CONTENT"
 
 

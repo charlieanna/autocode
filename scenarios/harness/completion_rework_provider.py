@@ -23,11 +23,11 @@ def report_for(stage, data, common, config, run_check, requirements):
         {"id": ident, "disposition": "resolved", "evidence": "event:check"}
         for ident in (data.get("review_identity_policy") or {}).get("own_open_finding_ids", [])
     ]
-    passes = sum(row["stage"] == "sol" and row["status"] == "PASS" for row in previous)
-    if bookkeeping and stage == "sol" and (fault == "completion_rework_bookkeeping" or passes < 2):
+    passes = sum(row["stage"] == "tester" and row["status"] == "PASS" for row in previous)
+    if bookkeeping and stage == "tester" and (fault == "completion_rework_bookkeeping" or passes < 2):
         dispositions = []
     stranded = (
-        [row["id"] for row in data.get("open_findings") or [] if row.get("source") == "sol" and row.get("blocking")]
+        [row["id"] for row in data.get("open_findings") or [] if row.get("source") == "tester" and row.get("blocking")]
         if bookkeeping
         else []
     )
@@ -39,8 +39,8 @@ def report_for(stage, data, common, config, run_check, requirements):
         "evidence": "event:check",
     }
     code = None
-    if stage == "terra":
-        attempt = 1 + sum(row["stage"] == "terra" for row in previous)
+    if stage == "builder":
+        attempt = 1 + sum(row["stage"] == "builder" for row in previous)
         # "completion_rework_unowned_check" (scenarios/catalog/rework-same-failure): every attempt applies the
         # solution, and the check still fails on a file the task may not change.
         broken = (
@@ -74,7 +74,7 @@ def report_for(stage, data, common, config, run_check, requirements):
             "untested_behavior": [],
             "recommended_checks": [config["check"]],
         }
-    elif stage == "sol":
+    elif stage == "tester":
         code = run_check()
         status = "PASS" if code == 0 else "FAIL"
         criterion_evidence = ["check:1"]
@@ -114,8 +114,8 @@ def report_for(stage, data, common, config, run_check, requirements):
             },
         }
     else:
-        recheck = (validation_only and not any(row["stage"] == "astra_resolve" for row in previous)) or (
-            stage == "astra_review" and data["validation"]["verdict"] == "PASS" and bool(stranded)
+        recheck = (validation_only and not any(row["stage"] == "resolve" for row in previous)) or (
+            stage == "review_completion" and data["validation"]["verdict"] == "PASS" and bool(stranded)
         )
         failed = data["validation"]["verdict"] == "FAIL" or recheck
         result = {
@@ -137,7 +137,7 @@ def report_for(stage, data, common, config, run_check, requirements):
             "blocker": "",
             "plan": ["Repair only greet.py", "Execute the unchanged greeting tests"] if failed else [],
             "affected_paths": list(task["affected_paths"]) if failed else [],
-            "findings": [finding] if failed and stage == "astra_review" else [],
+            "findings": [finding] if failed and stage == "review_completion" else [],
             "finding_dispositions": dispositions if not failed else [],
             "agreed_limitations": [],
             "next_task": {
@@ -149,14 +149,14 @@ def report_for(stage, data, common, config, run_check, requirements):
                 "findings": [],
             },
         }
-        if failed and stage == "astra_review":
+        if failed and stage == "review_completion":
             # Semantically incomplete but schema-valid: this needs the normal Resolver,
             # not a malformed-report correction or an invented direct repair task.
             if fault == "completion_rework_incomplete":
                 result["next_task"]["validation_plan"] = []
             if fault == "completion_rework_ambiguous":
                 result["next_objective"] = ""
-        if stage == "astra_resolve":
+        if stage == "resolve":
             result["diagnosis"] = (
                 "The greeting regression command failed; retain the immutable tests, repair the input guard, and rerun all cases"
             )
@@ -165,7 +165,7 @@ def report_for(stage, data, common, config, run_check, requirements):
             result["next_objective"] = "Independently rerun the unchanged greeting checks without modifying source"
             result["plan"] = [result["next_objective"]]
             result["findings"] = []
-            if stage == "astra_resolve":
+            if stage == "resolve":
                 result["diagnosis"] = (
                     "The source already passes; the remaining requested work is fresh independent validation, not a code repair"
                 )

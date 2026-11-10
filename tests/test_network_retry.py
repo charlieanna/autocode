@@ -571,7 +571,7 @@ class RecoveryAdmissionTests(unittest.TestCase):
         self.assertTrue(archived["abandoned"])
 
     def test_a_writer_or_tester_cut_short_the_same_way_keeps_its_hold(self):
-        for role in ("terra", "sol"):
+        for role in ("builder", "tester"):
             with self.subTest(role=role):
                 self.cut_short(role)
                 before = copy.deepcopy(self.state)
@@ -616,7 +616,7 @@ class RecoveryAdmissionTests(unittest.TestCase):
         self.assertEqual("dropped_stream", child["network_retry_chain"]["cause"])
 
     def test_a_dropped_stream_on_a_writer_a_changed_workspace_or_another_pause_keeps_its_hold(self):
-        for role in ("terra", "sol"):
+        for role in ("builder", "tester"):
             with self.subTest(role=role):
                 self.dropped(role)
                 before = copy.deepcopy(self.state)
@@ -924,9 +924,7 @@ class NetworkRetryCliTests(unittest.TestCase):
         self.assertEqual("answer", view["needs"]["kind"])
         self.assertFalse(view["done"])
         calls = self.calls()
-        self.assertEqual(
-            ["requirements_gather", "requirements_gather", "astra_discovery"], [row["stage"] for row in calls]
-        )
+        self.assertEqual(["requirements_gather", "requirements_gather", "draft_plan"], [row["stage"] for row in calls])
         self.assertEqual(calls[0], calls[1])
         attempts = [row for row in view["usage"]["accounting"]["attempts"] if not row["runner_owned"]]
         self.assertEqual(3, len(attempts))

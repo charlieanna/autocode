@@ -43,7 +43,7 @@ class ReviewReportSchemaTests(unittest.TestCase):
 
     def test_strict_generation_requires_ids_without_text_and_preserves_inputs(self):
         before = copy.deepcopy((self.schema, self.state))
-        for stage in ("astra_review",):
+        for stage in ("review_completion",):
             schema = review_generation_schema(self.schema, self.state, stage)
             validate_schema(self.report, schema)
             item = schema["properties"]["acceptance_criteria"]["items"]
@@ -53,7 +53,7 @@ class ReviewReportSchemaTests(unittest.TestCase):
         self.assertEqual(before, (self.schema, self.state))
 
     def test_loader_saves_canonical_report_and_preserves_original_response(self):
-        for stage in ("astra_review", "astra_review_report_repair"):
+        for stage in ("review_completion", "review_completion_report_repair"):
             for legacy in (False, True):
                 with self.subTest(stage=stage, legacy=legacy), tempfile.TemporaryDirectory() as directory:
                     raw = copy.deepcopy(self.report)
@@ -63,11 +63,11 @@ class ReviewReportSchemaTests(unittest.TestCase):
                     output, schema_path = Path(directory) / "out.json", Path(directory) / "schema.json"
                     output.write_text(json.dumps(raw))
                     schema_path.write_text(
-                        json.dumps(review_generation_schema(self.schema, self.state, "astra_review"))
+                        json.dumps(review_generation_schema(self.schema, self.state, "review_completion"))
                     )
                     record = {"stage": stage, "output": str(output), "schema": str(schema_path)}
                     if stage.endswith("_report_repair"):
-                        record["original_stage"] = "astra_review"
+                        record["original_stage"] = "review_completion"
                     result = runner.load_stage_report(record, state=self.state)
                     self.assertEqual(["Same wording"] * 2, [row["criterion"] for row in result["acceptance_criteria"]])
                     self.assertEqual(result, json.loads(output.read_text()))
@@ -94,17 +94,17 @@ class ReviewReportSchemaTests(unittest.TestCase):
                 for row in rows:
                     row["criterion"] = "A different requirement"
             with self.subTest(case=case), self.assertRaises(ValueError):
-                review_validation_schema(self.schema, self.state, {"stage": "astra_review"}, value)
+                review_validation_schema(self.schema, self.state, {"stage": "review_completion"}, value)
 
     def test_hydration_preserves_verdicts_evidence_and_inputs(self):
         before = copy.deepcopy(self.report)
-        result = hydrate_review_report(self.report, self.state, {"stage": "astra_review"})
+        result = hydrate_review_report(self.report, self.state, {"stage": "review_completion"})
         self.assertEqual(before, self.report)
         for row, raw in zip(result["acceptance_criteria"], before["acceptance_criteria"], strict=False):
             self.assertEqual(raw, {key: value for key, value in row.items() if key != "criterion"})
 
     def test_other_stages_do_not_get_an_id_only_shape(self):
-        for stage in ("astra_plan", "sol", "terra"):
+        for stage in ("plan_task", "tester", "builder"):
             schema = review_generation_schema(self.schema, self.state, stage)
             self.assertIn("criterion", schema["properties"]["acceptance_criteria"]["items"]["required"])
 
@@ -112,14 +112,14 @@ class ReviewReportSchemaTests(unittest.TestCase):
         import autocode_workflow as workflow
 
         schema = workflow.checkpoint_schema(runner.SCHEMA_DIR)
-        bound = review_generation_schema(schema, self.state, "astra_checkpoint")
+        bound = review_generation_schema(schema, self.state, "review_checkpoint")
         expected = copy.deepcopy(schema)
         expected["properties"]["validation"]["properties"]["changed_code_exceptions"]["maxItems"] = 0
         self.assertEqual(expected, bound)
         item = bound["properties"]["decision"]["properties"]["acceptance_criteria"]["items"]
         self.assertIn("criterion", item["required"])
         report = {"decision": {"acceptance_criteria": [{"id": "G1"}]}}
-        self.assertEqual(report, hydrate_review_report(report, self.state, {"stage": "astra_checkpoint"}))
+        self.assertEqual(report, hydrate_review_report(report, self.state, {"stage": "review_checkpoint"}))
 
 
 class ReportAuthorityCompatibilityTests(unittest.TestCase):
@@ -142,7 +142,7 @@ class ReportAuthorityCompatibilityTests(unittest.TestCase):
         request["properties"]["recommended_revision"] = copy.deepcopy(recommendation.SCHEMA)
         self.schema = model_output_schema(role_schema.obj({"user_request": request}))
 
-    def files(self, schema, raw, stage="astra_resolve", original_stage=None):
+    def files(self, schema, raw, stage="resolve", original_stage=None):
         self.file_count += 1
         directory = self.root / str(self.file_count)
         directory.mkdir()
@@ -156,9 +156,9 @@ class ReportAuthorityCompatibilityTests(unittest.TestCase):
 
     def test_missing_resolver_recommendation_defaults_to_null_and_preserves_raw_report(self):
         for stage, original in (
-            ("astra_resolve", None),
-            ("astra_resolve_report_repair", None),
-            ("astra_resolve_report_repair", "astra_resolve"),
+            ("resolve", None),
+            ("resolve_report_repair", None),
+            ("resolve_report_repair", "resolve"),
         ):
             with self.subTest(stage=stage, original_stage=original):
                 record, output = self.files(self.schema, self.raw, stage, original)
@@ -175,7 +175,7 @@ class ReportAuthorityCompatibilityTests(unittest.TestCase):
 
     def test_old_saved_schema_and_report_remain_unchanged(self):
         schema = model_output_schema(role_schema.obj({"user_request": copy.deepcopy(role_schema.USER_REQUEST)}))
-        for stage in ("astra_resolve", "astra_resolve_report_repair"):
+        for stage in ("resolve", "resolve_report_repair"):
             with self.subTest(stage=stage):
                 record, output = self.files(schema, self.raw, stage)
                 before = output.read_bytes()
@@ -201,7 +201,7 @@ class ReportAuthorityCompatibilityTests(unittest.TestCase):
                 self.assertFalse(output.with_suffix(".reported.json").exists())
 
     def test_other_stages_do_not_receive_recommendation_defaults(self):
-        for stage in ("terra", "sol", "astra_review", "astra_review_report_repair"):
+        for stage in ("builder", "tester", "review_completion", "review_completion_report_repair"):
             with self.subTest(stage=stage):
                 record, output = self.files(self.schema, self.raw, stage)
                 with self.assertRaisesRegex(ValueError, "missing recommended_revision"):
@@ -229,7 +229,7 @@ class ReportAuthorityCompatibilityTests(unittest.TestCase):
 
     def test_existing_recovery_change_default_is_retained(self):
         schema = role_schema.obj({"recovery_change": {"type": ["object", "null"], "properties": {}}})
-        for stage in ("astra_resolve", "astra_resolve_report_repair", "terra"):
+        for stage in ("resolve", "resolve_report_repair", "builder"):
             with self.subTest(stage=stage):
                 record, output = self.files(schema, {}, stage)
                 self.assertEqual({"recovery_change": None}, runner.load_stage_report(record))
@@ -245,7 +245,7 @@ class DraftFailureReceiptCompatibilityTests(unittest.TestCase):
     def setUp(self):
         self.schema = model_output_schema(
             role_schema.obj(
-                {key: autoplanner.SCHEMAS["astra_challenge"]["properties"][key] for key in ("summary", "concerns")}
+                {key: autoplanner.SCHEMAS["review_plan"]["properties"][key] for key in ("summary", "concerns")}
             )
         )
         self.raw = {
@@ -265,9 +265,9 @@ class DraftFailureReceiptCompatibilityTests(unittest.TestCase):
     def test_absent_receipt_defaults_only_in_supported_first_review_or_its_repair(self):
         before = copy.deepcopy((self.raw, self.schema))
         for record in (
-            {"stage": "astra_challenge"},
-            {"stage": "astra_challenge_report_repair"},
-            {"stage": "astra_challenge_report_repair", "original_stage": "astra_challenge"},
+            {"stage": "review_plan"},
+            {"stage": "review_plan_report_repair"},
+            {"stage": "review_plan_report_repair", "original_stage": "review_plan"},
         ):
             with self.subTest(record=record):
                 normalized = normalize_absent_authority(self.raw, self.schema, record)
@@ -277,14 +277,14 @@ class DraftFailureReceiptCompatibilityTests(unittest.TestCase):
 
     def test_old_nonnullable_and_other_stage_schemas_are_not_changed(self):
         old = model_output_schema(autoplanner.SCHEMAS["plan_review"])
-        self.assertEqual(self.raw, normalize_absent_authority(self.raw, old, {"stage": "astra_challenge"}))
+        self.assertEqual(self.raw, normalize_absent_authority(self.raw, old, {"stage": "review_plan"}))
         validate_schema(self.raw, old)
         nonnullable = copy.deepcopy(self.schema)
         nonnullable["properties"]["concerns"]["items"]["properties"]["draft_failure_correction"]["type"] = "object"
         for schema, record in (
-            (nonnullable, {"stage": "astra_challenge"}),
+            (nonnullable, {"stage": "review_plan"}),
             (self.schema, {"stage": "plan_review"}),
-            (self.schema, {"stage": "astra_challenge_report_repair", "original_stage": "plan_review"}),
+            (self.schema, {"stage": "review_plan_report_repair", "original_stage": "plan_review"}),
         ):
             with self.subTest(record=record, nullable=schema == self.schema):
                 normalized = normalize_absent_authority(self.raw, schema, record)
@@ -304,7 +304,7 @@ class DraftFailureReceiptCompatibilityTests(unittest.TestCase):
             with self.subTest(supplied=supplied):
                 raw = copy.deepcopy(self.raw)
                 raw["concerns"][0]["draft_failure_correction"] = supplied
-                normalized = normalize_absent_authority(raw, self.schema, {"stage": "astra_challenge"})
+                normalized = normalize_absent_authority(raw, self.schema, {"stage": "review_plan"})
                 self.assertEqual(raw, normalized)
                 if supplied is None or supplied == valid:
                     validate_schema(normalized, self.schema)
@@ -313,7 +313,7 @@ class DraftFailureReceiptCompatibilityTests(unittest.TestCase):
                         validate_schema(normalized, self.schema)
         for concerns in (None, "not rows", [None]):
             raw = {**self.raw, "concerns": concerns}
-            self.assertEqual(raw, normalize_absent_authority(raw, self.schema, {"stage": "astra_challenge"}))
+            self.assertEqual(raw, normalize_absent_authority(raw, self.schema, {"stage": "review_plan"}))
 
 
 class ProjectConventionsReportCompatibilityTests(unittest.TestCase):
@@ -394,10 +394,10 @@ class ProjectConventionsReportCompatibilityTests(unittest.TestCase):
     def test_unrelated_stages_do_not_gain_tags_and_original_stage_takes_precedence(self):
         raw = {"summary": "No tags supplied"}
         for stage, original in (
-            ("astra_discovery", None),
-            ("glm_revise", None),
-            ("terra", None),
-            ("requirements_gather_report_repair", "terra"),
+            ("draft_plan", None),
+            ("revise_plan", None),
+            ("builder", None),
+            ("requirements_gather_report_repair", "builder"),
         ):
             with self.subTest(stage=stage, original_stage=original):
                 record, output = self.files(self.schema, raw, stage, original)
@@ -419,7 +419,7 @@ class GitDeliveryReportCompatibilityTests(unittest.TestCase):
         import autocode_git_delivery_policy as delivery
 
         for nested in (False, True):
-            for stage in ("astra_discovery", "astra_plan", "glm_revise_report_repair"):
+            for stage in ("draft_plan", "plan_task", "revise_plan_report_repair"):
                 with self.subTest(nested=nested, stage=stage), tempfile.TemporaryDirectory() as tmp:
                     body = role_schema.obj({"git_delivery": copy.deepcopy(delivery.SCHEMA)})
                     schema = model_output_schema(role_schema.obj({"contract": body}) if nested else body)
@@ -444,10 +444,10 @@ class GitDeliveryReportCompatibilityTests(unittest.TestCase):
         for supplied in (None, {"kind": "atomic_commit", "message": "Deliver"}, {}, "commit"):
             raw = {"contract": {"git_delivery": supplied}}
             before = copy.deepcopy(raw)
-            self.assertEqual(before, normalize_absent_authority(raw, schema, {"stage": "astra_plan"}))
+            self.assertEqual(before, normalize_absent_authority(raw, schema, {"stage": "plan_task"}))
             self.assertEqual(before, raw)
         for old in ({}, {"properties": {"git_delivery": {"type": "object"}}}):
             raw = {"contract": {}}
-            self.assertEqual(raw, normalize_absent_authority(raw, old, {"stage": "astra_plan"}))
+            self.assertEqual(raw, normalize_absent_authority(raw, old, {"stage": "plan_task"}))
         for raw in ({}, {"contract": None}, {"contract": "invalid"}):
-            self.assertEqual(raw, normalize_absent_authority(raw, schema, {"stage": "astra_plan"}))
+            self.assertEqual(raw, normalize_absent_authority(raw, schema, {"stage": "plan_task"}))

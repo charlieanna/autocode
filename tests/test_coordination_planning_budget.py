@@ -39,7 +39,7 @@ class PlanningBudgetRecoveryTests(unittest.TestCase):
                 "run_dir": row["run_dir"],
                 "status": "RUNNING",
                 "needs": {"kind": "continue"},
-                "next_stage": "astra_discovery",
+                "next_stage": "draft_plan",
                 "turn": 1,
                 "iteration": 1,
                 "scope": {"identity": "current-scope"},
@@ -193,8 +193,8 @@ class PlanningBudgetRecoveryTests(unittest.TestCase):
             "complete": True,
             "breakdown": {
                 "by_stage": [
-                    {"stage": "astra_discovery", "spent_usd": 2, "complete": True},
-                    {"stage": "terra", "spent_usd": 2, "complete": True},
+                    {"stage": "draft_plan", "spent_usd": 2, "complete": True},
+                    {"stage": "builder", "spent_usd": 2, "complete": True},
                 ]
             },
         }

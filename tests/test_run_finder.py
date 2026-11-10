@@ -78,7 +78,7 @@ class Fixture(unittest.TestCase):
             "sessions": {},
             "stages": [],
             "history": [],
-            "next_stage": "astra_plan",
+            "next_stage": "plan_task",
             "created_at": f"2026-10-04T{self.hour:02d}:00:00+00:00",
             **extra,
         }
@@ -831,12 +831,12 @@ class CommandLine(Fixture):
             self.parse_error("--job-retry-token", "T"),
         )
         # The token also binds a stopped job's model answer, alone (#463); never another answer.
-        args, _ = self.parse("--answer", "route-sol=gpt-6-luna", "--job-retry-token", "T")
-        self.assertEqual(("T", ["route-sol=gpt-6-luna"]), (args.job_retry_token, args.answer))
+        args, _ = self.parse("--answer", "route-tester=gpt-6-luna", "--job-retry-token", "T")
+        self.assertEqual(("T", ["route-tester=gpt-6-luna"]), (args.job_retry_token, args.answer))
         for argv in (
             ["--answer", "Q1=yes"],
-            ["--answer", "route-sol=m", "--answer", "Q1=yes"],
-            ["--answer", "route-sol=m", "--resume-paused"],
+            ["--answer", "route-tester=m", "--answer", "Q1=yes"],
+            ["--answer", "route-tester=m", "--resume-paused"],
         ):
             with self.subTest(argv=argv):
                 self.assertIn(
@@ -844,7 +844,7 @@ class CommandLine(Fixture):
                     self.parse_error(*argv, "--job-retry-token", "T"),
                 )
         # The answer issues a new token, so it never retries in the same command (nor saves a setting with it).
-        for argv in (["--answer", "route-sol=m"], ["--delegate", "route-sol"]):
+        for argv in (["--answer", "route-tester=m"], ["--delegate", "route-tester"]):
             with self.subTest(argv=argv):
                 self.assertIn(
                     "names a stopped job's model on its own and issues a new token",

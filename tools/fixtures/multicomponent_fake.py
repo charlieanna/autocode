@@ -309,7 +309,7 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
         }
     adaptive = "ADAPTIVE PLANNING" in PROMPT  # an adaptive Planner's draft carries its initial_task
     task = brief_of(data)
-    if stage == "astra_discovery":
+    if stage == "draft_plan":
         return {
             "summary": "Scripted component plan",
             "contract": contract(spec, final=adaptive, task=task, data=data),
@@ -317,21 +317,21 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
             "uncertainties": [],
             **planning,
         }
-    if stage == "astra_challenge":
+    if stage == "review_plan":
         draft = (data.get("goal_contract") or {}).get("body") or {}
         return {
             "summary": "Scripted plan review: no concerns",
             "concerns": [],
             "source_trace": source_trace_for(draft, data),
         }
-    if stage == "glm_revise":
+    if stage == "revise_plan":
         return {
             "summary": "Scripted revision: nothing to revise",
             "contract": contract(spec, final=adaptive, task=task, data=data),
             "responses": [],
             **planning,
         }
-    if stage == "astra_finalize":
+    if stage == "finalize_plan":
         final = {key: value for key, value in planning.items() if key != "code_refs"}
         finalized = contract(spec, final=True, task=task, data=data)
         return {
@@ -341,7 +341,7 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
             "source_trace": source_trace_for(finalized, data),
             **final,
         }
-    if stage == "terra":
+    if stage == "builder":
         for name, content in deliverables(spec).items():
             path = Path(name)
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -369,7 +369,7 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
             "untested_behavior": [],
             "recommended_checks": [spec["check"]],
         }
-    if stage in ("sol", "astra_checkpoint"):
+    if stage in ("tester", "review_checkpoint"):
         code = run_check(spec)
         status = "PASS" if code == 0 else "FAIL"
         return {
@@ -389,7 +389,7 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
                 "pending_human_criteria": [],
             },
         }
-    if stage in ("astra_review", "astra_plan", "astra_resolve"):
+    if stage in ("review_completion", "plan_task", "resolve"):
         result = {
             **common,
             "status": "COMPLETE",
@@ -413,7 +413,7 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
                 "findings": [],
             },
         }
-        if stage == "astra_review" and ((revision.get("body") or {}).get("source_trace") is not None):
+        if stage == "review_completion" and ((revision.get("body") or {}).get("source_trace") is not None):
             result["source_verdict"] = {
                 "verdict": "PASS",
                 "uncovered": [],
@@ -639,7 +639,7 @@ def main() -> int:
         report = report_for(stage, component_id, spec, data)
     if "--output-schema" in sys.argv:
         schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
-        if stage in ("sol", "astra_checkpoint") and "changed_code_exceptions" in schema.get("properties", {}):
+        if stage in ("tester", "review_checkpoint") and "changed_code_exceptions" in schema.get("properties", {}):
             report["changed_code_exceptions"] = changed_code_reasons(spec, data)
         if "source_verdict" in schema.get("properties", {}):
             report.setdefault(

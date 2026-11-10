@@ -623,7 +623,7 @@ class StopOperationTests(StopFixture):
             crashed_stage_log, len(self.stage_log(run)), f"the first restart launched no stage: {self.stage_log(run)}"
         )
         self.assertNotIn(
-            "astra_discovery", self.started_stages(run), f"no stage launched after the crash: {self.stage_log(run)}"
+            "draft_plan", self.started_stages(run), f"no stage launched after the crash: {self.stage_log(run)}"
         )
         resumed = self.cli("--no-chat", "--resume-paused", timeout=120)
         self.assertNotEqual(0, resumed.returncode, "a stopped run cannot resume")
@@ -646,7 +646,7 @@ class StopOperationTests(StopFixture):
         # The given state: a healthy running conversation shows its separate,
         # actionable composer-side Pause and Stop controls before Stop is used.
         self.assert_rendered_running_composer_controls()
-        self.hold_stage = "terra"
+        self.hold_stage = "builder"
         self.write_provider()
         saved_history = {}
 
@@ -682,9 +682,9 @@ class StopOperationTests(StopFixture):
             (self.project / "greet.py").exists(), "the finished step's partial work is preserved in the project"
         )
         stages = [record.get("stage") for record in state.get("stages", [])]
-        self.assertIn("terra", stages, "the terra result was saved")
-        self.assertNotIn("sol", stages, "the stopped run never reached the next stage")
-        self.assertNotIn("sol", self.started_stages(run), f"no worker for a later stage was launched: {log}")
+        self.assertIn("builder", stages, "the terra result was saved")
+        self.assertNotIn("tester", stages, "the stopped run never reached the next stage")
+        self.assertNotIn("tester", self.started_stages(run), f"no worker for a later stage was launched: {log}")
         before = len(log)
         resumed = self.cli("--no-chat", "--resume-paused", timeout=180)
         self.assertEqual(2, resumed.returncode, "a stopped run does not resume the way a paused run does")

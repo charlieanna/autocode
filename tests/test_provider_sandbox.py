@@ -59,7 +59,7 @@ class ProviderSandboxTests(unittest.TestCase):
 
     def launch(self, **kwargs):
         args = {
-            "role": "sol",
+            "role": "tester",
             "workspace": self.project,
             "run_dir": self.run,
             "session": None,
@@ -113,7 +113,7 @@ class ProviderSandboxTests(unittest.TestCase):
         }
         provider = self.provider()
         argv = provider.launch(
-            role="sol",
+            role="tester",
             workspace=self.project,
             run_dir=self.run,
             session=None,
@@ -125,7 +125,7 @@ class ProviderSandboxTests(unittest.TestCase):
         self.assertIn(f"--output-last-message={self.report}", argv)
 
     def test_builder_retains_workspace_write_and_planning_stays_readonly(self):
-        argv = self.launch(role="terra", allow_write=True)
+        argv = self.launch(role="builder", allow_write=True)
         self.assertEqual("workspace-write", argv[argv.index("--sandbox") + 1])
         self.assertIn("--ignore-user-config", argv)
         planning = self.launch(role="task_planner", allow_write=True, planning=True)

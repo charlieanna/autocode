@@ -101,7 +101,7 @@ def configure_resume(state: RunState, settings, args):
         return settings
     if not getattr(args, "resume_paused", False) or not str(state.get("status", "")).startswith("PAUSED_"):
         raise ValueError("Setting --base-patch on a saved run requires a paused run and --resume-paused")
-    if state.get("next_stage") not in ("sol", "astra_checkpoint", "astra_review"):
+    if state.get("next_stage") not in ("tester", "review_checkpoint", "review_completion"):
         raise ValueError(
             "Setting --base-patch requires a stop before the Validator or a completion check, "
             "so the new proof runs before any acceptance"

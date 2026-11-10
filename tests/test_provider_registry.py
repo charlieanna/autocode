@@ -82,7 +82,7 @@ class ProviderRegistryTests(unittest.TestCase):
             ) as policy,
         ):
             _, child, _ = mine.launch(
-                "terra",
+                "builder",
                 Path(temp),
                 Path(temp) / "run",
                 None,
@@ -184,7 +184,7 @@ class ProviderRegistryTests(unittest.TestCase):
         roles = {
             "task_planner": {"model": "kilo/z-ai/glm-5.3"},
             "planner": {"model": "zai-coding-plan/glm-5.3"},
-            "sol": {"model": "zhipuai-coding-plan/glm-5.3"},
+            "tester": {"model": "zhipuai-coding-plan/glm-5.3"},
         }
         listing = "●  Kilo Gateway oauth\n●  Z.AI Coding Plan api\n●  Zhipu AI Coding Plan api\n"
         with mock.patch.dict(os.environ, {}, clear=True):
@@ -255,7 +255,7 @@ class ProviderRegistryTests(unittest.TestCase):
             pin_model_role=[],
             **{
                 f"{role}_{field}": None
-                for role in ("task_planner", "terra", "sol", "completion")
+                for role in ("task_planner", "builder", "tester", "completion")
                 for field in ("model", "provider", "reasoning_effort")
             },
         )
@@ -276,12 +276,12 @@ class ProviderRegistryTests(unittest.TestCase):
             settings = {
                 "provider": "kilocode",
                 "transport_identity": {"engine": "kilocode"},
-                "roles": {role: {} for role in ("task_planner", "terra", "sol")},
+                "roles": {role: {} for role in ("task_planner", "builder", "tester")},
             }
             args = SimpleNamespace(
                 task_planner_model="kilo/~openai/gpt-astra-latest",
-                terra_model=None,
-                sol_model="gpt-5.6-sol",
+                builder_model=None,
+                tester_model="gpt-5.6-sol",
                 planner_model=None,
             )
             autocode_configure.configure_joint(
@@ -290,7 +290,7 @@ class ProviderRegistryTests(unittest.TestCase):
         finally:
             autocode.opencode = previous
         self.assertEqual("kilo/~openai/gpt-astra-latest", settings["roles"]["task_planner"]["model"])
-        self.assertEqual("gpt-5.6-sol", settings["roles"]["sol"]["model"])
+        self.assertEqual("gpt-5.6-sol", settings["roles"]["tester"]["model"])
         # Custom providers keep their own role names (including plan_reviewer).
         self.assertEqual("openai/gpt-5.6-sol", settings["roles"]["plan_reviewer"]["model"])
         self.assertEqual("zhipuai-coding-plan/glm-5.3", settings["roles"]["planner"]["model"])
@@ -303,9 +303,9 @@ class ProviderRegistryTests(unittest.TestCase):
             settings = {
                 "provider": "kilocode",
                 "transport_identity": {"engine": "opencode"},
-                "roles": {role: {} for role in ("task_planner", "terra", "sol")},
+                "roles": {role: {} for role in ("task_planner", "builder", "tester")},
             }
-            args = SimpleNamespace(task_planner_model=None, terra_model=None, sol_model=None, planner_model=None)
+            args = SimpleNamespace(task_planner_model=None, builder_model=None, tester_model=None, planner_model=None)
             autocode_configure.configure_joint(
                 settings, args, fresh=True, planning=planning, opencode=autocode.opencode
             )
@@ -321,7 +321,7 @@ class ProviderRegistryTests(unittest.TestCase):
             },
             settings["roles"]["plan_reviewer"],
         )
-        self.assertEqual("openai/gpt-5.6-terra", settings["roles"]["terra"]["model"])
+        self.assertEqual("openai/gpt-5.6-terra", settings["roles"]["builder"]["model"])
         self.assertEqual("high", settings["roles"]["planner"]["reasoning_effort"])
 
 

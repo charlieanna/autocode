@@ -149,7 +149,7 @@ class DagCase(t01.ApprovalCase):
         support.atomic_json(output, decision)
         runner.apply_result(
             self.state,
-            "astra_review",
+            "review_completion",
             decision,
             {"output": str(output), "source_revision": support.snapshot(self.root)["revision"]},
             self.root,
@@ -163,7 +163,7 @@ class DagCase(t01.ApprovalCase):
             for cid in [c["id"] for c in self.state["acceptance_criteria"]]
         }
         passed = all(statuses[cid] == "PASS" for cid in scope["acceptance_criteria"])
-        n = sum(1 for r in self.state["stages"] if r.get("role") == "sol")
+        n = sum(1 for r in self.state["stages"] if r.get("role") == "tester")
         events = self.run / f"sol-{n}.jsonl"
         # A real command with the fixture's outcome: the runner re-runs PASS checks (autocode_check_replay).
         check = "true" if passed else "false"
@@ -200,11 +200,11 @@ class DagCase(t01.ApprovalCase):
         }
         runner.apply_result(
             self.state,
-            "sol",
+            "tester",
             value,
             {
-                "role": "sol",
-                "stage": "sol",
+                "role": "tester",
+                "stage": "tester",
                 "events": str(events),
                 "output": str(events),
                 "source_revision": support.snapshot(self.root)["revision"],
@@ -260,7 +260,7 @@ class DagScenarios(DagCase):
         task = self.state["current_task"]["id"]
         records.account_stage(
             self.state,
-            {"stage": "write_acceptance_tests", "role": "sol", "task_id": task, "duration_seconds": 801.0},
+            {"stage": "write_acceptance_tests", "role": "tester", "task_id": task, "duration_seconds": 801.0},
         )
         row = milestones.progress(self.state)
         self.check("test_writing_still_charged_to_the_milestone", 801.0, row["seconds"])
@@ -268,7 +268,7 @@ class DagScenarios(DagCase):
         self.check("wave_after_tests", ["MB", "MC"], [row["id"] for row in dispatch.select(self.state)])
         # A Builder's own attempt still keeps the milestone out of a new wave.
         records.account_stage(
-            self.state, {"stage": "terra", "role": "terra", "task_id": task, "duration_seconds": 60.0}
+            self.state, {"stage": "builder", "role": "builder", "task_id": task, "duration_seconds": 60.0}
         )
         self.check("attempted_after_builder", 60.0, milestones.attempted_seconds(milestones.progress(self.state)))
         self.check("no_wave_after_builder", [], dispatch.select(self.state))
@@ -286,7 +286,7 @@ class DagScenarios(DagCase):
         self.validate({"C1"})
         self.assign("MB")
         task = self.state["current_task"]["id"]
-        writing = {"role": "sol", "task_id": task, "duration_seconds": 150.0}
+        writing = {"role": "tester", "task_id": task, "duration_seconds": 150.0}
         records.account_stage(self.state, {**writing, "stage": "write_acceptance_tests"})
         records.account_stage(
             self.state,
@@ -308,7 +308,7 @@ class DagScenarios(DagCase):
         self.check("recovery_is_not_an_attempt", 0, milestones.attempted_seconds(row))
         self.check("wave_after_recovery", ["MB", "MC"], [row["id"] for row in dispatch.select(self.state)])
         # The Investigator looking at a Builder that stopped is an attempt at the milestone.
-        self.state["stuck_investigations"].append({"stage": "terra"})
+        self.state["stuck_investigations"].append({"stage": "builder"})
         records.account_stage(self.state, {**investigator, "duration_seconds": 30.0})
         self.check(
             "builder_investigation_attempted", 30.0, milestones.attempted_seconds(milestones.progress(self.state))
@@ -479,10 +479,10 @@ class DagScenarios(DagCase):
         self.check(
             "planning_apply_dispatched_no_builder",
             True,
-            all(rec.get("stage") != "terra" for rec in self.state["stages"]),
+            all(rec.get("stage") != "builder" for rec in self.state["stages"]),
         )
         self.check("one_handoff_record_added", 1, len(self.state["stages"]) - planning_stages)
-        self.check("next_unit_saved", "terra", self.state["next_stage"])
+        self.check("next_unit_saved", "builder", self.state["next_stage"])
         review = {
             **self.decision("MA", "REWORK"),
             "findings": [
@@ -498,7 +498,7 @@ class DagScenarios(DagCase):
         with self.forbid_real_launches(runner):
             runner.apply_result(
                 self.state,
-                "astra_review",
+                "review_completion",
                 review,
                 {
                     "output": str(self.run / "review-rework.json"),
@@ -507,9 +507,9 @@ class DagScenarios(DagCase):
                 self.root,
                 self.run,
             )
-        self.check("review_routes_to_resolver_not_builder", "astra_resolve", self.state["next_stage"])
+        self.check("review_routes_to_resolver_not_builder", "resolve", self.state["next_stage"])
         self.check(
-            "no_builder_launched_by_review", True, all(rec.get("stage") != "terra" for rec in self.state["stages"])
+            "no_builder_launched_by_review", True, all(rec.get("stage") != "builder" for rec in self.state["stages"])
         )
         self.finish(summary="UNIT_BOUNDARY: each unit hands off without cross-unit dispatch")
 
@@ -528,7 +528,7 @@ class DagScenarios(DagCase):
         with self.forbid_real_launches(runner):
             runner.apply_result(
                 self.state,
-                "astra_review",
+                "review_completion",
                 review,
                 {"output": str(self.run / "review-rework.json"), "source_revision": pinned_revision},
                 self.root,
@@ -551,14 +551,14 @@ class DagScenarios(DagCase):
             support.Paused,
             runner.apply_result,
             self.state,
-            "astra_resolve",
+            "resolve",
             diagnosis,
             {"output": str(self.run / "resolve.json"), "source_revision": "forged"},
             self.root,
             self.run,
         )
         self.check(
-            "no_writer_from_forged_handoff", True, all(rec.get("stage") != "terra" for rec in self.state["stages"])
+            "no_writer_from_forged_handoff", True, all(rec.get("stage") != "builder" for rec in self.state["stages"])
         )
         self.finish(summary="PAUSED_SAFE: edited source revision in a handoff refuses dispatch")
 

@@ -30,7 +30,7 @@ EXHAUSTED = (
 )
 # The charged incident the outcome's evidence keeps (harness/escalation_provider.py names the stage and
 # the ladder's length: the ordinary retry, the stronger attempt, then the end).
-INCIDENT = {"stage": "terra", "attempt": 3}
+INCIDENT = {"stage": "builder", "attempt": 3}
 
 
 def digest(path):
@@ -48,7 +48,7 @@ def check(project, scenario, run=None):
     checks = escalation_checks(
         run,
         kind="stronger_attempt",
-        role="terra",
+        role="builder",
         job="Builder",
         climbed=CLIMBED,
         attempts=1,
@@ -56,7 +56,7 @@ def check(project, scenario, run=None):
         basis="recorded",
         stamped=STAMPED,
     )
-    builds = (run.get("model_stages") or []).count("terra")
+    builds = (run.get("model_stages") or []).count("builder")
     checks.append(Check("no_builder_attempt_after_the_stronger_one", builds == BUILDS, f"{builds} Builder attempts"))
     view = run.get("view") or {}
     reason = view.get("stop_reason") or ""

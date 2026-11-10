@@ -70,12 +70,12 @@ class StaleRecoveryContext(unittest.TestCase):
             "answers": {},
             "user_events": [],
             "deferred_backlog": [],
-            "next_stage": "astra_review",
+            "next_stage": "review_completion",
             "acceptance_criteria": [],
             "settings": {
                 "roles": {
                     role: {"model": role, "reasoning_effort": "high"}
-                    for role in ("task_planner", "terra", "sol", "planner")
+                    for role in ("task_planner", "builder", "tester", "planner")
                 },
                 "transport_identity": self.local,
                 "headroom": {"enabled": False},
@@ -91,7 +91,7 @@ class StaleRecoveryContext(unittest.TestCase):
         base.with_suffix(".jsonl").write_text('{"type":"thread.started","thread_id":"completion-session"}\n')
         self.state["active_stage"] = {
             "role": "task_planner",
-            "stage": "astra_review",
+            "stage": "review_completion",
             "iteration": 1,
             "duration_seconds": 4,
             "output": str(base.with_suffix(".json")),
@@ -126,19 +126,19 @@ class StaleRecoveryContext(unittest.TestCase):
 
     def test_a_later_saved_stage_drops_the_abandon_from_the_next_prompt(self):
         self.abandon()
-        prompt, packet = self.handoff("terra")
+        prompt, packet = self.handoff("builder")
         self.assertEqual(ABANDONED, packet["recovery_context"]["attempt_id"])
         self.assertIn(ABANDON_INSTRUCTION, prompt)
         runner.save_record(
             self.state,
             {
-                "role": "terra",
-                "stage": "terra",
+                "role": "builder",
+                "stage": "builder",
                 "iteration": 4,
                 "output": str(self.run / "iterations/004/builder-04.json"),
             },
         )
-        prompt, packet = self.handoff("sol")
+        prompt, packet = self.handoff("tester")
         self.assertFalse(packet.get("recovery_context"))
         self.assertNotIn(ABANDONED, prompt)
         self.assertNotIn("This response was abandoned", prompt)
@@ -169,7 +169,7 @@ class StaleRecoveryContext(unittest.TestCase):
         self.assertEqual(0, self.invoke("--approve-goal", token, "--no-chat"), self.stderr)
         self.assertTrue(goals.approved(self.state))
         self.assertFalse(self.state.get("recovery_context"))
-        prompt, packet = self.handoff("terra")
+        prompt, packet = self.handoff("builder")
         self.assertFalse(packet.get("recovery_context"))
         self.assertNotIn(ABANDONED, prompt)
         self.assertNotIn("This response was abandoned", prompt)

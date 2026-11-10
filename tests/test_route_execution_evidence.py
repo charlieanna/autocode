@@ -79,7 +79,7 @@ class RouteExecutionEvidenceTests(unittest.TestCase):
                 patch.object(config, "api_key", side_effect=AssertionError("identity read a credential")),
             ):
                 adapter = DirectProvider()
-                _, _, metadata = adapter.launch("terra", root, root / "run", None, "fixture/producer", "medium", True)
+                _, _, metadata = adapter.launch("builder", root, root / "run", None, "fixture/producer", "medium", True)
         facts = metadata.get("endpoint_identity")
         self.assertIsInstance(facts, dict)
         self.assertEqual("https://models.example.invalid", facts["origin"])
@@ -199,7 +199,7 @@ class RouteExecutionEvidenceTests(unittest.TestCase):
                 {
                     "attempt_id": "001/req-01",
                     "role": "planner",
-                    "stage": "glm_revise",
+                    "stage": "revise_plan",
                     "engine": "opencode",
                     "reasoning_effort": "low",
                     "launch_route": {"model": GLM, "reasoning_effort": "high"},

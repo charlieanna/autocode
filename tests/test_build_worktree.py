@@ -52,13 +52,13 @@ class DueTests(unittest.TestCase):
         planning = {
             "build_worktree": {"state": "planning"},
             "run_dir": "/nowhere/.autocode/runs/r1",
-            "next_stage": "astra_discovery",
+            "next_stage": "draft_plan",
         }
         self.assertTrue(build_worktree.due(planning))
         self.assertFalse(build_worktree.due({**planning, "next_stage": "requirements_gather"}), "Requirements")
         self.assertFalse(build_worktree.due({**planning, "settings": {"coordination_member": True}}))
         self.assertFalse(build_worktree.due({**planning, "build_worktree": {"state": "building"}}))
-        self.assertFalse(build_worktree.due({"run_dir": planning["run_dir"], "next_stage": "astra_discovery"}))
+        self.assertFalse(build_worktree.due({"run_dir": planning["run_dir"], "next_stage": "draft_plan"}))
         with mock.patch.object(build_worktree.changeset_store, "find", return_value={"id": "set"}):
             self.assertFalse(build_worktree.due(planning))
         with mock.patch.object(build_worktree.coordination_store, "read", side_effect=ValueError("unreadable")):
@@ -69,13 +69,13 @@ class DueTests(unittest.TestCase):
         drafted = {
             "build_worktree": {"state": "planning"},
             "run_dir": "/nowhere/.autocode/runs/r1",
-            "next_stage": "astra_challenge",
+            "next_stage": "review_plan",
             "goal_contract": {"approval_status": "draft"},
         }
         with mock.patch.object(build_worktree.contract, "approved", return_value=False):
             self.assertFalse(build_worktree.due(drafted))
         with mock.patch.object(build_worktree.contract, "approved", return_value=True):
-            self.assertTrue(build_worktree.due({**drafted, "next_stage": "astra_plan"}))
+            self.assertTrue(build_worktree.due({**drafted, "next_stage": "plan_task"}))
 
 
 class ResolveTests(unittest.TestCase):

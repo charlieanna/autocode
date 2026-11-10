@@ -21,11 +21,11 @@ def builder_timeout_inspection(state: RunState, source_revision: str) -> bool:
     history = state.get("automatic_timeout_recoveries") or []
     if (
         state.get("status") != "RUNNING"
-        or state.get("next_stage") != "astra_review"
+        or state.get("next_stage") != "review_completion"
         or any(state.get(key) for key in ("active_stage", "uncertain_artifacts", "pending_report_repair"))
-        or recovery.get("stage") != "terra"
-        or recovery.get("role") != "terra"
-        or recovery.get("next_stage") != "astra_review"
+        or recovery.get("stage") != "builder"
+        or recovery.get("role") != "builder"
+        or recovery.get("next_stage") != "review_completion"
         or recovery.get("source_revision") != source_revision
         or not recovery.get("attempt_id")
         or not task.get("id")
@@ -43,8 +43,8 @@ def builder_timeout_inspection(state: RunState, source_revision: str) -> bool:
     record: dict = next((row for row in reversed(state.get("stages") or []) if not row.get("runner_owned")), {})
     iteration, output = record.get("iteration"), record.get("output")
     return (
-        record.get("stage") == "terra"
-        and record.get("role") == "terra"
+        record.get("stage") == "builder"
+        and record.get("role") == "builder"
         and record.get("timed_out") is True
         and record.get("abandoned") is True
         and record.get("automatic_recovery") is True

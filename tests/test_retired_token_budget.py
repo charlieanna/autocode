@@ -11,7 +11,7 @@ class RetiredTokenBudgetTests(unittest.TestCase):
         settings = {
             "limits": {"max_reported_tokens": 1, "max_seconds": 900},
             "budget_origins": {"max_reported_tokens": "user_explicit", "max_seconds": "user_explicit"},
-            "roles": {"terra": {"model": "fixture"}},
+            "roles": {"builder": {"model": "fixture"}},
             "context_soft_tokens": 10000,
         }
         expected = copy.deepcopy(settings)

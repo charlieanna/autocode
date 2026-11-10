@@ -81,7 +81,7 @@ class ApprovalAfterSourceChangeCLITests(unittest.TestCase):
         continued = self.cli("--run-dir", str(self.run_dir), "--no-chat")
         self.assertEqual(2, continued.returncode, continued.stdout + continued.stderr)
         state = json.loads((self.run_dir / "state.json").read_text())
-        self.assertIn("astra_challenge", [row["stage"] for row in state["stages"][reviewed:]])
+        self.assertIn("review_plan", [row["stage"] for row in state["stages"][reviewed:]])
         asked = self.view()
         self.assertEqual("approve_plan", asked["needs"]["kind"], asked["needs"])
         self.assertNotEqual(shown["needs"]["token"], asked["needs"]["token"])

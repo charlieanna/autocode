@@ -63,7 +63,7 @@ def clarify_discoverable(state: RunState, stage, value, record, *, investigation
 
     Returns (value, deferred); deferred means the pass was queued.
     """
-    if stage == "astra_finalize":
+    if stage == "finalize_plan":
         # The final reviewer stage gets no investigation pass; it still cannot
         # show the user a question labelled as a workspace fact.
         value = copy.deepcopy(value)
@@ -225,7 +225,7 @@ def apply_obligations(state: RunState, stage, value, *, check_code_refs):
         if reused:
             raise ValueError("A rejected assumption cannot reappear: " + ", ".join(reused))
         return
-    if stage in ("astra_discovery", "glm_revise"):
+    if stage in ("draft_plan", "revise_plan"):
         trace = {row.get("requirement_id"): row.get("disposition") for row in value.get("requirement_trace") or []}
         episode_id = goals.clarification_episode(state)["id"]
         seen = set()
@@ -259,7 +259,7 @@ def apply_obligations(state: RunState, stage, value, *, check_code_refs):
             obligation.update(
                 remediation=copy.deepcopy(record), remediation_hash=util.digest(record), status="pending_review"
             )
-        if stage == "astra_discovery":
+        if stage == "draft_plan":
             human = [ob for ob in obligations.values() if ob["kind"] == "human_decision"]
             if human:
                 contract = value["contract"]
@@ -274,7 +274,7 @@ def apply_obligations(state: RunState, stage, value, *, check_code_refs):
                     )
                 surface_obligations(human, contract["open_blocking_questions"], "Discovery")
         return
-    if stage not in ("astra_challenge", "astra_finalize"):
+    if stage not in ("review_plan", "finalize_plan"):
         return
     report_hash = util.digest(value)
     pending = {oid: ob for oid, ob in obligations.items() if ob["status"] == "pending_review"}
@@ -304,7 +304,7 @@ def apply_obligations(state: RunState, stage, value, *, check_code_refs):
                 resolved_at=util.now(),
             )
         else:
-            if stage == "astra_challenge" and not any(
+            if stage == "review_plan" and not any(
                 concern.get("blocking") and obligation_id in (concern.get("evidence_refs") or [])
                 for concern in value["concerns"]
             ):
@@ -315,7 +315,7 @@ def apply_obligations(state: RunState, stage, value, *, check_code_refs):
         raise ValueError(
             "Every remediation awaiting review needs one obligation_decisions entry: " + ", ".join(missing)
         )
-    if stage == "astra_finalize":
+    if stage == "finalize_plan":
         remaining = goals.open_obligations(state)
         if remaining:
             contract = value["contract"]

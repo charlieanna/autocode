@@ -278,7 +278,7 @@ class TaskAuthorTests(unittest.TestCase):
             "history": [],
             "acceptance_criteria": [],
             "settings": {
-                "roles": {r: {"model": f"model-{r}"} for r in ("task_planner", "terra", "sol")},
+                "roles": {r: {"model": f"model-{r}"} for r in ("task_planner", "builder", "tester")},
                 "context_soft_tokens": 1000,
                 "headroom": {"enabled": False},
             },
@@ -334,7 +334,7 @@ class TaskAuthorTests(unittest.TestCase):
     def apply(self, value, output):
         record = {"output": str(self.run / output), "source_revision": support.snapshot(self.root)["revision"]}
         with patch.object(runner, "run_role", side_effect=AssertionError("no agent may launch")):
-            runner.apply_result(self.state, "astra_review", value, record, self.root, self.run)
+            runner.apply_result(self.state, "review_completion", value, record, self.root, self.run)
 
     def test_the_completion_reviewers_unparsable_step_goes_back_to_it(self):
         for status in ("CONTINUE", "REWORK"):
@@ -362,7 +362,7 @@ class PromptTests(unittest.TestCase):
 
         return ModelRequest(
             "task_planner",
-            "astra_review",
+            "review_completion",
             "Review it.\nCURRENT HANDOFF DATA\n{}",
             {},
             goals.role_schema(support.read(runner.SCHEMA_DIR / "v2/astra-decision.schema.json"), "task_planner"),
@@ -373,7 +373,7 @@ class PromptTests(unittest.TestCase):
         from units import autoplanner, autoresolver, autoreview
 
         self.assertIn(RULE, autoplanner.EVIDENCE_FACTS)
-        for stage in ("astra_review", "astra_checkpoint"):
+        for stage in ("review_completion", "review_checkpoint"):
             with self.subTest(stage=stage), patch.object(autoreview, "execution_request", return_value=self.upstream()):
                 review = autoreview.prepare({"settings": {}}, stage, "/run/state.json", None)
                 self.assertIn(RULE, review.prompt.split("CURRENT HANDOFF DATA\n", 1)[0])
@@ -386,7 +386,7 @@ class PromptTests(unittest.TestCase):
             patch.object(autoresolver, "guard"),
             patch.object(autoresolver, "execution_request", return_value=self.upstream()),
         ):
-            resolve = autoresolver.prepare(state, "astra_resolve", "/run/state.json", None)
+            resolve = autoresolver.prepare(state, "resolve", "/run/state.json", None)
         self.assertIn(RULE, resolve.prompt.split("CURRENT HANDOFF DATA\n", 1)[0])
 
 

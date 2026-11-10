@@ -475,7 +475,7 @@ class NativeReviewHistory:
             and util.digest(final) == context["config_sha256"] == proof["configuration_sources"]["inline_sha256"],
             "Original stage-local native profile/config/child identity changed",
         )
-        route = old["settings"]["roles"]["sol"]
+        route = old["settings"]["roles"]["tester"]
         _require(
             route["model"] == profile["model"]
             and route["reasoning_effort"] == profile["reasoning_effort"]
@@ -510,7 +510,7 @@ class NativeReviewHistory:
             and args.get("--format") == "json"
             and Path(args.get("--dir", "")) == self.workspace
             and isinstance(args.get("--agent"), str)
-            and args["--agent"].startswith("autocode_sol")
+            and args["--agent"].startswith("autocode_tester")
             and command[first_file:] == [value for row in context["images"] for value in ("--file", row["path"])],
             "Original route, effort, workspace or exact image attachments changed",
         )
@@ -640,7 +640,7 @@ class NativeReviewHistory:
                 if key not in ("manifest", "manifest_sha256")
             )
             and _sha(read(descriptor["manifest"])) == descriptor["manifest_sha256"]
-            and manifest["role"] == "sol"
+            and manifest["role"] == "tester"
             and manifest["image_acceptance"] == "NOT_VERIFIED",
             "Original same-owner native isolation changed",
         )
@@ -649,7 +649,7 @@ class NativeReviewHistory:
         identity = (
             old["settings"].get("transport_identities", {}).get("opencode", old["settings"].get("transport_identity"))
         )
-        route = old["settings"]["roles"]["sol"]
+        route = old["settings"]["roles"]["tester"]
         _require(
             manifest["saved_settings_sha256"] == util.digest(old["settings"])
             and manifest["saved_transport_sha256"] == util.digest(identity) == profile["transport_identity_sha256"]
@@ -669,7 +669,7 @@ class NativeReviewHistory:
             and observed["command_sha256"] == util.digest(context["command"]),
             "Original final native conformance inputs changed",
         )
-        agent = "autocode_sol"
+        agent = "autocode_tester"
         permission = visual_profile.containment.shell_permissions(observed["effective_permission"])
         _require(
             observed["effective_agent"] == agent
@@ -731,7 +731,7 @@ class NativeReviewHistory:
         except ImportError:
             import autocode_kilo_native as kilo
             import autocode_kilo_source_relay as source
-        selected = kilo.selected(profile, old["settings"], "sol")
+        selected = kilo.selected(profile, old["settings"], "tester")
         _require(selected is not None, "original Kilo profile/role binding changed")
         binding, identity = selected
         descriptor, boundary = actual["descriptor"], actual["boundary"]
@@ -772,7 +772,7 @@ class NativeReviewHistory:
             audit["max_requests"] == profile["max_requests"]
             and audit["plugin_sha256"] == context["plugin_sha256"]
             and audit["binding_sha256"] == util.digest(metadata["receipt"]["binding"])
-            and audit["reviewer"] == {"provider": "kilocode", "model": kilo.MODEL, "agent": "autocode_sol"},
+            and audit["reviewer"] == {"provider": "kilocode", "model": kilo.MODEL, "agent": "autocode_tester"},
             "original Kilo audit/source binding changed",
         )
         locator = descriptor["source_relay"]
@@ -908,7 +908,7 @@ class NativeReviewHistory:
                 _sha(read(Path(metadata["manifest"]["root"]) / artifact["path"])) == artifact["sha256"],
                 "Original complete reference artifact changed",
             )
-        report, raw, events, native = self._stage(metadata, read, stage="sol")
+        report, raw, events, native = self._stage(metadata, read, stage="tester")
         validation = metadata["functional"]
         _require(
             validation.get("verdict") == "PASS"
@@ -960,7 +960,7 @@ class NativeReviewHistory:
         else:
             builder = metadata["producer_record"]
             _require(
-                builder.get("stage") == builder.get("role") == "terra"
+                builder.get("stage") == builder.get("role") == "builder"
                 and builder.get("engine") == "opencode"
                 and type(builder.get("exit_code")) is int
                 and builder["exit_code"] == 0
@@ -974,9 +974,11 @@ class NativeReviewHistory:
                 == metadata["producer_task"]["contract_revision"]
                 == metadata["binding"]["contract"]["revision"]
                 and builder["source_revision"] == metadata["binding"]["source"]["revision"]
-                and builder["launch_route"]["model"] == producer["model"] == old["settings"]["roles"]["terra"]["model"]
+                and builder["launch_route"]["model"]
+                == producer["model"]
+                == old["settings"]["roles"]["builder"]["model"]
                 and builder["launch_route"].get("reasoning_effort")
-                == old["settings"]["roles"]["terra"].get("reasoning_effort")
+                == old["settings"]["roles"]["builder"].get("reasoning_effort")
                 and not any(
                     builder.get(key)
                     for key in (
@@ -1198,7 +1200,7 @@ class NativeReviewHistory:
             (
                 row
                 for row in reversed(state.get("stages", []))
-                if row.get("stage") == "terra" and row.get("events") == context["producer"].get("events")
+                if row.get("stage") == "builder" and row.get("events") == context["producer"].get("events")
             ),
             None,
         )
@@ -1206,7 +1208,7 @@ class NativeReviewHistory:
             _require(
                 builder is None
                 and not any(
-                    str(row.get("stage", "")).startswith("terra") or row.get("role") in ("terra", "builder")
+                    str(row.get("stage", "")).startswith("builder") or row.get("role") in ("builder", "builder")
                     for row in state.get("stages", [])
                 )
                 and not any(
@@ -1292,7 +1294,7 @@ class NativeReviewHistory:
     def _replay_rejection(self, metadata, members):
         read = self._reader(metadata, members)
         bound, validation, context = metadata["binding"], metadata["functional"], metadata["context"]
-        report, _raw, _events, _native = self._stage(metadata, read, stage="sol")
+        report, _raw, _events, _native = self._stage(metadata, read, stage="tester")
         _require(
             validation.get("verdict") in ("FAIL", "BLOCKED")
             and all(validation.get(key) == value for key, value in report.items())
@@ -1345,7 +1347,7 @@ class NativeReviewHistory:
             (
                 row
                 for row in reversed(state.get("stages", []))
-                if row.get("stage") == "terra" and row.get("events") == context["producer"].get("events")
+                if row.get("stage") == "builder" and row.get("events") == context["producer"].get("events")
             ),
             None,
         )
@@ -1583,7 +1585,7 @@ class NativeReviewHistory:
             expected[completion_record[key]] = util.file_hash(self._safe(completion_record[key], exists=True))
         members = self._collect(metadata, expected)
         metadata["member_hashes"] = {name: _sha(raw) for name, raw in members.items()}
-        report, raw, events, native = self._stage(metadata, self._reader(metadata, members), stage="astra_review")
+        report, raw, events, native = self._stage(metadata, self._reader(metadata, members), stage="review_completion")
         _require(
             accepted_decision.get("status") in ("CONTINUE", "DONE", "COMPLETE", "TASK_COMPLETE")
             and all(accepted_decision.get(key) == value for key, value in report.items()),
@@ -1651,7 +1653,7 @@ class NativeReviewHistory:
         metadata["milestone_id"] = owner
         metadata["commit_authorization_sha256"] = prepared.authorization_sha256
         members = {name: bytes.fromhex(raw) for name, raw in proposal["members"].items()}
-        self._stage(metadata, self._reader(metadata, members), stage="astra_review")
+        self._stage(metadata, self._reader(metadata, members), stage="review_completion")
         selector = self._publish("checkpoints", metadata, members)
         del self._prepared[prepared.nonce]
         return selector
@@ -1671,7 +1673,7 @@ class NativeReviewHistory:
             )
             return result
         seen = (*seen, key)
-        report, raw, events, native = self._stage(metadata, self._reader(metadata, members), stage="astra_review")
+        report, raw, events, native = self._stage(metadata, self._reader(metadata, members), stage="review_completion")
         _require(
             native == metadata["completion_native"]
             and all(metadata["accepted_decision"].get(key) == value for key, value in report.items())

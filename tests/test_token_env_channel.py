@@ -41,7 +41,7 @@ class SentinelResolutionTests(unittest.TestCase):
     def test_every_token_option_has_a_pairing(self):
         cases = (
             (
-                ["--resume-paused", "--answer", "route-terra=zai/glm", "--resolver-token", "-"],
+                ["--resume-paused", "--answer", "route-builder=zai/glm", "--resolver-token", "-"],
                 "resolver_token",
                 "AUTOCODE_RESOLVER_TOKEN",
             ),

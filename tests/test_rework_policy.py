@@ -81,7 +81,7 @@ class ReworkPolicyTests(unittest.TestCase):
             output, events = directory / (stage + ".json"), directory / (stage + ".jsonl")
             output.write_text(json.dumps(value))
             item = {"id": "check", "type": "command_execution", "command": "check-invalid-input", "exit_code": 1}
-            if stage == "sol":
+            if stage == "tester":
                 item.update(
                     {
                         key: validator["checks"][0][key]
@@ -96,19 +96,19 @@ class ReworkPolicyTests(unittest.TestCase):
                 "role": role,
                 "output": str(output),
                 "events": str(events),
-                "source_revision": validator_source if stage == "sol" else "source",
+                "source_revision": validator_source if stage == "tester" else "source",
                 "exit_code": 0,
                 "changed_files": [],
-                "launch_route": {"model": "worker" if role == "terra" else "reviewer"},
+                "launch_route": {"model": "worker" if role == "builder" else "reviewer"},
                 "thread_id": role + "-session",
             }
-            if seal and stage != "terra":
+            if seal and stage != "builder":
                 policy.capture(result, value)
             return result
 
-        builder = record("terra", common, "terra")
-        accepted = record("sol", validator, "sol")
-        completion = record("astra_review", decision, "completion")
+        builder = record("builder", common, "builder")
+        accepted = record("tester", validator, "tester")
+        completion = record("review_completion", decision, "completion")
         body = {
             "milestones": [{"id": "delivery", "affected_paths": ["greet.py"], "acceptance_criteria": ["C1"]}],
             "acceptance_criteria": [
@@ -126,7 +126,7 @@ class ReworkPolicyTests(unittest.TestCase):
             "iteration": 1,
             "status": "RUNNING",
             "phase": "EXECUTING",
-            "next_stage": "astra_review",
+            "next_stage": "review_completion",
             "goal_contract": {"hash": "approved", "revision": 4, "body": body, "approval_status": "approved"},
             "current_task": {
                 **common,
@@ -142,18 +142,18 @@ class ReworkPolicyTests(unittest.TestCase):
                 **copy.deepcopy(validator),
                 "output": accepted["output"],
                 "source_revision": validator_source,
-                "reviewer_role": "sol",
+                "reviewer_role": "tester",
                 "evidence_hashes": {accepted["events"]: util.file_hash(accepted["events"])},
             },
             "settings": {
                 "builder_retry": retry.configured(),
                 "orchestration": {"enabled": True, "max_parallel": 2},
                 "roles": {
-                    "terra": {"model": "worker", "reasoning_effort": "medium"},
-                    "sol": {"model": "reviewer", "reasoning_effort": "high"},
+                    "builder": {"model": "worker", "reasoning_effort": "medium"},
+                    "tester": {"model": "reviewer", "reasoning_effort": "high"},
                 },
             },
-            "sessions": {"terra": "terra-session", "sol": "sol-session"},
+            "sessions": {"builder": "terra-session", "tester": "sol-session"},
         }
         if state_change:
             state_change(state)
@@ -200,7 +200,7 @@ class ReworkPolicyTests(unittest.TestCase):
             pins.update(validation["evidence_hashes"])
         state["resolution_request"] = {
             "source_output": record["output"],
-            "source_stage": "astra_review",
+            "source_stage": "review_completion",
             "contract_hash": contract["hash"],
             "task_id": task["id"],
             "source_revision": record["source_revision"],
@@ -208,7 +208,7 @@ class ReworkPolicyTests(unittest.TestCase):
             "provenance": "completion_review_decision",
             "evidence_hashes": pins,
         }
-        state.update(status="RUNNING", phase="RESOLVING", next_stage="astra_resolve")
+        state.update(status="RUNNING", phase="RESOLVING", next_stage="resolve")
 
     @staticmethod
     def assign(state, decision, current):
@@ -223,7 +223,7 @@ class ReworkPolicyTests(unittest.TestCase):
 
     @staticmethod
     def gate(state, error, current, **kwargs):
-        state.update(status=error.status, phase="PAUSED_OR_BLOCKED", next_stage="astra_review")
+        state.update(status=error.status, phase="PAUSED_OR_BLOCKED", next_stage="review_completion")
 
     def route(self, case):
         return policy.route(case.runtime, case.state, case.decision, case.record, case.queue, retry, run_dir=case.run)
@@ -378,7 +378,7 @@ class ReworkPolicyTests(unittest.TestCase):
             "diagnosed": lambda state: state.update(resolution_history=[{"source_revision": "source"}]),
             "earlier-direct": lambda state: state.update(direct_rework_assignments=[{"source_output": "earlier"}]),
             "timeout": lambda state: state.update(recovery_context={"timeout_kind": "stage"}),
-            "repair": lambda state: state["stages"].append({"stage": "sol_report_repair", "report_only": True}),
+            "repair": lambda state: state["stages"].append({"stage": "tester_report_repair", "report_only": True}),
             "replan": lambda state: state.update(milestone_progress={"delivery": {"needs_replan": True}}),
             "disabled-retry": lambda state: state["settings"]["builder_retry"].update(enabled=False),
             "zero-retry": lambda state: state["settings"]["builder_retry"].update(ordinary_retries=0),
@@ -467,7 +467,7 @@ class ReworkPolicyTests(unittest.TestCase):
         case, path, raw = self.capture_case(shared=True)
         seals = copy.deepcopy((case.record["rework_evidence"], case.accepted["rework_evidence"]))
         self.assert_fallback(case)
-        self.assertEqual("astra_resolve", case.state["next_stage"])
+        self.assertEqual("resolve", case.state["next_stage"])
         case.runtime.lifecycle.assign_task.assert_not_called()
         self.assertIn(str(path), case.state["resolution_request"]["evidence_hashes"])
         self.assertIn(str(raw), case.state["resolution_request"]["evidence_hashes"])
@@ -524,7 +524,7 @@ class ReworkPolicyTests(unittest.TestCase):
         case, path, raw = self.contained_case(self.scratch())
         seals = copy.deepcopy((case.record["rework_evidence"], case.accepted["rework_evidence"]))
         self.assert_fallback(case)
-        self.assertEqual("astra_resolve", case.state["next_stage"])
+        self.assertEqual("resolve", case.state["next_stage"])
         case.runtime.lifecycle.assign_task.assert_not_called()
         self.assertIn(str(path), case.state["resolution_request"]["evidence_hashes"])
         self.assertIn(str(raw), case.state["resolution_request"]["evidence_hashes"])
@@ -550,8 +550,8 @@ class ReworkPolicyTests(unittest.TestCase):
         earlier.state["stages"].insert(
             1,
             {
-                "stage": "sol",
-                "role": "sol",
+                "stage": "tester",
+                "role": "tester",
                 "rejected": True,
                 "output": str(earlier.run / "earlier.json"),
                 "tool_containment": {"scratch": str(earlier_scratch)},
@@ -632,7 +632,7 @@ class ReworkPolicyTests(unittest.TestCase):
         ):
             self.assertFalse(self.route(case))
         request = case.state["resolution_request"]
-        self.assertEqual("astra_resolve", case.state["next_stage"])
+        self.assertEqual("resolve", case.state["next_stage"])
         self.assertIn(str(manifest), request["evidence_hashes"])
         packet = util.read_object(request["recovery_packet"]["path"])
         self.assertIn(str(manifest), {row["original_path"] for row in packet["originals"]})
@@ -682,7 +682,7 @@ class ReworkPolicyTests(unittest.TestCase):
         with patch.object(autopilot.findings_ledger, "record_validation", side_effect=RuntimeError("accepted")):
             with self.assertRaisesRegex(RuntimeError, "accepted"):
                 autopilot.apply_review_result(
-                    runtime, state, "sol", copy.deepcopy(report), case.accepted, self.workspace, case.run
+                    runtime, state, "tester", copy.deepcopy(report), case.accepted, self.workspace, case.run
                 )
         return state
 
@@ -775,14 +775,14 @@ class ReworkPolicyTests(unittest.TestCase):
         with patch.object(autopilot.findings_ledger, "record_validation", side_effect=RuntimeError("accepted")):
             with self.assertRaisesRegex(ValueError, "does not belong to this run: " + re.escape(str(path))):
                 autopilot.apply_review_result(
-                    runtime, state, "sol", copy.deepcopy(report), case.accepted, self.workspace, case.run
+                    runtime, state, "tester", copy.deepcopy(report), case.accepted, self.workspace, case.run
                 )
             self.assertEqual(case.state, state)
             # The same report from the stage whose launch recorded that scratch gets past the ownership rule.
             case.accepted["tool_containment"] = {"scratch": str(scratch)}
             with self.assertRaisesRegex(RuntimeError, "accepted"):
                 autopilot.apply_review_result(
-                    runtime, state, "sol", copy.deepcopy(report), case.accepted, self.workspace, case.run
+                    runtime, state, "tester", copy.deepcopy(report), case.accepted, self.workspace, case.run
                 )
         self.assertIn(str(path), state["validation"]["evidence_hashes"])
 
@@ -817,7 +817,7 @@ class ReworkPolicyTests(unittest.TestCase):
 
     def test_repaired_validator_is_not_promoted_to_a_fresh_unrepaired_seal(self):
         case = self.case()
-        case.accepted.update(stage="sol_report_repair", report_only=True)
+        case.accepted.update(stage="tester_report_repair", report_only=True)
         case.accepted.pop("rework_evidence")
         self.assertIsNotNone(policy.capture(case.accepted, case.state["validation"]))
         self.assertNotIn("rework_evidence", case.accepted)
@@ -843,7 +843,7 @@ class ReworkPolicyTests(unittest.TestCase):
         self.assert_fallback(case)
 
     def test_capture_skips_legacy_and_unrelated_stages(self):
-        for stage in ("terra", "astra_checkpoint", "astra_review_report_repair"):
+        for stage in ("builder", "review_checkpoint", "review_completion_report_repair"):
             with self.subTest(stage=stage):
                 case = self.case(seal=False)
                 case.record["stage"] = stage
@@ -871,7 +871,7 @@ class ReworkPolicyTests(unittest.TestCase):
         )
 
     def test_verify_existing_never_captures_legacy_or_reads_repaired_artifacts(self):
-        records = [{"output": "/not-owned", "stage": "sol"}]
+        records = [{"output": "/not-owned", "stage": "tester"}]
         records += [
             {"output": "/not-owned", "rework_evidence": {"version": 1}, flag: True}
             for flag in ("report_only", "report_repaired", "repaired_by", "applied_original_events")
@@ -891,7 +891,7 @@ class ReworkPolicyTests(unittest.TestCase):
             "source": lambda record: record.update(source_revision="changed"),
             "task": lambda record: record.update(task_id="changed"),
             "contract": lambda record: record.update(contract_hash="changed"),
-            "stage": lambda record: record.update(stage="terra"),
+            "stage": lambda record: record.update(stage="builder"),
             "missing-events": lambda record: record.pop("events"),
             "missing-output": lambda record: record.pop("output"),
             "lost-source": lambda record: record.pop("source_revision"),
@@ -1064,7 +1064,9 @@ class ReworkPolicyTests(unittest.TestCase):
             patch.object(autopilot, "queue_resolution", side_effect=changed),
         ):
             with self.assertRaises(util.Paused):
-                runtime.apply_result(case.state, "astra_review", case.decision, case.record, self.workspace, case.run)
+                runtime.apply_result(
+                    case.state, "review_completion", case.decision, case.record, self.workspace, case.run
+                )
         self.assertEqual(before, case.state)
 
     def test_malformed_sealed_report_or_events_pause_without_paid_repair(self):
@@ -1154,7 +1156,7 @@ class ReworkPolicyTests(unittest.TestCase):
         case.runtime.lifecycle.assign_task.side_effect = util.Paused("PAUSED_MILESTONE_BUDGET", "Budget exhausted")
         self.assertTrue(self.route(case))
         self.assertEqual("PAUSED_MILESTONE_BUDGET", case.state["status"])
-        self.assertEqual("astra_review", case.state["next_stage"])
+        self.assertEqual("review_completion", case.state["next_stage"])
         self.assertEqual("current", case.state["current_task"]["id"])
         self.assertIn("resolution_request", case.state)
         self.assertNotIn("direct_rework_assignments", case.state)

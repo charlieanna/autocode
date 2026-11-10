@@ -42,7 +42,7 @@ SOURCE_VERDICT_SCHEMA = {
 
 
 class ProviderSourceVerdictTests(unittest.TestCase):
-    def invoke(self, provider, *, stage="astra_discovery", schema=None, original=None, contract=None):
+    def invoke(self, provider, *, stage="draft_plan", schema=None, original=None, contract=None):
         with tempfile.TemporaryDirectory(prefix="source-report-") as directory:
             root = Path(directory)
             output, schema_path = root / "report.json", root / "schema.json"
@@ -105,11 +105,13 @@ class ProviderSourceVerdictTests(unittest.TestCase):
         original = {"status": "COMPLETE", "summary": "Saved report"}
         for provider in PROVIDERS:
             with self.subTest(provider=provider):
-                report = self.invoke(provider, stage="astra_review", original=original, schema=SOURCE_VERDICT_SCHEMA)
+                report = self.invoke(
+                    provider, stage="review_completion", original=original, schema=SOURCE_VERDICT_SCHEMA
+                )
                 self.assertEqual("PASS", report["source_verdict"]["verdict"])
                 self.assertEqual([], report["source_verdict"]["uncovered"])
                 self.assertTrue(report["source_verdict"]["summary"])
-                plain = self.invoke(provider, stage="astra_review", original=original)
+                plain = self.invoke(provider, stage="review_completion", original=original)
                 self.assertNotIn("source_verdict", plain)
 
     def test_repair_preserves_explicit_failed_verdict(self):
@@ -117,7 +119,9 @@ class ProviderSourceVerdictTests(unittest.TestCase):
         original = {"status": "CONTINUE", "summary": "Saved rejection", "source_verdict": verdict}
         for provider in PROVIDERS:
             with self.subTest(provider=provider):
-                report = self.invoke(provider, stage="astra_review", original=original, schema=SOURCE_VERDICT_SCHEMA)
+                report = self.invoke(
+                    provider, stage="review_completion", original=original, schema=SOURCE_VERDICT_SCHEMA
+                )
                 self.assertEqual(verdict, report["source_verdict"])
 
     def recommendation_schema(self):
@@ -132,10 +136,10 @@ class ProviderSourceVerdictTests(unittest.TestCase):
         nonnullable = copy.deepcopy(current)
         nonnullable["properties"]["user_request"]["properties"]["recommended_revision"]["type"] = "object"
         for stage, schema, expected in (
-            ("astra_resolve", current, True),
-            ("astra_resolve", None, False),
-            ("astra_resolve", nonnullable, False),
-            ("astra_review", current, False),
+            ("resolve", current, True),
+            ("resolve", None, False),
+            ("resolve", nonnullable, False),
+            ("review_completion", current, False),
         ):
             with self.subTest(stage=stage, schema=schema):
                 report = self.invoke("blackbox_build_provider.py", stage=stage, schema=schema)
@@ -146,7 +150,7 @@ class ProviderSourceVerdictTests(unittest.TestCase):
     def test_blackbox_resolver_repair_defaults_only_an_absent_recommendation(self):
         original = {"status": "REWORK", "user_request": {"kind": "none"}}
         report = self.invoke(
-            "blackbox_build_provider.py", stage="astra_resolve", original=original, schema=self.recommendation_schema()
+            "blackbox_build_provider.py", stage="resolve", original=original, schema=self.recommendation_schema()
         )
         self.assertEqual({"kind": "none", "recommended_revision": None}, report["user_request"])
         self.assertEqual({"kind": "none"}, original["user_request"])
@@ -155,7 +159,7 @@ class ProviderSourceVerdictTests(unittest.TestCase):
                 original["user_request"]["recommended_revision"] = supplied
                 report = self.invoke(
                     "blackbox_build_provider.py",
-                    stage="astra_resolve",
+                    stage="resolve",
                     original=original,
                     schema=self.recommendation_schema(),
                 )
@@ -166,7 +170,7 @@ class ProviderSourceVerdictTests(unittest.TestCase):
             with self.subTest(original=original):
                 report = self.invoke(
                     "blackbox_build_provider.py",
-                    stage="astra_resolve",
+                    stage="resolve",
                     original=original,
                     schema=self.recommendation_schema(),
                 )
@@ -176,14 +180,14 @@ class ProviderSourceVerdictTests(unittest.TestCase):
     def test_parallel_planning_repair_keeps_explicit_source_waivers(self):
         schema = {"properties": {"source_trace": {"type": "object"}}, "required": ["source_trace"]}
         original = {"summary": "Saved plan review", "concerns": []}
-        report = self.invoke("fake_parallel_builder.py", stage="astra_challenge", original=original, schema=schema)
+        report = self.invoke("fake_parallel_builder.py", stage="review_plan", original=original, schema=schema)
         self.assertEqual({"out_of_scope": [], "negation_waivers": []}, report["source_trace"])
         trace = {
             "out_of_scope": [{"source_id": "task:0", "quote": "No deployment", "reason": "User scope"}],
             "negation_waivers": [],
         }
         original["source_trace"] = trace
-        report = self.invoke("fake_parallel_builder.py", stage="astra_challenge", original=original, schema=schema)
+        report = self.invoke("fake_parallel_builder.py", stage="review_plan", original=original, schema=schema)
         self.assertEqual(trace, report["source_trace"])
 
     def test_live_fixture_planning_repair_preserves_saved_citations(self):
@@ -195,7 +199,7 @@ class ProviderSourceVerdictTests(unittest.TestCase):
     def test_live_fixture_requirements_are_covered_by_its_real_plan(self):
         requirements = self.invoke("live_fixture_provider.py", stage="requirements_gather")
         state = {"task": "", "requirements_handoff": {"report": requirements}}
-        for stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+        for stage in ("draft_plan", "revise_plan", "finalize_plan"):
             with self.subTest(stage=stage):
                 report = self.invoke("live_fixture_provider.py", stage=stage)
                 goals.check_requirement_trace(state, report, report["contract"])
@@ -238,7 +242,7 @@ class ProviderSourceVerdictTests(unittest.TestCase):
         contract["acceptance_criteria"][0]["sources"] = citations
         for field in ("source_trace", "brief_acceptance", "risk_acceptance"):
             contract[field] = {"runner_provenance": "sealed"}
-        for stage in ("glm_revise", "astra_finalize"):
+        for stage in ("revise_plan", "finalize_plan"):
             with self.subTest(stage=stage):
                 report = self.invoke("fake_codex.py", stage=stage, contract=contract)
                 self.assertEqual(citations, report["contract"]["acceptance_criteria"][0]["sources"])

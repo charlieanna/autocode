@@ -32,7 +32,7 @@ from .project import materialize
 TABLE = Path(__file__).resolve().parent.parent / "planning.toml"
 # Adaptive planning is the default for new runs; the fixed pipeline is now the opt-out.
 VARIANTS = {"today": ["--no-adaptive-planning"], "adaptive": ["--adaptive-planning"]}
-REVIEW_STAGES = ("astra_challenge", "astra_finalize")
+REVIEW_STAGES = ("review_plan", "finalize_plan")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -195,9 +195,7 @@ def feedback_round(state: dict, first: dict) -> dict:
     """What the feedback cost and produced: the stages that ran after it, and the plan shown next."""
     later = {**state, "stages": (state.get("stages") or [])[len(first.get("stages") or []) :]}
     measured = summarize(later, None)
-    reruns = [
-        _report(row).get("requirements_rerun") for row in later["stages"] if row.get("stage") == "astra_discovery"
-    ]
+    reruns = [_report(row).get("requirements_rerun") for row in later["stages"] if row.get("stage") == "draft_plan"]
     # A new final plan, not the one shown before the feedback (its token outlives the restart until replaced).
     token = (state.get("planning") or {}).get("final_token")
     return {
@@ -362,10 +360,10 @@ def feedback_totals(rows: list[dict]) -> str:
 
 SHORT = {
     "requirements_gather": "requirements",
-    "astra_discovery": "plan",
-    "astra_challenge": "review",
-    "glm_revise": "revise",
-    "astra_finalize": "finalize",
+    "draft_plan": "plan",
+    "review_plan": "review",
+    "revise_plan": "revise",
+    "finalize_plan": "finalize",
 }
 
 

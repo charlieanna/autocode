@@ -32,7 +32,7 @@ class InterventionOrderingTests(unittest.TestCase):
         self.fixture.approve()
         self.state = self.fixture.state
         self.workspace, self.run = self.fixture.root, self.fixture.run
-        self.state["next_stage"] = "terra"
+        self.state["next_stage"] = "builder"
         self.persist()
 
     def persist(self):
@@ -49,7 +49,7 @@ class InterventionOrderingTests(unittest.TestCase):
 
     def role(self):
         return runner.run_role(
-            role="terra",
+            role="builder",
             prompt="Fixture",
             sandbox="workspace-write",
             workspace=self.workspace,
@@ -309,7 +309,7 @@ class InterventionOrderingTests(unittest.TestCase):
         self.assertTrue(goals.approved(support.read(self.run / "state.json")))
         runner.consume_interventions(self.state, self.run, self.workspace)
         self.assertFalse(goals.approved(self.state))
-        self.assertEqual("astra_discovery", self.state["next_stage"])
+        self.assertEqual("draft_plan", self.state["next_stage"])
 
     def test_completion_report_and_feedback_commit_as_one_paused_boundary(self):
         self.fixture.validation()
@@ -326,12 +326,12 @@ class InterventionOrderingTests(unittest.TestCase):
 
         with patch.object(runner, "write_json", side_effect=observe):
             runner.commit_stage_result(
-                self.state, "astra_review", report, {"output": "completion"}, self.workspace, self.run
+                self.state, "review_completion", report, {"output": "completion"}, self.workspace, self.run
             )
         self.assertTrue(writes)
         self.assertTrue(all(s["status"] != "TASK_COMPLETE" for s in writes))
         self.assertEqual("PAUSED_INTERVENTION", self.state["status"])
-        self.assertEqual("astra_discovery", self.state["next_stage"])
+        self.assertEqual("draft_plan", self.state["next_stage"])
         self.assertEqual("completion", self.state["stages"][-1]["output"])
 
     def test_artifact_approval_commit_rejects_earlier_feedback(self):
@@ -339,7 +339,7 @@ class InterventionOrderingTests(unittest.TestCase):
         self.fixture.validation()
         runner.apply_result(
             self.state,
-            "astra_review",
+            "review_completion",
             self.fixture.decision("COMPLETE"),
             {"output": "review"},
             self.workspace,

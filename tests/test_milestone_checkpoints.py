@@ -85,12 +85,12 @@ class MilestoneCheckpointTests(unittest.TestCase):
         output = self.run / f"astra-{len(self.state['stages'])}.json"
         output.write_text(json.dumps(decision))
         record = {"output": str(output), "source_revision": s.snapshot(self.root)["revision"]}
-        runner.apply_result(self.state, "astra_review", decision, record, self.root, self.run)
+        runner.apply_result(self.state, "review_completion", decision, record, self.root, self.run)
         if status == "REWORK":
-            self.assertEqual("astra_resolve", self.state["next_stage"])
+            self.assertEqual("resolve", self.state["next_stage"])
             runner.apply_result(
                 self.state,
-                "astra_resolve",
+                "resolve",
                 {**decision, "diagnosis": "Independent checks failed"},
                 record,
                 self.root,
@@ -103,7 +103,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
         passed = all(statuses.get(cid) == "PASS" for cid in criterion_ids)
         statuses = dict(statuses)
         human = [c["id"] for c in self.state["goal_contract"]["body"]["acceptance_criteria"] if c["human_review"]]
-        n = sum(r.get("role") == "sol" for r in self.state["stages"])
+        n = sum(r.get("role") == "tester" for r in self.state["stages"])
         events = self.run / f"sol-{n}.jsonl"
         # A real command with the fixture's outcome: the runner re-runs PASS checks (autocode_check_replay).
         check = "true" if passed else "false"
@@ -163,13 +163,13 @@ class MilestoneCheckpointTests(unittest.TestCase):
                 }
             )
         record = {
-            "role": "sol",
-            "stage": "sol",
+            "role": "tester",
+            "stage": "tester",
             "events": str(events),
             "output": str(events),
             "source_revision": s.snapshot(self.root)["revision"],
         }
-        runner.apply_result(self.state, "sol", value, record, self.root, self.run)
+        runner.apply_result(self.state, "tester", value, record, self.root, self.run)
 
     def test_a_failed_validation_is_rechecked_before_another_completion_review(self):
         self.start()
@@ -178,7 +178,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
             {"finding": "regression_proof is FAIL", "severity": "medium", "blocking": True, "evidence": "old proof"}
         ]
         self.assign("M2")
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertIn("independent passing evidence", self.state.get("milestone_blocker", ""))
 
     def test_dependent_milestone_waits_for_accepted_prerequisites(self):
@@ -206,7 +206,9 @@ class MilestoneCheckpointTests(unittest.TestCase):
         def assign(milestone, criteria):
             decision = self.decision(milestone)
             decision["next_task"]["acceptance_criteria"] = criteria
-            runner.apply_result(self.state, "astra_review", decision, {"output": "astra.json"}, self.root, self.run)
+            runner.apply_result(
+                self.state, "review_completion", decision, {"output": "astra.json"}, self.root, self.run
+            )
 
         assign("M1", ["C1"])
         self.validate({"C1": "PASS", "C3": "NOT_VERIFIED", "C4": "NOT_VERIFIED"})
@@ -225,7 +227,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
         task = copy.deepcopy(self.state["current_task"])
         self.assign("M2")
         self.assertEqual(task, self.state["current_task"])
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertEqual("RUNNING", self.state["status"])
 
     def test_failed_criterion_blocks_advancement_despite_source_edits(self):
@@ -234,7 +236,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
         self.validate({"C1": "PASS", "C2": "FAIL"})
         self.assign("M2")
         self.assertEqual("M1", self.state["current_task"]["milestone_id"])
-        self.assertEqual("astra_review", self.state["next_stage"])
+        self.assertEqual("review_completion", self.state["next_stage"])
 
     def test_pass_advances_with_later_criteria_unverified_and_retains_receipt(self):
         self.start()
@@ -242,9 +244,9 @@ class MilestoneCheckpointTests(unittest.TestCase):
         old_key = m.key(self.state)
         self.assign("M2")
         self.assertEqual("M2", self.state["current_task"]["milestone_id"])
-        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual("builder", self.state["next_stage"])
         self.assertTrue(self.state["milestone_progress"][old_key]["accepted"])
-        self.assertEqual("sol", self.state["milestone_progress"][old_key]["accepted_validation"]["reviewer_role"])
+        self.assertEqual("tester", self.state["milestone_progress"][old_key]["accepted_validation"]["reviewer_role"])
 
     def test_later_milestone_finding_does_not_deadlock_passing_prerequisite(self):
         self.start(dependent=True)
@@ -326,11 +328,11 @@ class MilestoneCheckpointTests(unittest.TestCase):
             self.state,
             request,
             origin={
-                "stage": "astra_review",
+                "stage": "review_completion",
                 "task_id": self.state["current_task"]["id"],
                 "source_revision": current["revision"],
             },
-            next_stage="astra_review",
+            next_stage="review_completion",
         )
         runner.normalize_human_boundary(self.state, self.run)
         self.assertEqual("RUNNING", self.state["status"])
@@ -356,7 +358,9 @@ class MilestoneCheckpointTests(unittest.TestCase):
             "options": ["Allow", "Do not allow"],
             "proposed_delta": "Deploy to staging",
         }
-        lifecycle.wait_for_user(self.state, request, origin={"stage": "astra_review"}, next_stage="astra_review")
+        lifecycle.wait_for_user(
+            self.state, request, origin={"stage": "review_completion"}, next_stage="review_completion"
+        )
         runner.normalize_human_boundary(self.state, self.run)
         self.assertEqual("WAITING_FOR_USER", self.state["status"])
         self.assertEqual(request, self.state["user_request"])
@@ -387,7 +391,9 @@ class MilestoneCheckpointTests(unittest.TestCase):
             {**c, "status": "verified", "evidence": "event:check"} for c in self.state["acceptance_criteria"]
         ]
         with self.assertRaises(s.Paused) as refused:
-            runner.apply_result(self.state, "astra_review", complete, {"output": "astra.json"}, self.root, self.run)
+            runner.apply_result(
+                self.state, "review_completion", complete, {"output": "astra.json"}, self.root, self.run
+            )
         self.assertIn("no passing result for C1, C2", str(refused.exception))
         self.assertIn("kind=validate", str(refused.exception))
         # A validation may include accepted milestones' criteria; an implementation may not.
@@ -398,7 +404,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
             "M2", next_task={**final["next_task"], "kind": "validate", "acceptance_criteria": ["C1", "C2", "C3"]}
         )
         self.assertEqual(
-            ("M2", ["C1", "C2", "C3"], "sol"),
+            ("M2", ["C1", "C2", "C3"], "tester"),
             (
                 self.state["current_task"]["milestone_id"],
                 self.state["current_task"]["acceptance_criteria"],
@@ -407,7 +413,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
         )
         self.validate({"C1": "PASS", "C2": "PASS", "C3": "PASS"})
         complete = {**self.decision("M2", status="COMPLETE"), "acceptance_criteria": complete["acceptance_criteria"]}
-        runner.apply_result(self.state, "astra_review", complete, {"output": "astra.json"}, self.root, self.run)
+        runner.apply_result(self.state, "review_completion", complete, {"output": "astra.json"}, self.root, self.run)
         self.assertEqual("TASK_COMPLETE", self.state["status"])
 
     def test_combined_validation_scope_overrides_serial_model_notes_without_dropping_checks(self):
@@ -422,7 +428,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
             validation_plan=["Execute empty input; Unicode review follows separately"],
         )
         before = copy.deepcopy(self.state)
-        for stage in ("sol", "astra_checkpoint", "astra_review"):
+        for stage in ("tester", "review_checkpoint", "review_completion"):
             with self.subTest(stage=stage):
                 prompt, _ = stage_context.context_packet(self.state, stage, self.run / "state.json")
                 instruction, raw = prompt.split("CURRENT HANDOFF DATA\n", 1)
@@ -441,13 +447,13 @@ class MilestoneCheckpointTests(unittest.TestCase):
         self.validate(flow_status="NOT_VERIFIED")
         self.state["milestone_blocker"] = "Previous evidence gate rejection"
         before = copy.deepcopy(self.state)
-        prompt, _ = stage_context.context_packet(self.state, "astra_review", self.run / "state.json")
+        prompt, _ = stage_context.context_packet(self.state, "review_completion", self.run / "state.json")
         packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
         self.assertTrue(packet["milestone_checkpoint"]["current_evidence_ready"])
         self.assertEqual("Previous evidence gate rejection", packet["milestone_checkpoint"]["blocker"])
         self.assertEqual(before, self.state)
         self.state["validation"]["end_to_end_result"]["status"] = "FAIL"
-        prompt, _ = stage_context.context_packet(self.state, "astra_review", self.run / "state.json")
+        prompt, _ = stage_context.context_packet(self.state, "review_completion", self.run / "state.json")
         packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
         self.assertFalse(packet["milestone_checkpoint"]["current_evidence_ready"])
 
@@ -467,7 +473,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
         self.state.update(
             status="WAITING_FOR_USER",
             phase="WAITING_FOR_USER",
-            next_stage="astra_review",
+            next_stage="review_completion",
             pending_questions=[question],
             user_request={
                 "kind": "blocker",
@@ -487,7 +493,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
         lifecycle.resolve_passing_checkpoint(self.state, question["id"], choice)
         self.assertTrue(goals.approved(self.state))
         self.assertEqual("RUNNING", self.state["status"])
-        self.assertEqual("astra_review", self.state["next_stage"])
+        self.assertEqual("review_completion", self.state["next_stage"])
         self.assertEqual("checkpoint_answer", self.state["answers"][question["id"]]["kind"])
         self.assertFalse(self.state["milestone_progress"][m.key(self.state)]["accepted"])
 
@@ -526,7 +532,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
                 if mode == "task":
                     val["task_id"] = "different"
                 if mode == "writer":
-                    val["reviewer_role"] = "terra"
+                    val["reviewer_role"] = "builder"
                 if mode == "blocking":
                     val["findings"] = [{"severity": "medium", "blocking": True}]
                 self.assign("M2")
@@ -538,10 +544,10 @@ class MilestoneCheckpointTests(unittest.TestCase):
             (self.root / "greet.py").write_text(f"# attempt {i}")
             self.validate({"C1": "FAIL", "C2": "FAIL"})
         self.assign(status="REWORK")  # Same approach does not reset the counter.
-        self.assertEqual("astra_review", self.state["next_stage"])
+        self.assertEqual("review_completion", self.state["next_stage"])
         self.assertEqual(0, m.progress(self.state)["replans"])
         self.assign(status="REWORK", next_objective="Isolate empty input first with a smaller regression fixture")
-        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual("builder", self.state["next_stage"])
         self.assertEqual(1, m.progress(self.state)["replans"])
         for _ in range(3):
             self.validate({"C1": "FAIL", "C2": "FAIL"})
@@ -570,14 +576,14 @@ class MilestoneCheckpointTests(unittest.TestCase):
 
     def test_budget_charges_rejected_attempts_once_and_allows_validation(self):
         self.start()
-        record = {"role": "terra", "task_id": self.state["current_task"]["id"], "duration_seconds": 5401}
+        record = {"role": "builder", "task_id": self.state["current_task"]["id"], "duration_seconds": 5401}
         runner.account_stage(self.state, record)
         runner.account_stage(self.state, record)
         self.assertEqual(5401, m.progress(self.state)["seconds"])
         with self.assertRaises(s.Paused):
-            m.dispatch_guard(self.state, "terra")
-        m.dispatch_guard(self.state, "sol")
-        m.dispatch_guard(self.state, "astra_review")
+            m.dispatch_guard(self.state, "builder")
+        m.dispatch_guard(self.state, "tester")
+        m.dispatch_guard(self.state, "review_completion")
         self.validate()
         self.assign("M2")
         self.assertEqual(0, m.progress(self.state)["seconds"])
@@ -600,7 +606,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
     def test_review_only_permission_becomes_evidence_bound_review(self):
         self.start(human=True)
         self.validate()
-        finding_record = {"stage": "astra_review", "output": str(self.run / "earlier-review.json")}
+        finding_record = {"stage": "review_completion", "output": str(self.run / "earlier-review.json")}
         findings.record_decision(
             self.state,
             {
@@ -628,9 +634,9 @@ class MilestoneCheckpointTests(unittest.TestCase):
         }
         output = self.run / "review-only.json"
         output.write_text(json.dumps(decision))
-        findings.record_decision(self.state, decision, {"stage": "astra_review", "output": str(output)})
+        findings.record_decision(self.state, decision, {"stage": "review_completion", "output": str(output)})
         self.assertEqual([], findings.open_entries(self.state, "task_planner"))
-        lifecycle.wait_for_user(self.state, request, origin={"stage": "astra_review", "output": str(output)})
+        lifecycle.wait_for_user(self.state, request, origin={"stage": "review_completion", "output": str(output)})
         lifecycle.human.evaluate(self.state)
         self.assertEqual("human_review", lifecycle.human.current(self.state)["scope"])
         self.assertEqual(["C1"], self.state["user_request"]["criteria"])
@@ -653,8 +659,8 @@ class MilestoneCheckpointTests(unittest.TestCase):
         stale.write_text("{}")
         self.state["validation"]["evidence_hashes"][str(stale)] = s.file_hash(stale)
         stale.write_text('{"updated":true}')
-        lifecycle.wait_for_user(self.state, request, origin={"stage": "astra_review", "output": str(output)})
-        self.assertEqual(("RUNNING", "sol"), (self.state["status"], self.state["next_stage"]))
+        lifecycle.wait_for_user(self.state, request, origin={"stage": "review_completion", "output": str(output)})
+        self.assertEqual(("RUNNING", "tester"), (self.state["status"], self.state["next_stage"]))
         self.assertFalse(self.state.get("pending_questions"))
 
     def test_published_review_permission_recovers_without_user_answer(self):
@@ -678,7 +684,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
         lifecycle.human.queue(
             self.state,
             "permission",
-            {"stage": "astra_review", "output": str(output)},
+            {"stage": "review_completion", "output": str(output)},
             request=request,
             questions=[
                 {
@@ -688,12 +694,14 @@ class MilestoneCheckpointTests(unittest.TestCase):
                     "options": request["options"],
                 }
             ],
-            next_stage="astra_review",
+            next_stage="review_completion",
         )
         lifecycle.human.evaluate(self.state)
         old = lifecycle.human.current(self.state)["request_id"]
         self.assertTrue(
-            m.route_review_only_request_preview(self.state, request, {"stage": "astra_review", "output": str(output)})
+            m.route_review_only_request_preview(
+                self.state, request, {"stage": "review_completion", "output": str(output)}
+            )
         )
         self.assertFalse(m.fresh_validation(self.state, s.snapshot(self.root)))
         self.assertIn("C1", goals.missing_human_reviews(self.state))
@@ -703,7 +711,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
         self.assertFalse(self.state.get("active_stage"))
         self.assertFalse(self.state.get("uncertain_artifacts"))
         runner.normalize_human_boundary(self.state, self.run)
-        self.assertEqual(("RUNNING", "sol"), (self.state["status"], self.state["next_stage"]))
+        self.assertEqual(("RUNNING", "tester"), (self.state["status"], self.state["next_stage"]))
         self.assertEqual("superseded", self.state["resolver"]["human_escalations"][old]["status"])
         self.assertIsNone(lifecycle.human.current(self.state))
         self.assertFalse(self.state.get("answers"))
@@ -721,7 +729,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
         decision = {**self.decision(status="BLOCKED"), "findings": [], "user_request": request}
         output = self.run / "material-permission.json"
         output.write_text(json.dumps(decision))
-        lifecycle.wait_for_user(self.state, request, origin={"stage": "astra_review", "output": str(output)})
+        lifecycle.wait_for_user(self.state, request, origin={"stage": "review_completion", "output": str(output)})
         lifecycle.human.evaluate(self.state)
         self.assertEqual("permission", lifecycle.human.current(self.state)["scope"])
 
@@ -735,7 +743,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
         self.assertTrue(m.enabled(self.state))
         self.assertNotIn("workflow", self.state["settings"])
         self.assertEqual(contract, self.state["goal_contract"])
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
 
     def test_activation_refuses_uncertain_or_active_requests_and_status_is_read_only(self):
         self.start()
@@ -762,7 +770,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
             m.queue_activation(self.run, 1200)
         self.assertTrue(m.apply_queued_activation(self.state, self.run))
         self.assertEqual("RUNNING", self.state["status"])
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertFalse((self.run / "pause-requested").exists())
         self.assertEqual(7200, self.state["settings"]["milestone_checkpoints"]["max_seconds"])
         self.assertFalse(m.apply_queued_activation(self.state, self.run))
@@ -788,7 +796,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
         self.start()
         self.state["settings"].pop("milestone_checkpoints")
         m.queue_activation(self.run)
-        self.state["pending_report_repair"] = {"original": {"stage": "terra"}}
+        self.state["pending_report_repair"] = {"original": {"stage": "builder"}}
         self.assertFalse(m.apply_queued_activation(self.state, self.run))
         self.assertFalse(m.enabled(self.state))
         self.assertTrue(m.owns_pause(self.run))
@@ -799,7 +807,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
     def test_explicit_resume_repairs_old_report_then_continues_with_sol(self):
         self.start()
         self.state["settings"].pop("milestone_checkpoints")
-        self.state.update(status="PAUSED_INVALID_OUTPUT", pending_report_repair={"original": {"stage": "terra"}})
+        self.state.update(status="PAUSED_INVALID_OUTPUT", pending_report_repair={"original": {"stage": "builder"}})
         m.queue_activation(self.run)
 
         def repair(state, run_dir, workspace):
@@ -814,15 +822,15 @@ class MilestoneCheckpointTests(unittest.TestCase):
         with patch.object(runner, "execute_report_repair", side_effect=repair) as repaired:
             self.assertEqual(2, self.invoke("--resume-paused", role=stop_at_sol))
             repaired.assert_called_once()
-        self.assertEqual(["sol"], dispatched)
+        self.assertEqual(["tester"], dispatched)
         self.assertEqual("PAUSED_TEST", self.state["status"])
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
 
     def test_final_only_routing_cannot_bypass_checkpoints(self):
         self.start()
         self.state["settings"]["workflow"] = {"mode": "glm_final_audit_v2"}
         with self.assertRaises(s.Paused):
-            m.dispatch_guard(self.state, "terra")
+            m.dispatch_guard(self.state, "builder")
 
     def test_repeating_validation_cannot_bypass_the_stalled_review_limit(self):
         self.start()
@@ -833,7 +841,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
         for _ in range(3):
             self.assign(next_task=task)
         self.assertEqual("PAUSED_MILESTONE_REPLAN", self.state["status"])
-        self.assertEqual("astra_review", self.state["next_stage"])
+        self.assertEqual("review_completion", self.state["next_stage"])
 
     def test_exhausted_budget_does_not_consume_a_replan_that_cannot_run(self):
         self.start()
@@ -866,7 +874,7 @@ class PendingReplanThroughTheCLI(unittest.TestCase):
         self.start()
         for _ in range(3):
             self.validate({"C1": "FAIL", "C2": "FAIL"})
-        self.assertEqual(("RUNNING", "astra_review"), (self.state["status"], self.state["next_stage"]))
+        self.assertEqual(("RUNNING", "review_completion"), (self.state["status"], self.state["next_stage"]))
 
     def revalidation(self, status):
         # The live proposal: no source edits, a changed capture, evidence cited.
@@ -919,10 +927,10 @@ class PendingReplanThroughTheCLI(unittest.TestCase):
 
     def test_review_prompt_states_the_replan_gate_and_continue_validate_still_pauses(self):
         self.stall()
-        prompts, answer = self.provider({"astra_review": [self.revalidation("CONTINUE") for _ in range(3)]})
+        prompts, answer = self.provider({"review_completion": [self.revalidation("CONTINUE") for _ in range(3)]})
         self.assertEqual(2, self.invoke("--no-chat", role=answer))
         # As live: three refused reviews, then the Investigator before the pause (stopped here by the fixture).
-        self.assertEqual(["astra_review"] * 3 + ["investigate_stuck"], [stage for stage, _ in prompts])
+        self.assertEqual(["review_completion"] * 3 + ["investigate_stuck"], [stage for stage, _ in prompts])
         for _, prompt in prompts[:3]:
             self.assert_states_the_gate(prompt)
         # The gate is unchanged: a CONTINUE is never accepted while the replan is required.
@@ -938,14 +946,14 @@ class PendingReplanThroughTheCLI(unittest.TestCase):
             "diagnosis": "The flow is unverified because its capture was blocked; "
             "revalidate it with an rm-free capture.",
         }
-        prompts, answer = self.provider({"astra_review": [rework], "astra_resolve": [diagnosis]})
+        prompts, answer = self.provider({"review_completion": [rework], "resolve": [diagnosis]})
         self.assertEqual(2, self.invoke("--no-chat", role=answer))
         # The Resolver plans the repair from the same review prompt, so it is told the gate too.
-        self.assertEqual(["astra_review", "astra_resolve", "sol"], [stage for stage, _ in prompts])
+        self.assertEqual(["review_completion", "resolve", "tester"], [stage for stage, _ in prompts])
         for _, prompt in prompts[:2]:
             self.assert_states_the_gate(prompt)
         self.assertNotIn("MILESTONE REPLAN REQUIRED", prompts[2][1])
-        self.assertEqual(("PAUSED_TEST", "sol"), (self.state["status"], self.state["next_stage"]))
+        self.assertEqual(("PAUSED_TEST", "tester"), (self.state["status"], self.state["next_stage"]))
         self.assertEqual(
             ("validate", rework["next_objective"]),
             (self.state["current_task"]["kind"], self.state["current_task"]["objective"]),
@@ -977,7 +985,7 @@ class PendingReplanThroughTheCLI(unittest.TestCase):
         # general rule for CONTINUE/validate; the gate refuses both with PAUSED_MILESTONE_STALLED.
         self.start()
         self.spend_replans({"C1": "FAIL", "C2": "FAIL"})
-        prompts, answer = self.provider({"astra_review": [self.revalidation("CONTINUE")]})
+        prompts, answer = self.provider({"review_completion": [self.revalidation("CONTINUE")]})
         self.assertEqual(2, self.invoke("--no-chat", role=answer))
         instruction = self.instruction(prompts[0][1])
         self.assertIn("MILESTONE REPLANS SPENT", instruction)
@@ -992,7 +1000,7 @@ class PendingReplanThroughTheCLI(unittest.TestCase):
         self.assertNotIn(replan.GENERAL_VALIDATE_RULE, instruction)  # only the qualified rule remains
         # What the prompt says is what the gate does: the review's task pauses the run at once, before any
         # Resolver or writer (the Investigator then diagnoses the pause; the fixture stops it).
-        self.assertEqual(["astra_review", "investigate_stuck"], [stage for stage, _ in prompts])
+        self.assertEqual(["review_completion", "investigate_stuck"], [stage for stage, _ in prompts])
         self.assertEqual("PAUSED_MILESTONE_STALLED", self.paused_by())
         current = self.checkpoint()
         self.assertEqual((True, 1), (current["needs_replan"], current["replans"]))
@@ -1000,7 +1008,7 @@ class PendingReplanThroughTheCLI(unittest.TestCase):
     def test_expanding_the_replan_limit_resumes_a_stalled_milestone(self):
         self.start()
         self.spend_replans({"C1": "FAIL", "C2": "FAIL"})
-        prompts, answer = self.provider({"astra_review": [self.revalidation("CONTINUE")]})
+        prompts, answer = self.provider({"review_completion": [self.revalidation("CONTINUE")]})
         self.assertEqual(2, self.invoke("--no-chat", role=answer))
         self.assertEqual("PAUSED_MILESTONE_STALLED", self.paused_by())
         need = self.status()["view"]["needs"]
@@ -1028,22 +1036,22 @@ class PendingReplanThroughTheCLI(unittest.TestCase):
 
         rework = self.revalidation("REWORK")
         diagnosis = {**rework, "diagnosis": "Use one more replan for the changed validation capture."}
-        resumed, answer = self.provider({"astra_review": [rework], "astra_resolve": [diagnosis]})
+        resumed, answer = self.provider({"review_completion": [rework], "resolve": [diagnosis]})
         self.assertEqual(
             2,
             self.invoke("--no-chat", "--resume-paused", "--max-milestone-replans", "2", role=answer),
         )
         self.assertEqual(
-            ["astra_review", "astra_resolve", "sol"],
+            ["review_completion", "resolve", "tester"],
             [stage for stage, _ in resumed],
             self.stdout + self.stderr,
         )
-        self.assertEqual(("PAUSED_TEST", "sol"), (self.state["status"], self.state["next_stage"]))
+        self.assertEqual(("PAUSED_TEST", "tester"), (self.state["status"], self.state["next_stage"]))
         self.assertEqual(2, self.state["settings"]["milestone_checkpoints"]["max_replans"])
         self.assertEqual(2, self.checkpoint()["replans"])
         for _ in range(3):
             self.validate({"C1": "FAIL", "C2": "FAIL"})
-        _, answer = self.provider({"astra_review": [self.revalidation("CONTINUE")]})
+        _, answer = self.provider({"review_completion": [self.revalidation("CONTINUE")]})
         self.assertEqual(2, self.invoke("--no-chat", "--resume-paused", role=answer))
         self.assertEqual("PAUSED_MILESTONE_STALLED", self.paused_by())
         for resume in ((), ("--resume-paused",)):
@@ -1091,18 +1099,18 @@ class PendingReplanThroughTheCLI(unittest.TestCase):
                     **self.revalidation("REWORK"),
                     "diagnosis": "The replanned capture still fails on empty input.",
                 }
-                prompts, answer = self.provider({"astra_review": [blocked], "astra_resolve": [resolved]})
+                prompts, answer = self.provider({"review_completion": [blocked], "resolve": [resolved]})
                 self.assertEqual(2, self.invoke("--no-chat", role=answer))
                 self.assertIn(
                     "and for a BLOCKED whose user_request.kind is not permission or goal_change",
                     self.instruction(prompts[0][1]),
                 )
                 if kind in replan.ASKS_USER_DIRECTLY:
-                    self.assertEqual(["astra_review"], [stage for stage, _ in prompts])
+                    self.assertEqual(["review_completion"], [stage for stage, _ in prompts])
                     self.assertEqual("WAITING_FOR_USER", self.status()["status"])
                 else:
                     self.assertEqual(
-                        ["astra_review", "astra_resolve", "investigate_stuck"], [stage for stage, _ in prompts]
+                        ["review_completion", "resolve", "investigate_stuck"], [stage for stage, _ in prompts]
                     )
                     self.assertEqual("PAUSED_MILESTONE_STALLED", self.paused_by())
 
@@ -1114,13 +1122,13 @@ class PendingReplanThroughTheCLI(unittest.TestCase):
         self.spend_replans({"C1": "FAIL", "C2": "FAIL", "C3": "FAIL"})
         member = self.revalidation("CONTINUE")
         member["next_task"].update(milestone_id="M2", acceptance_criteria=["C3"])
-        prompts, answer = self.provider({"astra_review": [member]})
+        prompts, answer = self.provider({"review_completion": [member]})
         self.assertEqual(2, self.invoke("--no-chat", role=answer))
         instruction = self.instruction(prompts[0][1])
         self.assertIn("A next task is on this batch when next_task.milestone_id is M1 or M2", instruction)
         self.assertIn("a next task on M1 or M2 with any status, REWORK or CONTINUE", instruction)
         self.assertNotIn("on batch:", instruction)
-        self.assertEqual(["astra_review", "investigate_stuck"], [stage for stage, _ in prompts])
+        self.assertEqual(["review_completion", "investigate_stuck"], [stage for stage, _ in prompts])
         self.assertEqual("PAUSED_MILESTONE_STALLED", self.paused_by())
 
     def test_unbounded_replans_prompt_does_not_also_promise_a_single_replan(self):
@@ -1130,7 +1138,7 @@ class PendingReplanThroughTheCLI(unittest.TestCase):
             self.validate({"C1": "FAIL", "C2": "FAIL"})
         prompts, answer = self.provider({})
         self.assertEqual(2, self.invoke("--no-chat", "--max-milestone-replans", "0", role=answer))
-        self.assertEqual("astra_review", prompts[0][0])
+        self.assertEqual("review_completion", prompts[0][0])
         instruction = self.instruction(prompts[0][1])
         self.assertIn("Replans are unbounded", instruction)
         self.assertIn("milestone_checkpoint.limits.max_replans bounds such replans (null: unbounded)", instruction)

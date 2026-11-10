@@ -40,7 +40,7 @@ class BuilderSourceExamplesCLI(unittest.TestCase):
         marker = "    capacity_exit = capacity_once(stage, session)"
         amendment = textwrap.dedent("""
             observed = {"stage": stage, "repair": bool(data.get("report_repair"))}
-            if stage == "terra" and not observed["repair"]:
+            if stage == "builder" and not observed["repair"]:
                 prefix = prompt.split("\\nCURRENT HANDOFF DATA\\n", 1)[0]
                 source = data.get("review_source") or {}
                 attached = source.get("files") or []
@@ -58,7 +58,7 @@ class BuilderSourceExamplesCLI(unittest.TestCase):
             witness = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name("builder-source-examples-witness.jsonl")
             with witness.open("a") as handle:
                 handle.write(json.dumps(observed) + "\\n")
-            if stage == "terra" and not observed["repair"]:
+            if stage == "builder" and not observed["repair"]:
                 assert all(value for name, value in observed.items() if name not in ("stage", "repair")), observed
         """)
         source = provider.read_text()
@@ -114,8 +114,8 @@ class BuilderSourceExamplesCLI(unittest.TestCase):
             self.assertEqual("verified", criterion["status"])
             self.assertEqual("PASS", criterion["validator_status"])
         self.assertFalse(any(row["repair"] for row in rows), rows)
-        for stage in ("terra", "sol", "astra_review"):
+        for stage in ("builder", "tester", "review_completion"):
             self.assertEqual(1, sum(row["stage"] == stage for row in rows), rows)
-        builder = next(row for row in rows if row["stage"] == "terra")
+        builder = next(row for row in rows if row["stage"] == "builder")
         self.assertTrue(builder["complete_test_attached"])
         self.assertTrue(builder["reference_present"])

@@ -171,7 +171,7 @@ class ChatCliTests(unittest.TestCase):
         approved = refreshed["needs"]["questions"][-1]
         run.answer(approved["id"], "plan", resolver_token=refreshed["needs"]["resolver_token"])
         # The build Requirements named and the person approved is planned at once (#1846).
-        self.assertEqual("astra_discovery", run.status()["next_stage"])
+        self.assertEqual("draft_plan", run.status()["next_stage"])
         reviewed = run.advance_until_input()
         self.assertEqual("approve_plan", reviewed["needs"]["kind"])
         self.assertEqual("build", reviewed["workflow"])

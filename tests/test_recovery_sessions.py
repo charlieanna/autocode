@@ -45,11 +45,11 @@ class RecoverySessionTests(unittest.TestCase):
             "sessions": {"task_planner": "original-reviewer"},
             "stages": [],
             "history": [],
-            "next_stage": "astra_finalize",
+            "next_stage": "finalize_plan",
         }
 
     def attempt(self, session, *, report_only=False):
-        stage = "astra_finalize" + ("_report_repair" if report_only else "")
+        stage = "finalize_plan" + ("_report_repair" if report_only else "")
         base = self.run_dir / stage
         util.atomic_json(base.with_suffix(".before.json"), util.snapshot(self.workspace))
         util.atomic_json(base.with_suffix(".json"), {"summary": "Recovered review"})
@@ -76,7 +76,7 @@ class RecoverySessionTests(unittest.TestCase):
             "before_ref": str(base.with_suffix(".before.json")),
         }
         if report_only:
-            record.update(report_only=True, original_stage="astra_finalize")
+            record.update(report_only=True, original_stage="finalize_plan")
         self.state["active_stage"] = record
         return record
 
@@ -91,7 +91,7 @@ class RecoverySessionTests(unittest.TestCase):
         with patch.object(runner, "commit_stage_result", side_effect=dispatch):
             runner.reconcile_active(self.state, self.run_dir, self.workspace)
         self.assertEqual("original-reviewer", self.state["stages"][-1]["thread_id"])
-        original, session = provenance.witness(self.state, "astra_finalize", record["output"])
+        original, session = provenance.witness(self.state, "finalize_plan", record["output"])
         self.assertEqual("original-reviewer", session)
         self.assertEqual(record["events"], original["events"])
 
@@ -155,7 +155,7 @@ class RecoverySessionTests(unittest.TestCase):
         self.assertEqual("original-reviewer", self.state["sessions"]["task_planner"])
         self.assertNotIn("thread_id", repair)
         self.assertEqual("original-reviewer", original.get("thread_id"))
-        witness, session = provenance.witness(self.state, "astra_finalize", repair["output"])
+        witness, session = provenance.witness(self.state, "finalize_plan", repair["output"])
         self.assertEqual(original, witness)
         self.assertEqual("original-reviewer", session)
         self.assertEqual(util.file_hash(repair["output"]), self.state["report_repair_history"][-1]["output_hash"])

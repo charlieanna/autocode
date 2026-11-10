@@ -20,7 +20,7 @@ RECOGNIZER = "recognize_workflow"
 REQUIREMENTS = "requirements_gather"
 # Every task goes through the full pipeline after Requirements (#3010): a question and a review are
 # planned, built and checked like a build, and the kind Requirements named labels the run.
-PIPELINE = ["astra_discovery", "astra_challenge", "terra", "sol", "astra_review"]
+PIPELINE = ["draft_plan", "review_plan", "builder", "tester", "review_completion"]
 
 
 class RequirementsFirstCliTests(unittest.TestCase):
@@ -49,7 +49,7 @@ class RequirementsFirstCliTests(unittest.TestCase):
     def test_a_plain_cli_question_goes_from_requirements_into_the_full_pipeline(self):
         result = self.run_fake("discuss-cache-choice")
         self.assertEqual("discuss", result["workflow"])
-        self.assertStartsAtRequirements(result["metrics"]["model_stage_names"], "astra_discovery")
+        self.assertStartsAtRequirements(result["metrics"]["model_stage_names"], "draft_plan")
         self.assertNotIn("answer_question", result["metrics"]["model_stage_names"], "No Analyst shortcut")
 
     def test_a_plain_cli_review_goes_from_requirements_into_the_full_pipeline(self):
@@ -60,7 +60,7 @@ class RequirementsFirstCliTests(unittest.TestCase):
     def test_a_plain_cli_bug_fix_goes_from_requirements_to_the_planner(self):
         result = self.run_fake("bugfix-trivial")
         self.assertEqual("bugfix", result["workflow"])
-        self.assertStartsAtRequirements(result["metrics"]["model_stage_names"], "astra_discovery")
+        self.assertStartsAtRequirements(result["metrics"]["model_stage_names"], "draft_plan")
         self.assertNotIn("investigate_bug", result["metrics"]["model_stage_names"])
 
     def test_explicit_triage_opt_out_keeps_one_full_requirements_pass(self):
@@ -74,7 +74,7 @@ class RequirementsFirstCliTests(unittest.TestCase):
         self.assertEqual([REQUIREMENTS, REQUIREMENTS, *PIPELINE], review["model_stage_names"])
         # The follow-up begins at Requirements too, which reads the earlier review as context and names a
         # build; the Planner then plans the fix from the review's findings.
-        self.assertStartsAtRequirements(fix["model_stage_names"], "astra_discovery")
+        self.assertStartsAtRequirements(fix["model_stage_names"], "draft_plan")
 
 
 if __name__ == "__main__":

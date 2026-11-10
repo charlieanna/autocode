@@ -56,7 +56,7 @@ def preflight(name, model, adapter, workspace, env, *, fake=False):
                 adapter.check_forbidden_environment(env)
             env = agent_env.scrubbed(env)
         identity = adapter.local_settings(workspace, env=env)
-        roles = {"terra": {"model": model}}
+        roles = {"builder": {"model": model}}
         if not fake:
             try:
                 adapter.check_subscription_routes(roles, workspace, env=env)
@@ -172,7 +172,7 @@ def execute(
         try:
             with kilocode_probe.capture() as checks:
                 argv, child_env, _ = adapter.launch(
-                    role or ("terra" if allow_write else "sol"),
+                    role or ("builder" if allow_write else "tester"),
                     workspace,
                     directory,
                     session,

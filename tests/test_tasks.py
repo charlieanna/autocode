@@ -83,10 +83,10 @@ class TaskFlows(unittest.TestCase):
             "sessions": {},
             "stages": [],
             "history": [],
-            "next_stage": "terra",
+            "next_stage": "builder",
             "acceptance_criteria": [],
             "settings": {
-                "roles": {r: {"model": r, "reasoning_effort": "high"} for r in ("task_planner", "terra", "sol")},
+                "roles": {r: {"model": r, "reasoning_effort": "high"} for r in ("task_planner", "builder", "tester")},
                 "headroom": {"enabled": False},
                 "context_soft_tokens": 10000,
             },

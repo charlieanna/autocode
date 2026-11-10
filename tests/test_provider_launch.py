@@ -35,7 +35,7 @@ class ProviderLaunchTests(unittest.TestCase):
                 "settings": {
                     "engine": "opencode",
                     "provider": "offline",
-                    "roles": {"sol": {"model": "offline-model", "reasoning_effort": "low"}},
+                    "roles": {"tester": {"model": "offline-model", "reasoning_effort": "low"}},
                 },
             }
             with (
@@ -44,7 +44,7 @@ class ProviderLaunchTests(unittest.TestCase):
                 mock.patch.object(runner.output_policy, "environment", return_value={}),
             ):
                 value, record = runner.run_role(
-                    role="sol",
+                    role="tester",
                     prompt="original prompt",
                     sandbox="read-only",
                     workspace=root,
@@ -87,7 +87,7 @@ class ProviderLaunchTests(unittest.TestCase):
                     "engine": "opencode",
                     "provider": "kilocode",
                     "roles": {
-                        "sol": {"model": "zai-coding-plan/glm-5.3", "reasoning_effort": "low"},
+                        "tester": {"model": "zai-coding-plan/glm-5.3", "reasoning_effort": "low"},
                     },
                 },
             }
@@ -98,7 +98,7 @@ class ProviderLaunchTests(unittest.TestCase):
                     self.assertRaises(Prepared),
                 ):
                     runner.run_role(
-                        role="sol",
+                        role="tester",
                         prompt="Already-completed review report",
                         sandbox="read-only",
                         workspace=root,
@@ -316,8 +316,8 @@ class ProviderLaunchTests(unittest.TestCase):
             return launch.prepare(
                 engine="opencode",
                 adapter=adapter,
-                role="terra",
-                route_role="terra",
+                role="builder",
+                route_role="builder",
                 workspace=Path("/workspace"),
                 run_dir=Path("/run"),
                 session="s1",
@@ -367,8 +367,8 @@ class ProviderLaunchTests(unittest.TestCase):
             *_, worker = launch.prepare(
                 engine="opencode",
                 adapter=kilo,
-                role="terra",
-                route_role="terra",
+                role="builder",
+                route_role="builder",
                 workspace=Path(root),
                 run_dir=Path(root) / ".autocode/runs/one",
                 session="ses_saved",
@@ -394,8 +394,8 @@ class ProviderLaunchTests(unittest.TestCase):
                 launch.prepare(
                     engine=engine,
                     adapter=None,
-                    role="sol",
-                    route_role="sol",
+                    role="tester",
+                    route_role="tester",
                     workspace=Path("/workspace"),
                     run_dir=Path("/run"),
                     session=None,
@@ -418,8 +418,8 @@ class NativeReplayBoundaryTests(unittest.TestCase):
         return dict(
             engine="opencode",
             adapter=mock.Mock(),
-            role="sol",
-            route_role="sol",
+            role="tester",
+            route_role="tester",
             workspace=Path("/workspace"),
             run_dir=Path("/run"),
             session=None,
@@ -484,8 +484,8 @@ class CodexCaptureCopyTests(unittest.TestCase):
         self.options = dict(
             engine="codex",
             adapter=None,
-            role="sol",
-            route_role="sol",
+            role="tester",
+            route_role="tester",
             workspace=self.root,
             run_dir=self.run,
             session=None,
@@ -789,7 +789,7 @@ class CodexCaptureCopyTests(unittest.TestCase):
             {
                 "name": "offline",
                 "command": ["fixture-provider", "{model}", "{workspace}", "{sandbox}", "{report}"],
-                "roles": {"sol": {"model": "verifier", "effort": "high"}},
+                "roles": {"tester": {"model": "verifier", "effort": "high"}},
             },
             self.root / "provider.toml",
         )

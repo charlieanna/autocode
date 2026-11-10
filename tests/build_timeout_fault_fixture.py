@@ -113,7 +113,7 @@ def install(root, tools, *, keeper=False):
             active = value.get("active_stage") or {}
             if (
                 Path(path).name == "state.json"
-                and active.get("stage") == "terra"
+                and active.get("stage") == "builder"
                 and active.get("activity", {}).get("timeout_kind") == "stage"
             ):
                 original_atomic(

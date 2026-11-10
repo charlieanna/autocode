@@ -21,7 +21,7 @@ except ImportError:
 
 
 def change(state: RunState, previous_settings):
-    if previous_settings is None or state.get("next_stage") != "astra_resolve":
+    if previous_settings is None or state.get("next_stage") != "resolve":
         return None
     before = (previous_settings.get("roles") or {}).get("resolver")
     effective = before or (previous_settings.get("roles") or {}).get("task_planner")
@@ -70,7 +70,7 @@ def unassigned(state: RunState, settings):
         for grant in reversed(state.get("failure_retry_authorizations") or [])
         if grant.get("resolver_route_change")
         and grant.get("actor") == "user_cli"
-        and grant.get("stage") == "astra_resolve"
+        and grant.get("stage") == "resolve"
         and grant.get("novelty_packet")
     ]
     # Try explicit assignments before ordinary climbs. A climb after an

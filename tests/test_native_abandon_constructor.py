@@ -774,7 +774,7 @@ class NativeAbandonConstructorTests(unittest.TestCase):
             elif case == "uncertain":
                 self.state["active_stage"]["exit_code"] = None
             else:
-                self.state["active_stage"]["stage"] = self.state["next_stage"] = "terra"
+                self.state["active_stage"]["stage"] = self.state["next_stage"] = "builder"
             util.atomic_json(self.state_path, self.state)
             before = self.journal_bytes()
             with self.subTest(case=case), patch.object(launch, "NativeRunContext") as constructor:

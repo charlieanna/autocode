@@ -99,7 +99,7 @@ def begin(state: RunState, text: str) -> bool:
             "at": util.now(),
             "text": text,
             "contract_token": selected,
-            "return_stage": state.get("next_stage") or "astra_plan",
+            "return_stage": state.get("next_stage") or "plan_task",
             **({"return_pause": {"status": state["status"], "reason": state.get("stop_reason", "")}} if held else {}),
         }
     )

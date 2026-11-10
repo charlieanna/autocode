@@ -38,7 +38,7 @@ def joint_run(run_dir):
 def ask_for_approval(state, run_dir):
     """What a final review does, then the writer boundary that adjudicates it."""
     human.queue(
-        state, "goal_approval", {"stage": "astra_finalize"}, status="AWAITING_GOAL_APPROVAL", next_stage="astra_plan"
+        state, "goal_approval", {"stage": "finalize_plan"}, status="AWAITING_GOAL_APPROVAL", next_stage="plan_task"
     )
     records.normalize_human_boundary(state, run_dir)
 
@@ -54,14 +54,14 @@ class DeferredApprovalRestarts(unittest.TestCase):
         for _ in range(2):
             ask_for_approval(self.state, self.run_dir)
             self.assertEqual(
-                ("RUNNING", "PLANNING", "astra_challenge"),
+                ("RUNNING", "PLANNING", "review_plan"),
                 (self.state["status"], self.state["phase"], self.state["next_stage"]),
             )
         ask_for_approval(self.state, self.run_dir)
         self.assertEqual("PAUSED_APPROVAL_DEFERRED", self.state["status"])
         self.assertIn("Independent planning must finish", self.state["stop_reason"])
         # A resume runs exactly one more planning cycle; it never heads for execution unapproved.
-        self.assertEqual("astra_challenge", self.state["next_stage"])
+        self.assertEqual("review_plan", self.state["next_stage"])
         self.assertIsNone(self.state.get(human.PRIVATE))
         self.assertIsNone(human.current(self.state))
 
@@ -77,7 +77,7 @@ class DeferredApprovalRestarts(unittest.TestCase):
             ask_for_approval(self.state, self.run_dir)
         self.state["user_events"].append({"kind": "brief_feedback", "id": "feedback-1", "actor": "user_cli"})
         ask_for_approval(self.state, self.run_dir)
-        self.assertEqual(("RUNNING", "astra_challenge"), (self.state["status"], self.state["next_stage"]))
+        self.assertEqual(("RUNNING", "review_plan"), (self.state["status"], self.state["next_stage"]))
 
     def test_feedback_queued_while_the_run_worked_renews_the_allowance(self):
         for _ in range(2):
@@ -86,7 +86,7 @@ class DeferredApprovalRestarts(unittest.TestCase):
             {"kind": "brief_feedback", "id": "intervention-1", "actor": "user_intervention"}
         )
         ask_for_approval(self.state, self.run_dir)
-        self.assertEqual(("RUNNING", "astra_challenge"), (self.state["status"], self.state["next_stage"]))
+        self.assertEqual(("RUNNING", "review_plan"), (self.state["status"], self.state["next_stage"]))
 
     def test_runner_bookkeeping_does_not_renew_the_allowance(self):
         # Recovery receipts, reroutes and other runner events land in user_events too; the
@@ -110,7 +110,7 @@ class DeferredApprovalRestarts(unittest.TestCase):
         self.small_brief_review_spent()
         with patch.object(human, "_decision", return_value=("defer", human.SOURCE_MOVED)):
             ask_for_approval(self.state, self.run_dir)
-        self.assertEqual(("RUNNING", "astra_challenge"), (self.state["status"], self.state["next_stage"]))
+        self.assertEqual(("RUNNING", "review_plan"), (self.state["status"], self.state["next_stage"]))
         planning = self.state["planning"]
         self.assertEqual((0, {"from": 2, "to": 0}), (planning["astra_calls"], planning["source_change_renewal"]))
         self.assertEqual((2, "runner_default"), (planning["review_call_limit"], planning["review_call_limit_origin"]))
@@ -119,7 +119,7 @@ class DeferredApprovalRestarts(unittest.TestCase):
     def test_a_restart_for_another_reason_keeps_the_small_brief_total(self):
         self.small_brief_review_spent()
         ask_for_approval(self.state, self.run_dir)
-        self.assertEqual(("RUNNING", "astra_challenge"), (self.state["status"], self.state["next_stage"]))
+        self.assertEqual(("RUNNING", "review_plan"), (self.state["status"], self.state["next_stage"]))
         self.assertEqual(2, self.state["planning"]["astra_calls"])
         self.assertNotIn("source_change_renewal", self.state["planning"])
 
@@ -134,9 +134,9 @@ class DeferredApprovalRestarts(unittest.TestCase):
         human.queue(
             self.state,
             "goal_approval",
-            {"stage": "astra_finalize"},
+            {"stage": "finalize_plan"},
             status="AWAITING_GOAL_APPROVAL",
-            next_stage="astra_plan",
+            next_stage="plan_task",
         )
         stop.boundary_effects(
             self.state,
@@ -170,7 +170,7 @@ class DeferredApprovalRestarts(unittest.TestCase):
         self.pause_approval()
         stop.acknowledge_pause(self.state, "2026-10-18T13:50:00+00:00")
         records.normalize_human_boundary(self.state, self.run_dir)
-        self.assertEqual(("RUNNING", "astra_challenge"), (self.state["status"], self.state["next_stage"]))
+        self.assertEqual(("RUNNING", "review_plan"), (self.state["status"], self.state["next_stage"]))
         self.assertNotIn(human.PRIVATE, self.state)
         self.assertEqual("draft", self.state["goal_contract"]["approval_status"])
 

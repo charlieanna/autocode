@@ -22,7 +22,7 @@ def state(**extra):
         "status": "RUNNING",
         "phase": "EXECUTING",
         "iteration": 1,
-        "next_stage": "terra",
+        "next_stage": "builder",
         "stages": [],
         "current_task": {"id": "task-1", "objective": SECRET},
         "goal_contract": {"revision": 2, "approval_status": "approved", "body": {"intended_outcome": SECRET}},
@@ -71,20 +71,22 @@ class ActivityLogTests(unittest.TestCase):
                 self.path,
                 state(
                     active_stage={
-                        "stage": "terra",
-                        "role": "terra",
+                        "stage": "builder",
+                        "role": "builder",
                         "started_at": "t1",
                         "command": ["--model", "gpt-x"],
                     }
                 ),
             )
             ledger = [{"status": "open", "severity": "high", "finding": SECRET}]
-            autocode_status.persist(self.path, state(next_stage="sol", stages=[stage("terra")], findings_ledger=ledger))
+            autocode_status.persist(
+                self.path, state(next_stage="tester", stages=[stage("builder")], findings_ledger=ledger)
+            )
             autocode_status.persist(
                 self.path,
                 state(
                     status="PAUSED_INVALID_OUTPUT",
-                    stages=[stage("terra")],
+                    stages=[stage("builder")],
                     findings_ledger=ledger,
                     stop_reason="Inspect the saved output",
                 ),

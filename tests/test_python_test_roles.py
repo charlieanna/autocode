@@ -93,7 +93,7 @@ class PythonPathRoleTests(unittest.TestCase):
         state = {
             "base_commit": self.base,
             "status": "PAUSED_INTERVENTION",
-            "next_stage": "sol",
+            "next_stage": "tester",
             "regression_proof": proof,
             "regression_proofs": [{"old": True}],
         }
@@ -171,12 +171,12 @@ class PythonPathRoleTests(unittest.TestCase):
 
     def test_read_only_terminal_nonvalidation_and_nonresume_boundaries_do_not_migrate(self):
         for status, stage, options in (
-            ("PAUSED_INTERVENTION", "sol", {"status": True}),
-            ("PAUSED_INTERVENTION", "sol", {"explain": True}),
-            ("PAUSED_INTERVENTION", "sol", {"dry_run": True}),
-            ("TASK_COMPLETE", "sol", {}),
-            ("PAUSED_INTERVENTION", "terra", {}),
-            ("PAUSED_INTERVENTION", "sol", {"resume_paused": False}),
+            ("PAUSED_INTERVENTION", "tester", {"status": True}),
+            ("PAUSED_INTERVENTION", "tester", {"explain": True}),
+            ("PAUSED_INTERVENTION", "tester", {"dry_run": True}),
+            ("TASK_COMPLETE", "tester", {}),
+            ("PAUSED_INTERVENTION", "builder", {}),
+            ("PAUSED_INTERVENTION", "tester", {"resume_paused": False}),
         ):
             with self.subTest(status=status, stage=stage, options=options):
                 run_dir, state, settings = self.legacy_binding()

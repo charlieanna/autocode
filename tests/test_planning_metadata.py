@@ -57,12 +57,12 @@ class PlanningMetadataTests(unittest.TestCase):
         state, report = self.inputs()
         state["goal_contract"]["body"]["acceptance_criteria"][0]["current_behavior"] = "Missing greeting"
         before = copy.deepcopy(report)
-        result = metadata.expand_report(state, "astra_discovery", report)
+        result = metadata.expand_report(state, "draft_plan", report)
         self.assertEqual(before, report)
         self.assertEqual("Missing greeting", result["contract"]["acceptance_criteria"][0]["current_behavior"])
-        installed = current_behavior.prepare_body(state, result["contract"], "astra_discovery")
-        state["goal_contract"] = {"body": installed, "origin": "astra_discovery"}
-        state["planning"] = {"reports": {"astra_discovery": {"report": copy.deepcopy(result)}}}
+        installed = current_behavior.prepare_body(state, result["contract"], "draft_plan")
+        state["goal_contract"] = {"body": installed, "origin": "draft_plan"}
+        state["planning"] = {"reports": {"draft_plan": {"report": copy.deepcopy(result)}}}
         self.assertEqual(report["requirement_trace"], retention.validated_trace(state))
         for field, changed in (
             ("criterion", "Wrong outcome"),
@@ -96,18 +96,18 @@ class PlanningMetadataTests(unittest.TestCase):
         state, report = self.inputs()
         report["requirement_trace"][0].pop("requirement_id")
         before = copy.deepcopy((state, report))
-        result = normalize_planning_metadata(report, state, {"stage": "astra_discovery"})
+        result = normalize_planning_metadata(report, state, {"stage": "draft_plan"})
         self.assertEqual("R2", result["requirement_trace"][0]["requirement_id"])
         self.assertEqual(before, (state, report))
         goals.check_requirement_trace(state, result, result["contract"])
-        self.assertEqual(result, normalize_planning_metadata(result, state, {"stage": "astra_discovery"}))
+        self.assertEqual(result, normalize_planning_metadata(result, state, {"stage": "draft_plan"}))
 
     def test_ambiguous_missing_ids_are_all_reported_without_guessing(self):
         state, report = self.inputs()
         for row in report["requirement_trace"]:
             row.pop("requirement_id")
         with self.assertRaises(ValueError) as caught:
-            normalize_planning_metadata(report, state, {"stage": "glm_revise"})
+            normalize_planning_metadata(report, state, {"stage": "revise_plan"})
         for expected in ("requirement_trace[0].requirement_id", "requirement_trace[1].requirement_id", "R1", "R2"):
             self.assertIn(expected, str(caught.exception))
         self.assertTrue(all("requirement_id" not in row for row in report["requirement_trace"]))
@@ -129,7 +129,7 @@ class PlanningMetadataTests(unittest.TestCase):
                 rows[0]["requirement_id"] = ""
             before = copy.deepcopy(report)
             with self.subTest(kind=kind), self.assertRaises(ValueError):
-                result = normalize_planning_metadata(report, state, {"stage": "astra_discovery"})
+                result = normalize_planning_metadata(report, state, {"stage": "draft_plan"})
                 goals.check_requirement_trace(state, result, result["contract"])
             self.assertEqual(before, report)
 
@@ -138,7 +138,7 @@ class PlanningMetadataTests(unittest.TestCase):
         row = report["requirement_trace"][0]
         row.pop("requirement_id")
         row["evidence"] = "Use stdlib only"
-        result = normalize_planning_metadata(report, state, {"stage": "astra_discovery"})
+        result = normalize_planning_metadata(report, state, {"stage": "draft_plan"})
         with self.assertRaisesRegex(ValueError, "Requirement R2 is not covered"):
             goals.check_requirement_trace(state, result, result["contract"])
 
@@ -156,11 +156,11 @@ class PlanningMetadataTests(unittest.TestCase):
             }
         )
         before = copy.deepcopy((state, report))
-        result = normalize_planning_metadata(report, state, {"stage": "glm_revise"})
+        result = normalize_planning_metadata(report, state, {"stage": "revise_plan"})
         self.assertEqual([], result["contract_changes"])
         self.assertEqual(report["contract"], result["contract"])
         self.assertEqual(before, (state, report))
-        goals.revision_guard(state, result["contract"], result["contract_changes"], "glm_revise")
+        goals.revision_guard(state, result["contract"], result["contract_changes"], "revise_plan")
 
     def test_a_criteria_delta_keeps_existing_metadata_recovery_without_changing_its_rows(self):
         import autocode_plan_retention as retention
@@ -175,13 +175,13 @@ class PlanningMetadataTests(unittest.TestCase):
             "remove": [],
         }
         before = copy.deepcopy((state, report))
-        result = normalize_planning_metadata(report, state, {"stage": "glm_revise"})
+        result = normalize_planning_metadata(report, state, {"stage": "revise_plan"})
         self.assertEqual([], result["contract_changes"])
         self.assertEqual(report["contract"], result["contract"])
         self.assertEqual(before, (state, report))
-        expanded = retention.expand(state, "glm_revise", result)
+        expanded = retention.expand(state, "revise_plan", result)
         self.assertEqual(complete, expanded["contract"])
-        goals.revision_guard(state, expanded["contract"], expanded["contract_changes"], "glm_revise")
+        goals.revision_guard(state, expanded["contract"], expanded["contract_changes"], "revise_plan")
 
     def test_addition_receipts_cannot_hide_changes_to_existing_obligations(self):
         for kind in ("criterion", "proof", "permission", "behavior", "failure_case", "review"):
@@ -201,18 +201,18 @@ class PlanningMetadataTests(unittest.TestCase):
             if kind == "review":
                 state["goal_contract"]["approval_status"] = "approved"
                 state["goal_contract"]["body"]["acceptance_criteria"][0]["human_review"] = True
-            result = normalize_planning_metadata(report, state, {"stage": "glm_revise"})
+            result = normalize_planning_metadata(report, state, {"stage": "revise_plan"})
             with self.subTest(kind=kind), self.assertRaises(ValueError):
-                goals.revision_guard(state, result["contract"], result["contract_changes"], "glm_revise")
+                goals.revision_guard(state, result["contract"], result["contract_changes"], "revise_plan")
 
     def test_null_example_correction_is_a_valid_absent_receipt(self):
         state, report = self.inputs()
         self.addition(report)
         report["contract_changes"][0]["example_correction"] = None
-        result = normalize_planning_metadata(report, state, {"stage": "glm_revise"})
+        result = normalize_planning_metadata(report, state, {"stage": "revise_plan"})
         self.assertEqual([], result["contract_changes"])
         self.assertEqual(report["contract"], result["contract"])
-        goals.revision_guard(state, result["contract"], result["contract_changes"], "glm_revise")
+        goals.revision_guard(state, result["contract"], result["contract_changes"], "revise_plan")
 
     def test_real_or_malformed_receipts_are_retained_for_validation(self):
         valid = {
@@ -236,14 +236,14 @@ class PlanningMetadataTests(unittest.TestCase):
             state, report = self.inputs()
             self.addition(report)
             report["contract_changes"] = changes
-            result = normalize_planning_metadata(report, state, {"stage": "glm_revise"})
+            result = normalize_planning_metadata(report, state, {"stage": "revise_plan"})
             self.assertEqual(changes, result["contract_changes"])
 
     def test_other_roles_are_not_normalized(self):
         state, report = self.inputs()
         self.addition(report)
         report["requirement_trace"][0].pop("requirement_id")
-        for stage in ("astra_plan", "terra", "sol", "astra_review"):
+        for stage in ("plan_task", "builder", "tester", "review_completion"):
             self.assertEqual(report, normalize_planning_metadata(report, state, {"stage": stage}))
 
     def test_loader_saves_canonical_report_and_preserves_raw_provider_output(self):
@@ -273,8 +273,8 @@ class PlanningMetadataTests(unittest.TestCase):
                 output.write_text(json.dumps(raw))
                 schema_file.write_text(json.dumps(schema))
                 record = {
-                    "stage": "glm_revise_report_repair",
-                    "original_stage": "glm_revise",
+                    "stage": "revise_plan_report_repair",
+                    "original_stage": "revise_plan",
                     "engine": engine,
                     "output": str(output),
                     "schema": str(schema_file),

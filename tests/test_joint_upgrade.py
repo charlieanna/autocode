@@ -33,7 +33,7 @@ class JointUpgradeTests(unittest.TestCase):
             "acceptance_criteria": [],
             "stages": [],
             "history": [],
-            "sessions": {"task_planner": "ses_astra", "terra": "ses_terra", "sol": "ses_sol"},
+            "sessions": {"task_planner": "ses_astra", "builder": "ses_terra", "tester": "ses_sol"},
             "settings": {
                 "engine": "opencode",
                 "transport_identity": {"engine": "opencode"},
@@ -41,13 +41,13 @@ class JointUpgradeTests(unittest.TestCase):
                 "report_repair": {"max_attempts": 2},
                 "roles": {
                     "task_planner": {"model": "openai/gpt-6-astra", "reasoning_effort": "high"},
-                    "terra": {"model": "zai-coding-plan/glm-5.3", "reasoning_effort": "max"},
-                    "sol": {"model": "cursor-acp/grok-4.7-xhigh", "reasoning_effort": "high"},
+                    "builder": {"model": "zai-coding-plan/glm-5.3", "reasoning_effort": "max"},
+                    "tester": {"model": "cursor-acp/grok-4.7-xhigh", "reasoning_effort": "high"},
                 },
             },
         }
         approve_fixture(self.state, goals)
-        self.state.update(status="PAUSED_TRANSPORT_CHANGED", next_stage="sol")
+        self.state.update(status="PAUSED_TRANSPORT_CHANGED", next_stage="tester")
         self.args = test_planning.PlanningTests.configure_args(self, joint_planning=True)
         for name in ("check_models", "check_subscription_routes"):
             mock = patch.object(oc, name)
@@ -89,9 +89,9 @@ class JointUpgradeTests(unittest.TestCase):
     def test_unresolved_attempts_and_unapproved_plans_cannot_upgrade(self):
         for change in (
             {"active_stage": {"pid": 1}},
-            {"pending_report_repair": {"role": "terra"}},
+            {"pending_report_repair": {"role": "builder"}},
             {"uncertain_artifacts": "partial"},
-            {"next_stage": "astra_discovery"},
+            {"next_stage": "draft_plan"},
             {"status": "TASK_COMPLETE"},
             {"user_events": []},
         ):
@@ -151,11 +151,11 @@ class JointUpgradeFlow(unittest.TestCase):
         self.launch([*args, "--approve-goal", state["displayed_goal"]], 0)
         self.launch([*args, "--pause-after-stage"], 2)
         state = self.saved()[1]
-        if state["next_stage"] == "terra":
+        if state["next_stage"] == "builder":
             self.assertIsNone(state.get("implementation"))
             self.launch([*args, "--resume-paused", "--pause-after-stage"], 2)
             state = self.saved()[1]
-        self.assertEqual("sol", state["next_stage"])
+        self.assertEqual("tester", state["next_stage"])
         self.assertTrue(state.get("implementation"))
         state["settings"].pop("joint_planning")
         state["settings"]["roles"].pop("planner")
@@ -168,12 +168,12 @@ class JointUpgradeFlow(unittest.TestCase):
         self.assertEqual(state["goal_contract"], upgraded["goal_contract"])
         self.assertEqual(state["current_task"], upgraded["current_task"])
         new_stages = upgraded["stages"][len(state["stages"]) :]
-        self.assertEqual("sol", new_stages[-1]["stage"])
+        self.assertEqual("tester", new_stages[-1]["stage"])
         self.assertEqual("opencode", new_stages[-1]["engine"])
-        self.assertEqual("astra_review", upgraded["next_stage"])
+        self.assertEqual("review_completion", upgraded["next_stage"])
         self.assertNotIn("planning", upgraded)
         self.assertEqual(
-            {"task_planner", "terra", "sol", "completion", "requirements", "planner", "plan_reviewer"},
+            {"task_planner", "builder", "tester", "completion", "requirements", "planner", "plan_reviewer"},
             set(upgraded["settings"]["roles"]),
         )
         self.assertEqual(state, json.loads(Path(upgraded["planning_migrations"][-1]["backup"]).read_text()))
@@ -188,7 +188,7 @@ class JointUpgradeFlow(unittest.TestCase):
         self.launch([*args, "--resume-paused", "--pause-after-stage"], 2)
         revised = self.saved()[1]
         self.assertEqual("requirements", revised["stages"][-1]["role"])
-        self.assertEqual("astra_discovery", revised["next_stage"])
+        self.assertEqual("draft_plan", revised["next_stage"])
         self.assertFalse(goals.approved(revised))
 
 

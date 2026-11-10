@@ -10,7 +10,7 @@ import autocode_recovery_progress as progress
 
 def checkpoint():
     return {
-        "stage": "astra_challenge",
+        "stage": "review_plan",
         "role": "task_planner",
         "exit_code": 0,
         "finished_at": "2026-10-21T10:00:10+00:00",
@@ -31,7 +31,7 @@ def legacy_state():
     return {
         "status": "WAITING_FOR_USER",
         "phase": "EXECUTING",
-        "next_stage": "astra_review",
+        "next_stage": "review_completion",
         "automatic_recoveries_since_resume": 4,
         "consecutive_timeout_recoveries": 1,
         "stages": [checkpoint()],

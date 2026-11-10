@@ -49,22 +49,22 @@ SCENARIO = "greenfield-greeting-cli"
 OPENCODE_FLAGS = (
     "--engine",
     "opencode",
-    "--astra-model",
+    "--task-planner-model",
     "openai/gpt-6-astra",
-    "--terra-model",
+    "--builder-model",
     "openai/gpt-5.6-terra",
-    "--sol-model",
+    "--tester-model",
     "zai-coding-plan/glm-5.3",
     "--completion-model",
     "zai-coding-plan/glm-5.3",
-    "--glm-model",
+    "--planner-model",
     "zai-coding-plan/glm-5.3",
     "--plan-reviewer-model",
     "openai/gpt-6-astra",
 )
 # The OpenCode stages that launch contained: the Builder, the Tester and the Completion Reviewer.
 # Each one's stage record must name the boundary.
-CONTAINED_STAGES = ("terra", "sol", "astra_review")
+CONTAINED_STAGES = ("builder", "tester", "review_completion")
 
 
 def planted_commands(run_dir):
@@ -186,7 +186,7 @@ class ContainedOpenCodeScenarioTests(unittest.TestCase):
         self.assertEqual("bubblewrap", launch["backend"], launch)
         self.assertEqual(found["backend_version"], launch["backend_version"], launch)
         self.assertRegex(launch["backend_version"], r"^bubblewrap \d")
-        self.assertEqual("astra_review", launch["stage"], launch)
+        self.assertEqual("review_completion", launch["stage"], launch)
 
 
 if __name__ == "__main__":

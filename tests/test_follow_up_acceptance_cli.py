@@ -160,8 +160,8 @@ def acceptance_tests(data):
         self.assertEqual(1, len(approvals2), "current-green inherited cases must not create another plan approval")
         after = second["usage"]["accounting"]["attempts"][before:]
         self.assertEqual(1, sum(row["stage"] == "write_acceptance_tests" for row in after))
-        self.assertEqual(1, sum(row["stage"] == "terra" for row in after))
-        self.assertEqual(2, sum(row["stage"] in ("astra_challenge", "astra_finalize") for row in after))
+        self.assertEqual(1, sum(row["stage"] == "builder" for row in after))
+        self.assertEqual(2, sum(row["stage"] in ("review_plan", "finalize_plan") for row in after))
         self.assertFalse(any(row.get("report_only") for row in after), after)
         final_contract = second["approved_contract"]
         self.assertEqual(approvals2[0], "r" + str(final_contract["revision"]) + ":" + final_contract["hash"])

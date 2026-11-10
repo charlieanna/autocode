@@ -53,9 +53,9 @@ class ModelPreflightBudgetCliTests(unittest.TestCase):
         self.run_dir = self.workspace / ".autocode/runs/access-probe"
         models = {
             role: "fixture/reviewer"
-            for role in ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")
+            for role in ("task_planner", "builder", "tester", "completion", "planner", "plan_reviewer")
         }
-        models["terra"] = models["planner"] = "fixture/builder"
+        models["builder"] = models["planner"] = "fixture/builder"
         config = {
             "name": "budgetfixture",
             "command": [sys.executable, "-c", "raise AssertionError('no provider may spawn')"],
@@ -394,8 +394,8 @@ class ModelPreflightBudgetCliTests(unittest.TestCase):
             argument
             for role in (
                 "task_planner",
-                "terra",
-                "sol",
+                "builder",
+                "tester",
                 "planner",
                 "plan_reviewer",
                 "requirements",

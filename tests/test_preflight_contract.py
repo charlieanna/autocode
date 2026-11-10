@@ -375,7 +375,7 @@ class WorkerPermissionTests(PreflightFixture):
         return {
             "engine": "opencode",
             "configured": False,
-            "command": ["opencode", "run", "--agent", "autocode_terra"],
+            "command": ["opencode", "run", "--agent", "autocode_builder"],
             "environment": {"OPENCODE_CONFIG_CONTENT": "{}"},
             "model": "fixture/model",
         }
@@ -422,7 +422,7 @@ class WorkerPermissionTests(PreflightFixture):
             "engine": "codex",
             "provider": "codex",
             "configured": False,
-            "role": "terra",
+            "role": "builder",
             "sandbox": "read-only",
             "planning": False,
             "model": "fixture",
@@ -446,7 +446,7 @@ class WorkerPermissionTests(PreflightFixture):
             "engine": "codex",
             "provider": "codex",
             "configured": False,
-            "role": "terra",
+            "role": "builder",
             "sandbox": "read-only",
             "planning": False,
             "model": "fixture",

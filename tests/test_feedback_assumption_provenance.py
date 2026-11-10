@@ -54,7 +54,7 @@ def inputs():
             "revision": 8,
             "hash": "draft-hash",
         },
-        "contract_history": [{"body": approved, "origin": "astra_finalize", "approval_status": "approved"}],
+        "contract_history": [{"body": approved, "origin": "finalize_plan", "approval_status": "approved"}],
         "brief_feedback": [event],
         "user_events": [event],
         "answers": {},
@@ -68,7 +68,7 @@ class FeedbackAssumptionRevisionTests(unittest.TestCase):
     def test_correcting_new_model_interpretation_does_not_request_user_authority(self):
         state, after = inputs()
         before = copy.deepcopy(state)
-        self.assertEqual([], revision.revision_guard(state, after, [], "glm_revise"))
+        self.assertEqual([], revision.revision_guard(state, after, [], "revise_plan"))
         self.assertEqual(before, state)
 
     def test_overdeclared_interpretation_correction_is_an_engineering_change(self):
@@ -76,7 +76,7 @@ class FeedbackAssumptionRevisionTests(unittest.TestCase):
         changes = [
             {"item": WRONG, "change": "reworded", "replacement": RIGHT, "basis": "agent_proposed", "answer_id": ""}
         ]
-        self.assertEqual(changes, revision.revision_guard(state, after, changes, "glm_revise"))
+        self.assertEqual(changes, revision.revision_guard(state, after, changes, "revise_plan"))
 
     def test_person_owned_or_uncertain_rows_stay_protected(self):
         for case in (
@@ -112,7 +112,7 @@ class FeedbackAssumptionRevisionTests(unittest.TestCase):
                     protected = copy.deepcopy(contract)
                     protected.update(
                         approval_status="approved" if case == "approved_history" else "draft",
-                        origin="astra_finalize" if case == "approved_history" else "user_cli_edit",
+                        origin="finalize_plan" if case == "approved_history" else "user_cli_edit",
                     )
                     state["contract_history"].append(protected)
                 elif case == "receipt":
@@ -160,7 +160,7 @@ class FeedbackAssumptionRevisionTests(unittest.TestCase):
                 elif case == "lost_source":
                     after["accepted_assumptions"][0].update(basis="agent_proposed", answer_id="")
                 with self.assertRaises((ValueError, rewording.ProtectedRewording)):
-                    revision.revision_guard(state, after, [], "glm_revise")
+                    revision.revision_guard(state, after, [], "revise_plan")
 
     def test_interpretation_correction_does_not_authorize_other_protected_changes(self):
         for case in ("behavior", "permission", "criterion", "proof"):
@@ -175,7 +175,7 @@ class FeedbackAssumptionRevisionTests(unittest.TestCase):
                 elif case == "proof":
                     after["acceptance_criteria"][0]["verification_method"] = "Run anything"
                 with self.assertRaises(ValueError):
-                    revision.revision_guard(state, after, [], "glm_revise")
+                    revision.revision_guard(state, after, [], "revise_plan")
 
     def test_interpretation_correction_keeps_a_new_criterion_source_quote_protected(self):
         state, after = inputs()
@@ -189,10 +189,10 @@ class FeedbackAssumptionRevisionTests(unittest.TestCase):
         state["goal_contract"]["body"]["acceptance_criteria"].append(copy.deepcopy(criterion))
         after["acceptance_criteria"].append(copy.deepcopy(criterion))
         after["acceptance_criteria"][-1]["criterion"] = "Given that new input, the requested output is returned"
-        revision.revision_guard(state, after, [], "glm_revise")
+        revision.revision_guard(state, after, [], "revise_plan")
         after["acceptance_criteria"][-1]["sources"] = []
         with self.assertRaises(ValueError):
-            revision.revision_guard(state, after, [], "glm_revise")
+            revision.revision_guard(state, after, [], "revise_plan")
 
 
 class FeedbackAssumptionContextTests(unittest.TestCase):
@@ -221,7 +221,7 @@ class FeedbackAssumptionContextTests(unittest.TestCase):
     def test_revision_prompt_distinguishes_interpretation_from_exact_saved_feedback(self):
         state = self.state()
         before = copy.deepcopy(state)
-        prompt, _ = autoplanner.context(state, "glm_revise", Path("/fixture/state.json"))
+        prompt, _ = autoplanner.context(state, "revise_plan", Path("/fixture/state.json"))
         packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
         context = packet["feedback_interpretations"]
         self.assertEqual(WRONG, context["rows"][0]["text"])
@@ -236,7 +236,7 @@ class FeedbackAssumptionContextTests(unittest.TestCase):
         state["answers"]["A1"] = {"kind": "answer", "text": human["text"]}
         original = {"format": "json", "content": {}, "truncated": False}
         _, handoff = repair_context.prompt_parts(
-            state, {"original": {"stage": "glm_revise"}}, original, original, ("", {})
+            state, {"original": {"stage": "revise_plan"}}, original, original, ("", {})
         )
         self.assertEqual(goals.feedback_interpretation_context(state), handoff["header"]["feedback_interpretations"])
         self.assertEqual(

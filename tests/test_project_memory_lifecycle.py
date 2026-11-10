@@ -557,7 +557,7 @@ class ProjectMemoryLifecycleTests(unittest.TestCase):
             {"status": "RUNNING"},
             {"status": "PAUSED_COST_LIMIT"},
             {"parent_run": "other"},
-            {"active_stage": {"stage": "terra"}},
+            {"active_stage": {"stage": "builder"}},
             {"uncertain_artifacts": [{"output": "uncertain"}]},
         ):
             with self.subTest(changed=changed), patch.object(store, "write") as write:

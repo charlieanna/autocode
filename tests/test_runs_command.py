@@ -42,7 +42,7 @@ class FleetRowsTests(unittest.TestCase):
     def setUp(self):
         self.root = project(
             waiting={"status": "PAUSED_REQUESTED", "stop_reason": "paused on request", "iteration": 2},
-            working={"status": "RUNNING", "iteration": 1, "phase": "BUILDING", "next_stage": "terra"},
+            working={"status": "RUNNING", "iteration": 1, "phase": "BUILDING", "next_stage": "builder"},
             finished={"status": "TASK_COMPLETE", "iteration": 3},
         )
         broken = self.root / ".autocode" / "runs" / "broken"
@@ -106,7 +106,7 @@ class FleetRowsTests(unittest.TestCase):
             uncertain={
                 "status": "PAUSED_INVALID_OUTPUT",
                 "iteration": 1,
-                "active_stage": {"stage": "terra", "output": "001/terra-01.json", "iteration": 1},
+                "active_stage": {"stage": "builder", "output": "001/terra-01.json", "iteration": 1},
             }
         )
         row = next(item for item in runs.rows(root) if item["name"] == "uncertain")
@@ -184,7 +184,7 @@ class StatusViewProjectionTests(unittest.TestCase):
             with self.subTest(status=status):
                 state = {"status": status, "settings": {}, "iteration": 1, "stop_reason": "because"}
                 if status.startswith("PAUSED"):
-                    state["active_stage"] = {"stage": "terra", "output": "002/terra-02.json", "iteration": 2}
+                    state["active_stage"] = {"stage": "builder", "output": "002/terra-02.json", "iteration": 2}
                 shown = run_view.view(state, run_dir=Path("/tmp/run"), workspace=Path("/tmp/project"))
                 action = run_view.action(state, run_dir=Path("/tmp/run"), workspace=Path("/tmp/project"))
                 self.assertEqual(shown["needs"], action["needs"])

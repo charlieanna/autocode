@@ -87,15 +87,15 @@ class CapacityScenarioTests(unittest.TestCase):
             )
             snapshot = archive / "requirements-01.after.json"
             context = {
-                "stage": "astra_discovery",
-                "next_stage": "astra_discovery",
+                "stage": "draft_plan",
+                "next_stage": "draft_plan",
                 "retry_number": 1,
                 "changed_files": [],
                 "events": str(events),
                 "source_snapshot": str(snapshot),
             }
             failed = {
-                "stage": "astra_discovery",
+                "stage": "draft_plan",
                 "model": "same-model",
                 "rejected": True,
                 "interrupted": True,
@@ -104,16 +104,16 @@ class CapacityScenarioTests(unittest.TestCase):
                 "output": str(archive / "requirements-01.json"),
             }
             succeeded = {
-                "stage": "astra_discovery",
+                "stage": "draft_plan",
                 "model": "same-model",
                 "rejected": False,
                 "interrupted": False,
                 "exit_code": 0,
             }
             rows = [
-                {"stage": "astra_discovery", "model": "same-model", "session": "failed-session", "outcome": "capacity"},
+                {"stage": "draft_plan", "model": "same-model", "session": "failed-session", "outcome": "capacity"},
                 {
-                    "stage": "astra_discovery",
+                    "stage": "draft_plan",
                     "model": "same-model",
                     "session": "new-session",
                     "outcome": "continue",
@@ -148,13 +148,13 @@ class CapacityScenarioTests(unittest.TestCase):
             snapshot.write_text(json.dumps({"revision": "revision"}))
             succeeded["output"] = str(run_dir / "iterations/001/requirements-02.json")
             injected = {
-                "stage": "astra_discovery",
+                "stage": "draft_plan",
                 "side": "scripted",
                 "model": "same-model",
                 "report": str(run_dir / "iterations/001/requirements-01.json"),
             }
             retry = {
-                "stage": "astra_discovery",
+                "stage": "draft_plan",
                 "side": "live",
                 "model": "same-model",
                 "report": succeeded["output"],
@@ -194,14 +194,14 @@ class CapacityScenarioTests(unittest.TestCase):
     def test_hybrid_capacity_retry_reaches_the_live_side_after_one_scripted_failure(self):
         result = self.run_fake("reference", hybrid=True)
         self.assertEqual(run.verdict.PASS, result["verdict"], result["summary"])
-        self.assertEqual(["astra_discovery"], result["hybrid"]["scripted_stage_names"])
-        self.assertEqual(1, result["hybrid"]["live_stage_names"].count("astra_discovery"))
+        self.assertEqual(["draft_plan"], result["hybrid"]["scripted_stage_names"])
+        self.assertEqual(1, result["hybrid"]["live_stage_names"].count("draft_plan"))
 
     def test_serial_capacity_failure_recovers_once_and_completes(self):
         result = self.run_fake("reference")
         self.assertEqual(run.verdict.PASS, result["verdict"], result["summary"])
         self.assertEqual("TASK_COMPLETE", result["runner_status"])
-        self.assertEqual(2, result["metrics"]["by_stage"]["astra_discovery"]["count"])
+        self.assertEqual(2, result["metrics"]["by_stage"]["draft_plan"]["count"])
         self.assertEqual([], result["answers"], "Capacity must recover without an operator answer")
 
     def test_capacity_recovery_does_not_hide_a_wrong_delivery(self):

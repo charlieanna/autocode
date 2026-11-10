@@ -11,9 +11,9 @@ def report_for(stage, data, common, config, run_check, requirements):
     helper = runpy.run_path(str(Path(__file__).with_name("completion_rework_provider.py")))
     nonpython = config["fault"] == "recovery_novelty_nonpython"
     trace = Path(os.environ["SCENARIO_FAKE_CONFIG"]).parent / "rework-trace.jsonl"
-    if nonpython and stage == "terra":
+    if nonpython and stage == "builder":
         previous = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
-        count = sum(row["stage"] == "terra" for row in previous) + 1
+        count = sum(row["stage"] == "builder" for row in previous) + 1
         root = Path(config["reference"]).parent
         source = root / ("seed" if count <= 2 else "reference") / "greet.js"
         Path("greet.js").write_text(source.read_text() + f"\n// controlled attempt {count}\n")
@@ -49,12 +49,12 @@ def report_for(stage, data, common, config, run_check, requirements):
     if nonpython and result.get("next_task"):
         result["plan"] = [line.replace("greet.py", "greet.js") for line in result.get("plan", [])]
     rows = [json.loads(line) for line in trace.read_text().splitlines()]
-    builds = sum(row["stage"] == "terra" for row in rows)
+    builds = sum(row["stage"] == "builder" for row in rows)
     if (
         config["fault"] != "recovery_novelty_hold"
         and builds >= 2
         and result.get("status") == "REWORK"
-        and stage in ("astra_review", "astra_resolve")
+        and stage in ("review_completion", "resolve")
     ):
         output = (data.get("validation") or {}).get("output")
         result["recovery_change"] = {
@@ -73,7 +73,7 @@ def report_for(stage, data, common, config, run_check, requirements):
             result["recovery_change"]["question"] = (
                 "Does the failure come from the argument guard rather than the greeting output branch?"
             )
-        if config["fault"] == "recovery_novelty_narrow" and stage == "astra_resolve":
+        if config["fault"] == "recovery_novelty_narrow" and stage == "resolve":
             # #423: repair only the failed blank-name criterion, not the whole failed task.
             result["next_task"]["acceptance_criteria"] = ["C2"]
         if nonpython:

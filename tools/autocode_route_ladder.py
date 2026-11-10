@@ -56,13 +56,13 @@ EFFORT_LADDERS = {
         ("openai/gpt-6-astra", "xhigh", "GPT-6 Astra XHigh"),
         ("openai/gpt-6-astra", "max", "GPT-6 Astra Max"),
     ),
-    "terra": (
+    "builder": (
         ("openai/gpt-6-sol", "medium", "GPT-6 Sol Medium"),
         ("openai/gpt-6-sol", "high", "GPT-6 Sol High"),
         ("openai/gpt-6-sol", "xhigh", "GPT-6 Sol XHigh"),
         ("openai/gpt-6-sol", "max", "GPT-6 Sol Max"),
     ),
-    "sol": (
+    "tester": (
         ("openai/gpt-6-sol", "high", "GPT-6 Sol High"),
         ("openai/gpt-6-sol", "xhigh", "GPT-6 Sol XHigh"),
         ("openai/gpt-6-sol", "max", "GPT-6 Sol Max"),
@@ -273,7 +273,7 @@ def serve(settings, available, *, roles=None, named_strong=None):
     retry = settings.get("builder_retry")
     missing = (
         _unoffered_climb(settings, retry, available)
-        if isinstance(retry, dict) and (target_roles is None or "terra" in target_roles)
+        if isinstance(retry, dict) and (target_roles is None or "builder" in target_roles)
         else None
     )
     if missing is None:
@@ -327,13 +327,13 @@ def _unoffered_climb(settings, retry, available):
     provider, pauses instead (autocode_builder_policy._escalate), so its rungs launch nothing.
     """
     strong = retry.get("strong_model")
-    builder = (settings.get("roles") or {}).get("terra")
+    builder = (settings.get("roles") or {}).get("builder")
     if (
         not strong
         or not isinstance(builder, dict)
         or builder.get("model_pinned")
         or builder.get("provider") not in (None, "openai")
-        or _engine(settings, "terra") != "opencode"
+        or _engine(settings, "builder") != "opencode"
     ):
         return None
     if not offered(strong, available):
@@ -345,7 +345,7 @@ def _unoffered_climb(settings, retry, available):
     roles = settings.get("roles") or {}
     moved = [
         role
-        for role in independence.verifiers("terra")
+        for role in independence.verifiers("builder")
         if isinstance(roles.get(role), dict)
         and _engine(settings, role) == "opencode"
         and movable(settings, roles[role])
@@ -365,7 +365,7 @@ def record_outcome(state: RunState, outcome, *, builder=True):
     """
     stamped = []
     for event in state.get("reasoning_escalations", []):
-        if "outcome" not in event and (builder or event.get("role") != "terra"):
+        if "outcome" not in event and (builder or event.get("role") != "builder"):
             event["outcome"] = outcome
             stamped.append(event)
     for decision in state.get("builder_retry_decisions", []) if builder else ():

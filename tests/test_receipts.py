@@ -109,7 +109,7 @@ class ValidatorEvidenceInstructionTests(unittest.TestCase):
     def test_every_event_reference_instruction_names_the_receipt_alternative(self):
         # A live run (2026-10-04) told a report-file Validator both to cite 'event:' references and,
         # in its provider's text, never to cite event IDs; the runner rejected 11 such reports in 9 runs.
-        sentences = re.split(r"(?<=[.;])\s+", " ".join(support.STABLE["sol"].split()))
+        sentences = re.split(r"(?<=[.;])\s+", " ".join(support.STABLE["tester"].split()))
         for sentence in sentences:
             if "'event:'" in sentence:
                 with self.subTest(sentence=sentence):

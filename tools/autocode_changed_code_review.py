@@ -57,7 +57,7 @@ def _stage(record):
 
 def _fields(schema, stage):
     fields = schema.get("properties", {})
-    return fields.get("validation", {}).get("properties", {}) if stage == "astra_checkpoint" else fields
+    return fields.get("validation", {}).get("properties", {}) if stage == "review_checkpoint" else fields
 
 
 def _gaps(assessment):
@@ -93,7 +93,7 @@ def resolve(assessment, name):
 def generation_schema(schema, assessment, stage):
     """Offer only current gaps to an independent Tester; never mutate a shared schema."""
     result = copy.deepcopy(schema)
-    if stage == "terra":
+    if stage == "builder":
         # The Builder's final-only self-assessment borrows the Tester shape but
         # cannot independently approve its own reasons.
         own = result.get("properties", {}).get("continuation", {}).get("properties", {}).get("self_assessment", {})
@@ -101,7 +101,7 @@ def generation_schema(schema, assessment, stage):
         if "required" in own:
             own["required"] = [key for key in own["required"] if key != FIELD]
         return result
-    if stage not in ("sol", "astra_checkpoint"):
+    if stage not in ("tester", "review_checkpoint"):
         return result
     field = _fields(result, stage).get(FIELD)
     if not isinstance(field, dict):
@@ -120,14 +120,14 @@ def generation_schema(schema, assessment, stage):
 def normalize_absent(value, schema, record):
     """Legacy omissions mean no decision; supplied decisions remain untouched."""
     stage = _stage(record)
-    if stage not in ("sol", "astra_checkpoint"):
+    if stage not in ("tester", "review_checkpoint"):
         return value
     field = _fields(schema, stage).get(FIELD, {})
     kind = field.get("type")
     if not isinstance(kind, list) or "array" not in kind or "null" not in kind:
         return value
     result = copy.deepcopy(value)
-    target = result.get("validation") if stage == "astra_checkpoint" else result
+    target = result.get("validation") if stage == "review_checkpoint" else result
     if isinstance(target, dict):
         target.setdefault(FIELD, None)
     return result
@@ -172,7 +172,7 @@ def bind(assessment, decisions, record, *, offered_schema, verified_refs):
     if not isinstance(decisions, list):
         raise ValueError("Changed-code exception decisions must be an array or null")
     stage = _stage(record)
-    if (stage, record.get("role")) not in (("sol", "sol"), ("astra_checkpoint", "task_planner")):
+    if (stage, record.get("role")) not in (("tester", "tester"), ("review_checkpoint", "task_planner")):
         raise ValueError("Changed-code reasons require an independent Tester report")
     if not isinstance(assessment, dict) or (
         not assessment.get("source_revision")

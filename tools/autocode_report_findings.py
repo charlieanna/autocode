@@ -19,11 +19,11 @@ except ImportError:
 
 
 FIELDS = frozenset(("id", "disposition", "evidence"))
-REVIEW_SOURCES = {"sol": "sol", "astra_review": "task_planner", "astra_plan": "task_planner"}
+REVIEW_SOURCES = {"tester": "tester", "review_completion": "task_planner", "plan_task": "task_planner"}
 # These original outcomes already reach disposition application. A BLOCKED
 # result carries no such authority, even if repair changes its outcome later.
 APPLICABLE_OUTCOMES = {
-    "sol": ("verdict", ("PASS", "FAIL")),
+    "tester": ("verdict", ("PASS", "FAIL")),
     "task_planner": ("status", ("CONTINUE", "REWORK", "COMPLETE", "TASK_COMPLETE")),
 }
 # The report-repair prompt's rule for these rows. In #459's live run a repair
@@ -60,7 +60,7 @@ def _fresh(record):
     """True for a completed review stage record that has not been repaired, cut short or abandoned."""
     return (
         isinstance(record, dict)
-        and record.get("stage") in (*REVIEW_SOURCES, "astra_checkpoint")
+        and record.get("stage") in (*REVIEW_SOURCES, "review_checkpoint")
         and type(record.get("exit_code")) is int
         and record["exit_code"] == 0
         and not any(
@@ -71,10 +71,10 @@ def _fresh(record):
 
 
 def _reports(stage, report):
-    if stage == "astra_checkpoint":
+    if stage == "review_checkpoint":
         if not isinstance(report, dict):
             return None
-        return {"sol": report.get("validation"), "task_planner": report.get("decision")}
+        return {"tester": report.get("validation"), "task_planner": report.get("decision")}
     return {REVIEW_SOURCES[stage]: report}
 
 
@@ -168,7 +168,7 @@ def retained(record, original_report, repaired_report):
     kept = preserved_dispositions(record, original_report, repaired_report)
     stage = record.get("stage") if isinstance(record, dict) else None
     unretained = {}
-    if stage in (*REVIEW_SOURCES, "astra_checkpoint") and isinstance(repaired_report, dict):
+    if stage in (*REVIEW_SOURCES, "review_checkpoint") and isinstance(repaired_report, dict):
         authorities = _authorities(record, original_report)
         for source, report in (_reports(stage, repaired_report) or {}).items():
             for row in _named_rows(report):

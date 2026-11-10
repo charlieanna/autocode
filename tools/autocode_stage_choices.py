@@ -82,14 +82,14 @@ STAGES = (
         "Your strongest judge at high. It never runs the Planner's model, so it catches what the Planner missed.",
     ),
     (
-        "terra",
+        "builder",
         "builder",
         "Writes the code for one task; several Builders run in parallel.",
         "A fast, cheaper model at medium. It makes the most calls, and the Tester checks everything it "
         "writes; a stuck Builder gets one stronger attempt on its own.",
     ),
     (
-        "sol",
+        "tester",
         "tester",
         "Checks each Builder's work in a separate session and proves its new tests fail without the change. "
         "Its model also writes the acceptance tests.",
@@ -123,7 +123,7 @@ BACKEND_LABELS = {"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCo
 # DEFAULT_ROLE_MODELS, whose joint planning copies the astra route into Requirements and the Planner
 # and gives the Plan Reviewer CODEX_PLAN_REVIEWER_MODELS[0]; tests keep them in step).
 CODEX_MODELS = ("gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra")
-CODEX_DEFAULTS = {role: "gpt-5.6-sol" for role in ORDER} | {"terra": "gpt-5.6-terra", "plan_reviewer": "gpt-6-astra"}
+CODEX_DEFAULTS = {role: "gpt-5.6-sol" for role in ORDER} | {"builder": "gpt-5.6-terra", "plan_reviewer": "gpt-6-astra"}
 # The level a model with no reasoning variants takes: its own default, sent as no level at all.
 OWN_DEFAULT = "default"
 _MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:@+/-]{0,199}$")

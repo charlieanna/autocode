@@ -27,7 +27,7 @@ try:
 except ImportError:
     import autocode_role_route as role_route
 
-STAGE = "terra"
+STAGE = "builder"
 LOW = "low"
 SMALL_PATHS = 4  # files the current task may touch and still count as small
 SETTING = "AUTOCODE_LIGHT_BUILDER"

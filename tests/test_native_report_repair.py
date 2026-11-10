@@ -307,8 +307,8 @@ class AdmissionOfExactlyThatRepair(NativeRepairFixture):
         self.calls.require_supported_action(SimpleNamespace(run_dir=self.run), self.state)
         with self.assertRaisesRegex(util.Paused, "native scope beyond first approval"):
             self.calls.require_supported_action(SimpleNamespace(run_dir=self.run, retry_report="001/x"), self.state)
-        self.state["pending_report_repair"]["original"]["stage"] = "terra"
-        self.state["next_stage"] = "terra"
+        self.state["pending_report_repair"]["original"]["stage"] = "builder"
+        self.state["next_stage"] = "builder"
         with self.assertRaisesRegex(util.Paused, "only its own bounded report-only repair"):
             self.calls.require_supported_action(SimpleNamespace(run_dir=self.run), self.state)
 
@@ -501,7 +501,7 @@ class ResumeThatChangesTheRepairedRoute(NativeRepairFixture):
         self.state["settings"].update(
             engine="opencode", provider="opencode", joint_planning=True, transport_identity={"controlled": True}
         )
-        for role in ("task_planner", "terra", "sol", "completion", "requirements"):
+        for role in ("task_planner", "builder", "tester", "completion", "requirements"):
             self.state["settings"]["roles"].setdefault(role, dict(ROUTE, model="controlled/" + role))
         self.state["sessions"] = {}
 
@@ -929,21 +929,21 @@ class NoInvestigatorUnderNativeAuthority(NativeRepairFixture):
         # After approval a native run owns the Builder. A Builder that changed nothing is routed by
         # autopilot.route_builder_failure, which queues the Investigator to classify the failure.
         self.factory.first_writer_proof = Mock()
-        self.state["settings"]["roles"]["terra"] = dict(ROUTE, model="controlled/builder")
+        self.state["settings"]["roles"]["builder"] = dict(ROUTE, model="controlled/builder")
         self.state.update(
             current_task={"id": "t1", "kind": "implement", "title": "Controlled task"},
-            next_stage="terra",
+            next_stage="builder",
             phase="IMPLEMENTATION",
         )
         reason = "Builder changed no files"
 
         def attempt(current, stage):
-            self.assertEqual("terra", stage)
+            self.assertEqual("builder", stage)
             output = self.run / "builder-01.json"
             output.write_text('{"status": "CONTINUE"}')
             record = {
-                "stage": "terra",
-                "role": "terra",
+                "stage": "builder",
+                "role": "builder",
                 "iteration": 1,
                 "exit_code": 0,
                 "output": str(output),
@@ -959,7 +959,7 @@ class NoInvestigatorUnderNativeAuthority(NativeRepairFixture):
         saved = self.run_native_loop(attempt)
         # Native authority refused the Investigator: the run holds the Builder's own classification pause.
         self.assertEqual("PAUSED_BUILDER_CLASSIFICATION", saved["status"])
-        self.assertEqual("terra", saved["next_stage"])
+        self.assertEqual("builder", saved["next_stage"])
         self.assertTrue(saved["stop_reason"].startswith(reason))
         self.assertEqual("PAUSED_BUILDER_CLASSIFICATION", saved["builder_failure_hold"]["status"])
         self.assertNotIn("stuck_investigation", saved)

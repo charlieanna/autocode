@@ -45,10 +45,10 @@ RESULT = manifest.obj(
 
 def extend_schema(schema, state: RunState, stage):
     record = state.get("settings", {}).get("design_manifest")
-    if not visual.reference_hash(state.get("settings", {})) or stage not in ("sol", "astra_checkpoint"):
+    if not visual.reference_hash(state.get("settings", {})) or stage not in ("tester", "review_checkpoint"):
         return schema
     schema = copy.deepcopy(schema)
-    slot = schema if stage == "sol" else schema.get("properties", {}).get("validation")
+    slot = schema if stage == "tester" else schema.get("properties", {}).get("validation")
     if not slot:
         return schema
     if not record:
@@ -80,9 +80,9 @@ def report_refs(state: RunState, report, *, stage=None):
     """
     record = state.get("settings", {}).get("design_manifest")
     if not record:
-        return visual.native_refs(state, report) if stage in (None, "sol", "astra_checkpoint") else []
+        return visual.native_refs(state, report) if stage in (None, "tester", "review_checkpoint") else []
     if (
-        stage not in ("sol", "astra_checkpoint")
+        stage not in ("tester", "review_checkpoint")
         and not report.get("design_manifest_hash")
         and not report.get("design_results")
     ):

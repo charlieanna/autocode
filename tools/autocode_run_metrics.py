@@ -22,7 +22,7 @@ from __future__ import annotations
 import math
 
 SCHEMA = 1
-BUILDER_STAGE = "terra"
+BUILDER_STAGE = "builder"
 BASIS = (
     "The Builder's spend stands in for one model doing the task alone; "
     "it is not a measured single-model run of this task"

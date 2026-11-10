@@ -86,7 +86,7 @@ class GateChatCliTests(unittest.TestCase):
         exchanges = {p["message"]["gate_kind"]: p for p in prompts if (p.get("message") or {}).get("gate_kind")}
         self.assertEqual({"requirements", "plan"}, set(exchanges))
         self.assertEqual("requirements_gather", exchanges["requirements"]["stage"])
-        self.assertEqual("astra_finalize", exchanges["plan"]["stage"])
+        self.assertEqual("finalize_plan", exchanges["plan"]["stage"])
         self.assertEqual("yes coplete", exchanges["requirements"]["message"]["text"])
         self.assertEqual("please go ahead with this exact plan", exchanges["plan"]["message"]["text"])
         self.assertTrue((Path(completed["workspace"]) / "greet.py").is_file())

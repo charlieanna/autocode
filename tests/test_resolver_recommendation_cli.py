@@ -55,7 +55,7 @@ class ResolverRecommendationCLITests(unittest.TestCase):
         self.need = self.before["needs"]
         if blocker:
             self.assertEqual("blocker", self.need.get("resolver_scope"), self.before.get("stop_reason"))
-        self.assertIn("astra_resolve", [row["stage"] for row in self.calls()])
+        self.assertIn("resolve", [row["stage"] for row in self.calls()])
         if mode == "valid":
             self.assertEqual(ACCEPT, self.need.get("recommended_revision_response"))
             self.assertEqual(
@@ -99,8 +99,8 @@ class ResolverRecommendationCLITests(unittest.TestCase):
         reviewed = self.run.advance()
         self.assertEqual("approve_plan", reviewed["needs"]["kind"], reviewed.get("stop_reason"))
         later = self.calls()[len(calls) :]
-        self.assertIn("astra_challenge", [row["stage"] for row in later])
-        self.assertNotIn("terra", [row["stage"] for row in later])
+        self.assertIn("review_plan", [row["stage"] for row in later])
+        self.assertNotIn("builder", [row["stage"] for row in later])
         token = reviewed["needs"]["token"]
         self.assertNotEqual(old["token"], token)
         displayed = reviewed["displayed_plan"]
@@ -161,8 +161,8 @@ class ResolverRecommendationCLITests(unittest.TestCase):
         self.assertEqual(
             "Contract holds", self.before["approved_contract"]["body"]["acceptance_criteria"][0]["criterion"]
         )
-        resolver = next(index for index, row in enumerate(self.calls()) if row["stage"] == "astra_resolve")
-        self.assertNotIn("terra", [row["stage"] for row in self.calls()[resolver + 1 :]])
+        resolver = next(index for index, row in enumerate(self.calls()) if row["stage"] == "resolve")
+        self.assertNotIn("builder", [row["stage"] for row in self.calls()[resolver + 1 :]])
 
     def test_forged_tokens_changed_source_and_changed_diagnosis_cannot_accept(self):
         self.start()
@@ -179,7 +179,7 @@ class ResolverRecommendationCLITests(unittest.TestCase):
         self.assertEqual(before, self.receipt())
         source.write_bytes(original)
 
-        output = Path(next(row["output"] for row in reversed(self.calls()) if row["stage"] == "astra_resolve"))
+        output = Path(next(row["output"] for row in reversed(self.calls()) if row["stage"] == "resolve"))
         diagnosis = output.read_bytes()
         output.write_bytes(diagnosis + b"\n ")
         with self.assertRaises(TaskRunError):

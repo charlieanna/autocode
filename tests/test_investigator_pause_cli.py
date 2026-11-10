@@ -43,7 +43,7 @@ class InvestigatorPauseCLI(unittest.TestCase):
             paused = status()
             self.assertEqual("PAUSED_REQUESTED", paused["status"], paused["view"].get("stop_reason"))
             before = trace()
-            if paused["next_stage"] == "astra_finalize" and before[-1]["stage"] == "investigate_stuck":
+            if paused["next_stage"] == "finalize_plan" and before[-1]["stage"] == "investigate_stuck":
                 break
         else:
             self.fail("The scripted Investigator never reached its saved checkpoint")
@@ -55,11 +55,11 @@ class InvestigatorPauseCLI(unittest.TestCase):
         fixture.launch(["--run-dir", str(run), "--planning-review-call-limit", "4", "--no-chat"], 0)
         resumed = fixture.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
         after = trace()
-        finalizers = [row for row in after[len(before) :] if row["stage"] == "astra_finalize" and not row["repair"]]
+        finalizers = [row for row in after[len(before) :] if row["stage"] == "finalize_plan" and not row["repair"]]
         self.assertTrue(finalizers, resumed.stdout[-3000:] + resumed.stderr[-1000:])
         self.assertTrue(finalizers[0]["active_guidance"], "The resumed stage lost its Investigator correction")
         self.assertEqual("approve_plan", status()["view"]["needs"]["kind"])
-        self.assertFalse(any(row["stage"] == "terra" for row in after), "No Builder before exact plan approval")
+        self.assertFalse(any(row["stage"] == "builder" for row in after), "No Builder before exact plan approval")
         self.assertEqual(
             [row for row in before if row["stage"] == "investigate_stuck"],
             [row for row in after if row["stage"] == "investigate_stuck"],
@@ -146,16 +146,16 @@ class InvestigatorPauseCLI(unittest.TestCase):
         paused = status()
         self.assertEqual("PAUSED_INTERVENTION", paused["status"], paused["view"].get("stop_reason"))
         before = trace()
-        self.assertFalse(any(row["stage"] == "terra" for row in before))
+        self.assertFalse(any(row["stage"] == "builder" for row in before))
         fixture.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
         resumed = trace()[len(before) :]
-        finalizers = [row for row in resumed if row["stage"] == "astra_finalize" and not row["repair"]]
+        finalizers = [row for row in resumed if row["stage"] == "finalize_plan" and not row["repair"]]
         self.assertTrue(finalizers, {"calls": resumed, "view": status()["view"]})
         self.assertTrue(finalizers[0]["active_guidance"], "A pause must retain the unconsumed correction")
         view = status()["view"]
         self.assertEqual("approve_plan", view["needs"]["kind"], view.get("stop_reason"))
-        self.assertFalse(any(row["stage"] == "terra" for row in trace()))
-        identity = "astra_finalize:PAUSED_REPEATED_FAILURE"
+        self.assertFalse(any(row["stage"] == "builder" for row in trace()))
+        identity = "finalize_plan:PAUSED_REPEATED_FAILURE"
         self.assertEqual(
             sum(row.get("stuck_identity") == identity for row in before),
             sum(row.get("stuck_identity") == identity for row in trace()),

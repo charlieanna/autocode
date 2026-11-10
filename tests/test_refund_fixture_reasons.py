@@ -142,7 +142,7 @@ class RefundFixtureReasonTests(unittest.TestCase):
             self.assertEqual({}, provider.tester_producer(self.config))
             for attempt in (1, 2, 3):
                 trace.write_text(
-                    "\n".join(json.dumps({"stage": stage}) for stage in ["terra", "sol", "astra_resolve"] * attempt)
+                    "\n".join(json.dumps({"stage": stage}) for stage in ["builder", "tester", "resolve"] * attempt)
                     + "\n"
                 )
                 producer = provider.tester_producer(self.config)

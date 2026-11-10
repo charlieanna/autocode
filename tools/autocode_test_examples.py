@@ -113,7 +113,7 @@ def add_to_prompt(prompt: str, workspace, current_task: dict | None) -> str:
     attached_files: list[object] | tuple[()] = ()
     try:
         data = json.loads(prompt.partition(marker)[2])
-        source = data.get("review_source") if isinstance(data, dict) and data.get("stage") == "terra" else None
+        source = data.get("review_source") if isinstance(data, dict) and data.get("stage") == "builder" else None
         files = source.get("files") if isinstance(source, dict) else None
         if isinstance(files, list):
             attached_files = files

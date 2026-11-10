@@ -17,12 +17,12 @@ class CostBreakdownTests(unittest.TestCase):
         state = {
             "settings": {"limits": {"max_cost_usd": 5}},
             "stages": [
-                record("astra_plan", 0.5, exit_code=1),
-                record("astra_plan", 0.75, exit_code=0),
+                record("plan_task", 0.5, exit_code=1),
+                record("plan_task", 0.75, exit_code=0),
                 record("investigate_stuck", 0.25, exit_code=0),
-                record("terra", 1, exit_code=0),
-                record("sol", 0.25, interrupted=True, exit_code=1),
-                record("astra_review", 0.25, exit_code=0),
+                record("builder", 1, exit_code=0),
+                record("tester", 0.25, interrupted=True, exit_code=1),
+                record("review_completion", 0.25, exit_code=0),
             ],
             "inherited_spend": {"usd": 2, "unpriced_stages": 1},
         }
@@ -46,7 +46,7 @@ class CostBreakdownTests(unittest.TestCase):
         self.assertEqual(before, state)
 
     def test_estimates_unknowns_partial_and_zero_cost_stay_distinct(self):
-        known = record("terra", model="anthropic/claude-opus-5-5", exit_code=0)
+        known = record("builder", model="anthropic/claude-opus-5-5", exit_code=0)
         known["metrics"] = {
             "provider_tokens": {"input_tokens": 1000, "output_tokens": 200},
             "provider_tokens_partial": True,
@@ -55,14 +55,14 @@ class CostBreakdownTests(unittest.TestCase):
             {
                 "stages": [
                     known,
-                    record("terra", abandoned=True),
-                    record("sol"),
+                    record("builder", abandoned=True),
+                    record("tester"),
                     record("check_replay", runner_owned=True, engine="runner", exit_code=0),
                 ]
             }
         )
         by_stage = {row["stage"]: row for row in view["breakdown"]["by_stage"]}
-        builder = by_stage["terra"]
+        builder = by_stage["builder"]
         self.assertEqual(
             (0.008, None, 1, 1, False),
             (
@@ -73,7 +73,7 @@ class CostBreakdownTests(unittest.TestCase):
                 builder["complete"],
             ),
         )
-        self.assertIsNone(by_stage["sol"]["spent_usd"])
+        self.assertIsNone(by_stage["tester"]["spent_usd"])
         self.assertEqual(0, by_stage["check_replay"]["spent_usd"])
         self.assertTrue(by_stage["check_replay"]["complete"])
         self.assertIn("Builder 2 attempts: at least $0.008 (1 interrupted, 1 unpriced)", cost.line(view))
@@ -81,12 +81,12 @@ class CostBreakdownTests(unittest.TestCase):
 
     def test_each_unpriced_stage_says_why_without_a_guessed_amount(self):
         tokens = {"provider_tokens": {"input_tokens": 1000, "output_tokens": 200}}
-        priced = record("terra", model="anthropic/claude-opus-5-5", exit_code=0)
-        unmapped = record("sol", model="vendor/no-such-model", exit_code=0)
-        unnamed = record("astra_review", exit_code=0)
+        priced = record("builder", model="anthropic/claude-opus-5-5", exit_code=0)
+        unmapped = record("tester", model="vendor/no-such-model", exit_code=0)
+        unnamed = record("review_completion", exit_code=0)
         for row in (priced, unmapped, unnamed):
             row["metrics"] = copy.deepcopy(tokens)
-        view = cost.view({"stages": [priced, unmapped, unnamed, record("astra_plan", model="vendor/no-such-model")]})
+        view = cost.view({"stages": [priced, unmapped, unnamed, record("plan_task", model="vendor/no-such-model")]})
         self.assertEqual(3, view["unpriced_stages"])
         self.assertEqual(
             {
@@ -103,8 +103,11 @@ class CostBreakdownTests(unittest.TestCase):
     def test_active_workers_are_excluded_and_routing_names_and_repair_purpose_survive(self):
         state = {
             "settings": {"workflow": {"mode": "glm_first_v1"}},
-            "stages": [record("astra_checkpoint", 0.1, exit_code=0), record("terra_report_repair", 0.2, exit_code=0)],
-            "active_stage": record("terra", 50),
+            "stages": [
+                record("review_checkpoint", 0.1, exit_code=0),
+                record("builder_report_repair", 0.2, exit_code=0),
+            ],
+            "active_stage": record("builder", 50),
             "orchestration_batch": {"workers": [{"status": "RUNNING"}]},
         }
         view = cost.view(state)
@@ -116,7 +119,7 @@ class CostBreakdownTests(unittest.TestCase):
         view = cost.view(
             {
                 "settings": "broken",
-                "stages": [None, {"stage": []}, record("sol", 0.1, exit_code=True, abandoned="false")],
+                "stages": [None, {"stage": []}, record("tester", 0.1, exit_code=True, abandoned="false")],
             }
         )
         [outcome] = view["breakdown"]["by_process_outcome"]
@@ -127,7 +130,7 @@ class CostBreakdownTests(unittest.TestCase):
 class LegacyPlanningLaunchLabels(unittest.TestCase):
     """Issue #2592: the Planner's draft, revision and their repairs are Planner launches.
 
-    The prompts name astra_discovery and glm_revise as the Planner (prompts/discovery.md,
+    The prompts name draft_plan and revise_plan as the Planner (prompts/discovery.md,
     prompts/requirements-revise.md: "You are the Planner"), so a saved ledger must display
     their launches under Planner, while requirements_gather stays Requirements.
     """
@@ -136,17 +139,17 @@ class LegacyPlanningLaunchLabels(unittest.TestCase):
         state = {
             "stages": [
                 record("requirements_gather", 0.10, exit_code=0),
-                record("astra_discovery", 0.20, exit_code=0),
-                record("glm_revise", 0.30, exit_code=0),
-                record("glm_revise_report_repair", 0.40, exit_code=0),
+                record("draft_plan", 0.20, exit_code=0),
+                record("revise_plan", 0.30, exit_code=0),
+                record("revise_plan_report_repair", 0.40, exit_code=0),
             ]
         }
         view = cost.view(state)
         by_stage = {row["stage"]: row for row in view["breakdown"]["by_stage"]}
         self.assertEqual("Requirements", by_stage["requirements_gather"]["job"])
-        self.assertEqual("Planner", by_stage["astra_discovery"]["job"])
-        self.assertEqual("Planner", by_stage["glm_revise"]["job"])
-        self.assertEqual("Planner (report repair)", by_stage["glm_revise_report_repair"]["job"])
+        self.assertEqual("Planner", by_stage["draft_plan"]["job"])
+        self.assertEqual("Planner", by_stage["revise_plan"]["job"])
+        self.assertEqual("Planner (report repair)", by_stage["revise_plan_report_repair"]["job"])
         launches = {}
         for row in by_stage.values():
             job = row["job"].replace(" (report repair)", "")
@@ -161,10 +164,10 @@ class LegacyPlanningLaunchLabels(unittest.TestCase):
         expected = {
             "requirements_gather": "Requirements",
             "requirements_gather_report_repair": "Requirements (report repair)",
-            "astra_discovery": "Planner",
-            "astra_discovery_report_repair": "Planner (report repair)",
-            "glm_revise": "Planner",
-            "glm_revise_report_repair": "Planner (report repair)",
+            "draft_plan": "Planner",
+            "draft_plan_report_repair": "Planner (report repair)",
+            "revise_plan": "Planner",
+            "revise_plan_report_repair": "Planner (report repair)",
         }
         view = cost.view({"stages": [record(stage, 0.25, exit_code=0) for stage in expected]})
         self.assertEqual(expected, {row["stage"]: row["job"] for row in view["breakdown"]["by_stage"]})
@@ -196,7 +199,7 @@ def attempt(name, total=None, previous=None, interrupted=False):
         metrics["cost_state"] = cost_state
     return {
         "stage": "write_acceptance_tests",
-        "role": "sol",
+        "role": "tester",
         "attempt_id": name,
         "command": ["autocode", "--model", "claude-opus-5-5"],
         "interrupted": interrupted,
@@ -236,13 +239,15 @@ class BillingBreakdownTests(unittest.TestCase):
 
     def stage(self, model):
         tokens = {"input_tokens": 1_000_000, "output_tokens": 1_000_000}
-        return {"stage": "terra", "model": model, "metrics": {"provider_tokens": tokens}}
+        return {"stage": "builder", "model": model, "metrics": {"provider_tokens": tokens}}
 
     def test_stages_are_grouped_by_how_their_model_bills(self):
         state = {
             "settings": {
                 # An automatically selected run saved the billing discovery found for each candidate.
-                "route_selection": {"candidates": {"sol": [{"model": "openai/gpt-6-sol", "billing": "subscription"}]}}
+                "route_selection": {
+                    "candidates": {"tester": [{"model": "openai/gpt-6-sol", "billing": "subscription"}]}
+                }
             },
             "stages": [
                 # The plan reports 0, which events record as no reported cost: priced API-equivalent.

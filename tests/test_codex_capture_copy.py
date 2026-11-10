@@ -23,15 +23,15 @@ OPTIONS = (
     "--engine",
     "codex",
     "--joint-planning",
-    "--astra-model",
+    "--task-planner-model",
     "gpt-6-astra",
-    "--terra-model",
+    "--builder-model",
     "gpt-5.6-terra",
-    "--sol-model",
+    "--tester-model",
     "gpt-5.6-sol",
     "--completion-model",
     "gpt-6-astra",
-    "--glm-model",
+    "--planner-model",
     "gpt-5.6-sol",
     "--plan-reviewer-model",
     "gpt-6-astra",
@@ -89,11 +89,11 @@ class CodexCaptureWorkflowTests(unittest.TestCase):
             + anchor,
             1,
         )
-        begin = script.index('    elif stage in ("sol", "astra_checkpoint"):')
-        end = script.index('    elif stage in ("astra_review", "astra_plan", "astra_resolve"):', begin)
+        begin = script.index('    elif stage in ("tester", "review_checkpoint"):')
+        end = script.index('    elif stage in ("review_completion", "plan_task", "resolve"):', begin)
         script = (
             script[:begin]
-            + """    elif stage in ("sol", "astra_checkpoint"):
+            + """    elif stage in ("tester", "review_checkpoint"):
         receipt_path = Path('.autocode/evidence/planned-check.json').resolve()
         invocation = shlex.split(data['capture_command']) + ['--output', str(receipt_path), '--', *shlex.split(PLANNED_CHECK)]
         checked = subprocess.run(invocation, capture_output=True, text=True)
@@ -170,14 +170,14 @@ class CodexCaptureWorkflowTests(unittest.TestCase):
         self.assertIn("verification_copy", receipt)
         self.assertFalse((self.workspace / "other_1.sqlite3").exists())
         launches = [json.loads(line) for line in self.probe.read_text().splitlines()]
-        tester = next(row for row in launches if row["stage"] == "sol")
+        tester = next(row for row in launches if row["stage"] == "tester")
         self.assertTrue(tester["copy"])
         self.assertEqual(run.run_dir, Path(tester["copy"]).parent.parent)
         self.assertFalse(list((self.workspace / ".autocode").glob("tool-containment-*")))
         self.assertEqual(tester["copy_sha256"], receipt["verification_copy"]["manifest_sha256"])
         manifest = json.loads(Path(tester["copy"]).read_text())
         self.assertTrue((Path(manifest["tree"]) / "other_1.sqlite3").exists())
-        self.assertTrue(all(not row["copy"] for row in launches if row["stage"] == "terra"))
+        self.assertTrue(all(not row["copy"] for row in launches if row["stage"] == "builder"))
         # Completion requires independently replayed captured and planned
         # commands. The public evidence proves the report was accepted.
         self.assertIsNotNone(view["evidence"]["check_replay"], view["evidence"])
@@ -204,8 +204,8 @@ class CodexCaptureWorkflowTests(unittest.TestCase):
 # only the Codex engine lets GPT models check each other. Its fixture models are named after the jobs.
 CONFIGURED_ROLES = (
     ("task_planner", "fixture-astra"),
-    ("terra", "fixture-terra"),
-    ("sol", "fixture-sol"),
+    ("builder", "fixture-terra"),
+    ("tester", "fixture-sol"),
     ("completion", "fixture-astra"),
     ("planner", "fixture-sol"),
     ("plan_reviewer", "fixture-astra"),

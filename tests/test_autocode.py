@@ -44,7 +44,7 @@ class DetachedOutputTest(unittest.TestCase):
             try:
 
                 def run_stage():
-                    print("sol: still reviewing", flush=True)
+                    print("tester: still reviewing", flush=True)
                     marker.write_text("finished")
                     return 0
 
@@ -145,7 +145,9 @@ class RetrofitTest(unittest.TestCase):
             {"id": "C1", "criterion": "Contract holds", "status": "verified", "evidence": str(self.evidence)}
         ]
         self.settings = {
-            "roles": {r: {"model": f"model-{r}", "reasoning_effort": "high"} for r in ("task_planner", "terra", "sol")},
+            "roles": {
+                r: {"model": f"model-{r}", "reasoning_effort": "high"} for r in ("task_planner", "builder", "tester")
+            },
             "context_soft_tokens": 1000,
             "rotation_after_input_tokens": 1000000,
             "headroom": {"enabled": False},
@@ -156,13 +158,13 @@ class RetrofitTest(unittest.TestCase):
             "task": "Keep the exact course contract",
             "status": "RUNNING",
             "iteration": 5,
-            "sessions": {"task_planner": "a-session", "terra": "t-session", "sol": "s-session"},
+            "sessions": {"task_planner": "a-session", "builder": "t-session", "tester": "s-session"},
             "stages": [],
             "history": [],
             "acceptance_criteria": self.criteria,
             "criteria_revision": s.digest(s.criteria_definition(self.criteria)),
             "settings": self.settings,
-            "next_stage": "terra",
+            "next_stage": "builder",
             "next_action": "repair the full cohort",
         }
 
@@ -199,12 +201,12 @@ class RetrofitTest(unittest.TestCase):
 
     def test_builder_no_progress_advances_automatic_ladder(self):
         self.state["settings"]["engine"] = "opencode"
-        self.state["settings"]["roles"]["terra"].update(
+        self.state["settings"]["roles"]["builder"].update(
             engine="opencode", provider=None, model="openai/gpt-6-sol", reasoning_effort="medium"
         )
         record = {
-            "role": "terra",
-            "stage": "terra",
+            "role": "builder",
+            "stage": "builder",
             "output": str(self.run / "terra.json"),
             "events": str(self.run / "terra.jsonl"),
             "source_revision": "same",
@@ -212,25 +214,27 @@ class RetrofitTest(unittest.TestCase):
             "after_ref": str(self.run / "after.json"),
             "diff_ref": None,
         }
-        runner._apply_result(self.state, "terra", {"evidence_refs": [str(self.evidence)]}, record, self.root, self.run)
-        self.assertEqual("high", self.state["settings"]["roles"]["terra"]["reasoning_effort"])
+        runner._apply_result(
+            self.state, "builder", {"evidence_refs": [str(self.evidence)]}, record, self.root, self.run
+        )
+        self.assertEqual("high", self.state["settings"]["roles"]["builder"]["reasoning_effort"])
         self.assertEqual("GPT-6 Sol High", self.state["reasoning_escalations"][-1]["selected"]["profile"])
-        self.assertNotIn("terra", self.state["sessions"])
+        self.assertNotIn("builder", self.state["sessions"])
 
     def test_failed_validation_rework_advances_builder_ladder(self):
         self.state["settings"]["engine"] = "opencode"
-        self.state["settings"]["roles"]["terra"].update(
+        self.state["settings"]["roles"]["builder"].update(
             engine="opencode", provider=None, model="openai/gpt-6-sol", reasoning_effort="high"
         )
         self.state["validation"] = {"verdict": "FAIL"}
         record = {
             "role": "task_planner",
             "route_role": "completion",
-            "stage": "astra_review",
+            "stage": "review_completion",
             "output": str(self.run / "decision.json"),
         }
-        runner._apply_result(self.state, "astra_review", self.decision(), record, self.root, self.run)
-        self.assertEqual("xhigh", self.state["settings"]["roles"]["terra"]["reasoning_effort"])
+        runner._apply_result(self.state, "review_completion", self.decision(), record, self.root, self.run)
+        self.assertEqual("xhigh", self.state["settings"]["roles"]["builder"]["reasoning_effort"])
         self.assertEqual("GPT-6 Sol XHigh", self.state["reasoning_escalations"][-1]["selected"]["profile"])
 
     def escalated(self, escalate_at):
@@ -239,7 +243,7 @@ class RetrofitTest(unittest.TestCase):
         self.valid_completion()
         tester = str(self.run / "sol-03.json")
         self.state["stages"] = [
-            {"stage": "sol", "role": "sol", "output": tester, "started_at": "2026-10-16T10:00:00+00:00"}
+            {"stage": "tester", "role": "tester", "output": tester, "started_at": "2026-10-16T10:00:00+00:00"}
         ]
         self.state["validation"]["output"] = tester
         self.state["builder_retry_decisions"] = [
@@ -249,14 +253,16 @@ class RetrofitTest(unittest.TestCase):
         return {
             "role": "task_planner",
             "route_role": "completion",
-            "stage": "astra_review",
+            "stage": "review_completion",
             "output": str(self.run / "d.json"),
         }
 
     def test_a_run_that_completes_on_the_stronger_attempts_work_stamps_its_escalations_passed(self):
         # #612: the status view's `escalation_outcomes` counted them open once the run completed.
         record = self.escalated("2026-10-16T09:50:00+00:00")
-        runner._apply_result(self.state, "astra_review", self.decision("TASK_COMPLETE"), record, self.root, self.run)
+        runner._apply_result(
+            self.state, "review_completion", self.decision("TASK_COMPLETE"), record, self.root, self.run
+        )
         self.assertEqual("TASK_COMPLETE", self.state["status"])
         self.assertEqual({"passed": 2, "paused": 0, "open": 0}, run_view.view(self.state)["escalation_outcomes"])
 
@@ -265,7 +271,7 @@ class RetrofitTest(unittest.TestCase):
         self.state["validation"]["verdict"] = "FAIL"
         with self.assertRaises(s.Paused) as refused:
             runner._apply_result(
-                self.state, "astra_review", self.decision("TASK_COMPLETE"), record, self.root, self.run
+                self.state, "review_completion", self.decision("TASK_COMPLETE"), record, self.root, self.run
             )
         self.assertEqual("PAUSED_COMPLETION_GATE", refused.exception.status)
         self.assertEqual({"passed": 0, "paused": 0, "open": 2}, run_view.view(self.state)["escalation_outcomes"])
@@ -279,7 +285,7 @@ class RetrofitTest(unittest.TestCase):
         ):
             with self.subTest(escalate_at):
                 record = self.escalated(escalate_at)
-                runner._apply_result(self.state, "astra_review", self.decision(), record, self.root, self.run)
+                runner._apply_result(self.state, "review_completion", self.decision(), record, self.root, self.run)
                 self.assertEqual("RUNNING", self.state["status"])
                 self.assertEqual(expected, run_view.view(self.state)["escalation_outcomes"])
 
@@ -308,8 +314,8 @@ class RetrofitTest(unittest.TestCase):
     def test_transport_drift_ignores_default_flips_when_roles_override_everything(self):
         full = {
             "task_planner": {"model": "gpt-6-astra", "reasoning_effort": "high"},
-            "terra": {"model": "gpt-5.6-terra", "reasoning_effort": "high"},
-            "sol": {"model": "gpt-5.6-sol", "reasoning_effort": "high"},
+            "builder": {"model": "gpt-5.6-terra", "reasoning_effort": "high"},
+            "tester": {"model": "gpt-5.6-sol", "reasoning_effort": "high"},
         }
         checkpoint = {
             "auth_mode": "ChatGPT",
@@ -370,8 +376,8 @@ class RetrofitTest(unittest.TestCase):
     def test_explicit_models_high_and_rotation_rollback_persist(self):
         args = SimpleNamespace(
             task_planner_model="gpt-6-astra",
-            terra_model="gpt-5.6-terra",
-            sol_model="gpt-5.6-sol",
+            builder_model="gpt-5.6-terra",
+            tester_model="gpt-5.6-sol",
             reasoning_effort="high",
             headroom="off",
             context_soft_tokens=7000,
@@ -380,7 +386,7 @@ class RetrofitTest(unittest.TestCase):
         result = autocode_configure.configure(
             args, self.state, planning=planning, milestones=milestones, autopilot=autopilot
         )
-        self.assertEqual("gpt-5.6-terra", result["roles"]["terra"]["model"])
+        self.assertEqual("gpt-5.6-terra", result["roles"]["builder"]["model"])
         self.assertEqual({"high"}, {r["reasoning_effort"] for r in result["roles"].values()})
         self.assertEqual(0, result["rotation_after_input_tokens"])
         self.assertEqual(7000, result["context_soft_tokens"])
@@ -389,12 +395,12 @@ class RetrofitTest(unittest.TestCase):
     def test_role_reasoning_effort_overrides_shared_value(self):
         args = SimpleNamespace(
             task_planner_model=None,
-            terra_model=None,
-            sol_model=None,
+            builder_model=None,
+            tester_model=None,
             reasoning_effort="medium",
             task_planner_reasoning_effort="xhigh",
-            terra_reasoning_effort=None,
-            sol_reasoning_effort="high",
+            builder_reasoning_effort=None,
+            tester_reasoning_effort="high",
             headroom=None,
             context_soft_tokens=None,
             rotate_after_input_tokens=None,
@@ -403,15 +409,15 @@ class RetrofitTest(unittest.TestCase):
             args, self.state, planning=planning, milestones=milestones, autopilot=autopilot
         )
         self.assertEqual("xhigh", result["roles"]["task_planner"]["reasoning_effort"])
-        self.assertEqual("medium", result["roles"]["terra"]["reasoning_effort"])
-        self.assertEqual("high", result["roles"]["sol"]["reasoning_effort"])
+        self.assertEqual("medium", result["roles"]["builder"]["reasoning_effort"])
+        self.assertEqual("high", result["roles"]["tester"]["reasoning_effort"])
 
     def test_provider_saved_per_role_and_kept_on_resume(self):
         args = SimpleNamespace(
             task_planner_model=None,
-            terra_model=None,
-            sol_model=None,
-            terra_provider="ZAI",
+            builder_model=None,
+            tester_model=None,
+            builder_provider="ZAI",
             reasoning_effort=None,
             headroom=None,
             context_soft_tokens=None,
@@ -420,14 +426,14 @@ class RetrofitTest(unittest.TestCase):
         result = autocode_configure.configure(
             args, self.state, planning=planning, milestones=milestones, autopilot=autopilot
         )
-        self.assertEqual("ZAI", result["roles"]["terra"]["provider"])
+        self.assertEqual("ZAI", result["roles"]["builder"]["provider"])
         self.assertNotIn("provider", result["roles"]["task_planner"])
         resumed = {**self.state, "settings": result}
         kept = autocode_configure.configure(
             SimpleNamespace(
                 task_planner_model=None,
-                terra_model=None,
-                sol_model=None,
+                builder_model=None,
+                tester_model=None,
                 reasoning_effort=None,
                 headroom=None,
                 context_soft_tokens=None,
@@ -438,9 +444,9 @@ class RetrofitTest(unittest.TestCase):
             milestones=milestones,
             autopilot=autopilot,
         )
-        self.assertEqual("ZAI", kept["roles"]["terra"]["provider"])
+        self.assertEqual("ZAI", kept["roles"]["builder"]["provider"])
         self.assertEqual(
-            {**{r: f"model-{r}" for r in ("task_planner", "terra", "sol")}, "completion": "gpt-5.6-sol"},
+            {**{r: f"model-{r}" for r in ("task_planner", "builder", "tester")}, "completion": "gpt-5.6-sol"},
             {r: settings["model"] for r, settings in kept["roles"].items()},
         )
 
@@ -448,7 +454,7 @@ class RetrofitTest(unittest.TestCase):
         local = {"model": "local-model", "model_reasoning_effort": "high", "model_provider": None}
         history = [
             {
-                "role": "sol",
+                "role": "tester",
                 "command": [
                     "codex",
                     "exec",
@@ -465,9 +471,9 @@ class RetrofitTest(unittest.TestCase):
         state["history"] = history
         args = SimpleNamespace(
             task_planner_model=None,
-            terra_model="custom-terra",
-            sol_model=None,
-            terra_provider="ZAI",
+            builder_model="custom-terra",
+            tester_model=None,
+            builder_provider="ZAI",
             reasoning_effort=None,
             headroom=None,
             context_soft_tokens=None,
@@ -482,10 +488,10 @@ class RetrofitTest(unittest.TestCase):
                 args, state, planning=planning, milestones=milestones, autopilot=autopilot
             )
         self.assertEqual("gpt-5.6-sol", result["roles"]["task_planner"]["model"])  # role default, not local-model
-        self.assertEqual("custom-terra", result["roles"]["terra"]["model"])  # explicit flag
-        self.assertEqual("glm-5.3", result["roles"]["sol"]["model"])  # saved legacy launch
-        self.assertEqual("ZAI", result["roles"]["terra"]["provider"])  # explicit flag
-        self.assertEqual("ZAI", result["roles"]["sol"]["provider"])  # recovered from saved command
+        self.assertEqual("custom-terra", result["roles"]["builder"]["model"])  # explicit flag
+        self.assertEqual("glm-5.3", result["roles"]["tester"]["model"])  # saved legacy launch
+        self.assertEqual("ZAI", result["roles"]["builder"]["provider"])  # explicit flag
+        self.assertEqual("ZAI", result["roles"]["tester"]["provider"])  # recovered from saved command
         self.assertIsNone(result["roles"]["task_planner"]["provider"])  # local Codex default
 
     def test_legacy_completed_sol_is_not_replayed_after_alphabetic_sort(self):
@@ -494,7 +500,8 @@ class RetrofitTest(unittest.TestCase):
         decision.pop("affected_paths")
         self.legacy_final("astra", decision)
         self.legacy_final(
-            "terra", {"summary": "done", "changed_files": [], "commands_run": [], "results": [], "remaining_risks": []}
+            "terra",
+            {"summary": "done", "changed_files": [], "commands_run": [], "results": [], "remaining_risks": []},
         )
         sol = {"verdict": "PASS", "findings": [], "checks_run": [], "unverified_criteria": []}
         self.legacy_final("sol", sol)
@@ -508,8 +515,8 @@ class RetrofitTest(unittest.TestCase):
             "history": [],
         }
         migrated = s.migrate_v1(old, self.run, self.root, self.settings, runner.SCHEMA_DIR)
-        self.assertEqual("astra_review", migrated["next_stage"])
-        self.assertEqual(["astra_plan", "terra", "sol"], [x["stage"] for x in migrated["stages"]])
+        self.assertEqual("review_completion", migrated["next_stage"])
+        self.assertEqual(["plan_task", "builder", "tester"], [x["stage"] for x in migrated["stages"]])
 
     def test_workspace_lock_prevents_second_writer(self):
         with s.workspace_lock(self.root):
@@ -618,9 +625,9 @@ class RetrofitTest(unittest.TestCase):
             "history": [],
         }
         migrated = s.migrate_v1(old, self.run, self.root, self.settings, runner.SCHEMA_DIR)
-        self.assertEqual("sol", migrated["next_stage"])
+        self.assertEqual("tester", migrated["next_stage"])
         self.assertEqual("same task", migrated["task"])
-        self.assertEqual("terra-explicit", migrated["sessions"]["terra"])
+        self.assertEqual("terra-explicit", migrated["sessions"]["builder"])
         self.assertEqual(2, len(migrated["stages"]))
         self.assertEqual(1, old["version"])
 
@@ -650,7 +657,7 @@ class RetrofitTest(unittest.TestCase):
         self.state["history"] = [{"transcript": "PRIVATE_BULK_HISTORY"}]
         self.state["unresolved_findings"] = [{"finding": "specific bug"}]
         self.state["plan"] = ["preserve contracts"]
-        text, metrics = stage_context.context_packet(self.state, "terra", self.run / "state.json")
+        text, metrics = stage_context.context_packet(self.state, "builder", self.run / "state.json")
         self.assertNotIn("PRIVATE_BULK_HISTORY", text)
         self.assertIn("specific bug", text)
         self.assertIn("repair the full cohort", text)
@@ -660,7 +667,7 @@ class RetrofitTest(unittest.TestCase):
         self.assertGreater(metrics["estimated_prompt_tokens"], 0)
 
     def test_every_pipeline_stage_prompt_forbids_external_scratch_paths(self):
-        for stage in ("terra", "sol", "astra_review", "astra_plan", "astra_checkpoint"):
+        for stage in ("builder", "tester", "review_completion", "plan_task", "review_checkpoint"):
             with self.subTest(stage=stage):
                 text, _ = stage_context.context_packet(self.state, stage, self.run / "state.json")
                 self.assertIn("must stay inside the current workspace", text)
@@ -678,7 +685,7 @@ class RetrofitTest(unittest.TestCase):
                 "access": "READ_ONLY_PRIVATE_CACHE",
             }
         ]
-        text, _ = stage_context.context_packet(self.state, "terra", self.run / "state.json")
+        text, _ = stage_context.context_packet(self.state, "builder", self.run / "state.json")
         self.assertIn("fixture-source", text)
         self.assertIn("READ_ONLY_PRIVATE_CACHE", text)
 
@@ -708,9 +715,9 @@ class RetrofitTest(unittest.TestCase):
         self.assertIsNone(m["provider_requests"])
 
     def test_rotation_archives_explicit_session_without_task_restart(self):
-        self.state["stages"] = [{"role": "terra", "metrics": {"provider_tokens": {"input_tokens": 1200000}}}]
-        runner.rotate_if_needed(self.state, "terra", self.run)
-        self.assertNotIn("terra", self.state["sessions"])
+        self.state["stages"] = [{"role": "builder", "metrics": {"provider_tokens": {"input_tokens": 1200000}}}]
+        runner.rotate_if_needed(self.state, "builder", self.run)
+        self.assertNotIn("builder", self.state["sessions"])
         self.assertEqual("t-session", self.state["session_rotations"][0]["old_session"])
         self.assertEqual(5, self.state["iteration"])
         self.assertEqual("a-session", self.state["sessions"]["task_planner"])
@@ -829,8 +836,8 @@ class RetrofitTest(unittest.TestCase):
         base.with_suffix(".jsonl").write_text('{"type":"thread.started","thread_id":"t-session"}\n')
         (self.root / "partial.py").write_text("# preserved partial implementation\n")
         record = {
-            "role": "terra",
-            "stage": "terra",
+            "role": "builder",
+            "stage": "builder",
             "iteration": 5,
             "duration_seconds": 8,
             "output": str(base.with_suffix(".json")),
@@ -851,10 +858,10 @@ class RetrofitTest(unittest.TestCase):
             runner.abandon_stage(self.state, self.run, self.root, "005/terra-01")
         self.assertEqual("PAUSED_STAGE_ABANDONED", self.state["status"])
         # Abandoning a terra (Builder) attempt re-dispatches terra to inspect
-        # the partial work, not astra_review; see commit 46a8187.
-        self.assertEqual("terra", self.state["next_stage"])
+        # the partial work, not review_completion; see commit 46a8187.
+        self.assertEqual("builder", self.state["next_stage"])
         self.assertNotIn("active_stage", self.state)
-        self.assertNotIn("terra", self.state["sessions"])
+        self.assertNotIn("builder", self.state["sessions"])
         self.assertNotIn("validation", self.state)
         self.assertEqual(8, self.state["active_seconds"])
         self.assertTrue((self.root / "partial.py").exists())
@@ -871,8 +878,8 @@ class RetrofitTest(unittest.TestCase):
         base.with_suffix(".jsonl").write_text('{"type":"turn.completed"}\n')
         record = {
             "role": "planner",
-            "stage": "glm_revise_report_repair",
-            "original_stage": "glm_revise",
+            "stage": "revise_plan_report_repair",
+            "original_stage": "revise_plan",
             "planning": True,
             "report_only": True,
             "iteration": 5,
@@ -884,10 +891,10 @@ class RetrofitTest(unittest.TestCase):
             "before_ref": str(base.with_suffix(".before.json")),
         }
         self.state["active_stage"] = record
-        self.state["pending_report_repair"] = {"original": {"stage": "glm_revise"}}
+        self.state["pending_report_repair"] = {"original": {"stage": "revise_plan"}}
         runner.abandon_stage(self.state, self.run, self.root, "005/glm_revise_report_repair-01")
         self.assertEqual("PAUSED_STAGE_ABANDONED", self.state["status"])
-        self.assertEqual("glm_revise", self.state["next_stage"])
+        self.assertEqual("revise_plan", self.state["next_stage"])
         self.assertNotIn("pending_report_repair", self.state)
         self.assertTrue(self.state["stages"][-1]["abandoned"])
 
@@ -902,8 +909,8 @@ class RetrofitTest(unittest.TestCase):
         self.state["active_stage"] = {
             "role": "task_planner",
             "route_role": "completion",
-            "stage": "astra_review_report_repair",
-            "original_stage": "astra_review",
+            "stage": "review_completion_report_repair",
+            "original_stage": "review_completion",
             "report_only": True,
             "iteration": 5,
             "exit_code": -15,
@@ -913,10 +920,10 @@ class RetrofitTest(unittest.TestCase):
             "events": str(base.with_suffix(".jsonl")),
             "before_ref": str(base.with_suffix(".before.json")),
         }
-        pending = {"original": {"stage": "astra_review"}}
+        pending = {"original": {"stage": "review_completion"}}
         self.state["pending_report_repair"] = pending
         runner.abandon_stage(self.state, self.run, self.root, "005/astra_review_report_repair-01")
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertIn("Tester", self.state["stop_reason"])
         self.assertNotIn("validation", self.state)
         self.assertNotIn("active_stage", self.state)
@@ -930,26 +937,26 @@ class RetrofitTest(unittest.TestCase):
         self.state["settings"]["joint_planning"] = True
         self.state.update(
             status="PAUSED_INVALID_OUTPUT",
-            next_stage="glm_revise_report_repair",
+            next_stage="revise_plan_report_repair",
             recovery_context={"attempt_id": "005/glm_revise_report_repair-01"},
         )
         self.state["stages"].append(
             {
-                "stage": "glm_revise_report_repair",
-                "original_stage": "glm_revise",
+                "stage": "revise_plan_report_repair",
+                "original_stage": "revise_plan",
                 "iteration": 5,
                 "output": str(self.run / "iterations/005/glm_revise_report_repair-01.json"),
                 "abandoned": True,
             }
         )
         self.assertTrue(runner.prepare_planning_retry(self.state, self.run))
-        self.assertEqual("glm_revise", self.state["next_stage"])
+        self.assertEqual("revise_plan", self.state["next_stage"])
 
     def test_saved_abandoned_completion_recovery_is_narrow(self):
         current = self.valid_completion()
         abandoned = {
-            "stage": "astra_review_report_repair",
-            "original_stage": "astra_review",
+            "stage": "review_completion_report_repair",
+            "original_stage": "review_completion",
             "role": "task_planner",
             "iteration": 5,
             "output": str(self.run / "astra_review_report_repair-01.json"),
@@ -960,7 +967,7 @@ class RetrofitTest(unittest.TestCase):
         selected = runner.attempt_id(abandoned)
         self.state.update(
             status="PAUSED_REPEATED_FAILURE",
-            next_stage="astra_review",
+            next_stage="review_completion",
             recovery_context={"attempt_id": selected, "source_revision": current["revision"]},
             user_events=[{"kind": "stage_abandoned", "attempt_id": selected}],
         )
@@ -973,8 +980,8 @@ class RetrofitTest(unittest.TestCase):
         )
         for attempt in range(3):
             record = {
-                "stage": "astra_review_report_repair" if attempt < 2 else "astra_review",
-                "original_stage": "astra_review",
+                "stage": "review_completion_report_repair" if attempt < 2 else "review_completion",
+                "original_stage": "review_completion",
                 "role": "task_planner",
                 "iteration": 5,
                 "output": str(self.run / f"rejected-{attempt}.json"),
@@ -992,14 +999,14 @@ class RetrofitTest(unittest.TestCase):
         saved = (self.run / "state.json").read_bytes()
         for override in (
             {"validation": {"verdict": "PASS"}},
-            {"active_stage": {"stage": "astra_review"}},
-            {"pending_report_repair": {"original": {"stage": "astra_review"}}},
+            {"active_stage": {"stage": "review_completion"}},
+            {"pending_report_repair": {"original": {"stage": "review_completion"}}},
             {"uncertain_artifacts": "unresolved"},
             {"recovery_context": {}},
             {"user_events": []},
             {"validation_archive": []},
             {"status": "PAUSED_BUDGET"},
-            {"next_stage": "sol"},
+            {"next_stage": "tester"},
             {"current_task": {"id": "different-task"}},
         ):
             with self.subTest(override=override):
@@ -1014,7 +1021,7 @@ class RetrofitTest(unittest.TestCase):
                 if mismatch == "other_error":
                     state["stages"][1]["rejection_reason"] = "Completion rejected: blocking findings"
                 elif mismatch == "accepted_progress":
-                    state["stages"].append({"stage": "sol", "source_revision": current["revision"]})
+                    state["stages"].append({"stage": "tester", "source_revision": current["revision"]})
                 elif mismatch == "changed_source":
                     state["recovery_context"]["source_revision"] = "old-source"
                 else:
@@ -1022,7 +1029,7 @@ class RetrofitTest(unittest.TestCase):
                         runner.failures.record(
                             state,
                             {
-                                "stage": "sol",
+                                "stage": "tester",
                                 "iteration": 5,
                                 "source_revision": current["revision"],
                                 "output": str(self.run / f"sol-{attempt}.json"),
@@ -1036,7 +1043,7 @@ class RetrofitTest(unittest.TestCase):
                 self.assertEqual(saved, (self.run / "state.json").read_bytes())
         history = copy.deepcopy(self.state["failure_history"])
         self.assertTrue(runner.prepare_abandoned_completion_revalidation(self.state, self.run, self.root))
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertEqual("PAUSED_STAGE_ABANDONED", self.state["status"])
         self.assertEqual(history, self.state["failure_history"])
         self.assertNotIn("validation", self.state)
@@ -1092,11 +1099,11 @@ class RetrofitTest(unittest.TestCase):
         d = self.decision()
         d["acceptance_criteria"] = [{**self.criteria[0], "criterion": "weaker"}]
         with self.assertRaises(s.Paused):
-            runner.apply_result(self.state, "astra_review", d, {}, self.root, self.run)
+            runner.apply_result(self.state, "review_completion", d, {}, self.root, self.run)
 
     def test_continue_advances_automatically_at_review(self):
-        runner.apply_result(self.state, "astra_review", self.decision(), {"output": "report"}, self.root, self.run)
-        self.assertEqual("terra", self.state["next_stage"])
+        runner.apply_result(self.state, "review_completion", self.decision(), {"output": "report"}, self.root, self.run)
+        self.assertEqual("builder", self.state["next_stage"])
         self.assertEqual(6, self.state["iteration"])
 
     def test_capture_tool_failure_preserves_full_output(self):
@@ -1168,9 +1175,9 @@ class RetrofitTest(unittest.TestCase):
                 patch.object(runner.processes, "preflight", return_value=None),
                 patch.object(runner.processes, "wait_for_stage", return_value=(0, False)),
             ):
-                self.settings["roles"]["terra"]["provider"] = "ZAI"
+                self.settings["roles"]["builder"]["provider"] = "ZAI"
                 value, record = runner.run_role(
-                    role="terra",
+                    role="builder",
                     prompt="small handoff",
                     sandbox="workspace-write",
                     workspace=self.root,
@@ -1214,7 +1221,7 @@ class RetrofitTest(unittest.TestCase):
         ):
             with self.assertRaises(s.Paused) as caught:
                 runner.run_role(
-                    role="terra",
+                    role="builder",
                     prompt="small handoff",
                     sandbox="workspace-write",
                     workspace=self.root,
@@ -1265,7 +1272,7 @@ class RetrofitTest(unittest.TestCase):
         ):
             with self.assertRaises(s.Paused) as caught:
                 runner.run_role(
-                    role="terra",
+                    role="builder",
                     prompt="small handoff",
                     sandbox="workspace-write",
                     workspace=self.root,
@@ -1309,7 +1316,7 @@ class RetrofitTest(unittest.TestCase):
         ):
             with self.assertRaises(s.Paused) as caught:
                 runner.run_role(
-                    role="terra",
+                    role="builder",
                     prompt="small handoff",
                     sandbox="workspace-write",
                     workspace=self.root,
@@ -1341,7 +1348,7 @@ class RetrofitTest(unittest.TestCase):
         ):
             with self.assertRaises(s.Paused) as caught:
                 runner.run_role(
-                    role="terra",
+                    role="builder",
                     prompt="small handoff",
                     sandbox="workspace-write",
                     workspace=self.root,
@@ -1369,8 +1376,8 @@ class RetrofitTest(unittest.TestCase):
         self.state.update(status="RUNNING", phase="EXECUTING")
         self.state["settings"]["workflow"] = {"mode": runner.workflow.FINAL_MODE}
         record = {
-            "role": "terra",
-            "stage": "terra",
+            "role": "builder",
+            "stage": "builder",
             "iteration": 5,
             "duration_seconds": 3,
             "output": str(base.with_suffix(".json")),
@@ -1386,9 +1393,9 @@ class RetrofitTest(unittest.TestCase):
         error = s.Paused("PAUSED_PROVIDER_UNCERTAIN", "timed out")
         self.assertTrue(runner.automatically_recover_timed_out_stage(self.state, self.run, self.root, error))
         self.assertEqual("RUNNING", self.state["status"])
-        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual("builder", self.state["next_stage"])
         self.assertNotIn("active_stage", self.state)
-        self.assertNotIn("terra", self.state["sessions"])
+        self.assertNotIn("builder", self.state["sessions"])
         self.assertTrue((self.root / "partial.py").exists())
         # AutoResolver's runner-owned observation receipt may follow the archive.
         archived = [row for row in self.state["stages"] if not row.get("runner_owned")][-1]
@@ -1404,8 +1411,8 @@ class RetrofitTest(unittest.TestCase):
         s.atomic_json(base.with_suffix(".before.json"), before)
         base.with_suffix(".jsonl").write_text('{"type":"turn.completed"}\n')
         record = {
-            "role": "terra",
-            "stage": "terra",
+            "role": "builder",
+            "stage": "builder",
             "iteration": 5,
             "output": str(base.with_suffix(".json")),
             "events": str(base.with_suffix(".jsonl")),
@@ -1421,14 +1428,14 @@ class RetrofitTest(unittest.TestCase):
 
     def test_automatic_timeout_recovery_returns_planning_stage_to_its_owner(self):
         # A timed-out read-only planning/discovery attempt continues at its own
-        # stage and phase. Routing it to astra_review would fail the next
+        # stage and phase. Routing it to review_completion would fail the next
         # admission against the unapproved draft with PAUSED_GOAL_UNAPPROVED.
         cases = [
             ("requirements_gather", "requirements", True, "PLANNING"),
-            ("astra_discovery", "planner", True, "PLANNING"),
-            ("glm_revise", "planner", True, "PLANNING"),
-            ("astra_challenge", "task_planner", True, "PLANNING"),
-            ("astra_discovery", "task_planner", False, "DISCOVERING"),
+            ("draft_plan", "planner", True, "PLANNING"),
+            ("revise_plan", "planner", True, "PLANNING"),
+            ("review_plan", "task_planner", True, "PLANNING"),
+            ("draft_plan", "task_planner", False, "DISCOVERING"),
         ]
         for iteration, (stage, role, joint, phase) in enumerate(cases, start=1):
             with self.subTest(stage=stage, joint=joint):
@@ -1462,15 +1469,15 @@ class RetrofitTest(unittest.TestCase):
 
     def test_automatic_capacity_recovery_returns_planning_stage_to_its_owner(self):
         before = s.snapshot(self.root)
-        base = self.run / "iterations/001/astra_discovery-01"
+        base = self.run / "iterations/001/draft_plan-01"
         base.parent.mkdir(parents=True)
         s.atomic_json(base.with_suffix(".before.json"), before)
         base.with_suffix(".jsonl").write_text('{"type":"turn.failed","error":{"message":"model is at capacity"}}\n')
         self.state["settings"]["joint_planning"] = True
-        self.state.update(status="RUNNING", phase="PLANNING", next_stage="astra_discovery")
+        self.state.update(status="RUNNING", phase="PLANNING", next_stage="draft_plan")
         self.state["active_stage"] = {
             "role": "planner",
-            "stage": "astra_discovery",
+            "stage": "draft_plan",
             "iteration": 1,
             "duration_seconds": 3,
             "output": str(base.with_suffix(".json")),
@@ -1483,7 +1490,7 @@ class RetrofitTest(unittest.TestCase):
         with patch.object(runner.time, "sleep"):
             self.assertTrue(runner.automatically_recover_capacity_stage(self.state, self.run, self.root, error))
         self.assertEqual(
-            ("astra_discovery", "PLANNING", "RUNNING"),
+            ("draft_plan", "PLANNING", "RUNNING"),
             (self.state["next_stage"], self.state["phase"], self.state["status"]),
         )
 
@@ -1493,10 +1500,10 @@ class RetrofitTest(unittest.TestCase):
         base.parent.mkdir(parents=True)
         s.atomic_json(base.with_suffix(".before.json"), before)
         base.with_suffix(".jsonl").write_text('{"type":"thread.started","thread_id":"sol-session"}\n')
-        self.state.update(status="RUNNING", phase="EXECUTING", next_stage="sol")
+        self.state.update(status="RUNNING", phase="EXECUTING", next_stage="tester")
         self.state["active_stage"] = {
-            "role": "sol",
-            "stage": "sol",
+            "role": "tester",
+            "stage": "tester",
             "iteration": 5,
             "duration_seconds": 3,
             "output": str(base.with_suffix(".json")),
@@ -1508,7 +1515,7 @@ class RetrofitTest(unittest.TestCase):
         }
         error = s.Paused("PAUSED_PROVIDER_TIMEOUT", "timed out")
         self.assertTrue(runner.automatically_recover_timed_out_stage(self.state, self.run, self.root, error))
-        self.assertEqual(("sol", "EXECUTING"), (self.state["next_stage"], self.state["phase"]))
+        self.assertEqual(("tester", "EXECUTING"), (self.state["next_stage"], self.state["phase"]))
         self.assertIn("no accepted Tester report", self.state["recovery_context"]["instruction"])
 
     def test_automatic_external_directory_denial_retries_workspace_only(self):
@@ -1521,8 +1528,8 @@ class RetrofitTest(unittest.TestCase):
             "permission requested: external_directory (/tmp/*); auto-rejecting\n"
         )
         record = {
-            "role": "terra",
-            "stage": "terra",
+            "role": "builder",
+            "stage": "builder",
             "iteration": 5,
             "duration_seconds": 1,
             "output": str(base.with_suffix(".json")),
@@ -1536,7 +1543,7 @@ class RetrofitTest(unittest.TestCase):
         error = s.Paused("PAUSED_UNCERTAIN_STAGE", "missing terminal turn")
         self.assertTrue(runner.automatically_recover_external_directory_denial(self.state, self.run, self.root, error))
         self.assertEqual("RUNNING", self.state["status"])
-        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual("builder", self.state["next_stage"])
         self.assertNotIn("active_stage", self.state)
         self.assertEqual(1, len(self.state["automatic_permission_recoveries"]))
         # A denial retry has its own ceiling and spends no timeout-recovery budget; a Builder's
@@ -1561,8 +1568,8 @@ class RetrofitTest(unittest.TestCase):
         s.atomic_json(base.with_suffix(".json"), value)
         base.with_suffix(".jsonl").write_text('{"type":"turn.completed"}\n')
         self.state["active_stage"] = {
-            "role": "terra",
-            "stage": "terra",
+            "role": "builder",
+            "stage": "builder",
             "iteration": 5,
             "output": str(base.with_suffix(".json")),
             "events": str(base.with_suffix(".jsonl")),
@@ -1571,15 +1578,15 @@ class RetrofitTest(unittest.TestCase):
         }
         with patch.object(runner, "run_role", side_effect=AssertionError("must not replay")):
             runner.reconcile_active(self.state, self.run, self.root)
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertNotIn("active_stage", self.state)
 
     def test_rejected_completed_discovery_archives_instead_of_reapplying(self):
         from goal_fixtures import body
 
-        self.state.update(version=3, next_stage="astra_discovery")
+        self.state.update(version=3, next_stage="draft_plan")
         before = s.snapshot(self.root)
-        base = self.run / "iterations/001/astra_discovery-01"
+        base = self.run / "iterations/001/draft_plan-01"
         base.parent.mkdir(parents=True)
         s.atomic_json(base.with_suffix(".before.json"), before)
         schema = self.run / "schemas/discovery.json"
@@ -1595,7 +1602,7 @@ class RetrofitTest(unittest.TestCase):
         )
         self.state["active_stage"] = {
             "role": "task_planner",
-            "stage": "astra_discovery",
+            "stage": "draft_plan",
             "iteration": 1,
             "output": str(base.with_suffix(".json")),
             "events": str(base.with_suffix(".jsonl")),
@@ -1609,9 +1616,9 @@ class RetrofitTest(unittest.TestCase):
         self.assertNotIn("active_stage", self.state)
         self.assertEqual(1, len(self.state["stages"]))
         self.assertEqual(1, len(self.state["reconciliation_notes"]))
-        archived = list((self.run / "iterations/001").glob("archived-astra_discovery-01-*"))
+        archived = list((self.run / "iterations/001").glob("archived-draft_plan-01-*"))
         self.assertEqual(1, len(archived))
-        self.assertTrue((archived[0] / "astra_discovery-01.json").exists())
+        self.assertTrue((archived[0] / "draft_plan-01.json").exists())
         self.assertFalse(base.with_suffix(".json").exists())
         self.assertEqual("a-session", self.state["sessions"]["task_planner"])
 
@@ -1658,7 +1665,7 @@ class RetrofitTest(unittest.TestCase):
             called.append(stage)
             out = self.run / f"{stage}.json"
             ev = self.run / f"{stage}.jsonl"
-            if stage == "terra":
+            if stage == "builder":
                 for name in ("greet.py", "test_greet.py"):
                     (self.root / name).write_text(references.BUGFIX_REFERENCE[name])
                 value = {
@@ -1670,7 +1677,7 @@ class RetrofitTest(unittest.TestCase):
                     "evidence_refs": [str(self.evidence)],
                 }
                 ev.write_text('{"type":"turn.completed"}\n')
-            elif stage == "sol":
+            elif stage == "tester":
                 check = subprocess.run(shlex.split(command), cwd=self.root, capture_output=True, text=True)
                 self.assertEqual(0, check.returncode, check.stdout + check.stderr)
                 ev.write_text(
@@ -1712,7 +1719,7 @@ class RetrofitTest(unittest.TestCase):
                 "iteration": 5,
                 "output": str(out),
                 "events": str(ev),
-                "changed_files": ["greet.py", "test_greet.py"] if stage == "terra" else [],
+                "changed_files": ["greet.py", "test_greet.py"] if stage == "builder" else [],
                 "after_ref": str(self.evidence),
                 "source_revision": s.snapshot(self.root)["revision"],
                 "duration_seconds": 0.01,
@@ -1735,7 +1742,7 @@ class RetrofitTest(unittest.TestCase):
             patch.object(runner, "run_role", side_effect=fake_role),
         ):
             self.assertEqual(0, runner.main())
-            self.assertEqual(["terra", "sol", "astra_review"], called)
+            self.assertEqual(["builder", "tester", "review_completion"], called)
             saved = s.read(self.run / "state.json")
             self.assertEqual("TASK_COMPLETE", saved["status"])
             proof = saved["regression_proof"]
@@ -1761,7 +1768,7 @@ class RetrofitTest(unittest.TestCase):
         self.state["builder_retry_key"] = lane
         self.state["builder_retries"] = {
             lane: {
-                "initial_route": copy.deepcopy(self.state["settings"]["roles"]["terra"]),
+                "initial_route": copy.deepcopy(self.state["settings"]["roles"]["builder"]),
                 "failures": ["review-1", "review-2", "review-3"],
                 "action": "pause",
             }
@@ -1787,7 +1794,7 @@ class RetrofitTest(unittest.TestCase):
         saved = s.read(self.run / "state.json")
         # The exhausted Builder lane now waits on an operational AutoResolver request.
         assert_operational_wait(self, saved, "PAUSED_BUILDER_RETRY_LIMIT")
-        self.assertEqual("terra", saved["next_stage"])
+        self.assertEqual("builder", saved["next_stage"])
         self.assertNotIn("active_stage", saved)
 
     def test_compression_failure_returns_original_not_false_pass(self):
@@ -1807,7 +1814,7 @@ class RetrofitTest(unittest.TestCase):
         current = s.snapshot(self.root)
         state = {
             "status": "PAUSED_REPEATED_FAILURE",
-            "next_stage": "terra",
+            "next_stage": "builder",
             "iteration": 5,
             "workspace": str(self.root),
             "task": "fixture",
@@ -1821,8 +1828,8 @@ class RetrofitTest(unittest.TestCase):
         first = None
         # An unrelated earlier failure must survive any authorization untouched.
         other = {
-            "stage": "sol",
-            "role": "sol",
+            "stage": "tester",
+            "role": "tester",
             "iteration": 4,
             "output": str(self.run / "sol-failed.json"),
             "source_revision": current["revision"],
@@ -1832,8 +1839,8 @@ class RetrofitTest(unittest.TestCase):
         state["stages"].append(other)
         for attempt in range(3):
             record = {
-                "stage": "terra",
-                "role": "terra",
+                "stage": "builder",
+                "role": "builder",
                 "iteration": 5,
                 "output": str(self.run / f"terra-failed-{attempt}.json"),
                 "source_revision": current["revision"],

@@ -38,7 +38,7 @@ def install(fake, config, trace):
         if repaired.exists() and "tests/__init__.py" not in fake.PATHS:
             fake.PATHS.append("tests/__init__.py")
         value = original(stage, data)
-        if stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+        if stage in ("draft_plan", "revise_plan", "finalize_plan"):
             trace("scaffolding_plan", stage=stage, assigned=list(fake.PATHS), repair=bool(data.get("report_repair")))
         return value
 
@@ -50,12 +50,12 @@ def planning_metadata(fake, original, stage, data, trace, config):
     value = original(stage, data)
     if data.get("report_repair"):
         trace("metadata_rejection", stage=stage, error=data.get("error", ""))
-    if stage == "astra_discovery":
+    if stage == "draft_plan":
         omitted = value["requirement_trace"][0].pop("requirement_id", None)
         trace("omitted_trace_id", stage=stage, omitted=omitted)
         if config["case"] == "metadata_with_proof_downgrade":
             value["contract"]["acceptance_criteria"][0]["verification_method"] = "test: test_c1_greeting"
-    if stage in ("glm_revise", "astra_finalize"):
+    if stage in ("revise_plan", "finalize_plan"):
         body = value["contract"]
         row = next((r for r in body["acceptance_criteria"] if r["id"] == "C2"), None)
         if row is None:
@@ -88,7 +88,7 @@ def citation_after_clarification(fake, original, stage, data, trace):
         attempt = next(
             row["output"]
             for row in reversed(data["recent_stages"])
-            if row.get("stage") == "astra_discovery" and row.get("rejected")
+            if row.get("stage") == "draft_plan" and row.get("rejected")
         )
         copied = "run/" + Path(attempt).name
         return {
@@ -112,7 +112,7 @@ def citation_after_clarification(fake, original, stage, data, trace):
             "untestable": "",
         }
     value = original(stage, data)
-    if stage != "astra_discovery":
+    if stage != "draft_plan":
         return value
     guided = "INVESTIGATOR GUIDANCE" in fake.PROMPT or "EARLIER PLANNING CORRECTIONS" in fake.PROMPT
     answered = "Q_AFTER" in data.get("saved_answers", {})
@@ -153,13 +153,13 @@ def draft_suite_proof(fake, original, stage, data, trace, config):
     if data.get("report_repair"):
         trace("proof_rejection_observed", stage=stage, error=data.get("error", ""))
     value = original(stage, data)
-    if stage == "astra_discovery":
+    if stage == "draft_plan":
         value["contract"]["acceptance_criteria"][0]["verification_method"] = (
             "test: test_c1_recursive_suite"
             if config["case"] == "reject_draft_proof_downgrade"
             else "python3 -m unittest nonexistent_test.py"
         )
-    elif stage == "astra_challenge":
+    elif stage == "review_plan":
         value["concerns"] = [
             {
                 "id": "C_SUITE",
@@ -170,7 +170,7 @@ def draft_suite_proof(fake, original, stage, data, trace, config):
                 "blocking": True,
             }
         ]
-    elif stage == "glm_revise":
+    elif stage == "revise_plan":
         value["responses"] = [
             {
                 "concern_id": "C_SUITE",
@@ -180,7 +180,7 @@ def draft_suite_proof(fake, original, stage, data, trace, config):
                 "acceptance_test": fake.CHECK,
             }
         ]
-    elif stage == "astra_finalize":
+    elif stage == "finalize_plan":
         value["decisions"] = [
             {
                 "concern_id": "C_SUITE",
@@ -190,7 +190,7 @@ def draft_suite_proof(fake, original, stage, data, trace, config):
                 "resolved": True,
             }
         ]
-    if stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+    if stage in ("draft_plan", "revise_plan", "finalize_plan"):
         trace("draft_proof", stage=stage, method=value["contract"]["acceptance_criteria"][0]["verification_method"])
     return value
 
@@ -207,10 +207,10 @@ def draft_example(fake, original, stage, data, trace, config):
     value = original(stage, data)
     if data.get("report_repair"):
         trace("example_rejection_observed", stage=stage, error=data.get("error", ""))
-    if stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+    if stage in ("draft_plan", "revise_plan", "finalize_plan"):
         row = value["contract"]["acceptance_criteria"][0]
-        row["criterion"] = criterion if stage == "astra_discovery" else criterion.replace(old, new)
-        if stage == "glm_revise":
+        row["criterion"] = criterion if stage == "draft_plan" else criterion.replace(old, new)
+        if stage == "revise_plan":
             if config["case"] == "reject_draft_example_input_change":
                 row["criterion"] = row["criterion"].replace("B,130", "B,129")
             value["contract_changes"] = [
@@ -232,7 +232,7 @@ def draft_example(fake, original, stage, data, trace, config):
                     "acceptance_test": fake.CHECK,
                 }
             ]
-        elif stage == "astra_finalize":
+        elif stage == "finalize_plan":
             value["decisions"] = [
                 {
                     "concern_id": "C_COUNT",
@@ -243,7 +243,7 @@ def draft_example(fake, original, stage, data, trace, config):
                 }
             ]
         trace("draft_example", stage=stage, criterion=row["criterion"])
-    elif stage == "astra_challenge":
+    elif stage == "review_plan":
         value["concerns"] = [
             {
                 "id": "C_COUNT",

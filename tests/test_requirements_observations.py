@@ -79,10 +79,10 @@ class RequirementsObservationsTests(unittest.TestCase):
         observations.prepare(self.record)
         observations.seal(self.state, self.record, self.report)
 
-    def context(self, stage="astra_discovery"):
+    def context(self, stage="draft_plan"):
         return observations.context(self.state, stage, self.run, lambda: source.snapshot(self.workspace))
 
-    def rendered_planner(self, stage="astra_discovery"):
+    def rendered_planner(self, stage="draft_plan"):
         state = copy.deepcopy(self.state)
         state.update(version=3, task="Correct the existing CLI", acceptance_criteria=[])
         state["settings"]["joint_planning"] = True
@@ -151,7 +151,7 @@ class RequirementsObservationsTests(unittest.TestCase):
             "stale source": lambda: (self.workspace / "app.py").write_text("VALUE = 2\n"),
             "changed native bytes": lambda: event_path.write_bytes(event_bytes + b"\n"),
             "replay": lambda: self.state["settings"].update(replay_recording={"checks": "fresh"}),
-            "later Planner": lambda: self.state["stages"].append({"stage": "astra_discovery"}),
+            "later Planner": lambda: self.state["stages"].append({"stage": "draft_plan"}),
         }
         for name, change in changes.items():
             self.state = copy.deepcopy(baseline)
@@ -166,7 +166,7 @@ class RequirementsObservationsTests(unittest.TestCase):
         self.state = copy.deepcopy(baseline)
         event_path.write_bytes(event_bytes)
         (self.workspace / "app.py").write_text("VALUE = 1\n")
-        for stage in ("requirements_gather", "glm_revise", "astra_challenge", "astra_finalize"):
+        for stage in ("requirements_gather", "revise_plan", "review_plan", "finalize_plan"):
             with self.subTest(stage=stage):
                 instruction, packet = self.rendered_planner(stage)
                 self.assertNotIn(observations.FIELD, packet)
@@ -184,16 +184,16 @@ class RequirementsObservationsTests(unittest.TestCase):
         self.assertEqual(self.report, self.state["requirements_handoff"]["report"])
         for stage in (
             "requirements_gather",
-            "glm_revise",
-            "astra_challenge",
-            "astra_finalize",
-            "terra",
-            "sol",
-            "astra_review",
+            "revise_plan",
+            "review_plan",
+            "finalize_plan",
+            "builder",
+            "tester",
+            "review_completion",
         ):
             with self.subTest(stage=stage):
                 self.assertIsNone(self.context(stage))
-        self.state["stages"].append({"stage": "astra_discovery"})
+        self.state["stages"].append({"stage": "draft_plan"})
         self.assertIsNone(self.context(), "a later discovery must use its own current investigation")
 
     def repaired(self):
@@ -234,7 +234,7 @@ class RequirementsObservationsTests(unittest.TestCase):
         self.assertEqual("sealed", repair[observations.FIELD]["status"])
         self.assertEqual(["2025\n"], [row["output"] for row in self.context()["observations"]])
         self.assertEqual(self.report, self.state["requirements_handoff"]["report"])
-        self.state["stages"].append({"stage": "astra_discovery"})
+        self.state["stages"].append({"stage": "draft_plan"})
         self.assertIsNone(self.context(), "accepted repair does not extend the first-Planner boundary")
 
     def test_repair_seal_requires_original_fresh_custody_and_completed_core_acceptance(self):
@@ -533,7 +533,7 @@ class RequirementsObservationsTests(unittest.TestCase):
             mock.patch("subprocess.Popen", side_effect=AssertionError("executed historical command")),
         ):
             self.seal()
-            packet = observations.context(self.state, "astra_discovery", self.run, self.product)
+            packet = observations.context(self.state, "draft_plan", self.run, self.product)
         self.assertIn("/never/read", packet["observations"][0]["output"])
         self.assertFalse(Path("/never/read").exists())
         with self.assertRaisesRegex(ValueError, "runner or a tool owns"):

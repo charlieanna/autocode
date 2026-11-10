@@ -22,8 +22,8 @@ class UnlimitedTests(unittest.TestCase):
     def args(self, **kwargs):
         return SimpleNamespace(
             task_planner_model=None,
-            terra_model=None,
-            sol_model=None,
+            builder_model=None,
+            tester_model=None,
             reasoning_effort=None,
             headroom=None,
             context_soft_tokens=None,
@@ -93,8 +93,8 @@ class UnlimitedTests(unittest.TestCase):
             engine="codex",
             provider=None,
             task_planner_model=None,
-            terra_model=None,
-            sol_model=None,
+            builder_model=None,
+            tester_model=None,
             reasoning_effort=None,
             headroom=None,
             context_soft_tokens=None,

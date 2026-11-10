@@ -148,7 +148,7 @@ def _unchosen(state: RunState) -> bool:
         and not state.get("stages")
         and not state.get("goal_contract")
         and not state.get("active_stage")
-        and state.get("next_stage") == "astra_plan"
+        and state.get("next_stage") == "plan_task"
     )
 
 

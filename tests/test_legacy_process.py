@@ -144,7 +144,7 @@ class RunnerCommandTests(unittest.TestCase):
             "--migrate-only",
             "--follow-up text",
             "--test-command pytest",
-            "--terra-model model",
+            "--builder-model model",
         ):
             for reader in ("--status", "--status --json", "--dry-run"):
                 with self.subTest(reader=reader, mutation=mutation):

@@ -19,8 +19,8 @@ except ImportError:
 
 KEY = "repair_report"
 META = "x-autocode-report-edits"
-PLANNING_STAGES = frozenset({"requirements_gather", "astra_discovery", "glm_revise"})
-REVIEW_STAGES = frozenset({"sol", "astra_review", "astra_checkpoint"})
+PLANNING_STAGES = frozenset({"requirements_gather", "draft_plan", "revise_plan"})
+REVIEW_STAGES = frozenset({"tester", "review_completion", "review_checkpoint"})
 STAGES = PLANNING_STAGES | REVIEW_STAGES
 MAX_EDIT_VALUE_BYTES = 128 * 1024
 RULE = (

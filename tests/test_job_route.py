@@ -174,7 +174,7 @@ class JobModelRouteTests(JobHarness):
             run, "--answer", "route-architect=gpt-6-sol", "--job-retry-token", old, message="refused gpt-6-sol"
         )
         self.rejected(
-            run, "--answer", "route-terra=gpt-6-luna", "--job-retry-token", old, message="not the model question"
+            run, "--answer", "route-builder=gpt-6-luna", "--job-retry-token", old, message="not the model question"
         )
         self.rejected(run, "--answer", "route-architect=gpt 6", "--job-retry-token", old, message="without spaces")
 
@@ -200,7 +200,7 @@ class JobModelRouteTests(JobHarness):
             ),
         )
         # The Design Reviewer's model has no flag of its own: the Tester's stays as it was.
-        self.assertEqual("gpt-6-sol", run.options[run.options.index("--sol-model") + 1])
+        self.assertEqual("gpt-6-sol", run.options[run.options.index("--tester-model") + 1])
         # Once a model is named, the card and the progress line ask only for the retry on it.
         view = run.status()
         self.assertIn(
@@ -243,7 +243,7 @@ class JobModelRouteTests(JobHarness):
             self.workspace,
             run.run_dir,
             command=run.command,
-            options=("--sol-model", "gpt-6-luna"),
+            options=("--tester-model", "gpt-6-luna"),
             env=run.env,
             timeout=60,
         )
@@ -371,7 +371,7 @@ class JobModelRouteTests(JobHarness):
         )
         for flags, message in (
             ((*answer, "--job-retry-token", token, "--max-stage-seconds", "60"), only),
-            ((*answer, "--job-retry-token", token, "--terra-model", "gpt-6-nova"), only),
+            ((*answer, "--job-retry-token", token, "--builder-model", "gpt-6-nova"), only),
             ((*answer, "--max-stage-seconds", "60"), only),
             ((*answer, "--resume-paused", "--retry-failed-stage", "--max-stage-seconds", "60"), only),
             (
@@ -513,7 +513,7 @@ def bound_state(settings_model="gpt-6-sol"):
     """A job stopped by the content filter on gpt-6-sol, as job_failure.recover saves it; settings may have drifted."""
     config = {
         "engine": "codex",
-        "roles": {"architect": {"model": "gpt-6-sol"}, "terra": {"model": "gpt-5.6-terra"}},
+        "roles": {"architect": {"model": "gpt-6-sol"}, "builder": {"model": "gpt-5.6-terra"}},
         "limits": {"max_stage_seconds": 900},
     }
     settings = copy.deepcopy(config)
@@ -619,14 +619,14 @@ class RerouteTests(unittest.TestCase):
 
     def test_anything_else_changed_refuses_and_keeps_the_shown_token(self):
         cases = {
-            "another role": ({"role": "terra"}, True, None, "does not name the stopped Design Reviewer"),
+            "another role": ({"role": "builder"}, True, None, "does not name the stopped Design Reviewer"),
             "another attempt": ({"attempt_id": "001/design-check-02"}, True, None, "does not name the stopped"),
             "source": ({}, False, None, "Source changed since the failed attempt"),
             "limits": ({}, True, ("limits", {"max_stage_seconds": 60}), "Provider configuration or limits changed"),
             "other route": (
                 {},
                 True,
-                ("roles", {"architect": {"model": "x"}, "terra": {"model": "gpt-6-nova"}}),
+                ("roles", {"architect": {"model": "x"}, "builder": {"model": "gpt-6-nova"}}),
                 "Provider configuration or limits changed",
             ),
         }
@@ -676,7 +676,7 @@ def unrouted_stop(stage="investigate_stuck", *, kind="content_filter", pause_sta
         "next_stage": stage,
         "stop_reason": reason,
         "job_failure": failure,
-        "settings": {"engine": "codex", "roles": {"sol": {"model": "gpt-6-sol"}}},
+        "settings": {"engine": "codex", "roles": {"tester": {"model": "gpt-6-sol"}}},
         "stages": [],
     }
 

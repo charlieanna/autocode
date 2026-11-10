@@ -27,13 +27,13 @@ class InvestigatorRepairHandoffTests(unittest.TestCase):
             next_stage=stuck.STAGE,
             stuck_investigation={
                 "identity": "finalize:invalid",
-                "stage": "astra_finalize",
+                "stage": "finalize_plan",
                 "status": "PAUSED_INVALID_OUTPUT",
                 "reason": "$.decisions[0]: unexpected fields",
             },
             stages=[
                 {
-                    "stage": "astra_finalize_report_repair",
+                    "stage": "finalize_plan_report_repair",
                     "iteration": 9,
                     "output": str(output),
                     "rejected": True,
@@ -41,7 +41,7 @@ class InvestigatorRepairHandoffTests(unittest.TestCase):
                 }
             ],
             failure_history={
-                "finalize": {"identity": {"stage": "astra_finalize"}, "count": 3, "last_error": "unexpected fields"}
+                "finalize": {"identity": {"stage": "finalize_plan"}, "count": 3, "last_error": "unexpected fields"}
             },
         )
         self.queue(role="task_planner", stage=stuck.STAGE, error=ValueError("diagnosed causes' probes did not exit 0"))
@@ -67,7 +67,7 @@ class InvestigatorRepairHandoffTests(unittest.TestCase):
             "binding": {"output": str(output), "evidence_hashes": {str(output): repairs.support.file_hash(output)}},
             "evidence_refs": [str(output)],
             "diagnosis": {"changed_code_exceptions": [{"reason": "preceding tester detail " * 20000}]},
-            "record": {"output": str(output), "stage": "sol", "source_revision": "unchanged"},
+            "record": {"output": str(output), "stage": "tester", "source_revision": "unchanged"},
         }
         self.state["stuck_investigation"].update(mode="builder_failure", failure_evidence=failure)
         before = copy.deepcopy(failure)
@@ -106,7 +106,7 @@ class InvestigatorRepairContextTests(unittest.TestCase):
         self.saved.write_text("{}")
         self.repository = self.workspace / "diagnosis.txt"
         self.repository.write_text("saved diagnosis")
-        self.schema = self.run / "schemas" / "v3-astra_finalize.json"
+        self.schema = self.run / "schemas" / "v3-finalize_plan.json"
         self.schema.parent.mkdir()
         self.schema.write_text("{}")
         self.outside = self.root / "outside.txt"
@@ -116,11 +116,11 @@ class InvestigatorRepairContextTests(unittest.TestCase):
             "workspace": str(self.workspace),
             "stuck_investigation": {
                 "identity": "finalize:invalid",
-                "stage": "astra_finalize",
+                "stage": "finalize_plan",
                 "status": "PAUSED_INVALID_OUTPUT",
                 "reason": "unexpected fields",
             },
-            "stages": [{"stage": "astra_finalize", "output": str(self.saved), "rejected": True}],
+            "stages": [{"stage": "finalize_plan", "output": str(self.saved), "rejected": True}],
             "failure_history": {},
         }
 
@@ -148,7 +148,7 @@ class InvestigatorRepairContextTests(unittest.TestCase):
             [
                 {"evidence_ref": str(self.saved), "probe_path": "run/repair-02.json"},
                 {"evidence_ref": "diagnosis.txt:1", "probe_path": "diagnosis.txt"},
-                {"evidence_ref": str(self.schema), "probe_path": "run/v3-astra_finalize.json"},
+                {"evidence_ref": str(self.schema), "probe_path": "run/v3-finalize_plan.json"},
             ],
             context["evidence_files"],
         )
@@ -160,19 +160,19 @@ class InvestigatorRepairContextTests(unittest.TestCase):
         self.assertEqual(
             [
                 {"evidence_ref": str(self.saved), "probe_path": "run/repair-02.json"},
-                {"evidence_ref": str(self.schema), "probe_path": "run/v3-astra_finalize.json"},
+                {"evidence_ref": str(self.schema), "probe_path": "run/v3-finalize_plan.json"},
                 {"evidence_ref": "diagnosis.txt:1", "probe_path": "diagnosis.txt"},
             ],
             self.helper().evidence_files(refs, self.workspace, self.run),
         )
 
     def test_other_stages_and_a_missing_active_request_have_no_investigation_context(self):
-        self.assertEqual({}, self.helper().context(self.state, "sol", self.run / "state.json", self.workspace))
+        self.assertEqual({}, self.helper().context(self.state, "tester", self.run / "state.json", self.workspace))
         self.state.pop("stuck_investigation")
         self.assertEqual({}, self.helper().context(self.state, stuck.STAGE, self.run / "state.json", self.workspace))
 
     def test_evidence_policy_keeps_validator_and_builder_event_permissions(self):
-        for stage in ("sol", "terra"):
+        for stage in ("tester", "builder"):
             with self.subTest(stage=stage):
                 instruction = self.helper().evidence_instruction(stage)
                 self.assertIn("Evidence references must be bare event: IDs or exact file paths", instruction)

@@ -26,7 +26,7 @@ def question(qid, text):
     }
 
 
-def packet(stage="sol", status="approved"):
+def packet(stage="tester", status="approved"):
     return {
         "stage": stage,
         "state_file": "/runs/r/state.json",
@@ -127,7 +127,7 @@ class CondenseTests(unittest.TestCase):
                 self.assertEqual((small, {}), history.condense(small))
 
     def test_other_stages_and_unsettled_contracts_keep_everything(self):
-        cases = [packet(stage) for stage in ("terra", "astra_discovery", "astra_plan", "astra_resolve")]
+        cases = [packet(stage) for stage in ("builder", "draft_plan", "plan_task", "resolve")]
         cases.append(packet(status="draft"))
         unapproved = packet()
         unapproved["goal_contract"].pop("approval_event")
@@ -139,7 +139,7 @@ class CondenseTests(unittest.TestCase):
         for record in [*undated["brief_feedback"], *undated["saved_answers"].values()]:
             record.pop("at")
         cases.append(undated)
-        cases.append({"stage": "sol", "goal_contract": None, "saved_answers": {}, "brief_feedback": []})
+        cases.append({"stage": "tester", "goal_contract": None, "saved_answers": {}, "brief_feedback": []})
         for original in cases:
             with self.subTest(stage=original["stage"]):
                 self.assertEqual((original, {}), history.condense(original))
@@ -151,7 +151,7 @@ class CondenseTests(unittest.TestCase):
         self.assertEqual((original, {}), history.condense(original))
 
     def test_compaction_keeps_the_full_records_retrievable_and_hash_pinned(self):
-        original = packet("astra_review")
+        original = packet("review_completion")
         with tempfile.TemporaryDirectory() as tmp:
             state_path = Path(tmp) / "state.json"
             small, moved = context.compact(original, state_path)

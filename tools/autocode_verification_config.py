@@ -22,8 +22,8 @@ except ImportError:
 # The names autocode_resolver_human.PRIVATE and PUBLIC hold; that module sits above this one.
 BLOCKER_PROPOSAL: Final = "resolver_human_proposal"
 BLOCKER_REQUEST: Final = "resolver_human_request"
-BLOCKER_STAGES: Final = ("astra_review", "astra_resolve")
-TESTER_STAGES: Final = {"glm_first_v1": "astra_checkpoint", "glm_final_audit_v2": "terra"}
+BLOCKER_STAGES: Final = ("review_completion", "resolve")
+TESTER_STAGES: Final = {"glm_first_v1": "review_checkpoint", "glm_final_audit_v2": "builder"}
 
 
 def add_arguments(parser):
@@ -102,7 +102,7 @@ def command_correction(state: RunState) -> bool:
     if not hold:
         return False
     proposal = hold[0]
-    return (proposal.get("origin") or {}).get("stage") == "astra_resolve" and (proposal.get("request") or {}).get(
+    return (proposal.get("origin") or {}).get("stage") == "resolve" and (proposal.get("request") or {}).get(
         "correction"
     ) == "verification_commands"
 
@@ -163,7 +163,7 @@ def configure_resume(state: RunState, settings, args):
     before_proof = (
         state.get("status") == "PAUSED_ACCEPTANCE_TESTS" and state.get("next_stage") == "write_acceptance_tests"
     )
-    if not hold and not before_proof and state.get("next_stage") not in ("sol", "astra_checkpoint"):
+    if not hold and not before_proof and state.get("next_stage") not in ("tester", "review_checkpoint"):
         raise ValueError(
             "Changing verification commands requires a stopped checkpoint before the Validator "
             "or combined checkpoint; the new proof must run before any acceptance"
@@ -193,7 +193,7 @@ def configure_resume(state: RunState, settings, args):
             "The saved verification command changed on resume, so the Completion Owner blocker is withdrawn "
             "and the new proof runs before any acceptance",
         )
-        run_status.pause(state, paused, next_stage=TESTER_STAGES.get(cast(str, mode), "sol"))
+        run_status.pause(state, paused, next_stage=TESTER_STAGES.get(cast(str, mode), "tester"))
     settings["regression"] = current
     state.setdefault("user_events", []).append(
         {

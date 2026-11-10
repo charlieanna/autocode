@@ -117,7 +117,7 @@ print(''.join(lines), end='')
         self.assertIn(view["needs"]["kind"], ("answer", "approve_plan"), view["needs"])
         rows = [json.loads(line) for line in observed.read_text().splitlines()]
         requirements = next(row for row in rows if row["stage"] == "requirements_gather")
-        planner = next(row for row in rows if row["stage"] == "astra_discovery")
+        planner = next(row for row in rows if row["stage"] == "draft_plan")
         for key, value in requirements["report"].items():
             if repair and key == "access_blockers":
                 value = []
@@ -138,14 +138,14 @@ print(''.join(lines), end='')
         self.assertEqual("2025-01-01 (2025, 1)\n", retained["observations"][0]["output"])
         self.assertIn("untrusted", retained["instruction"])
         self.assertTrue(planner["inspection_credit"], "accepted first-Planner packet needs trusted reuse guidance")
-        self.assertTrue(all(row["observations"] is None for row in rows if row["stage"] != "astra_discovery"))
+        self.assertTrue(all(row["observations"] is None for row in rows if row["stage"] != "draft_plan"))
         if view["needs"]["kind"] == "answer":
             for question in view["needs"]["questions"]:
                 run.answer(question["id"], "CLI")
             view = run.advance_until_input()
         self.assertEqual("approve_plan", view["needs"]["kind"], view["needs"])
         rows = [json.loads(line) for line in observed.read_text().splitlines()]
-        self.assertTrue(any(row["stage"] == "astra_challenge" for row in rows), "independent plan review was skipped")
+        self.assertTrue(any(row["stage"] == "review_plan" for row in rows), "independent plan review was skipped")
         self.assertTrue(run.show_goal())
         run.approve_plan(view["needs"]["token"])
         view = run.advance_until_input()
@@ -160,7 +160,7 @@ print(''.join(lines), end='')
             with self.subTest(stage=row["stage"]):
                 self.assertEqual(bool(row["observations"]), row["inspection_credit"])
                 if row["inspection_credit"]:
-                    self.assertEqual("astra_discovery", row["stage"])
-        for stage in ("sol", "astra_review"):
+                    self.assertEqual("draft_plan", row["stage"])
+        for stage in ("tester", "review_completion"):
             self.assertTrue(any(row["stage"] == stage for row in rows), stage)
             self.assertTrue(all(row["observations"] is None for row in rows if row["stage"] == stage))

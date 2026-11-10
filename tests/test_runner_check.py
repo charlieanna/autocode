@@ -37,9 +37,9 @@ class RunnerCheckTests(unittest.TestCase):
             "iteration": 1,
             "sessions": {},
             "stages": [],
-            "next_stage": "sol",
+            "next_stage": "tester",
             "base_commit": self.project.base,
-            "settings": {"roles": {"sol": {"model": "glm-5.3", "reasoning_effort": "high"}}},
+            "settings": {"roles": {"tester": {"model": "glm-5.3", "reasoning_effort": "high"}}},
         }
         # Resume has updated memory, but no provider has saved its launch yet.
         self.path.write_text(json.dumps({**self.state, "status": "PAUSED_INTERVENTION"}))
@@ -72,7 +72,7 @@ class RunnerCheckTests(unittest.TestCase):
             self.assertIn(label, observed[-1])
             self.assertEqual("RUNNING", view["status"])
             self.assertEqual("continue", view["view"]["needs"]["kind"])
-            self.assertEqual("sol", view["next_stage"])
+            self.assertEqual("tester", view["next_stage"])
             self.assertIsNone(view["active_stage"])
             self.assertIsNone(view["active_stage_workers"])
             self.assertFalse(view["stale"])
@@ -95,14 +95,14 @@ class RunnerCheckTests(unittest.TestCase):
             patch.object(regression.verify, "baseline", side_effect=baseline),
             patch.object(regression.verify, "verify", side_effect=verify),
         ):
-            regression.before_review(self.state, "sol", self.project.root, self.run)
+            regression.before_review(self.state, "tester", self.project.root, self.run)
 
         self.assertEqual(2, len(observed))
         view = self.cli_status()
         self.assertIsNone(view["view"]["runner_check"])
         self.assertIsNone(view["runner_check_workers"])
         self.assertEqual("PASS", view["view"]["evidence"]["regression_proof"]["verdict"])
-        self.assertEqual("sol", view["next_stage"])
+        self.assertEqual("tester", view["next_stage"])
         # A cached proof must not publish another active check or repeat the suite.
         with patch.object(regression.verify, "verify") as run_suite:
             regression.prove(self.state, self.project.root, self.run)
@@ -114,7 +114,7 @@ class RunnerCheckTests(unittest.TestCase):
             patch.object(regression.verify, "baseline", side_effect=RuntimeError("suite failed to start")),
         ):
             with self.assertRaisesRegex(RuntimeError, "suite failed to start"):
-                regression.before_review(self.state, "sol", self.project.root, self.run)
+                regression.before_review(self.state, "tester", self.project.root, self.run)
         view = self.cli_status()
         self.assertIsNone(view["view"]["runner_check"])
         self.assertIsNone(view["view"]["evidence"]["regression_proof"])

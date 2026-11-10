@@ -39,12 +39,12 @@ class TransportOfferTests(unittest.TestCase):
             {"settings": {"engine": "codex"}},
             {"settings": {"engine": "retired"}},
             {"settings": {}},
-            {"settings": {"engine": "opencode", "roles": {}, "transport_identities": {"role:sol": {}}}},
+            {"settings": {"engine": "opencode", "roles": {}, "transport_identities": {"role:tester": {}}}},
             {"status": "PAUSED_REQUESTED"},
             {"active_stage": {"iteration": 1, "output": "/runs/r1/iterations/001/builder-01.json"}},
             {"active_stage": {}},
             {"active_runner_check": {}},
-            {"pending_report_repair": {"original": {"stage": "sol"}}},
+            {"pending_report_repair": {"original": {"stage": "tester"}}},
             {"uncertain_artifacts": ["retained.json"]},
             {"applied_interventions": [{"kind": "stop"}]},
         ):
@@ -121,9 +121,9 @@ class TransportAcceptanceCLITests(unittest.TestCase):
         options = list(self.options)
         for role, model in (
             ("task_planner", "zai-coding-plan/glm-5.3"),
-            ("sol", "zai-coding-plan/glm-5.3"),
+            ("tester", "zai-coding-plan/glm-5.3"),
             ("completion", "zai-coding-plan/glm-5.3"),
-            ("terra", "xiaomi-token-plan-sgp/mimo-v2.6-pro"),
+            ("builder", "xiaomi-token-plan-sgp/mimo-v2.6-pro"),
         ):
             options[options.index(f"--{role}-model") + 1] = model
         self.options = tuple(options)

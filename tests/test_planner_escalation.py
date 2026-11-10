@@ -130,7 +130,7 @@ class PlanSentBackTwice(unittest.TestCase):
     def planning_stages(self, state):
         """The planning stages after the draft that answered the Requirements question, with their launch models."""
         rows = [row for row in state["stages"] if row["stage"] != "requirements_gather"]
-        drafts = [index for index, row in enumerate(rows) if row["stage"] == "astra_discovery"]
+        drafts = [index for index, row in enumerate(rows) if row["stage"] == "draft_plan"]
         return [(row["stage"], (row.get("launch_route") or {}).get("model")) for row in rows[drafts[-1] :]]
 
     def test_the_second_blocked_challenge_moves_the_next_revision_to_a_stronger_model(self):
@@ -143,10 +143,10 @@ class PlanSentBackTwice(unittest.TestCase):
         self.assertEqual("AWAITING_GOAL_APPROVAL", state["status"])
         stages = [stage for stage, _model in self.planning_stages(state)]
         self.assertEqual(
-            ["astra_discovery", "astra_challenge", "glm_revise", "astra_challenge", "glm_revise", "astra_finalize"],
+            ["draft_plan", "review_plan", "revise_plan", "review_plan", "revise_plan", "finalize_plan"],
             stages,
         )
-        revisions = [model for stage, model in self.planning_stages(state) if stage == "glm_revise"]
+        revisions = [model for stage, model in self.planning_stages(state) if stage == "revise_plan"]
         self.assertEqual(["zai-coding-plan/glm-5.3", "openai/gpt-6-sol"], revisions)
         [event] = [row for row in state["reasoning_escalations"] if row["role"] == "planner"]
         self.assertEqual("plan_sent_back", event["trigger"])
@@ -162,7 +162,7 @@ class PlanSentBackTwice(unittest.TestCase):
         _run, state = self.plan()
         self.assertEqual("AWAITING_GOAL_APPROVAL", state["status"])
         self.assertEqual(
-            ["astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"],
+            ["draft_plan", "review_plan", "revise_plan", "finalize_plan"],
             [stage for stage, _model in self.planning_stages(state)],
         )
         self.assertFalse([row for row in state.get("reasoning_escalations", []) if row["role"] == "planner"])

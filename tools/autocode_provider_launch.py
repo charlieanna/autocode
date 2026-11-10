@@ -147,7 +147,7 @@ def prepare(
             or engine != "opencode"
             or getattr(adapter, "CONFIGURED", False)
             and not kilo_owner
-            or route_role != "sol"
+            or route_role != "tester"
             or planning
             or allow_write
             or session
@@ -468,7 +468,7 @@ def render_native_image_prompt(
     return containment_prompt(
         prompt,
         {"tool_containment": boundary},
-        stage="sol",
+        stage="tester",
         regression_proof_current=regression_proof_current,
         regression_handoff=regression_handoff,
     )
@@ -507,7 +507,7 @@ def containment_prompt(prompt, worker, *, stage=None, regression_proof_current=F
     instruction = prompts.get("fragments/provider-launch/containment-prompt.md")
     if policy.get("private_reads"):
         instruction += prompts.get("fragments/provider-launch/containment-prompt-run-store.md")
-    if stage == "sol":
+    if stage == "tester":
         # Bind the entire presented projection, including JSON types, not only its source revision.
         regression_proof_current = (
             regression_proof_current

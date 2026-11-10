@@ -73,8 +73,8 @@ def report_for(stage, data, common, config, run_check, requirements):
         for ident in (data.get("review_identity_policy") or {}).get("own_open_finding_ids", [])
     ]
     code = None
-    if stage == "terra":
-        attempt = 1 + sum(row["stage"] == "terra" for row in previous)
+    if stage == "builder":
+        attempt = 1 + sum(row["stage"] == "builder" for row in previous)
         if attempt == 1:
             scenario = _scenario(config["reference"])
             # Retain every complete reference test. Only implementation is planted.
@@ -99,7 +99,7 @@ def report_for(stage, data, common, config, run_check, requirements):
             "untested_behavior": [],
             "recommended_checks": [config["check"]],
         }
-    elif stage == "sol":
+    elif stage == "tester":
         code = run_check()
         status = "PASS" if code == 0 else "FAIL"
         result = {
@@ -136,7 +136,7 @@ def report_for(stage, data, common, config, run_check, requirements):
                 "pending_human_criteria": [],
             },
         }
-    elif stage in ("astra_review", "astra_resolve"):
+    elif stage in ("review_completion", "resolve"):
         validation = data["validation"]
         failed = validation["verdict"] == "FAIL"
         if validation["verdict"] not in ("FAIL", "PASS"):
@@ -166,7 +166,7 @@ def report_for(stage, data, common, config, run_check, requirements):
             "next_objective": "Repair the refund rules while preserving all unchanged tests" if failed else "",
             "plan": ["Repair only assigned refund implementation", "Execute unchanged refund check"] if failed else [],
             "affected_paths": list(task["affected_paths"]) if failed else [],
-            "findings": [finding] if failed and stage == "astra_review" else [],
+            "findings": [finding] if failed and stage == "review_completion" else [],
             "finding_dispositions": dispositions if not failed else [],
             "next_task": {
                 "kind": "implement" if failed else "none",
@@ -177,11 +177,11 @@ def report_for(stage, data, common, config, run_check, requirements):
                 "findings": [],
             },
         }
-        if failed and stage == "astra_review":
+        if failed and stage == "review_completion":
             # Schema-valid but incomplete, like completion_rework_incomplete.
             # Existing ordinary Resolver admission supplies the missing plan.
             result["next_task"]["validation_plan"] = []
-        if stage == "astra_resolve":
+        if stage == "resolve":
             if not failed:
                 raise ValueError("Refund Resolver must receive an actual failing Validator result")
             result["diagnosis"] = _diagnosis()

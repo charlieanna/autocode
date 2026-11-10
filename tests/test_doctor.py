@@ -293,9 +293,9 @@ class EngineTests(unittest.TestCase):
             DEFAULT_MODELS={
                 "requirements": "zhipuai-coding-plan/glm-5.3",
                 "planner": "zhipuai-coding-plan/glm-5.3",
-                "terra": "openai/gpt-6-luna",
+                "builder": "openai/gpt-6-luna",
                 "plan_reviewer": "openai/gpt-6-sol",
-                "sol": "zhipuai-coding-plan/glm-5.3",
+                "tester": "zhipuai-coding-plan/glm-5.3",
                 "completion": "zhipuai-coding-plan/glm-5.3",
                 "task_planner": "openai/gpt-6-astra",
             },

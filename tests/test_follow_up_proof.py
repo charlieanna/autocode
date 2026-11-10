@@ -26,7 +26,7 @@ def contract(revision, criteria):
     }
     row["hash"] = util.digest(row)
     approval = {"kind": "goal_approval", "actor": "user_cli", "token": identity.token(row)}
-    row.update(origin="astra_discovery", approval_status="approved", approval_event=approval)
+    row.update(origin="draft_plan", approval_status="approved", approval_event=approval)
     return row
 
 

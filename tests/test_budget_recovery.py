@@ -170,7 +170,7 @@ class BudgetRecoveryTests(unittest.TestCase):
     def test_recent_bound_independent_validation_qualifies_without_source_churn(self):
         state = fixture()
         row = state["stages"][0]
-        row.update(stage="sol", changed_files=[], output="/tmp/sol.json", source_revision="candidate-revision")
+        row.update(stage="tester", changed_files=[], output="/tmp/sol.json", source_revision="candidate-revision")
         state["validation"] = {"verdict": "PASS", "output": "/tmp/sol.json", "source_revision": "candidate-revision"}
         state["settings"]["budget_origins"]["max_seconds"] = "resolver_delegated"
         state["active_seconds"] = 700
@@ -181,7 +181,7 @@ class BudgetRecoveryTests(unittest.TestCase):
         )
         state = fixture()
         state["stages"][0].update(
-            stage="sol", changed_files=[], output="/tmp/sol.json", source_revision="candidate-revision"
+            stage="tester", changed_files=[], output="/tmp/sol.json", source_revision="candidate-revision"
         )
         state["validation"] = {"verdict": "PASS", "output": "/tmp/sol.json", "source_revision": "candidate-revision"}
         state["settings"]["budget_origins"]["max_seconds"] = "resolver_delegated"
@@ -193,7 +193,7 @@ class BudgetRecoveryTests(unittest.TestCase):
     def test_validation_progress_cannot_override_actual_no_progress_limit(self):
         state = fixture()
         state["stages"][0].update(
-            stage="sol", changed_files=[], output="/tmp/sol.json", source_revision="candidate-revision"
+            stage="tester", changed_files=[], output="/tmp/sol.json", source_revision="candidate-revision"
         )
         state["validation"] = {"verdict": "PASS", "output": "/tmp/sol.json", "source_revision": "candidate-revision"}
         state["settings"]["budget_origins"]["max_seconds"] = "resolver_delegated"
@@ -205,7 +205,7 @@ class BudgetRecoveryTests(unittest.TestCase):
     def test_delegated_time_extension_preserves_unknown_usage_after_current_validation(self):
         state = fixture()
         state["stages"][0].update(
-            stage="sol", changed_files=[], output="/tmp/sol.json", source_revision="candidate-revision"
+            stage="tester", changed_files=[], output="/tmp/sol.json", source_revision="candidate-revision"
         )
         state["validation"] = {"verdict": "PASS", "output": "/tmp/sol.json", "source_revision": "candidate-revision"}
         state["settings"]["budget_origins"]["max_seconds"] = "resolver_delegated"
@@ -221,7 +221,7 @@ class BudgetRecoveryTests(unittest.TestCase):
             with self.subTest(delegated=delegated, verdict=verdict):
                 state = fixture()
                 state["stages"][0].update(
-                    stage="sol", changed_files=[], output="/tmp/sol.json", source_revision="candidate-revision"
+                    stage="tester", changed_files=[], output="/tmp/sol.json", source_revision="candidate-revision"
                 )
                 state["validation"] = {
                     "verdict": verdict,
@@ -449,7 +449,7 @@ def planning_fixture():
     state = fixture()
     state["settings"]["joint_planning"] = True
     state["failure_history"] = {}
-    state["next_stage"] = "astra_finalize"
+    state["next_stage"] = "finalize_plan"
     state["status"] = "PAUSED_PLANNING_BUDGET"
     body = {
         "intended_outcome": "Implement retry policy",
@@ -462,9 +462,9 @@ def planning_fixture():
     revised = copy.deepcopy(body)
     revised["required_behaviors"].append("Preserve the original failure after retry exhaustion")
     reports = {
-        "astra_discovery": {"contract": body, "summary": "Initial draft"},
-        "astra_challenge": {"concerns": [{"id": "C1", "concern": "Original failure could be lost"}]},
-        "glm_revise": {
+        "draft_plan": {"contract": body, "summary": "Initial draft"},
+        "review_plan": {"concerns": [{"id": "C1", "concern": "Original failure could be lost"}]},
+        "revise_plan": {
             "contract": revised,
             "summary": "Preserve failure evidence",
             "responses": [{"concern_id": "C1", "change": "Retain original failure", "evidence_refs": ["retry.py:12"]}],
@@ -524,9 +524,9 @@ class PlanningBudgetRecoveryTests(unittest.TestCase):
             state = planning_fixture()
             reports = state["planning"]["reports"]
             if mode == "reorder":
-                reports["astra_discovery"]["report"]["contract"]["required_behaviors"].append("Keep diagnostics")
-            revised = copy.deepcopy(reports["astra_discovery"]["report"]["contract"])
-            reports["glm_revise"]["report"]["contract"] = revised
+                reports["draft_plan"]["report"]["contract"]["required_behaviors"].append("Keep diagnostics")
+            revised = copy.deepcopy(reports["draft_plan"]["report"]["contract"])
+            reports["revise_plan"]["report"]["contract"] = revised
             if mode == "reorder":
                 revised["required_behaviors"] = list(reversed(revised["required_behaviors"]))
             elif mode == "whitespace":
@@ -534,8 +534,8 @@ class PlanningBudgetRecoveryTests(unittest.TestCase):
             elif mode == "audience":
                 revised["intended_outcome"] = "A more elegantly described retry policy"
             elif mode == "resolved_claim":
-                reports["glm_revise"]["report"]["responses"][0]["resolved"] = True
-            reports["glm_revise"]["report"]["summary"] = "Major progress: all concerns resolved"
+                reports["revise_plan"]["report"]["responses"][0]["resolved"] = True
+            reports["revise_plan"]["report"]["summary"] = "Major progress: all concerns resolved"
             state["goal_contract"]["body"] = copy.deepcopy(revised)
             state["goal_contract"].update(hash="new-revision-only", revision=99)
             self.denied(state)
@@ -555,7 +555,7 @@ class PlanningBudgetRecoveryTests(unittest.TestCase):
         ):
             state = planning_fixture()
             if mode == "old_output":
-                state["planning"]["reports"]["glm_revise"]["output"] = "old/report.json"
+                state["planning"]["reports"]["revise_plan"]["output"] = "old/report.json"
             elif mode == "old_body":
                 state["goal_contract"]["body"]["required_behaviors"] = ["Other task"]
             elif mode == "old_time":
@@ -567,13 +567,13 @@ class PlanningBudgetRecoveryTests(unittest.TestCase):
             elif mode == "new_attempt":
                 state["stages"].append(copy.deepcopy(state["stages"][0]))
             elif mode == "wrong_stage":
-                state["next_stage"] = "astra_challenge"
+                state["next_stage"] = "review_plan"
             elif mode == "wrong_source":
                 state["stages"][-1]["source_revision"] = "new-source"
             elif mode == "finalized":
                 state["planning"]["final_token"] = "already-finalized"
             elif mode == "unbound_report":
-                del state["planning"]["reports"]["astra_challenge"]
+                del state["planning"]["reports"]["review_plan"]
             self.denied(state)
 
     def test_timeout_failure_repair_and_grant_history_never_fund_extension(self):
@@ -613,7 +613,7 @@ class PlanningBudgetRecoveryTests(unittest.TestCase):
     def test_material_questions_or_missing_concern_evidence_block(self):
         for mode in ("question", "missing_response", "duplicate", "unknown_id", "no_evidence"):
             state = planning_fixture()
-            report = state["planning"]["reports"]["glm_revise"]["report"]
+            report = state["planning"]["reports"]["revise_plan"]["report"]
             if mode == "question":
                 report["contract"]["open_blocking_questions"] = [{"id": "Q1"}]
             elif mode == "missing_response":
@@ -646,7 +646,7 @@ class PlanningBudgetRecoveryTests(unittest.TestCase):
                 self.denied(state)
         for value in (None, [], "unknown"):
             state = planning_fixture()
-            state["planning"]["reports"]["glm_revise"]["report"] = value
+            state["planning"]["reports"]["revise_plan"]["report"] = value
             self.denied(state)
         for field, value in (
             ("concerns", [None]),
@@ -654,7 +654,7 @@ class PlanningBudgetRecoveryTests(unittest.TestCase):
             ("responses", [{"concern_id": "C1", "evidence_refs": None}]),
         ):
             state = planning_fixture()
-            stage = "astra_challenge" if field == "concerns" else "glm_revise"
+            stage = "review_plan" if field == "concerns" else "revise_plan"
             state["planning"]["reports"][stage]["report"][field] = value
             self.denied(state)
         state = planning_fixture()

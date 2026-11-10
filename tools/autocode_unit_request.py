@@ -18,6 +18,6 @@ except ImportError:
 
 def prepare(state: RunState, stage, state_path, schema_dir, *, select_unit, retry_authorization=None):
     with phase_timing.measure(state, "request_assembly", stage=stage):
-        options = {"retry_authorization": retry_authorization} if stage == "astra_resolve" else {}
+        options = {"retry_authorization": retry_authorization} if stage == "resolve" else {}
         request = select_unit(stage).prepare(state, stage, state_path, schema_dir, **options)
         return stuck.with_guidance(state, stage, request)

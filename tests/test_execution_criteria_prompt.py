@@ -45,7 +45,7 @@ class ExecutionCriteriaPromptTests(unittest.TestCase):
     def test_builder_report_does_not_request_unsupported_criterion_echo(self):
         state = self.state()
         contract = copy.deepcopy(state["goal_contract"])
-        request = self.prepare(state, "terra")
+        request = self.prepare(state, "builder")
         instruction, raw = request.prompt.split("\nCURRENT HANDOFF DATA\n", 1)
         self.assertNotIn("acceptance_criteria", request.schema["properties"])
         self.assertNotIn("Restate acceptance_criteria entries", instruction)
@@ -63,25 +63,25 @@ class ExecutionCriteriaPromptTests(unittest.TestCase):
     def test_prepared_planner_and_completion_match_definition_and_id_only_outputs(self):
         state = self.state()
         contract = copy.deepcopy(state["goal_contract"])
-        planner = self.prepare(state, "astra_plan")
+        planner = self.prepare(state, "plan_task")
         self.assertIn("definition fields byte-identical: id, criterion", planner.prompt)
         self.assertNotIn("definition fields byte-identical: id, criterion, verification_method", planner.prompt)
-        completion = self.prepare(state, "astra_review")
+        completion = self.prepare(state, "review_completion")
         self.assertIn(
             "Report every approved criterion ID once, in approved order, in acceptance_criteria", completion.prompt
         )
         self.assertNotIn("definition fields byte-identical", completion.prompt)
         # Generation is ID-only; the saved/legacy schema still validates complete definitions.
         canonical = copy.deepcopy(completion.schema)
-        generated = support.review_generation_schema(completion.schema, state, "astra_review")
+        generated = support.review_generation_schema(completion.schema, state, "review_completion")
         self.assertIn("criterion", canonical["properties"]["acceptance_criteria"]["items"]["properties"])
         self.assertNotIn("criterion", generated["properties"]["acceptance_criteria"]["items"]["properties"])
         self.assertEqual(canonical, completion.schema)
         self.assertEqual(contract, state["goal_contract"])
-        self.assertEqual(generated, support.review_generation_schema(completion.schema, state, "astra_review"))
+        self.assertEqual(generated, support.review_generation_schema(completion.schema, state, "review_completion"))
 
     def test_validator_and_final_only_builder_have_no_definition_output(self):
-        for stage, mode in (("sol", None), ("terra", workflow.FINAL_MODE)):
+        for stage, mode in (("tester", None), ("builder", workflow.FINAL_MODE)):
             with self.subTest(stage=stage, mode=mode), patch.object(workflow, "guard"):
                 state = self.state()
                 if mode:
@@ -103,7 +103,7 @@ class ExecutionCriteriaPromptTests(unittest.TestCase):
                 state = self.state()
                 if mode:
                     state["settings"]["workflow"] = {"mode": mode}
-                request = self.prepare(state, "astra_checkpoint")
+                request = self.prepare(state, "review_checkpoint")
                 definitions = request.schema["properties"]["decision"]["properties"]["acceptance_criteria"]
                 self.assertIn("criterion", definitions["items"]["properties"])
                 self.assertIn("Restate decision.acceptance_criteria entries", request.prompt)
@@ -111,7 +111,7 @@ class ExecutionCriteriaPromptTests(unittest.TestCase):
                 self.assertNotIn("Report every approved criterion ID once", request.prompt)
 
     def test_resolver_rework_keeps_definitions_but_diagnosis_does_not(self):
-        for stage in ("astra_resolve", "astra_diagnose"):
+        for stage in ("resolve", "diagnose"):
             with (
                 self.subTest(stage=stage),
                 patch.object(goals, "execution_guard"),
@@ -120,7 +120,7 @@ class ExecutionCriteriaPromptTests(unittest.TestCase):
                 patch.object(autoresolver, "diagnosis_guard"),
             ):
                 request = autoresolver.prepare(self.state(), stage, STATE_PATH, SCHEMAS)
-                if stage == "astra_resolve":
+                if stage == "resolve":
                     self.assertIn(
                         "criterion", request.schema["properties"]["acceptance_criteria"]["items"]["properties"]
                     )
@@ -135,7 +135,7 @@ class ExecutionCriteriaPromptTests(unittest.TestCase):
         state = self.state()
         contract = copy.deepcopy(state["goal_contract"])
         with patch.object(context.source_scope, "snapshot", return_value=SNAPSHOT):
-            prompt, _ = context.context_packet(state, "terra", STATE_PATH)
+            prompt, _ = context.context_packet(state, "builder", STATE_PATH)
         instructions, payload = prompt.split("\nCURRENT HANDOFF DATA\n", 1)
         self.assertEqual(contract, json.loads(payload)["goal_contract"])
         self.assertEqual(contract, state["goal_contract"])

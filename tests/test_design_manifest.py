@@ -38,15 +38,15 @@ OPTIONS = (
     "--engine",
     "codex",
     "--joint-planning",
-    "--astra-model",
+    "--task-planner-model",
     "gpt-6-astra",
-    "--terra-model",
+    "--builder-model",
     "gpt-5.6-terra",
-    "--sol-model",
+    "--tester-model",
     "gpt-5.6-sol",
     "--completion-model",
     "gpt-6-astra",
-    "--glm-model",
+    "--planner-model",
     "gpt-5.6-sol",
     "--plan-reviewer-model",
     "gpt-6-astra",
@@ -351,12 +351,12 @@ class DesignManifestTests(unittest.TestCase):
                 "opencode",
                 "--figma-manifest",
                 str(self.path),
-                "--terra-model",
+                "--builder-model",
                 "zai/glm-5.3",
-                "--terra-reasoning-effort",
+                "--builder-reasoning-effort",
                 "high",
                 "--pin-model-role",
-                "terra",
+                "builder",
                 "--unlimited-iterations",
                 "--max-seconds",
                 "0",
@@ -381,7 +381,7 @@ class DesignManifestTests(unittest.TestCase):
         self.assertEqual("opencode", settings["engine"])
         self.assertEqual(
             ("zai/glm-5.3", "high", True),
-            tuple(settings["roles"]["terra"][key] for key in ("model", "reasoning_effort", "model_pinned")),
+            tuple(settings["roles"]["builder"][key] for key in ("model", "reasoning_effort", "model_pinned")),
         )
         self.assertIsNone(settings["limits"]["iteration_ceiling"])
         for key in ("max_seconds", "stage_timeout_seconds", "idle_timeout_seconds", "tool_timeout_seconds"):
@@ -1143,7 +1143,7 @@ class DesignManifestTests(unittest.TestCase):
         path, _ = inventory_bundle(self.root / "builder-slice")
         record = manifest.retain(manifest.load(path), self.workspace)
         settings = {"design_manifest": record}
-        builder = manifest.context(settings, stage="terra", current_task={"affected_paths": ["src/filea.js"]})
+        builder = manifest.context(settings, stage="builder", current_task={"affected_paths": ["src/filea.js"]})
         self.assertEqual(["FILEA.1.2.default", "FILEA.1.6.default"], builder["builder_scope"]["case_ids"])
         self.assertNotIn("body", builder)
         self.assertEqual(
@@ -1154,10 +1154,10 @@ class DesignManifestTests(unittest.TestCase):
         self.assertEqual(3, len(builder["catalog"]["components"][0]["variants"]))
         self.assertEqual([], builder["builder_scope"]["unmapped_affected_paths"])
 
-        unrelated = manifest.context(settings, stage="terra", current_task={"affected_paths": ["tests/"]})
+        unrelated = manifest.context(settings, stage="builder", current_task={"affected_paths": ["tests/"]})
         self.assertEqual([], unrelated["builder_scope"]["case_ids"])
         self.assertEqual(["tests"], unrelated["builder_scope"]["unmapped_affected_paths"])
-        self.assertEqual(3, len(manifest.context(settings, stage="astra_review")["catalog"]["cases"]))
+        self.assertEqual(3, len(manifest.context(settings, stage="review_completion")["catalog"]["cases"]))
 
     def test_v2_every_inventory_row_requires_a_case_mapping(self):
         _, body = inventory_bundle(self.root / "unmapped-inventory")
@@ -1536,7 +1536,7 @@ class DesignManifestTests(unittest.TestCase):
             "findings": [],
             "unverified_criteria": [],
             "criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": [str(comparison)]}],
-            "reviewer_role": "sol",
+            "reviewer_role": "tester",
         }
         criteria = [{"id": "C1", "criterion": "Fixture behavior", "status": "verified", "evidence": "comparison"}]
         state = {
@@ -1622,7 +1622,7 @@ class DesignManifestTests(unittest.TestCase):
         state, _, _ = self.passing_state()
         schema = util.read(ROOT / "tools/autocode-schemas/v2/sol-report.schema.json")
         before = copy.deepcopy(schema)
-        bound = reports.review_generation_schema(schema, state, "sol")
+        bound = reports.review_generation_schema(schema, state, "tester")
         self.assertIn("design_results", bound["required"])
         # ID enum binding must not leak through the shared string-schema object.
         self.assertNotIn("enum", bound["properties"]["design_results"]["items"]["properties"]["criterion_ids"]["items"])
@@ -1631,12 +1631,12 @@ class DesignManifestTests(unittest.TestCase):
         broken["design_results"].pop()
         with self.assertRaisesRegex(ValueError, "every design case"):
             reports.review_validation_schema(
-                bound, state, {"stage": "sol_report_repair", "original_stage": "sol"}, broken
+                bound, state, {"stage": "tester_report_repair", "original_stage": "tester"}, broken
             )
         checkpoint = {"type": "object", "required": ["validation"], "properties": {"validation": schema}}
         self.assertIn(
             "design_results",
-            coverage.extend_schema(checkpoint, state, "astra_checkpoint")["properties"]["validation"]["required"],
+            coverage.extend_schema(checkpoint, state, "review_checkpoint")["properties"]["validation"]["required"],
         )
 
     def test_builder_self_check_without_design_fields_is_not_a_mismatched_manifest(self):
@@ -1657,7 +1657,7 @@ class DesignManifestTests(unittest.TestCase):
         }
         # report_refs stays strict for independent design reports.
         with self.assertRaisesRegex(ValueError, "different design manifest"):
-            coverage.report_refs(state, self_check, stage="sol")
+            coverage.report_refs(state, self_check, stage="tester")
         self.assertEqual([], coverage.report_refs(state, self_check, stage="self_check"))
 
         class Runtime:
@@ -1685,7 +1685,7 @@ class DesignManifestTests(unittest.TestCase):
         record = {
             "events": str(self.workspace / "events.jsonl"),
             "source_revision": "source-a",
-            "role": "terra",
+            "role": "builder",
             "stage": "self_check",
             "output": str(self.workspace / "self.json"),
         }
@@ -2098,8 +2098,8 @@ class PlanningPartitionContextTests(unittest.TestCase):
         }
         path = self.workspace / ".autocode" / "runs" / "fixture" / "unused-state-path.json"
         with patch.object(manifest, "planning_context", side_effect=lambda settings, role: manifest.context(settings)):
-            original, _ = autoplanner.context(state, "astra_challenge", path)
-        compact, _ = autoplanner.context(state, "astra_challenge", path)
+            original, _ = autoplanner.context(state, "review_plan", path)
+        compact, _ = autoplanner.context(state, "review_plan", path)
         prefix, original_json = original.split("\nCURRENT HANDOFF DATA\n", 1)
         compact_prefix, compact_json = compact.split("\nCURRENT HANDOFF DATA\n", 1)
         self.assertEqual(prefix, compact_prefix)
@@ -2412,8 +2412,8 @@ class CompletePlanningInputTests(unittest.TestCase):
         }
         state_path = self.workspace / ".autocode" / "runs" / "fixture" / "unused-state-path.json"
         with patch.object(manifest, "planning_context", side_effect=lambda settings, role: manifest.context(settings)):
-            full, _ = autoplanner.context(state, "astra_challenge", state_path)
-        compact, _ = autoplanner.context(state, "astra_challenge", state_path)
+            full, _ = autoplanner.context(state, "review_plan", state_path)
+        compact, _ = autoplanner.context(state, "review_plan", state_path)
         prefix, data = full.split("\nCURRENT HANDOFF DATA\n", 1)
         actual_prefix, actual_data = compact.split("\nCURRENT HANDOFF DATA\n", 1)
         self.assertEqual(prefix, actual_prefix)
@@ -2522,7 +2522,7 @@ class DesignManifestCliTests(unittest.TestCase):
         self.assertTrue(view["done"], view)
         self.assertEqual([], view["design"]["not_passing"])
         prompts = [json.loads(line) for line in (self.root / "prompts.jsonl").read_text().splitlines()]
-        self.assertTrue({"requirements_gather", "astra_discovery", "terra", "sol"} <= {row["stage"] for row in prompts})
+        self.assertTrue({"requirements_gather", "draft_plan", "builder", "tester"} <= {row["stage"] for row in prompts})
         replacement, _ = bundle(self.root / "replacement")
         with self.assertRaisesRegex(taskrun.TaskRunError, "new-run input"):
             run._invoke("replace references", "--figma-manifest", str(replacement))

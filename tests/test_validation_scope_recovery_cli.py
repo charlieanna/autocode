@@ -35,7 +35,7 @@ class RetainedScopeCLI(unittest.TestCase):
         self.assertIn("scope review", before["stop_reason"])
         result = self.launch(shlex.split(before["next_command"])[1:], 2)
         after = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)["view"]
-        self.assertEqual("astra_review", after["next_stage"])
+        self.assertEqual("review_completion", after["next_stage"])
         self.assertFalse(after["done"])
         self.assertIn("existing exact-plan review and approval", result.stdout)
         self.assertEqual(before["usage"]["accounting"]["attempts"], after["usage"]["accounting"]["attempts"])

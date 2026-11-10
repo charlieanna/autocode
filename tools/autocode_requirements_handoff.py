@@ -161,7 +161,7 @@ def _accept(state: RunState, value: dict, record: dict, *, check_code_refs, queu
     if len(remaining) != len(questions):
         run_status.running(state, "DISCOVERING", next_stage="requirements_gather", discovery_summary=value["summary"])
         return
-    run_status.running(state, "PLANNING", next_stage="astra_discovery", discovery_summary=value["summary"])
+    run_status.running(state, "PLANNING", next_stage="draft_plan", discovery_summary=value["summary"])
     if not questions and requirements_review.job(state, value) == "bugfix" and source_catalog.context(state):
         # Plain chat has no pinned workflow. Recognize the validated bug before
         # the scope stop so its public view can offer automatic coordination.

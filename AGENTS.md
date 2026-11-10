@@ -331,23 +331,23 @@ were archived at tag `archive/pre-restructure-2026-09-26`
 The code still uses internal stage names. **Screen and doc names come from one
 list:** `tools/autocode_roles.py` (`SCREEN` / `STAGE_JOB` / `role_name`). Do not
 add a second table. Name the job being done, not the AI that does it: under
-reviewer routing (`glm_first_v1`), `astra_checkpoint` is **Tester**, because that
+reviewer routing (`glm_first_v1`), `review_checkpoint` is **Tester**, because that
 stage runs the testing job on the Plan Reviewer. Unit names (AutoPlanner,
 AutoCode, AutoReview, AutoResolver) stay behind the scenes.
 
 | In code | Job on screen (`autocode_roles`) | Unit |
 | --- | --- | --- |
 | `requirements_gather` | Requirements | AutoPlanner |
-| `astra_discovery`, `glm_revise` | Planner | AutoPlanner |
-| `astra_plan` | Planner | AutoCode build unit |
-| `astra_challenge`, `astra_finalize` | Plan Reviewer | AutoPlanner |
+| `draft_plan`, `revise_plan` | Planner | AutoPlanner |
+| `plan_task` | Planner | AutoCode build unit |
+| `review_plan`, `finalize_plan` | Plan Reviewer | AutoPlanner |
 | `orchestrator` | Orchestrator: parallel milestone scheduling (no model) | AutoCode build unit |
-| `terra` | Builder | AutoCode build unit |
-| `sol` | Tester | AutoReview |
+| `builder` | Builder | AutoCode build unit |
+| `tester` | Tester | AutoReview |
 | `check_design` | Design Reviewer: checks an approved design against the repository (`autocode_design_check_job.py`) | AutoReview |
 | `investigate_stuck` | Investigator: why a stage stopped converging (`autocode_stuck_job.py`) | AutoResolver |
-| `astra_review`, `astra_checkpoint` | Completion Reviewer (`astra_checkpoint` is Tester under reviewer routing) | AutoReview |
-| `astra_resolve` | Resolver | AutoResolver |
+| `review_completion`, `review_checkpoint` | Completion Reviewer (`review_checkpoint` is Tester under reviewer routing) | AutoReview |
+| `resolve` | Resolver | AutoResolver |
 
 **Every task goes through the same path (#3010; requested 2026-11-10).** Requirements names the
 job (build, bug fix, review, design or discuss), and the kind labels the run and its report, but every
@@ -370,8 +370,10 @@ are being renamed to the jobs they do, in four steps: one table of old and new n
 (`tools/autocode_names.py`) with the new flags (`--planner-model`, `--task-planner-model`,
 `--builder-model`, `--tester-model`) and the old ones kept as aliases; then the `glm` and `astra`
 route keys (now `planner` and `task_planner`; `names.RETIRED_ROUTES`); then `terra`, `sol` and the
-stage names; then identifiers and docs. The browser dashboard still reads the old route names, which
-`dashboard_run_state.read` gives back to it. A run saved before the rename is refused
+stage names (the Builder's and Tester's stage and route are both `builder` and `tester`; the others are
+in `names.STAGES`); then identifiers and docs. The browser dashboard still reads the old route and stage
+names, which `dashboard_run_state.read` gives back to it. A fake provider copied out of `tools/` to run
+names the stages itself (`fake_codex.TASK_PLANNER_STAGES`, kept equal by `tests.test_names`). A run saved before the rename is refused
 at resume and stays readable, as a run at a retired stage is. New code and docs use the job names from
 that table; do not add another naming scheme. The same letters are also parts of real model names
 (`gpt-6-sol`, `gpt-5.6-terra`, `glm-5.3`), which never change.

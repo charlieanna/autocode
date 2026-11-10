@@ -23,7 +23,7 @@ def run_state(workspace, *, contract="C1", milestone="M1", **settings):
         "workspace": str(workspace),
         "status": "RUNNING",
         "phase": "EXECUTING",
-        "next_stage": "terra",
+        "next_stage": "builder",
         "stages": [],
         "current_task": {"id": "T1", "milestone_id": milestone},
         "goal_contract": {"hash": contract, "revision": 1},
@@ -50,7 +50,7 @@ class BudgetTests(unittest.TestCase):
         queued = builder_failure.queue(state, self.failure(state), "Unknown failure", enabled=True)
         if queued:
             state["stuck_investigations"][-1]["outcome"] = "classified"
-            state.update(status="RUNNING", phase="EXECUTING", next_stage="terra")
+            state.update(status="RUNNING", phase="EXECUTING", next_stage="builder")
             state.pop("stuck_investigation")
         return queued
 
@@ -96,7 +96,7 @@ class BudgetTests(unittest.TestCase):
     def test_classifications_and_stuck_investigations_spend_separate_budgets(self):
         state = run_state(self.root / "workspace")
         state["stuck_investigations"] = [
-            {"identity": f"astra_plan:PAUSED_{n}", "trigger": "non_convergence"} for n in range(stuck.MAX_CALLS)
+            {"identity": f"plan_task:PAUSED_{n}", "trigger": "non_convergence"} for n in range(stuck.MAX_CALLS)
         ]
         self.assertTrue(self.classify(state), "three stuck investigations leave classification its budget")
         self.assertTrue(self.classify(state))
@@ -104,7 +104,7 @@ class BudgetTests(unittest.TestCase):
             {"identity": f"builder-failure:{n}", "trigger": "builder_failure", "milestone_key": policy.key(state)}
             for n in range(5)
         ]
-        state.update(next_stage="sol")
+        state.update(next_stage="tester")
         self.assertTrue(
             stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "The Tester keeps failing"),
             "five classifications leave the stuck investigation its budget",
@@ -119,14 +119,14 @@ class BudgetTests(unittest.TestCase):
         state["stuck_investigations"] = list(legacy)
         self.assertTrue(self.classify(state))
         state["stuck_investigations"] = list(legacy)
-        state.update(next_stage="sol")
+        state.update(next_stage="tester")
         self.assertTrue(stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "The Tester keeps failing"))
 
     def test_the_same_failure_is_still_classified_once(self):
         state = run_state(self.root / "workspace")
         evidence = self.failure(state)
         self.assertTrue(builder_failure.queue(state, evidence, "Unknown failure", enabled=True))
-        state.update(status="RUNNING", phase="EXECUTING", next_stage="terra")
+        state.update(status="RUNNING", phase="EXECUTING", next_stage="builder")
         self.assertFalse(builder_failure.queue(state, evidence, "Unknown failure", enabled=True))
         self.assertEqual("PAUSED_BUILDER_CLASSIFICATION", state["status"])
         self.assertEqual(1, len(state["stuck_investigations"]))

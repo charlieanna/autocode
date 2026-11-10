@@ -84,7 +84,7 @@ def ask_one_question_once(test: unittest.TestCase, env: dict[str, str]) -> None:
     provider = Path(env["PATH"].split(os.pathsep)[0]) / "codex"
     amendment = textwrap.dedent("""
         marker = Path(os.environ["FIXTURE_QUESTION_ASKED"])
-        if stage == "astra_discovery" and not marker.exists():
+        if stage == "draft_plan" and not marker.exists():
             marker.write_text("asked")
             report["contract"]["open_blocking_questions"] = [{
                 "id": "readme-audience", "question": "Should the README target beginners or experienced Python users?",

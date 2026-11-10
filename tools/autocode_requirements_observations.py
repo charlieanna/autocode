@@ -356,7 +356,7 @@ def _seal(state: RunState, record, accepted_report, *, owner, repair_binding=Non
 
 
 def context(state: RunState, stage, run_dir, current_source):
-    if stage != "astra_discovery" or (state.get("settings") or {}).get("replay_recording"):
+    if stage != "draft_plan" or (state.get("settings") or {}).get("replay_recording"):
         return None
     handoff = state.get("requirements_handoff") or {}
     records = state.get("stages") or []
@@ -376,7 +376,7 @@ def context(state: RunState, stage, run_dir, current_source):
         or seal.get("status") != "sealed"
     ):
         return None
-    if any(r.get("stage") == "astra_discovery" for r in records[index + 1 :]):
+    if any(r.get("stage") == "draft_plan" for r in records[index + 1 :]):
         return None
     try:
         if set(seal) != {"status", "path", "sha256"} or seal["path"] != "context/" + seal["sha256"] + ".json":

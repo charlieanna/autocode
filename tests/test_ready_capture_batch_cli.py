@@ -32,11 +32,11 @@ class ReadyCaptureBatchCLI(unittest.TestCase):
             "PLANNED_CHECK = " + repr(" and ".join("`" + command + "`" for command in self.commands)),
             1,
         )
-        begin = script.index('    elif stage in ("sol", "astra_checkpoint"):')
-        end = script.index('    elif stage in ("astra_review", "astra_plan", "astra_resolve"):', begin)
+        begin = script.index('    elif stage in ("tester", "review_checkpoint"):')
+        end = script.index('    elif stage in ("review_completion", "plan_task", "resolve"):', begin)
         script = (
             script[:begin]
-            + """    elif stage in ("sol", "astra_checkpoint"):
+            + """    elif stage in ("tester", "review_checkpoint"):
         batch = data['ready_capture_batch']['command']
         checked = subprocess.run(batch, shell=True, executable='/bin/bash', capture_output=True, text=True)
         print(json.dumps({'type':'item.completed','item':{'id':'ready-batch',
@@ -80,7 +80,7 @@ class ReadyCaptureBatchCLI(unittest.TestCase):
         self.assertEqual([shlex.split(command) for command in self.commands], [r["command"] for r in records])
         self.assertTrue(all(row["exit_code"] == 0 for row in records))
         launches = [json.loads(line) for line in self.probe.read_text().splitlines()]
-        tester = next(row for row in launches if row["stage"] == "sol")
+        tester = next(row for row in launches if row["stage"] == "tester")
         manifest = json.loads(Path(tester["copy"]).read_text())
         expected = {"source_revision": manifest["source_revision"], "manifest_sha256": tester["copy_sha256"]}
         self.assertEqual([expected] * 4, [row["verification_copy"] for row in records])
@@ -111,8 +111,8 @@ class BuilderCaptureBatchCLI(unittest.TestCase):
         script = provider.read_text()
         self.assertIn('"validation_plan": [PLANNED_CHECK]', script)
         script = script.replace('"validation_plan": [PLANNED_CHECK]', '"validation_plan": ' + repr(self.commands), 1)
-        begin = script.index('    elif stage == "terra":')
-        end = script.index('    elif stage in ("sol", "astra_checkpoint"):', begin)
+        begin = script.index('    elif stage == "builder":')
+        end = script.index('    elif stage in ("tester", "review_checkpoint"):', begin)
         builder = script[begin:end].replace(
             "        changed = _write_files()\n",
             """        batch = data['ready_capture_batch']['command']

@@ -213,20 +213,20 @@ def abandon_stage(state: RunState, run_dir, workspace, selected, *, launch=None,
     # review stage.
     next_stage = (
         workflow.review_stage(state)
-        if retry_stage == "astra_review"
+        if retry_stage == "review_completion"
         else retry_stage
         if record["role"] == "task_planner" or record.get("planning")
         else retry_stage
-        if record["role"] in ("terra", "sol")
-        else "astra_review"
+        if record["role"] in ("builder", "tester")
+        else "review_completion"
     )
     recovery_role = (
         "Requirements"
         if planning.is_planning(state, next_stage)
         else "Tester"
-        if next_stage == "sol"
+        if next_stage == "tester"
         else "Builder"
-        if next_stage == "terra"
+        if next_stage == "builder"
         else "Plan Reviewer"
     )
     run_status.pause(
@@ -694,7 +694,7 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
     # to pass for the evidence it requires; only a writer, or evidence that no longer binds, is
     # retired here. This is the policy autocode_validation_recovery already applies to an
     # interrupted completion retry.
-    keep_evidence = semantic_stage in ("astra_review", "astra_checkpoint") and validation_recovery.current(
+    keep_evidence = semantic_stage in ("review_completion", "review_checkpoint") and validation_recovery.current(
         state, record
     )
     if not keep_evidence:
@@ -707,14 +707,14 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
 
     next_stage, phase = records.timeout_recovery_route(state, record)
     retry_missing_tester_report = (
-        semantic_stage == "sol"
-        and next_stage == "astra_review"
+        semantic_stage == "tester"
+        and next_stage == "review_completion"
         and not had_validation
         and record["changed_files"] == []
-        and workflow.review_stage(state) == "sol"
+        and workflow.review_stage(state) == "tester"
     )
     if retry_missing_tester_report:
-        next_stage = "sol"
+        next_stage = "tester"
     # Final-audit-only runs keep the Builder in charge of implementation. Other routing
     # modes retain the established Plan Reviewer recovery review before another writer.
     # The completion retry this route chose needs the evidence just retired, so it goes to the
@@ -723,7 +723,7 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
     # workflow approval, which no writer's timeout recovery has any reason to raise over.
     if had_validation and not keep_evidence and next_stage == semantic_stage:
         verification_stage = workflow.review_stage(state)
-        if verification_stage in ("sol", "astra_checkpoint"):
+        if verification_stage in ("tester", "review_checkpoint"):
             next_stage = verification_stage
     recovery = {
         "at": records.now(),
@@ -774,7 +774,7 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
         reviewer_fallback.record_failed(state, record["reviewer_fallback_grant"], record)
     elif planning.is_planning(state, semantic_stage):
         reviewer_fallback.reserve(state, run_dir, workspace, semantic_stage)
-    if semantic_stage == "terra":
+    if semantic_stage == "builder":
         state["no_progress_batches"] = state.get("no_progress_batches", 0) + 1
     state["consecutive_timeout_recoveries"] = state.get("consecutive_timeout_recoveries", 0) + 1
     stalls = stage_stalls.repeated(state, semantic_stage, after["revision"])
@@ -901,7 +901,7 @@ def automatically_recover_external_directory_denial(state: RunState, run_dir, wo
         }
     )
     state["recovery_context"] = recovery
-    if (record.get("original_stage") or record["stage"]) == "terra":
+    if (record.get("original_stage") or record["stage"]) == "builder":
         state["no_progress_batches"] = state.get("no_progress_batches", 0) + 1
     resolver_runtime.observe_operational_recovery(records, state, run_dir, workspace, recovery)
     run_status.running(
@@ -973,7 +973,7 @@ def prepare_planning_retry(state: RunState, run_dir):
         return False
     active = state.get("active_stage")
     stage = (pending or {}).get("original", {}).get("stage", state.get("next_stage"))
-    if stage != state.get("next_stage") or not (stage == "astra_discovery" or planning.is_planning(state, stage)):
+    if stage != state.get("next_stage") or not (stage == "draft_plan" or planning.is_planning(state, stage)):
         return False
     if active:
         if not (
@@ -1037,12 +1037,12 @@ def prepare_exhausted_execution_report_retry(state: RunState, run_dir, workspace
         return False
     stage = original.get("stage")
     reroute_abandoned_sol = (
-        stage == "sol"
-        and state.get("next_stage") == "astra_review"
+        stage == "tester"
+        and state.get("next_stage") == "review_completion"
         and not state.get("validation")
-        and (state.get("recovery_context") or {}).get("role") == "sol"
+        and (state.get("recovery_context") or {}).get("role") == "tester"
         and any(
-            record.get("stage") == "sol_report_repair"
+            record.get("stage") == "tester_report_repair"
             and record.get("abandoned")
             and records.attempt_id(record) == cast(dict, state["recovery_context"]).get("attempt_id")
             for record in state.get("stages", [])
@@ -1058,7 +1058,7 @@ def prepare_exhausted_execution_report_retry(state: RunState, run_dir, workspace
         return False
     if (
         (stage != state.get("next_stage") and not reroute_abandoned_sol)
-        or stage == "astra_discovery"
+        or stage == "draft_plan"
         or planning.is_planning(state, stage)
         or not (
             unlaunchable
@@ -1098,7 +1098,7 @@ def prepare_exhausted_execution_report_retry(state: RunState, run_dir, workspace
         records.write_json(run_dir / "state.json", state)
         raise support.Paused("PAUSED_REPEATED_FAILURE", message)
     if reroute_abandoned_sol:
-        state["next_stage"] = "sol"
+        state["next_stage"] = "tester"
     reason = (
         "Explicit fresh execution retry: the report repair cannot launch from its saved inputs"
         if unlaunchable
@@ -1301,7 +1301,7 @@ def retry_format_failed_report(state: RunState, run_dir, workspace, selected):
         state.get("status") != "PAUSED_REPEATED_FAILURE"
         or any(state.get(key) for key in ("active_stage", "active_runner_check", "uncertain_artifacts"))
         or not report_retry.retryable(pending.get("error"))
-        or original.get("stage") != "sol"
+        or original.get("stage") != "tester"
         or not repair
         or selected != records.attempt_id(repair)
         or (repair.get("original_stage") or repair.get("stage")) != original.get("stage")
@@ -1344,7 +1344,7 @@ def prepare_abandoned_completion_revalidation(state: RunState, run_dir, workspac
     """Repair old completion-abandonment routing on explicit resume only."""
     if (
         state.get("status") not in ("PAUSED_STAGE_ABANDONED", "PAUSED_INVALID_OUTPUT", "PAUSED_REPEATED_FAILURE")
-        or state.get("next_stage") != "astra_review"
+        or state.get("next_stage") != "review_completion"
         or state.get("validation")
         or any(state.get(key) for key in ("active_stage", "pending_report_repair", "uncertain_artifacts"))
     ):
@@ -1365,7 +1365,7 @@ def prepare_abandoned_completion_revalidation(state: RunState, run_dir, workspac
     abandoned = stages[index]
     owner = abandoned.get("original_stage") or abandoned["stage"].removesuffix("_report_repair")
     if (
-        owner != "astra_review"
+        owner != "review_completion"
         or abandoned.get("contract_hash") != (state.get("goal_contract") or {}).get("hash")
         or abandoned.get("task_id") != (state.get("current_task") or {}).get("id")
         or not any(
@@ -1392,7 +1392,7 @@ def prepare_abandoned_completion_revalidation(state: RunState, run_dir, workspac
         not r.get("rejected")
         or r.get("abandoned")
         or r.get("source_revision") != revision
-        or (r.get("original_stage") or r.get("stage")) != "astra_review"
+        or (r.get("original_stage") or r.get("stage")) != "review_completion"
         for r in retries
     ):
         return False
@@ -1402,7 +1402,7 @@ def prepare_abandoned_completion_revalidation(state: RunState, run_dir, workspac
         failure = (state.get("failure_history") or {}).get(last.get("failure_key"), {})
         if (
             failure.get("identity")
-            != {"stage": "astra_review", "artifact_hash": revision, "error_class": "PAUSED_COMPLETION_GATE"}
+            != {"stage": "review_completion", "artifact_hash": revision, "error_class": "PAUSED_COMPLETION_GATE"}
             or not str(last.get("rejection_reason") or "").startswith(missing)
             or any(
                 not str(r.get("rejection_reason") or "").startswith(missing)
@@ -1457,10 +1457,10 @@ def prepare_timeout_archived_completion(state: RunState, run_dir, workspace):
     task_id = (state.get("current_task") or {}).get("id")
     if (
         state.get("status") not in ("PAUSED_COMPLETION_GATE", "PAUSED_REPEATED_FAILURE")
-        or state.get("next_stage") != "astra_review"
+        or state.get("next_stage") != "review_completion"
         or state.get("validation")
         or not attempt
-        or recovery.get("stage") != "astra_review"
+        or recovery.get("stage") != "review_completion"
         or recovery.get("role") != "task_planner"
         or recovery.get("changed_files")
         or recovery.get("task_id") != task_id
@@ -1515,7 +1515,7 @@ def prepare_timeout_archived_completion(state: RunState, run_dir, workspace):
         not row.get("rejected")
         or row.get("abandoned")
         or row.get("source_revision") != revision
-        or (row.get("original_stage") or row.get("stage")) != "astra_review"
+        or (row.get("original_stage") or row.get("stage")) != "review_completion"
         for row in stages[index + 1 :]
         if not (row.get("runner_owned") and (row.get("decision") or {}).get("action") in ("retry", "hold"))
     ):
@@ -1536,7 +1536,7 @@ def prepare_timeout_archived_completion(state: RunState, run_dir, workspace):
             "at": records.now(),
             "attempt_id": attempt,
             "previous_status": state["status"],
-            "stage": "astra_review",
+            "stage": "review_completion",
             "reason": "Restored the current pinned validation that a stopped completion review had retired",
         }
     )
@@ -1545,7 +1545,7 @@ def prepare_timeout_archived_completion(state: RunState, run_dir, workspace):
         state,
         "PAUSED_COMPLETION_GATE",
         "Validation for this source was restored. Resume explicitly for the Completion Review to decide again.",
-        next_stage="astra_review",
+        next_stage="review_completion",
     )
     records.write_json(Path(run_dir) / "state.json", state)
     return True

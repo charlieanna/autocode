@@ -42,7 +42,7 @@ def approved(cases=CASES, **extra):
     return {
         "settings": {"spec_first": True},
         "goal_contract": {"hash": "h1", "approval_status": "approved", "body": {"acceptance_criteria": criteria}},
-        "next_stage": "terra",
+        "next_stage": "builder",
         **extra,
     }
 
@@ -177,7 +177,7 @@ class BlindTestsWorkspaceTests(unittest.TestCase):
 
             # Test file was REMOVED from workspace so Builder never sees it
             self.assertFalse(test_file.exists())
-            self.assertEqual("terra", state["next_stage"])
+            self.assertEqual("builder", state["next_stage"])
 
 
 class BlindTestsCandidateExecutionTests(unittest.TestCase):
@@ -325,12 +325,12 @@ class BlindTestsCandidateExecutionTests(unittest.TestCase):
             original_check = acceptance.check_candidate
             try:
                 acceptance.check_candidate = lambda s, ws, rd: checked.append((s, ws, rd))
-                for stage in ("sol", "astra_checkpoint", "astra_review"):
+                for stage in ("tester", "review_checkpoint", "review_completion"):
                     checked.clear()
                     regression.before_review(state, stage, workspace, run_dir)
                     self.assertEqual(1, len(checked))
                     self.assertEqual((workspace, run_dir), (checked[0][1], checked[0][2]))
-                for stage in (None, "terra", "astra_plan"):
+                for stage in (None, "builder", "plan_task"):
                     checked.clear()
                     regression.before_review(state, stage, workspace, run_dir)
                     self.assertEqual(0, len(checked))
@@ -626,7 +626,7 @@ class RunnerCollectionTests(unittest.TestCase):
             job.apply(state, dict(value), record, workspace, run_tests=run_tests, evidence_dir=evidence)
             receipt = next(iter(acceptance.receipts(state).values()))
             self.assertEqual({"T1": "fails"}, receipt["results"])
-            self.assertEqual("terra", state["next_stage"])
+            self.assertEqual("builder", state["next_stage"])
 
     def test_unconfigured_pytest_acceptance_is_collected_and_really_fails_before_building(self):
         import subprocess
@@ -671,7 +671,7 @@ class RunnerCollectionTests(unittest.TestCase):
             self.assertIn("-m pytest", observed[0]["command"])
             self.assertTrue(observed[0]["results"]["failed"])
             self.assertEqual({"T1": "fails"}, next(iter(acceptance.receipts(state).values()))["results"])
-            self.assertEqual("terra", state["next_stage"])
+            self.assertEqual("builder", state["next_stage"])
             # Passing on original code must not be manufactured into a failing reproduction.
             (workspace / "totals.py").write_text("def sum_positive(values):\n return sum(v for v in values if v > 0)\n")
             with self.assertRaisesRegex(ValueError, "already passes"):
@@ -713,14 +713,14 @@ class RouteTests(unittest.TestCase):
         state = approved()
         acceptance.route(state)
         self.assertEqual(acceptance.STAGE, state["next_stage"])
-        self.assertEqual("terra", acceptance.resume_stage(state))
+        self.assertEqual("builder", acceptance.resume_stage(state))
         self.assertEqual(sorted(CASES), [case["id"] for case in acceptance.job_cases(state)])
         acceptance.record_receipt(
             state, acceptance.job_cases(state), {"contract_hash": "h1", "files": {}, "case_ids": sorted(CASES)}
         )
-        state["next_stage"] = "terra"
+        state["next_stage"] = "builder"
         acceptance.route(state)
-        self.assertEqual("terra", state["next_stage"], "a receipt for these cases means the tests exist")
+        self.assertEqual("builder", state["next_stage"], "a receipt for these cases means the tests exist")
 
     def test_an_unchanged_case_keeps_its_receipt_across_a_reapproval_and_a_changed_one_is_rewritten(self):
         """#2464: a reapproval installs a new contract hash; the Tester was sent again for every case."""
@@ -766,12 +766,12 @@ class RouteTests(unittest.TestCase):
                     broken(candidate)
                     self.assertNotIn("C1", acceptance.inherited(candidate))
             archive.write_bytes(b"def test_c1(): assert False\n")
-            state["next_stage"] = "terra"
+            state["next_stage"] = "builder"
             acceptance.record_receipt(
                 state, acceptance.job_cases(state), {"contract_hash": "h2", "case_ids": ["C3"], "files": {}}
             )
             acceptance.route(state)
-            self.assertEqual("terra", state["next_stage"], "every case is covered: two inherited, one rewritten")
+            self.assertEqual("builder", state["next_stage"], "every case is covered: two inherited, one rewritten")
 
     def test_a_parallel_builder_starts_with_the_waves_tests_written_and_fixed(self):
         """A worker's run inherits the parent Tester's receipts (autocode_dispatch.inherited_state).
@@ -792,9 +792,9 @@ class RouteTests(unittest.TestCase):
             child = dispatch.inherited_state(parent)
             self.assertEqual({"receipts": acceptance.receipts(parent)}, child["acceptance_tests"])
             self.assertEqual(parent["milestone_progress"], child["milestone_progress"])
-            child.update(next_stage="terra", current_task={"milestone_id": "M2"})
+            child.update(next_stage="builder", current_task={"milestone_id": "M2"})
             acceptance.route(child)
-            self.assertEqual("terra", child["next_stage"], "the worker's Builder runs; no second Tester")
+            self.assertEqual("builder", child["next_stage"], "the worker's Builder runs; no second Tester")
             self.assertEqual({"tests/test_stock.py": entry}, acceptance.protected(child), "the tests stay fixed")
             # The copy is the worker's own: changing it leaves the parent's record alone.
             child["acceptance_tests"]["receipts"].clear()
@@ -828,7 +828,7 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(["C1", "C2"], [case["id"] for case in acceptance.job_cases(state)], "M3 is not built yet")
         acceptance.record_receipt(state, acceptance.job_cases(state), {"contract_hash": "h1", "case_ids": ["C1", "C2"]})
         state.update(
-            next_stage="terra",
+            next_stage="builder",
             current_task={"milestone_id": "M3"},
             milestone_progress={
                 "h1:M1": {"accepted": True, "contract_hash": "h1", "milestone_ids": ["M1"]},
@@ -844,7 +844,7 @@ class RouteTests(unittest.TestCase):
             approved() | {"goal_contract": {**approved()["goal_contract"], "approval_status": "draft"}},
         ):
             acceptance.route(state)
-            self.assertEqual("terra", state["next_stage"])
+            self.assertEqual("builder", state["next_stage"])
 
     def test_a_send_back_relabels_only_the_cases_seen_passing_and_happens_once(self):
         import autocode_acceptance_tests_job as job
@@ -872,9 +872,9 @@ class RouteTests(unittest.TestCase):
             )
             for attempt in range(acceptance.DIRECT_RETRIES):
                 target.write_bytes(b"def test_c1_move_transfers_units():\n    pass\n")
-                state["next_stage"] = "sol"
+                state["next_stage"] = "tester"
                 self.assertTrue(acceptance.check_untouched(state, workspace), attempt)
-                self.assertEqual(("terra", original), (state["next_stage"], target.read_bytes()))
+                self.assertEqual(("builder", original), (state["next_stage"], target.read_bytes()))
                 self.assertIn(
                     "Your previous attempt changed the Tester's lines in tests/test_stock.py",
                     acceptance.builder_note(state),

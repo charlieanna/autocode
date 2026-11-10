@@ -879,7 +879,7 @@ class PlanningCorrectionTests(unittest.TestCase):
         from tests.test_chat_client import DONE, RUN, WORKSPACE, ScriptedChat
 
         held = view(
-            {"status": "PAUSED_INVALID_OUTPUT", "next_stage": "astra_finalize", "task": "Fix it"},
+            {"status": "PAUSED_INVALID_OUTPUT", "next_stage": "finalize_plan", "task": "Fix it"},
             workspace=WORKSPACE,
             run_dir=RUN,
         )
@@ -973,8 +973,8 @@ class StallAndWorkedTests(unittest.TestCase):
             "usage": {
                 "accounting": {
                     "attempts": [
-                        {"stage": "terra", "job": "Builder", "duration_seconds": 600, "exit_code": 0},
-                        {"stage": "terra", "job": "Builder", "duration_seconds": 30, "active": True},
+                        {"stage": "builder", "job": "Builder", "duration_seconds": 600, "exit_code": 0},
+                        {"stage": "builder", "job": "Builder", "duration_seconds": 30, "active": True},
                     ]
                 }
             },
@@ -2353,8 +2353,8 @@ SPENDING_VIEW = {
                 "output_tokens": {"value": 34000, "complete": True},
             },
             "attempts": [
-                {"stage": "terra", "job": "Builder", "exit_code": 1, "duration_seconds": 40},
-                {"stage": "terra", "job": "Builder", "active": True, "duration_seconds": 20},
+                {"stage": "builder", "job": "Builder", "exit_code": 1, "duration_seconds": 40},
+                {"stage": "builder", "job": "Builder", "active": True, "duration_seconds": 20},
             ],
         }
     },

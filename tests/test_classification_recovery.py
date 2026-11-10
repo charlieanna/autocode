@@ -43,7 +43,7 @@ class ClassificationRecoveryCLI(unittest.TestCase):
                 break
         else:
             self.fail("The failed Builder did not queue its classification at a public boundary")
-        self.assertEqual(1, len(self.trace("terra")))
+        self.assertEqual(1, len(self.trace("builder")))
         self.assertEqual([], self.trace("investigate_stuck"))
         self.assertEqual(self.approved_token, held["contract_token"])
 
@@ -56,7 +56,7 @@ class ClassificationRecoveryCLI(unittest.TestCase):
         investigators = self.trace("investigate_stuck")
         self.assertEqual(1, len(investigators))
         self.assertEqual("read-only", investigators[0]["argv"][investigators[0]["argv"].index("--sandbox") + 1])
-        self.assertEqual(2, len(self.trace("terra")))
+        self.assertEqual(2, len(self.trace("builder")))
         oracle = subprocess.run([sys.executable, "main.py"], cwd=self.project, capture_output=True, text=True)
         self.assertEqual((0, "hello\n"), (oracle.returncode, oracle.stdout))
 
@@ -105,7 +105,7 @@ class ClassificationRecoveryCLI(unittest.TestCase):
         packets = [row["handoff"]["builder_failure"] for row in calls]
         self.assertEqual(packets[0]["failure_id"], packets[1]["failure_id"])
         self.assertEqual(packets[0]["binding"], packets[1]["binding"])
-        self.assertEqual(1, len(self.trace("terra")))
+        self.assertEqual(1, len(self.trace("builder")))
         self.assertFalse((self.project / "main.py").exists())
         self.assertEqual(self.approved_token, self.status()["contract_token"])
         before = self.call_order()
@@ -122,7 +122,7 @@ class ClassificationRecoveryCLI(unittest.TestCase):
         token = need["job_retry_token"]
         retained = {path: Path(path).read_bytes() for path in need["retained_evidence"]}
         self.assertTrue(retained)
-        self.assertEqual(1, len(self.trace("terra")))
+        self.assertEqual(1, len(self.trace("builder")))
         self.assertFalse((self.project / "main.py").exists())
 
         self.env.pop("BUILD_AUDIT_FAULT")
@@ -144,7 +144,7 @@ class ClassificationRecoveryCLI(unittest.TestCase):
         fresh_diagnosis = self.trace("investigate_stuck", "diagnosis")[-1]["report"]
         self.assertEqual(fresh_packet["failure_id"], fresh_diagnosis["failure_id"])
         self.assertEqual("execution", fresh_diagnosis["failure_class"])
-        builders = self.trace("terra")
+        builders = self.trace("builder")
         self.assertEqual(2, len(builders))
         self.assertTrue(all(row["model"] == "gpt-6-luna" for row in builders))
         calls = self.trace()
@@ -152,8 +152,8 @@ class ClassificationRecoveryCLI(unittest.TestCase):
         second_builder = calls.index(builders[1])
         self.assertLess(second_investigator, second_builder)
         fresh_stages = [row["stage"] for row in calls[second_builder + 1 :]]
-        self.assertIn("sol", fresh_stages)
-        self.assertIn("astra_review", fresh_stages)
+        self.assertIn("tester", fresh_stages)
+        self.assertIn("review_completion", fresh_stages)
         oracle = subprocess.run([sys.executable, "main.py"], cwd=self.project, capture_output=True, text=True)
         self.assertEqual(0, oracle.returncode)
         self.assertEqual("hello\n", oracle.stdout)
@@ -196,7 +196,7 @@ class ClassificationRecoveryCLI(unittest.TestCase):
             investigators[0]["handoff"]["builder_failure"]["failure_id"],
             investigators[1]["handoff"]["builder_failure"]["failure_id"],
         )
-        self.assertEqual(2, len(self.trace("terra")))
+        self.assertEqual(2, len(self.trace("builder")))
 
     def test_time_boundary_preserves_investigator_report_repair_through_public_resume(self):
         self.boundary_repair_resume(legacy=False)
@@ -275,7 +275,7 @@ class ClassificationRecoveryCLI(unittest.TestCase):
                 call = self.trace(stage)[0]
                 self.assertEqual("gpt-5.4", call["model"])
                 self.assertIn('model_reasoning_effort="medium"', call["argv"])
-        self.assertEqual(2, len(self.trace("terra")))
+        self.assertEqual(2, len(self.trace("builder")))
 
     def test_retry_preserves_the_existing_report_failure_limit(self):
         self.seed()
@@ -297,7 +297,7 @@ class ClassificationRecoveryCLI(unittest.TestCase):
         self.drive("--resume-paused", "--retry-failed-stage", "--job-retry-token", token, codes=(2,))
         self.drive("--resume-paused", codes=(2,))
         self.assertEqual(before, self.call_order())
-        self.assertEqual(1, len(self.trace("terra")))
+        self.assertEqual(1, len(self.trace("builder")))
         self.assertEqual(self.approved_token, self.status()["contract_token"])
 
         self.assertEqual("--edit-goal FILE", need["action"])
@@ -352,11 +352,11 @@ class ClassificationRecoveryCLI(unittest.TestCase):
         self.assertTrue(need["resolver_proposal_pending"])
         token = need["job_retry_token"]
         self.assertTrue(token.startswith("bc:"))
-        self.assertEqual(1, len(self.trace("terra")))
-        self.assertEqual(1, len(self.trace("astra_resolve")))
-        proposal = self.trace("astra_resolve", "retained_rework")[0]["report"]
+        self.assertEqual(1, len(self.trace("builder")))
+        self.assertEqual(1, len(self.trace("resolve")))
+        proposal = self.trace("resolve", "retained_rework")[0]["report"]
         self.assertEqual("REWORK", proposal["status"])
-        original = self.trace("terra")[0]["handoff"]["current_task"]
+        original = self.trace("builder")[0]["handoff"]["current_task"]
         self.assertEqual(original["id"], held["current_task"]["id"])
         self.assertNotEqual(proposal["next_objective"], held["current_task"]["objective"])
         self.assertFalse((self.project / "main.py").exists())
@@ -364,7 +364,7 @@ class ClassificationRecoveryCLI(unittest.TestCase):
         resolver_output = Path(need["resolver_proposal_output"])
         self.assertTrue(resolver_output.is_relative_to(self.run))
         self.assertEqual(proposal, json.loads(resolver_output.read_text()))
-        resolver_argv = self.trace("astra_resolve")[0]["argv"]
+        resolver_argv = self.trace("resolve")[0]["argv"]
         leaves = [
             resolver_output.with_suffix(suffix)
             for suffix in (".json", ".jsonl", ".before.json", ".after.json", ".diff")
@@ -390,20 +390,20 @@ class ClassificationRecoveryCLI(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", finished["status"])
         self.assertTrue(finished["completion_current"])
         self.assertEqual(self.approved_token, finished["contract_token"])
-        self.assertEqual(1, len(self.trace("astra_resolve")), "The saved proposal must not be reissued")
+        self.assertEqual(1, len(self.trace("resolve")), "The saved proposal must not be reissued")
         self.assertEqual(pins, {path: path.read_bytes() for path in leaves})
         calls = self.trace("investigate_stuck")
         self.assertEqual(2, len(calls))
         packets = [row["handoff"]["builder_failure"] for row in calls]
         self.assertEqual(packets[0]["binding"], packets[1]["binding"])
         self.assertEqual(packets[0]["failure_id"], packets[1]["failure_id"])
-        self.assertEqual("astra_review", packets[0]["record"]["stage"])
+        self.assertEqual("review_completion", packets[0]["record"]["stage"])
         diagnoses = self.trace("investigate_stuck", "diagnosis")
         self.assertNotEqual(packets[0]["failure_id"], diagnoses[0]["report"]["failure_id"])
         self.assertEqual(packets[1]["failure_id"], diagnoses[1]["report"]["failure_id"])
         for row in calls:
             self.assertEqual("read-only", row["argv"][row["argv"].index("--sandbox") + 1])
-        builders = self.trace("terra")
+        builders = self.trace("builder")
         self.assertEqual(["gpt-6-luna", "gpt-6-luna"], [row["model"] for row in builders])
         assigned = builders[1]["handoff"]["current_task"]
         self.assertNotEqual(original["id"], assigned["id"])
@@ -411,7 +411,7 @@ class ClassificationRecoveryCLI(unittest.TestCase):
         repair = builders[1]["handoff"]["repair_plan"]
         self.assertEqual(str(resolver_output), repair["output"])
         self.assertEqual(proposal["diagnosis"], repair["diagnosis"])
-        self.assertTrue(self.trace("sol"), "Completion needs a fresh independent Tester")
+        self.assertTrue(self.trace("tester"), "Completion needs a fresh independent Tester")
         oracle = subprocess.run(
             [sys.executable, "main.py"], cwd=self.project, capture_output=True, text=True, check=False
         )
@@ -434,7 +434,7 @@ class ClassificationOfferTests(unittest.TestCase):
         request = {
             "identity": "builder-failure:incident",
             "mode": "builder_failure",
-            "stage": "terra",
+            "stage": "builder",
             "status": "PAUSED_BUILDER_CLASSIFICATION",
             "reason": "Classify the retained failure",
             "requested_at": "2026-10-10T00:00:00+00:00",
@@ -447,7 +447,7 @@ class ClassificationOfferTests(unittest.TestCase):
             "stop_reason": "The Investigator could not finish",
             "current_task": task,
             "goal_contract": {"hash": "C1", "revision": 1},
-            "settings": {"roles": {"terra": {"model": "builder"}}, "report_repair": {"max_attempts": 2}},
+            "settings": {"roles": {"builder": {"model": "builder"}}, "report_repair": {"max_attempts": 2}},
             "stages": [],
         }
         history = {
@@ -488,7 +488,7 @@ class ClassificationOfferTests(unittest.TestCase):
         token = recovery.offer(state)["job_retry_token"]
         state["settings"]["roles"]["stuck_investigator"] = {"model": "derived"}
         self.assertEqual(token, recovery.offer(state)["job_retry_token"])
-        state["settings"]["roles"]["terra"]["model"] = "changed builder"
+        state["settings"]["roles"]["builder"]["model"] = "changed builder"
         self.assertNotEqual(token, recovery.offer(state)["job_retry_token"])
         state["run_dir"] = "/another/run"
         self.assertNotEqual(token, recovery.offer(state)["job_retry_token"])
@@ -850,7 +850,7 @@ class ClassificationOfferTests(unittest.TestCase):
                 if changed == "spent":
                     pending["attempts"] = 2
                 elif changed == "other_stage":
-                    pending["original"]["stage"] = "sol"
+                    pending["original"]["stage"] = "tester"
                 elif changed == "older":
                     pending["original"]["started_at"] = "2026-10-09T00:00:01+00:00"
                 elif changed == "negative_attempts":

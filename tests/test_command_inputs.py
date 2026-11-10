@@ -29,7 +29,7 @@ class CommandInputTests(unittest.TestCase):
             status="PAUSED_TIMEOUT_RECOVERY",
             automatic_recoveries_since_resume=3,
             consecutive_timeout_recoveries=3,
-            automatic_timeout_recoveries=[{"stage": "astra_challenge"}],
+            automatic_timeout_recoveries=[{"stage": "review_plan"}],
             recovery_grants=[],
         )
 
@@ -91,7 +91,7 @@ class CommandInputTests(unittest.TestCase):
     def planning_checkpoint(self, **changes):
         return checkpoint(
             status="PAUSED_PLANNING_BUDGET",
-            next_stage="astra_challenge",
+            next_stage="review_plan",
             planning={"astra_calls": 2, "review_call_limit": 2},
             **changes,
         )
@@ -151,8 +151,8 @@ class CommandInputTests(unittest.TestCase):
         self.assertNotIn("command_inputs", resumed["needs"])
         self.assertEqual("--resume-paused", resumed["needs"]["action"])
         for changes in (
-            {"next_stage": "terra"},
-            {"active_stage": {"stage": "astra_challenge"}},
+            {"next_stage": "builder"},
+            {"active_stage": {"stage": "review_plan"}},
             {"pending_report_repair": {"attempts": 1}},
             {"uncertain_artifacts": ["artifact"]},
         ):

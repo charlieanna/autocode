@@ -44,7 +44,7 @@ def state_for(workspace):
         "task": "A and B",
         "workspace": str(workspace),
         "settings": {
-            "roles": {role: {"model": "fake", "engine": "codex"} for role in ("task_planner", "terra", "sol")}
+            "roles": {role: {"model": "fake", "engine": "codex"} for role in ("task_planner", "builder", "tester")}
         },
         "goal_contract": {
             "body": {
@@ -76,7 +76,7 @@ class ProgressiveVerificationTests(unittest.TestCase):
             self.assertEqual({}, progressive_state.context(state))
             self.assertIsNone(cases.in_scope(state))
             self.assertEqual(["python3 task_check.py"], autoreview.verification_commands(state))
-            for stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
+            for stage in ("builder", "tester", "review_completion", "review_checkpoint"):
                 prompt, _ = stage_context.context_packet(state, stage, self.workspace / "state.json")
                 self.assertNotIn("PROGRESSIVE VERIFICATION:", prompt)
                 self.assertNotIn("progressive_verification", prompt)
@@ -85,7 +85,7 @@ class ProgressiveVerificationTests(unittest.TestCase):
         expected = ["python3 task_check.py", "python3 check_a.py", "python3 check_b.py"]
         with mock.patch.object(progressive_state, "context", return_value=context()):
             self.assertEqual(expected, autoreview.verification_commands(self.state))
-            for stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
+            for stage in ("builder", "tester", "review_completion", "review_checkpoint"):
                 prompt, metrics = stage_context.context_packet(self.state, stage, self.workspace / "state.json")
                 packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
                 self.assertEqual(expected, packet["progressive_verification"]["required_commands"])

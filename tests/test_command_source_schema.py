@@ -82,7 +82,7 @@ class CommandSourceSchemaTests(unittest.TestCase):
             return json.loads(output.read_text())
 
     def test_modern_planning_cites_the_visible_source_and_supplies_waivers(self):
-        report = self.invoke("astra_discovery", PLANNING_SCHEMA)
+        report = self.invoke("draft_plan", PLANNING_SCHEMA)
         self.assertEqual(
             [{"source_id": "task:0", "quote": "Build a greeting CLI."}],
             report["contract"]["acceptance_criteria"][0]["sources"],
@@ -92,7 +92,7 @@ class CommandSourceSchemaTests(unittest.TestCase):
     def test_planning_reports_declare_the_scripted_single_repository_scope(self):
         from units.autoplanner import SCHEMAS
 
-        for stage in ("astra_discovery", "glm_revise"):
+        for stage in ("draft_plan", "revise_plan"):
             with self.subTest(stage=stage):
                 report = self.invoke(stage, SCHEMAS[stage])
                 self.assertEqual({"spans_repositories": False, "external_parts": []}, report["workspace_scope"])
@@ -105,7 +105,7 @@ class CommandSourceSchemaTests(unittest.TestCase):
             "external_parts": [{"repository": "other", "description": "retained scope"}],
         }
         retained = {"summary": "Saved proposal", "workspace_scope": scope}
-        self.assertEqual(retained, self.invoke("astra_discovery", SCHEMAS["astra_discovery"], retained=retained))
+        self.assertEqual(retained, self.invoke("draft_plan", SCHEMAS["draft_plan"], retained=retained))
 
     def test_inherited_plan_keeps_citations_and_omits_runner_provenance(self):
         draft = body(questions=False, human=False)
@@ -113,7 +113,7 @@ class CommandSourceSchemaTests(unittest.TestCase):
         draft["acceptance_criteria"][0]["sources"] = citations
         for field in ("source_trace", "brief_acceptance", "risk_acceptance"):
             draft[field] = {"runner_provenance": "sealed"}
-        report = self.invoke("glm_revise", PLANNING_SCHEMA, contract=draft)
+        report = self.invoke("revise_plan", PLANNING_SCHEMA, contract=draft)
         self.assertEqual(citations, report["contract"]["acceptance_criteria"][0]["sources"])
         for field in ("source_trace", "brief_acceptance", "risk_acceptance"):
             self.assertNotIn(field, report["contract"])
@@ -129,7 +129,7 @@ class CommandSourceSchemaTests(unittest.TestCase):
                     }
                     if verdict is not None:
                         retained["source_verdict"] = verdict
-                    report = self.invoke("astra_review", VERDICT_SCHEMA, events=events, retained=retained)
+                    report = self.invoke("review_completion", VERDICT_SCHEMA, events=events, retained=retained)
                     self.assertEqual(retained["status"], report["status"])
                     self.assertEqual(retained["checks"], report["checks"])
                     if verdict is not None:
@@ -146,14 +146,14 @@ class CommandSourceSchemaTests(unittest.TestCase):
             "negation_waivers": [],
         }
         retained = {"summary": "Original planning report", "contract": draft, "source_trace": waiver}
-        self.assertEqual(retained, self.invoke("astra_finalize", PLANNING_SCHEMA, retained=retained))
+        self.assertEqual(retained, self.invoke("finalize_plan", PLANNING_SCHEMA, retained=retained))
 
     def test_legacy_schema_does_not_invent_source_fields(self):
-        report = self.invoke("astra_discovery", {"type": "object", "properties": {}})
+        report = self.invoke("draft_plan", {"type": "object", "properties": {}})
         self.assertNotIn("source_trace", report)
         self.assertNotIn("sources", report["contract"]["acceptance_criteria"][0])
         retained = {"summary": "Saved completion", "checks": []}
-        self.assertEqual(retained, self.invoke("astra_review", {"properties": {}}, retained=retained))
+        self.assertEqual(retained, self.invoke("review_completion", {"properties": {}}, retained=retained))
 
     def test_builder_repair_adds_only_missing_required_summary(self):
         retained = {
@@ -161,15 +161,15 @@ class CommandSourceSchemaTests(unittest.TestCase):
             "checks": [{"command": "false", "exit_code": 1, "evidence_ref": "retained.json"}],
         }
         schema = {"properties": {"summary": {"type": "string"}}, "required": ["summary"]}
-        repaired = self.invoke("terra", schema, retained=retained)
+        repaired = self.invoke("builder", schema, retained=retained)
         self.assertTrue(repaired["summary"])
         self.assertEqual(retained, {key: value for key, value in repaired.items() if key != "summary"})
         retained["summary"] = "Original Builder summary"
-        self.assertEqual(retained, self.invoke("terra", schema, retained=retained))
-        self.assertEqual(retained, self.invoke("terra", {"properties": {}}, retained=retained))
+        self.assertEqual(retained, self.invoke("builder", schema, retained=retained))
+        self.assertEqual(retained, self.invoke("builder", {"properties": {}}, retained=retained))
 
     def test_unparsable_legacy_report_keeps_its_synthetic_repair_fallback(self):
-        report = self.invoke("terra", {"properties": {}}, raw_retained="not JSON")
+        report = self.invoke("builder", {"properties": {}}, raw_retained="not JSON")
         self.assertEqual("Repaired report", report["summary"])
         self.assertEqual([], report["commands_run"])
 
@@ -177,7 +177,7 @@ class CommandSourceSchemaTests(unittest.TestCase):
         for retained in ([], ["retained check"], "retained text", 17):
             with self.subTest(retained=retained):
                 self.invoke(
-                    "terra",
+                    "builder",
                     {"properties": {}},
                     retained=retained,
                     expected_error="report-only repair needs an object report",

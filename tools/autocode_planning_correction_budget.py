@@ -108,11 +108,11 @@ def _accepted_draft(state: RunState, stages, output):
         or not current.get("source_revision")
     ):
         return None
-    if current.get("stage") == "astra_discovery" and not current.get("report_only"):
+    if current.get("stage") == "draft_plan" and not current.get("report_only"):
         return current, {}
     if not (
-        current.get("stage") == "astra_discovery_report_repair"
-        and current.get("original_stage") == "astra_discovery"
+        current.get("stage") == "draft_plan_report_repair"
+        and current.get("original_stage") == "draft_plan"
         and current.get("report_only") is True
         and current.get("applied_original_events")
     ):
@@ -131,7 +131,7 @@ def _accepted_draft(state: RunState, stages, output):
     originals = [
         row
         for row in attempts[:-1]
-        if row.get("stage") == "astra_discovery"
+        if row.get("stage") == "draft_plan"
         and row.get("events") == current["applied_original_events"]
         and row.get("output") == receipt.get("original_output")
     ]
@@ -165,7 +165,7 @@ def _accepted_draft(state: RunState, stages, output):
 def _evidence(state: RunState, planning, stages, clock, *, fingerprint):
     """A first review of a materially changed, externally corrected approved plan."""
     if (
-        state.get("next_stage") != "astra_challenge"
+        state.get("next_stage") != "review_plan"
         or (state.get("settings") or {}).get("joint_planning") is not True
         or (state.get("settings") or {}).get("adaptive_planning") is not True
         or state.get("status") not in ("RUNNING", "PAUSED_PLANNING_BUDGET")
@@ -178,14 +178,14 @@ def _evidence(state: RunState, planning, stages, clock, *, fingerprint):
         or any(
             state.get(key) for key in ("active_runner_check", "job_failure", "pending_builder_failure", "stop_intent")
         )
-        or (state.get("stuck_investigation") or {}).get("stage") == "astra_challenge"
+        or (state.get("stuck_investigation") or {}).get("stage") == "review_plan"
         or any(row.get("kind") == "stop" for row in state.get("applied_interventions") or [])
     ):
         return None
     reports = planning.get("reports") or {}
-    if any(name in reports for name in ("astra_challenge", "glm_revise", "astra_finalize")):
+    if any(name in reports for name in ("review_plan", "revise_plan", "finalize_plan")):
         return None  # Not another debate round or an internal revision.
-    entry = reports.get("astra_discovery") or {}
+    entry = reports.get("draft_plan") or {}
     output = entry.get("output")
     event = _feedback(state)
     current = state.get("goal_contract") or {}
@@ -250,7 +250,7 @@ def _evidence(state: RunState, planning, stages, clock, *, fingerprint):
         if original_finished is None or not feedback_at <= original_finished <= finished:
             return None
     if any(
-        (row.get("reports") or {}).get("astra_discovery", {}).get("output") == output
+        (row.get("reports") or {}).get("draft_plan", {}).get("output") == output
         for row in state.get("planning_history") or []
     ):
         return None

@@ -22,7 +22,7 @@ class PlanningScopeCliTests(unittest.TestCase):
         quote = elsewhere if grounded else "Charge credit cards in billing."
         marker = '    output = Path(sys.argv[sys.argv.index("-o") + 1])'
         addition = textwrap.dedent(f"""
-            if stage == 'astra_discovery':
+            if stage == 'draft_plan':
                 report['workspace_scope'] = {{'spans_repositories': True, 'external_parts': [{{
                     'target': 'greet-history', 'work': 'Record greetings',
                     'source_quote': {quote!r}, 'evidence': ''}}]}}
@@ -48,7 +48,7 @@ class PlanningScopeCliTests(unittest.TestCase):
         self.assertTrue(view["needs"]["questions"][0]["id"].startswith("workspace-scope-"))
         attempts = view["usage"]["accounting"]["attempts"]
         self.assertEqual(
-            ["requirements_gather", "astra_discovery", "astra_discovery_report_repair"],
+            ["requirements_gather", "draft_plan", "draft_plan_report_repair"],
             [row["stage"] for row in attempts],
         )
         self.assertTrue(attempts[-1]["report_only"])
@@ -64,7 +64,7 @@ class PlanningScopeCliTests(unittest.TestCase):
         self.assertTrue(question["id"].startswith("workspace-scope-"))
         self.assertEqual(["greet-history"], [part["target"] for part in view["scope"]["external_parts"]])
         attempts = view["usage"]["accounting"]["attempts"]
-        self.assertEqual(["requirements_gather", "astra_discovery"], [row["stage"] for row in attempts])
+        self.assertEqual(["requirements_gather", "draft_plan"], [row["stage"] for row in attempts])
         self.assertFalse(any(row["report_only"] for row in attempts))
         reopened = taskrun.TaskRun(run.workspace, run.run_dir, env=env).status()
         self.assertEqual(view["needs"], reopened["needs"])
@@ -78,7 +78,7 @@ class PlanningScopeCliTests(unittest.TestCase):
         self.assertIn(
             "Not covered: changes in greet-history: Record greetings", planned["displayed_plan"]["scope_exclusions"]
         )
-        self.assertNotIn("terra", [row["stage"] for row in planned["usage"]["accounting"]["attempts"]])
+        self.assertNotIn("builder", [row["stage"] for row in planned["usage"]["accounting"]["attempts"]])
 
     def test_ungrounded_planner_discovery_does_not_expand_scope(self):
         run, _, view = self.start(grounded=False)
@@ -114,7 +114,7 @@ class AssignedPlannerReportCliTests(unittest.TestCase):
         source = (
             source[:at]
             + textwrap.dedent("""
-            if stage == 'astra_discovery' and name == 'checkout':
+            if stage == 'draft_plan' and name == 'checkout':
                 counter = root / '.autocode/scope-draft-count'
                 number = int(counter.read_text()) + 1 if counter.exists() else 1
                 counter.write_text(str(number))
@@ -130,7 +130,7 @@ class AssignedPlannerReportCliTests(unittest.TestCase):
         if pause_on_scope:
             pause = textwrap.indent(
                 textwrap.dedent(f"""
-            if stage == 'astra_discovery' and name == 'checkout':
+            if stage == 'draft_plan' and name == 'checkout':
                 subprocess.run({list(taskrun.AUTOCODE)!r} + [
                     'intervention', 'submit', '--workspace', str(root),
                     '--run-dir', str(output.parents[2]), '--request-id', 'pause-completed-scope',
@@ -139,10 +139,10 @@ class AssignedPlannerReportCliTests(unittest.TestCase):
                 "    ",
             )
             source = source.replace(marker, pause + "\n" + marker)
-        scope_stage = "glm_revise" if pause_on_scope else "astra_discovery"
+        scope_stage = "revise_plan" if pause_on_scope else "draft_plan"
         if pause_on_scope:
             source = source.replace(
-                "stage == 'astra_discovery' and name == 'checkout'", "stage == 'glm_revise' and name == 'checkout'"
+                "stage == 'draft_plan' and name == 'checkout'", "stage == 'revise_plan' and name == 'checkout'"
             )
         provider = self.root / "bin/late-scope-provider.py"
         provider.write_text(source)
@@ -183,9 +183,7 @@ class AssignedPlannerReportCliTests(unittest.TestCase):
             else:
                 self.fail("The coordinator did not assign the late Planner scope")
             self.assertEqual(pause_on_scope, pause_restored)
-            self.assertEqual(
-                "astra_finalize" if pause_on_scope else "astra_challenge", view["next_stage"], view["needs"]
-            )
+            self.assertEqual("finalize_plan" if pause_on_scope else "review_plan", view["next_stage"], view["needs"])
             self.assertEqual([], self.questions, "Only source Requirements confirmation precedes scope assignment")
             self.assertEqual(1, len(calls))
             self.assertEqual("1", (run.workspace / ".autocode/scope-draft-count").read_text())
@@ -193,7 +191,7 @@ class AssignedPlannerReportCliTests(unittest.TestCase):
             self.assertEqual(view["usage"], reopened["usage"])
             self.assertEqual(view["scope"], reopened["scope"])
             self.assertNotIn("approved_contract", view)
-            self.assertFalse(any(a["stage"] == "terra" for a in view["usage"]["accounting"]["attempts"]))
+            self.assertFalse(any(a["stage"] == "builder" for a in view["usage"]["accounting"]["attempts"]))
             self.assertEqual([], self.github.posts)
             self.assertEqual("feedback", view["chat"]["input"]["kind"])
             message = "Preserve the existing checkout reply while correcting its displayed total."

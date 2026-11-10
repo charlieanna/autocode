@@ -56,7 +56,7 @@ class AdmissionFixture:
             "processes": [self.metadata["provider"], {"pid": 2147480004, "birth_identity": 4}],
         }
         self.check = {
-            "stage": "sol",
+            "stage": "tester",
             "summary": "Checking completed report",
             "command": "node --test-reporter=spec --test test.cjs",
             "output": str(self.output),
@@ -533,7 +533,7 @@ class VerificationRecoveryTests(unittest.TestCase):
         self.assert_held()
 
     def test_model_attempt_must_be_set_aside_before_runner_recovery(self):
-        state = {"active_stage": {"stage": "sol"}, "active_runner_check": self.fixture.check}
+        state = {"active_stage": {"stage": "tester"}, "active_runner_check": self.fixture.check}
         with self.assertRaisesRegex(receipts.OwnershipUncertain, "Abandon the exact"):
             runner_check.recover_interrupted(state, self.fixture.root.parent, lambda *_: None)
         self.assertTrue(self.fixture.pending.exists())
@@ -590,7 +590,7 @@ class PublicResumeRegression(unittest.TestCase):
             "project_workspace": str(workspace),
             "run_dir": str(run_dir),
             "status": initial_status,
-            "next_stage": "sol",
+            "next_stage": "tester",
             "iteration": 2,
             "sessions": {},
             "stages": [],

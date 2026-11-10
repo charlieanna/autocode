@@ -66,7 +66,7 @@ class BriefCliTests(unittest.TestCase):
         self.assert_reference(run, view)
         attempts = view["usage"]["accounting"]["attempts"]
         self.assertFalse(any(row.get("report_only") for row in attempts))
-        final = next(row for row in attempts if row["stage"] == "astra_finalize")
+        final = next(row for row in attempts if row["stage"] == "finalize_plan")
         report = json.loads(Path(final["output"]).read_text())
         self.assertEqual(
             {"retain_contract", "initial_task", "open_blocking_questions", "acceptance_criteria"},
@@ -83,8 +83,8 @@ class BriefCliTests(unittest.TestCase):
         self.assert_reference(run, view)
         attempts = view["usage"]["accounting"]["attempts"]
         self.assertFalse(any(row.get("report_only") for row in attempts))
-        planning = [row for row in attempts if row["stage"] in ("glm_revise", "astra_finalize")]
-        self.assertEqual(["glm_revise", "astra_finalize"], [row["stage"] for row in planning])
+        planning = [row for row in attempts if row["stage"] in ("revise_plan", "finalize_plan")]
+        self.assertEqual(["revise_plan", "finalize_plan"], [row["stage"] for row in planning])
         self.assert_plan_approvals(view, 1)
         revised = json.loads(Path(planning[0]["output"]).read_text())["contract"]["acceptance_criteria"]
         self.assertTrue(revised[0]["verification_method"].endswith("--planted-by-the-revision"), revised[0])
@@ -101,7 +101,7 @@ class BriefCliTests(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", view["status"], self.details(view))
         self.assert_reference(run, view)
         repairs = [row for row in view["usage"]["accounting"]["attempts"] if row.get("report_only")]
-        self.assertEqual(["astra_finalize_report_repair"], [row["stage"] for row in repairs])
+        self.assertEqual(["finalize_plan_report_repair"], [row["stage"] for row in repairs])
         report = json.loads(Path(repairs[0]["output"]).read_text())
         self.assertIn("retain_contract", report["contract"])
 
@@ -112,14 +112,14 @@ class BriefCliTests(unittest.TestCase):
         )
         self.assert_reference(run, first)
         before = first["usage"]["accounting"]["attempts"]
-        self.assertEqual(2, sum(row["stage"] in ("astra_challenge", "astra_finalize") for row in before))
+        self.assertEqual(2, sum(row["stage"] in ("review_plan", "finalize_plan") for row in before))
         run.follow_up(self.scenario.brief)
         second = self.drive(run)
         self.assertEqual("TASK_COMPLETE", second["status"], self.details(second))
         self.assert_reference(run, second)
         after = second["usage"]["accounting"]["attempts"]
         self.assertGreater(len(after), len(before))
-        self.assertEqual(4, sum(row["stage"] in ("astra_challenge", "astra_finalize") for row in after))
+        self.assertEqual(4, sum(row["stage"] in ("review_plan", "finalize_plan") for row in after))
 
     def test_feedback_interpretation_correction_keeps_review_and_token_bound_approval(self):
         # #2083: a valid feedback ID made a new model inference immutable, even though the person
@@ -158,7 +158,7 @@ class BriefCliTests(unittest.TestCase):
                 if not feedback:
                     return report
                 event_id = feedback[-1]["id"]
-                if stage == "astra_challenge":
+                if stage == "review_plan":
                     report.update(summary="Correct the invented waiver and cover list preservation", concerns=[
                         {"id": "B1", "concern": "The model inferred a proof waiver the feedback never grants",
                          "evidence_refs": ["goal_contract", "feedback:" + event_id],
@@ -167,12 +167,12 @@ class BriefCliTests(unittest.TestCase):
                         {"id": "B2", "concern": "The list-preservation behavior needs an explicit criterion",
                          "evidence_refs": ["task"], "requested_change": "Add C2 covering the saved list and IDs",
                          "acceptance_test": CHECK, "blocking": True}])
-                if stage in ("astra_discovery", "glm_revise"):
+                if stage in ("draft_plan", "revise_plan"):
                     body = report["contract"]
                     body["accepted_assumptions"].append({
-                        "text": INVENTED if stage == "astra_discovery" else CORRECTED,
+                        "text": INVENTED if stage == "draft_plan" else CORRECTED,
                         "basis": "user_feedback", "answer_id": event_id})
-                    if stage == "glm_revise":
+                    if stage == "revise_plan":
                         # The correction changes no approved identity, proof selector, permission or source.
                         body["acceptance_criteria"].append({
                             "id": "C2", "criterion": "Given two saved to-dos, listing preserves both items and their IDs",
@@ -180,7 +180,7 @@ class BriefCliTests(unittest.TestCase):
                             "sources": body["acceptance_criteria"][0]["sources"]})
                         body["milestones"][0]["acceptance_criteria"].append("C2")
                         body["initial_task"]["acceptance_criteria"].append("C2")
-                if stage == "astra_finalize" and any(
+                if stage == "finalize_plan" and any(
                     row.get("id") == "C2"
                     for row in ((data.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria", [])
                 ):
@@ -226,10 +226,10 @@ class BriefCliTests(unittest.TestCase):
         attempts = view["usage"]["accounting"]["attempts"][before:]
         self.assertFalse(any(row.get("report_only") for row in attempts), attempts)
         self.assertEqual(
-            ["astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"],
+            ["draft_plan", "review_plan", "revise_plan", "finalize_plan"],
             [row["stage"] for row in attempts if row["stage"] != "requirements_gather"],
         )
-        self.assertFalse(any(row["stage"] == "terra" for row in attempts))
+        self.assertFalse(any(row["stage"] == "builder" for row in attempts))
         with self.assertRaises(taskrun.TaskRunError):
             run.approve_plan("r0:not-the-plan-that-was-shown")
         self.assertEqual("approve_plan", run.status()["needs"]["kind"])
@@ -503,15 +503,15 @@ class BriefCliTests(unittest.TestCase):
         self.assertEqual("approve_plan", view["needs"]["kind"], self.details(view))
         self.assertTrue((self.root / "fake-duplicate-review-observation").exists())
         calls = [json.loads(line) for line in (self.root / "fake-calls.jsonl").read_text().splitlines()]
-        self.assertEqual(1, sum(row["stage"] == "astra_challenge" and row["repair"] for row in calls), calls)
-        self.assertFalse(any(row["stage"] in ("glm_revise", "astra_finalize") for row in calls), calls)
+        self.assertEqual(1, sum(row["stage"] == "review_plan" and row["repair"] for row in calls), calls)
+        self.assertFalse(any(row["stage"] in ("revise_plan", "finalize_plan") for row in calls), calls)
         self.assertTrue(view["planning_depth"]["approved_early"])
         self.assertEqual(1, view["planning_depth"]["challenges"])
         self.assertNotIn("approved_contract", view)
         self.assertFalse((run.workspace / "todo.py").exists(), "The user still owns build approval")
         attempts = view["usage"]["accounting"]["attempts"]
-        self.assertTrue(any(row["stage"] == "astra_challenge" and row.get("rejected") for row in attempts))
-        self.assertTrue(any(row["stage"] == "astra_challenge_report_repair" for row in attempts))
+        self.assertTrue(any(row["stage"] == "review_plan" and row.get("rejected") for row in attempts))
+        self.assertTrue(any(row["stage"] == "review_plan_report_repair" for row in attempts))
 
     def test_persistently_duplicate_review_observations_stay_rejected_and_bounded(self):
         run, view = self.start(
@@ -526,10 +526,10 @@ class BriefCliTests(unittest.TestCase):
         self.assertNotEqual("approve_plan", view["needs"].get("kind"), self.details(view))
         self.assertFalse((run.workspace / "todo.py").exists())
         calls = [json.loads(line) for line in (self.root / "fake-calls.jsonl").read_text().splitlines()]
-        repairs = [row for row in calls if row["stage"] == "astra_challenge" and row["repair"]]
+        repairs = [row for row in calls if row["stage"] == "review_plan" and row["repair"]]
         self.assertGreater(len(repairs), 0, calls)
         self.assertLessEqual(len(repairs), 3, calls)
-        self.assertFalse(any(row["stage"] in ("glm_revise", "astra_finalize") for row in calls), calls)
+        self.assertFalse(any(row["stage"] in ("revise_plan", "finalize_plan") for row in calls), calls)
 
     def test_fixed_selfconsistent_unbracketed_mutant_cannot_complete_after_restart(self):
         self.check_mutant_restart(("--no-adaptive-planning",))

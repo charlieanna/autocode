@@ -42,12 +42,12 @@ def publish_blocker(state):
     human.queue(
         state,
         "blocker",
-        {"stage": "astra_resolve"},
+        {"stage": "resolve"},
         request=blocker_request(),
         evidence={"diagnosis": "Proven contract contradiction", "output": "iterations/001/resolver-01.json"},
     )
     state["stages"].append(
-        {"stage": "astra_resolve", "output": "iterations/001/resolver-01.json", "exit_code": 0, "changed_files": []}
+        {"stage": "resolve", "output": "iterations/001/resolver-01.json", "exit_code": 0, "changed_files": []}
     )
     assert human.evaluate(state) == "escalate"
     return human.current(state)
@@ -81,9 +81,9 @@ class BlockerNeedTests(unittest.TestCase):
     def publish_no_progress(self, *, held=True):
         """A recovery novelty hold published as an operational request, as after an abandoned repair (#1012)."""
         self.contract()
-        self.state.update(status="PAUSED_NO_PROGRESS", next_stage="astra_resolve")
+        self.state.update(status="PAUSED_NO_PROGRESS", next_stage="resolve")
         if held:
-            self.state["resolution_request"] = {"novelty_hold": {"stage": "astra_resolve", "incident_id": "incident"}}
+            self.state["resolution_request"] = {"novelty_hold": {"stage": "resolve", "incident_id": "incident"}}
         self.state["resolver"] = {
             "operational_diagnostics": ["op-receipt"],
             "operational_receipts": {
@@ -98,7 +98,7 @@ class BlockerNeedTests(unittest.TestCase):
         human.queue(
             self.state,
             "operational_exhaustion",
-            {"stage": "astra_resolve", "pause_status": "PAUSED_NO_PROGRESS"},
+            {"stage": "resolve", "pause_status": "PAUSED_NO_PROGRESS"},
             request=self.request(),
             evidence={"resolver_receipt_id": "op-receipt"},
         )
@@ -139,12 +139,12 @@ class BlockerNeedTests(unittest.TestCase):
     def hold_before_publication(self):
         """The #1770 live hold: the novelty hold is queued, but no request is published yet."""
         self.contract()
-        self.state.update(status="PAUSED_NO_PROGRESS", next_stage="astra_resolve")
-        self.state["resolution_request"] = {"novelty_hold": {"stage": "astra_resolve", "incident_id": "incident"}}
+        self.state.update(status="PAUSED_NO_PROGRESS", next_stage="resolve")
+        self.state["resolution_request"] = {"novelty_hold": {"stage": "resolve", "incident_id": "incident"}}
         human.queue(
             self.state,
             "operational_exhaustion",
-            {"stage": "astra_resolve", "pause_status": "PAUSED_NO_PROGRESS"},
+            {"stage": "resolve", "pause_status": "PAUSED_NO_PROGRESS"},
             request=self.request(),
             evidence={"resolver_receipt_id": "op-receipt"},
         )
@@ -445,7 +445,7 @@ class BlockerNextActionCLITests(unittest.TestCase):
     def blocker_checkpoint(self):
         """A built run whose Resolver diagnosis asks a person, saved as the CLI would find it."""
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
-        self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "astra_review"
+        self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "review_completion"
         self.launch(["Build greeting", "--chat"], 2, answers="CLI\nyes\n")
         run, paused = self.saved()
         self.launch(["--run-dir", str(run), "--abandon-stage", runner.attempt_id(paused["active_stage"])], 0)

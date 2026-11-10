@@ -154,8 +154,8 @@ class Correction(unittest.TestCase):
         self.fix()
         error = self.refused()
         before = dict(self.state)
-        self.assertFalse(correction.send_back(self.state, {"stage": "terra"}, error))
-        self.assertFalse(correction.send_back(self.state, {"stage": "sol"}, ValueError("other")))
+        self.assertFalse(correction.send_back(self.state, {"stage": "builder"}, error))
+        self.assertFalse(correction.send_back(self.state, {"stage": "tester"}, ValueError("other")))
         self.assertEqual(before, self.state)
 
     def test_the_runner_built_draft_is_an_unauthored_draft(self):

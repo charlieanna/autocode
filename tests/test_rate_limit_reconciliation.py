@@ -15,7 +15,7 @@ class RateLimitReconciliationTests(unittest.TestCase):
     tearDown = test_autocode.RetrofitTest.tearDown
 
     def attempt(self, *, changed=False, completed=False):
-        base = self.run / "iterations/001/astra_discovery-01"
+        base = self.run / "iterations/001/draft_plan-01"
         base.parent.mkdir(parents=True)
         support.atomic_json(base.with_suffix(".before.json"), support.snapshot(self.root))
         rows = [{"type": "turn.started"}]
@@ -29,7 +29,7 @@ class RateLimitReconciliationTests(unittest.TestCase):
         if changed:
             (self.root / "unexpected.py").write_text("changed")
         record = {
-            "stage": "astra_discovery",
+            "stage": "draft_plan",
             "role": "planner",
             "route_role": "planner",
             "iteration": 1,
@@ -43,9 +43,7 @@ class RateLimitReconciliationTests(unittest.TestCase):
             "accounted": False,
             "processes": [{"pid": 2**22 - 1, "birth_time": 0.0, "started": "missing", "group": 2**22 - 1}],
         }
-        self.state.update(
-            active_stage=record, next_stage="astra_discovery", status="RUNNING", sessions={"planner": "old"}
-        )
+        self.state.update(active_stage=record, next_stage="draft_plan", status="RUNNING", sessions={"planner": "old"})
         return record
 
     def test_rate_limit_is_archived_and_escalated_without_provider_replay(self):

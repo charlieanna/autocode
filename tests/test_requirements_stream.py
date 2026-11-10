@@ -71,7 +71,7 @@ await delta('text',' would you like?","constraints":["private constraint"]}');
                 ),
             ):
                 _, env, _ = provider.launch(
-                    "sol", Path(directory), Path(directory), None, "plan/glm", "medium", False, schema=schema
+                    "tester", Path(directory), Path(directory), None, "plan/glm", "medium", False, schema=schema
                 )
             expected = json.loads(inherited["KILO_CONFIG_CONTENT"])
             expected["plugin"].append(Path(kilocode.__file__).with_name("opencode_activity.mjs").resolve().as_uri())

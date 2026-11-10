@@ -49,7 +49,7 @@ class TicketTitleCliTests(unittest.TestCase):
             view = run.advance_until_input()
             self.assertEqual("approve_plan", view["needs"]["kind"], view["stop_reason"])
             attempts = view["usage"]["accounting"]["attempts"]
-            self.assertTrue(any(row["stage"] == "astra_finalize" for row in attempts))
+            self.assertTrue(any(row["stage"] == "finalize_plan" for row in attempts))
             self.assertFalse(any(row.get("report_only") for row in attempts))
             self.assertFalse(view["approvals"])
             self.assertIn(title, view["task"])

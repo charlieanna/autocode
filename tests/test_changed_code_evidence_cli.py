@@ -169,12 +169,12 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
                 repair = changed.get("status") == "UNVERIFIED" and (
                     os.environ["CHANGED_CODE_WAIT_FOR_INVESTIGATOR"] == "0" or guidance == FIXTURE_GUIDANCE)
                 original = CONFIG["reference"]
-                if stage == "terra" and repair:
+                if stage == "builder" and repair:
                     CONFIG["reference"] = os.environ["CHANGED_CODE_STRONG"]
                 try:
-                    if stage == "astra_checkpoint":
+                    if stage == "review_checkpoint":
                         return {"validation": _ordinary_report_for(stage, data),
-                                "decision": _ordinary_report_for("astra_review", data),
+                                "decision": _ordinary_report_for("review_completion", data),
                                 "consult_sol": {"requested": False, "question": "", "reason": ""}}
                     result = _ordinary_report_for(stage, data)
                     if os.environ["CHANGED_CODE_VALIDATION_ONLY"] == "1":
@@ -184,12 +184,12 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
                             contract["initial_task"]["requirements"] = [
                                 "Validate the retained implementation without changing any file."]
                         reviewed = (data.get("regression_proof") or {}).get("changed_code_evidence") or {}
-                        correction = (stage == "astra_review" and reviewed.get("status") == "UNVERIFIED") or (
-                            stage == "astra_resolve" and (data.get("current_task") or {}).get("kind") == "validate")
+                        correction = (stage == "review_completion" and reviewed.get("status") == "UNVERIFIED") or (
+                            stage == "resolve" and (data.get("current_task") or {}).get("kind") == "validate")
                         if correction and os.environ["CHANGED_CODE_REVIEW_CORRECTION"] == "1":
                             result.update(status="REWORK", next_objective=FIXTURE_GUIDANCE,
                                           affected_paths=["tests/test_limits.py"])
-                            if stage == "astra_resolve":
+                            if stage == "resolve":
                                 result["diagnosis"] = (
                                     "The retained implementation lacks lower-bound assertions; "
                                     "assign the approved regression tests as implementation instead of read-only validation.")
@@ -224,9 +224,9 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
             )
             witness = (
                 textwrap.dedent("""
-                if stage in ("sol", "astra_checkpoint") and not data.get("report_repair"):
+                if stage in ("tester", "review_checkpoint") and not data.get("report_repair"):
                     changed = (data.get("regression_proof") or {}).get("changed_code_evidence") or {}
-                    target = report["validation"] if stage == "astra_checkpoint" else report
+                    target = report["validation"] if stage == "review_checkpoint" else report
                     target["changed_code_exceptions"] = [
                         {"gap_id": row["gap_id"], "decision": "accept", "reason_kind": "equivalent_mutant",
                          "reason": REASON_LITERAL,
@@ -244,12 +244,12 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
             # lines to the Investigator, first cites a product file as evidence and is repaired.
             witness = (
                 textwrap.dedent("""
-                if stage == "sol" and not data.get("report_repair"):
+                if stage == "tester" and not data.get("report_repair"):
                     trace = Path(os.environ["CHANGED_CODE_TRACE"])
                     earlier = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
-                    if sum(row["stage"] == "sol" and not row["repair"] for row in earlier) == 2:
+                    if sum(row["stage"] == "tester" and not row["repair"] for row in earlier) == 2:
                         report["criterion_results"][0]["evidence_refs"] = ["calc.py"]
-                if stage == "sol" and "cites evidence the runner did not verify" in (data.get("error") or ""):
+                if stage == "tester" and "cites evidence the runner did not verify" in (data.get("error") or ""):
                     for row in report["criterion_results"]:  # the repair cites the check instead
                         row["evidence_refs"] = [ref for ref in row["evidence_refs"] if ref != "calc.py"] or [
                             report["checks"][0]["evidence_ref"]]
@@ -261,9 +261,9 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
             # undecided; asked for that decision in its report repair, it gives it.
             witness = (
                 textwrap.dedent("""
-                if stage in ("sol", "astra_checkpoint") and data.get("report_repair"):
+                if stage in ("tester", "review_checkpoint") and data.get("report_repair"):
                     import re as _re
-                    target = report["validation"] if stage == "astra_checkpoint" else report
+                    target = report["validation"] if stage == "review_checkpoint" else report
                     target["changed_code_exceptions"] = [
                         {"gap_id": gap, "decision": "accept", "reason_kind": "instrumentation_unavailable",
                          "reason": REASON_LITERAL, "evidence_refs": ["calc.py", "tests/test_limits.py"]}
@@ -333,7 +333,7 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
 
     def assert_repaired(self, view, *, expected_builders=2):
         attempts = self.attempts()
-        builders = [row for row in attempts if row["stage"] == "terra" and not row["repair"]]
+        builders = [row for row in attempts if row["stage"] == "builder" and not row["repair"]]
         self.assertEqual(expected_builders, len(builders), self.diagnostic())
         feedback = json.dumps(builders[1]["handoff"])
         self.assertIn("calc.py", feedback)
@@ -348,7 +348,7 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
         self.assertEqual(self.approved_token, view["approved_contract"]["token"])
         self.assertEqual(self.routes, view["routes"])
         self.assertEqual("PASS", view["evidence"]["check_replay"]["verdict"])
-        for stage in ("sol", "astra_review"):
+        for stage in ("tester", "review_completion"):
             self.assertTrue(any(row["stage"] == stage and not row["repair"] for row in attempts), stage)
         self.assertEqual(STRONG_TEST, (self.workspace / "tests/test_limits.py").read_text())
         self.assertEqual(FIXED, (self.workspace / "calc.py").read_text())
@@ -399,8 +399,8 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
         self.assertEqual(self.approved_token, view["approved_contract"]["token"])
         self.assertEqual(self.routes, view["routes"])
         attempts = self.attempts()
-        self.assertEqual(1, sum(row["stage"] == "terra" for row in attempts))
-        reviewer = next(row for row in attempts if row["stage"] == "sol")
+        self.assertEqual(1, sum(row["stage"] == "builder" for row in attempts))
+        reviewer = next(row for row in attempts if row["stage"] == "tester")
         decisions = reviewer["report"]["changed_code_exceptions"]
         self.assertEqual(1, len(decisions), reviewer)
         self.assertEqual("equivalent_mutant", decisions[0]["reason_kind"])
@@ -414,7 +414,7 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
         self.assertEqual(decisions[0]["reason"], accepted["exception"]["reason"])
         self.assertEqual(original["source_revision"], changed["source_revision"])
         self.assertEqual(original["proof_context"], changed["proof_context"])
-        self.assertTrue(any(row["stage"] == "astra_review" for row in attempts))
+        self.assertTrue(any(row["stage"] == "review_completion" for row in attempts))
         self.assertFalse(any(row["repair"] for row in attempts), self.diagnostic())
         self.assertEqual(EQUIVALENT_SOURCE, (self.workspace / "calc.py").read_text())
 
@@ -423,9 +423,9 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", view["status"], self.diagnostic())
         attempts = self.attempts()
         # Before the Tester was asked, its silent PASS sent the unchanged code back to the Builder twice.
-        self.assertEqual(1, sum(row["stage"] == "terra" for row in attempts), self.diagnostic())
+        self.assertEqual(1, sum(row["stage"] == "builder" for row in attempts), self.diagnostic())
         self.assertFalse(any(row["stage"] == "investigate_stuck" for row in attempts), self.diagnostic())
-        testers = [row for row in attempts if row["stage"] == "sol"]
+        testers = [row for row in attempts if row["stage"] == "tester"]
         self.assertEqual([False, True], [row["repair"] for row in testers], self.diagnostic())
         self.assertIn("calc.py:2", testers[1]["error"])
         self.assertIn("no mutation outcome", testers[1]["error"])
@@ -452,11 +452,11 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
     def test_validation_only_evidence_gap_gets_a_reviewed_repair_before_a_builder(self):
         view = self.start(validation_only=True)
         attempts = [row for row in self.attempts() if not row["repair"]]
-        builders = [row for row in attempts if row["stage"] == "terra"]
+        builders = [row for row in attempts if row["stage"] == "builder"]
         self.assertTrue(builders, self.diagnostic())
         self.assertEqual("implement", builders[0]["handoff"]["current_task"]["kind"], self.diagnostic())
         before_builder = attempts[: attempts.index(builders[0])]
-        self.assertTrue(any(row["stage"] == "astra_review" for row in before_builder), self.diagnostic())
+        self.assertTrue(any(row["stage"] == "review_completion" for row in before_builder), self.diagnostic())
         self.assertEqual(1, len(builders), self.diagnostic())
         self.assertEqual("TASK_COMPLETE", view["status"], self.diagnostic())
         self.assertEqual(self.approved_token, view["approved_contract"]["token"])
@@ -477,7 +477,7 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
         self.assertEqual("UNVERIFIED", view["verification"]["changed_code_evidence"]["status"])
         self.assertEqual(self.approved_token, view["approved_contract"]["token"])
         self.assertEqual(self.routes, view["routes"])
-        self.assertFalse(any(row["stage"] == "terra" for row in self.attempts()), self.diagnostic())
+        self.assertFalse(any(row["stage"] == "builder" for row in self.attempts()), self.diagnostic())
         self.assertEqual(WEAK_TEST, (self.workspace / "tests/test_limits.py").read_text())
 
     def test_executing_a_branch_without_asserting_its_result_is_not_proof(self):
@@ -491,7 +491,7 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
         self.assertEqual(1, len(investigations), self.diagnostic())
         investigation = investigations[0]
         before = attempts[: attempts.index(investigation)]
-        self.assertEqual(3, sum(row["stage"] == "terra" for row in before))
+        self.assertEqual(3, sum(row["stage"] == "builder" for row in before))
         failure = investigation["handoff"]["builder_failure"]
         original = failure["diagnosis"]["changed_code_evidence"]
         self.assertEqual("UNVERIFIED", original["status"])
@@ -503,7 +503,7 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
         )
         self.assertEqual(failure["failure_id"], investigation["report"]["failure_id"])
         self.assertEqual("", investigation["report"]["user_question"])
-        final_builder = next(row for row in reversed(attempts) if row["stage"] == "terra")
+        final_builder = next(row for row in reversed(attempts) if row["stage"] == "builder")
         received = final_builder["handoff"]["changed_code_investigation"]
         self.assertEqual(GUIDANCE, received["guidance"])
         self.assertEqual(investigation["report"]["diagnosis"], received["diagnosis"])
@@ -519,13 +519,13 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", view["status"], self.diagnostic())
         attempts = self.attempts()
         stages = [(row["stage"], row["repair"]) for row in attempts]
-        self.assertEqual(1, stages.count(("sol", True)), self.diagnostic())
+        self.assertEqual(1, stages.count(("tester", True)), self.diagnostic())
         self.assertIn(
             "cites evidence the runner did not verify", next(row for row in attempts if row["repair"])["error"]
         )
         self.assertEqual(1, stages.count(("investigate_stuck", False)), self.diagnostic())
-        self.assertEqual(4, stages.count(("terra", False)), self.diagnostic())
-        final_builder = next(row for row in reversed(attempts) if row["stage"] == "terra")
+        self.assertEqual(4, stages.count(("builder", False)), self.diagnostic())
+        final_builder = next(row for row in reversed(attempts) if row["stage"] == "builder")
         self.assertEqual(GUIDANCE, final_builder["handoff"]["changed_code_investigation"]["guidance"])
         self.assertEqual("PASS", view["verification"]["changed_code_evidence"]["status"])
         self.assertEqual(STRONG_TEST, (self.workspace / "tests/test_limits.py").read_text())

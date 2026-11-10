@@ -46,7 +46,7 @@ class ModelInventoryTests(unittest.TestCase):
             selected = inventory.selection_models(workspace)
             selected.add("not/offered")
             self.assertNotIn("not/offered", inventory.selection_models(workspace))
-            inventory.check_models({"sol": {"model": "openai/gpt-6-sol"}})
+            inventory.check_models({"tester": {"model": "openai/gpt-6-sol"}})
             self.assertEqual(1, listing.call_count)
             inventory.selection_models(workspace)
             self.assertEqual(2, listing.call_count)
@@ -118,10 +118,10 @@ class ModelInventoryTests(unittest.TestCase):
             with patch.object(opencode.env_prep, "preflight_run", return_value=response) as roster:
                 inventory.available_models(Path(directory))
                 with self.assertRaisesRegex(RuntimeError, "Models unavailable in test: missing"):
-                    inventory.check_models({"sol": {"model": "missing"}})
+                    inventory.check_models({"tester": {"model": "missing"}})
                 self.assertEqual(1, roster.call_count)
                 with self.assertRaisesRegex(RuntimeError, "non-empty and contain no whitespace"):
-                    InvocationInventory(provider, Path(directory)).check_models({"sol": {"model": "bad model"}})
+                    InvocationInventory(provider, Path(directory)).check_models({"tester": {"model": "bad model"}})
                 self.assertEqual(2, roster.call_count)
 
 

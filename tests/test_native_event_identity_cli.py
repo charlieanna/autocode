@@ -9,7 +9,7 @@ INJECT = textwrap.dedent("""
     original_emit = emit
 
     def emit(kind, **part):
-        if kind == 'tool_use' and stage == 'sol' and not repairing and part.get('id') == 'synthetic-original-sol':
+        if kind == 'tool_use' and stage == 'tester' and not repairing and part.get('id') == 'synthetic-original-sol':
             earlier = {**part, 'state': {**part['state'], 'metadata': {}}}
             if args.fault == 'conflicting_command':
                 earlier['state']['input'] = {'command': 'python3 conflicting-observation.py'}
@@ -40,11 +40,11 @@ class NativeEventIdentityCLI(unittest.TestCase):
         view = run.advance_until_input()
         rows = self.observations()
         providers = [row for row in rows if row["kind"] == "provider"]
-        repairs = [row for row in rows if row["kind"] == "repair" and row["stage"] == "sol"]
-        self.assertEqual(1, sum(row["stage"] == "terra" and not row["repairing"] for row in providers))
-        self.assertEqual(1, sum(row["stage"] == "sol" and not row["repairing"] for row in providers))
+        repairs = [row for row in rows if row["kind"] == "repair" and row["stage"] == "tester"]
+        self.assertEqual(1, sum(row["stage"] == "builder" and not row["repairing"] for row in providers))
+        self.assertEqual(1, sum(row["stage"] == "tester" and not row["repairing"] for row in providers))
         self.assertFalse(
-            any(row["repairing"] for row in rows if row["kind"] == "execution" and row["stage"] == "sol"),
+            any(row["repairing"] for row in rows if row["kind"] == "execution" and row["stage"] == "tester"),
             "Tester report-only repair must not execute another check",
         )
         return view, providers, repairs
@@ -54,12 +54,12 @@ class NativeEventIdentityCLI(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", view["status"], view.get("stop_reason"))
         self.assertEqual("PASS", view["evidence"]["check_replay"]["verdict"])
         self.assertEqual(1, len(repairs))
-        self.assertEqual(1, sum(row["stage"] == "astra_review" and not row["repairing"] for row in providers))
+        self.assertEqual(1, sum(row["stage"] == "review_completion" and not row["repairing"] for row in providers))
 
     def test_completed_identity_conflict_cannot_be_repaired_into_a_pass(self):
         view, providers, _ = self.exercise("conflicting_command")
         self.assertFalse(view["done"])
-        self.assertFalse(any(row["stage"] == "astra_review" and not row["repairing"] for row in providers))
+        self.assertFalse(any(row["stage"] == "review_completion" and not row["repairing"] for row in providers))
 
     def test_ignored_sessionless_noise_does_not_force_further_repairs(self):
         self.assert_completed("sessionless_noise")

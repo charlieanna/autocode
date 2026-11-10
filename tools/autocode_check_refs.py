@@ -87,7 +87,7 @@ def tidy_tester_citations(record: dict, report, workspace, settings) -> None:
     if (
         workspace is None
         or not isinstance(report, dict)
-        or (record.get("original_stage") or record.get("stage")) != "sol"
+        or (record.get("original_stage") or record.get("stage")) != "tester"
         or settings.get("design_manifest")
         or settings.get("figma_file")
     ):

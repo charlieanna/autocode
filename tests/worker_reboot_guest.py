@@ -391,7 +391,7 @@ def install_provider(provider: Path) -> dict:
         "        os.fsync(c4_calls.fileno())\n"
     )
     gates = {}
-    for stage in ("sol", "astra_checkpoint"):
+    for stage in ("tester", "review_checkpoint"):
         ready, gate = FIXTURE / (stage + "-ready"), FIXTURE / (stage + "-gate")
         os.mkfifo(gate)
         gates[stage] = (ready, gate)

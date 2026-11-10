@@ -211,22 +211,29 @@ def _category(row):
     if row.get("planning") or stage in (
         "recognize_workflow",
         "requirements_gather",
-        "astra_discovery",
-        "glm_revise",
-        "astra_challenge",
-        "astra_finalize",
-        "astra_plan",
+        "draft_plan",
+        "revise_plan",
+        "review_plan",
+        "finalize_plan",
+        "plan_task",
         "review_design",
         "check_design",
     ):
         return "planning"
-    if stage in ("terra", "builder"):
+    if stage in ("builder", "builder"):
         return "build"
-    if stage in ("astra_resolve", "astra_diagnose", "investigate_stuck", "investigate_bug"):
+    if stage in ("resolve", "diagnose", "investigate_stuck", "investigate_bug"):
         return "diagnosis"
     if stage in ("visual_review", "visual_capture"):
         return "visual_capture_review"
-    if stage in ("sol", "astra_review", "astra_checkpoint", "review_change", "regression_proof", "check_replay"):
+    if stage in (
+        "tester",
+        "review_completion",
+        "review_checkpoint",
+        "review_change",
+        "regression_proof",
+        "check_replay",
+    ):
         return "functional_proof"
     if stage in ("task_preflight", "preflight", "setup"):
         return "deterministic_setup"

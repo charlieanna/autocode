@@ -100,8 +100,8 @@ class AccessEvidenceCLI(unittest.TestCase):
                 argument
                 for role in (
                     "task_planner",
-                    "terra",
-                    "sol",
+                    "builder",
+                    "tester",
                     "planner",
                     "plan_reviewer",
                     "requirements",

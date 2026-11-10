@@ -114,7 +114,7 @@ class AcceptanceRecoveryCliTests(AcceptanceRecoveryFixture, unittest.TestCase):
         )
         prior_output.write_text(Path(record["output"]).read_text())
         self.state["stages"][0] = {
-            "stage": "astra_review",
+            "stage": "review_completion",
             "engine": "opencode",
             "output_mode": "opencode_events",
             "events": str(prior_events),
@@ -196,7 +196,7 @@ class AcceptanceRecoveryCliTests(AcceptanceRecoveryFixture, unittest.TestCase):
         after = self.run.resume_paused()
         self.assertEqual(identity.token(self.approved), after["approved_contract"]["token"])
         self.assertEqual("RUNNING", after["status"])
-        self.assertIn(after["next_stage"], ("terra", "orchestrator"))
+        self.assertIn(after["next_stage"], ("builder", "orchestrator"))
         self.assertFalse(after["done"])
         self.assertEqual(before["approvals"], after["approvals"])
 

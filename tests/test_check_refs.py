@@ -124,11 +124,11 @@ class CheckRefsTests(unittest.TestCase):
     def test_only_a_tester_report_without_design_evidence_is_tidied(self):
         workspace = self.workspace()
         for record, settings, tidied in (
-            ({"stage": "sol"}, {}, True),
-            ({"stage": "sol_report_repair", "original_stage": "sol"}, None, True),
-            ({"stage": "astra_checkpoint"}, {}, False),
-            ({"stage": "sol"}, {"design_manifest": {"manifest_hash": "h"}}, False),
-            ({"stage": "sol"}, {"figma_file": "https://figma.example/file"}, False),
+            ({"stage": "tester"}, {}, True),
+            ({"stage": "tester_report_repair", "original_stage": "tester"}, None, True),
+            ({"stage": "review_checkpoint"}, {}, False),
+            ({"stage": "tester"}, {"design_manifest": {"manifest_hash": "h"}}, False),
+            ({"stage": "tester"}, {"figma_file": "https://figma.example/file"}, False),
         ):
             with self.subTest(record=record, settings=settings):
                 report = self.report(["check:1", "hello.txt"])

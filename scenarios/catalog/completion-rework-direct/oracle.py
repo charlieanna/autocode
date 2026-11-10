@@ -45,12 +45,12 @@ def check(project, scenario, run=None):
         stages = [
             stage
             for stage in run.get("model_stages", [])
-            if stage in ("terra", "sol", "astra_review", "astra_resolve", "astra_plan")
+            if stage in ("builder", "tester", "review_completion", "resolve", "plan_task")
         ]
         checks.append(
             Check(
                 "first_direct_repair_route",
-                stages == ["terra", "sol", "astra_review", "terra", "sol", "astra_review"],
+                stages == ["builder", "tester", "review_completion", "builder", "tester", "review_completion"],
                 repr(stages),
             )
         )
@@ -67,8 +67,8 @@ def check(project, scenario, run=None):
         )
         trace_path = project.parent / "rework-trace.jsonl"
         rows = [json.loads(line) for line in trace_path.read_text().splitlines()] if trace_path.is_file() else []
-        validators = [row for row in rows if row["stage"] == "sol"]
-        owners = [row for row in rows if row["stage"] == "astra_review"]
+        validators = [row for row in rows if row["stage"] == "tester"]
+        owners = [row for row in rows if row["stage"] == "review_completion"]
         checks.append(
             Check(
                 "fault_reached_first_completion",

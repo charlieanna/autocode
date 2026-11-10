@@ -35,7 +35,7 @@ class PhaseTimingTests(unittest.TestCase):
                 patch.object(module.util, "now", side_effect=[0, 90]),
                 self.assertRaises(probe_module.KiloProbeTimeout),
             ):
-                with module.measure(state, "source_launcher_preparation", stage="terra"):
+                with module.measure(state, "source_launcher_preparation", stage="builder"):
                     probe_module.probe(["kilo", "models", "--verbose"], run)
             result = efficiency.summary(state)
             checks = result["observations"][0]["provenance"]["model_free_checks"]
@@ -50,7 +50,7 @@ class PhaseTimingTests(unittest.TestCase):
             ),
             patch.object(phase_timing.time, "monotonic", side_effect=[30, 32]),
         ):
-            with phase_timing.measure(state, "prompt_write", stage="terra", attempt=2):
+            with phase_timing.measure(state, "prompt_write", stage="builder", attempt=2):
                 action()
 
     def test_records_once_and_keeps_wall_and_monotonic_measurements_distinct(self):
@@ -66,7 +66,7 @@ class PhaseTimingTests(unittest.TestCase):
         self.assertEqual(
             {
                 "phase": "prompt_write",
-                "stage": "terra",
+                "stage": "builder",
                 "iteration": 4,
                 "attempt": 2,
                 "outcome": "completed",
@@ -102,7 +102,7 @@ class PhaseTimingTests(unittest.TestCase):
     def test_request_scope_includes_guidance_and_records_a_preparation_refusal(self):
         for error in (None, support.Paused("PAUSED_REQUEST", "refused")):
             with self.subTest(refused=error is not None):
-                state = {"next_stage": "astra_resolve", "iteration": 1}
+                state = {"next_stage": "resolve", "iteration": 1}
                 prepare = Mock(return_value={"prompt": "request"})
                 guidance = Mock(return_value={"prompt": "guided"}, side_effect=error)
                 with patch.object(unit_request.stuck, "with_guidance", guidance):
@@ -110,7 +110,7 @@ class PhaseTimingTests(unittest.TestCase):
                         with self.assertRaises(support.Paused):
                             unit_request.prepare(
                                 state,
-                                "astra_resolve",
+                                "resolve",
                                 "state",
                                 "schemas",
                                 select_unit=lambda _: SimpleNamespace(prepare=prepare),
@@ -119,15 +119,15 @@ class PhaseTimingTests(unittest.TestCase):
                     else:
                         result = unit_request.prepare(
                             state,
-                            "astra_resolve",
+                            "resolve",
                             "state",
                             "schemas",
                             select_unit=lambda _: SimpleNamespace(prepare=prepare),
                             retry_authorization="grant",
                         )
                         self.assertEqual({"prompt": "guided"}, result)
-                prepare.assert_called_once_with(state, "astra_resolve", "state", "schemas", retry_authorization="grant")
-                guidance.assert_called_once_with(state, "astra_resolve", {"prompt": "request"})
+                prepare.assert_called_once_with(state, "resolve", "state", "schemas", retry_authorization="grant")
+                guidance.assert_called_once_with(state, "resolve", {"prompt": "request"})
                 row = state["efficiency_observations"][0]
                 self.assertEqual("request_assembly", row["provenance"]["phase"])
                 self.assertEqual("refused" if error else "completed", row["provenance"]["outcome"])
@@ -138,7 +138,7 @@ class PhaseTimingTests(unittest.TestCase):
             patch.object(phase_timing.util, "now", side_effect=[0, 5]),
             patch.object(phase_timing.time, "monotonic", side_effect=[0, 5]),
         ):
-            with phase_timing.measure(state, "source_launcher_preparation", stage="terra", attempt=1):
+            with phase_timing.measure(state, "source_launcher_preparation", stage="builder", attempt=1):
                 pass
         result = efficiency.summary(state)
         self.assertEqual(1, result["by_category"]["build"]["attempts"])

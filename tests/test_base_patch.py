@@ -166,7 +166,7 @@ class BasePatchCLITests(unittest.TestCase):
         self.state.update(
             status="PAUSED_INVALID_OUTPUT",
             phase="PAUSED_OR_BLOCKED",
-            next_stage="sol",
+            next_stage="tester",
             stop_reason="Validator report rejected",
         )
 
@@ -188,7 +188,7 @@ class BasePatchCLITests(unittest.TestCase):
 
     def test_it_is_refused_away_from_a_validator_stop(self):
         self.paused_before_the_validator()
-        self.state["next_stage"] = "terra"
+        self.state["next_stage"] = "builder"
         with self.assertRaisesRegex(ValueError, "requires a stop before the Validator"):
             self.invoke("--resume-paused", "--base-patch", str(self.seam_patch()), "--no-chat")
         self.assertNotIn("base_patch", support.read(self.run / "state.json")["settings"].get("regression", {}))

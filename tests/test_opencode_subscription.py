@@ -12,7 +12,7 @@ import autocode_opencode as oc
 
 
 class OpenCodeSubscriptionTests(unittest.TestCase):
-    roles = {"terra": {"model": "openai/gpt-5.6-terra"}}
+    roles = {"builder": {"model": "openai/gpt-5.6-terra"}}
 
     def test_oauth_summary_is_accepted_without_reading_credentials(self):
         response = SimpleNamespace(returncode=0, stdout="● Z.AI Coding Plan api\n● OpenAI \x1b[90moauth\n", stderr="")
@@ -105,7 +105,7 @@ class OpenCodeSubscriptionTests(unittest.TestCase):
 
     def test_existing_zai_routes_do_not_gain_an_auth_probe(self):
         with patch.object(oc.subprocess, "run", side_effect=AssertionError("Unrelated routes remain unchanged")):
-            oc.check_subscription_routes({"terra": {"model": "zai-coding-plan/glm-5.3"}})
+            oc.check_subscription_routes({"builder": {"model": "zai-coding-plan/glm-5.3"}})
 
     def test_api_summary_is_accepted(self):
         with patch.object(
@@ -115,7 +115,7 @@ class OpenCodeSubscriptionTests(unittest.TestCase):
 
     def test_configured_api_environment_is_accepted_for_all_roles_without_probe(self):
         for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"):
-            for role in ("planner", "task_planner", "terra", "sol"):
+            for role in ("planner", "task_planner", "builder", "tester"):
                 with patch.dict(oc.os.environ, {key: "fixture-only"}), patch.object(oc.subprocess, "run") as command:
                     oc.check_subscription_routes({role: {"model": "openai/gpt-5.6-sol"}})
                     command.assert_not_called()

@@ -17,9 +17,9 @@ turn_paths = [["greet.py"], ["docs/"]]
 
 [conformance]
 # Ctrl-C while the rework Builder runs: the view shows the Builder working and a failed requirement.
-interrupt = { stage = "terra", job = "Builder", after_failed = true }
+interrupt = { stage = "builder", job = "Builder", after_failed = true }
 # Feedback queued while the Completion Reviewer runs; the run takes it at the next saved boundary.
-feedback = { stage = "astra_review", job = "Completion Reviewer", text = "Keep the usage message exactly as the brief states it, with no extra wording." }
+feedback = { stage = "review_completion", job = "Completion Reviewer", text = "Keep the usage message exactly as the brief states it, with no extra wording." }
 
 [[turn]]
 after = "complete"
@@ -28,10 +28,10 @@ say = "Why did the first build fail its tests?"
 [hybrid]
 # With live models, script only what a real model cannot be asked to do on cue: the blocking first
 # plan review and the first Builder attempt that keeps the defect. Everything else is live.
-scripted = ["astra_challenge"]
-first_attempt = ["terra"]
+scripted = ["review_plan"]
+first_attempt = ["builder"]
 
 [run]
-requires_stages = ["glm_revise", "terra", "sol", "astra_review"]
+requires_stages = ["revise_plan", "builder", "tester", "review_completion"]
 timeout_minutes = 10
 max_steps = 60

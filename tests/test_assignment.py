@@ -19,7 +19,7 @@ class RetainedChangesTests(unittest.TestCase):
 
     def attempt(self, started, before, after, **extra):
         return {
-            "stage": "terra",
+            "stage": "builder",
             "iteration": 1,
             "task_id": "task-1",
             "started_at": started,
@@ -77,7 +77,7 @@ class RetainedChangesTests(unittest.TestCase):
         self.assertEqual(["tool"], assignment.outside(["src"], [], first, workspace=workspace))
 
     def test_a_first_attempt_without_snapshots_falls_back_to_its_measured_delta(self):
-        only = {"stage": "terra", "changed_files": ["src/a.py", "other.txt"]}
+        only = {"stage": "builder", "changed_files": ["src/a.py", "other.txt"]}
         self.assertEqual(["other.txt"], assignment.outside(["src"], [], only))
 
 

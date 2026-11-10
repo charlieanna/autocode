@@ -21,7 +21,9 @@ def record(**changes):
         "conventions": [
             {"question": "Which logging convention should this project keep?", "answer": "Use the existing logger."}
         ],
-        "routes": [{"role": "terra", "engine": "opencode", "provider": "kilocode", "model": "zai-coding-plan/glm-5.3"}],
+        "routes": [
+            {"role": "builder", "engine": "opencode", "provider": "kilocode", "model": "zai-coding-plan/glm-5.3"}
+        ],
         "human_pause_states": ["WAITING_FOR_USER"],
         **changes,
     }
@@ -219,7 +221,7 @@ class ProjectMemoryTests(unittest.TestCase):
         current = record(
             test_command="python3 -m unittest short7",
             conventions=[{"question": "Project convention?", "answer": "short7"}],
-            routes=[{"role": "terra", "engine": "opencode", "provider": "kilocode", "model": "vendor/short7"}],
+            routes=[{"role": "builder", "engine": "opencode", "provider": "kilocode", "model": "vendor/short7"}],
         )
         with patch.dict(os.environ, {"MEMORY_TEST_PASSWORD": "short7"}, clear=True):
             actual = memory.sanitize_record(current)
@@ -268,7 +270,7 @@ class ProjectMemoryTests(unittest.TestCase):
             framework=None,
             test_command=None,
             conventions=[],
-            routes=[{"role": "terra", "engine": None, "provider": None, "model": None}],
+            routes=[{"role": "builder", "engine": None, "provider": None, "model": None}],
             human_pause_states=[],
         )
         self.assertEqual(original, memory.write(self.root, current))
@@ -281,7 +283,7 @@ class ProjectMemoryTests(unittest.TestCase):
                 framework=None,
                 test_command=None,
                 conventions=[{"question": "Another question?", "answer": "Another answer"}],
-                routes=[{"role": "sol", "engine": "codex", "provider": None, "model": "gpt-6-sol"}],
+                routes=[{"role": "tester", "engine": "codex", "provider": None, "model": "gpt-6-sol"}],
                 human_pause_states=["PAUSED_TEST"],
             ),
         )
@@ -291,7 +293,7 @@ class ProjectMemoryTests(unittest.TestCase):
                 framework=None,
                 test_command=None,
                 conventions=[{"question": "Old question?", "answer": "Current answer"}],
-                routes=[{"role": "terra", "engine": None, "provider": None, "model": "new-model"}],
+                routes=[{"role": "builder", "engine": None, "provider": None, "model": "new-model"}],
                 human_pause_states=[],
             ),
         )
@@ -303,7 +305,8 @@ class ProjectMemoryTests(unittest.TestCase):
             result["conventions"],
         )
         self.assertEqual(
-            {"role": "terra", "engine": "opencode", "provider": "kilocode", "model": "new-model"}, result["routes"][-1]
+            {"role": "builder", "engine": "opencode", "provider": "kilocode", "model": "new-model"},
+            result["routes"][-1],
         )
         self.assertEqual(["WAITING_FOR_USER", "PAUSED_TEST"], result["human_pause_states"])
         self.assertEqual("unittest", result["framework"])

@@ -26,7 +26,7 @@ class ConflictGenerationCliTests(unittest.TestCase):
                     "stage": stage, "repair": repairing, "error": repair_error,
                     "conflict_max_items": field.get("maxItems"),
                     "has_conflict_field": "conflict_resolutions" in schema.get("properties", {{}})}}) + "\\n")
-            if {invent_conflict!r} and stage == "astra_discovery":
+            if {invent_conflict!r} and stage == "draft_plan":
                 report["conflict_resolutions"] = [{{
                     "requirement_ids": ["R1"], "basis": "user_feedback", "answer_id": "missing-feedback",
                     "source_quote": "No requirement conflict was recorded",
@@ -60,10 +60,10 @@ class ConflictGenerationCliTests(unittest.TestCase):
         self.assertEqual("approve_plan", (view.get("needs") or {}).get("kind"), self.diagnostic(view, trace))
         attempts = self.attempts(trace)
         constrained = [row for row in attempts if row["has_conflict_field"]]
-        self.assertEqual(["astra_discovery", "glm_revise", "astra_finalize"], [row["stage"] for row in constrained])
+        self.assertEqual(["draft_plan", "revise_plan", "finalize_plan"], [row["stage"] for row in constrained])
         self.assertEqual([0, 0, 0], [row["conflict_max_items"] for row in constrained], constrained)
         self.assertFalse(any(row["repair"] for row in attempts), attempts)
-        self.assertFalse(any(row["stage"] == "terra" for row in attempts), attempts)
+        self.assertFalse(any(row["stage"] == "builder" for row in attempts), attempts)
         self.assertFalse((workspace / "greet.py").exists())
         self.assertIn("Greeting contract holds", run.show_goal())
         token = view["needs"]["token"]
@@ -71,20 +71,20 @@ class ConflictGenerationCliTests(unittest.TestCase):
             run.approve_plan("r0:stale")
         self.assertEqual(token, run.status()["needs"]["token"])
         self.assertEqual(token, run.approve_plan(token)["approved_contract"]["token"])
-        self.assertFalse(any(row["stage"] == "terra" for row in self.attempts(trace)))
+        self.assertFalse(any(row["stage"] == "builder" for row in self.attempts(trace)))
 
     def test_invented_conflict_is_still_refused_without_approval_or_builder(self):
         run, view, trace, workspace = self.start(invent_conflict=True)
         self.assertNotEqual("approve_plan", (view.get("needs") or {}).get("kind"), self.diagnostic(view, trace))
         attempts = self.attempts(trace)
-        initial = next(row for row in attempts if row["stage"] == "astra_discovery" and not row["repair"])
+        initial = next(row for row in attempts if row["stage"] == "draft_plan" and not row["repair"])
         self.assertEqual(0, initial["conflict_max_items"])
         self.assertTrue(
             any("conflict_resolutions: too many items" in row["error"] for row in attempts),
             attempts,
         )
         self.assertFalse(
-            any(row["stage"] in ("astra_challenge", "glm_revise", "astra_finalize", "terra") for row in attempts),
+            any(row["stage"] in ("review_plan", "revise_plan", "finalize_plan", "builder") for row in attempts),
             attempts,
         )
         self.assertFalse((workspace / "greet.py").exists())

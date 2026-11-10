@@ -55,7 +55,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
             "user_events": [],
             "acceptance_criteria": [],
             "status": "RUNNING",
-            "next_stage": "astra_discovery",
+            "next_stage": "draft_plan",
             "settings": {
                 "joint_planning": True,
                 "roles": {"planner": {"model": "fake-planner"}, "task_planner": {"model": "fake-reviewer"}},
@@ -122,7 +122,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         output.write_text(json.dumps(value))
         record = {
             "stage": stage,
-            "role": "planner" if stage in ("astra_discovery", "glm_revise") else "task_planner",
+            "role": "planner" if stage in ("draft_plan", "revise_plan") else "task_planner",
             "output": str(output),
             "iteration": 0,
             "exit_code": 0,
@@ -131,13 +131,13 @@ class ProgressiveRuntimeTests(unittest.TestCase):
             "changed_files": [],
         }
         # Plan Reviewer seals source_trace against real events+output paths.
-        if stage in ("astra_challenge", "astra_finalize", "plan_finalize"):
+        if stage in ("review_plan", "finalize_plan", "plan_finalize"):
             events = output.with_suffix(".jsonl")
             if not events.is_file():
                 events.write_text("")
             record["events"] = str(events)
-        if stage == "sol":
-            record["role"] = "sol"
+        if stage == "tester":
+            record["role"] = "tester"
             event = output.with_suffix(".jsonl")
             rows = []
             for check in value["checks"]:
@@ -159,7 +159,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
                 )
             event.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
             record["events"] = str(event)
-        if stage in ("astra_challenge", "astra_finalize"):
+        if stage in ("review_plan", "finalize_plan"):
             runner.planning.charge(self.state, stage, record=record)
         if goals.approved(self.state) or progressive.view(self.state).get("budget"):
             if self.state.get("current_task"):
@@ -217,7 +217,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
             "progressive_proposal": copy.deepcopy(self.proposal),
         }
         self.stage(
-            "astra_discovery",
+            "draft_plan",
             {
                 **common,
                 "contract": copy.deepcopy(self.body),
@@ -226,12 +226,12 @@ class ProgressiveRuntimeTests(unittest.TestCase):
                 "uncertainties": [],
             },
         )
-        self.stage("astra_challenge", {"summary": "No blocking concerns", "concerns": []})
+        self.stage("review_plan", {"summary": "No blocking concerns", "concerns": []})
         self.stage(
-            "glm_revise", {**common, "contract": copy.deepcopy(self.body), "code_refs": ["greet.py"], "responses": []}
+            "revise_plan", {**common, "contract": copy.deepcopy(self.body), "code_refs": ["greet.py"], "responses": []}
         )
         self.stage(
-            "astra_finalize",
+            "finalize_plan",
             {
                 **common,
                 "contract": {**copy.deepcopy(self.body), "initial_task": copy.deepcopy(self.first)},
@@ -256,7 +256,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
 
     def test_reviewed_initial_slice_activates_before_joint_task_without_an_extra_call(self):
         self.approve()
-        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual("builder", self.state["next_stage"])
         self.assertEqual("S1", self.state["current_task"]["slice_id"])
         self.assertEqual(2, self.state["planning"]["astra_calls"])
         active = progressive.require_active(self.state)
@@ -272,12 +272,12 @@ class ProgressiveRuntimeTests(unittest.TestCase):
 
     def test_final_review_artifact_disclosure_is_canonicalized_after_reload(self):
         self.plan()
-        output = Path(self.state["planning"]["reports"]["astra_finalize"]["output"])
+        output = Path(self.state["planning"]["reports"]["finalize_plan"]["output"])
         saved = json.loads(output.read_text())
         generated = progressive.rules.disclosure(self.proposal, ["C1"], limits=progressive.initial_limits(self.state))
         saved["contract"]["constraints"] = generated["constraints"] + saved["contract"]["constraints"]
         output.write_text(json.dumps(saved))
-        report_contract = self.state["planning"]["reports"]["astra_finalize"]["report"]["contract"]
+        report_contract = self.state["planning"]["reports"]["finalize_plan"]["report"]["contract"]
         ordinary = [line for line in report_contract["constraints"] if line not in generated["constraints"]]
         report_contract["constraints"] = generated["constraints"] + ordinary
         loaded = json.loads(output.read_text())
@@ -295,20 +295,20 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         )
 
     def test_repaired_planner_and_reviewer_activate_from_original_sessions(self):
-        self.repair_stages = ("glm_revise", "astra_finalize")
-        self.sessions = {"glm_revise": "planner-session", "astra_finalize": "reviewer-session"}
+        self.repair_stages = ("revise_plan", "finalize_plan")
+        self.sessions = {"revise_plan": "planner-session", "finalize_plan": "reviewer-session"}
         self.approve()
         self.assertTrue(goals.approved(self.state))
         self.assertEqual("S1", progressive.require_active(self.state)["definition"]["id"])
 
     def test_sessionless_repaired_planner_and_reviewer_activate(self):
-        self.repair_stages = ("glm_revise", "astra_finalize")
+        self.repair_stages = ("revise_plan", "finalize_plan")
         self.approve()
         self.assertTrue(goals.approved(self.state))
 
     def test_repaired_approval_pins_accepted_bytes_not_the_rejected_original(self):
-        self.repair_stages = ("glm_revise", "astra_finalize")
-        self.sessions = {"glm_revise": "planner-session", "astra_finalize": "reviewer-session"}
+        self.repair_stages = ("revise_plan", "finalize_plan")
+        self.sessions = {"revise_plan": "planner-session", "finalize_plan": "reviewer-session"}
         self.plan()
         self.state = json.loads(json.dumps(self.state))
         for receipt in self.state["report_repair_history"]:
@@ -321,8 +321,8 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         self.assertEqual("S1", progressive.require_active(self.state)["definition"]["id"])
 
     def test_repaired_report_tampering_refuses_approval_without_mutating_state_or_source(self):
-        self.repair_stages = ("glm_revise", "astra_finalize")
-        self.sessions = {"glm_revise": "planner-session", "astra_finalize": "reviewer-session"}
+        self.repair_stages = ("revise_plan", "finalize_plan")
+        self.sessions = {"revise_plan": "planner-session", "finalize_plan": "reviewer-session"}
         self.plan()
         saved = copy.deepcopy(self.state)
         source = util.snapshot(self.workspace)
@@ -365,7 +365,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
                         output.write_bytes(accepted)
 
     def test_repaired_approval_requires_a_saved_acceptance_hash_without_repinning(self):
-        self.repair_stages = ("glm_revise", "astra_finalize")
+        self.repair_stages = ("revise_plan", "finalize_plan")
         self.plan()
         saved = copy.deepcopy(self.state)
         for index in range(len(saved["report_repair_history"])):
@@ -391,9 +391,9 @@ class ProgressiveRuntimeTests(unittest.TestCase):
             "done_slices": [],
             "slices": [],
         }
-        self.repair_stages = ("glm_revise", "astra_finalize")
+        self.repair_stages = ("revise_plan", "finalize_plan")
         self.plan()
-        output = Path(self.state["planning"]["reports"]["astra_finalize"]["output"])
+        output = Path(self.state["planning"]["reports"]["finalize_plan"]["output"])
         accepted = output.read_bytes()
         value = json.loads(accepted)
         value["decisions"] = [{"resolved": False}]
@@ -412,7 +412,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         self.assertTrue(goals.approved(self.state))
 
     def test_original_reviewer_session_cannot_be_the_planner_session(self):
-        self.sessions = {"glm_revise": "shared-session", "astra_finalize": "shared-session"}
+        self.sessions = {"revise_plan": "shared-session", "finalize_plan": "shared-session"}
         self.plan()
         before = copy.deepcopy(self.state)
         with self.assertRaises(ValueError):
@@ -420,8 +420,8 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         self.assertEqual(before, self.state)
 
     def test_repaired_approval_rejects_missing_or_changed_original_provenance(self):
-        self.repair_stages = ("glm_revise", "astra_finalize")
-        self.sessions = {"glm_revise": "planner-session", "astra_finalize": "reviewer-session"}
+        self.repair_stages = ("revise_plan", "finalize_plan")
+        self.sessions = {"revise_plan": "planner-session", "finalize_plan": "reviewer-session"}
         self.plan()
         saved = copy.deepcopy(self.state)
         for stage in self.repair_stages:
@@ -458,7 +458,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
                     elif change == "rejected":
                         repair["rejected"] = True
                     elif change == "stage":
-                        repair["original_stage"] = "astra_discovery"
+                        repair["original_stage"] = "draft_plan"
                     elif change == "expected_session":
                         original["expected_session"] = "different-session"
                     elif change == "iteration":
@@ -473,8 +473,8 @@ class ProgressiveRuntimeTests(unittest.TestCase):
                     self.assertEqual(before, self.state)
 
     def test_repair_transport_session_cannot_substitute_for_original_reviewer(self):
-        self.repair_stages = ("glm_revise", "astra_finalize")
-        self.sessions = {"glm_revise": "shared-session", "astra_finalize": "shared-session"}
+        self.repair_stages = ("revise_plan", "finalize_plan")
+        self.sessions = {"revise_plan": "shared-session", "finalize_plan": "shared-session"}
         self.plan()
         for row in self.state["stages"]:
             if row.get("report_only"):
@@ -488,7 +488,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         self.approve()
         snapshot = util.snapshot(self.workspace)
         record = {
-            "stage": "terra",
+            "stage": "builder",
             "output": str(self.run_dir / "builder.json"),
             "duration_seconds": 300,
             "exit_code": 1,
@@ -536,7 +536,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
     def test_initial_approval_refuses_unreconciled_worker_before_adding_user_authority(self):
         self.plan()
         before = copy.deepcopy(self.state["user_events"])
-        self.state["active_stage"] = {"stage": "glm_revise", "output": "uncertain-review", "exit_code": None}
+        self.state["active_stage"] = {"stage": "revise_plan", "output": "uncertain-review", "exit_code": None}
         with self.assertRaises(ValueError):
             lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
         self.assertEqual(before, self.state["user_events"])
@@ -549,13 +549,13 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         self.approve()
         self.state["progressive"] = {"version": 999}
         with self.assertRaises(runner.support.Paused):
-            progressive.guard_dispatch(self.state, "terra")
+            progressive.guard_dispatch(self.state, "builder")
 
     def test_default_local_time_ceiling_stops_next_admission_without_resetting_usage(self):
         self.approve()
         snapshot = util.snapshot(self.workspace)
         record = {
-            "stage": "terra",
+            "stage": "builder",
             "output": str(self.run_dir / "slow-builder.json"),
             "duration_seconds": 5000,
             "exit_code": 1,
@@ -611,34 +611,34 @@ class ProgressiveRuntimeTests(unittest.TestCase):
             progressive.guard_dispatch(self.state, "orchestrator")
         self.assertNotIn("milestone_ids", self.state["current_task"])
         with self.assertRaisesRegex(ValueError, "omitted cumulative"):
-            self.stage("sol", {**self.validation(), "checks": []})
+            self.stage("tester", {**self.validation(), "checks": []})
 
     def test_validator_product_pass_without_fully_verify_is_rejected_not_rewritten(self):
         self.approve()
         report = self.validation(fully=True)
         with self.assertRaisesRegex(ValueError, "Product PASS is not established"):
-            self.stage("sol", report)
+            self.stage("tester", report)
         self.assertEqual("PASS", report["criterion_results"][0]["status"])
         self.assertFalse(self.state["progressive"].get("history"))
         self.assertFalse(completion.ready(self.state, util.snapshot(self.workspace)))
 
     def test_slice_owner_cannot_label_contribution_only_product_criterion_verified(self):
         self.approve()
-        self.stage("sol", self.validation())
+        self.stage("tester", self.validation())
         decision = self.checkpoint_decision()
         decision["acceptance_criteria"][0].update(status="verified", evidence="Only local contribution passed")
         with self.assertRaisesRegex(ValueError, "cannot claim verified original criteria"):
-            self.stage("astra_review", decision)
+            self.stage("review_completion", decision)
         self.assertFalse(self.state["progressive"].get("history"))
         self.assertEqual("unverified", self.state["acceptance_criteria"][0]["status"])
 
     def test_next_slice_failed_review_refunds_call_once_but_not_time(self):
         self.approve()
-        self.stage("sol", self.validation())
-        self.stage("astra_review", self.checkpoint_decision())
+        self.stage("tester", self.validation())
+        self.stage("review_completion", self.checkpoint_decision())
         snapshot = util.snapshot(self.workspace)
         failed = {
-            "stage": "astra_finalize",
+            "stage": "finalize_plan",
             "output": str(self.run_dir / "failed-review.json"),
             "duration_seconds": 25,
             "exit_code": 1,
@@ -666,8 +666,8 @@ class ProgressiveRuntimeTests(unittest.TestCase):
 
     def test_explicit_product_reapproval_renews_reviewed_authority_without_losing_checks_or_usage(self):
         self.approve()
-        self.stage("sol", self.validation())
-        self.stage("astra_review", self.checkpoint_decision())
+        self.stage("tester", self.validation())
+        self.stage("review_completion", self.checkpoint_decision())
         old_token = goals.token(self.state["goal_contract"])
         old_history = copy.deepcopy(self.state["progressive"]["history"])
         spent = self.state["active_seconds"]
@@ -756,30 +756,30 @@ class ProgressiveRuntimeTests(unittest.TestCase):
             "next_task": next_task,
             "affected_paths": ["greet.py", "test_greeting.py"],
         }
-        self.stage("astra_review", decision)
+        self.stage("review_completion", decision)
         local = self.validation()
         local["checks"] = [{"command": command, "exit_code": 0, "evidence_ref": "event:check"}]
         local["checks_run"] = [command]
-        self.stage("sol", local)
+        self.stage("tester", local)
         self.assertEqual("PASS", self.state["validation"]["verdict"])
         self.assertEqual("NOT_VERIFIED", self.state["validation"]["criterion_results"][0]["status"])
-        self.assertEqual("astra_review", self.state["next_stage"])
+        self.assertEqual("review_completion", self.state["next_stage"])
         self.assertFalse(completion.ready(self.state, util.snapshot(self.workspace)))
         with self.assertRaisesRegex(ValueError, "not independently replayed"):
-            self.stage("astra_review", self.checkpoint_decision())
+            self.stage("review_completion", self.checkpoint_decision())
         self.assertEqual("S1", progressive.require_active(self.state)["definition"]["id"])
         self.assertFalse(self.state["progressive"].get("history"))
 
     def begin_next_detail(self):
         self.approve()
-        self.stage("sol", self.validation())
-        self.stage("astra_review", self.checkpoint_decision())
+        self.stage("tester", self.validation())
+        self.stage("review_completion", self.checkpoint_decision())
         proposal = copy.deepcopy(self.proposal)
         proposal["done_slices"] = ["S1"]
         proposal["slices"] = [proposal["slices"][1]]
         proposal["slices"][0]["tentative"] = False
         self.stage(
-            "glm_revise",
+            "revise_plan",
             {
                 "summary": "Detail S2",
                 "progressive_proposal": proposal,
@@ -791,7 +791,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         self.begin_next_detail()
         pool_id = self.state["progressive"]["pending_allowance"]["pool_id"]
         self.stage(
-            "astra_finalize",
+            "finalize_plan",
             {
                 "summary": "Improve the concrete task detail",
                 "accepted": False,
@@ -800,7 +800,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
                 "unresolved_product_decisions": False,
             },
         )
-        self.assertEqual("glm_revise", self.state["next_stage"])
+        self.assertEqual("revise_plan", self.state["next_stage"])
         self.assertEqual("detail", self.state["progressive"]["transition"]["phase"])
         self.assertEqual(pool_id, self.state["progressive"]["pending_allowance"]["pool_id"])
         self.assertEqual(1, self.state["progressive"]["budget"]["pools"][pool_id]["reviews_used"])
@@ -812,7 +812,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         token = goals.token(self.state["goal_contract"])
         task_id = self.state["current_task"]["id"]
         self.stage(
-            "astra_finalize",
+            "finalize_plan",
             {
                 "summary": "Decide whether to add remote accounts to this local CLI",
                 "accepted": False,
@@ -832,12 +832,12 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         self.assertEqual(task_id, self.state["current_task"]["id"])
         self.assertEqual("S1", progressive.require_active(self.state)["definition"]["id"])
         with self.assertRaises(runner.support.Paused):
-            progressive.guard_dispatch(self.state, "terra")
+            progressive.guard_dispatch(self.state, "builder")
 
     def test_reviewed_split_siblings_share_the_reserved_pool_and_cumulative_proof(self):
         self.approve()
-        self.stage("sol", self.validation())
-        self.stage("astra_review", self.checkpoint_decision())
+        self.stage("tester", self.validation())
+        self.stage("review_completion", self.checkpoint_decision())
         pool_id = self.state["progressive"]["pending_allowance"]["pool_id"]
         full = "python3 -m unittest test_greeting.py"
         unit = "python3 -m unittest test_greeting.GreetingTests.test_greets_a_valid_name"
@@ -855,33 +855,33 @@ class ProgressiveRuntimeTests(unittest.TestCase):
             "unresolved_product_decisions": False,
         }
         self.stage(
-            "glm_revise",
+            "revise_plan",
             {
                 "summary": "Split S2 without new capacity",
                 "progressive_proposal": proposal,
                 "initial_task": {**self.first, "validation_plan": [unit]},
             },
         )
-        self.stage("astra_finalize", review)
+        self.stage("finalize_plan", review)
         self.assertEqual("S2a", self.state["current_task"]["slice_id"])
         checks = [
             {"command": full, "exit_code": 0, "evidence_ref": "event:full"},
             {"command": unit, "exit_code": 0, "evidence_ref": "event:unit"},
         ]
         local = {**self.validation(), "checks": checks, "checks_run": [full, unit]}
-        self.stage("sol", local)
-        self.stage("astra_review", self.checkpoint_decision())
+        self.stage("tester", local)
+        self.stage("review_completion", self.checkpoint_decision())
         self.assertEqual(pool_id, self.state["progressive"]["pending_allowance"]["pool_id"])
         next_proposal = {**proposal, "done_slices": ["S1", "S2a"], "slices": [{**second, "tentative": False}]}
         self.stage(
-            "glm_revise",
+            "revise_plan",
             {
                 "summary": "Detail retained sibling",
                 "progressive_proposal": next_proposal,
                 "initial_task": copy.deepcopy(self.first),
             },
         )
-        self.stage("astra_finalize", review)
+        self.stage("finalize_plan", review)
         self.assertEqual("S2b", self.state["current_task"]["slice_id"])
         self.assertEqual(pool_id, self.state["progressive"]["active_allowance"]["pool_id"])
         self.assertEqual(2, len(self.state["progressive"]["budget"]["pools"]))
@@ -889,8 +889,8 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         validated = {**self.validation(fully=True), "checks": checks, "checks_run": [full, unit]}
         validated["criterion_results"][0]["evidence_refs"] = ["event:full", "event:unit"]
         validated["end_to_end_result"]["evidence_refs"] = ["event:full", "event:unit"]
-        self.stage("sol", validated)
-        self.stage("astra_review", self.checkpoint_decision())
+        self.stage("tester", validated)
+        self.stage("review_completion", self.checkpoint_decision())
         self.assertTrue(completion.ready(self.state, util.snapshot(self.workspace)))
 
     def test_final_slice_persists_original_prescribed_product_command_as_current_proof(self):
@@ -899,7 +899,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         self.begin_next_detail()
         self.assertNotIn(original, [row["command"] for row in self.state["validation"]["check_replay"]["checks"]])
         self.stage(
-            "astra_finalize",
+            "finalize_plan",
             {
                 "summary": "Original product checks remain required",
                 "accepted": True,
@@ -911,14 +911,14 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         canonical = next(row for row in self.state["progressive"]["required_checks"] if row["method"] == original)
         self.assertTrue(canonical["id"].startswith("contract-"))
         with self.assertRaisesRegex(ValueError, "omitted cumulative"):
-            self.stage("sol", self.validation(fully=True))
+            self.stage("tester", self.validation(fully=True))
         report = self.validation(fully=True)
         report["checks"].append({"command": original, "exit_code": 0, "evidence_ref": "event:product"})
         report["checks_run"].append(original)
         report["criterion_results"][0]["evidence_refs"].append("event:product")
         report["end_to_end_result"]["evidence_refs"].append("event:product")
-        self.stage("sol", report)
-        self.stage("astra_review", self.checkpoint_decision())
+        self.stage("tester", report)
+        self.stage("review_completion", self.checkpoint_decision())
         proof = self.state["progressive"]["completion_proof"]
         self.assertIn(canonical["id"], proof["results"])
         self.assertEqual(
@@ -935,7 +935,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
             "progressive_proposal": copy.deepcopy(self.proposal),
         }
         self.stage(
-            "astra_discovery",
+            "draft_plan",
             {
                 **common,
                 "contract": copy.deepcopy(self.body),
@@ -945,13 +945,13 @@ class ProgressiveRuntimeTests(unittest.TestCase):
             },
         )
         original = copy.deepcopy(self.state["goal_contract"]["body"])
-        self.stage("astra_challenge", {"summary": "Detail the next slice more concretely", "concerns": []})
+        self.stage("review_plan", {"summary": "Detail the next slice more concretely", "concerns": []})
         self.proposal["slices"][1]["intended_result"] = "Reject all invalid names and preserve greeting"
         self.state["settings"]["planning_review_call_limit"] = 3
         common["progressive_proposal"] = copy.deepcopy(self.proposal)
-        self.stage("glm_revise", {**common, "contract": original, "code_refs": ["greet.py"], "responses": []})
+        self.stage("revise_plan", {**common, "contract": original, "code_refs": ["greet.py"], "responses": []})
         self.stage(
-            "astra_finalize",
+            "finalize_plan",
             {
                 **common,
                 "contract": {
@@ -971,7 +971,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
     def test_initial_revise_can_drop_only_known_runner_disclosure_and_return_to_ordinary(self):
         common = {"summary": "Plan", "contract_changes": [], "conflict_resolutions": [], "requirement_trace": []}
         self.stage(
-            "astra_discovery",
+            "draft_plan",
             {
                 **common,
                 "contract": copy.deepcopy(self.body),
@@ -982,10 +982,10 @@ class ProgressiveRuntimeTests(unittest.TestCase):
             },
         )
         prior = copy.deepcopy(self.state["goal_contract"]["body"])
-        self.stage("astra_challenge", {"summary": "An ordinary bounded plan suffices", "concerns": []})
-        self.stage("glm_revise", {**common, "contract": prior, "code_refs": ["greet.py"], "responses": []})
+        self.stage("review_plan", {"summary": "An ordinary bounded plan suffices", "concerns": []})
+        self.stage("revise_plan", {**common, "contract": prior, "code_refs": ["greet.py"], "responses": []})
         self.stage(
-            "astra_finalize",
+            "finalize_plan",
             {
                 **common,
                 "contract": {
@@ -1006,7 +1006,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         self.begin_next_detail()
         token = goals.token(self.state["goal_contract"])
         self.stage(
-            "astra_finalize",
+            "finalize_plan",
             {
                 "summary": "Second contribution is within the original goal",
                 "accepted": True,
@@ -1016,9 +1016,9 @@ class ProgressiveRuntimeTests(unittest.TestCase):
             },
         )
         pool_id = self.state["progressive"]["active_allowance"]["pool_id"]
-        self.stage("sol", self.validation())
-        self.stage("astra_review", self.checkpoint_decision())
-        self.assertEqual("glm_revise", self.state["next_stage"])
+        self.stage("tester", self.validation())
+        self.stage("review_completion", self.checkpoint_decision())
+        self.assertEqual("revise_plan", self.state["next_stage"])
         self.assertEqual(pool_id, self.state["progressive"]["pending_allowance"]["pool_id"])
         self.assertEqual(["C1"], self.state["progressive"]["transition"]["remaining_criteria"])
         self.assertFalse(completion.ready(self.state, util.snapshot(self.workspace)))
@@ -1045,7 +1045,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
             ],
         }
         self.stage(
-            "glm_revise",
+            "revise_plan",
             {
                 "summary": "Detail the still-open product proof",
                 "progressive_proposal": proposal,
@@ -1053,7 +1053,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
             },
         )
         self.stage(
-            "astra_finalize",
+            "finalize_plan",
             {
                 "summary": "Independently reviewed full proof within the existing grant",
                 "accepted": True,
@@ -1066,7 +1066,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         self.assertEqual(pool_id, self.state["progressive"]["active_allowance"]["pool_id"])
         self.assertEqual(2, self.state["progressive"]["budget"]["pools"][pool_id]["reviews_used"])
         self.assertEqual(2, len(self.state["progressive"]["budget"]["pools"]))
-        self.stage("sol", self.validation(fully=True))
+        self.stage("tester", self.validation(fully=True))
         decision = self.checkpoint_decision()
         decision.update(
             status="COMPLETE",
@@ -1076,14 +1076,14 @@ class ProgressiveRuntimeTests(unittest.TestCase):
                 for row in self.state["acceptance_criteria"]
             ],
         )
-        self.stage("astra_review", decision)
+        self.stage("review_completion", decision)
         self.assertEqual("TASK_COMPLETE", self.state["status"])
 
     def test_local_checkpoint_restart_and_reviewed_s2_retain_product_and_cumulative_proof(self):
         self.approve()
-        self.stage("sol", self.validation(), seconds=3000)
-        self.stage("astra_review", self.checkpoint_decision(), seconds=100)
-        self.assertEqual("glm_revise", self.state["next_stage"])
+        self.stage("tester", self.validation(), seconds=3000)
+        self.stage("review_completion", self.checkpoint_decision(), seconds=100)
+        self.assertEqual("revise_plan", self.state["next_stage"])
         self.assertFalse(completion.ready(self.state, util.snapshot(self.workspace)))
         self.assertNotEqual("verified", self.state["acceptance_criteria"][0]["status"])
         original_contract = copy.deepcopy(self.state["goal_contract"])
@@ -1095,7 +1095,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         proposal["slices"] = [proposal["slices"][1]]
         proposal["slices"][0]["tentative"] = False
         self.stage(
-            "glm_revise",
+            "revise_plan",
             {
                 "summary": "Detail S2",
                 "progressive_proposal": proposal,
@@ -1104,7 +1104,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
             seconds=100,
         )
         self.stage(
-            "astra_finalize",
+            "finalize_plan",
             {
                 "summary": "Exact candidate accepted",
                 "accepted": True,
@@ -1116,8 +1116,8 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         )
         self.assertEqual("S2", self.state["current_task"]["slice_id"])
         self.assertEqual(original_contract, self.state["goal_contract"])
-        self.stage("sol", self.validation(fully=True), seconds=3000)
-        self.stage("astra_review", self.checkpoint_decision(), seconds=100)
+        self.stage("tester", self.validation(fully=True), seconds=3000)
+        self.stage("review_completion", self.checkpoint_decision(), seconds=100)
         self.assertTrue(completion.ready(self.state, util.snapshot(self.workspace)))
         self.assertGreater(self.state["active_seconds"], 5400)
         self.assertLess(self.state["active_seconds"], 43200)
@@ -1134,5 +1134,5 @@ class ProgressiveRuntimeTests(unittest.TestCase):
                 for row in self.state["acceptance_criteria"]
             ],
         )
-        self.stage("astra_review", decision)
+        self.stage("review_completion", decision)
         self.assertEqual("TASK_COMPLETE", self.state["status"])

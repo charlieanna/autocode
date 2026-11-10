@@ -80,7 +80,7 @@ if QUALIFIED:
     # A contained launch's shape (tool_containment.shell_permissions): "*" denies every tool but bash.
     permissions = {**dict.fromkeys(("task", "question", "edit"), permissions.get("*")), **permissions}
 assert permissions["task"] == "deny" and permissions["question"] == "deny"
-if agent != "autocode_terra":
+if agent != "autocode_builder":
     assert permissions["edit"] == "deny"
 prompt = sys.stdin.read()
 output_schema = None
@@ -91,8 +91,8 @@ if os.environ.get("AUTOCODE_FIXTURE_REPORT_LOSS") and prompt.startswith(
     data: dict[str, Any] = {
         "execution_engine": "opencode",
         "report_repair": True,
-        "stage": "sol_report_repair",
-        "original": {"stage": "sol"},
+        "stage": "tester_report_repair",
+        "original": {"stage": "tester"},
     }
     prompt += "\nCURRENT HANDOFF DATA\n" + json.dumps(data)
 else:
@@ -129,7 +129,7 @@ def emit(kind, part):
 
 emit("step_start", {"id": "prt_start", "type": "step-start"})
 planted = os.environ.get("AUTOCODE_FIXTURE_SHELL_ESCAPE")
-if planted and agent == "autocode_terra":
+if planted and agent == "autocode_builder":
     # A Builder shell write outside the workspace, through the shell this launch was given.
     planted_command = ": > " + shlex.quote(planted)
     shell = config.get("shell") or os.environ.get("SHELL") or "/bin/sh"
@@ -249,7 +249,7 @@ with tempfile.TemporaryDirectory(dir=fixture_root) as temp:
         final = json.dumps(value)
     loss_cache = os.environ.get("AUTOCODE_FIXTURE_REPORT_LOSS")
     owner = (data.get("original") or {}).get("stage", data.get("stage"))
-    if loss_cache and owner == "sol":
+    if loss_cache and owner == "tester":
         # Preserve the synthetic complete report for report-only replies while
         # dropping delivery from both the original and correction/repair calls.
         Path(loss_cache).write_text(final)

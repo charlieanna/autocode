@@ -32,7 +32,7 @@ def option(model, *, unavailable=None, levels=("low", "high")):
 
 def view(**stage):
     builder = {
-        "id": "terra",
+        "id": "builder",
         "label": "Builder",
         "does": "Writes the code.",
         "advice": "A fast model at medium.",
@@ -43,7 +43,7 @@ def view(**stage):
             "next_command": [
                 "stages",
                 "set",
-                "terra",
+                "builder",
                 "--backend",
                 "x",
                 "--json",
@@ -63,7 +63,7 @@ class MenuTests(unittest.TestCase):
     def test_a_choice_fills_only_the_views_own_command_with_a_listed_model_and_level(self):
         stage = view()["stages"][0]
         self.assertEqual(
-            ["stages", "set", "terra", "--backend", "x", "--json", "--model", "a", "--effort", "low"],
+            ["stages", "set", "builder", "--backend", "x", "--json", "--model", "a", "--effort", "low"],
             stages.fill(stage, "a", "low"),
         )
         for model, effort, error in (
@@ -73,7 +73,7 @@ class MenuTests(unittest.TestCase):
         ):
             with self.subTest(model=model), self.assertRaisesRegex(ValueError, error):
                 stages.fill(stage, model, effort)
-        unnamed = view(set={"next_command": ["stages", "set", "terra"]})["stages"][0]
+        unnamed = view(set={"next_command": ["stages", "set", "builder"]})["stages"][0]
         with self.assertRaisesRegex(ValueError, "names no choice"):
             stages.fill(unnamed, "a", "low")
 
@@ -172,7 +172,7 @@ class RealCoreTests(unittest.TestCase):
         self.assertIn("cannot run", self.history.slash("/stages", "builder 3 high"), "the Tester runs Sonnet")
         said = self.history.slash("/stages", "tester 2 high")
         self.assertIn(f"New chats run the Tester on {OPUS} at high.", said)
-        self.assertEqual({"model": OPUS, "effort": "high"}, stage_choices.load()["claude"]["sol"])
+        self.assertEqual({"model": OPUS, "effort": "high"}, stage_choices.load()["claude"]["tester"])
 
     def test_the_full_screen_drawer_chooses_a_model_and_level_with_the_arrow_keys(self):
         self.history.slash("/stages", "tester 2 high")
@@ -206,7 +206,7 @@ class RealCoreTests(unittest.TestCase):
             self.assertIn(f"> Builder: {SONNET} at high (your choice)", drawn)
             ui._handle(ESC, asking=True)
             self.assertIsNone(ui._stage_menu)
-        self.assertEqual({"model": SONNET, "effort": "high"}, stage_choices.load()["claude"]["terra"])
+        self.assertEqual({"model": SONNET, "effort": "high"}, stage_choices.load()["claude"]["builder"])
         self.assertEqual("", ui._composer.text)
 
     def test_without_an_engine_of_its_own_the_chat_lists_the_backend_a_new_run_takes(self):

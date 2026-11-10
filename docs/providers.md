@@ -464,8 +464,8 @@ version_command = ["gocode", "--version"]
 
 [roles]
 task_planner = { model = "gpt-5.6-luna", effort = "high" }
-terra = { model = "gpt-5.6-luna", effort = "low" }
-sol = { model = "gpt-5.6-luna", effort = "high" }
+builder = { model = "gpt-5.6-luna", effort = "low" }
+tester = { model = "gpt-5.6-luna", effort = "high" }
 completion = { model = "gpt-5.6-luna", effort = "high" }
 planner = { model = "gpt-5.6-luna", effort = "low" }
 plan_reviewer = { model = "gpt-5.6-luna", effort = "high" }
@@ -625,8 +625,8 @@ version_command = ["kilo", "--version"]
 
 [roles]
 task_planner = { model = "openai/gpt-5.6-sol", effort = "high" }
-terra = { model = "openai/gpt-5.6-terra", effort = "medium" }
-sol = { model = "openai/gpt-5.6-sol", effort = "high" }
+builder = { model = "openai/gpt-5.6-terra", effort = "medium" }
+tester = { model = "openai/gpt-5.6-sol", effort = "high" }
 completion = { model = "openai/gpt-5.6-sol", effort = "medium" }
 planner = { model = "zhipuai-coding-plan/glm-5.3", effort = "high" }
 plan_reviewer = { model = "openai/gpt-6-sol", effort = "high", light_effort = "medium" }
@@ -829,8 +829,8 @@ version_command = ["codex", "--version"]
 
 [roles]
 task_planner = { model = "gpt-6-sol", effort = "medium" }
-terra = { model = "gpt-6-luna", effort = "medium" }
-sol = { model = "gpt-6-sol", effort = "medium" }
+builder = { model = "gpt-6-luna", effort = "medium" }
+tester = { model = "gpt-6-sol", effort = "medium" }
 completion = { model = "gpt-6-sol", effort = "medium" }
 planner = { model = "gpt-6-luna", effort = "medium" }
 plan_reviewer = { model = "gpt-6-sol", effort = "medium" }
@@ -954,8 +954,8 @@ version_command = ["kilo", "--version"]
 
 [roles]
 task_planner = { model = "openai/gpt-5.6-sol", effort = "high" }
-terra = { model = "openai/gpt-5.6-terra", effort = "medium" }
-sol = { model = "openai/gpt-5.6-sol", effort = "high" }
+builder = { model = "openai/gpt-5.6-terra", effort = "medium" }
+tester = { model = "openai/gpt-5.6-sol", effort = "high" }
 completion = { model = "openai/gpt-5.6-sol", effort = "medium" }
 planner = { model = "zhipuai-coding-plan/glm-5.3", effort = "high" }
 plan_reviewer = { model = "openai/gpt-5.6-sol", effort = "high" }

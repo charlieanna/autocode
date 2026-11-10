@@ -13,9 +13,11 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_names as names
     from . import autocode_planning_recovery_policy as planning_recovery_policy
     from . import autocode_prompts as prompts
 except ImportError:
+    import autocode_names as names
     import autocode_planning_recovery_policy as planning_recovery_policy
     import autocode_prompts as prompts
 
@@ -373,24 +375,24 @@ def run_role(
     save = persist or write_json
     if native is not None:
         native.guard(state, state.get("next_stage"), report_only=report_only, allow_write=allow_write)
-    if state.get("next_stage") == "astra_diagnose" and state.get("active_stage"):
+    if state.get("next_stage") == "diagnose" and state.get("active_stage"):
         raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Reconcile the active diagnosis before another provider request")
-    if state.get("next_stage") == "sol" and visual_runtime.requested(state):
+    if state.get("next_stage") == "tester" and visual_runtime.requested(state):
         visual_runtime.verify_reference(state)
     timeout_recovery_guard(state)
-    if role in ("terra", "sol", "completion", "task_planner", "plan_reviewer", "planner"):
+    if role in ("builder", "tester", "completion", "task_planner", "plan_reviewer", "planner"):
         dispatch.enforce_cross_model_verification(state)
     iteration = state["iteration"]
     original_stage = cast(str, state["next_stage"])
     stage = original_stage
     joint_stage = planning.is_planning(state, stage)
-    if state.get("version", 2) >= 3 and stage not in ("astra_discovery", *jobs.STAGES) and not joint_stage:
+    if state.get("version", 2) >= 3 and stage not in ("draft_plan", *jobs.STAGES) and not joint_stage:
         goals.execution_guard(state)
         if not report_only:
             native.dispatch_guard(
                 state, stage, milestones.dispatch_guard
             ) if native is not None else milestones.dispatch_guard(state, stage)
-    if (joint_stage or stage == "astra_discovery") and (
+    if (joint_stage or stage == "draft_plan") and (
         role != planning.role_for(state, stage) or allow_write or sandbox != "read-only"
     ):
         raise support.Paused("PAUSED_DISCOVERY_WRITE", "Planning must use its assigned role read-only")
@@ -405,13 +407,13 @@ def run_role(
         processes.preflight()  # fail before creating an active request
     if report_only:
         stage += "_report_repair"
-    if stage == "astra_diagnose" and not dry_run:
+    if stage == "diagnose" and not dry_run:
         resolver_runtime.check_diagnostic_capacity(sys.modules[__name__], state, run_dir)
     attempt = 1 + sum(r.get("stage") == stage and r.get("iteration") == iteration for r in state.get("stages", []))
     base = artifacts.reserve(run_dir, iteration, stage, attempt)
     output, events, prompt_file = base.with_suffix(".json"), base.with_suffix(".jsonl"), base.with_suffix(".prompt.md")
     prompt_file.parent.mkdir(parents=True, exist_ok=True)
-    if not report_only and original_stage in ("sol", "astra_review", "astra_checkpoint"):
+    if not report_only and original_stage in ("tester", "review_completion", "review_checkpoint"):
         bound_schema = support.review_generation_schema(read_json(schema), state, original_stage)
         schema = base.with_suffix(".schema.json")
         save(schema, bound_schema)
@@ -446,7 +448,7 @@ def run_role(
         )
         native_proof = (
             regression.complete(state, cast(dict[str, Any], native_before)["revision"])
-            if native is not None and original_stage == "sol" and regression.required(state)
+            if native is not None and original_stage == "tester" and regression.required(state)
             else False
         )
         image_preparation = (
@@ -466,7 +468,7 @@ def run_role(
                 regression_proof_current=native_proof,
                 regression_handoff=regression.handoff(state) if native_proof else None,
             )
-            if native is not None and original_stage == "sol" and visual_runtime.requested(state)
+            if native is not None and original_stage == "tester" and visual_runtime.requested(state)
             else None
         )
         native_environment = native_capture = None
@@ -537,7 +539,7 @@ def run_role(
     if not dry_run:
         task_preflight.guard(state, workspace, run_dir, worker=worker_context, persist=save)
     visual_context = worker_context.get("visual_runtime") if image_preparation is not None else None
-    if original_stage == "sol" and visual_runtime.requested(state) and not report_only and image_preparation is None:
+    if original_stage == "tester" and visual_runtime.requested(state) and not report_only and image_preparation is None:
         visual_context, command, child_environment, prompt = role_launch.prepare_visual(
             state,
             original_stage,
@@ -703,7 +705,7 @@ def run_role(
                             **launch_options,
                         )
                     )
-                if original_stage == "terra" and not report_only and interaction_timing.mark(state, "builder", now()):
+                if original_stage == "builder" and not report_only and interaction_timing.mark(state, "builder", now()):
                     save(run_dir / "state.json", state)
         except support.Paused:
             if native is None:
@@ -891,7 +893,7 @@ def restore_builder_history(original, value):
     back from the original instead of trusting the repair to have left them alone.
     Schema-valid history is restored; missing or ill-typed history stays repairable.
     """
-    if original.get("stage") != "terra" or not isinstance(value, dict):
+    if original.get("stage") != "builder" or not isinstance(value, dict):
         return False
     previous = repair_report_source(original)["content"]
     if not isinstance(previous, dict):
@@ -922,7 +924,7 @@ def assert_repair_preserves_builder_history(original, value):
     restore_builder_history() puts those fields back first, so this is the guard
     that they did: it fails only when history is unrestorable and still rewritten.
     """
-    if original.get("stage") != "terra":
+    if original.get("stage") != "builder":
         return
     previous = repair_report_source(original)["content"]
     if not isinstance(previous, dict):
@@ -1054,10 +1056,10 @@ def _execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
         + prompts.get("fragments/autocode/execute-report-repair-12.md")
         + DISPOSITION_REPAIR_RULE
         + prompts.get("fragments/autocode/execute-report-repair-11.md")
-        + (report_repair_context.instruction(original["stage"]) if original["stage"] == "astra_finalize" else "")
+        + (report_repair_context.instruction(original["stage"]) if original["stage"] == "finalize_plan" else "")
         + (
             goals.DECISION_PROVENANCE + goals.CONTRACT_REFERENCES
-            if original["stage"] == "astra_discovery" or planning.is_planning(state, original["stage"])
+            if original["stage"] == "draft_plan" or planning.is_planning(state, original["stage"])
             else ""
         )
         + jobs.repair_rules(original["stage"])
@@ -1331,7 +1333,7 @@ def reconcile_active(state: RunState, run_dir, workspace):
         raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Recovered stage lacks its original source snapshot")
     before = read_json(Path(record["before_ref"]))
     after = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
-    if (record["role"] != "terra" or record.get("report_only")) and before["revision"] != after["revision"]:
+    if (record["role"] != "builder" or record.get("report_only")) and before["revision"] != after["revision"]:
         raise support.Paused(
             "PAUSED_STALE_VALIDATION",
             f"Read-only stage revision changed across interruption: {record['stage']} ran on source "
@@ -1447,7 +1449,7 @@ def accept_completion(state: RunState, workspace: Path, *, run_dir=None) -> None
         raise ValueError("Completion acceptance requires current passing independent evidence for every criterion")
     if goals.missing_human_reviews(state):
         raise ValueError("Completion acceptance requires every required human review to be recorded")
-    failed = sum(1 for r in state.get("stages", []) if r.get("stage") == "astra_review" and r.get("rejected"))
+    failed = sum(1 for r in state.get("stages", []) if r.get("stage") == "review_completion" and r.get("rejected"))
     state.setdefault("user_events", []).append(
         {
             "kind": "completion_accept",
@@ -1548,7 +1550,7 @@ def commit_stage_result(state: RunState, stage, value, record, workspace, run_di
         ),
         persist=persist or write_json,
     )
-    if native is not None and stage == "sol":
+    if native is not None and stage == "tester":
         candidate = native.review_progress(state, record, milestones.observe_validation)
         commit_boundary_candidate(state, candidate, run_dir, workspace, persist=persist, native=native)
 
@@ -1739,7 +1741,7 @@ def rotate_if_needed(state: RunState, role, run_dir, *, persist=None):
         (
             r
             for r in reversed(state.get("stages", []))
-            if r.get("route_role", r.get("role", r.get("stage", "").split("_")[0])) == role
+            if r.get("route_role", r.get("role", names.stage_route(r.get("stage")))) == role
         ),
         None,
     )

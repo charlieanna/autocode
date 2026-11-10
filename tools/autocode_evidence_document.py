@@ -568,7 +568,9 @@ def _changed_code_lines(proof, repairs):
         ]
         for row in rows(repairs):
             action = row.get("action")
-            stage = {"builder": "terra", "investigator": "investigate_stuck", "reviewer": "astra_review"}.get(action)
+            stage = {"builder": "builder", "investigator": "investigate_stuck", "reviewer": "review_completion"}.get(
+                action
+            )
             label = roles.screen_name(stage) if stage else action
             prior = mapping(row.get("assessment"))
             lines += [

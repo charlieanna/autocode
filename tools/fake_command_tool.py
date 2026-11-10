@@ -95,7 +95,7 @@ def tool_event(part_id, command, code, output):
 
 def deliver(value):
     if (
-        stage == "astra_finalize"
+        stage == "finalize_plan"
         and "retain_contract" not in value.get("contract", {})
         and "retain_contract" in schema.get("properties", {}).get("contract", {}).get("properties", {})
     ):
@@ -301,7 +301,7 @@ if invocations:
         handle.write(data.get("stage", "report_repair") + "\n")
 if data.get("report_repair"):
     original = data["original"]
-    stage = original.get("stage", "terra")
+    stage = original.get("stage", "builder")
     retained = (data.get("rejected_report") or {}).get("content")
     if retained is None and original.get("output") and Path(original["output"]).is_file():
         retained = Path(original["output"]).read_text()
@@ -351,7 +351,7 @@ if data.get("report_repair"):
                 "access_blockers": [],
             }
         )
-    elif stage in ("astra_discovery", "glm_revise"):
+    elif stage in ("draft_plan", "revise_plan"):
         draft = dict((original.get("contract") or {}).get("body") or body(questions=True, human=False))
         if draft.get("open_blocking_questions"):
             draft["technical_approach"] = []
@@ -372,13 +372,13 @@ if data.get("report_repair"):
                 "machine_resolutions": [],
                 "remediation_records": [],
                 "access_blockers": [],
-                **({"responses": []} if stage == "glm_revise" else {}),
+                **({"responses": []} if stage == "revise_plan" else {}),
             }
         )
     elif stage == "investigate_stuck":
         # A report-only repair preserves the original diagnosis and its bound ID.
         deliver(json.loads(Path(original["output"]).read_text()))
-    elif stage == "astra_challenge":
+    elif stage == "review_plan":
         draft = (data.get("goal_contract") or {}).get("body") or {}
         deliver(
             {
@@ -388,7 +388,7 @@ if data.get("report_repair"):
                 **({"source_trace": source_trace_for(draft)} if "source_trace" in schema.get("properties", {}) else {}),
             }
         )
-    elif stage == "astra_finalize":
+    elif stage == "finalize_plan":
         draft = body(questions=False, human=False)
         draft["initial_task"] = {
             "objective": "Implement greeting CLI",
@@ -439,8 +439,8 @@ if data.get("report_repair"):
             }
         )
     raise SystemExit(0)
-stage = data.get("stage", "terra")
-if stage == "sol" and os.environ.get("AUTOCODE_FIXTURE_PLAIN_ERROR"):
+stage = data.get("stage", "builder")
+if stage == "tester" and os.environ.get("AUTOCODE_FIXTURE_PLAIN_ERROR"):
     # A human-readable CLI (``codex exec`` without --json): tool output, then the provider's own error.
     print(
         "exec\nbash -lc 'python -m unittest' in .\n exited 1 in 120ms:\n"
@@ -555,7 +555,7 @@ elif stage == "requirements_gather":
         # Vague: the review allowance counts per planning cycle as before. A report
         # repair's prompt has no rule, but its schema still asks for clarity.
         result["clarity"] = os.environ.get("AUTOCODE_FIXTURE_CLARITY", "vague")
-elif stage == "astra_discovery":
+elif stage == "draft_plan":
     draft = body(questions=not data["saved_answers"], human=False)
     if data["saved_answers"]:
         draft["accepted_assumptions"] = [{"text": "User selected CLI", "basis": "user_answer", "answer_id": "Q1"}]
@@ -579,7 +579,7 @@ elif stage == "astra_discovery":
         "remediation_records": [],
         "access_blockers": [],
     }
-elif stage == "astra_challenge":
+elif stage == "review_plan":
     draft = contract.get("body") or {}
     result = {
         "summary": "Check whitespace-only input",
@@ -596,7 +596,7 @@ elif stage == "astra_challenge":
         ],
         **({"source_trace": source_trace_for(draft)} if "source_trace" in schema.get("properties", {}) else {}),
     }
-elif stage == "glm_revise":
+elif stage == "revise_plan":
     draft = dict(contract["body"])
     draft.pop("initial_task", None)
     draft["important_failure_cases"] = [*draft["important_failure_cases"], "Reject whitespace-only input"]
@@ -622,7 +622,7 @@ elif stage == "glm_revise":
             }
         ],
     }
-elif stage == "astra_finalize":
+elif stage == "finalize_plan":
     draft = dict(contract["body"])
     draft["initial_task"] = {
         "objective": "Implement greeting CLI",
@@ -652,7 +652,7 @@ elif stage == "astra_finalize":
             }
         ],
     }
-elif stage == "terra" and MODEL and MODEL in os.environ.get("AUTOCODE_FIXTURE_IDLE_BUILDER_MODELS", "").split(","):
+elif stage == "builder" and MODEL and MODEL in os.environ.get("AUTOCODE_FIXTURE_IDLE_BUILDER_MODELS", "").split(","):
     # This model's Builder changes nothing, so the run's Builder retry policy picks the next attempt.
     note = Path(".autocode/evidence/idle-builder.txt").resolve()
     note.parent.mkdir(parents=True, exist_ok=True)
@@ -669,7 +669,7 @@ elif stage == "terra" and MODEL and MODEL in os.environ.get("AUTOCODE_FIXTURE_ID
         "untested_behavior": [],
         "recommended_checks": [],
     }
-elif stage == "terra":
+elif stage == "builder":
     # The greeting with its own tests: a product change owes the changed-line proof (#2474).
     seed_greeting_workspace(Path.cwd())
     write_greeting_source(Path.cwd(), revision=str(uuid.uuid4()))
@@ -685,7 +685,7 @@ elif stage == "terra":
         "untested_behavior": ["CLI execution"],
         "recommended_checks": ["Execute valid and invalid input"],
     }
-elif stage == "sol":
+elif stage == "tester":
     valid_cmd = [sys.executable, "greet.py", "Ada"]
     invalid_cmd = [sys.executable, "greet.py", ""]
     valid = subprocess.run(valid_cmd, capture_output=True, text=True)
@@ -724,7 +724,7 @@ elif stage == "sol":
     if "changed_code_exceptions" in schema.get("properties", {}):
         result["changed_code_exceptions"] = greeting_changed_code_reasons(data)
 else:
-    complete = stage == "astra_review"
+    complete = stage == "review_completion"
     result = {
         **common,
         "status": "COMPLETE" if complete else "CONTINUE",
@@ -754,7 +754,7 @@ else:
         "affected_paths": ["greet.py", "test_greeting.py"],
     }
 
-if stage == "sol" and os.environ.get("AUTOCODE_FIXTURE_MISSING_CHECK_EXIT"):
+if stage == "tester" and os.environ.get("AUTOCODE_FIXTURE_MISSING_CHECK_EXIT"):
     result["checks"][0].pop("exit_code")
 deliver(result)
 if os.environ.get("AUTOCODE_FIXTURE_SKIP_REPORT") and not EVENTS:

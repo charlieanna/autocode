@@ -80,7 +80,7 @@ class WriterAdmissionTests(unittest.TestCase):
         self.original_source = deepcopy(self.current)
         self.settings = {
             "roles": {
-                "terra": {
+                "builder": {
                     "engine": "opencode",
                     "model": "glm-approved",
                     "reasoning_effort": "high",
@@ -111,7 +111,7 @@ class WriterAdmissionTests(unittest.TestCase):
         self.retry_ordinal, self.retry_kind = 1, "ordinary_retry"
         self.allowance_mutation, self.dispatch_mutation = None, None
         self.retry_exhausted = False
-        self.rework_stage, self.rework_status = "astra_review", "REWORK"
+        self.rework_stage, self.rework_status = "review_completion", "REWORK"
         self.patches = [
             patch.object(admission.util, "snapshot", side_effect=lambda _: deepcopy(self.current)),
             patch.object(admission.containment, "verify", side_effect=lambda value: deepcopy(value)),
@@ -451,7 +451,7 @@ class WriterAdmissionTests(unittest.TestCase):
             lambda row: row["task"]["criterion_ids"].append("C1"),
             lambda row: row["task"]["affected_paths"].append("outside.py"),
             lambda row: row.__setitem__("runtime_sha256", "0" * 64),
-            lambda row: row["settings"]["roles"]["terra"].__setitem__("reasoning_effort", "max"),
+            lambda row: row["settings"]["roles"]["builder"].__setitem__("reasoning_effort", "max"),
             lambda row: row["settings"]["builder_retry"].__setitem__("ordinary_retries", 4),
             lambda row: row["settings"]["limits"].__setitem__("max_seconds", 7200),
             lambda row: row["contract"].__setitem__("revision", 2),
@@ -658,7 +658,7 @@ class WriterAdmissionTests(unittest.TestCase):
             lambda row: row["task"]["affected_paths"].append("outside.py"),
             lambda row: row.__setitem__("assignment_source", deepcopy(row["source"])),
             lambda row: row.__setitem__("runtime_sha256", "0" * 64),
-            lambda row: row["settings"]["roles"]["terra"].__setitem__("model", "unapproved"),
+            lambda row: row["settings"]["roles"]["builder"].__setitem__("model", "unapproved"),
             lambda row: row["settings"]["limits"].__setitem__("max_seconds", 7200),
             lambda row: row["settings"]["builder_retry"].__setitem__("ordinary_retries", 4),
         ]
@@ -745,7 +745,7 @@ class WriterAdmissionTests(unittest.TestCase):
 
     def test_modern_resolver_rework_is_allowed_but_legacy_continue_is_not_admitted(self):
         original, delta = self.original_delta()
-        self.rework_stage = "astra_resolve"
+        self.rework_stage = "resolve"
         self.rework_status = "REWORK"
         rework = self.binding(identity="task-resolver-repair")
         self.ledger.prepare_rework(

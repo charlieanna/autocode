@@ -41,7 +41,7 @@ class RoutineRecoveryCLITests(unittest.TestCase):
         stopped.setdefault("user_events", []).extend(events)
         stopped.update(automatic_recoveries_since_resume=4, consecutive_timeout_recoveries=1)
         stopped["automatic_timeout_recoveries"] = [
-            {"stage": "terra", "attempt_id": row["attempt_id"], "timeout_reason": "stage deadline"} for row in events
+            {"stage": "builder", "attempt_id": row["attempt_id"], "timeout_reason": "stage deadline"} for row in events
         ]
         if explicit_time_cap:
             stopped["settings"]["limits"]["max_seconds"] = 1

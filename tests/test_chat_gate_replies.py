@@ -30,7 +30,7 @@ def reviewed(decision=None):
         "next_command": f"AUTOCODE_PLAN_TOKEN=t autocode {PLACE} --approve-plan --plan-token -",
         "chat": {
             "context": "plan-context",
-            "gate": {"kind": "plan", "token": "t", "stage": "astra_finalize", "decision": decision},
+            "gate": {"kind": "plan", "token": "t", "stage": "finalize_plan", "decision": decision},
             "input": {"kind": "feedback", "next_command": f"autocode {PLACE} --feedback MESSAGE"},
         },
     }

@@ -136,7 +136,7 @@ class PlanningArtifactTests(unittest.TestCase):
         }
         self.assertEqual(
             [{"requirement_id": "R1", "requirement": "Keep the greeting", "source_quote": "greeting"}],
-            planning.trace_rows(self.state, "astra_discovery"),
+            planning.trace_rows(self.state, "draft_plan"),
         )
         writers = {"plan", "plan_revise", "plan_finalize"}
         for stage in ("requirements", "plan", "plan_review", "plan_revise", "plan_finalize"):
@@ -163,7 +163,7 @@ class PlanningArtifactTests(unittest.TestCase):
                     self.assertNotIn("PROGRESSIVE PLANNING (optional)", instructions)
 
     def test_repairs_use_only_rules_supported_by_the_saved_contract_schema(self):
-        writers = ("astra_discovery", "glm_revise", "astra_finalize", "plan", "plan_revise", "plan_finalize")
+        writers = ("draft_plan", "revise_plan", "finalize_plan", "plan", "plan_revise", "plan_finalize")
         field_sets = (
             (),
             ("contract",),
@@ -199,7 +199,7 @@ class PlanningArtifactTests(unittest.TestCase):
         # the drafting stage sanctions and forbid rewriting citations already
         # in it (avoidable rework inside the repair budget).
         schema = {"properties": {"contract": {}}}
-        rules = planning.repair_rules("astra_discovery", schema)
+        rules = planning.repair_rules("draft_plan", schema)
         self.assertIn("task:0#3", rules)
         self.assertIn("before anything checks it", rules)
         self.assertIn("citation whose quote is a sentence id naming an existing sentence", rules)

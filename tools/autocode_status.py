@@ -23,7 +23,7 @@ ROLES = {stage: roles.screen_name(stage) for stage in roles.STAGE_JOB}
 
 
 def role_name(stage, state: RunState | None = None):
-    """Screen name for a stage code name: 'terra' -> 'Builder'.
+    """Screen name for a stage code name: 'builder' -> 'Builder'.
 
     Report repair stays the same job. Pass ``state`` so a stage that does more than
     one job can name the job being done (reviewer routing's astra_checkpoint is

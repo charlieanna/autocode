@@ -5,7 +5,7 @@ category = "greenfield"
 # The person's answer is given explicitly below; the driver never answers this question by default.
 
 [run]
-requires_stages = ["sol"]
+requires_stages = ["tester"]
 
 [fake]
 check = "python3 -m unittest test_greet.py"

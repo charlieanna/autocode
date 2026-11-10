@@ -166,7 +166,7 @@ class PreflightRelocationCLI(unittest.TestCase):
         self.assertEqual(approved["approved_contract"], after["approved_contract"])
         self.assertEqual(before["routes"], after["routes"])
         self.assertEqual(before["cost"]["cap_usd"], after["cost"]["cap_usd"])
-        self.assertFalse(any(row["stage"] == "terra" for row in self.operations("launch")))
+        self.assertFalse(any(row["stage"] == "builder" for row in self.operations("launch")))
         current = self.attempts(after)
         self.assertEqual(attempts, current[: len(attempts)])
         self.assertEqual(evidence, {path: Path(path).read_bytes() for path in evidence})

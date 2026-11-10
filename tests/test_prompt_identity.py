@@ -39,7 +39,7 @@ class PromptIdentityTests(unittest.TestCase):
         self.assertEqual(before, state)
 
     def test_new_attempts_record_current_set_without_rebinding_old_attempts(self):
-        old = {"stage": "terra", "model": "old", "iteration": 1, "output": "old.json"}
+        old = {"stage": "builder", "model": "old", "iteration": 1, "output": "old.json"}
         with patch.object(launch.prompts, "HASH", "b" * 64):
             current = {**old, "output": "new.json", **launch.stage_record({"engine": "codex"})}
         attempts = usage.accounting({"stages": [old, current]})["attempts"]
@@ -49,7 +49,7 @@ class PromptIdentityTests(unittest.TestCase):
 
     def test_report_binds_launch_and_actual_attempt_sets(self):
         view = run_view.view({"status": "TASK_COMPLETE", "prompts_hash": "a" * 64})
-        view["usage"]["accounting"]["attempts"] = [{"stage": "sol", "model": "model", "prompts_hash": "b" * 64}]
+        view["usage"]["accounting"]["attempts"] = [{"stage": "tester", "model": "model", "prompts_hash": "b" * 64}]
         value = report(view)
         self.assertEqual("a" * 64, value["run"]["prompts_hash"])
         self.assertEqual("b" * 64, value["attempts"][0]["prompts_hash"])

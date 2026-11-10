@@ -27,21 +27,21 @@ OPTIONS = (
     "--engine",
     "codex",
     "--joint-planning",
-    "--astra-model",
+    "--task-planner-model",
     "gpt-6-astra",
-    "--terra-model",
+    "--builder-model",
     "gpt-5.6-terra",
-    "--sol-model",
+    "--tester-model",
     "gpt-5.6-sol",
     "--completion-model",
     "gpt-6-astra",
-    "--glm-model",
+    "--planner-model",
     "gpt-5.6-sol",
     "--plan-reviewer-model",
     "gpt-6-astra",
     "--pin-model-role",
-    "terra",
-    "--terra-reasoning-effort",
+    "builder",
+    "--builder-reasoning-effort",
     "high",
     "--max-seconds",
     "0",
@@ -109,7 +109,7 @@ class PreflightFixture(unittest.TestCase):
             "next_stage": "requirements_gather",
             "settings": {
                 "engine": "codex",
-                "roles": {"terra": {"model": "fixture", "reasoning_effort": "high", "model_pinned": True}},
+                "roles": {"builder": {"model": "fixture", "reasoning_effort": "high", "model_pinned": True}},
                 "limits": {"max_seconds": 0, "tool_timeout_seconds": 0},
                 "task_preflight": preflight.load(self.path),
             },
@@ -212,7 +212,7 @@ class PrerequisiteExecutionTests(PreflightFixture):
         with patch.object(preflight.verify, "run_command", wraps=preflight.verify.run_command) as execute:
             preflight.guard(state, self.workspace, self.run_dir)  # Planning has no browser prerequisite.
             execute.assert_not_called()
-            state["next_stage"] = "terra"
+            state["next_stage"] = "builder"
             with self.assertRaisesRegex(util.Paused, "build prerequisite blocked"):
                 preflight.guard(state, self.workspace, self.run_dir)
         self.assertEqual(1, execute.call_count)
@@ -412,7 +412,7 @@ class PrerequisiteCliTests(PreflightFixture):
         self.assertEqual(receipt, stopped["task_preflight"]["receipt"])
         full.unlink()
         resumed = run.resume_paused()
-        self.assertEqual(["requirements_gather", "astra_discovery"], self.marker.read_text().splitlines())
+        self.assertEqual(["requirements_gather", "draft_plan"], self.marker.read_text().splitlines())
         self.assertEqual(receipt, resumed["task_preflight"]["receipt"])
 
     def test_no_paid_stage_on_failed_setup_one_offline_dispatch_after_explicit_resume(self):
@@ -437,7 +437,7 @@ class PrerequisiteCliTests(PreflightFixture):
         ready_receipt = view["task_preflight"]["receipt"]
         # Another planning step with unchanged source/runtime reuses readiness.
         view = run.resume_paused()
-        self.assertEqual(["requirements_gather", "astra_discovery"], self.marker.read_text().splitlines())
+        self.assertEqual(["requirements_gather", "draft_plan"], self.marker.read_text().splitlines())
         self.assertEqual(ready_receipt, view["task_preflight"]["receipt"])
 
     def test_corrected_manifest_uses_public_cli_and_preserves_failed_receipt(self):

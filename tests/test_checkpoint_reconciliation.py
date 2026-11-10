@@ -18,7 +18,7 @@ def checkpoint():
         "settings": {"engine": "opencode", "provider": "kilocode", "limits": {"max_cost_usd": 0.75}},
         "active_stage": {
             "stage": "review_change",
-            "role": "sol",
+            "role": "tester",
             "iteration": 1,
             "output": "/r/iterations/001/review-change-01.json",
             "events": "/r/iterations/001/review-change-01.jsonl",

@@ -56,10 +56,10 @@ class InvestigationReviewTests(EpisodeCase):
 
     def test_5_answering_another_question_keeps_a_settled_workspace_fact(self):
         self.apply("requirements_gather", requirements([question("Q1", "decision"), question("Q2", "decision")]))
-        self.apply("astra_discovery", discovery(clarification_only([question("Q1"), question("Q2", "decision")])))
+        self.apply("draft_plan", discovery(clarification_only([question("Q1"), question("Q2", "decision")])))
         handoff_hash = self.state["investigation_request"]["handoff_hash"]
         self.apply(
-            "astra_discovery",
+            "draft_plan",
             discovery(
                 clarification_only([question("Q2", "decision")]),
                 machine_resolutions=[
@@ -75,21 +75,21 @@ class InvestigationReviewTests(EpisodeCase):
         lifecycle.human.evaluate(self.state)  # the runner's writer boundary publishes the clarification
         self.assertEqual(["Q2"], [q["id"] for q in self.state["pending_questions"]])
         goals.answer(self.state, "Q2", "Use the default route")
-        self.apply("astra_discovery", discovery(body()))
-        self.assertEqual("astra_challenge", self.state["next_stage"])
+        self.apply("draft_plan", discovery(body()))
+        self.assertEqual("review_plan", self.state["next_stage"])
 
     def test_5_a_refreshed_handoff_does_not_inherit_an_old_resolution(self):
         self.test_5_answering_another_question_keeps_a_settled_workspace_fact()
         self.state["requirements_handoff"]["report"]["summary"] = "Refreshed"
         self.state["requirements_handoff"]["report"]["open_questions"] = [question("Q1", "decision")]
         with self.assertRaisesRegex(ValueError, "dropped unresolved requirements questions: Q1"):
-            self.apply("astra_discovery", discovery(body()))
+            self.apply("draft_plan", discovery(body()))
 
 
 class ObligationReviewTests(ObligationCase):
     def test_2_mentioning_an_obligation_in_feedback_does_not_resolve_it(self):
         oid = self.reject(category="cost")
-        self.apply("astra_discovery", self.discovery(plan([decision_question(oid)])))
+        self.apply("draft_plan", self.discovery(plan([decision_question(oid)])))
         self.publish()
         goals.feedback(self.state, f"{oid} is still unresolved. Investigate another approach.")
         self.assertEqual("open", self.obligation(oid)["status"])
@@ -97,7 +97,7 @@ class ObligationReviewTests(ObligationCase):
     def test_3_delegating_an_obligation_question_is_refused_before_any_change(self):
         oid = self.reject(category="cost")
         question = {**decision_question(oid), "proposed_default": "Prefer the paid provider"}
-        self.apply("astra_discovery", self.discovery(plan([question])))
+        self.apply("draft_plan", self.discovery(plan([question])))
         self.publish()
         before = copy.deepcopy(self.state)
         with self.assertRaisesRegex(ValueError, "cannot be delegated"):
@@ -108,31 +108,31 @@ class ObligationReviewTests(ObligationCase):
 
     def test_6_new_intent_invalidates_a_carried_remediation(self):
         oid = self.reject()
-        self.apply("astra_discovery", self.discovery(plan([decision_question("Q2")]), [self.record(oid)]))
+        self.apply("draft_plan", self.discovery(plan([decision_question("Q2")]), [self.record(oid)]))
         self.publish()
         old_hash = self.obligation(oid)["remediation_hash"]
         self.assertEqual("pending_review", self.obligation(oid)["status"])
         goals.answer(self.state, "Q2", "stdin, not argv")
         self.assertEqual("open", self.obligation(oid)["status"])
         self.assertIsNone(self.obligation(oid)["remediation"])
-        self.apply("astra_discovery", self.discovery())
+        self.apply("draft_plan", self.discovery())
         with self.assertRaisesRegex(ValueError, "does not name a remediation awaiting review"):
-            self.apply("astra_challenge", self.challenge([self.decide(oid, remediation_hash=old_hash)]))
+            self.apply("review_plan", self.challenge([self.decide(oid, remediation_hash=old_hash)]))
 
     def test_6_discharge_rechecks_the_record_episode(self):
         oid = self.reject()
-        self.apply("astra_discovery", self.discovery(records=[self.record(oid)]))
+        self.apply("draft_plan", self.discovery(records=[self.record(oid)]))
         self.obligation(oid)["remediation"]["episode_id"] = "episode-old"
         with self.assertRaisesRegex(ValueError, "previous clarification episode"):
-            self.apply("astra_challenge", self.challenge([self.decide(oid)]))
+            self.apply("review_plan", self.challenge([self.decide(oid)]))
 
     def test_7_resolved_rejection_still_blocks_reinstating_the_assumption(self):
         from .test_autoplanner_step3 import assumption
         from .test_autoplanner_step3 import requirements as reqs
 
         oid = self.reject()
-        self.apply("astra_discovery", self.discovery(records=[self.record(oid)]))
-        self.apply("astra_challenge", self.challenge([self.decide(oid)]))
+        self.apply("draft_plan", self.discovery(records=[self.record(oid)]))
+        self.apply("review_plan", self.challenge([self.decide(oid)]))
         self.assertEqual("resolved", self.obligation(oid)["status"])
         with self.assertRaisesRegex(ValueError, "cannot reappear"):
             self.apply("requirements_gather", reqs([assumption()]))
@@ -236,9 +236,9 @@ class ProxyConcernTests(ObligationCase):
 
     def reviewed(self, criterion):
         self.apply("requirements_gather", self.handoff())
-        self.apply("astra_discovery", self.discovery(self.draft(criterion)))
-        self.apply("astra_challenge", self.challenge())
-        return self.state["planning"]["reports"]["astra_challenge"]["report"]["concerns"]
+        self.apply("draft_plan", self.discovery(self.draft(criterion)))
+        self.apply("review_plan", self.challenge())
+        return self.state["planning"]["reports"]["review_plan"]["report"]["concerns"]
 
     def test_a_proxy_draft_is_stored_with_one_blocking_proxy_concern(self):
         concerns = self.reviewed("list_domains returns a non-empty response")
@@ -257,22 +257,22 @@ class ProxyConcernTests(ObligationCase):
 
     def test_a_second_challenge_on_the_same_draft_does_not_add_a_second_proxy_concern(self):
         self.apply("requirements_gather", self.handoff())
-        self.apply("astra_discovery", self.discovery(self.draft("list_domains returns a non-empty response")))
-        self.apply("astra_challenge", self.challenge())
+        self.apply("draft_plan", self.discovery(self.draft("list_domains returns a non-empty response")))
+        self.apply("review_plan", self.challenge())
         self.assertEqual(
             ["proxy-R1"],
-            [row["id"] for row in self.state["planning"]["reports"]["astra_challenge"]["report"]["concerns"]],
+            [row["id"] for row in self.state["planning"]["reports"]["review_plan"]["report"]["concerns"]],
         )
         for _ in range(2):  # a later round is not re-blocked either, however many follow
-            self.apply("astra_challenge", self.challenge())
-            self.assertEqual([], self.state["planning"]["reports"]["astra_challenge"]["report"]["concerns"])
+            self.apply("review_plan", self.challenge())
+            self.assertEqual([], self.state["planning"]["reports"]["review_plan"]["report"]["concerns"])
 
     def test_a_gap_with_no_cited_criterion_says_no_criterion_cited(self):
         contract = self.draft("list_domains returns a non-empty response")
         contract["acceptance_criteria"] = [{}]
         state = {
-            "goal_contract": {"origin": "astra_discovery", "body": contract},
-            "planning": {"reports": {"astra_discovery": {"report": self.discovery(contract)}}},
+            "goal_contract": {"origin": "draft_plan", "body": contract},
+            "planning": {"reports": {"draft_plan": {"report": self.discovery(contract)}}},
             "requirements_handoff": {"report": self.handoff()},
         }
         value = {"concerns": []}
@@ -284,8 +284,8 @@ class ProxyConcernTests(ObligationCase):
 
     def test_the_astra_challenge_prompt_carries_the_out_of_checkout_proxy_rule(self):
         self.apply("requirements_gather", self.handoff())
-        self.apply("astra_discovery", self.discovery(self.draft("list_domains returns a non-empty response")))
-        prompt, _ = planner.context(self.state, "astra_challenge", Path("/tmp/state.json"))
+        self.apply("draft_plan", self.discovery(self.draft("list_domains returns a non-empty response")))
+        prompt, _ = planner.context(self.state, "review_plan", Path("/tmp/state.json"))
         self.assertIn("OUT-OF-CHECKOUT PROXY", prompt)
         self.assertIn("this proves X, the user sees Y", prompt)
 

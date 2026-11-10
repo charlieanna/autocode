@@ -109,7 +109,7 @@ def replay_context(state: RunState, *, stage, iteration, report_only, original_s
         "changed_code_proof": changed_code_proof,
         "regression_proof_path": (state.get("regression_proof") or {}).get("path"),
     }
-    if (original_stage if report_only else stage) == "astra_challenge":
+    if (original_stage if report_only else stage) == "review_plan":
         draft_snapshot = failure_correction.snapshot(state)
         if draft_snapshot is not None:
             context["draft_inference_snapshot"] = draft_snapshot
@@ -120,7 +120,7 @@ def decorate_prompt(state: RunState, stage, workspace, adapter, prompt, schema, 
     """The existing schema/containment decoration, before provider admission."""
     prompt = adapter.prompt_for_schema(prompt, schema, events)
     current_proof = False
-    if stage == "sol" and worker_context.get("tool_containment") and regression.required(state):
+    if stage == "tester" and worker_context.get("tool_containment") and regression.required(state):
         current_proof = regression.complete(state, source_scope.snapshot(workspace, state)["revision"])
     return provider_launch.containment_prompt(
         prompt,
@@ -245,7 +245,7 @@ def admit_launch(
             environment=environment,
             native_role_isolation=native_isolation,
         )
-    if original_stage == "sol" and visual_runtime.requested(state):
+    if original_stage == "tester" and visual_runtime.requested(state):
         visual_runtime.verify_reference(state)
     if visual_context and visual_context.get("status") == "READY":
         visual_runtime.verify_prelaunch(

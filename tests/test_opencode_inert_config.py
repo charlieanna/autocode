@@ -61,7 +61,7 @@ class InertNativeConfiguration(unittest.TestCase):
                 self.assertTrue(opencode.transport_drift(self.identity(), original))
 
     def test_deleted_known_route_refuses_before_dispatch_or_accounting(self):
-        definitions = self.root / ".opencode" / "agents" / "autocode_sol.md"
+        definitions = self.root / ".opencode" / "agents" / "autocode_tester.md"
         for path, content in (
             (self.path, '{"model":"fixture/reviewer"}'),
             (definitions, "---\nmodel: fixture/reviewer\n---\nReview"),
@@ -76,10 +76,10 @@ class InertNativeConfiguration(unittest.TestCase):
                 self.assertTrue(opencode.transport_drift(current, saved))
                 state = {
                     "status": "RUNNING",
-                    "next_stage": "sol",
+                    "next_stage": "tester",
                     "stages": [],
                     "settings": {
-                        "roles": {"sol": {"engine": "opencode", "model": "fixture/reviewer"}},
+                        "roles": {"tester": {"engine": "opencode", "model": "fixture/reviewer"}},
                         "transport_identities": {"opencode": saved},
                     },
                 }

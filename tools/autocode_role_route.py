@@ -146,7 +146,7 @@ def origin(settings, role, route, *, assignments=(), escalations=(), retries=())
     if any(row.get("role") == role and row.get("to") == model for row in _rows(assignments)):
         return "quota_assigned"
     if (
-        role == "terra"
+        role == "builder"
         and model
         and model == (settings.get("builder_retry") or {}).get("strong_model")
         and any(row.get("action") == "escalate" for row in _rows(retries))

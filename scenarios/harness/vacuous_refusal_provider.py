@@ -77,8 +77,8 @@ def report_for(stage, data, common, config, run_check, requirements):
         {"id": ident, "disposition": "resolved", "evidence": "event:check"}
         for ident in (data.get("review_identity_policy") or {}).get("own_open_finding_ids", [])
     ]
-    if stage == "terra":
-        attempt = 1 + sum(row["stage"] == "terra" for row in previous)
+    if stage == "builder":
+        attempt = 1 + sum(row["stage"] == "builder" for row in previous)
         _apply(scenario / "broken" / "vacuous-refusal-tests" if attempt == 1 else reference, config["paths"])
         if attempt == 2 and os.environ.get("SCENARIO_FAKE_SCOPE_SLIP") in ("retry", "pause"):
             shutil.copy2(Path.cwd() / "stock.py", Path.cwd() / "stock_current.py")
@@ -95,7 +95,7 @@ def report_for(stage, data, common, config, run_check, requirements):
             "untested_behavior": [],
             "recommended_checks": [config["check"]],
         }
-    elif stage == "sol":
+    elif stage == "tester":
         # Like the live Validators of 2026-10-04: the project's tests pass, so PASS; the proof is the runner's.
         code = run_check()
         status = "PASS" if code == 0 else "FAIL"
@@ -148,7 +148,7 @@ def report_for(stage, data, common, config, run_check, requirements):
             else "",
             "plan": ["Repair tests/test_stock.py", "Let the runner prove the tests again"] if failed else [],
             "affected_paths": list(task["affected_paths"]) if failed else [],
-            "findings": [finding] if failed and stage == "astra_review" else [],
+            "findings": [finding] if failed and stage == "review_completion" else [],
             "finding_dispositions": dispositions if not failed else [],
             "next_task": {
                 "kind": "implement" if failed else "none",
@@ -159,7 +159,7 @@ def report_for(stage, data, common, config, run_check, requirements):
                 "findings": [],
             },
         }
-        if stage == "astra_resolve":
+        if stage == "resolve":
             cases = {c.lower() for f in failures for c in re.findall(r"^Test case (\w+):", f)}
             vacuous = sorted(
                 {

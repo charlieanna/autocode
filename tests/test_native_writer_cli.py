@@ -28,7 +28,7 @@ class DirectWriterCliControls(unittest.TestCase):
     commit = fixtures.OriginalWriterTransportControls.commit
 
     def caller(self):
-        self.state.update(iteration=1, next_stage="terra", version=3, task="complete original controlled input")
+        self.state.update(iteration=1, next_stage="builder", version=3, task="complete original controlled input")
         native = object.__new__(calls.PlanningCalls)
         native.context, native.sink = self.context, self.sink
         native.workspace, native.run_dir = self.root, self.run
@@ -92,7 +92,7 @@ class DirectWriterCliControls(unittest.TestCase):
             )
             try:
                 runner.run_role(
-                    role="terra",
+                    role="builder",
                     prompt="Controlled setup",
                     sandbox="workspace-write" if allow_write else "read-only",
                     workspace=self.root,
@@ -133,7 +133,7 @@ class DirectWriterCliControls(unittest.TestCase):
         rows = self.owner._rows()
         prepared = [row for row in rows if row["kind"] == "prepared"]
         self.assertEqual(len(prepared), 1)
-        self.assertEqual(prepared[0]["body"]["record_identity"]["stage"], "terra")
+        self.assertEqual(prepared[0]["body"]["record_identity"]["stage"], "builder")
         self.assertFalse(any(row["kind"] in ("sealed", "released", "finished") for row in rows))
         self.assertNotIn("active_stage", self.state)
         self.assertEqual((self.root / "ignored.txt").read_text(), "selected ignored source\n")

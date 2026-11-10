@@ -42,8 +42,8 @@ class ProviderAuthCLI(unittest.TestCase):
                 "owner = fixture['main'].__globals__\n"
                 "ordinary_timeout = owner['auth_timeout_once']\n"
                 "def reject_once(stage):\n"
-                "    marker = Path(os.environ['SCENARIO_FAKE_CONFIG']).with_name('fake-login-rejected-astra_discovery')\n"
-                "    if stage != 'astra_discovery' or marker.exists():\n"
+                "    marker = Path(os.environ['SCENARIO_FAKE_CONFIG']).with_name('fake-login-rejected-draft_plan')\n"
+                "    if stage != 'draft_plan' or marker.exists():\n"
                 "        return ordinary_timeout(stage)\n"
                 "    marker.touch()\n"
                 "    owner['emit']({'type': 'error', 'sessionID': 'ses_rejected_login',\n"
@@ -53,7 +53,7 @@ class ProviderAuthCLI(unittest.TestCase):
                 "raise SystemExit(fixture['main']())\n"
             )
         else:
-            env[fault] = "astra_discovery:1"
+            env[fault] = "draft_plan:1"
         driver = Driver(project, self.root, flags, env, autocode=default_autocode(), max_steps=40, timeout_seconds=600)
         driver.call("start", task=self.scenario.brief)
         runs = project / ".autocode" / "runs"
@@ -66,12 +66,12 @@ class ProviderAuthCLI(unittest.TestCase):
             )
         driver.run_dir = candidates[-1].parent
         view = driver.until_stopped()
-        self.assertEqual("astra_discovery", view.get("next_stage"), view.get("stop_reason"))
+        self.assertEqual("draft_plan", view.get("next_stage"), view.get("stop_reason"))
         self.assertFalse(view.get("done"))
         for detail in details:
             self.assertIn(detail, view.get("stop_reason") or "")
         self.assertIn("no automatic replay", view.get("stop_reason") or "")
-        attempts = [row for row in view["usage"]["accounting"]["attempts"] if row["stage"] == "astra_discovery"]
+        attempts = [row for row in view["usage"]["accounting"]["attempts"] if row["stage"] == "draft_plan"]
         self.assertEqual(1, len(attempts), attempts)
         driver.assert_needs_command_accepted(view)
 

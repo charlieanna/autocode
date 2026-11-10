@@ -49,8 +49,8 @@ class StageTests(unittest.TestCase):
     def test_each_stage_shows_its_model_time_tokens_and_cost(self):
         shown = view(
             attempt("requirements_gather", "Requirements"),
-            attempt("terra", "Builder", model="gpt-terra", effort="medium"),
-            by_stage=[{"stage": "terra", "spent_usd": 0.12}],
+            attempt("builder", "Builder", model="gpt-terra", effort="medium"),
+            by_stage=[{"stage": "builder", "spent_usd": 0.12}],
         )
         rows = meter.stages(shown, NOW)
         self.assertEqual(["Requirements", "Builder"], [row["job"] for row in rows])
@@ -60,7 +60,7 @@ class StageTests(unittest.TestCase):
         self.assertEqual("good", style)
 
     def test_a_lowered_review_shows_the_level_it_ran_at_not_the_saved_ceiling(self):
-        lowered = attempt("astra_challenge", "Plan Reviewer", model="mimo", effort="high", reasoning_effort="medium")
+        lowered = attempt("review_plan", "Plan Reviewer", model="mimo", effort="high", reasoning_effort="medium")
         (row,) = meter.stages(view(lowered), NOW)
         self.assertEqual("mimo medium", row["route"])
 
@@ -73,8 +73,8 @@ class StageTests(unittest.TestCase):
 
     def test_a_retry_is_struggling_and_says_why_the_last_attempt_failed(self):
         shown = view(
-            attempt("terra", "Builder", rejected=True),
-            attempt("terra", "Builder", active=True, duration_seconds=None, started_at="2026-11-02T01:06:00Z"),
+            attempt("builder", "Builder", rejected=True),
+            attempt("builder", "Builder", active=True, duration_seconds=None, started_at="2026-11-02T01:06:00Z"),
         )
         (row,) = meter.stages(shown, NOW)
         self.assertEqual((meter.RETRYING, 2, 270.0), (row["state"], row["attempts"], row["seconds"]))
@@ -82,9 +82,9 @@ class StageTests(unittest.TestCase):
 
     def test_retry_time_is_distinct_from_the_stage_total(self):
         shown = view(
-            attempt("sol", "Tester", timed_out=True, duration_seconds=900),
-            attempt("sol", "Tester", timed_out=True, duration_seconds=2100),
-            attempt("sol", "Tester", active=True, duration_seconds=None, started_at="2026-11-02T01:05:00Z"),
+            attempt("tester", "Tester", timed_out=True, duration_seconds=900),
+            attempt("tester", "Tester", timed_out=True, duration_seconds=2100),
+            attempt("tester", "Tester", active=True, duration_seconds=None, started_at="2026-11-02T01:05:00Z"),
         )
         (row,) = meter.stages(shown, NOW)
         self.assertEqual(3300, row["seconds"])
@@ -94,8 +94,8 @@ class StageTests(unittest.TestCase):
 
     def test_retry_with_unknown_start_does_not_show_previous_time_as_current(self):
         shown = view(
-            attempt("sol", "Tester", timed_out=True, duration_seconds=900),
-            attempt("sol", "Tester", active=True, duration_seconds=None, started_at="unknown"),
+            attempt("tester", "Tester", timed_out=True, duration_seconds=900),
+            attempt("tester", "Tester", active=True, duration_seconds=None, started_at="unknown"),
         )
         (row,) = meter.stages(shown, NOW)
         self.assertIsNone(row["attempt_seconds"])
@@ -104,11 +104,11 @@ class StageTests(unittest.TestCase):
 
     def test_a_report_repair_is_the_repaired_stages_next_attempt(self):
         # As in the live run of 2026-11-02: sol was rejected, the Resolver ran, then sol_report_repair passed.
-        rejected = attempt("sol", "Tester", rejected=True)
+        rejected = attempt("tester", "Tester", rejected=True)
         repairing = attempt(
-            "sol_report_repair",
+            "tester_report_repair",
             "Tester",
-            original_stage="sol",
+            original_stage="tester",
             active=True,
             duration_seconds=None,
             started_at="2026-11-02T01:09:30Z",
@@ -117,16 +117,16 @@ class StageTests(unittest.TestCase):
         self.assertEqual(["Tester", "Resolver"], [row["job"] for row in meter.stages(shown, NOW)])
         self.assertEqual("Tester · attempt 2 · 30s · last one answer rejected", meter.struggling(shown, NOW))
         repaired = {**repairing, "active": False, "duration_seconds": 18}
-        costs = [{"stage": "sol", "spent_usd": 0.25}, {"stage": "sol_report_repair", "spent_usd": 0.1}]
+        costs = [{"stage": "tester", "spent_usd": 0.25}, {"stage": "tester_report_repair", "spent_usd": 0.1}]
         tester = meter.stages(view(rejected, attempt("resolver", "Resolver"), repaired, by_stage=costs), NOW)[0]
         self.assertEqual((meter.DONE, 2, 0.35), (tester["state"], tester["attempts"], tester["spent_usd"]))
 
     def test_a_second_round_after_a_success_is_not_struggling(self):
         # Live: the Plan Reviewer's challenge ran twice, and both rounds succeeded.
         shown = view(
-            attempt("astra_challenge", "Plan Reviewer"),
+            attempt("review_plan", "Plan Reviewer"),
             attempt(
-                "astra_challenge",
+                "review_plan",
                 "Plan Reviewer",
                 active=True,
                 duration_seconds=None,
@@ -164,8 +164,8 @@ class StageTests(unittest.TestCase):
         # The core stops a stage after three failures in a row of the same kind (progress.retry);
         # the person could not tell from "attempt 2" whether the next failure goes to the Investigator.
         shown = view(
-            attempt("terra", "Builder", rejected=True),
-            attempt("terra", "Builder", active=True, duration_seconds=5),
+            attempt("builder", "Builder", rejected=True),
+            attempt("builder", "Builder", active=True, duration_seconds=5),
         )
         self.assertEqual("", meter.tries_left(shown), "an older core says nothing about the bound")
         shown["progress"] = {"retry": {"failures": 1, "limit": 3}}
@@ -186,21 +186,23 @@ class StageTests(unittest.TestCase):
         self.assertEqual("", meter.worked_text(view(), NOW))
         shown = view(
             attempt("requirements_gather", "Requirements", duration_seconds=90),
-            attempt("terra", "Builder", duration_seconds=600),
-            attempt("terra", "Builder", active=True, duration_seconds=None, started_at="2026-11-02T01:05:00Z"),
+            attempt("builder", "Builder", duration_seconds=600),
+            attempt("builder", "Builder", active=True, duration_seconds=None, started_at="2026-11-02T01:05:00Z"),
         )
         self.assertEqual(990, meter.run_seconds(shown, NOW))  # the working attempt counts to now
         self.assertEqual("worked 16m30s", meter.worked_text(shown, NOW))
-        unknown = view(attempt("sol", "Tester", active=True, duration_seconds=None, started_at="unknown"))
+        unknown = view(attempt("tester", "Tester", active=True, duration_seconds=None, started_at="unknown"))
         self.assertIsNone(meter.run_seconds(unknown, NOW), "an attempt with no known time adds nothing")
 
     def test_a_first_attempt_at_work_is_not_struggling(self):
-        shown = view(attempt("terra", "Builder", active=True, duration_seconds=None, started_at="2026-11-02T01:09:00Z"))
+        shown = view(
+            attempt("builder", "Builder", active=True, duration_seconds=None, started_at="2026-11-02T01:09:00Z")
+        )
         self.assertEqual(meter.WORKING, meter.stages(shown, NOW)[0]["state"])
         self.assertEqual("", meter.struggling(shown, NOW))
 
     def test_a_failed_attempt_is_marked_with_its_reason(self):
-        (row,) = meter.stages(view(attempt("sol", "Tester", timed_out=True)), NOW)
+        (row,) = meter.stages(view(attempt("tester", "Tester", timed_out=True)), NOW)
         head, detail, style = meter.stage_lines(row)
         self.assertTrue(head.startswith("✗ Tester"))
         self.assertIn("timed out", detail)
@@ -215,15 +217,15 @@ class StageTests(unittest.TestCase):
             ({"timed_out": True, "interrupted": True}, "timed out"),
         ):
             with self.subTest(flags=flags):
-                failed = attempt("sol", "Tester", rejected=True, exit_code=-15, **flags)
+                failed = attempt("tester", "Tester", rejected=True, exit_code=-15, **flags)
                 (row,) = meter.stages(view(failed), NOW)
                 self.assertEqual(expected, row["why"])
                 self.assertNotIn("answer rejected", meter.stage_lines(row)[1])
-                retry = attempt("sol", "Tester", active=True, duration_seconds=10)
+                retry = attempt("tester", "Tester", active=True, duration_seconds=10)
                 self.assertIn(f"last one {expected}", meter.struggling(view(failed, retry), NOW))
 
     def test_incomplete_tokens_are_marked_as_a_floor(self):
-        partial = attempt("terra", "Builder")
+        partial = attempt("builder", "Builder")
         partial["attributed_tokens"]["output_tokens"] = {"value": None, "known": 50, "complete": False}
         _, detail, _ = meter.stage_lines(meter.stages(view(partial), NOW)[0])
         self.assertIn("1.1k+ tokens", detail)
@@ -246,15 +248,15 @@ class PanelTests(unittest.TestCase):
         self.assertEqual("1 earlier stage: /details", one_more.rows[0].text)
 
     def test_the_working_stage_names_its_model_on_its_own_row(self):
-        shown = view(attempt("terra", "Builder", active=True, duration_seconds=12))
+        shown = view(attempt("builder", "Builder", active=True, duration_seconds=12))
         rows = panel.stage_section(shown, NOW).rows
         self.assertEqual(("●", "Builder · 12s"), (rows[0].mark, rows[0].text))
         self.assertEqual("gpt-x high · 1.2k tokens", rows[1].text)
 
     def test_a_struggling_stage_is_flagged_in_now(self):
         shown = view(
-            attempt("terra", "Builder", exit_code=1),
-            attempt("terra", "Builder", active=True, duration_seconds=5),
+            attempt("builder", "Builder", exit_code=1),
+            attempt("builder", "Builder", active=True, duration_seconds=5),
         )
         now = next(section for section in panel.sections(shown) if section.title == "Now")
         self.assertEqual(("!", "warn"), (now.rows[0].mark, now.rows[0].style))
@@ -266,7 +268,7 @@ class CalmPanelTests(unittest.TestCase):
     """The panel says each thing once: the spend in Stages, and delivery only once there is one to judge."""
 
     def test_the_stages_section_carries_the_spend_and_cap_so_usage_is_not_repeated(self):
-        shown = view(attempt("terra", "Builder"), spent=1.73)
+        shown = view(attempt("builder", "Builder"), spent=1.73)
         shown["cost"]["cap_usd"] = 5
         titles = {section.title: section for section in panel.sections(shown)}
         self.assertEqual("$1.73 of $5.00 · 184k tokens · worked 30s", titles["Stages"].summary)
@@ -275,7 +277,7 @@ class CalmPanelTests(unittest.TestCase):
         self.assertIn("Usage", {section.title for section in panel.sections(view(spent=1.73))})
 
     def test_verification_waits_until_the_run_has_a_delivery_to_judge(self):
-        working = {**view(attempt("terra", "Builder")), "status": "RUNNING", "delivery": {"verified_complete": False}}
+        working = {**view(attempt("builder", "Builder")), "status": "RUNNING", "delivery": {"verified_complete": False}}
         self.assertNotIn("Verification", {section.title for section in panel.sections(working)})
         finished = {**working, "status": "TASK_COMPLETE", "done": True, "delivery": {"verified_complete": True}}
         section = next(section for section in panel.sections(finished) if section.title == "Verification")

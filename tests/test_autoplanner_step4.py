@@ -104,7 +104,7 @@ class PlanPreviewTests(PreviewCase):
         # The answer retired the published request; the runner asks the remaining question again.
         remaining = self.state["goal_contract"]["body"]["open_blocking_questions"]
         self.assertEqual(["Q2"], [q["id"] for q in remaining])
-        lifecycle.human.queue(self.state, "clarification", {"stage": "astra_discovery"}, questions=remaining)
+        lifecycle.human.queue(self.state, "clarification", {"stage": "draft_plan"}, questions=remaining)
         lifecycle.human.evaluate(self.state)
         self.assertEqual("WAITING_FOR_USER", self.state["status"])
         lifecycle.present(self.state)

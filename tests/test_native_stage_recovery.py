@@ -175,7 +175,7 @@ class NativeAbandonPublicTests(NativeAbandonFixture, unittest.TestCase):
                 if changed == "unaccounted":
                     self.state["active_stage"]["accounted"] = False
                 if changed == "stage":
-                    self.state["active_stage"]["stage"] = "terra"
+                    self.state["active_stage"]["stage"] = "builder"
                 rejected = deepcopy(self.state)
                 with patch.object(taskrun, "run_process", side_effect=self.public_cli):
                     with self.assertRaises(taskrun.TaskRunError):
@@ -188,7 +188,7 @@ class NativeAbandonPublicTests(NativeAbandonFixture, unittest.TestCase):
         for extra in (
             ("--resume-paused",),
             ("--feedback", "technical correction"),
-            ("--sol-model", "different/model"),
+            ("--tester-model", "different/model"),
             ("--max-seconds", "9999"),
             ("--approve-goal", "a-token"),
             ("--accept-source-edit",),

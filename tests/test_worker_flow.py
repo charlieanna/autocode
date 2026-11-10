@@ -123,5 +123,5 @@ class DurableCoreFlow(unittest.TestCase):
                 view = self.status()
             self.assertTrue(view["done"], view)
             self.assertTrue(view["delivery"]["verified_complete"])
-            self.assertEqual(1, sum(row.get("stage") == "terra" for row in view["usage"]["accounting"]["attempts"]))
+            self.assertEqual(1, sum(row.get("stage") == "builder" for row in view["usage"]["accounting"]["attempts"]))
             self.assertEqual("owned", worker_view.execution(None)["mode"])

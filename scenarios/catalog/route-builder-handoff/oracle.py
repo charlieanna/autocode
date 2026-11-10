@@ -39,7 +39,7 @@ def check(project, scenario, run=None):
         return checks
     view = run.get("view") or {}
     assignments = view.get("route_assignments") or []
-    recorded = [row for row in assignments if row.get("role") == "terra"]
+    recorded = [row for row in assignments if row.get("role") == "builder"]
     checks.append(
         Check(
             "one_builder_route_assignment",
@@ -55,10 +55,10 @@ def check(project, scenario, run=None):
             str(row),
         )
     )
-    route = (view.get("routes") or {}).get("terra") or {}
+    route = (view.get("routes") or {}).get("builder") or {}
     checks.append(Check("builder_route_is_the_named_model", route.get("model") == NAMED, str(route)))
     # Verifiers must not inherit the new Builder model.
-    for role in ("sol", "completion"):
+    for role in ("tester", "completion"):
         other = (view.get("routes") or {}).get(role) or {}
         checks.append(
             Check(
@@ -67,7 +67,7 @@ def check(project, scenario, run=None):
                 str(other),
             )
         )
-    asked = [answer for answer in run.get("answers") or [] if answer.get("id") == "route-terra"]
+    asked = [answer for answer in run.get("answers") or [] if answer.get("id") == "route-builder"]
     checks.append(
         Check(
             "model_named_by_the_person",
@@ -82,7 +82,7 @@ def check(project, scenario, run=None):
     abandoned = [
         stage
         for stage in state.get("stages") or []
-        if stage.get("stage") == "terra"
+        if stage.get("stage") == "builder"
         and (stage.get("abandoned") or stage.get("timed_out") or stage.get("exit_code") not in (0, None))
     ]
     checks.append(

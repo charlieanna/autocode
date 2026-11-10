@@ -514,7 +514,7 @@ class SavedStepTests(unittest.TestCase):
         self.assertIn("offers no live diff", self.client.slash("/diff", "now"))
         self.assertNotIn("/diff now", self.client.slash("/diff", ""))
         self.fixture.state["active_stage"] = {
-            "stage": "terra",
+            "stage": "builder",
             "iteration": 3,
             "output": str(self.fixture.run / "builder-03.json"),
         }
@@ -646,7 +646,7 @@ class ConversationTests(unittest.TestCase):
     def test_named_feedback_at_semantic_stops_is_sent_without_a_resume_or_approval(self):
         for status in ("RESOLVER_PENDING", "PAUSED_COMPLETION_GATE"):
             with self.subTest(status=status):
-                state = {"status": status, "next_stage": "astra_review", "task": "Fix the total"}
+                state = {"status": status, "next_stage": "review_completion", "task": "Fix the total"}
                 view = run_view.view(state, workspace=WORKSPACE, run_dir=RUN)
                 correction = "Keep the member flow local; retain the required actual-code joint proof."
                 client = ScriptedChat(view, DONE, replies=[correction])
@@ -655,7 +655,7 @@ class ConversationTests(unittest.TestCase):
                 self.assertIn("or type what to change", client.text())
 
     def test_a_named_correction_at_a_planning_resume_is_sent_as_a_message(self):
-        state = {"status": "PAUSED_INVALID_OUTPUT", "next_stage": "astra_finalize", "task": "Fix it"}
+        state = {"status": "PAUSED_INVALID_OUTPUT", "next_stage": "finalize_plan", "task": "Fix it"}
         view = run_view.view(state, workspace=WORKSPACE, run_dir=RUN)
         correction = "Retain the exact original source quotes; add new citations separately."
         client = ScriptedChat(view, DONE, replies=[correction])
@@ -666,7 +666,7 @@ class ConversationTests(unittest.TestCase):
     def test_a_resume_without_a_message_offer_does_not_send_free_text(self):
         view = {
             "status": "PAUSED_INVALID_OUTPUT",
-            "next_stage": "terra",
+            "next_stage": "builder",
             "needs": {"kind": "resume"},
             "next_command": f"autocode {PLACE} --resume-paused",
         }
@@ -677,7 +677,7 @@ class ConversationTests(unittest.TestCase):
     def test_a_declined_continue_exits_the_line_chat(self):
         view = {
             "status": "PAUSED_INVALID_OUTPUT",
-            "next_stage": "terra",
+            "next_stage": "builder",
             "needs": {"kind": "resume"},
             "next_command": f"autocode {PLACE} --resume-paused",
         }
@@ -691,7 +691,7 @@ class ConversationTests(unittest.TestCase):
         # 2026-11-05 live run: "AutoCode stopped: AutoCode. Partial work retained."
         view = {
             "status": "PAUSED_STAGE_ABANDONED",
-            "next_stage": "astra_challenge",
+            "next_stage": "review_plan",
             "needs": {"kind": "resume", "reason": "Partial work retained."},
             "pause_category_label": "AutoCode",
             "next_command": f"autocode {PLACE} --resume-paused",
@@ -705,7 +705,7 @@ class ConversationTests(unittest.TestCase):
         """#2701: answering N at a Continue prompt evicted the full-screen chat with exit code 2."""
         view = {
             "status": "PAUSED_INVALID_OUTPUT",
-            "next_stage": "terra",
+            "next_stage": "builder",
             "needs": {"kind": "resume"},
             "next_command": f"autocode {PLACE} --resume-paused",
         }
@@ -948,7 +948,7 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual([], client.taken)
 
     def test_a_relaunch_that_changes_nothing_stops_instead_of_looping(self):
-        view = {"status": "RUNNING", "needs": {"kind": "continue"}, "next_command": None, "next_stage": "terra"}
+        view = {"status": "RUNNING", "needs": {"kind": "continue"}, "next_command": None, "next_stage": "builder"}
         client = ScriptedChat(view, moves=False)
         self.assertEqual(1, client.converse())
         self.assertIn("made no progress at RUNNING", client.text())
@@ -1155,10 +1155,10 @@ class ConversationTests(unittest.TestCase):
 
     def test_a_model_question_shows_what_stopped_and_the_models_offered(self):
         view = answer_view(
-            questions=[{"id": "route-sol", "question": "The Tester's quota ran out. Which model now?"}],
+            questions=[{"id": "route-tester", "question": "The Tester's quota ran out. Which model now?"}],
             route={"candidates": ["model-a", "model-b"], "stopped_model": "model-x", "cause": "quota", "job": "Tester"},
         )
-        view["next_command"] = f"autocode {PLACE} --answer route-sol=MODEL --resolver-token -"
+        view["next_command"] = f"autocode {PLACE} --answer route-tester=MODEL --resolver-token -"
         client = ScriptedChat(view, DONE, replies=["model-b"])
         self.assertEqual(0, client.converse())
         out = client.text()
@@ -1167,7 +1167,7 @@ class ConversationTests(unittest.TestCase):
             out.index("Which model should the Tester continue on?"),
         )
         self.assertIn("Stopped on: model-x (quota)", out)
-        self.assertEqual([["--answer", "route-sol=model-b", "--resolver-token", "-"]], client.taken)
+        self.assertEqual([["--answer", "route-tester=model-b", "--resolver-token", "-"]], client.taken)
 
     def test_going_back_at_a_question_carries_on_with_the_new_run(self):
         class GoingBack(ScriptedChat):
@@ -1296,7 +1296,7 @@ class ConversationTests(unittest.TestCase):
 
     def test_valid_requirements_approval_advances_through_the_projected_boundary_action(self):
         ready = run_view.view(
-            {"status": "RUNNING", "phase": "PLANNING", "next_stage": "astra_discovery"},
+            {"status": "RUNNING", "phase": "PLANNING", "next_stage": "draft_plan"},
             workspace=WORKSPACE,
             run_dir=RUN,
         )
@@ -2242,8 +2242,8 @@ class StreamAndNoticeTests(unittest.TestCase):
         client = ScriptedChat({})
         for line, stage in (
             ("Requirements working", "requirements_gather"),
-            ("Plan Reviewer working", "astra_challenge"),
-            ("Tester working", "astra_checkpoint"),
+            ("Plan Reviewer working", "review_plan"),
+            ("Tester working", "review_checkpoint"),
         ):
             client.show({"chat": {"notice": "Working on your request…"}, "progress": {"line": line, "stage": stage}})
         self.assertEqual(1, client.text().count("Working on your request…"))
@@ -2298,16 +2298,16 @@ class StreamAndNoticeTests(unittest.TestCase):
 
         for shown in (
             view("Next: Orchestrator", "orchestrator"),
-            view("Builder working", "terra"),
-            view("Next: Builder", "terra"),
-            view("Builder working", "terra"),
-            view("Builder finished", "terra"),
-            view("Next: Tester", "sol"),
-            view("Tester working", "sol"),
-            view("Tester finished", "sol"),
-            view("Next: Completion Reviewer", "astra_review", checked=5),
-            view("Completion Reviewer working", "astra_review", checked=5),
-            view("Completion Reviewer finished", "astra_review", checked=5),
+            view("Builder working", "builder"),
+            view("Next: Builder", "builder"),
+            view("Builder working", "builder"),
+            view("Builder finished", "builder"),
+            view("Next: Tester", "tester"),
+            view("Tester working", "tester"),
+            view("Tester finished", "tester"),
+            view("Next: Completion Reviewer", "review_completion", checked=5),
+            view("Completion Reviewer working", "review_completion", checked=5),
+            view("Completion Reviewer finished", "review_completion", checked=5),
         ):
             client.show(shown)
         text = client.text()
@@ -2941,7 +2941,7 @@ class TerminalChatTests(unittest.TestCase):
         self.assertEqual(1, sum(bool(p.get("message", {}).get("gate_kind")) for p in prompts))
         self.assertEqual("AWAITING_GOAL_APPROVAL", view["status"])
         self.assertIsNotNone(actions.plan_for_approval(view))
-        self.assertFalse(any(row["stage"] == "terra" for row in attempts))
+        self.assertFalse(any(row["stage"] == "builder" for row in attempts))
         self.assertFalse((self.workspace / "greet.py").exists())
         reopened = status()
         self.assertEqual(view["usage"], reopened["usage"])

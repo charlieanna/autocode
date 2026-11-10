@@ -52,26 +52,26 @@ class PlannerIntentTests(unittest.TestCase):
         current = state("Build something like Cursor but better for multiple agents")
         value = draft_report(body(questions=True))
         with self.assertRaisesRegex(ValueError, "clarification-only"):
-            autopilot.apply_planning(current, "astra_discovery", value, {"output": "draft.json"})
+            autopilot.apply_planning(current, "draft_plan", value, {"output": "draft.json"})
         self.assertNotIn("goal_contract", current)
         value["contract"]["milestones"] = []
         value["contract"]["technical_approach"] = []
-        autopilot.apply_planning(current, "astra_discovery", value, {"output": "questions.json"})
+        autopilot.apply_planning(current, "draft_plan", value, {"output": "questions.json"})
         # The question is queued; the runner's writer boundary publishes it to the user.
         self.assertEqual("RESOLVER_PENDING", current["status"])
         lifecycle.human.evaluate(current)
         self.assertEqual("WAITING_FOR_USER", current["status"])
         self.assertEqual([], current["goal_contract"]["body"]["milestones"])
         goals.answer(current, "Q1", "CLI")
-        autopilot.apply_planning(current, "astra_discovery", draft_report(body()), {"output": "plan.json"})
-        self.assertEqual("astra_challenge", current["next_stage"])
+        autopilot.apply_planning(current, "draft_plan", draft_report(body()), {"output": "plan.json"})
+        self.assertEqual("review_plan", current["next_stage"])
         self.assertTrue(current["goal_contract"]["body"]["milestones"])
         self.assertFalse(goals.approved(current))
 
     def test_late_reviewer_question_is_not_erased_by_revision_routing(self):
         current = state()
         lifecycle.install_draft(current, body(), origin="glm_draft")
-        current["planning"]["reports"]["astra_challenge"] = {"report": {"concerns": []}}
+        current["planning"]["reports"]["review_plan"] = {"report": {"concerns": []}}
         draft = body(questions=True)
         value = {
             "contract": draft,
@@ -81,12 +81,12 @@ class PlannerIntentTests(unittest.TestCase):
             "contract_changes": [],
             "requirement_trace": [],
         }
-        autopilot.apply_planning(current, "glm_revise", value, {"output": "revision.json"})
+        autopilot.apply_planning(current, "revise_plan", value, {"output": "revision.json"})
         self.assertEqual("RESOLVER_PENDING", current["status"])
         lifecycle.human.evaluate(current)
         self.assertEqual("WAITING_FOR_USER", current["status"])
         self.assertEqual("Q1", current["pending_questions"][0]["id"])
-        self.assertNotEqual("astra_finalize", current["next_stage"])
+        self.assertNotEqual("finalize_plan", current["next_stage"])
 
     def test_saved_correction_supersedes_old_requirement_and_invalidates_approval(self):
         current = state("Monitoring only; no controls")
@@ -119,10 +119,10 @@ class PlannerIntentTests(unittest.TestCase):
             },
             {"requirement_id": "R2", "disposition": "covered", "evidence": "C1"},
         ]
-        autopilot.apply_planning(current, "astra_discovery", value, {"output": "changed.json"})
+        autopilot.apply_planning(current, "draft_plan", value, {"output": "changed.json"})
         self.assertNotEqual(old_token, goals.token(current["goal_contract"]))
         self.assertFalse(goals.approved(current))
-        self.assertEqual("astra_challenge", current["next_stage"])
+        self.assertEqual("review_plan", current["next_stage"])
 
     def test_supersession_does_not_accept_forged_or_partial_event_ids(self):
         current = state()
@@ -222,7 +222,7 @@ class PlannerIntentTests(unittest.TestCase):
                 autopilot._check_code_refs(current, ["runner.py:1-3"])
 
     def test_an_explanation_after_an_existing_path_is_not_a_rejection(self):
-        # A live glm_revise was rejected, costing a report repair, for a path followed by prose.
+        # A live revise_plan was rejected, costing a report repair, for a path followed by prose.
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / "runner.py").write_text("def complete():\n    return True\n")
@@ -296,7 +296,7 @@ class ConcernCoverageTests(unittest.TestCase):
         }
 
     def test_a_row_for_something_that_is_not_a_concern_is_not_a_rejection(self):
-        # A live astra_finalize was rejected for listing a question ID among its concern decisions.
+        # A live finalize_plan was rejected for listing a question ID among its concern decisions.
         rows = [{"concern_id": "C1"}, {"concern_id": "Q1"}, {"concern_id": "C2"}]
         self.assertEqual([rows[0], rows[2]], planner._coverage(rows, self.CONCERNS))
 
@@ -312,7 +312,7 @@ class ConcernCoverageTests(unittest.TestCase):
             with self.subTest(placeholder_resolved=resolved):
                 current = state()
                 lifecycle.install_draft(current, body(), origin="glm_draft")
-                current["planning"]["reports"]["astra_challenge"] = {"report": {"concerns": [{"id": "C1"}]}}
+                current["planning"]["reports"]["review_plan"] = {"report": {"concerns": [{"id": "C1"}]}}
                 final = body()
                 final["initial_task"] = {
                     "kind": "implement",
@@ -330,8 +330,8 @@ class ConcernCoverageTests(unittest.TestCase):
                     "requirement_trace": [],
                     "decisions": [self.decision("C1"), {**self.PLACEHOLDER, "resolved": resolved}],
                 }
-                autopilot.apply_planning(current, "astra_finalize", value, {"output": "final.json"})
-                saved = current["planning"]["reports"]["astra_finalize"]["report"]
+                autopilot.apply_planning(current, "finalize_plan", value, {"output": "final.json"})
+                saved = current["planning"]["reports"]["finalize_plan"]["report"]
                 self.assertEqual([self.decision("C1")], saved["decisions"])
                 self.assertEqual(goals.token(current["goal_contract"]), current["planning"]["final_token"])
                 self.assertEqual(2, len(value["decisions"]))  # the provider's report itself is not edited
@@ -348,7 +348,7 @@ class RetainedConcernReportTests(unittest.TestCase):
 
     def inputs(self, concerns=("C1", "C2")):
         current = state()
-        current["stages"] = [{"stage": "astra_finalize", "output": "final.json", "source_revision": "source-revision"}]
+        current["stages"] = [{"stage": "finalize_plan", "output": "final.json", "source_revision": "source-revision"}]
         contract = body()
         contract["acceptance_criteria"][0]["sources"] = [{"source_id": "task:0", "quote": current["task"]}]
         contract["initial_task"] = {
@@ -361,14 +361,14 @@ class RetainedConcernReportTests(unittest.TestCase):
             "affected_paths": ["greet.py"],
         }
         planner.new_cycle(current)
-        lifecycle.install_draft(current, contract, origin="glm_revise")
+        lifecycle.install_draft(current, contract, origin="revise_plan")
         current["planning"]["reports"].update(
             {
-                "astra_challenge": {
+                "review_plan": {
                     "output": "challenge.json",
                     "report": {"concerns": [{"id": cid} for cid in concerns]},
                 },
-                "glm_revise": {
+                "revise_plan": {
                     "output": "revision.json",
                     "report": {"contract": copy.deepcopy(current["goal_contract"]["body"]), "requirement_trace": []},
                 },
@@ -413,14 +413,14 @@ class RetainedConcernReportTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         root = Path(directory.name)
-        request = planner.prepare(copy.deepcopy(current), "astra_finalize", root / "state.json", None)
+        request = planner.prepare(copy.deepcopy(current), "finalize_plan", root / "state.json", None)
         schema = runner.util.model_output_schema(request.schema)
         output, schema_file, events = root / "final.json", root / "schema.json", root / "final.jsonl"
         output.write_text(json.dumps(report))
         schema_file.write_text(json.dumps(schema))
         events.write_text('{"type":"turn.completed"}\n')
         record = {
-            "stage": "astra_finalize",
+            "stage": "finalize_plan",
             "engine": "codex",
             "output": str(output),
             "schema": str(schema_file),
@@ -448,9 +448,9 @@ class RetainedConcernReportTests(unittest.TestCase):
         for report in (original, concise):
             candidate = copy.deepcopy(current)
             loaded, record = self.load_report(candidate, report)
-            expanded = retention.expand(candidate, "astra_finalize", loaded)["contract"]
+            expanded = retention.expand(candidate, "finalize_plan", loaded)["contract"]
             self.assertEqual(current["goal_contract"]["body"], expanded)
-            autopilot.apply_planning(candidate, "astra_finalize", loaded, record)
+            autopilot.apply_planning(candidate, "finalize_plan", loaded, record)
             lifecycle.human.evaluate(candidate)
             shown = lifecycle.present(candidate)
             view = run_view.view(candidate)
@@ -468,7 +468,7 @@ class RetainedConcernReportTests(unittest.TestCase):
             outcomes.append(
                 (
                     {key: value for key, value in candidate["goal_contract"]["body"].items() if key != "source_trace"},
-                    candidate["planning"]["reports"]["astra_finalize"]["report"],
+                    candidate["planning"]["reports"]["finalize_plan"]["report"],
                     # Raw report provenance changes the sealed token, never the approval action or plan.
                     view["next_command"].replace(selected, "CURRENT_PLAN_TOKEN"),
                 )
@@ -493,7 +493,7 @@ class RetainedConcernReportTests(unittest.TestCase):
                 error = "blocking questions" if variant == "unresolved" else "exactly one"
                 loaded, record = self.load_report(current, report)
                 with self.assertRaisesRegex(ValueError, error):
-                    autopilot.apply_planning(current, "astra_finalize", loaded, record)
+                    autopilot.apply_planning(current, "finalize_plan", loaded, record)
                 self.assertFalse(goals.approved(current))
 
     def test_a_new_blocker_survives_an_empty_incoming_concern_list(self):
@@ -501,7 +501,7 @@ class RetainedConcernReportTests(unittest.TestCase):
         question = body(questions=True)["open_blocking_questions"][0]
         report["contract"]["open_blocking_questions"] = [question]
         loaded, record = self.load_report(current, report)
-        autopilot.apply_planning(current, "astra_finalize", loaded, record)
+        autopilot.apply_planning(current, "finalize_plan", loaded, record)
         lifecycle.human.evaluate(current)
         view = run_view.view(current)
         self.assertEqual("WAITING_FOR_USER", view["status"])

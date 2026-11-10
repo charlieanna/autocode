@@ -47,8 +47,8 @@ class CompactPlanningTests(unittest.TestCase):
                 "planner": {"model": "g"},
                 "plan_reviewer": {"model": "p"},
                 "task_planner": {"model": "a", "engine": "codex"},
-                "terra": {"model": "t"},
-                "sol": {"model": "s"},
+                "builder": {"model": "t"},
+                "tester": {"model": "s"},
             },
         }
         if opt_in:
@@ -111,14 +111,14 @@ class CompactPlanningTests(unittest.TestCase):
 
     def reviewer_record(self, state, report):
         self.records += 1
-        output = self.root / f"astra_challenge-{self.records}.json"
+        output = self.root / f"review_plan-{self.records}.json"
         output.write_text(json.dumps(report))
-        events = self.root / f"astra_challenge-{self.records}.jsonl"
+        events = self.root / f"review_plan-{self.records}.jsonl"
         events.write_text(
             json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": json.dumps(report)}}) + "\n"
         )
         record = {
-            "stage": "astra_challenge",
+            "stage": "review_plan",
             "role": "task_planner",
             "route_role": "plan_reviewer",
             "engine": "fixture",
@@ -146,7 +146,7 @@ class CompactPlanningTests(unittest.TestCase):
     def test_a_clean_review_publishes_the_runners_draft_for_the_persons_approval(self):
         state = self.saved()
         report = self.review()
-        autopilot.apply_planning(state, "astra_challenge", report, self.reviewer_record(state, report))
+        autopilot.apply_planning(state, "review_plan", report, self.reviewer_record(state, report))
         contract = state["goal_contract"]
         self.assertEqual("adaptive_review_approval", contract["origin"])
         self.assertEqual("draft", contract["approval_status"], "the person approves; no policy does")
@@ -157,7 +157,7 @@ class CompactPlanningTests(unittest.TestCase):
             published = human.current(state)
         self.assertEqual("goal_approval", published["scope"])
         self.assertEqual("AWAITING_GOAL_APPROVAL", state["status"])
-        self.assertEqual(["astra_challenge"], list(state["planning"]["reports"]))
+        self.assertEqual(["review_plan"], list(state["planning"]["reports"]))
         self.assertEqual("compact", stage_policy.view(state)["path"])
         self.assertIsNone(state.get("current_task"), "nothing is assigned before the person approves")
         self.assertIsNone(compact.fallback_context(state))
@@ -175,10 +175,8 @@ class CompactPlanningTests(unittest.TestCase):
         }
         report = self.review([concern])
         state["planning"]["astra_calls"] = 1  # the review was charged at admission
-        autopilot.apply_planning(state, "astra_challenge", report, self.reviewer_record(state, report))
-        self.assertEqual(
-            ("RUNNING", "PLANNING", "astra_discovery"), (state["status"], state["phase"], state["next_stage"])
-        )
+        autopilot.apply_planning(state, "review_plan", report, self.reviewer_record(state, report))
+        self.assertEqual(("RUNNING", "PLANNING", "draft_plan"), (state["status"], state["phase"], state["next_stage"]))
         self.assertEqual(0, state["planning"]["astra_calls"], "the compact review does not count against the full path")
         self.assertEqual(
             compact.ORIGIN, state["goal_contract"]["origin"], "the refused draft stays on record, unapproved"
@@ -186,7 +184,7 @@ class CompactPlanningTests(unittest.TestCase):
         self.assertFalse(goals.approved(state))
         self.assertIsNone(state.get("current_task"), "no Builder launches")
         self.assertIsNone(state["planning"]["final_token"])
-        self.assertEqual(concern, state["planning"]["reports"]["astra_challenge"]["report"]["concerns"][0])
+        self.assertEqual(concern, state["planning"]["reports"]["review_plan"]["report"]["concerns"][0])
         # The Planner's packet says what happened, and its rule tells it to draft afresh.
         self.assertEqual(
             {"reason": "the Plan Reviewer raised blocking concerns K1", "blocking_concerns": ["K1"]},
@@ -197,7 +195,7 @@ class CompactPlanningTests(unittest.TestCase):
         self.assertEqual("full", policy["path"])
         self.assertEqual(
             {
-                "from": "astra_challenge",
+                "from": "review_plan",
                 "reason": "the Plan Reviewer raised blocking concerns K1",
                 "review_call_refunded": True,
             },

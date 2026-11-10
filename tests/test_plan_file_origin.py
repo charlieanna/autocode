@@ -13,7 +13,7 @@ import autocode_plan_file as plan_file
 import autocode_plan_file_origin as origin
 from goal_fixtures import body as fixture_body
 
-REVIEW = {"stage": "astra_challenge", "events": "/run/a/plan-challenge-01.jsonl", "events_sha256": "1" * 64}
+REVIEW = {"stage": "review_plan", "events": "/run/a/plan-challenge-01.jsonl", "events_sha256": "1" * 64}
 
 
 def loaded_run(current: dict | None = None) -> dict:

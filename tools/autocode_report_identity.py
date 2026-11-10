@@ -23,7 +23,7 @@ except ImportError:
     from autocode_util import read as read_json
 
 FIELDS = ("contract_hash", "contract_revision", "task_id")
-STAGES = ("sol", "astra_review", "astra_checkpoint")
+STAGES = ("tester", "review_completion", "review_checkpoint")
 
 
 def current_identity(state: RunState):

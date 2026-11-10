@@ -39,7 +39,7 @@ class PlanningAllowanceCLITests(unittest.TestCase):
         # Own-fixture fault boundary: the completed real fake reviews remain
         # charged, and the plan has never been approved. No model result is forged.
         state.update(
-            status="PAUSED_PLANNING_BUDGET", next_stage="astra_finalize", stop_reason="2/2 plan-review calls used"
+            status="PAUSED_PLANNING_BUDGET", next_stage="finalize_plan", stop_reason="2/2 plan-review calls used"
         )
         if grant:
             # This is a seeded, already-exhausted accounting boundary, not a
@@ -50,7 +50,7 @@ class PlanningAllowanceCLITests(unittest.TestCase):
                 automatic_recoveries_since_resume=3,
                 consecutive_timeout_recoveries=3,
                 automatic_timeout_recoveries=[
-                    {"stage": "astra_finalize", "timeout_reason": "fixture idle watchdog"} for _ in range(3)
+                    {"stage": "finalize_plan", "timeout_reason": "fixture idle watchdog"} for _ in range(3)
                 ],
             )
         if operational:
@@ -115,8 +115,8 @@ class PlanningAllowanceCLITests(unittest.TestCase):
             inherited_review={
                 "astra_calls": 1,
                 "cycle": len(history) - 1,
-                "reports": ["astra_challenge", "glm_revise"],
-                "next_stage": "astra_finalize",
+                "reports": ["review_plan", "revise_plan"],
+                "next_stage": "finalize_plan",
             },
             review_depth_reduced=True,
             review_calls_before_policy=2,
@@ -128,7 +128,7 @@ class PlanningAllowanceCLITests(unittest.TestCase):
         state.update(
             status="PAUSED_PLANNING_BUDGET",
             phase="PLANNING",
-            next_stage="astra_finalize",
+            next_stage="finalize_plan",
             stop_reason="3/3 plan-review calls used",
         )
         runner.write_json(self.run / "state.json", state)
@@ -161,7 +161,7 @@ class PlanningAllowanceCLITests(unittest.TestCase):
         for identity, original in old_attempts.items():
             self.assertEqual(original, attempts[identity], "Historical reported usage must stay intact")
         new_reviews = [row for identity, row in attempts.items() if identity not in old_attempts]
-        self.assertEqual(["astra_finalize"], [row["stage"] for row in new_reviews])
+        self.assertEqual(["finalize_plan"], [row["stage"] for row in new_reviews])
         self.assertFalse(new_reviews[0]["report_only"])
         self.assertNotIn("approved_contract", after)
         self.assertFalse((self.project / "greet.py").exists(), "Resume and review cannot approve the Builder")
@@ -253,7 +253,7 @@ class PlanningAllowanceCLITests(unittest.TestCase):
             row
             for row in attempts
             if row["identity"] not in old_ids
-            and row["stage"] in ("astra_challenge", "astra_finalize")
+            and row["stage"] in ("review_plan", "finalize_plan")
             and not row["report_only"]
             and not row["runner_owned"]
         ]

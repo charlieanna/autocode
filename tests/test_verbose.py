@@ -18,7 +18,7 @@ class VerboseTests(unittest.TestCase):
 
     def test_on_by_default_and_off_only_when_turned_off(self):
         self.assertTrue(verbose.enabled())
-        self.assertIsNotNone(verbose.reporter("terra", "gpt-x"))
+        self.assertIsNotNone(verbose.reporter("builder", "gpt-x"))
         for value in ("", " ", "1", "yes"):
             with self.subTest(value=value):
                 os.environ[verbose.ENV] = value
@@ -27,7 +27,7 @@ class VerboseTests(unittest.TestCase):
             with self.subTest(value=value):
                 os.environ[verbose.ENV] = value
                 self.assertFalse(verbose.enabled())
-                self.assertIsNone(verbose.reporter("terra", "gpt-x"))
+                self.assertIsNone(verbose.reporter("builder", "gpt-x"))
         verbose.enable()
         self.assertTrue(verbose.enabled())
         verbose.disable()
@@ -52,26 +52,26 @@ class VerboseTests(unittest.TestCase):
         verbose.enable()
         out = io.StringIO()
         ticks = iter([0.0, 10.0])
-        report = verbose.reporter("terra", "gpt-x", stream=out, clock=lambda: next(ticks))
+        report = verbose.reporter("builder", "gpt-x", stream=out, clock=lambda: next(ticks))
         report("tool", "command started")
         report("text", "line one\nline two  " + "x" * 400)
         lines = out.getvalue().splitlines()
-        self.assertEqual("terra/gpt-x: tool: command started", lines[0])
-        self.assertTrue(lines[1].startswith("terra/gpt-x: line one line two "))
+        self.assertEqual("builder/gpt-x: tool: command started", lines[0])
+        self.assertTrue(lines[1].startswith("builder/gpt-x: line one line two "))
         self.assertTrue(lines[1].endswith("…"))
-        self.assertLessEqual(len(lines[1]), len("terra/gpt-x: ") + 201)
+        self.assertLessEqual(len(lines[1]), len("builder/gpt-x: ") + 201)
 
     def test_text_is_rate_limited_but_tool_lines_are_not(self):
         verbose.enable()
         out = io.StringIO()
         ticks = iter([0.0, 0.1, 2.0, 2.1])
-        report = verbose.reporter("sol", None, stream=out, clock=lambda: next(ticks))
+        report = verbose.reporter("tester", None, stream=out, clock=lambda: next(ticks))
         report("text", "first")
         report("text", "suppressed")
         report("tool", "tool finished")
         report("text", "later")
         lines = out.getvalue().splitlines()
-        self.assertEqual(["sol: first", "sol: tool: tool finished", "sol: later"], lines)
+        self.assertEqual(["tester: first", "tester: tool: tool finished", "tester: later"], lines)
 
     def test_repeated_heartbeat_lines_are_coalesced_into_one_counted_line(self):
         verbose.enable()
@@ -126,7 +126,7 @@ class VerboseTests(unittest.TestCase):
             def flush(self):
                 raise OSError("eio")
 
-        report = verbose.reporter("terra", "m", stream=Broken(), clock=lambda: 0.0)
+        report = verbose.reporter("builder", "m", stream=Broken(), clock=lambda: 0.0)
         report("tool", "command started")
 
 

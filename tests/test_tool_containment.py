@@ -622,7 +622,7 @@ class PolicyTests(unittest.TestCase):
                 {"shell": "/owned/shell"},
             )
             command, env, overrides = opencode.launch(
-                "sol",
+                "tester",
                 "/workspace",
                 "/run",
                 None,
@@ -684,10 +684,10 @@ class PolicyTests(unittest.TestCase):
             Path("workspace/.autocode") / control / "scratch",
         ]
         records = [
-            {"stage": "terra"},
-            {"stage": "sol", "tool_containment": {"scratch": str(genuine)}},
-            {"stage": "sol", "tool_containment": {"scratch": str(genuine)}},
-            *({"stage": "sol", "tool_containment": {"scratch": str(path)}} for path in lookalikes),
+            {"stage": "builder"},
+            {"stage": "tester", "tool_containment": {"scratch": str(genuine)}},
+            {"stage": "tester", "tool_containment": {"scratch": str(genuine)}},
+            *({"stage": "tester", "tool_containment": {"scratch": str(path)}} for path in lookalikes),
             {"tool_containment": None},
             {"tool_containment": {"scratch": 7}},
             {"tool_containment": "x"},
@@ -698,21 +698,21 @@ class PolicyTests(unittest.TestCase):
 
     def test_recorded_backend_is_the_latest_contained_launchs_own_manifest(self):
         # The status view names the boundary a launch actually ran in (#709), never this host's.
-        legacy = {"stage": "sol", "iteration": 1, "started_at": "t1", "tool_containment": {"scratch": "/s"}}
+        legacy = {"stage": "tester", "iteration": 1, "started_at": "t1", "tool_containment": {"scratch": "/s"}}
         linux = {
-            "stage": "terra",
+            "stage": "builder",
             "iteration": 2,
             "started_at": "t2",
             "tool_containment": {"backend": "bubblewrap", "backend_version": "bubblewrap 0.9.0"},
         }
-        waived = {"stage": "sol", "iteration": 2, "tool_containment": None, "uncontained_tools": True}
+        waived = {"stage": "tester", "iteration": 2, "tool_containment": None, "uncontained_tools": True}
         self.assertIsNone(containment.recorded_backend([]))
         self.assertIsNone(
-            containment.recorded_backend([{"stage": "astra_plan"}, waived, "x", {"tool_containment": "x"}])
+            containment.recorded_backend([{"stage": "plan_task"}, waived, "x", {"tool_containment": "x"}])
         )
         # A manifest saved before #709 names no backend: only Seatbelt existed then, as verify() reads it.
         self.assertEqual(
-            {"backend": "seatbelt", "backend_version": None, "stage": "sol", "iteration": 1, "started_at": "t1"},
+            {"backend": "seatbelt", "backend_version": None, "stage": "tester", "iteration": 1, "started_at": "t1"},
             containment.recorded_backend([legacy]),
         )
         # Later uncontained or planning launches do not hide the last boundary that applied.
@@ -720,11 +720,11 @@ class PolicyTests(unittest.TestCase):
             {
                 "backend": "bubblewrap",
                 "backend_version": "bubblewrap 0.9.0",
-                "stage": "terra",
+                "stage": "builder",
                 "iteration": 2,
                 "started_at": "t2",
             },
-            containment.recorded_backend([legacy, linux, waived, {"stage": "astra_plan"}]),
+            containment.recorded_backend([legacy, linux, waived, {"stage": "plan_task"}]),
         )
         # A name that is not a backend is not repeated as one.
         for odd in (
@@ -732,7 +732,7 @@ class PolicyTests(unittest.TestCase):
             {"backend": ["bubblewrap"], "backend_version": {"v": 1}},
             {"backend": "chroot", "backend_version": None},
         ):
-            named = containment.recorded_backend([{"stage": "terra", "tool_containment": odd}])
+            named = containment.recorded_backend([{"stage": "builder", "tool_containment": odd}])
             self.assertEqual((None, None), (named["backend"], named["backend_version"]))
 
 
@@ -1673,7 +1673,7 @@ class KernelTests(unittest.TestCase):
         self.assert_denied(": > " + shlex.quote(str(escape)), writer)
         self.assertFalse(escape.exists())
         record = {
-            "stage": "terra",
+            "stage": "builder",
             "iteration": 1,
             "started_at": "2026-10-15T00:00:00+00:00",
             **provider_launch.stage_record({"engine": "opencode", "tool_containment": writer}),
@@ -1681,7 +1681,7 @@ class KernelTests(unittest.TestCase):
         named = run_view.view({"status": "RUNNING", "stages": [record]})["tool_containment_backend"]
         self.assertEqual(NATIVE, named["backend"])
         self.assertEqual(containment.backend_version(NATIVE), named["backend_version"])
-        self.assertEqual(("terra", 1), (named["stage"], named["iteration"]))
+        self.assertEqual(("builder", 1), (named["stage"], named["iteration"]))
 
     def test_symlink_escape_denied_even_from_writable_scratch(self):
         link = Path(self.boundary["scratch"]) / "escape"

@@ -14,7 +14,7 @@ from .test_prompt_rendering import STATE_PATH, fixed_state
 
 class PlanningScopeDisciplineTests(unittest.TestCase):
     def test_reviewers_block_missing_observable_behavior_but_allow_implementation_details(self):
-        for stage in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize"):
+        for stage in ("review_plan", "finalize_plan", "plan_review", "plan_finalize"):
             for retained in (False, True):
                 with self.subTest(stage=stage, retained=retained):
                     state = fixed_state()

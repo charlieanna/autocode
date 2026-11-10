@@ -297,7 +297,7 @@ class TerminalConversationTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.validation()
             runner.apply_result(
-                self.state, "astra_review", self.decision("COMPLETE"), {"output": "review"}, self.root, self.run
+                self.state, "review_completion", self.decision("COMPLETE"), {"output": "review"}, self.root, self.run
             )
         lifecycle.human.evaluate(self.state)  # publish the artifact review, as the runner's writer boundary does
         self.assertEqual("WAITING_FOR_USER", self.state["status"])

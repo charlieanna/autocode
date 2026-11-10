@@ -181,8 +181,8 @@ class LaunchTests(unittest.TestCase):
             _, environment, _, worker = provider_launch.prepare(
                 engine="opencode",
                 adapter=Configured,
-                role="sol",
-                route_role="sol",
+                role="tester",
+                route_role="tester",
                 workspace=Path("/w"),
                 run_dir=Path("/r"),
                 session=None,
@@ -231,8 +231,8 @@ class KiloCapTests(unittest.TestCase):
                 _, child, _, worker = provider_launch.prepare(
                     engine="opencode",
                     adapter=adapter,
-                    role="terra",
-                    route_role="terra",
+                    role="builder",
+                    route_role="builder",
                     workspace=Path("/workspace"),
                     run_dir=Path("/run"),
                     session=None,
@@ -283,15 +283,15 @@ class LengthStopCliTests(unittest.TestCase):
         from .opencode_fixture_cli import entrypoint
 
         self.entry = entrypoint(self.entry)
-        self.env.update(AUTOCODE_FIXTURE_MODE="no-human", AUTOCODE_FIXTURE_TRUNCATE_STAGE="terra")
+        self.env.update(AUTOCODE_FIXTURE_MODE="no-human", AUTOCODE_FIXTURE_TRUNCATE_STAGE="builder")
         for name in (VARIABLE, agent_env.PASS_VARIABLE):
             self.env.pop(name, None)
 
     def builder_stop(self):
         self.launch(["Build a greeting tool", "--chat"], 2, answers="CLI\nyes\n")
         _, state = self.saved()
-        record = state.get("active_stage") or [row for row in state["stages"] if row["stage"] == "terra"][-1]
-        self.assertEqual("terra", record["stage"])
+        record = state.get("active_stage") or [row for row in state["stages"] if row["stage"] == "builder"][-1]
+        self.assertEqual("builder", record["stage"])
         return state, record
 
     def test_the_builder_stops_at_autocodes_cap_and_the_pause_names_it(self):

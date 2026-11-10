@@ -124,7 +124,7 @@ class ClaudeProviderCliTests(unittest.TestCase):
 
     def test_a_truncated_builder_stops_at_the_output_cap(self):
         """Acceptance (output truncation): a Builder cut at Claude's output limit stops for a person."""
-        self.env["AUTOCODE_FIXTURE_TRUNCATE_STAGE"] = "terra"
+        self.env["AUTOCODE_FIXTURE_TRUNCATE_STAGE"] = "builder"
         run = self.start()
         view = self.finish(run, run.status())
         self.assertEqual("PAUSED_OUTPUT_CAP", self.paused(view), view)
@@ -135,13 +135,13 @@ class ClaudeProviderCliTests(unittest.TestCase):
 
     def test_a_truncated_validator_report_is_repaired_without_replaying_checks(self):
         """Acceptance (output truncation): the Tester's partial report is repaired, its checks never rerun."""
-        self.env["AUTOCODE_FIXTURE_TRUNCATE_STAGE"] = "sol"
+        self.env["AUTOCODE_FIXTURE_TRUNCATE_STAGE"] = "tester"
         run = self.start()
         view = self.finish(run, run.status())
         self.assertTrue(view["done"], view)
         self.assertEqual("TASK_COMPLETE", view["status"])
-        self.assertEqual(1, len(self.attempts(view, "sol")))
-        (repair,) = self.attempts(view, "sol_report_repair")
+        self.assertEqual(1, len(self.attempts(view, "tester")))
+        (repair,) = self.attempts(view, "tester_report_repair")
         self.assertEqual(
             [], [row for row in self.events(repair) if row.get("item", {}).get("type") == "command_execution"]
         )
@@ -169,7 +169,7 @@ class ClaudeProviderCliTests(unittest.TestCase):
             self.assertFalse(set(CANARIES) & set(call["env_names"]), call["argv"])
             self.assertIn("DISABLE_AUTOUPDATER", call["env_names"])
         self.assertEqual(round(0.01 * len(prints), 6), view["cost"]["reported_usd"])
-        (builder,) = self.attempts(view, "terra")
+        (builder,) = self.attempts(view, "builder")
         rows = self.events(builder)
         self.assertEqual(rows[0]["thread_id"], rows[-1]["claude"]["session_id"])  # the terminal row's diagnostics
 
@@ -194,7 +194,7 @@ class ClaudeProviderCliTests(unittest.TestCase):
         self.assertIn("chosen from your connected accounts", checks["engine"]["detail"])
 
     def test_format_correction_resumes_the_stage_session_and_bills_it_once(self):
-        self.env["AUTOCODE_FIXTURE_CLAUDE_NO_REPORT_STAGE"] = "sol"
+        self.env["AUTOCODE_FIXTURE_CLAUDE_NO_REPORT_STAGE"] = "tester"
         run = self.start()
         view = self.finish(run, run.status())
         self.assertEqual("TASK_COMPLETE", view["status"], view)
@@ -204,7 +204,7 @@ class ClaudeProviderCliTests(unittest.TestCase):
             call for call in prints if call["prompt_head"].startswith("Your previous final message could not be parsed")
         ]
         self.assertEqual((1, 1), (len(tester), len(correction)))
-        first = self.events(self.attempts(view, "sol")[0])[0]["thread_id"]
+        first = self.events(self.attempts(view, "tester")[0])[0]["thread_id"]
         argv = correction[0]["argv"]
         self.assertEqual(first, argv[argv.index("--resume") + 1])
         # Claude reports the session's cumulative cost: without the ledger the correction would count twice.

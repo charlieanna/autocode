@@ -207,7 +207,7 @@ def builder_execution(state: RunState, accepted, implementation):
     repair receipt identifies the original command; model-declared paths are never
     used. Missing or ambiguous provenance cannot create a checkpoint.
     """
-    if not accepted.get("report_only") and accepted.get("stage") in ("terra", "orchestrator"):
+    if not accepted.get("report_only") and accepted.get("stage") in ("builder", "orchestrator"):
         return accepted
     stage = accepted.get("original_stage")
     receipts = [
@@ -217,7 +217,7 @@ def builder_execution(state: RunState, accepted, implementation):
     ]
     if (
         not accepted.get("report_only")
-        or stage not in ("terra", "orchestrator")
+        or stage not in ("builder", "orchestrator")
         or accepted.get("stage") != stage + "_report_repair"
         or type(accepted.get("exit_code")) is not int
         or accepted["exit_code"] != 0
@@ -324,7 +324,7 @@ def update(state: RunState, run_dir):
                 for row in reversed(state.get("stages") or [])
                 if row.get("task_id") == task["id"]
                 and row.get("source_revision") == implementation["source_revision"]
-                and row.get("stage", "").removesuffix("_report_repair") in ("terra", "orchestrator")
+                and row.get("stage", "").removesuffix("_report_repair") in ("builder", "orchestrator")
                 and not row.get("rejected")
                 and row.get("exit_code") == 0
             ),
@@ -404,7 +404,7 @@ def update(state: RunState, run_dir):
                 (
                     r.get("finished_at")
                     for r in reversed(state.get("stages", []))
-                    if r.get("stage") in ("sol", "astra_checkpoint")
+                    if r.get("stage") in ("tester", "review_checkpoint")
                     and r.get("source_revision") == existing["source_revision"]
                 ),
                 None,
@@ -498,7 +498,7 @@ def working_action(state: RunState, *, run_dir=None, workspace=None):
     active = state.get("active_stage")
     if not isinstance(active, dict):
         return None
-    if active.get("stage") not in ("terra", "orchestrator") or not approved(state):
+    if active.get("stage") not in ("builder", "orchestrator") or not approved(state):
         return None
     return {
         "id": "working",

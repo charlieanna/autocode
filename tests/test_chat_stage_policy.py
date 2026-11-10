@@ -20,10 +20,10 @@ COMPACT = {
     },
     "decisions": [
         {
-            "stage": "astra_discovery",
+            "stage": "draft_plan",
             "decision": "omitted",
             "reason": "The runner built the draft from the reproduced diagnosis and the Requirements record",
-            "covered_by": ["runner:compact_draft", "astra_challenge", "person:approve_goal", "runner:regression_proof"],
+            "covered_by": ["runner:compact_draft", "review_plan", "person:approve_goal", "runner:regression_proof"],
         }
     ],
     "fallback": None,
@@ -36,7 +36,7 @@ FULL = {
         "the project declares no sensitive-paths, so every path counts as sensitive",
     ],
     "basis": {"diagnosis_output_hash": None, "diagnosis_source_revision": None, "requirements_output": None},
-    "decisions": [{"stage": "astra_discovery", "decision": "included", "reason": "...", "covered_by": []}],
+    "decisions": [{"stage": "draft_plan", "decision": "included", "reason": "...", "covered_by": []}],
     "fallback": None,
 }
 FELL_BACK = {
@@ -44,14 +44,14 @@ FELL_BACK = {
     "path": "full",
     "decisions": [
         {
-            "stage": "astra_discovery",
+            "stage": "draft_plan",
             "decision": "included",
             "reason": "the Plan Reviewer raised blocking concerns PR1, PR2",
             "covered_by": [],
         }
     ],
     "fallback": {
-        "from": "astra_challenge",
+        "from": "review_plan",
         "reason": "the Plan Reviewer raised blocking concerns PR1, PR2",
         "review_call_refunded": True,
     },
@@ -88,7 +88,7 @@ class CompactTests(unittest.TestCase):
         summary, rows = stage_policy.compact(with_policy(FELL_BACK))
         self.assertEqual("full · every stage runs", summary)
         self.assertEqual(
-            ["fell back at astra_challenge: the Plan Reviewer raised blocking concerns PR1, PR2", "Why: /details"], rows
+            ["fell back at review_plan: the Plan Reviewer raised blocking concerns PR1, PR2", "Why: /details"], rows
         )
 
     def test_nothing_is_shown_without_a_record_and_malformed_records_stay_unknown(self):
@@ -108,7 +108,7 @@ class DetailsTests(unittest.TestCase):
                 "Planning path",
                 "Path: full",
                 "Planner draft: included (the Plan Reviewer raised blocking concerns PR1, PR2)",
-                "Fallback: at astra_challenge, the Plan Reviewer raised blocking concerns PR1, PR2; the review call "
+                "Fallback: at review_plan, the Plan Reviewer raised blocking concerns PR1, PR2; the review call "
                 "was refunded",
                 "Decided from: diagnosis d49d02bf8da6, source b477fdce8551",
                 "The record reports a decision the core made from trusted inputs; it grants nothing.",
@@ -179,8 +179,8 @@ ROUTES = {
         ("requirements", "sonnet"),
         ("planner", "sonnet"),
         ("task_planner", "opus"),
-        ("terra", "haiku"),
-        ("sol", "sonnet"),
+        ("builder", "haiku"),
+        ("tester", "sonnet"),
         ("completion", "opus"),
     )
 }
@@ -207,23 +207,23 @@ def decided(*rows, **fields):
 
 EARLY_APPROVAL = (
     ("requirements_gather", "requirements", "Requirements", "run", None, []),
-    ("astra_discovery", "planner", "Planner", "run", None, []),
-    ("astra_challenge", "plan_reviewer", "Plan Reviewer", "run", None, []),
+    ("draft_plan", "planner", "Planner", "run", None, []),
+    ("review_plan", "plan_reviewer", "Plan Reviewer", "run", None, []),
     (
-        "glm_revise",
+        "revise_plan",
         "planner",
         "Planner",
         "skip",
         "no revision: the Plan Reviewer raised no blocking concern",
-        ["astra_challenge", "person:approve_goal"],
+        ["review_plan", "person:approve_goal"],
     ),
     (
-        "astra_finalize",
+        "finalize_plan",
         "plan_reviewer",
         "Plan Reviewer",
         "skip",
         "no final review: the Plan Reviewer approved the plan at its review 1",
-        ["astra_challenge", "person:approve_goal"],
+        ["review_plan", "person:approve_goal"],
     ),
 )
 ANSWERED = (
@@ -238,11 +238,11 @@ ANSWERED = (
             ["requirements_gather"],
         )
         for stage, job, label in (
-            ("astra_discovery", "planner", "Planner"),
-            ("astra_challenge", "plan_reviewer", "Plan Reviewer"),
-            ("terra", "builder", "Builder"),
-            ("sol", "tester", "Tester"),
-            ("astra_review", "completion", "Completion Reviewer"),
+            ("draft_plan", "planner", "Planner"),
+            ("review_plan", "plan_reviewer", "Plan Reviewer"),
+            ("builder", "builder", "Builder"),
+            ("tester", "tester", "Tester"),
+            ("review_completion", "completion", "Completion Reviewer"),
         )
     ),
 )
@@ -255,8 +255,8 @@ class PipelineTests(unittest.TestCase):
         return [(row.mark, row.text) for row in panel.pipeline_section(current).rows]
 
     def test_stages_that_ran_are_marked_done_and_the_working_stage_stays_current(self):
-        building = decided(*EARLY_APPROVAL, ("terra", "builder", "Builder", "run", None, []), next_stage="terra")
-        building["progress"]["stage"] = "terra"
+        building = decided(*EARLY_APPROVAL, ("builder", "builder", "Builder", "run", None, []), next_stage="builder")
+        building["progress"]["stage"] = "builder"
         self.assertEqual(
             [
                 ("✓", "Requirements · sonnet"),
@@ -342,7 +342,7 @@ class DecisionDetailsTests(unittest.TestCase):
             ],
             stage_policy.decisions(current).splitlines(),
         )
-        raised = decided(("astra_discovery", "planner", "Planner", "run", None, []))
+        raised = decided(("draft_plan", "planner", "Planner", "run", None, []))
         raised["stage_decisions"][0]["effort_choice"] = {"level": "xhigh", "saved": "high", "raised": True}
         self.assertIn("Planner: ran once, at xhigh, above your high", stage_policy.decisions(raised))
 

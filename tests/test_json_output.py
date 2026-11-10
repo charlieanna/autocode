@@ -142,10 +142,10 @@ class JsonActionCliTests(unittest.TestCase):
             "sessions": {},
             "stages": [],
             "history": [],
-            "next_stage": "terra",
+            "next_stage": "builder",
             "acceptance_criteria": [],
             "settings": {
-                "roles": {r: {"model": r, "reasoning_effort": "high"} for r in ("task_planner", "terra", "sol")},
+                "roles": {r: {"model": r, "reasoning_effort": "high"} for r in ("task_planner", "builder", "tester")},
                 "transport_identity": self.local,
                 "headroom": {"enabled": False},
                 "context_soft_tokens": 10000,
@@ -248,7 +248,7 @@ class JsonActionCliTests(unittest.TestCase):
                 # Without --json nothing changes: the same error, and nothing on stdout.
                 self.assertEqual((refusal, ""), self.raised(*on_run, *setting)[:2])
         # A new run refused before its first checkpoint is saved prints the result alone.
-        new_run = ("Make another tool", "--in-place", "--single-model", "gpt-x", "--sol-model", "y", "--json")
+        new_run = ("Make another tool", "--in-place", "--single-model", "gpt-x", "--tester-model", "y", "--json")
         refusal, stdout, _ = self.raised(*new_run)
         error = {"code": "input_rejected", "message": refusal}
         self.assertEqual(

@@ -353,7 +353,7 @@ class NativeHeldCancellationTests(unittest.TestCase):
         util.atomic_json(Path(self.metadata["receipt"]), receipt)
 
     def test_released_root_is_not_cancelled_and_mixed_actions_are_not_admitted(self):
-        for extra in (["--resume-paused"], ["--glm-model", "other/model"], ["--max-seconds", "9999"]):
+        for extra in (["--resume-paused"], ["--planner-model", "other/model"], ["--max-seconds", "9999"]):
             before = self.journal_bytes()
             with self.subTest(extra=extra), patch.object(taskrun, "run_process", side_effect=self.public_cli):
                 with self.assertRaises(taskrun.TaskRunError):

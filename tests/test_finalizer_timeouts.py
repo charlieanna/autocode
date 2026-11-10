@@ -123,7 +123,7 @@ class FinalizerTimeoutTests(unittest.TestCase):
         return [json.loads(line)["stage"] for line in path.read_text().splitlines()] if path.exists() else []
 
     def finalizer_attempts(self, state):
-        return [row for row in state["stages"] if row.get("stage") == "astra_finalize"]
+        return [row for row in state["stages"] if row.get("stage") == "finalize_plan"]
 
     def assert_no_planning_recovery_grant(self, state):
         self.assertFalse(state["planning"].get("recovery_review_grants"))
@@ -158,7 +158,7 @@ class FinalizerTimeoutTests(unittest.TestCase):
         # No approval is implied: the final plan waits for the person, and nothing was built.
         self.assertFalse(goals.approved(state))
         self.assertEqual(state["displayed_goal"], state["planning"]["final_token"])
-        self.assertEqual(["astra_challenge", "glm_revise", "astra_finalize"], self.launched()[-3:])
+        self.assertEqual(["review_plan", "revise_plan", "finalize_plan"], self.launched()[-3:])
         self.assertFalse((self.project / "greet.py").exists())
         reviewed = goals.token({"revision": attempts[0]["contract_revision"], "hash": attempts[0]["contract_hash"]})
         self.assertNotEqual(reviewed, state["displayed_goal"])
@@ -170,8 +170,8 @@ class FinalizerTimeoutTests(unittest.TestCase):
         approved = self.saved()[1]
         self.assertTrue(goals.approved(approved))
         self.assertEqual(3, len(self.finals))
-        self.assertNotIn("terra", self.launched())
-        self.assertNotIn("terra", [row["stage"] for row in approved["stages"]])
+        self.assertNotIn("builder", self.launched())
+        self.assertNotIn("builder", [row["stage"] for row in approved["stages"]])
 
     def test_repeated_finalizer_idle_timeouts_remain_bounded(self):
         run, code = self.plan(silent_finals=99)
@@ -194,10 +194,10 @@ class FinalizerTimeoutTests(unittest.TestCase):
         self.assert_no_planning_recovery_grant(stopped)
         # The exhausted recovery budget went to the Investigator once, before the operator request;
         # it did not retry, so no fourth final review ran and the request stands as before.
-        self.assertEqual(["astra_challenge", "glm_revise", "investigate_stuck"], self.launched()[-3:])
+        self.assertEqual(["review_plan", "revise_plan", "investigate_stuck"], self.launched()[-3:])
         self.assertEqual(1, self.launched().count("investigate_stuck"))
         self.assertEqual(
-            ["astra_finalize:PAUSED_TIMEOUT_RECOVERY"], [row["identity"] for row in stopped["stuck_investigations"]]
+            ["finalize_plan:PAUSED_TIMEOUT_RECOVERY"], [row["identity"] for row in stopped["stuck_investigations"]]
         )
 
 

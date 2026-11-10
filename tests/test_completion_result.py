@@ -34,7 +34,7 @@ class PreservationReviewRefreshTests(unittest.TestCase):
         self.prior.write_text(json.dumps(prior))
         return {
             "status": "RUNNING",
-            "next_stage": "astra_review",
+            "next_stage": "review_completion",
             "settings": {"max_cost_usd": 23},
             "goal_contract": contract,
             "current_task": {"id": "task", "contract_hash": "approved"},
@@ -50,7 +50,7 @@ class PreservationReviewRefreshTests(unittest.TestCase):
             },
             "stages": [
                 {
-                    "stage": "astra_review",
+                    "stage": "review_completion",
                     "output": "/run/review.json",
                     "task_id": "task",
                     "contract_hash": "approved",
@@ -66,7 +66,7 @@ class PreservationReviewRefreshTests(unittest.TestCase):
             ],
             human.PRIVATE: {
                 "scope": "blocker",
-                "origin": {"stage": "astra_review", "output": "/run/review.json"},
+                "origin": {"stage": "review_completion", "output": "/run/review.json"},
                 "request": {"kind": "blocker", "decision_needed": "Old proof is missing"},
             },
             "validation": {"source_revision": "rev", "result": "PASS"},
@@ -81,7 +81,7 @@ class PreservationReviewRefreshTests(unittest.TestCase):
             patch.object(goals, "approved", return_value=True),
             patch.object(delivery, "requirement", return_value=None),
         ):
-            completion.before_review(state, "astra_review", "/work", self.run)
+            completion.before_review(state, "review_completion", "/work", self.run)
 
     def test_new_passing_guard_proof_archives_old_private_review_blocker_without_granting_authority(self):
         state = self.state()

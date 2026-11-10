@@ -74,7 +74,7 @@ class KiloPolicyTests(unittest.TestCase):
         with patch.object(
             policy.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(original), "")
         ):
-            ran, env = policy.restrict(argv, child, Path.cwd(), role="sol", write_stage=True)
+            ran, env = policy.restrict(argv, child, Path.cwd(), role="tester", write_stage=True)
         agent = json.loads(env["KILO_CONFIG_CONTENT"])["agent"][ran[-1]]
         self.assertEqual(original["prompt"], agent["prompt"])
         self.assertEqual("fixture/model", agent["model"])
@@ -89,7 +89,7 @@ class KiloPolicyTests(unittest.TestCase):
         self.assertEqual("allow", agent["permission"]["webfetch"])
         self.assertEqual("deny", agent["permission"]["websearch"], "unsupported patterned action stays denied")
         with self.assertRaisesRegex(ValueError, "read-only"):
-            policy.restrict(argv, child, Path.cwd(), role="sol", write_stage=True, request={})
+            policy.restrict(argv, child, Path.cwd(), role="tester", write_stage=True, request={})
 
     def test_native_permission_wildcards_do_not_treat_brackets_as_character_classes(self):
         rules = [
@@ -114,14 +114,14 @@ class KiloPolicyTests(unittest.TestCase):
         child = {"PATH": os.environ["PATH"], "KILO_CONFIG_CONTENT": "{}"}
         argv = [sys.executable, "run", "--model", "zai-coding-plan/glm-5.3"]
         with patch.object(policy.subprocess, "run", side_effect=debug):
-            ran, env = policy.restrict(argv, child, Path.cwd(), role="sol", portable_shell=True)
+            ran, env = policy.restrict(argv, child, Path.cwd(), role="tester", portable_shell=True)
         (agent,) = json.loads(env["KILO_CONFIG_CONTENT"])["agent"].values()
         allowed = {tool for tool, rule in agent["permission"].items() if rule == {"*": "allow"}}
         self.assertEqual({*policy.READ_TOOLS, "bash"}, allowed)
         self.assertEqual("deny", agent["permission"]["*"])
         self.assertNotIn("edit", allowed)
         with self.assertRaisesRegex(ValueError, "cannot accompany"):
-            policy.restrict(argv, child, Path.cwd(), role="sol", request={}, portable_shell=True)
+            policy.restrict(argv, child, Path.cwd(), role="tester", request={}, portable_shell=True)
 
     def test_the_config_and_the_usual_agent_are_read_together(self):
         # Each debug command is a Kilo start; read one after another they cost every stage seconds
@@ -137,7 +137,7 @@ class KiloPolicyTests(unittest.TestCase):
         child = {"PATH": os.environ["PATH"], "KILO_CONFIG_CONTENT": "{}"}
         argv = [sys.executable, "run", "--model", "zai-coding-plan/glm-5.3"]
         with patch.object(policy.subprocess, "run", side_effect=debug) as run, kilocode_probe.capture() as checks:
-            _, env = policy.restrict(argv, child, Path.cwd(), role="sol")
+            _, env = policy.restrict(argv, child, Path.cwd(), role="tester")
         (agent,) = json.loads(env["KILO_CONFIG_CONTENT"])["agent"].values()
         self.assertEqual({"*": "allow"}, agent["permission"]["read"])
         self.assertEqual(3, agent["steps"])
@@ -159,7 +159,7 @@ class KiloPolicyTests(unittest.TestCase):
         child = {"PATH": os.environ["PATH"], "KILO_CONFIG_CONTENT": "{}"}
         argv = [sys.executable, "run", "--model", "zai-coding-plan/glm-5.3"]
         with patch.object(policy.subprocess, "run", side_effect=debug) as run:
-            _, env = policy.restrict(argv, child, Path.cwd(), role="sol")
+            _, env = policy.restrict(argv, child, Path.cwd(), role="tester")
         (agent,) = json.loads(env["KILO_CONFIG_CONTENT"])["agent"].values()
         self.assertEqual({"*": "deny"}, agent["permission"]["read"])
         self.assertIn(["debug", "agent", "careful"], [call.args[0][1:] for call in run.call_args_list])
@@ -342,7 +342,7 @@ class KiloContainmentPolicyTests(unittest.TestCase):
                 ["kilo", "run", "--model", "openai/gpt-6.1-sol", "--variant", "medium", "--session", "old"],
                 {"PATH": "/bin", "KILO_CONFIG_CONTENT": "{}"},
                 self.workspace,
-                role="sol",
+                role="tester",
                 request={"private_run": str(self.run)} if private else {},
             )
 
@@ -534,7 +534,7 @@ class NativeKiloPolicyTests(unittest.TestCase):
             with self.subTest(overrides=overrides):
                 requests.clear()
                 argv, child, _ = self.provider.launch(
-                    "terra",
+                    "builder",
                     self.workspace,
                     self.root,
                     None,
@@ -737,8 +737,8 @@ class NativeKiloPolicyTests(unittest.TestCase):
                 launch.prepare(
                     engine="opencode",
                     adapter=self.provider,
-                    role="sol",
-                    route_role="sol",
+                    role="tester",
+                    route_role="tester",
                     workspace=self.workspace,
                     run_dir=run,
                     session=None,
@@ -761,8 +761,8 @@ class NativeKiloPolicyTests(unittest.TestCase):
             argv, child, _, worker = launch.prepare(
                 engine="opencode",
                 adapter=self.provider,
-                role="sol",
-                route_role="sol",
+                role="tester",
+                route_role="tester",
                 workspace=self.workspace,
                 run_dir=run,
                 session=None,

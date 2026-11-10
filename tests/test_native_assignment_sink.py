@@ -50,8 +50,8 @@ class OriginalAssignmentSinkControls(unittest.TestCase):
         }
         self.decision["next_task"]["kind"] = "validate"
         self.record = {
-            "stage": "astra_review",
-            "role": "astra_review",
+            "stage": "review_completion",
+            "role": "review_completion",
             "output": str(self.run / "controlled-decision.json"),
         }
         util.atomic_json(self.record["output"], self.decision)

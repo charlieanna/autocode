@@ -56,9 +56,9 @@ class AssignedScopeExclusionsTests(unittest.TestCase):
                 report["contract"]["scope_exclusions"] += [scope.exclusion(parts[i]) for i in selected]
                 original = copy.deepcopy((state, report, record))
                 with patch.object(assignment.store, "find", return_value=record):
-                    result = metadata.expand_report(state, "astra_discovery", report)
+                    result = metadata.expand_report(state, "draft_plan", report)
                     scope.check(state, result["contract"])
-                    self.assertEqual(result, metadata.expand_report(state, "astra_discovery", result))
+                    self.assertEqual(result, metadata.expand_report(state, "draft_plan", result))
                 self.assertEqual(original, (state, report, record))
                 self.assertEqual(5, len(result["contract"]["scope_exclusions"]))
                 self.assertEqual(
@@ -84,7 +84,7 @@ class AssignedScopeExclusionsTests(unittest.TestCase):
                 elif invalid == "missing-peer":
                     record["members"].pop()
                 with patch.object(assignment.store, "find", return_value=record):
-                    self.assertEqual(report, metadata.expand_report(state, "astra_discovery", report))
+                    self.assertEqual(report, metadata.expand_report(state, "draft_plan", report))
                     with self.assertRaisesRegex(ValueError, "scope decision"):
                         scope.check(state, report["contract"])
 
@@ -94,7 +94,7 @@ class AssignedScopeExclusionsTests(unittest.TestCase):
         event = {"actor": "user_cli", "question": question, "text": scope.THIS_REPOSITORY}
         state.update(answers={question["id"]: event}, user_events=[event])
         with patch.object(assignment.store, "find", return_value=record):
-            self.assertEqual(report, metadata.expand_report(state, "astra_discovery", report))
+            self.assertEqual(report, metadata.expand_report(state, "draft_plan", report))
             with self.assertRaisesRegex(ValueError, "does not cover tax"):
                 scope.check(state, report["contract"])
 
@@ -103,11 +103,11 @@ class AssignedScopeExclusionsTests(unittest.TestCase):
             state, report, record, _ = self.inputs()
             report["contract"]["scope_exclusions"] = malformed
             with patch.object(assignment.store, "find", return_value=record):
-                self.assertEqual(report, metadata.expand_report(state, "astra_discovery", report))
+                self.assertEqual(report, metadata.expand_report(state, "draft_plan", report))
         state, report, record, _ = self.inputs()
         report["contract"].pop("scope_exclusions")
         with patch.object(assignment.store, "find", return_value=record):
-            self.assertEqual(report, metadata.expand_report(state, "astra_discovery", report))
+            self.assertEqual(report, metadata.expand_report(state, "draft_plan", report))
 
 
 class AuthorizedBoundaryRewordTests(unittest.TestCase):
@@ -177,7 +177,7 @@ class AuthorizedBoundaryRewordTests(unittest.TestCase):
     def row(self, item, *, change="reworded", basis="user_answer", answer_id="a1", replacement):
         return {"item": item, "change": change, "basis": basis, "answer_id": answer_id, "replacement": replacement}
 
-    def packet(self, state, stage="glm_revise"):
+    def packet(self, state, stage="revise_plan"):
         prompt, _ = planner.context(state, stage, Path("/tmp/state.json"))
         decoder = json.JSONDecoder()
         for found in re.finditer(r'\{"', prompt):
@@ -202,12 +202,12 @@ class AuthorizedBoundaryRewordTests(unittest.TestCase):
         report = self.report([corrected, third], [self.row(old, replacement=corrected)])
         original = copy.deepcopy(report)
         with patch.object(assignment.store, "find", return_value=record):
-            expanded = self.planning_pass(state, "glm_revise", "glm_revise", report)
+            expanded = self.planning_pass(state, "revise_plan", "revise_plan", report)
             self.assertEqual([corrected, third], expanded["contract"]["scope_exclusions"])
-            self.assertEqual(expanded, metadata.expand_report(state, "glm_revise", expanded))
+            self.assertEqual(expanded, metadata.expand_report(state, "revise_plan", expanded))
             self.assertEqual(1, len(state[scope.CORRECTIONS_KEY]))
             self.assertEqual([corrected, third], scope.effective_exclusions(state))
-            later = metadata.expand_report(state, "glm_revise", self.report([third], []))
+            later = metadata.expand_report(state, "revise_plan", self.report([third], []))
             self.assertEqual([third, corrected], later["contract"]["scope_exclusions"])
             scope.check(state, later["contract"])
             packet = self.packet(state)
@@ -223,7 +223,7 @@ class AuthorizedBoundaryRewordTests(unittest.TestCase):
         self.install_first_draft(state, record, old, third)
         report = self.report([corrected, third], [self.row(old, replacement=corrected)])
         with patch.object(assignment.store, "find", return_value=record):
-            expanded = self.planning_pass(state, "astra_discovery", "glm_draft", report)
+            expanded = self.planning_pass(state, "draft_plan", "glm_draft", report)
             self.assertEqual([corrected, third], expanded["contract"]["scope_exclusions"])
             receipt = state[scope.CORRECTIONS_KEY][0]
             self.assertEqual((old, corrected), (receipt["item"], receipt["replacement"]))
@@ -231,9 +231,9 @@ class AuthorizedBoundaryRewordTests(unittest.TestCase):
             self.assertEqual([corrected, third], scope.effective_exclusions(state))
             self.assertEqual([corrected, third], self.packet(state)["scope_exclusions_required"])
             final = self.report([third], [])
-            expanded_final = metadata.expand_report(state, "astra_finalize", final)
+            expanded_final = metadata.expand_report(state, "finalize_plan", final)
             self.assertEqual([third, corrected], expanded_final["contract"]["scope_exclusions"])
-            lifecycle.install_draft(state, expanded_final["contract"], origin="astra_finalize")
+            lifecycle.install_draft(state, expanded_final["contract"], origin="finalize_plan")
             self.assertEqual([third, corrected], state["goal_contract"]["body"]["scope_exclusions"])
             self.assertEqual([corrected, third], scope.effective_exclusions(state))
             # a JSON serialization round-trip, the persistence format of state.json,
@@ -253,7 +253,7 @@ class AuthorizedBoundaryRewordTests(unittest.TestCase):
                 rows = [self.row(old, basis=basis, answer_id=answer_id, replacement=corrected)]
                 report = self.report([corrected, third], rows)
                 with patch.object(assignment.store, "find", return_value=record):
-                    expanded = self.planning_pass(state, "astra_discovery", "glm_draft", report)
+                    expanded = self.planning_pass(state, "draft_plan", "glm_draft", report)
                     self.assertIn(old, expanded["contract"]["scope_exclusions"])
                     self.assertEqual([old, third], scope.effective_exclusions(state))
                     self.assertEqual([old, third], self.packet(state)["scope_exclusions_required"])
@@ -271,7 +271,7 @@ class AuthorizedBoundaryRewordTests(unittest.TestCase):
                 ]
                 report = self.report([corrected, third], rows)
                 with patch.object(assignment.store, "find", return_value=record):
-                    expanded = self.planning_pass(state, "astra_discovery", "glm_draft", report)
+                    expanded = self.planning_pass(state, "draft_plan", "glm_draft", report)
                     self.assertIn(old, expanded["contract"]["scope_exclusions"])
                     self.assertEqual([old, third], scope.effective_exclusions(state, report["contract"], rows))
                     self.assertEqual([old, third], self.packet(state)["scope_exclusions_required"])
@@ -282,7 +282,7 @@ class AuthorizedBoundaryRewordTests(unittest.TestCase):
         self.install_first_draft(state, record, old, third)
         report = self.report([third], ["a bare string", 42, None])
         with patch.object(assignment.store, "find", return_value=record):
-            expanded = metadata.expand_report(state, "glm_revise", report)
+            expanded = metadata.expand_report(state, "revise_plan", report)
             self.assertIn(old, expanded["contract"]["scope_exclusions"])
 
     def test_an_accumulated_scope_corrects_every_instance_of_one_boundary(self):
@@ -307,8 +307,8 @@ class AuthorizedBoundaryRewordTests(unittest.TestCase):
             # one boundary, two accumulated instances of its text: both move together
             self.planning_pass(
                 state,
-                "glm_revise",
-                "glm_revise",
+                "revise_plan",
+                "revise_plan",
                 self.report([corrected, third], [self.row(old, replacement=corrected)]),
             )
             self.assertEqual([corrected, corrected, third], scope.effective_exclusions(state))
@@ -321,13 +321,13 @@ class AuthorizedBoundaryRewordTests(unittest.TestCase):
             newer = f"{scope.EXCLUSION_PREFIX}peer-original: numeric serialization of totals"
             self.planning_pass(
                 state,
-                "glm_revise",
-                "glm_revise",
+                "revise_plan",
+                "revise_plan",
                 self.report([newer, third], [self.row(corrected, answer_id="a2", replacement=newer)]),
             )
             self.assertEqual([newer, newer, third], scope.effective_exclusions(state))
             self.assertEqual([newer, third], self.packet(state)["scope_exclusions_required"])
-            retained = metadata.expand_report(state, "glm_revise", self.report([third], []))
+            retained = metadata.expand_report(state, "revise_plan", self.report([third], []))
             self.assertEqual([third, newer], retained["contract"]["scope_exclusions"])
         self.assertEqual(2, len(state[scope.CORRECTIONS_KEY]))
 
@@ -337,8 +337,8 @@ class AuthorizedBoundaryRewordTests(unittest.TestCase):
         with patch.object(assignment.store, "find", return_value=record):
             self.planning_pass(
                 state,
-                "glm_revise",
-                "glm_revise",
+                "revise_plan",
+                "revise_plan",
                 self.report([corrected, third], [self.row(old, replacement=corrected)]),
             )
             state["answers"]["a2"] = {
@@ -349,11 +349,11 @@ class AuthorizedBoundaryRewordTests(unittest.TestCase):
             }
             recorrected = f"{scope.EXCLUSION_PREFIX}peer-original: numeric serialization of totals"
             report = self.report([recorrected, third], [self.row(corrected, answer_id="a2", replacement=recorrected)])
-            expanded = self.planning_pass(state, "glm_revise", "glm_revise", report)
+            expanded = self.planning_pass(state, "revise_plan", "revise_plan", report)
             self.assertEqual([recorrected, third], expanded["contract"]["scope_exclusions"])
             # repeated replans and a reopen in the same scope keep the chained correction
             self.assertEqual([recorrected, third], scope.effective_exclusions(state))
-            replanned = metadata.expand_report(state, "glm_revise", self.report([third], []))
+            replanned = metadata.expand_report(state, "revise_plan", self.report([third], []))
             self.assertEqual([third, recorrected], replanned["contract"]["scope_exclusions"])
 
     def test_replacement_must_name_the_same_peer_target(self):
@@ -362,14 +362,14 @@ class AuthorizedBoundaryRewordTests(unittest.TestCase):
         # moving the boundary onto the other peer is a scope decision, not this reword
         report = self.report([corrected, third], [self.row(old, replacement=third)])
         with patch.object(assignment.store, "find", return_value=record):
-            expanded = metadata.expand_report(state, "glm_revise", report)
+            expanded = metadata.expand_report(state, "revise_plan", report)
             self.assertIn(old, expanded["contract"]["scope_exclusions"])
             self.assertEqual(
                 [old, third], scope.effective_exclusions(state, expanded["contract"], report["contract_changes"])
             )
             with self.assertRaisesRegex(ValueError, "contract_changes names"):
                 lifecycle.install_draft(
-                    state, expanded["contract"], origin="glm_revise", changes=expanded["contract_changes"]
+                    state, expanded["contract"], origin="revise_plan", changes=expanded["contract_changes"]
                 )
         self.assertFalse(state.get(scope.CORRECTIONS_KEY))
 
@@ -386,7 +386,7 @@ class AuthorizedBoundaryRewordTests(unittest.TestCase):
                 rows = [self.row(old, basis=basis, answer_id=answer_id, replacement=corrected)]
                 report = self.report([corrected, third], rows)
                 with patch.object(assignment.store, "find", return_value=record):
-                    expanded = metadata.expand_report(state, "glm_revise", report)
+                    expanded = metadata.expand_report(state, "revise_plan", report)
                     self.assertIn(old, expanded["contract"]["scope_exclusions"])
                     with self.assertRaisesRegex(ValueError, "does not cover peer-original"):
                         scope.check(state, report["contract"], changes=rows)
@@ -412,7 +412,7 @@ class AuthorizedBoundaryRewordTests(unittest.TestCase):
                 rows = [row(old, corrected, third)]
                 report = self.report([third, corrected], rows)
                 with patch.object(assignment.store, "find", return_value=record):
-                    expanded = metadata.expand_report(state, "glm_revise", report)
+                    expanded = metadata.expand_report(state, "revise_plan", report)
                     self.assertIn(old, expanded["contract"]["scope_exclusions"])
                     self.assertEqual([old, third], scope.effective_exclusions(state, report["contract"], rows))
         # a replacement the report's own contract does not carry is not adopted
@@ -421,7 +421,7 @@ class AuthorizedBoundaryRewordTests(unittest.TestCase):
         rows = [self.row(old, replacement=corrected)]
         report = self.report([third], rows)
         with patch.object(assignment.store, "find", return_value=record):
-            expanded = metadata.expand_report(state, "glm_revise", report)
+            expanded = metadata.expand_report(state, "revise_plan", report)
             self.assertIn(old, expanded["contract"]["scope_exclusions"])
             self.assertEqual([old, third], scope.effective_exclusions(state, report["contract"], rows))
         self.assertFalse(state.get(scope.CORRECTIONS_KEY))
@@ -432,8 +432,8 @@ class AuthorizedBoundaryRewordTests(unittest.TestCase):
         with patch.object(assignment.store, "find", return_value=record):
             self.planning_pass(
                 state,
-                "glm_revise",
-                "glm_revise",
+                "revise_plan",
+                "revise_plan",
                 self.report([corrected, third], [self.row(old, replacement=corrected)]),
             )
         self.assertEqual(1, len(state[scope.CORRECTIONS_KEY]))
@@ -447,7 +447,7 @@ class AuthorizedBoundaryRewordTests(unittest.TestCase):
         ]
         with patch.object(assignment.store, "find", return_value=replaced):
             self.assertEqual([old, third], scope.effective_exclusions(state))
-            retained = metadata.expand_report(state, "glm_revise", self.report([third], []))
+            retained = metadata.expand_report(state, "revise_plan", self.report([third], []))
             self.assertIn(old, retained["contract"]["scope_exclusions"])
 
         # a malformed, wrong-digest, wrong-identity or wrong-turn receipt never waives
@@ -522,6 +522,6 @@ class AuthorizedBoundaryRewordTests(unittest.TestCase):
         rows = [self.row(old, replacement=corrected)]
         report = self.report(["Do not change deployment"], rows)
         with patch.object(assignment.store, "find", return_value=record):
-            self.assertEqual(report, metadata.expand_report(state, "astra_discovery", report))
+            self.assertEqual(report, metadata.expand_report(state, "draft_plan", report))
             with self.assertRaisesRegex(ValueError, "does not cover peer-original"):
                 scope.check(state, report["contract"])

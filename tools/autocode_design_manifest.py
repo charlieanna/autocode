@@ -866,7 +866,7 @@ def context(settings, *, stage=None, current_task=None):
     if record["body"]["version"] == 2:
         result["catalog"] = catalog
         result["inventory_instruction"] = INSTRUCTION_SCOPED if record.get("scope_admission") else INSTRUCTION_V2
-        if stage in ("terra", "sol"):
+        if stage in ("builder", "tester"):
             roster = _case_roster(record["body"])
             affected_paths = (current_task or {}).get("affected_paths", [])
             projection = inventory.builder_slice(

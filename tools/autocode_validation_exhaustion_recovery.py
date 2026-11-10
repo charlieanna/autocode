@@ -53,7 +53,7 @@ def pending(state: RunState):
     ids = request.get("finding_ids")
     if (
         origin.get("pause_status") != "PAUSED_RESOLVER"
-        or origin.get("stage") != "sol"
+        or origin.get("stage") != "tester"
         or request.get("kind") != "blocker"
         or not isinstance(ids, list)
         or not ids

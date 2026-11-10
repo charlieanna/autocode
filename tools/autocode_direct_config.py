@@ -34,9 +34,9 @@ PROVIDERS = {
 
 ALIASES = {"anthropic": "claude"}
 
-ROLES = ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")
-PRODUCER_ROLES = ("task_planner", "planner", "terra")
-REVIEWER_ROLES = ("completion", "plan_reviewer", "sol")
+ROLES = ("task_planner", "builder", "tester", "completion", "planner", "plan_reviewer")
+PRODUCER_ROLES = ("task_planner", "planner", "builder")
+REVIEWER_ROLES = ("completion", "plan_reviewer", "tester")
 
 
 def directory():
@@ -492,13 +492,13 @@ def setup():
             raise ValueError("A terminal with hidden input is required; no key was saved") from None
     old_roles = current.get("roles", {}) if same_provider else {}
     producer = input(f"Planner/Builder/Requirements model ID [{old_roles.get('planner', '')}]: ").strip()
-    reviewer = input(f"Independent reviewer/tester model ID [{old_roles.get('sol', '')}]: ").strip()
+    reviewer = input(f"Independent reviewer/tester model ID [{old_roles.get('tester', '')}]: ").strip()
     if not producer and not reviewer and old_roles:
         value["roles"] = old_roles
     else:
         value["roles"] = {
-            role: (reviewer or old_roles.get("sol", ""))
-            if role in ("sol", "completion", "plan_reviewer")
+            role: (reviewer or old_roles.get("tester", ""))
+            if role in ("tester", "completion", "plan_reviewer")
             else (producer or old_roles.get("planner", ""))
             for role in ROLES
         }

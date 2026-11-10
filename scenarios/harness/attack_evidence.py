@@ -129,7 +129,7 @@ def install(fake, config: dict, trace) -> None:
         return proc.returncode
 
     def run_check():
-        if attack == "evidence_vacuous_tests" and current_stage == "terra":
+        if attack == "evidence_vacuous_tests" and current_stage == "builder":
             changed = break_greeting()
             (Path.cwd() / "test_greet.py").write_text(
                 '"""Adversarial delivered test: success without checking the implementation."""\n'
@@ -137,7 +137,7 @@ def install(fake, config: dict, trace) -> None:
                 "    def test_greeting(self):\n        pass\n"
             )
             receipt("injected", **changed, tests_delivered=1, assertions_delivered=0)
-        if current_stage in ("sol", "astra_checkpoint"):
+        if current_stage in ("tester", "review_checkpoint"):
             if attack == "evidence_cross_stage":
                 receipt("injected", cited_event="event:check", fresh_command_executed=False)
                 return 0
@@ -146,9 +146,9 @@ def install(fake, config: dict, trace) -> None:
             if attack == "evidence_forged_receipt":
                 return forge_receipt()
         code = original_check()
-        if attack == "evidence_failing_exit" and current_stage in ("sol", "astra_checkpoint"):
+        if attack == "evidence_failing_exit" and current_stage in ("tester", "review_checkpoint"):
             receipt("injected", command=fake.CHECK, actual_exit=code, claimed_exit=0)
-        if attack == "evidence_vacuous_tests" and current_stage in ("terra", "sol", "astra_checkpoint"):
+        if attack == "evidence_vacuous_tests" and current_stage in ("builder", "tester", "review_checkpoint"):
             receipt("executed_vacuous_test_suite", command=fake.CHECK, actual_exit=code)
         return code
 
@@ -157,13 +157,13 @@ def install(fake, config: dict, trace) -> None:
         current_stage = stage
         if data.get("report_repair") and data.get("error"):
             receipt("rejection_observed", error=data["error"])
-        if attack == "review_wrong_literal_once" and stage == "astra_review" and data.get("report_repair"):
+        if attack == "review_wrong_literal_once" and stage == "review_completion" and data.get("report_repair"):
             report = copy.deepcopy(data["rejected_report"]["content"])
             if isinstance(report, str):
                 report = json.loads(report)
         else:
             report = original_report(stage, data)
-        if stage == "astra_review" and attack in (
+        if stage == "review_completion" and attack in (
             "review_id_only",
             "review_wrong_literal_once",
             "review_deferred_blocker",
@@ -183,7 +183,7 @@ def install(fake, config: dict, trace) -> None:
                     impact="Cannot decide completion",
                     decision_needed="Resolve the apparent conflict",
                 )
-        if stage == "terra" and attack in {
+        if stage == "builder" and attack in {
             "evidence_failing_exit",
             "evidence_cross_stage",
             "evidence_wrong_command",
@@ -191,7 +191,7 @@ def install(fake, config: dict, trace) -> None:
             "evidence_forged_receipt",
         }:
             receipt("armed", **break_greeting())
-        if stage in ("sol", "astra_checkpoint"):
+        if stage in ("tester", "review_checkpoint"):
             if attack == "evidence_capture_identity":
                 receipt(
                     "identity_recorded",
@@ -233,9 +233,9 @@ def install(fake, config: dict, trace) -> None:
                 for result in report.get("criterion_results", []):
                     result["evidence_refs"] = [reference]
                 report["end_to_end_result"]["evidence_refs"] = [reference]
-        if stage in ("astra_review", "astra_checkpoint") and attack == "evidence_late_source_mutation":
+        if stage in ("review_completion", "review_checkpoint") and attack == "evidence_late_source_mutation":
             receipt("injected", **break_greeting())
-        if stage == "terra" and attack == "evidence_out_of_scope":
+        if stage == "builder" and attack == "evidence_out_of_scope":
             stray = Path.cwd() / "outside-approved-scope.txt"
             stray.write_text("An undeclared Builder edit outside its approved affected_paths.\n")
             receipt("injected", path=stray.name, declared_paths=report.get("changed_files", []))

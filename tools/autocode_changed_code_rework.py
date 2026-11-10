@@ -66,7 +66,7 @@ def _scope_conflict(task, contract, rejected):
 def route(state: RunState, record, *, investigation_enabled, rejected=()):
     """Consume only a reconciled independent review of this exact measurement."""
     actual = record.get("original_stage") or record.get("stage")
-    if (actual, record.get("role")) not in (("sol", "sol"), ("astra_checkpoint", "task_planner")):
+    if (actual, record.get("role")) not in (("tester", "tester"), ("review_checkpoint", "task_planner")):
         return False
     proof = state.get("regression_proof") or {}
     # Missing/failing ordinary proof remains owned by its existing failure
@@ -114,12 +114,12 @@ def route(state: RunState, record, *, investigation_enabled, rejected=()):
         event["round"], event["round_limit"] = builder_rounds + 1, REPAIR_ROUNDS
     history.append(event)
     if scope_reason:
-        run_status.running(state, "EXECUTING", next_stage="astra_review", next_action=scope_reason)
+        run_status.running(state, "EXECUTING", next_stage="review_completion", next_action=scope_reason)
         return True
     run_status.running(
         state,
         "EXECUTING",
-        next_stage="terra",
+        next_stage="builder",
         next_action=(
             reason + ". Add meaningful tests for these exact lines, or retain a precise reason "
             "for the independent Tester to check. Preserve the approved product scope and existing tests; "

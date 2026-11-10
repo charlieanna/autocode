@@ -42,7 +42,7 @@ class ClientDecisionTests(unittest.TestCase):
             autocode=["autocode"],
             max_steps=5,
             timeout_seconds=5,
-            explicit_answers={"route-sol": "gpt-6-luna"},
+            explicit_answers={"route-tester": "gpt-6-luna"},
             conformance={},
             scripted=True,
         )
@@ -339,19 +339,19 @@ class ClientDecisionTests(unittest.TestCase):
         need = {"kind": "answer", "questions": [{"id": "Q1", "proposed_default": "Use UTC"}]}
         self.assertEqual(["--answer", "Q1=Use UTC"], self.client.decide(need, ["--answer", "Q1=ANSWER"]))
         self.assertEqual(
-            ["--answer", "route-sol=gpt-6-luna"], self.client.decide(need, ["--answer", "route-sol=MODEL"])
+            ["--answer", "route-tester=gpt-6-luna"], self.client.decide(need, ["--answer", "route-tester=MODEL"])
         )
         # Who made each decision is kept for the campaign's counts (#455): the scenario's own answer is the
         # person's, a proposed default is the harness's.
         self.assertEqual(
-            [("Q1", "proposed_default", False), ("route-sol", "person", True)],
+            [("Q1", "proposed_default", False), ("route-tester", "person", True)],
             [(row["id"], row["source"], row["explicit"]) for row in self.client.answers],
         )
         for word in ("GOAL_FILE", "WHAT CHANGED", "--explain"):
             with self.subTest(word=word), self.assertRaises(ConformanceGap):
                 self.client.decide(need, ["--edit-goal", word])
         with self.assertRaisesRegex(ConformanceGap, "name a model"):
-            self.client.decide(need, ["--answer", "route-terra=MODEL"])
+            self.client.decide(need, ["--answer", "route-builder=MODEL"])
 
     def test_each_approval_it_takes_is_a_gate_passed_for_the_person(self):
         """Recorded as the ordinary driver records its own (result.json "approvals"), so the approval
@@ -474,7 +474,7 @@ class ClientDecisionTests(unittest.TestCase):
         self.assertFalse(self.client.person_paused, "a plain relaunch ends the person's pause")
 
     def test_a_moment_waits_for_the_stage_the_view_shows_working(self):
-        moment = Moment("interrupt", "terra", "Builder", after_failed=True)
+        moment = Moment("interrupt", "builder", "Builder", after_failed=True)
         working = {"progress": {"stage": "Builder", "headline": "Builder working", "requirements": {"failed": 0}}}
         self.assertFalse(moment.ready(working))
         working["progress"]["requirements"]["failed"] = 1
@@ -483,14 +483,14 @@ class ClientDecisionTests(unittest.TestCase):
         self.assertFalse(moment.ready(working))
 
     def boundary_fixture(self):
-        self.client.pending = [Moment("interrupt", "terra", "Builder", after_failed=True)]
+        self.client.pending = [Moment("interrupt", "builder", "Builder", after_failed=True)]
         self.client.journal = []
         self.client.person_paused = False
         alive = {"value": True}
         worker = mock.Mock()
         worker.is_alive.side_effect = lambda: alive["value"]
-        barrier = mock.Mock(environment={"LIFECYCLE_HOLD_STAGE": "terra"})
-        barrier.wait.return_value = {"stage": "terra", "pid": 202}
+        barrier = mock.Mock(environment={"LIFECYCLE_HOLD_STAGE": "builder"})
+        barrier.wait.return_value = {"stage": "builder", "pid": 202}
         process = mock.Mock()
         process.send_signal.side_effect = lambda _signal: alive.update(value=False)
         return worker, barrier, process

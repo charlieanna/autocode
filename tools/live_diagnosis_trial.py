@@ -286,10 +286,10 @@ def drive_to_first_verdict(project: Path, root: Path, profile: dict, budget: Tri
         """
         pending = state.get("pending_report_repair") or {}
         original = pending.get("original")
-        if original and original.get("stage") == "terra" and original.get("failure_key"):
+        if original and original.get("stage") == "builder" and original.get("failure_key"):
             return original
         for row in reversed(state.get("stages", [])):
-            if row.get("stage") == "terra" and row.get("failure_key"):
+            if row.get("stage") == "builder" and row.get("failure_key"):
                 return row
         return None
 
@@ -335,13 +335,13 @@ def escalate_to_repeat_threshold(run_dir: Path, bundle: Bundle) -> None:
     # Scoped to terra exactly like admit_operational_diagnosis itself: a real
     # rejection at a different stage exists, but is not this trial's target
     # and must never be mistaken for it.
-    failure_key = original.get("failure_key") if original and original.get("stage") == "terra" else None
+    failure_key = original.get("failure_key") if original and original.get("stage") == "builder" else None
     if not failure_key:
         original = next(
             (
                 row
                 for row in reversed(state.get("stages", []))
-                if row.get("stage") == "terra" and row.get("failure_key")
+                if row.get("stage") == "builder" and row.get("failure_key")
             ),
             None,
         )
@@ -385,7 +385,7 @@ def diagnose_and_retry(
     # Admit: real dispatch path (autocode.main --resume-paused --diagnose-failed-stage).
     invoke_cli(["--resume-paused", "--diagnose-failed-stage"])
     state = base.load_state(run_dir)
-    if state.get("status") not in ("RUNNING",) or state.get("next_stage") != "astra_diagnose":
+    if state.get("status") not in ("RUNNING",) or state.get("next_stage") != "diagnose":
         return {"admitted": False, "state": state}
     request = state.get("diagnosis_request") or {}
     previous_rows = len(state.get("stages", []))
@@ -394,7 +394,7 @@ def diagnose_and_retry(
     invoke_cli([])
     state = base.load_state(run_dir)
     new_rows = state.get("stages", [])[previous_rows:]
-    diagnosis_record = next((row for row in reversed(new_rows) if row.get("stage") == "astra_diagnose"), None)
+    diagnosis_record = next((row for row in reversed(new_rows) if row.get("stage") == "diagnose"), None)
     if diagnosis_record is None:
         raise TrialError("astra_diagnose did not produce a recorded stage after the model call")
     try:
@@ -428,7 +428,7 @@ def diagnose_and_retry(
     accepted = (
         receipt_row is not None
         and bool(request.get("blocker_id"))
-        and request.get("original_stage") == "terra"
+        and request.get("original_stage") == "builder"
         and recommendation.get("action") == "retry"
         and receipt_row.get("decision", {}).get("action") == "retry"
         and receipt_row.get("receipt", {}).get("action") == "retry"
@@ -462,7 +462,7 @@ def diagnose_and_retry(
             break
     result["state"] = base.load_state(run_dir)
     rows = result["state"].get("stages", [])[previous_rows:]
-    diagnosis_index = next(i for i, row in enumerate(rows) if row.get("stage") == "astra_diagnose")
+    diagnosis_index = next(i for i, row in enumerate(rows) if row.get("stage") == "diagnose")
     result["retry_dispatched"] = any(
         row.get("stage") == request.get("original_stage") and row.get("output") for row in rows[diagnosis_index + 1 :]
     )
@@ -726,7 +726,7 @@ def main(argv: list[str] | None = None) -> int:
                 (
                     row
                     for row in reversed(first["state"].get("stages", []))
-                    if row.get("stage") == "terra" and row.get("failure_key")
+                    if row.get("stage") == "builder" and row.get("failure_key")
                 ),
                 {},
             )
@@ -742,7 +742,7 @@ def main(argv: list[str] | None = None) -> int:
                 payload["repeat_count_mechanically_escalated"] = False
                 payload["repeat_count_mode"] = "OBSERVED_REPEATED_FAILURE"
             diagnosis = diagnose_and_retry(project, root, profile, first["run_dir"], budget, bundle)
-            payload["astra_diagnose"] = "EXERCISED" if diagnosis["admitted"] else "ADMISSION_REFUSED"
+            payload["diagnose"] = "EXERCISED" if diagnosis["admitted"] else "ADMISSION_REFUSED"
             payload["diagnosis"] = diagnosis.get("diagnosis")
             payload["recommendation"] = diagnosis.get("recommendation")
             payload["policy_accepted_retry"] = diagnosis.get("policy_accepted_retry", False)
@@ -760,7 +760,7 @@ def main(argv: list[str] | None = None) -> int:
         report_path = bundle.dir / "diagnosis-comparison.json"
         report_path.write_text(json.dumps(payload, indent=2, default=str))
         status = base.scenarios.FAIL if result == "FAIL" else "RECORDED"
-        summary = f"astra_diagnose={payload.get('astra_diagnose', 'NOT_EXERCISED')} result={result}"
+        summary = f"astra_diagnose={payload.get('diagnose', 'NOT_EXERCISED')} result={result}"
         try:
             bundle.finish(status, summary)
         except AssertionError:
@@ -768,7 +768,7 @@ def main(argv: list[str] | None = None) -> int:
             if result != "FAIL":
                 raise
         print(f"result: {result}")
-        print(f"astra_diagnose: {payload.get('astra_diagnose', 'NOT_EXERCISED')}")
+        print(f"astra_diagnose: {payload.get('diagnose', 'NOT_EXERCISED')}")
         print(f"evidence: {bundle.dir}")
         print(f"read {report_path} against the report-rejection evidence for human scoring")
         return 1 if result == "FAIL" else 3

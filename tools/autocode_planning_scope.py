@@ -40,7 +40,7 @@ except ImportError:
     import autocode_util as util
     import autocode_workspace_scope as workspace_scope
 
-STAGES = ("astra_discovery", "glm_revise")
+STAGES = ("draft_plan", "revise_plan")
 
 
 def prepare_handoff(state: RunState, stage, value, record, *, investigation_stages, check_code_refs):

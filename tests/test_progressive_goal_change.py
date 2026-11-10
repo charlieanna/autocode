@@ -64,7 +64,7 @@ class GoalChangeTests(unittest.TestCase):
             "user_events": [],
             "acceptance_criteria": [],
             "status": "RUNNING",
-            "next_stage": "astra_discovery",
+            "next_stage": "draft_plan",
             "settings": {
                 "joint_planning": True,
                 "roles": {"planner": {"model": "fake-planner"}, "task_planner": {"model": "fake-reviewer"}},
@@ -112,7 +112,7 @@ class GoalChangeTests(unittest.TestCase):
         snapshot = util.snapshot(self.workspace)
         record = {
             "stage": stage,
-            "role": "planner" if stage in ("astra_discovery", "glm_revise") else "task_planner",
+            "role": "planner" if stage in ("draft_plan", "revise_plan") else "task_planner",
             "output": str(output),
             "iteration": 0,
             "exit_code": 0,
@@ -121,13 +121,13 @@ class GoalChangeTests(unittest.TestCase):
             "changed_files": [],
         }
         # Plan Reviewer seals source_trace against real events+output paths.
-        if stage in ("astra_challenge", "astra_finalize", "plan_finalize"):
+        if stage in ("review_plan", "finalize_plan", "plan_finalize"):
             events = output.with_suffix(".jsonl")
             if not events.is_file():
                 events.write_text("")
             record["events"] = str(events)
-        if stage == "sol":
-            record["role"] = "sol"
+        if stage == "tester":
+            record["role"] = "tester"
             result = subprocess.run(COMMAND, shell=True, cwd=self.workspace, capture_output=True, text=True, check=True)
             events = output.with_suffix(".jsonl")
             events.write_text(
@@ -146,7 +146,7 @@ class GoalChangeTests(unittest.TestCase):
                 + "\n"
             )
             record["events"] = str(events)
-        if stage in ("astra_challenge", "astra_finalize"):
+        if stage in ("review_plan", "finalize_plan"):
             try:
                 runner.planning.charge(self.state, stage, record=record)
             except util.Paused as error:
@@ -175,7 +175,7 @@ class GoalChangeTests(unittest.TestCase):
             "progressive_proposal": copy.deepcopy(self.proposal),
         }
         self.stage(
-            "astra_discovery",
+            "draft_plan",
             {
                 **common,
                 "contract": copy.deepcopy(self.body),
@@ -184,12 +184,12 @@ class GoalChangeTests(unittest.TestCase):
                 "uncertainties": [],
             },
         )
-        self.stage("astra_challenge", {"summary": "No concerns", "concerns": []})
+        self.stage("review_plan", {"summary": "No concerns", "concerns": []})
         self.stage(
-            "glm_revise", {**common, "contract": copy.deepcopy(self.body), "code_refs": ["greet.py"], "responses": []}
+            "revise_plan", {**common, "contract": copy.deepcopy(self.body), "code_refs": ["greet.py"], "responses": []}
         )
         self.stage(
-            "astra_finalize",
+            "finalize_plan",
             {
                 **common,
                 "contract": {**copy.deepcopy(self.body), "initial_task": copy.deepcopy(self.first)},
@@ -201,7 +201,7 @@ class GoalChangeTests(unittest.TestCase):
 
     def validate(self, full=False):
         self.stage(
-            "sol",
+            "tester",
             {
                 **goal_fixtures.envelope(self.state),
                 "verdict": "PASS",
@@ -227,7 +227,7 @@ class GoalChangeTests(unittest.TestCase):
 
     def checkpoint(self):
         self.stage(
-            "astra_review",
+            "review_completion",
             {
                 **goal_fixtures.envelope(self.state),
                 "status": "CONTINUE",
@@ -261,7 +261,7 @@ class GoalChangeTests(unittest.TestCase):
         detailed.update(done_slices=["S1"], slices=[copy.deepcopy(detailed["slices"][1])])
         detailed["slices"][0]["tentative"] = False
         self.stage(
-            "glm_revise",
+            "revise_plan",
             {
                 "summary": "S2 on retained source",
                 "progressive_proposal": detailed,
@@ -269,7 +269,7 @@ class GoalChangeTests(unittest.TestCase):
             },
         )
         self.stage(
-            "astra_finalize",
+            "finalize_plan",
             {
                 "summary": "Independent S2 review",
                 "accepted": True,
@@ -337,7 +337,7 @@ class GoalChangeTests(unittest.TestCase):
         self.assertEqual({"A", "B"}, {row["id"] for row in ledger["required_checks"]})
         self.assertFalse(ledger.get("retirements"))
         with self.assertRaises(util.Paused):
-            progressive.guard_dispatch(self.state, "terra")
+            progressive.guard_dispatch(self.state, "builder")
         spent = copy.deepcopy(ledger["budget"])
         tasks = copy.deepcopy(ledger["tasks"])
         attempts = copy.deepcopy(ledger["attempts"])
@@ -354,7 +354,7 @@ class GoalChangeTests(unittest.TestCase):
         self.assertIn(grant["visible_removal"], self.state["goal_contract"]["body"]["constraints"])
         self.assertIn(
             grant["visible_removal"],
-            self.state["planning"]["reports"]["astra_finalize"]["report"]["contract"]["constraints"],
+            self.state["planning"]["reports"]["finalize_plan"]["report"]["contract"]["constraints"],
         )
         self.assertEqual(
             ("B", rules.check_identity(self.old_check), selected),
@@ -373,11 +373,11 @@ class GoalChangeTests(unittest.TestCase):
         detailed.update(done_slices=["S1", "S3"], slices=[copy.deepcopy(detailed["slices"][1])])
         detailed["slices"][0]["tentative"] = False
         self.stage(
-            "glm_revise",
+            "revise_plan",
             {"summary": "Final slice", "progressive_proposal": detailed, "initial_task": copy.deepcopy(self.first)},
         )
         self.stage(
-            "astra_finalize",
+            "finalize_plan",
             {
                 "summary": "Final independent review",
                 "accepted": True,
@@ -412,7 +412,7 @@ class GoalChangeTests(unittest.TestCase):
             with self.subTest(where=where):
                 with self.assertRaisesRegex(ValueError, f"^{where} `sh -c .*` names git status"):
                     self.stage(
-                        "glm_revise",
+                        "revise_plan",
                         {
                             "summary": "S2 on retained source",
                             "progressive_proposal": proposal,
@@ -421,7 +421,7 @@ class GoalChangeTests(unittest.TestCase):
                     )
                 self.state = copy.deepcopy(before)
         self.stage(
-            "glm_revise",
+            "revise_plan",
             {
                 "summary": "S2 on retained source",
                 "progressive_proposal": detailed,

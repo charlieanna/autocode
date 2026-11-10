@@ -447,7 +447,7 @@ def _fixture_workspace(root: Path) -> Path:
                     "iteration": 1,
                     "sessions": {},
                     "stages": [],
-                    "next_stage": "sol" if status == "RUNNING" else None,
+                    "next_stage": "tester" if status == "RUNNING" else None,
                 }
             )
         )

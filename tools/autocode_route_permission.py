@@ -34,7 +34,7 @@ def investigator(settings, stuck_model):
     """
     roles = settings.get("roles") or {}
     vendor = independence.same_vendor_engine(settings)
-    for source in ("plan_reviewer", "sol", "planner", "completion", "requirements"):
+    for source in ("plan_reviewer", "tester", "planner", "completion", "requirements"):
         route = roles.get(source) or {}
         model = route.get("model")
         if not model or "astra" in model.lower() or independence.may_share(model, stuck_model, vendor_engine=vendor):

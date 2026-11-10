@@ -252,7 +252,7 @@ def _sent_back(state: RunState):
             yield _entry(
                 "sent_back",
                 row.get("at"),
-                "astra_review",
+                "review_completion",
                 state,
                 headline="Test repair needs reassignment",
                 problem=row.get("scope_reason") or problem,
@@ -277,7 +277,7 @@ def _sent_back(state: RunState):
         yield _entry(
             "sent_back",
             row.get("at"),
-            "terra",
+            "builder",
             state,
             headline="Builder sent back for untested lines" + rounds,
             problem=problem,
@@ -318,7 +318,7 @@ def _investigations(state: RunState):
 def _resolver(state: RunState):
     """The Resolver's decision on a failure its rules cover, and the reason it recorded."""
     for row in state.get("history") or []:
-        if not isinstance(row, dict) or row.get("stage") not in ("resolver", "astra_resolve"):
+        if not isinstance(row, dict) or row.get("stage") not in ("resolver", "resolve"):
             continue
         decision = row.get("decision") or {}
         if not isinstance(decision, dict) or not decision.get("action"):

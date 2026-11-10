@@ -392,8 +392,8 @@ class RetainedCopyPublicTests(unittest.TestCase):
             "workspace": str(workspace),
             "run_dir": str(run),
             "stages": [
-                {"role": "sol", "events": "events.jsonl", "verification_copy": fixture.core},
-                {"role": "sol", "events": "legacy.jsonl"},
+                {"role": "tester", "events": "events.jsonl", "verification_copy": fixture.core},
+                {"role": "tester", "events": "legacy.jsonl"},
             ],
         }
         original = copy.deepcopy(state)

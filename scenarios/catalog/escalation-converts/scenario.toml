@@ -13,6 +13,6 @@ check = "python3 -m unittest test_greet.py"
 fault = "escalation_converts"
 
 [run]
-requires_stages = ["terra", "sol", "astra_review"]
+requires_stages = ["builder", "tester", "review_completion"]
 timeout_minutes = 10
 max_steps = 24

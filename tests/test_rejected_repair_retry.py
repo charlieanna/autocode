@@ -56,7 +56,7 @@ class RejectedRepairRetryCLI(unittest.TestCase):
         self.assertTrue(view["done"], (view.get("status"), view.get("stop_reason"), self.stages(driver)))
         self.assertTrue(all(check.ok for check in self.scenario.oracle()(self.project, self.scenario)))
         self.assertFalse((self.project / "stock_current.py").exists())
-        builders = [row for row in driver.state()["stages"] if row["stage"] == "terra"]
+        builders = [row for row in driver.state()["stages"] if row["stage"] == "builder"]
         self.assertIn(
             "removed the files they created, so a retry starts without them: stock_current.py",
             builders[-2]["rejection_reason"],
@@ -72,16 +72,16 @@ class RejectedRepairRetryCLI(unittest.TestCase):
         decisions = [stage for stage in self.stages(driver) if not stage.endswith("_report_repair")]
         self.assertEqual(
             [
-                "terra",
-                "sol",
-                "astra_review",
-                "astra_resolve",
+                "builder",
+                "tester",
+                "review_completion",
+                "resolve",
                 "investigate_stuck",
-                "terra",
+                "builder",
                 "investigate_stuck",
-                "terra",
-                "sol",
-                "astra_review",
+                "builder",
+                "tester",
+                "review_completion",
             ],
             decisions[-10:],
         )
@@ -103,14 +103,14 @@ class RejectedRepairRetryCLI(unittest.TestCase):
         self.assertEqual("PAUSED_STALE_HANDOFF", view.get("status"), view.get("stop_reason"))
         self.assertIn("changed before admission", view.get("stop_reason", ""))
         readme.write_text(original)
-        builders = self.stages(driver).count("terra")
+        builders = self.stages(driver).count("builder")
         # #2485: the no-progress hold is AutoCode's own machinery; a plain resume settles it by
         # taking the one scoped retry itself, bound to the same incident, instead of asking a
         # person to run the recovery card's authorized retry.
         driver.call("plain-resume", "--resume-paused")
         retry = self.assert_repaired(driver, driver.until_stopped())
         self.assertEqual("automatic", retry["recovery_novelty"]["grant_kind"])
-        self.assertGreater(self.stages(driver).count("terra"), builders)
+        self.assertGreater(self.stages(driver).count("builder"), builders)
 
     def test_fixture_disables_git_maintenance_and_ignores_cleanup_errors(self):
         from unittest.mock import patch

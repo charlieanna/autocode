@@ -330,7 +330,7 @@ class BuildBlackbox(unittest.TestCase):
         status = self.invoke("autocode", ["--run-dir", str(self.run), "--status"])
         return json.loads(status.stdout)["view"]["progress"]
 
-    def events(self, kind="start", stage="terra"):
+    def events(self, kind="start", stage="builder"):
         return [
             e
             for e in map(json.loads, (self.root / "events.jsonl").read_text().splitlines())
@@ -387,13 +387,13 @@ class BuildBlackbox(unittest.TestCase):
                 "--engine",
                 "codex",
                 "--in-place",
-                "--terra-model",
+                "--builder-model",
                 "gpt-6-luna",
-                "--terra-reasoning-effort",
+                "--builder-reasoning-effort",
                 "medium",
-                "--sol-model",
+                "--tester-model",
                 checker,
-                "--sol-reasoning-effort",
+                "--tester-reasoning-effort",
                 "high",
                 "--completion-model",
                 checker,
@@ -420,7 +420,7 @@ class BuildBlackbox(unittest.TestCase):
 
     def candidate(self):
         state = self.state()
-        self.assertEqual("sol", state["next_stage"])
+        self.assertEqual("tester", state["next_stage"])
         candidate = json.loads(Path(state["unit_handoffs"]["autocode"]["path"]).read_text())
         self.assertEqual("build-candidate", candidate["kind"])
         self.assertEqual(state["implementation"]["source_revision"], candidate["source_revision"])
@@ -474,7 +474,7 @@ class BuildBlackbox(unittest.TestCase):
         self.assertEqual(
             0, subprocess.run([sys.executable, "-c", self.spec["checks"]["M4"]], cwd=self.project).returncode
         )
-        self.assertEqual([], self.events(stage="astra_resolve"))
+        self.assertEqual([], self.events(stage="resolve"))
 
     def test_05_overlap_falls_back_to_serial(self):
         spec = independent()
@@ -494,7 +494,7 @@ class BuildBlackbox(unittest.TestCase):
         storage = (self.project / "notes/storage.py").read_bytes()
         self.assertEqual(["M1"], [e["milestone"] for e in self.events()])
         self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
-        handoff = self.events("decision", stage="astra_review")[-1]
+        handoff = self.events("decision", stage="review_completion")[-1]
         self.assertEqual("M2", handoff["next_task"]["milestone_id"])
         self.assertEqual(["notes/storage.py", "test_storage.py"], handoff["affected_paths"])
 
@@ -534,7 +534,7 @@ class BuildBlackbox(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", status["status"])
         self.assertTrue(status["completion_current"])
         self.assertEqual(4, len(self.events()))
-        self.assertEqual([], self.events(stage="astra_resolve"))
+        self.assertEqual([], self.events(stage="resolve"))
         for files in spec["payloads"].values():
             for name, content in files.items():
                 self.assertEqual(content, (self.project / name).read_text())
@@ -608,7 +608,7 @@ class BuildBlackbox(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", status["status"])
         self.assertTrue(status["completion_current"])
         after = self.state()
-        originals = [row for row in after["stages"] if row["stage"] == "sol" and row.get("rejected")]
+        originals = [row for row in after["stages"] if row["stage"] == "tester" and row.get("rejected")]
         self.assertEqual(2, len(originals))
         self.assertEqual(originals[0]["source_revision"], originals[1]["source_revision"])
         self.assertNotEqual(originals[0]["task_id"], originals[1]["task_id"])
@@ -617,7 +617,7 @@ class BuildBlackbox(unittest.TestCase):
         self.assertEqual(["accepted", "accepted"], [row["result"] for row in after["report_repair_history"]])
         self.assertEqual([1, 2], sorted(after["resolver"]["attempts"].values()))
         self.assertEqual("validate", after["current_task"]["kind"])
-        self.assertEqual(3, len(self.events(stage="sol_report_repair")))
+        self.assertEqual(3, len(self.events(stage="tester_report_repair")))
         self.assertEqual(4, len(self.events()))
         for files in spec["payloads"].values():
             for name, content in files.items():
@@ -736,7 +736,7 @@ class BuildBlackbox(unittest.TestCase):
         self.seed()
         self.env["BUILD_AUDIT_FAULT"] = "no_evidence"
         self.build(2)
-        self.assertFalse(self.events(stage="sol"))
+        self.assertFalse(self.events(stage="tester"))
         self.assertNotEqual("PASS", self.state().get("validation", {}).get("verdict"))
         self.assertNotIn("autocode", self.state()["unit_handoffs"])
         self.assertTrue(
@@ -766,7 +766,7 @@ class BuildBlackbox(unittest.TestCase):
         self.build()
         self.candidate()
         self.assertEqual(3, len(self.events()))
-        self.assertEqual(1, len(self.events("repair", stage="terra_report_repair")))
+        self.assertEqual(1, len(self.events("repair", stage="builder_report_repair")))
 
     def test_29_report_repair_cannot_invent_passing_checks(self):
         # #431 restores original execution history instead of rejecting a usable
@@ -799,13 +799,13 @@ class BuildBlackbox(unittest.TestCase):
                 "--engine",
                 "codex",
                 "--in-place",
-                "--terra-model",
+                "--builder-model",
                 "gpt-6-luna",
-                "--terra-reasoning-effort",
+                "--builder-reasoning-effort",
                 "medium",
-                "--sol-model",
+                "--tester-model",
                 "gpt-5.6-sol",
-                "--sol-reasoning-effort",
+                "--tester-reasoning-effort",
                 "high",
                 "--completion-model",
                 "gpt-5.6-sol",
@@ -827,7 +827,7 @@ class BuildBlackbox(unittest.TestCase):
         self.invoke("autocode_build", [*identity, "--no-chat"])
         status = json.loads(self.invoke("autocode", [*identity, "--status", "--inspect-evidence"]).stdout)
         self.assertEqual(approved_token, status["contract_token"])
-        self.assertEqual("sol", status["next_stage"])
+        self.assertEqual("tester", status["next_stage"])
         self.assertNotEqual("TASK_COMPLETE", status["status"])
         self.assertFalse(status["view"]["done"])
         inspected = status["view"]["verification"]
@@ -836,9 +836,9 @@ class BuildBlackbox(unittest.TestCase):
         self.assertEqual({"C1", "C2", "C3"}, {row["id"] for row in inspected["coverage"]})
         self.assertTrue(all(row["state"] == "unchecked" for row in inspected["coverage"]))
         self.assertNotIn("autoreview", status["unit_handoffs"])
-        self.assertFalse(self.events(stage="sol"))
+        self.assertFalse(self.events(stage="tester"))
         self.assertEqual(3, len(self.events()))
-        repairs = self.events("repair", stage="terra_report_repair")
+        repairs = self.events("repair", stage="builder_report_repair")
         self.assertEqual(1, len(repairs))
         self.assertEqual(["All tests passed; exit code 0"], repairs[0]["results"])
         self.assertEqual(['python3 -c "raise SystemExit(0)"'], repairs[0]["commands_run"])

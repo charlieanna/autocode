@@ -266,7 +266,7 @@ class LivenessViewTests(unittest.TestCase):
                     self.assertEqual("unknown", result["liveness"]["kind"])
 
     def test_malformed_active_stage_keeps_running_status_usable_and_liveness_unknown(self):
-        for active in (None, "terra", ["terra"], True, 42):
+        for active in (None, "builder", ["builder"], True, 42):
             with self.subTest(active=active):
                 state = {"status": "RUNNING", "active_stage": active}
                 before = copy.deepcopy(state)
@@ -281,7 +281,7 @@ class LivenessViewTests(unittest.TestCase):
         state = {
             "status": "RUNNING",
             "phase": "build",
-            "next_stage": "terra",
+            "next_stage": "builder",
             "iteration": 4,
             "current_task": {"id": "T4", "objective": "Build", "milestone_id": "M1"},
             "active_stage": {"supervision": saved},
@@ -326,7 +326,7 @@ class LivenessViewTests(unittest.TestCase):
         saved = metadata()
         state = {
             "status": "RUNNING",
-            "next_stage": "sol",
+            "next_stage": "tester",
             "active_runner_check": {
                 "stage": "regression_proof",
                 "summary": "Testing",

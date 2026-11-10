@@ -36,7 +36,7 @@ def make_recording(directory, *, payload=b"print('hello')\n", head="a" * 40):
         },
         "launch": {
             "task": "Print a greeting",
-            "settings": {"engine": "codex", "roles": {"terra": {"model": "fixture-model"}}},
+            "settings": {"engine": "codex", "roles": {"builder": {"model": "fixture-model"}}},
             "base": "initial",
         },
         "blobs": {digest: {"path": "blobs/" + digest, "bytes": len(payload), "mode": 0o644}},
@@ -95,13 +95,15 @@ class RecordingValidationTests(unittest.TestCase):
                 recording.load(self.manifest)
 
     def test_optional_provider_light_effort_is_preserved_and_typed(self):
-        self.assertNotIn("light_effort", recording.load(self.manifest).document["launch"]["settings"]["roles"]["terra"])
+        self.assertNotIn(
+            "light_effort", recording.load(self.manifest).document["launch"]["settings"]["roles"]["builder"]
+        )
         document = copy.deepcopy(self.document)
-        route = document["launch"]["settings"]["roles"]["terra"]
+        route = document["launch"]["settings"]["roles"]["builder"]
         route["light_effort"] = "low"
         self.save(document)
         self.assertEqual(
-            "low", recording.load(self.manifest).document["launch"]["settings"]["roles"]["terra"]["light_effort"]
+            "low", recording.load(self.manifest).document["launch"]["settings"]["roles"]["builder"]["light_effort"]
         )
         for value in (None, True, 1, [], {}):
             route["light_effort"] = value
@@ -115,7 +117,7 @@ class RecordingValidationTests(unittest.TestCase):
         settings = document["launch"]["settings"]
         settings["roles"]["plan_reviewer"] = {"model": "fixture-model"}
         for origin in ("user_explicit", "runner_default", "auto_selected", "stage_choice"):
-            settings["effort_origins"] = {"plan_reviewer": origin, "terra": origin}
+            settings["effort_origins"] = {"plan_reviewer": origin, "builder": origin}
             self.save(document)
             saved = recording.load(self.manifest).document["launch"]["settings"]
             self.assertEqual(settings["effort_origins"], recording.launch_settings(saved)["effort_origins"])
@@ -125,7 +127,7 @@ class RecordingValidationTests(unittest.TestCase):
             [],
             {"plan_reviewer": "derived"},
             {"plan_reviewer": []},
-            {"terra": "derived"},
+            {"builder": "derived"},
             {"completion": "user_explicit"},
         ):
             settings["effort_origins"] = invalid
@@ -261,16 +263,16 @@ def make_export_projection(root):
     report = run_dir / "builder.json"
     report.write_text(json.dumps({"status": "COMPLETE", "summary": "source changed"}))
     record = {
-        "stage": "terra",
+        "stage": "builder",
         "iteration": 1,
-        "role": "terra",
-        "route_role": "terra",
+        "role": "builder",
+        "route_role": "builder",
         "engine": "codex",
         "provider": None,
         "model": "fixture-model",
         "reasoning_effort": None,
         "report_only": False,
-        "original_stage": "terra",
+        "original_stage": "builder",
         "turn": 1,
         "task_id": "task-1",
         "milestone_id": None,
@@ -297,7 +299,7 @@ def make_export_projection(root):
             "verdict": "TASK_COMPLETE",
         },
         "task": "Print a greeting",
-        "settings": {"engine": "codex", "roles": {"terra": {"model": "fixture-model"}}},
+        "settings": {"engine": "codex", "roles": {"builder": {"model": "fixture-model"}}},
         "records": [record],
         "revisions": [before["head"]],
         "captures": [],
@@ -429,7 +431,7 @@ class ExportAndMaterializationTests(unittest.TestCase):
         for field in ("output", "response"):
             with self.subTest(answer=field):
                 second = copy.deepcopy(first)
-                second.update(stage="sol", role="sol", route_role="sol", before_ref=first["after_ref"])
+                second.update(stage="tester", role="tester", route_role="tester", before_ref=first["after_ref"])
                 second["events"] = str(Path(self.projection["run_dir"]) / "validator.jsonl")
                 Path(second["events"]).write_text(json.dumps({"type": "turn.completed", "usage": {}}) + "\n")
                 second.pop("output")
@@ -495,13 +497,13 @@ class ExportAndMaterializationTests(unittest.TestCase):
             },
             "mutation_check": {"files": [{"path": "greet.py", "sha256": digest, "mutants": [mutant]}]},
         }
-        packet, moved = context.compact({"stage": "sol", "regression_proof": proof}, run / "state.json")
+        packet, moved = context.compact({"stage": "tester", "regression_proof": proof}, run / "state.json")
         self.assertIn(detail.INPUTS, moved)
         self.assertIn(detail.OBLIGATIONS, moved)
         self.assertEqual(
             detail.INPUTS, packet["regression_proof"]["changed_code_inputs"]["mutation"]["details_artifact"]["field"]
         )
-        record.update(stage="sol", original_stage="sol", role="sol", route_role="sol")
+        record.update(stage="tester", original_stage="tester", role="tester", route_role="tester")
         Path(record["before_ref"]).write_bytes(Path(record["after_ref"]).read_bytes())
         prompt = run / "validator.prompt.md"
         record["prompt"] = str(prompt)
@@ -612,7 +614,7 @@ class ExportAndMaterializationTests(unittest.TestCase):
         packet = {"context_artifact": {"path": "/unowned/missing.json", "fields": {"source_snapshot": {"total": 100}}}}
         prompt.write_text("Build.\nCURRENT HANDOFF DATA\n" + json.dumps(packet))
         loaded = recording.load(recording.export(self.projection, self.destination))
-        self.assertEqual("terra", loaded.document["dispatches"][0]["stage"])
+        self.assertEqual("builder", loaded.document["dispatches"][0]["stage"])
 
     def test_export_preserves_explicit_workflow_separately_from_execution_policy(self):
         self.projection["workflow_pin"] = "build"
@@ -759,7 +761,7 @@ class ExportAndMaterializationTests(unittest.TestCase):
             self.assertNotIn(key, settings)
         self.assertEqual("fake", settings["evidence_provenance"]["kind"])
         self.assertEqual("recorded_observations", settings["evidence_provenance"]["basis"])
-        self.assertEqual("fixture-model", settings["roles"]["terra"]["model"])
+        self.assertEqual("fixture-model", settings["roles"]["builder"]["model"])
 
     def test_prepared_workspace_has_original_source_and_materializes_only_declared_effects(self):
         manifest = recording.export(self.projection, self.destination)

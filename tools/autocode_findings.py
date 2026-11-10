@@ -44,7 +44,7 @@ except ImportError:
 
 # "runner": the runner's own check, which only its module opens or closes: a failed lifecycle observation
 # (autocode_risk_findings) or a package run's change outside its package (autocode_package_writes).
-SOURCES = ("sol", "task_planner", "runner")
+SOURCES = ("tester", "task_planner", "runner")
 SEVERITIES = ("critical", "high", "medium", "low")
 DISPOSITIONS = ("resolved", "retracted")
 
@@ -112,7 +112,7 @@ def recheck_by_validator(state: RunState, value, source_revision):
     validation = state.get("validation") or {}
     if (
         not blocking
-        or any(row.get("source") != "sol" for row in blocking)
+        or any(row.get("source") != "tester" for row in blocking)
         or validation.get("verdict") != "PASS"
         or any(row.get("last_reported_in") == validation.get("output") for row in blocking)
     ):
@@ -204,7 +204,7 @@ def restore_initial_plan_scopes(state: RunState):
             r
             for r in state.get("stages", [])
             if r.get("output") == row.get("opened_in")
-            and r.get("stage") == "astra_plan"
+            and r.get("stage") == "plan_task"
             and not r.get("task_id")
             and r.get("exit_code") == 0
             and not r.get("timed_out")
@@ -374,12 +374,12 @@ def _record(state: RunState, source, reported, record, initial_scope=None):
 
 def record_validation(state: RunState, validation, record):
     """The Validator's findings open or refresh Validator entries; its dispositions close them."""
-    _record(state, "sol", validation.get("findings", []), record)
+    _record(state, "tester", validation.get("findings", []), record)
     if validation.get("verdict") == "BLOCKED":
         return
     _apply_dispositions(
         state,
-        "sol",
+        "tester",
         validation.get("finding_dispositions", []),
         record,
         report_scope(state),
@@ -397,7 +397,7 @@ def record_decision(state: RunState, decision, record):
     """
     initial_scope = (
         _initial_task_scope(state.get("goal_contract") or {}, decision.get("next_task") or {})
-        if record.get("stage") == "astra_plan" and not state.get("current_task")
+        if record.get("stage") == "plan_task" and not state.get("current_task")
         else None
     )
     _record(state, "task_planner", decision.get("findings", []), record, initial_scope)

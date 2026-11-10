@@ -42,7 +42,7 @@ def reviewed():
         },
         "status": "AWAITING_GOAL_APPROVAL",
         "phase": "AWAITING_GOAL_APPROVAL",
-        "next_stage": "astra_plan",
+        "next_stage": "plan_task",
         "goal_contract": contract,
         "displayed_goal": selected,
         "displayed_handoff": "none",
@@ -66,7 +66,7 @@ def pending():
             "id": "plan-message-1",
             "text": WHY,
             "contract_token": state["displayed_goal"],
-            "return_stage": "astra_plan",
+            "return_stage": "plan_task",
         }
     )
     state.update(status="RUNNING", phase="PLANNING", next_stage="requirements_gather")
@@ -191,7 +191,7 @@ class PlanMessageTests(unittest.TestCase):
         self.assertEqual(before["source_log"], state["source_log"])
         self.assertEqual([], state["brief_feedback"])
         self.assertEqual({}, state["answers"])
-        self.assertEqual(("RUNNING", "astra_finalize"), (state["status"], state["next_stage"]))
+        self.assertEqual(("RUNNING", "finalize_plan"), (state["status"], state["next_stage"]))
         self.assertEqual("gate_message", state["user_events"][-1]["kind"])
         self.assertNotIn(WHY, goals.scan_texts(state))
 
@@ -206,7 +206,7 @@ class PlanMessageTests(unittest.TestCase):
         for change in (
             {"displayed_goal": "stale"},
             {"displayed_handoff": "stale"},
-            {"active_stage": {"stage": "terra"}},
+            {"active_stage": {"stage": "builder"}},
         ):
             state = {**reviewed(), **change}
             before = copy.deepcopy(state)
@@ -240,7 +240,7 @@ class PlanMessageTests(unittest.TestCase):
         event = chat.accept(state, response(state), {"output": "reply.json"})
         self.assertEqual(REPLY, event["reply_after"])
         self.assertEqual("question", event["intent"])
-        self.assertEqual(("AWAITING_GOAL_APPROVAL", "astra_plan"), (state["status"], state["next_stage"]))
+        self.assertEqual(("AWAITING_GOAL_APPROVAL", "plan_task"), (state["status"], state["next_stage"]))
         for key in ("goal_contract", "planning", "displayed_goal", "source_log", "answers", "brief_feedback"):
             self.assertEqual(before[key], state[key], key)
         self.assertIsNone(chat.pending(state))

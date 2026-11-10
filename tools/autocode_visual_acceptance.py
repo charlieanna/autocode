@@ -255,7 +255,7 @@ def accept(
     stage = verify_stage(record, current)
     for key in ("accepted", "read_only", "independent", "source_full_gate"):
         _require(stage.get(key) is True, "Unverified Validator prerequisite: " + key)
-    _require(record.get("stage") == "sol" and stage.get("stage") == "sol", "Not a Validator boundary")
+    _require(record.get("stage") == "tester" and stage.get("stage") == "tester", "Not a Validator boundary")
     if stage.get("producer_kind") == "operator_supplied_source":
         supplied = stage.get("operator_source") or {}
         _require(
@@ -693,7 +693,7 @@ def _check_scoped_receipt(receipt):
         "Wrong native receipt identity",
     )
     _require(
-        stage["stage"] == "sol"
+        stage["stage"] == "tester"
         and all(stage.get(key) is True for key in ("accepted", "read_only", "independent", "source_full_gate"))
         and {key: stage[key] for key in ("provider", "model")} == bound["reviewer"]
         and stage["runtime_hash"] == bound["runtime_hash"]

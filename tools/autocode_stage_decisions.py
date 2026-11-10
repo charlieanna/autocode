@@ -37,7 +37,7 @@ except ImportError:
 RUN, SKIP = "run", "skip"
 APPROVAL = "person:approve_goal"
 # The stages a discussion Requirements answered itself never reaches (autocode_requirements_chat.answer_now).
-NOT_PLANNED = ("astra_discovery", "astra_challenge", "terra", "sol", "astra_review")
+NOT_PLANNED = ("draft_plan", "review_plan", "builder", "tester", "review_completion")
 ANSWERED_BY = "requirements_gather"  # autocode_requirements_answer.STAGE
 
 
@@ -78,16 +78,16 @@ def _skips(state: RunState) -> list[tuple[str, str, str, tuple[str, ...]]]:
     found: list[tuple[str, str, str, tuple[str, ...]]] = []
     adaptive = _mapping(_mapping(state.get("planning")).get("adaptive"))
     approved = adaptive.get("approved_at")
-    if isinstance(approved, str) and approved.startswith("astra_challenge#"):
-        number = approved.removeprefix("astra_challenge#")
-        covered: tuple[str, ...] = ("astra_challenge", APPROVAL)
+    if isinstance(approved, str) and approved.startswith("review_plan#"):
+        number = approved.removeprefix("review_plan#")
+        covered: tuple[str, ...] = ("review_plan", APPROVAL)
         found.append(
-            ("astra_challenge", "glm_revise", "no revision: the Plan Reviewer raised no blocking concern", covered)
+            ("review_plan", "revise_plan", "no revision: the Plan Reviewer raised no blocking concern", covered)
         )
         found.append(
             (
-                "glm_revise",
-                "astra_finalize",
+                "revise_plan",
+                "finalize_plan",
                 f"no final review: the Plan Reviewer approved the plan at its review {number}",
                 covered,
             )

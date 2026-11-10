@@ -155,7 +155,7 @@ class NativeVisualFactory:
         records = [
             row
             for row in state.get("stages", [])
-            if row.get("output") == request.get("source_output") and row.get("stage") == "astra_review"
+            if row.get("output") == request.get("source_output") and row.get("stage") == "review_completion"
         ]
         _require(len(records) == 1, "Resolver needs the genuine current ordinary Completion request")
         self._resolver_request_evidence(bound, request, records[0])
@@ -166,7 +166,7 @@ class NativeVisualFactory:
             request.get("task_id") == bound["task"]["id"]
             and request.get("contract_hash") == bound["contract"]["hash"]
             and request.get("source_revision") == bound["source"]["revision"]
-            and request.get("source_stage") == "astra_review"
+            and request.get("source_stage") == "review_completion"
             and request.get("provenance") == "completion_review_decision"
             and request.get("source_output") == request.get("review_output") == record["output"],
             "Resolver cannot borrow another task, source or routing packet",
@@ -191,7 +191,7 @@ class NativeVisualFactory:
         rows, original, stopped = self.protection._finished_for(history.record_identity(record))
         _require(
             record.get("stage") == record.get("role")
-            and record["stage"] in ("astra_review", "astra_resolve")
+            and record["stage"] in ("review_completion", "resolve")
             and original["body"]["binding"] == binding
             and stopped["body"]["after"] == binding["source"]
             and original["body"]["grants"] == []
@@ -278,7 +278,7 @@ class NativeVisualFactory:
             )
         else:
             _require(
-                body["record"]["stage"] == "astra_resolve"
+                body["record"]["stage"] == "resolve"
                 and body["decision"]["next_task"]["kind"] == "implement"
                 and bool(body["decision"]["evidence"]),
                 "bounded repair requires the actual independent Resolver REWORK",

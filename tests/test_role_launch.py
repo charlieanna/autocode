@@ -24,10 +24,10 @@ class ReplayContextTests(unittest.TestCase):
             ):
                 context = role_launch.replay_context(
                     {},
-                    stage="astra_challenge_report_repair" if report_only else "astra_challenge",
+                    stage="review_plan_report_repair" if report_only else "review_plan",
                     iteration=1,
                     report_only=report_only,
-                    original_stage="astra_challenge",
+                    original_stage="review_plan",
                     changed_code_proof=None,
                 )
                 self.assertEqual("draft-failure-v1:current", context["draft_inference_snapshot"])
@@ -36,7 +36,7 @@ class ReplayContextTests(unittest.TestCase):
         with patch.object(role_launch.failure_correction, "snapshot", return_value=None):
             context = role_launch.replay_context(
                 {},
-                stage="astra_challenge",
+                stage="review_plan",
                 iteration=1,
                 report_only=False,
                 original_stage=None,
@@ -55,15 +55,15 @@ class ReplayContextTests(unittest.TestCase):
         }
         context = role_launch.replay_context(
             state,
-            stage="sol_report_repair",
+            stage="tester_report_repair",
             iteration=3,
             report_only=True,
-            original_stage="sol",
+            original_stage="tester",
             changed_code_proof="p",
         )
         self.assertEqual(
             {
-                "stage": "sol_report_repair",
+                "stage": "tester_report_repair",
                 "iteration": 3,
                 "turn": 3,
                 "milestone_id": "M-1",
@@ -71,7 +71,7 @@ class ReplayContextTests(unittest.TestCase):
                 "contract_hash": "h",
                 "criteria_revision": "c",
                 "report_only": True,
-                "original_stage": "sol",
+                "original_stage": "tester",
                 "consumed": 1,
                 "changed_code_proof": "p",
                 "regression_proof_path": "proof.json",
@@ -81,7 +81,7 @@ class ReplayContextTests(unittest.TestCase):
 
     def test_a_first_launch_names_no_original_stage(self):
         context = role_launch.replay_context(
-            {}, stage="terra", iteration=1, report_only=False, original_stage="terra", changed_code_proof=None
+            {}, stage="builder", iteration=1, report_only=False, original_stage="builder", changed_code_proof=None
         )
         self.assertEqual(
             (1, None, 0, None), (context["turn"], context["original_stage"], context["consumed"], context["task_id"])
@@ -115,11 +115,11 @@ class NativeEnvironmentTests(unittest.TestCase):
 class PromptDecorationTests(unittest.TestCase):
     def test_opencode_schema_and_containment_keep_exact_current_proof_binding(self):
         for stage, containment, required, current in (
-            ("sol", True, True, True),
-            ("sol", True, True, False),
-            ("sol", True, False, False),
-            ("sol", False, True, False),
-            ("terra", True, True, False),
+            ("tester", True, True, True),
+            ("tester", True, True, False),
+            ("tester", True, False, False),
+            ("tester", False, True, False),
+            ("builder", True, True, False),
         ):
             with self.subTest(stage=stage, containment=containment, required=required, current=current):
                 state, schema = {}, {"type": "object"}
@@ -137,7 +137,7 @@ class PromptDecorationTests(unittest.TestCase):
                     )
                 self.assertEqual("contained", result)
                 adapter.prompt_for_schema.assert_called_once_with("original", schema, "events")
-                if stage == "sol" and containment and required:
+                if stage == "tester" and containment and required:
                     complete.assert_called_once_with(state, "revision")
                 else:
                     complete.assert_not_called()
@@ -165,9 +165,7 @@ class ReviewerFallbackTests(unittest.TestCase):
     def test_the_consumed_grant_is_named_on_the_record(self):
         record = {}
         with patch.object(role_launch.reviewer_fallback, "admit", return_value={"role": "planner"}):
-            role_launch.admit_reviewer_fallback(
-                self.state(), "/run", "/w", "astra_challenge", {"role": "planner"}, record
-            )
+            role_launch.admit_reviewer_fallback(self.state(), "/run", "/w", "review_plan", {"role": "planner"}, record)
         self.assertEqual("g-1", record["reviewer_fallback_grant"])
 
     def test_a_changed_fallback_pauses_before_the_provider(self):
@@ -175,7 +173,7 @@ class ReviewerFallbackTests(unittest.TestCase):
         with patch.object(role_launch.reviewer_fallback, "admit", return_value={"role": "other"}):
             with self.assertRaises(Paused) as caught:
                 role_launch.admit_reviewer_fallback(
-                    self.state(), "/run", "/w", "astra_challenge", {"role": "planner"}, record
+                    self.state(), "/run", "/w", "review_plan", {"role": "planner"}, record
                 )
         self.assertEqual("PAUSED_REVIEWER_FALLBACK", caught.exception.status)
         self.assertNotIn("reviewer_fallback_grant", record)
@@ -187,7 +185,7 @@ class ActivityReporterTests(unittest.TestCase):
         reporter = role_launch.activity_reporter(
             state,
             record,
-            stage="terra",
+            stage="builder",
             model="m",
             idle_limit=300,
             tool_timeout=1800,
@@ -214,7 +212,7 @@ class ActivityReporterTests(unittest.TestCase):
 class RaiseForExitTests(unittest.TestCase):
     def check(self, state=None, record=None, **overrides):
         options = dict(
-            role="terra",
+            role="builder",
             events="e.jsonl",
             output=MagicMock(is_file=MagicMock(return_value=True)),
             exit_code=0,
@@ -227,7 +225,7 @@ class RaiseForExitTests(unittest.TestCase):
             supports_sessions=False,
             session=None,
             report_only=False,
-            route_role="terra",
+            route_role="builder",
         )
         options.update(overrides)
         role_launch.raise_for_exit(state if state is not None else {}, record if record is not None else {}, **options)

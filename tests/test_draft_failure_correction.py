@@ -110,7 +110,7 @@ def fixture(*, investigation=None, interpretation=False, named_proof=False, comp
 
 class DraftFailureCorrectionTests(unittest.TestCase):
     def admit(self, current, review):
-        autopilot.apply_planning(current, "astra_challenge", review, {"output": "review.json"})
+        autopilot.apply_planning(current, "review_plan", review, {"output": "review.json"})
 
     def test_read_only_plan_reviewer_timeout_does_not_make_draft_compatibility_human_owned(self):
         current, review, changed, changes = fixture(compatibility=True)
@@ -119,7 +119,7 @@ class DraftFailureCorrectionTests(unittest.TestCase):
                 "kind": "automatic_timeout_recovery",
                 "actor": "runner",
                 "attempt_id": "001/plan-challenge-01",
-                "next_stage": "astra_challenge",
+                "next_stage": "review_plan",
                 "changed_files": [],
             }
         ]
@@ -128,15 +128,15 @@ class DraftFailureCorrectionTests(unittest.TestCase):
             correction.receipts(current, review)
         receipt["snapshot"] = correction.snapshot(current)
         self.admit(current, review)
-        lifecycle.install_draft(current, changed, origin="glm_revise", changes=changes)
+        lifecycle.install_draft(current, changed, origin="revise_plan", changes=changes)
         self.assertEqual(AFTER, current["goal_contract"]["body"]["required_behaviors"][-1])
-        self.assertEqual("astra_finalize", current["next_stage"])
+        self.assertEqual("finalize_plan", current["next_stage"])
 
     def test_a_user_event_or_other_recovery_still_blocks_the_compatibility_receipt(self):
         for change in (
             {"actor": "user_cli"},
             {"kind": "brief_feedback"},
-            {"next_stage": "terra"},
+            {"next_stage": "builder"},
             {"changed_files": ["greet.py"]},
         ):
             current, review, _, _ = fixture(compatibility=True)
@@ -145,7 +145,7 @@ class DraftFailureCorrectionTests(unittest.TestCase):
                     "kind": "automatic_timeout_recovery",
                     "actor": "runner",
                     "attempt_id": "001/plan-challenge-01",
-                    "next_stage": "astra_challenge",
+                    "next_stage": "review_plan",
                     "changed_files": [],
                 }
                 | change
@@ -157,7 +157,7 @@ class DraftFailureCorrectionTests(unittest.TestCase):
     def test_exact_receipt_revises_unapproved_bugfix_compatibility_without_a_user_question(self):
         current, review, changed, changes = fixture(compatibility=True)
         self.admit(current, review)
-        lifecycle.install_draft(current, changed, origin="glm_revise", changes=changes)
+        lifecycle.install_draft(current, changed, origin="revise_plan", changes=changes)
         contract = current["goal_contract"]
         self.assertIn(AFTER, contract["body"]["required_behaviors"])
         self.assertEqual("draft", contract["approval_status"])
@@ -180,19 +180,19 @@ class DraftFailureCorrectionTests(unittest.TestCase):
         del review["concerns"][0][correction.FIELD]
         self.admit(current, review)
         with self.assertRaisesRegex(ValueError, "needs a saved user answer or feedback event"):
-            lifecycle.install_draft(current, changed, origin="glm_revise", changes=changes)
+            lifecycle.install_draft(current, changed, origin="revise_plan", changes=changes)
 
     def test_fresh_review_accepts_only_exact_pair_and_preserves_every_existing_proof(self):
         current, review, changed, changes = fixture()
         self.admit(current, review)
         old = copy.deepcopy(current["goal_contract"]["body"])
-        lifecycle.install_draft(current, changed, origin="glm_revise", changes=changes)
+        lifecycle.install_draft(current, changed, origin="revise_plan", changes=changes)
         self.assertEqual(old["acceptance_criteria"], current["goal_contract"]["body"]["acceptance_criteria"])
         self.assertEqual(AFTER, current["goal_contract"]["body"]["important_failure_cases"][-1])
         saved = current["goal_contract"]["declared_changes"][0]
         self.assertEqual(["C3"], saved["review_concerns"])
         self.assertEqual(review["concerns"][0][correction.FIELD], saved[correction.FIELD])
-        self.assertEqual("astra_finalize", current["next_stage"])
+        self.assertEqual("finalize_plan", current["next_stage"])
         self.assertFalse(goals.approved(current))
 
     def test_exact_failure_receipt_composes_with_independent_draft_criterion_corrections(self):
@@ -216,7 +216,7 @@ class DraftFailureCorrectionTests(unittest.TestCase):
                             "replacement": value,
                         }
                     )
-                lifecycle.install_draft(current, changed, origin="glm_revise", changes=changes)
+                lifecycle.install_draft(current, changed, origin="revise_plan", changes=changes)
                 saved = current["goal_contract"]
                 self.assertEqual(value, saved["body"]["acceptance_criteria"][0][field])
                 self.assertEqual(AFTER, saved["body"]["important_failure_cases"][-1])
@@ -224,12 +224,12 @@ class DraftFailureCorrectionTests(unittest.TestCase):
                     previous["acceptance_criteria"][0]["sources"], saved["body"]["acceptance_criteria"][0]["sources"]
                 )
                 self.assertFalse(goals.approved(current))
-                self.assertEqual("astra_finalize", current["next_stage"])
+                self.assertEqual("finalize_plan", current["next_stage"])
 
     def test_failure_prompt_explains_composition_without_granting_adjacent_authority(self):
         current, _, _, _ = fixture()
         with tempfile.TemporaryDirectory() as temp:
-            request = planner.prepare(current, "glm_revise", Path(temp) / "state.json", None)
+            request = planner.prepare(current, "revise_plan", Path(temp) / "state.json", None)
         self.assertIn("independently permitted draft corrections", request.prompt)
         self.assertIn("The receipt itself grants no authority over adjacent criteria", request.prompt)
 
@@ -259,13 +259,13 @@ class DraftFailureCorrectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             output, schema_path, events = root / "revision.json", root / "schema.json", root / "events.jsonl"
-            request = planner.prepare(current, "glm_revise", root / "state.json", None)
+            request = planner.prepare(current, "revise_plan", root / "state.json", None)
             schema = runner.util.model_output_schema(request.schema)
             output.write_text(json.dumps(report))
             schema_path.write_text(json.dumps(schema))
             events.write_text('{"type":"turn.completed"}\n')
             record = {
-                "stage": "glm_revise",
+                "stage": "revise_plan",
                 "engine": "codex",
                 "output": str(output),
                 "schema": str(schema_path),
@@ -273,9 +273,9 @@ class DraftFailureCorrectionTests(unittest.TestCase):
             }
             loaded = runner.load_stage_report(record, state=current)
             self.assertEqual(report, json.loads(Path(record.get("reported_output", output)).read_text()))
-            autopilot.apply_planning(current, "glm_revise", loaded, record)
+            autopilot.apply_planning(current, "revise_plan", loaded, record)
         public = run_view.view(current)
-        self.assertEqual("astra_finalize", public["next_stage"])
+        self.assertEqual("finalize_plan", public["next_stage"])
         self.assertFalse(goals.approved(current))
         shown = lifecycle.render(current)
         self.assertIn(AFTER, shown)
@@ -318,7 +318,7 @@ class DraftFailureCorrectionTests(unittest.TestCase):
                 review["concerns"][0][correction.FIELD]["snapshot"] = correction.snapshot(current)
                 self.admit(current, review)
                 with self.assertRaisesRegex(ValueError, r"receipt matches, but adjacent accepted_assumptions"):
-                    lifecycle.revision_guard(current, changed, changes, "glm_revise")
+                    lifecycle.revision_guard(current, changed, changes, "revise_plan")
 
     def test_independent_assumption_update_does_not_replace_receipt_authority(self):
         for mutation in ("missing", "stale"):
@@ -330,7 +330,7 @@ class DraftFailureCorrectionTests(unittest.TestCase):
                 if mutation == "stale":
                     current["task"] += ". Another source observation."
                 with self.assertRaisesRegex(ValueError, "needs a saved user answer or feedback event"):
-                    lifecycle.revision_guard(current, changed, changes, "glm_revise")
+                    lifecycle.revision_guard(current, changed, changes, "revise_plan")
 
     def test_composed_correction_preserves_proofs_and_source_citations(self):
         for mutation in ("proof", "human_review", "source", "permission", "decision"):
@@ -354,13 +354,13 @@ class DraftFailureCorrectionTests(unittest.TestCase):
                     )
                     expected = "delegated_decisions"
                 with self.assertRaisesRegex(ValueError, "receipt matches, but adjacent " + expected):
-                    lifecycle.revision_guard(current, changed, changes, "glm_revise")
+                    lifecycle.revision_guard(current, changed, changes, "revise_plan")
 
     def test_null_receipt_preserves_legacy_review_admission(self):
         current, review, _, _ = fixture()
         review["concerns"][0][correction.FIELD] = None
         self.admit(current, review)
-        self.assertEqual("glm_revise", current["next_stage"])
+        self.assertEqual("revise_plan", current["next_stage"])
 
     def test_malformed_stale_nonblocking_and_duplicate_receipts_fail_at_review_admission(self):
         for mutation in ("stale", "judgment", "empty", "extra", "nonblocking", "duplicate", "wrong_before"):
@@ -399,13 +399,13 @@ class DraftFailureCorrectionTests(unittest.TestCase):
                 current, review, changed, changes = fixture()
                 self.admit(current, review)
                 current[key] = value
-                self.assertEqual({}, correction.corrections(current, changed, changes, "glm_revise"))
+                self.assertEqual({}, correction.corrections(current, changed, changes, "revise_plan"))
                 with self.assertRaises(ValueError):
-                    lifecycle.install_draft(current, changed, origin="glm_revise", changes=changes)
+                    lifecycle.install_draft(current, changed, origin="revise_plan", changes=changes)
         current, review, changed, changes = fixture()
         self.admit(current, review)
         current["goal_contract"]["body"]["important_failure_cases"].append("Another case")
-        self.assertEqual({}, correction.corrections(current, changed, changes, "glm_revise"))
+        self.assertEqual({}, correction.corrections(current, changed, changes, "revise_plan"))
 
     def test_approved_edited_unknown_or_malformed_lineage_never_offers_authority(self):
         for mutation in (
@@ -487,9 +487,9 @@ class DraftFailureCorrectionTests(unittest.TestCase):
             with self.subTest(mutation=mutation):
                 current, review, changed, changes = fixture(named_proof=True)
                 self.admit(current, review)
-                origin = "glm_revise"
+                origin = "revise_plan"
                 if mutation == "wrong_role":
-                    origin = "astra_finalize"
+                    origin = "finalize_plan"
                 elif mutation == "wrong_pair":
                     changed["important_failure_cases"][-1] = changes[0]["replacement"] = "Other behavior"
                 elif mutation == "undeclared":
@@ -526,7 +526,7 @@ class DraftFailureCorrectionTests(unittest.TestCase):
         changed["acceptance_criteria"].append(
             {**changed["acceptance_criteria"][0], "id": "C2", "criterion": "lookup([]) returns []"}
         )
-        self.assertEqual({BEFORE}, set(correction.corrections(current, changed, changes, "glm_revise")))
+        self.assertEqual({BEFORE}, set(correction.corrections(current, changed, changes, "revise_plan")))
 
     def test_one_refusal_reports_all_adjacent_obligation_changes(self):
         current, review, changed, changes = fixture(named_proof=True)
@@ -540,7 +540,7 @@ class DraftFailureCorrectionTests(unittest.TestCase):
         changed["acceptance_criteria"][0]["verification_method"] = "Skip proof"
         changed["acceptance_criteria"][0]["sources"] = []
         with self.assertRaises(ValueError) as refused:
-            correction.corrections(current, changed, changes, "glm_revise")
+            correction.corrections(current, changed, changes, "revise_plan")
         for field in (
             *correction.LISTS,
             "delegated_decisions",
@@ -561,7 +561,7 @@ class DraftFailureCorrectionTests(unittest.TestCase):
             row["answer_id"] = "unrelated-answer"
         changed["acceptance_criteria"] = []
         with self.assertRaises(ValueError) as refused:
-            correction.corrections(current, changed, changes, "glm_revise")
+            correction.corrections(current, changed, changes, "revise_plan")
         for index in range(len(changed["accepted_assumptions"])):
             self.assertIn(f"accepted_assumptions[{index}]", str(refused.exception))
         self.assertIn("acceptance_criteria[C1]", str(refused.exception))
@@ -594,7 +594,7 @@ class DraftFailureCorrectionTests(unittest.TestCase):
                 elif mutation == "stale":
                     current["task"] += " A new requirement."
                 elif mutation == "nonblocking":
-                    current["planning"]["reports"]["astra_challenge"]["report"]["concerns"][0]["blocking"] = False
+                    current["planning"]["reports"]["review_plan"]["report"]["concerns"][0]["blocking"] = False
                 else:
                     current["goal_contract"]["approval_status"] = "approved"
                 self.assertIsNone(correction.repair_obligations(current))
@@ -603,12 +603,12 @@ class DraftFailureCorrectionTests(unittest.TestCase):
         current, review, changed, _ = fixture(interpretation=True)
         self.admit(current, review)
         source = {"format": "json", "truncated": False, "content": {"contract": changed}}
-        for stage in ("glm_revise", "astra_finalize", "astra_challenge"):
+        for stage in ("revise_plan", "finalize_plan", "review_plan"):
             with self.subTest(stage=stage):
                 instruction, payload = repair_context.prompt_parts(
                     current, {"original": {"stage": stage}}, source, source, ("", {})
                 )
-                if stage == "glm_revise":
+                if stage == "revise_plan":
                     expected = current["goal_contract"]["body"]["accepted_assumptions"]
                     self.assertEqual(
                         expected, payload["header"]["draft_failure_adjacent_obligations"]["accepted_assumptions"]
@@ -629,7 +629,7 @@ class DraftFailureCorrectionTests(unittest.TestCase):
         current, review, changed, changes = fixture(investigation=diagnosis)
         self.admit(current, review)
         self.assertEqual(diagnosis["observed"], changed["acceptance_criteria"][0].pop("current_behavior"))
-        lifecycle.install_draft(current, changed, origin="glm_revise", changes=changes)
+        lifecycle.install_draft(current, changed, origin="revise_plan", changes=changes)
         self.assertEqual(
             diagnosis["observed"], current["goal_contract"]["body"]["acceptance_criteria"][0]["current_behavior"]
         )
@@ -639,7 +639,7 @@ class DraftFailureCorrectionTests(unittest.TestCase):
         current, review, _, _ = fixture()
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            request = planner.prepare(current, "astra_challenge", root / "state.json", None)
+            request = planner.prepare(current, "review_plan", root / "state.json", None)
             self.assertIn(correction.snapshot(current), request.prompt)
             self.assertIn("Absence of a matching quote does not establish", request.prompt)
             schema = runner.util.model_output_schema(request.schema)
@@ -650,7 +650,7 @@ class DraftFailureCorrectionTests(unittest.TestCase):
             schema_path.write_text(json.dumps(schema))
             events.write_text('{"type":"turn.completed"}\n')
             record = {
-                "stage": "astra_challenge",
+                "stage": "review_plan",
                 "engine": "codex",
                 "output": str(output),
                 "schema": str(schema_path),
@@ -665,14 +665,14 @@ class DraftFailureCorrectionTests(unittest.TestCase):
         self.assertNotIn(correction.FIELD, planner.CONCERN["properties"])
 
     def test_legacy_omission_loads_actual_wire_schema_without_granting_correction_authority(self):
-        for stage in ("astra_challenge", "astra_challenge_report_repair"):
+        for stage in ("review_plan", "review_plan_report_repair"):
             with self.subTest(stage=stage), tempfile.TemporaryDirectory() as temp:
                 current, review, changed, changes = fixture()
                 review["concerns"][0].pop(correction.FIELD)
                 review["source_trace"] = {"out_of_scope": [], "negation_waivers": []}
                 review["obligation_decisions"] = []
                 root = Path(temp)
-                request = planner.prepare(current, "astra_challenge", root / "state.json", None)
+                request = planner.prepare(current, "review_plan", root / "state.json", None)
                 schema = runner.util.model_output_schema(request.schema)
                 # This is the exact pre-fix failure: provider generation makes the optional field required.
                 with self.assertRaisesRegex(ValueError, "missing draft_failure_correction"):
@@ -689,16 +689,16 @@ class DraftFailureCorrectionTests(unittest.TestCase):
                     "events": str(events),
                 }
                 if stage.endswith("_report_repair"):
-                    record["original_stage"] = "astra_challenge"
+                    record["original_stage"] = "review_plan"
                 loaded = runner.load_stage_report(record, state=current)
                 self.assertIsNone(loaded["concerns"][0][correction.FIELD])
                 self.assertEqual(review, json.loads(Path(record["reported_output"]).read_text()))
                 self.assertEqual(schema, json.loads(schema_path.read_text()))
                 self.assertEqual(loaded, runner.load_stage_report(record, state=current))
                 self.admit(current, loaded)
-                self.assertEqual("glm_revise", current["next_stage"])
+                self.assertEqual("revise_plan", current["next_stage"])
                 with self.assertRaisesRegex(ValueError, "needs a saved user answer or feedback event"):
-                    lifecycle.install_draft(current, changed, origin="glm_revise", changes=changes)
+                    lifecycle.install_draft(current, changed, origin="revise_plan", changes=changes)
 
     def test_report_repair_respects_the_pinned_old_or_new_concern_schema(self):
         for supported in (False, True):
@@ -711,8 +711,8 @@ class DraftFailureCorrectionTests(unittest.TestCase):
                 harness.state.update(current)
                 harness.state["settings"] = settings
                 harness.state["workspace"] = str(harness.root)
-                harness.state["next_stage"] = "astra_challenge"
-                schema = runner.util.model_output_schema(planner.SCHEMAS["astra_challenge"])
+                harness.state["next_stage"] = "review_plan"
+                schema = runner.util.model_output_schema(planner.SCHEMAS["review_plan"])
                 if not supported:
                     concern = schema["properties"]["concerns"]["items"]
                     concern["properties"].pop(correction.FIELD)
@@ -721,9 +721,7 @@ class DraftFailureCorrectionTests(unittest.TestCase):
                 saved = harness.run / "saved.schema.json"
                 saved.write_text(json.dumps(schema))
                 before = saved.read_bytes()
-                harness.queue(
-                    stage="astra_challenge", role="task_planner", schema=str(saved), report=json.dumps(review)
-                )
+                harness.queue(stage="review_plan", role="task_planner", schema=str(saved), report=json.dumps(review))
                 prompt = harness.repair_request()["prompt"]
                 instruction, raw = prompt.split("CURRENT HANDOFF DATA\n", 1)
                 handoff = json.loads(raw)
@@ -751,7 +749,7 @@ class DraftFailureCorrectionTests(unittest.TestCase):
                 }
             ],
         }
-        autopilot.apply_planning(current, "glm_revise", revise, {"output": "revision.json"})
+        autopilot.apply_planning(current, "revise_plan", revise, {"output": "revision.json"})
         reviewed = copy.deepcopy(current["goal_contract"]["body"])
         reviewed["initial_task"] = initial_task
         final = {
@@ -778,13 +776,13 @@ class DraftFailureCorrectionTests(unittest.TestCase):
             events.write_text('{"type":"turn.completed"}\n')
             current["stages"] = [
                 {
-                    "stage": "astra_finalize",
+                    "stage": "finalize_plan",
                     "output": str(output),
                     "events": str(events),
                     "source_revision": "source-revision",
                 }
             ]
-            autopilot.apply_planning(current, "astra_finalize", final, current["stages"][0])
+            autopilot.apply_planning(current, "finalize_plan", final, current["stages"][0])
             lifecycle.human.evaluate(current)
             display = lifecycle.present(current)
             self.assertFalse(goals.approved(current))

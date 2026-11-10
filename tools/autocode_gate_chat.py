@@ -60,7 +60,7 @@ def _binding(state: RunState, kind):
     ):
         return None
     # The same selected Plan Reviewer handles replies to the plan it reviewed.
-    return {"token": identity.token(contract), "stage": "astra_finalize"}
+    return {"token": identity.token(contract), "stage": "finalize_plan"}
 
 
 def offer(state: RunState):

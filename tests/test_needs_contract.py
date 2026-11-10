@@ -314,7 +314,7 @@ KIND_SHAPES = {
         {
             "status": "PAUSED_BUDGET",
             "stop_reason": "quota restored; set the attempt aside",
-            "active_stage": {"iteration": 1, "output": "/run/terra-01.json", "stage": "terra"},
+            "active_stage": {"iteration": 1, "output": "/run/terra-01.json", "stage": "builder"},
             "settings": {},
         }
     ],
@@ -355,7 +355,7 @@ KIND_SHAPES = {
             "settings": {"report_repair": {"max_attempts": 2}},
             "pending_report_repair": {
                 "error": "Check is not supported by an exact executed Validator event",
-                "original": {"stage": "sol"},
+                "original": {"stage": "tester"},
                 "attempts": 2,
                 "latest_rejected": {"iteration": 1, "output": "/run/sol_report_repair-02.json"},
             },

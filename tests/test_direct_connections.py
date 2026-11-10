@@ -63,7 +63,7 @@ def settings(endpoint="https://models.example.invalid/v1", transport_name="compa
         "transport": transport_name,
         "endpoint": endpoint,
         "roles": {
-            role: "fixture/reviewer" if role in ("sol", "completion", "plan_reviewer") else "fixture/producer"
+            role: "fixture/reviewer" if role in ("tester", "completion", "plan_reviewer") else "fixture/producer"
             for role in config.ROLES
         },
     }
@@ -120,10 +120,10 @@ class MultiProviderConnectionTests(unittest.TestCase):
         self.add("claude", ["", "reviewer", "claude-opus-5.5"], "claude-secret")
         value = config.load()
         self.assertEqual(2, value["version"])
-        self.assertEqual("openai", config.role_providers(value)["terra"])
-        self.assertEqual("claude", config.role_providers(value)["sol"])
-        self.assertEqual("gpt-6.1", value["roles"]["terra"]["model"])
-        self.assertEqual("claude-opus-5.5", value["roles"]["sol"]["model"])
+        self.assertEqual("openai", config.role_providers(value)["builder"])
+        self.assertEqual("claude", config.role_providers(value)["tester"])
+        self.assertEqual("gpt-6.1", value["roles"]["builder"]["model"])
+        self.assertEqual("claude-opus-5.5", value["roles"]["tester"]["model"])
         routes = {role: {"model": spec["model"]} for role, spec in value["roles"].items()}
         self.assertEqual([], verifier_independence.violations({"roles": routes}))
         self.assertEqual("openai-secret", config.api_key(value, "openai"))
@@ -137,7 +137,7 @@ class MultiProviderConnectionTests(unittest.TestCase):
         self.assertNotIn("openai-secret", (config.directory() / "connection.json").read_text())
         self.assertNotIn("claude-secret", json.dumps(connections.view()))
         facade = providers.resolve("autocode")
-        for role, provider in (("terra", "openai"), ("sol", "claude")):
+        for role, provider in (("builder", "openai"), ("tester", "claude")):
             argv, _, _ = facade.launch(
                 role,
                 self.root,
@@ -184,8 +184,8 @@ class MultiProviderConnectionTests(unittest.TestCase):
         self.add("claude", ["", "reviewer", "claude-opus-5.5"], "claude-secret")
         value = config.load()
         self.assertEqual(2, value["version"])
-        self.assertEqual("fixture/producer", value["roles"]["terra"]["model"])
-        self.assertEqual("claude-opus-5.5", value["roles"]["sol"]["model"])
+        self.assertEqual("fixture/producer", value["roles"]["builder"]["model"])
+        self.assertEqual("claude-opus-5.5", value["roles"]["tester"]["model"])
         self.assertEqual("single-secret", config.api_key(value, "compatible"))
         self.assertEqual("claude-secret", config.api_key(value, "claude"))
 
@@ -223,7 +223,7 @@ class MultiProviderConnectionTests(unittest.TestCase):
     def test_narrowing_a_provider_names_the_now_unassigned_roles_and_saves_nothing(self):
         config.save_v2(multi_settings(), multi_keys())
         with interactive(["", "producer", "gpt-6.1"], "openai-secret") as output:
-            with self.assertRaisesRegex(ValueError, "sol"):
+            with self.assertRaisesRegex(ValueError, "tester"):
                 connections.cli(["add", "claude"])
         self.assertIn("These roles move to claude", output.getvalue())
         self.assertEqual(multi_settings(), config.load())
@@ -236,7 +236,7 @@ class MultiProviderConnectionTests(unittest.TestCase):
         facade = providers.resolve("autocode")
         facade.check_subscription_routes({"planner": {"model": "gpt-6.1"}})
         with self.assertRaisesRegex(ValueError, "claude"):
-            facade.check_subscription_routes({"sol": {"model": "claude-opus-5.5"}})
+            facade.check_subscription_routes({"tester": {"model": "claude-opus-5.5"}})
         # Check setup reports the whole connection as needing setup, like a broken single connection does.
         self.assertEqual("setup_required", connections.connection_view("autocode", check=True)["connection_status"])
 
@@ -347,9 +347,9 @@ class MultiProviderConnectionTests(unittest.TestCase):
         for broken in (
             {**good, "providers": {}},
             {**good, "providers": {"zai": {"transport": "anthropic", "endpoint": "https://api.z.ai/api/paas/v4"}}},
-            {**good, "roles": {**good["roles"], "sol": {"provider": "zai", "model": "claude-opus-5.5"}}},
-            {**good, "roles": {role: spec for role, spec in good["roles"].items() if role != "sol"}},
-            {**good, "roles": {**good["roles"], "sol": {"provider": "claude"}}},
+            {**good, "roles": {**good["roles"], "tester": {"provider": "zai", "model": "claude-opus-5.5"}}},
+            {**good, "roles": {role: spec for role, spec in good["roles"].items() if role != "tester"}},
+            {**good, "roles": {**good["roles"], "tester": {"provider": "claude"}}},
         ):
             with self.subTest(broken=json.dumps(broken, default=str)[:80]), self.assertRaises(ValueError):
                 config.save_v2(broken, multi_keys())
@@ -438,7 +438,7 @@ class DirectConnectionsTests(unittest.TestCase):
         self.assertEqual({"fixture/producer", "fixture/reviewer"}, set(facade.LISTED_MODELS))
         self.assertIsNone(builder_policy.configured(provider=facade)["strong_model"])
         with self.assertRaisesRegex(RuntimeError, "unavailable"):
-            facade.check_models({"terra": {"model": "unconfigured/expensive-model"}})
+            facade.check_models({"builder": {"model": "unconfigured/expensive-model"}})
 
     def test_missing_key_and_insecure_or_symlinked_store_fail_closed(self):
         with self.assertRaises(ValueError):

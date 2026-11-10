@@ -243,7 +243,7 @@ def _workers(state: RunState, workspace, supervised: Callable[[dict], bool]) -> 
         active = child.get("active_stage") if isinstance(child, dict) else None
         if not isinstance(active, dict) or not supervised(active):
             continue  # a Builder that cannot be confirmed as working shows nothing
-        agent = _agent(str(active.get("stage") or "terra"), state, row.get("milestone_id"))
+        agent = _agent(str(active.get("stage") or "builder"), state, row.get("milestone_id"))
         found.extend(_attempt(active, run_dir, child.get("workspace") or row.get("workspace"), agent))
     return found
 

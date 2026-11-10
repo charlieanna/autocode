@@ -92,9 +92,9 @@ class RenderTest(unittest.TestCase):
 DEFAULTS = {
     "requirements": "zai-coding-plan/glm-5.3",
     "planner": "zai-coding-plan/glm-5.3",
-    "terra": "zai-coding-plan/glm-5.3",
+    "builder": "zai-coding-plan/glm-5.3",
     "plan_reviewer": "openai/gpt-6-sol",
-    "sol": "openai/gpt-6-sol",
+    "tester": "openai/gpt-6-sol",
     "completion": "openai/gpt-6-sol",
     "task_planner": "openai/gpt-6-astra",
 }
@@ -114,15 +114,15 @@ class AdviseTest(unittest.TestCase):
         advice = mc.advise(
             routes(), ["zai-coding-plan/glm-5.3", "openai/gpt-6-astra", "openai/gpt-6-luna"], openai_auth="oauth"
         )
-        self.assertEqual({"plan_reviewer", "sol", "completion"}, set(advice["missing"]))
-        for role in ("plan_reviewer", "sol", "completion"):
+        self.assertEqual({"plan_reviewer", "tester", "completion"}, set(advice["missing"]))
+        for role in ("plan_reviewer", "tester", "completion"):
             self.assertEqual("openai/gpt-6-luna", advice["suggestions"][role]["model"])
             self.assertIn("no strong judge is usable", advice["suggestions"][role]["why"])
         self.assertEqual(
             [
                 "--plan-reviewer-model",
                 "openai/gpt-6-luna",
-                "--sol-model",
+                "--tester-model",
                 "openai/gpt-6-luna",
                 "--completion-model",
                 "openai/gpt-6-luna",
@@ -139,12 +139,12 @@ class AdviseTest(unittest.TestCase):
             "kilo/gpt-6-sol",
         ]
         self.assertEqual(
-            "openai/gpt-5.6-sol", mc.advise(routes(), judges, openai_auth="oauth")["suggestions"]["sol"]["model"]
+            "openai/gpt-5.6-sol", mc.advise(routes(), judges, openai_auth="oauth")["suggestions"]["tester"]["model"]
         )
         no_subscription_judge = ["zai-coding-plan/glm-5.3", "openai/gpt-6-luna", "kilo/gpt-6-sol"]
         self.assertEqual(
             "openai/gpt-6-luna",
-            mc.advise(routes(), no_subscription_judge, openai_auth="oauth")["suggestions"]["sol"]["model"],
+            mc.advise(routes(), no_subscription_judge, openai_auth="oauth")["suggestions"]["tester"]["model"],
         )
 
     def test_a_checker_never_shares_its_builders_glm_family(self):
@@ -153,7 +153,7 @@ class AdviseTest(unittest.TestCase):
             ["zai-coding-plan/glm-5.3", "zai/glm-5.3", "openai/gpt-6-luna", "openai/gpt-6-astra"],
             openai_auth="oauth",
         )
-        self.assertEqual("openai/gpt-6-luna", advice["suggestions"]["sol"]["model"])
+        self.assertEqual("openai/gpt-6-luna", advice["suggestions"]["tester"]["model"])
 
     def test_family_is_the_shared_identity_rule(self):
         # One rule for every caller (autocode_model_identity): a gateway in front of a model does not
@@ -169,19 +169,19 @@ class AdviseTest(unittest.TestCase):
     def test_a_producer_never_takes_the_model_that_checks_it(self):
         advice = mc.advise(routes(), ["openai/gpt-6-sol", "openai/gpt-6-astra", "zai/glm-5.3"], openai_auth="oauth")
         # The Tester runs GPT-6 Sol, so no GPT tier may build: GLM does (GPT tiers are one family, 2026-10-20).
-        self.assertEqual("zai/glm-5.3", advice["suggestions"]["terra"]["model"])
+        self.assertEqual("zai/glm-5.3", advice["suggestions"]["builder"]["model"])
         self.assertEqual("zai/glm-5.3", advice["suggestions"]["planner"]["model"])  # the Plan Reviewer is a GPT tier
 
     def test_resolver_tier_can_be_suggested_for_other_roles(self):
         advice = mc.advise(routes(), ["zai-coding-plan/glm-5.3", "openai/gpt-6-astra"], openai_auth="oauth")
-        for role in ("plan_reviewer", "sol", "completion"):
+        for role in ("plan_reviewer", "tester", "completion"):
             self.assertEqual("openai/gpt-6-astra", advice["suggestions"][role]["model"])
 
     def test_api_authenticated_openai_routes_are_offered_and_suggested(self):
         available = ["zai-coding-plan/glm-5.3", "openai/gpt-6-astra", "openai/gpt-6-sol", "kilo/some-judge"]
-        advice = mc.advise(routes(sol="openai/gpt-7"), available, openai_auth="api")
-        self.assertEqual({"sol": "openai/gpt-7"}, advice["missing"])
-        self.assertEqual("openai/gpt-6-sol", advice["suggestions"]["sol"]["model"])
+        advice = mc.advise(routes(tester="openai/gpt-7"), available, openai_auth="api")
+        self.assertEqual({"tester": "openai/gpt-7"}, advice["missing"])
+        self.assertEqual("openai/gpt-6-sol", advice["suggestions"]["tester"]["model"])
         self.assertEqual("pay per token", mc.plan("openai/gpt-6-sol", "api")[1])
         self.assertEqual({}, mc.advise(routes(), available, openai_auth="api")["missing"])
 
@@ -193,7 +193,7 @@ class AdviseTest(unittest.TestCase):
             "new-plan/future-model",
         ):
             with self.subTest(model=model):
-                advice = mc.advise(routes(terra=model), [model, "openai/gpt-6-sol"])
+                advice = mc.advise(routes(builder=model), [model, "openai/gpt-6-sol"])
                 self.assertEqual(model, advice["suggestions"]["planner"]["model"])
                 self.assertIn(model, [entry["model"] for entry in advice["catalogue"]])
 
@@ -206,7 +206,7 @@ class AdviseTest(unittest.TestCase):
         self.assertRegex(text, r"zai-coding-plan/glm-5\.3 +cheap worker +default for Requirements, Planner, Builder")
         self.assertIn("opencode/x-free", text)
         self.assertNotIn("not offered", text)
-        self.assertIn("--sol-model kilo/some-judge", text)
+        self.assertIn("--tester-model kilo/some-judge", text)
         self.assertIn("kilo/some-judge bills per token, not by subscription.", text)
         self.assertTrue(text.endswith("AutoCode never changes a model without you."))
 
@@ -244,18 +244,18 @@ class ChooseTest(unittest.TestCase):
         self.assertEqual(0, provider.auth_calls)
 
     def test_an_unlisted_model_stops_the_run_with_the_list_and_the_flags(self):
-        settings = new_settings(sol="openai/gpt-7")
+        settings = new_settings(tester="openai/gpt-7")
         before = copy.deepcopy(settings)
         with self.assertRaises(RuntimeError) as raised:
             mc.choose(settings, FakeProvider(self.AVAILABLE), Path("."), interactive=False)
         self.assertIn("Cannot use with OpenCode: openai/gpt-7 (Tester).", str(raised.exception))
-        self.assertIn("--sol-model openai/gpt-6-sol", str(raised.exception))
+        self.assertIn("--tester-model openai/gpt-6-sol", str(raised.exception))
         self.assertEqual(before, settings)
 
     def test_in_chat_the_user_can_accept_the_replacements(self):
         shown = []
         chosen = mc.choose(
-            new_settings(sol="openai/gpt-7", completion="openai/gpt-7"),
+            new_settings(tester="openai/gpt-7", completion="openai/gpt-7"),
             FakeProvider(self.AVAILABLE),
             Path("."),
             interactive=True,
@@ -263,13 +263,14 @@ class ChooseTest(unittest.TestCase):
             out=shown.append,
         )
         self.assertEqual(
-            ("openai/gpt-6-sol", "high"), (chosen["roles"]["sol"]["model"], chosen["roles"]["sol"]["reasoning_effort"])
+            ("openai/gpt-6-sol", "high"),
+            (chosen["roles"]["tester"]["model"], chosen["roles"]["tester"]["reasoning_effort"]),
         )
         self.assertEqual("openai/gpt-6-sol", chosen["roles"]["completion"]["model"])
         self.assertIn("Suggested replacements:", shown[0])
 
     def test_declining_in_chat_changes_nothing(self):
-        settings = new_settings(sol="openai/gpt-7")
+        settings = new_settings(tester="openai/gpt-7")
         before = copy.deepcopy(settings)
         with self.assertRaisesRegex(RuntimeError, "No model was changed"):
             mc.choose(
@@ -287,13 +288,13 @@ class ChooseTest(unittest.TestCase):
             mc.choose(
                 new_settings(), FakeProvider({"zai-coding-plan/glm-5.3"}), Path("."), interactive=True, ask=self.fail
             )
-        self.assertIn("choose one from the list with --sol-model", str(raised.exception))
+        self.assertIn("choose one from the list with --tester-model", str(raised.exception))
 
     def test_replacements_offer_api_authenticated_openai(self):
         provider = FakeProvider(self.AVAILABLE | {"kilo/some-judge"}, auth="api")
         with self.assertRaises(RuntimeError) as raised:
-            mc.choose(new_settings(sol="openai/gpt-7"), provider, Path("."), interactive=False)
-        self.assertIn("--sol-model openai/gpt-6-sol", str(raised.exception))
+            mc.choose(new_settings(tester="openai/gpt-7"), provider, Path("."), interactive=False)
+        self.assertIn("--tester-model openai/gpt-6-sol", str(raised.exception))
         self.assertEqual(1, provider.auth_calls)
 
     def test_a_listed_api_authenticated_openai_route_is_accepted(self):
@@ -305,7 +306,7 @@ class ChooseTest(unittest.TestCase):
     def climbing(self):
         """A run whose judges are on GPT-6 Luna, with the default stronger Builder attempt (#612)."""
         settings = new_settings(
-            plan_reviewer="openai/gpt-6-luna", sol="openai/gpt-6-luna", completion="openai/gpt-6-luna"
+            plan_reviewer="openai/gpt-6-luna", tester="openai/gpt-6-luna", completion="openai/gpt-6-luna"
         )
         settings["builder_retry"] = {
             "strong_model": "openai/gpt-6-sol",
@@ -325,7 +326,7 @@ class ChooseTest(unittest.TestCase):
 
     def test_in_chat_the_accepted_routes_are_checked_for_the_stronger_attempt_too(self):
         settings = self.climbing()
-        settings["roles"]["sol"]["model"] = "openai/gpt-7"
+        settings["roles"]["tester"]["model"] = "openai/gpt-7"
         chosen = mc.choose(
             settings,
             FakeProvider(self.AVAILABLE - {"openai/gpt-6-sol"}),
@@ -334,7 +335,7 @@ class ChooseTest(unittest.TestCase):
             ask=lambda _prompt: "y",
             out=lambda _text: None,
         )
-        self.assertEqual("openai/gpt-6-luna", chosen["roles"]["sol"]["model"])
+        self.assertEqual("openai/gpt-6-luna", chosen["roles"]["tester"]["model"])
         self.assertIsNone(chosen["builder_retry"]["strong_model"])
         self.assertEqual("openai/gpt-6-sol", chosen["builder_retry"]["not_offered"])
         # The Builder then makes one more ordinary retry and pauses, naming the model its provider lacks.
@@ -368,7 +369,7 @@ class ChooseTest(unittest.TestCase):
         self.assertEqual(before, settings)
 
     def test_a_provider_that_cannot_list_or_a_codex_run_starts_as_before(self):
-        settings = new_settings(sol="openai/gpt-7")
+        settings = new_settings(tester="openai/gpt-7")
         for provider in (
             FakeProvider(RuntimeError("Cannot list")),
             FakeProvider(OSError("no opencode")),
@@ -376,7 +377,7 @@ class ChooseTest(unittest.TestCase):
             object(),
         ):
             self.assertIs(settings, mc.choose(settings, provider, Path("."), interactive=False))
-        codex = {"engine": "codex", "roles": {"sol": {"model": "gpt-7"}}}
+        codex = {"engine": "codex", "roles": {"tester": {"model": "gpt-7"}}}
         self.assertIs(codex, mc.choose(codex, FakeProvider(self.AVAILABLE), Path("."), interactive=False))
 
 
@@ -390,7 +391,7 @@ class PricesCliTest(unittest.TestCase):
     def prices(self, *argv, defaults=None):
         provider = SimpleNamespace(
             NAME="OpenCode",
-            DEFAULT_MODELS=defaults or {"sol": "openai/gpt-6-sol", "terra": "local/unpriced-model"},
+            DEFAULT_MODELS=defaults or {"tester": "openai/gpt-6-sol", "builder": "local/unpriced-model"},
             available_models=lambda workspace: self.fail("--prices must not list the provider's models"),
         )
         out = io.StringIO()
@@ -411,13 +412,13 @@ class PricesCliTest(unittest.TestCase):
         self.assertNotRegex(text, r"unpriced-model.*input 0")
 
     def test_json_names_the_row_each_default_route_is_priced_by(self):
-        code, text = self.prices("--json", defaults={"task_planner": "gpt-6-astra", "terra": "local/unpriced-model"})
+        code, text = self.prices("--json", defaults={"task_planner": "gpt-6-astra", "builder": "local/unpriced-model"})
         report = json.loads(text)
         self.assertEqual(0, code)
         self.assertEqual("openai/gpt-6-astra", report["defaults"]["task_planner"]["priced_as"])
         self.assertEqual(50.0, report["defaults"]["task_planner"]["rate"]["output"])
         self.assertEqual(
-            {"model": "local/unpriced-model", "priced_as": None, "rate": None}, report["defaults"]["terra"]
+            {"model": "local/unpriced-model", "priced_as": None, "rate": None}, report["defaults"]["builder"]
         )
         self.assertIn("openai/gpt-6-sol", report["models"])
 
@@ -475,7 +476,7 @@ class SelectionViewTest(unittest.TestCase):
         import autocode_route_selector as selector
 
         table = copy.deepcopy(selector.table())
-        for item in table["roles"]["terra"]:
+        for item in table["roles"]["builder"]:
             if item["model"] == "openai/gpt-6-sol":
                 item["runs"] = [
                     {"date": "2026-10-27", "run": "a", "minutes": 2, "cost_usd": 0},
@@ -528,7 +529,7 @@ class SelectionViewTest(unittest.TestCase):
         self.assertEqual(0, code)
         payload = jsonlib.loads(out.getvalue())
         self.assertEqual("kilocode", payload["tool"])
-        self.assertEqual("kilo/openai/gpt-6-sol", payload["routes"]["terra"]["model"])
+        self.assertEqual("kilo/openai/gpt-6-sol", payload["routes"]["builder"]["model"])
 
 
 SEED_ONLY = "zhipuai-coding-plan/glm-5.3"
@@ -536,9 +537,9 @@ SELECTED = ["zai-coding-plan/glm-5.3", "openai/gpt-6-luna", "openai/gpt-6-sol", 
 KILO_PROFILE = {
     "requirements": SEED_ONLY,
     "planner": SEED_ONLY,
-    "terra": "openai/gpt-6-luna",
+    "builder": "openai/gpt-6-luna",
     "plan_reviewer": "openai/gpt-6-sol",
-    "sol": SEED_ONLY,
+    "tester": SEED_ONLY,
     "completion": SEED_ONLY,
     "task_planner": "openai/gpt-6-astra",
 }

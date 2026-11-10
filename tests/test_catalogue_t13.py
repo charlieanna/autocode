@@ -248,7 +248,7 @@ class CompatScenarios(CompatCase):
         ledger = [
             {
                 "id": f"F-{i}",
-                "source": "sol",
+                "source": "tester",
                 "severity": "low",
                 "finding": f"finding {i}",
                 "status": "open",
@@ -475,7 +475,7 @@ class CompatScenarios(CompatCase):
             self.approve_now()
             decision = self.decision()
             lifecycle.assign_task(self.state, decision, support.snapshot(self.root))
-            packet, _ = stage_context.context_packet(self.state, "terra", self.run / "state.json")
+            packet, _ = stage_context.context_packet(self.state, "builder", self.run / "state.json")
             flowed = "Greet" in packet or bool(self.state.get("current_task"))
         finally:
             socket.socket = real_socket

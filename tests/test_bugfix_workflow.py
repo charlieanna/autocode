@@ -32,16 +32,23 @@ from tests import saved_diagnosis, test_planning, test_subprocess  # noqa: E402
 # Requirements runs first and names the job (#1860); this fixture names a build.
 PLANNING = [
     "requirements_gather",
-    "astra_discovery",
-    "astra_discovery",
-    "astra_challenge",
-    "glm_revise",
-    "astra_finalize",
+    "draft_plan",
+    "draft_plan",
+    "review_plan",
+    "revise_plan",
+    "finalize_plan",
 ]
-EXECUTION = ["orchestrator", "terra", "regression_proof", "sol", "astra_review"]
+EXECUTION = ["orchestrator", "builder", "regression_proof", "tester", "review_completion"]
 # A failing proof of this source is replayed once before the Completion Owner reviews
 # (#2065: a single flake must not drive REWORK). The replay is runner-owned.
-FAILED_PROOF_EXECUTION = ["orchestrator", "terra", "regression_proof", "sol", "regression_proof", "astra_review"]
+FAILED_PROOF_EXECUTION = [
+    "orchestrator",
+    "builder",
+    "regression_proof",
+    "tester",
+    "regression_proof",
+    "review_completion",
+]
 
 
 class BugfixWorkflow(unittest.TestCase):
@@ -130,7 +137,7 @@ class BugfixWorkflow(unittest.TestCase):
         # #2475: the refusal is a runner-owned blocking finding the reviewers and the Builder see. This
         # scripted reviewer asks to complete anyway, so it is sent back once for the source, and a second
         # request goes to the Investigator: never a completion-gate stop the person can only resume.
-        self.assertEqual(PLANNING + FAILED_PROOF_EXECUTION + ["astra_review", "investigate_stuck"], stages)
+        self.assertEqual(PLANNING + FAILED_PROOF_EXECUTION + ["review_completion", "investigate_stuck"], stages)
         finding = [row for row in final["findings_ledger"] if row.get("regression_proof")]
         self.assertEqual(["open"], [row["status"] for row in finding])
         self.assertIn("No regression test", finding[0]["finding"])
@@ -172,7 +179,7 @@ class ProvenanceDefaults(unittest.TestCase):
         return {"stage": stage, "schema": str(schema)}
 
     def test_missing_provenance_lists_are_defaulted_instead_of_repaired(self):
-        record = self.record("astra_discovery", {"code_refs": {"type": "array"}, "summary": {"type": "string"}})
+        record = self.record("draft_plan", {"code_refs": {"type": "array"}, "summary": {"type": "string"}})
         value = autocode.default_missing_provenance({"summary": "Plan"}, record)
         self.assertEqual({"summary": "Plan", "code_refs": []}, value)
         self.assertEqual(["code_refs"], record["defaulted_fields"])
@@ -181,7 +188,7 @@ class ProvenanceDefaults(unittest.TestCase):
         record = self.record("requirements_gather", {"task_kind": {"type": "string"}})
         self.assertEqual({"task_kind": "build"}, autocode.default_missing_provenance({}, record))
         record = self.record(
-            "astra_finalize", {"contract": {"type": "object", "properties": {"task_kind": {"type": "string"}}}}
+            "finalize_plan", {"contract": {"type": "object", "properties": {"task_kind": {"type": "string"}}}}
         )
         value = autocode.default_missing_provenance({"contract": {"intended_outcome": "x"}}, record)
         self.assertEqual({"intended_outcome": "x", "task_kind": "build"}, value["contract"])
@@ -194,7 +201,7 @@ class ProvenanceDefaults(unittest.TestCase):
             "contract_changes": {"type": "array"},
             "code_refs": {"type": "array"},
         }
-        record = self.record("astra_discovery", properties)
+        record = self.record("draft_plan", properties)
         change = {"item": "AC2", "change": "reworded", "basis": "user_answer", "answer_id": "Q1", "replacement": "x"}
         value = autocode.default_missing_provenance(
             {"contract": {"intended_outcome": "x", "contract_changes": [change]}, "code_refs": ["a.py:1"]}, record
@@ -202,7 +209,7 @@ class ProvenanceDefaults(unittest.TestCase):
         self.assertEqual({"intended_outcome": "x"}, value["contract"])
         self.assertEqual([change], value["contract_changes"])
         self.assertEqual(["contract_changes"], record["hoisted_fields"])
-        record = self.record("astra_discovery", properties)
+        record = self.record("draft_plan", properties)
         kept = autocode.default_missing_provenance(
             {
                 "contract": {"intended_outcome": "x", "contract_changes": [change]},
@@ -229,7 +236,7 @@ class ProvenanceDefaults(unittest.TestCase):
         properties = {
             "contract": {"type": "object", "properties": {"acceptance_criteria": {"type": "array", "items": criterion}}}
         }
-        record = self.record("astra_discovery", properties)
+        record = self.record("draft_plan", properties)
         rows = [{"id": "C1", "criterion": "a"}, {"id": "C2", "criterion": "b", "current_behavior": "prints 0"}]
         value = autocode.default_missing_provenance({"contract": {"acceptance_criteria": rows}}, record)
         self.assertEqual(
@@ -245,7 +252,7 @@ class ProvenanceDefaults(unittest.TestCase):
                 "properties": {"acceptance_criteria": {"anyOf": [{"type": "array", "items": criterion}, delta]}},
             }
         }
-        record = self.record("astra_finalize", offered)
+        record = self.record("finalize_plan", offered)
         value = autocode.default_missing_provenance(
             {"contract": {"acceptance_criteria": {"retain_from": "t", "upsert": [rows[0]], "remove": []}}}, record
         )
@@ -254,18 +261,18 @@ class ProvenanceDefaults(unittest.TestCase):
             value["contract"]["acceptance_criteria"],
         )
         self.assertEqual(["contract.acceptance_criteria.upsert.current_behavior"], record["defaulted_fields"])
-        record = self.record("astra_finalize", offered)
+        record = self.record("finalize_plan", offered)
         kept = {"contract": {"acceptance_criteria": [{"retain_criterion": "C1", "sha256": "0" * 64}]}}
         self.assertEqual(kept, autocode.default_missing_provenance(kept, record))
         self.assertNotIn("defaulted_fields", record)
         # A complete report, and one against a schema saved before the box existed, are left alone.
-        record = self.record("astra_discovery", properties)
+        record = self.record("draft_plan", properties)
         complete = {"contract": {"acceptance_criteria": [rows[1]]}}
         self.assertEqual(complete, autocode.default_missing_provenance(complete, record))
         self.assertNotIn("defaulted_fields", record)
         plain = {"type": "object", "properties": {"id": {"type": "string"}, "criterion": {"type": "string"}}}
         legacy = self.record(
-            "astra_discovery",
+            "draft_plan",
             {"contract": {"type": "object", "properties": {"acceptance_criteria": {"type": "array", "items": plain}}}},
         )
         before = {"contract": {"acceptance_criteria": [rows[0]]}}
@@ -277,21 +284,21 @@ class ProvenanceDefaults(unittest.TestCase):
         from units import autoplanner
 
         state = {"goal_contract": {"hash": "h", "revision": 1, "body": {}}}
-        schema = retention.model_schema(autoplanner.SCHEMAS["glm_revise"], state, "glm_revise")
+        schema = retention.model_schema(autoplanner.SCHEMAS["revise_plan"], state, "revise_plan")
         properties = schema["properties"]
         ref = {"revise_contract": "r1:h", "changes": {}}
-        record = self.record("glm_revise", properties)
+        record = self.record("revise_plan", properties)
         result = autocode.default_missing_provenance({"contract": ref}, record)
         self.assertEqual(ref, result["contract"])
         row = {"id": "C1", "criterion": "Preserve greeting"}
         delta = {"retain_from": "r1:h", "upsert": [row], "remove": []}
         result = autocode.default_missing_provenance(
-            {"contract": {**ref, "acceptance_criteria": delta}}, self.record("glm_revise", properties)
+            {"contract": {**ref, "acceptance_criteria": delta}}, self.record("revise_plan", properties)
         )
         self.assertEqual("", result["contract"]["acceptance_criteria"]["upsert"][0]["current_behavior"])
         self.assertNotIn("task_kind", result["contract"])
         result = autocode.default_missing_provenance(
-            {"contract": {"acceptance_criteria": [row]}}, self.record("glm_revise", properties)
+            {"contract": {"acceptance_criteria": [row]}}, self.record("revise_plan", properties)
         )
         self.assertEqual("build", result["contract"]["task_kind"])
         self.assertEqual("", result["contract"]["acceptance_criteria"][0]["current_behavior"])
@@ -366,9 +373,9 @@ class ProvenanceDefaults(unittest.TestCase):
         detect.assert_called_once_with(task, python="/opt/python", base=base)
 
     def test_decision_lists_and_review_stages_are_never_defaulted(self):
-        record = self.record("astra_challenge", {"concerns": {"type": "array"}})
+        record = self.record("review_plan", {"concerns": {"type": "array"}})
         self.assertEqual({}, autocode.default_missing_provenance({}, record))
-        record = self.record("sol", {"code_refs": {"type": "array"}})
+        record = self.record("tester", {"code_refs": {"type": "array"}})
         self.assertEqual({}, autocode.default_missing_provenance({}, record))
 
 

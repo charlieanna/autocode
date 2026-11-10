@@ -39,7 +39,7 @@ class Fixture(unittest.TestCase):
         support.atomic_json(discovery, {"summary": "draft"})
         self.state = {
             "iteration": 1,
-            "next_stage": "astra_challenge",
+            "next_stage": "review_plan",
             "task_id": "task-1",
             "goal_contract": {"task_id": "task-1", "hash": "contract", "revision": 1},
             "settings": {
@@ -52,13 +52,13 @@ class Fixture(unittest.TestCase):
                         "model": "qwen-plan/qwen3-coder",
                         "reasoning_effort": "medium",
                     },
-                    "sol": {"engine": "opencode", "provider": None, "model": MIMO, "reasoning_effort": "max"},
+                    "tester": {"engine": "opencode", "provider": None, "model": MIMO, "reasoning_effort": "max"},
                 },
             },
             "planning": {
                 "astra_calls": 2,
                 "review_call_limit": 2,
-                "reports": {"astra_discovery": {"output": str(discovery), "report": {"summary": "draft"}}},
+                "reports": {"draft_plan": {"output": str(discovery), "report": {"summary": "draft"}}},
             },
             "stages": [],
             "history": [],
@@ -77,7 +77,7 @@ class Fixture(unittest.TestCase):
         events = directory / "events.jsonl"
         events.write_text(json.dumps({"type": "step_start"}) + "\n")
         record = {
-            "stage": "astra_challenge",
+            "stage": "review_plan",
             "role": "plan_reviewer",
             "route_role": "plan_reviewer",
             "output": str(directory / "report.json"),
@@ -118,7 +118,7 @@ class ReviewerFallbackTests(Fixture):
             "repeated nonterminal planning-review provider-stream silence", grant["binding"]["evidence"]["observation"]
         )
         selected = fallback.admit(self.state, self.run, self.root)
-        self.assertEqual("sol", selected["role"])
+        self.assertEqual("tester", selected["role"])
         self.assertTrue(grant["consumed"])
         self.assertEqual(calls, self.state["planning"]["astra_calls"])
         self.assertEqual(accounting, {key: self.state[key] for key in accounting})
@@ -127,7 +127,7 @@ class ReviewerFallbackTests(Fixture):
         for model in ("mimo-token-plan/mimo-v2.6-pro", "opencode/mimo-v2.6-flash-free", "new-plan/future-model"):
             with self.subTest(model=model):
                 state = copy.deepcopy(self.state)
-                state["settings"]["roles"]["sol"]["model"] = model
+                state["settings"]["roles"]["tester"]["model"] = model
                 current = "openai/gpt-6-sol"
                 state["settings"]["roles"]["plan_reviewer"]["model"] = current
                 for record in state["stages"]:
@@ -151,27 +151,27 @@ class ReviewerFallbackTests(Fixture):
         # The fallback follows the one family rule (autocode_model_identity): GPT tiers are one family,
         # so the Tester's Sol may not take over reviewing a plan Luna drafted.
         self.state["settings"]["roles"]["planner"]["model"] = "openai/gpt-6-luna"
-        self.state["settings"]["roles"]["sol"]["model"] = "openai/gpt-6-sol"
+        self.state["settings"]["roles"]["tester"]["model"] = "openai/gpt-6-sol"
         before = copy.deepcopy(self.state)
         self.assertIsNone(self.reserve())
         self.assertEqual(before, self.state)
 
     def test_unavailable_alternate_denies(self):
-        self.state["settings"]["roles"]["sol"]["available"] = False
+        self.state["settings"]["roles"]["tester"]["available"] = False
         self.assertIsNone(self.reserve())
 
     def test_route_provider_or_engine_mismatch_denies(self):
         for key, value in (("provider", "different-billing-route"), ("engine", "codex")):
             with self.subTest(key=key):
                 state = copy.deepcopy(self.state)
-                state["settings"]["roles"]["sol"][key] = value
+                state["settings"]["roles"]["tester"][key] = value
                 self.assertIsNone(fallback.reserve(state, self.run, self.root))
 
     def test_changed_evidence_or_settings_fail_closed(self):
         pristine = copy.deepcopy(self.state)
         for name, mutate in (
             ("evidence", lambda: Path(self.state["stages"][0]["events"]).write_text('{"type":"other"}\n')),
-            ("settings", lambda: self.state["settings"]["roles"]["sol"].update(reasoning_effort="low")),
+            ("settings", lambda: self.state["settings"]["roles"]["tester"].update(reasoning_effort="low")),
             ("pin", lambda: self.state["settings"]["roles"]["plan_reviewer"].update(model_pinned=True)),
         ):
             with self.subTest(name=name):
@@ -186,7 +186,7 @@ class ReviewerFallbackTests(Fixture):
 
     def test_changed_source_contract_or_planning_input_fail_closed(self):
         pristine = copy.deepcopy(self.state)
-        discovery = Path(self.state["planning"]["reports"]["astra_discovery"]["output"])
+        discovery = Path(self.state["planning"]["reports"]["draft_plan"]["output"])
         for name, mutate in (
             ("source", lambda: (self.root / "changed.txt").write_text("changed\n")),
             ("contract", lambda: self.state["goal_contract"].update(hash="changed-contract")),
@@ -235,12 +235,12 @@ class ReviewerFallbackTests(Fixture):
         grant = self.reserve()
         self.assertIsNotNone(grant)
         fallback.admit(self.state, self.run, self.root)
-        self.state["next_stage"] = "astra_finalize"
+        self.state["next_stage"] = "finalize_plan"
         self.state["stages"] = [row for row in self.state["stages"] if row.get("runner_owned")]
         self.add_attempt(3)
-        self.state["stages"][-1]["stage"] = "astra_finalize"
+        self.state["stages"][-1]["stage"] = "finalize_plan"
         self.add_attempt(4, planning_recovery_grant="final-focused")
-        self.state["stages"][-1]["stage"] = "astra_finalize"
+        self.state["stages"][-1]["stage"] = "finalize_plan"
         self.assertIsNone(self.reserve())
         self.assertEqual(1, len(self.state["planning"]["reviewer_route_fallbacks"]))
 
@@ -257,7 +257,7 @@ class ReviewerFallbackTests(Fixture):
         # The user's supported live pairing is GLM Planner + MiMo Reviewer.
         # Switching review to the only alternate (GLM) would be self-review.
         self.state["settings"]["roles"]["planner"]["model"] = GLM
-        self.state["settings"]["roles"]["sol"]["model"] = GLM
+        self.state["settings"]["roles"]["tester"]["model"] = GLM
         before = copy.deepcopy(self.state)
         self.assertIsNone(self.reserve())
         self.assertEqual(before, self.state)
@@ -291,7 +291,7 @@ class PermittedPoolTests(Fixture):
         }
         # The Builder slot holds MiMo, as in the GLM/MiMo cohort: configured and permitted, but excluded
         # from reviewing plans (owner decision #1723).
-        roles["terra"]["model"] = MIMO
+        roles["builder"]["model"] = MIMO
         self.state["settings"]["roles"] = roles
         self.state["settings"]["route_selection"] = result
         current = roles["plan_reviewer"]["model"]

@@ -121,7 +121,7 @@ class ProxiedTraceTests(unittest.TestCase):
         )
 
     def test_the_planner_prompt_explains_proxied_and_its_question(self):
-        prompt, _ = planner.context(state(), "glm_revise", Path("/run/state.json"))
+        prompt, _ = planner.context(state(), "revise_plan", Path("/run/state.json"))
         self.assertIn("disposition proxied is for a user-visible requirement", prompt)
         self.assertIn("open_blocking_questions entry of kind decision", prompt)
 
@@ -130,7 +130,7 @@ class ProxiedTraceTests(unittest.TestCase):
         # requirement's own text copied exactly. "A required_behaviors entry
         # copied exactly" never said the copy comes from the contract, not from
         # the requirement, so the rule must refuse the requirement's own words.
-        prompt, _ = planner.context(state(), "glm_revise", Path("/run/state.json"))
+        prompt, _ = planner.context(state(), "revise_plan", Path("/run/state.json"))
         self.assertIn("requirement's own text is not evidence, even copied exactly", prompt)
 
     def test_the_planner_schema_offers_proxied_and_a_nullable_reason(self):
@@ -151,7 +151,7 @@ class ProxiedTraceTests(unittest.TestCase):
         older = {"requirement_trace": [{"requirement_id": "R1", "disposition": "covered", "evidence": "C1"}]}
         with self.assertRaisesRegex(ValueError, "proxy_reason"):
             util.validate_schema(older, schema)
-        normalized = report_schema.normalize_absent_authority(older, schema, {"stage": "astra_discovery"})
+        normalized = report_schema.normalize_absent_authority(older, schema, {"stage": "draft_plan"})
         util.validate_schema(normalized, schema)
         self.assertIsNone(normalized["requirement_trace"][0]["proxy_reason"])
         self.assertNotIn("proxy_reason", older["requirement_trace"][0])
@@ -168,15 +168,15 @@ class ProxiedDisplayTests(unittest.TestCase):
             "sessions": {},
             "stages": [],
             "history": [],
-            "next_stage": "astra_challenge",
+            "next_stage": "review_plan",
             "acceptance_criteria": [],
             "settings": {},
         }
         lifecycle.migrate(current)
         draft = contract()
-        lifecycle.install_draft(current, draft, origin="astra_discovery")
+        lifecycle.install_draft(current, draft, origin="draft_plan")
         report = {"contract": draft, "requirement_trace": proxied()["requirement_trace"]}
-        current.setdefault("planning", {}).setdefault("reports", {})["astra_discovery"] = {"report": report}
+        current.setdefault("planning", {}).setdefault("reports", {})["draft_plan"] = {"report": report}
         return current
 
     def test_the_status_view_lists_the_proxied_requirements(self):
@@ -187,7 +187,7 @@ class ProxiedDisplayTests(unittest.TestCase):
 
     def test_the_status_view_lists_none_without_a_plan_or_proxy(self):
         current = self.planned()
-        report = current["planning"]["reports"]["astra_discovery"]["report"]
+        report = current["planning"]["reports"]["draft_plan"]["report"]
         report["requirement_trace"] = [{"requirement_id": "R1", "disposition": "covered", "evidence": "C1"}]
         self.assertEqual([], run_view.view(current)["proxied_requirements"])
         current.pop("goal_contract")

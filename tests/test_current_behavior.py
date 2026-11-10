@@ -62,7 +62,7 @@ class EvidenceTests(unittest.TestCase):
         observed = 'slugify("  Hello, World!  ") returns "-hello-world-" but should return "hello-world"'
         state = {"investigation": investigation(observed=observed)}
         body = plan(criterion("C1", "no leading or trailing hyphen", "test: test_c1_strip"))
-        after = current_behavior.prepare_body(state, body, "glm_revise")
+        after = current_behavior.prepare_body(state, body, "revise_plan")
         self.assertEqual(observed, after["acceptance_criteria"][0]["current_behavior"])
         self.assertTrue(current_behavior.matches(observed, current_behavior.evidence(state)))
 
@@ -101,7 +101,7 @@ class PrepareBodyTests(unittest.TestCase):
             ),
         )
         before = copy.deepcopy(body)
-        after = current_behavior.prepare_body(state, body, "glm_revise")
+        after = current_behavior.prepare_body(state, body, "revise_plan")
         self.assertEqual(before, body, "the body given is not changed in place")
         boxes = {row["id"]: row.get("current_behavior") for row in after["acceptance_criteria"]}
         self.assertEqual({"C1": OBSERVED, "C2": None, "C3": None, "C4": "Planner's own words"}, boxes)
@@ -110,7 +110,7 @@ class PrepareBodyTests(unittest.TestCase):
         previous = plan(criterion("C1", "one mutation", "test: test_c1", current_behavior="Renewed twice"))
         state = {"goal_contract": {"body": previous, "approval_status": "draft", "approval_event": None}}
         after = current_behavior.prepare_body(
-            state, plan(criterion("C1", "one mutation", "test: test_c1")), "glm_revise"
+            state, plan(criterion("C1", "one mutation", "test: test_c1")), "revise_plan"
         )
         self.assertEqual("Renewed twice", after["acceptance_criteria"][0]["current_behavior"])
 
@@ -121,14 +121,14 @@ class PrepareBodyTests(unittest.TestCase):
             "goal_contract": {"body": previous, "approval_status": "draft", "approval_event": None},
         }
         after = current_behavior.prepare_body(
-            state, plan(criterion("C1", "one mutation", "test: test_c1")), "glm_revise"
+            state, plan(criterion("C1", "one mutation", "test: test_c1")), "revise_plan"
         )
         self.assertEqual(OBSERVED, after["acceptance_criteria"][0]["current_behavior"])
 
     def test_nothing_to_fill_returns_the_same_body(self):
         body = plan(criterion("C1", "one mutation", "Run the suite"))
-        self.assertIs(body, current_behavior.prepare_body({}, body, "glm_revise"))
-        self.assertIs(body, current_behavior.prepare_body({"investigation": investigation()}, body, "glm_revise"))
+        self.assertIs(body, current_behavior.prepare_body({}, body, "revise_plan"))
+        self.assertIs(body, current_behavior.prepare_body({"investigation": investigation()}, body, "revise_plan"))
 
     def test_the_persons_own_edit_is_kept_as_written(self):
         state = {"investigation": investigation()}
@@ -181,7 +181,7 @@ class DisplayTests(unittest.TestCase):
                 "body": {**plan(self.ROW), "intended_outcome": "Fix renew"},
                 "approval_status": "draft",
                 "approval_event": None,
-                "origin": "glm_revise",
+                "origin": "revise_plan",
                 "declared_changes": [current_behavior.receipt("C1", OBSERVED, found)],
             },
         }

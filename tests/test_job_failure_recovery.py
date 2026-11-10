@@ -213,9 +213,9 @@ class JobHarness(unittest.TestCase):
         self.options = (
             "--engine",
             "codex",
-            "--sol-model",
+            "--tester-model",
             "gpt-6-sol",
-            "--astra-model",
+            "--task-planner-model",
             "gpt-6-sol",
             "--max-stage-seconds",
             "900",
@@ -485,13 +485,13 @@ class JobFailureTaskRunTests(JobHarness):
     def test_ac15_retry_rejects_model_effort_and_limit_changes(self):
         # Make "high" a real change rather than depending on an earlier rejected
         # model flag having silently mutated the checkpoint.
-        self.options = (*self.options, "--sol-reasoning-effort", "medium")
+        self.options = (*self.options, "--tester-reasoning-effort", "medium")
         run = self.start()
         token = self.paused(run)["job_retry_token"]
         held = run.status()
         for flags in (
-            ("--sol-model", "gpt-6-astra"),
-            ("--sol-reasoning-effort", "high"),
+            ("--tester-model", "gpt-6-astra"),
+            ("--tester-reasoning-effort", "high"),
             ("--max-stage-seconds", "901"),
         ):
             with self.subTest(flags=flags):
@@ -726,10 +726,10 @@ class JobFailureTaskRunTests(JobHarness):
 class JobRecoveryRouteTests(unittest.TestCase):
     def test_t8_build_and_planning_routes_are_preserved(self):
         for stage, role, expected in (
-            ("sol", "sol", ("astra_review", "EXECUTING")),
-            ("terra", "terra", ("astra_review", "EXECUTING")),
-            ("astra_review", "task_planner", ("astra_review", "EXECUTING")),
-            ("astra_discovery", "task_planner", ("astra_discovery", "DISCOVERING")),
+            ("tester", "tester", ("review_completion", "EXECUTING")),
+            ("builder", "builder", ("review_completion", "EXECUTING")),
+            ("review_completion", "task_planner", ("review_completion", "EXECUTING")),
+            ("draft_plan", "task_planner", ("draft_plan", "DISCOVERING")),
         ):
             with self.subTest(stage=stage):
                 self.assertEqual(expected, records.timeout_recovery_route({}, {"stage": stage, "role": role}))
@@ -738,7 +738,7 @@ class JobRecoveryRouteTests(unittest.TestCase):
         for stage in ("check_design", "investigate_stuck", "collect_design", "write_acceptance_tests"):
             with self.subTest(stage=stage):
                 self.assertEqual(
-                    (stage, "PAUSED_OR_BLOCKED"), records.timeout_recovery_route({}, {"stage": stage, "role": "sol"})
+                    (stage, "PAUSED_OR_BLOCKED"), records.timeout_recovery_route({}, {"stage": stage, "role": "tester"})
                 )
 
 

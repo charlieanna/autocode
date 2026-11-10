@@ -43,7 +43,7 @@ class CompactSchemaPromptTests(unittest.TestCase):
                 "version": 2,
                 "task": "Verify the answer without changing the source",
                 "workspace": str(workspace),
-                "settings": {"roles": {"sol": {"engine": "opencode", "model": "fixture"}}, "limits": {}},
+                "settings": {"roles": {"tester": {"engine": "opencode", "model": "fixture"}}, "limits": {}},
             }
             # Approval and filesystem identity are outside this prompt contract;
             # assemble the real request and role schema without a controller or provider.
@@ -54,7 +54,7 @@ class CompactSchemaPromptTests(unittest.TestCase):
                 ),
             ):
                 request = common.execution_request(
-                    state, "sol", workspace / "state.json", Path(support.__file__).parent / "autocode-schemas"
+                    state, "tester", workspace / "state.json", Path(support.__file__).parent / "autocode-schemas"
                 )
             schema = request.schema
             prompt = opencode.prompt_for_schema(request.prompt, schema, workspace / "events.jsonl")
@@ -208,7 +208,15 @@ class RequirementsPromptModeTests(unittest.TestCase):
                 "spec_first": conversational,
                 "roles": {
                     name: {"engine": "opencode", "model": "fixture"}
-                    for name in ("task_planner", "planner", "terra", "sol", "requirements", "plan_reviewer", "resolver")
+                    for name in (
+                        "task_planner",
+                        "planner",
+                        "builder",
+                        "tester",
+                        "requirements",
+                        "plan_reviewer",
+                        "resolver",
+                    )
                 },
             },
         }

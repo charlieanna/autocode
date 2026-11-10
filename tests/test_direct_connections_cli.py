@@ -246,11 +246,11 @@ class DirectCliTests(unittest.TestCase):
             "roles": {
                 **{
                     role: {"provider": "openai", "model": "fixture/producer"}
-                    for role in ("task_planner", "planner", "terra")
+                    for role in ("task_planner", "planner", "builder")
                 },
                 **{
                     role: {"provider": "claude", "model": "fixture/reviewer"}
-                    for role in ("completion", "plan_reviewer", "sol")
+                    for role in ("completion", "plan_reviewer", "tester")
                 },
             },
         }

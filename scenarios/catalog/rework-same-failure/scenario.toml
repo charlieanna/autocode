@@ -13,7 +13,7 @@ category = "feature"
 
 [run]
 expected = "stop"
-requires_stages = ["terra", "sol", "astra_review"]
+requires_stages = ["builder", "tester", "review_completion"]
 timeout_minutes = 5
 max_steps = 24
 

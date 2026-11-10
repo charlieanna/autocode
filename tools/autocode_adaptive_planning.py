@@ -134,11 +134,11 @@ def requirements_judge_clarity(state: RunState) -> bool:
 def report_schema(state: RunState, stage: str, base: dict, planning_body: dict) -> dict:
     """A Planner report schema whose contract carries initial_task in adaptive runs. A draft that revises
     the shown plan from feedback may also send it back to Requirements (requirements_rerun, optional)."""
-    if not enabled(state) or stage not in ("astra_discovery", "glm_revise"):
+    if not enabled(state) or stage not in ("draft_plan", "revise_plan"):
         return base
     schema = copy.deepcopy(base)
     schema["properties"]["contract"] = copy.deepcopy(planning_body)
-    if stage == "astra_discovery" and can_rerun(state):
+    if stage == "draft_plan" and can_rerun(state):
         schema["properties"]["requirements_rerun"] = {"type": "string"}
     return schema
 
@@ -147,19 +147,19 @@ def prompt_rule(state: RunState, stage: str) -> str:
     if not enabled(state):
         return ""
     feedback = bool(feedback_requirements(state))
-    if stage == "astra_discovery":
+    if stage == "draft_plan":
         return (
             PLANNER_RULE
             + ("" if state.get("requirements_handoff") else NO_REQUIREMENTS_RULE)
             + (FEEDBACK_RULE if feedback else "")
             + (RERUN_RULE if can_rerun(state) else "")
         )
-    if stage == "glm_revise":
+    if stage == "revise_plan":
         refused = ((state.get("planning") or {}).get("adaptive") or {}).get("approval_refused")
         return PLANNER_RULE + (FEEDBACK_TRACE_RULE if feedback else "") + (APPROVAL_REFUSED_RULE if refused else "")
-    if stage == "astra_challenge":
+    if stage == "review_plan":
         return REVIEW_RULE + (FEEDBACK_REVIEW_RULE if feedback else "")
-    if stage == "astra_finalize":
+    if stage == "finalize_plan":
         return FEEDBACK_TRACE_RULE if feedback else ""
     if stage == "requirements_gather" and requirements_judge_clarity(state):
         return REQUIREMENTS_CLARITY_RULE
@@ -195,7 +195,7 @@ def feedback_marker(state: RunState) -> dict:
 
 def feedback_stage(event: dict, default: str) -> str:
     """The first stage after a brief_feedback event: the Planner when the feedback revises the shown plan."""
-    return "astra_discovery" if event.get(FEEDBACK) else default
+    return "draft_plan" if event.get(FEEDBACK) else default
 
 
 def feedback_start_stage(state: RunState, event: dict) -> str:
@@ -205,7 +205,7 @@ def feedback_start_stage(state: RunState, event: dict) -> str:
         if roles.planning_flow(state) == "v2"
         else "requirements_gather"
         if "requirements" in state.get("settings", {}).get("roles", {})
-        else "astra_discovery"
+        else "draft_plan"
     )
     return feedback_stage(event, default)
 
@@ -289,7 +289,7 @@ def review_notes(planning: dict) -> list[str]:
     """Display lines for a plan the Plan Reviewer approved early: its non-blocking concerns, as notes."""
     if not (planning.get("adaptive") or {}).get("approved_at"):
         return []
-    concerns = ((planning.get("reports") or {}).get("astra_challenge") or {}).get("report", {}).get("concerns") or []
+    concerns = ((planning.get("reports") or {}).get("review_plan") or {}).get("report", {}).get("concerns") or []
     lines = []
     for concern in concerns:
         lines += [
@@ -303,8 +303,8 @@ def after_revise(limit: int, calls_used: int, challenges: int) -> str:
     """After a revision: review it again while that leaves a call for the final decision."""
     remaining = None if limit == 0 else limit - calls_used
     if (remaining is None or remaining >= 2) and challenges < MAX_CHALLENGES:
-        return "astra_challenge"
-    return "astra_finalize"
+        return "review_plan"
+    return "finalize_plan"
 
 
 def view(state: RunState) -> dict:

@@ -31,7 +31,7 @@ class UnitFlow(unittest.TestCase):
         self.launch(["Produce two outputs and combine", "--max-parallel-builders", "2", "--chat"], 0, answers="yes\n")
         run, state = self.saved()
         token = state["goal_contract"]["hash"]
-        self.assertEqual(["astra_discovery"], [r["stage"] for r in state["stages"]])
+        self.assertEqual(["draft_plan"], [r["stage"] for r in state["stages"]])
         self.assertEqual("autocode", orchestrator.pending_unit(state))
         self.assertFalse((self.project / "a.txt").exists())
         self.assertEqual("approved-plan", state["unit_handoffs"]["autoplanner"]["kind"])
@@ -39,7 +39,7 @@ class UnitFlow(unittest.TestCase):
         self.select("autocode_build")
         self.launch(["--run-dir", str(run), "--no-chat"], 0)
         state = self.saved()[1]
-        self.assertEqual("sol", state["next_stage"])
+        self.assertEqual("tester", state["next_stage"])
         self.assertTrue((self.project / "a.txt").exists())
         self.assertTrue((self.project / "b.txt").exists())
         self.assertFalse((self.project / "combined.txt").exists())
@@ -57,7 +57,7 @@ class UnitFlow(unittest.TestCase):
 
         self.select("autocode_build")
         self.launch(["--run-dir", str(run), "--no-chat"], 0)
-        self.assertEqual("sol", self.saved()[1]["next_stage"])
+        self.assertEqual("tester", self.saved()[1]["next_stage"])
         self.select("autoreview")
         self.launch(["--run-dir", str(run), "--no-chat"], 0)
         state = self.saved()[1]
@@ -93,7 +93,7 @@ class JointPlannerUnit(unittest.TestCase):
         self.launch(["Build greeting", "--chat"], 0, answers="CLI\nyes\n")
         run, state = self.saved()
         self.assertEqual("approved", state["goal_contract"]["approval_status"])
-        self.assertFalse(any(r["stage"] in ("terra", "sol") for r in state["stages"]))
+        self.assertFalse(any(r["stage"] in ("builder", "tester") for r in state["stages"]))
         self.assertTrue(all(orchestrator.unit_for(r["stage"]) == "autoplanner" for r in state["stages"]))
         self.assertEqual("autocode", orchestrator.pending_unit(state))
         plan = json.loads(Path(state["unit_handoffs"]["autoplanner"]["path"]).read_text())
@@ -120,20 +120,20 @@ class ResolverFlow(unittest.TestCase):
         stages = [r["stage"] for r in state["stages"]]
         self.assertEqual(
             [
-                "astra_discovery",
-                "astra_discovery",
-                "astra_plan",
+                "draft_plan",
+                "draft_plan",
+                "plan_task",
                 # A build that changes product code owes the runner's proof (#2474), recorded as its own stage.
-                "terra",
+                "builder",
                 "regression_proof",
-                "sol",
+                "tester",
                 "regression_proof",
-                "astra_review",
-                "astra_resolve",
-                "terra",
+                "review_completion",
+                "resolve",
+                "builder",
                 "regression_proof",
-                "sol",
-                "astra_review",
+                "tester",
+                "review_completion",
             ],
             stages,
         )
@@ -152,7 +152,7 @@ class ResolverFlow(unittest.TestCase):
         self.launch(args, 0)
         self.select("autoreview")
         self.launch(args, 0)
-        self.assertEqual("astra_resolve", self.saved()[1]["next_stage"])
+        self.assertEqual("resolve", self.saved()[1]["next_stage"])
         return run, args
 
     def test_resolution_is_read_only_and_hands_back_to_build_and_independent_review(self):
@@ -182,7 +182,7 @@ class ResolverFlow(unittest.TestCase):
         self.launch(args, 0)
         state = self.saved()[1]
         self.assertEqual("TASK_COMPLETE", state["status"])
-        self.assertEqual(2, sum(r["stage"] == "sol" for r in state["stages"]))
+        self.assertEqual(2, sum(r["stage"] == "tester" for r in state["stages"]))
 
     def test_changed_source_pauses_resolver_without_launching_a_writer(self):
         run, args = self.rejected_build()
@@ -217,7 +217,7 @@ class ResolverFlow(unittest.TestCase):
             output = run / f"rejected-resolver-{index}.json"
             output.write_text('{"status":"REWORK"}')
             record = {
-                "stage": "astra_resolve",
+                "stage": "resolve",
                 "iteration": state["iteration"],
                 "role": "task_planner",
                 "output": str(output),
@@ -242,7 +242,7 @@ class ResolverFlow(unittest.TestCase):
         retried = self.saved()[1]
         after = launches()
         attempts = after[len(before) :]
-        self.assertEqual(["astra_resolve"], [row["stage"] for row in attempts])
+        self.assertEqual(["resolve"], [row["stage"] for row in attempts])
         self.assertEqual(revision, support.snapshot(self.project)["revision"])
         self.assertEqual(history, retried["failure_history"])
         self.assertEqual(state["goal_contract"], retried["goal_contract"])
@@ -263,7 +263,7 @@ class ResolverFlow(unittest.TestCase):
 
 class UnitRouting(unittest.TestCase):
     def test_pending_repair_is_owned_by_its_original_unit(self):
-        state = {"next_stage": "terra", "pending_report_repair": {"original": {"stage": "sol"}}}
+        state = {"next_stage": "builder", "pending_report_repair": {"original": {"stage": "tester"}}}
         self.assertEqual("autoreview", orchestrator.pending_unit(state))
         with self.assertRaisesRegex(ValueError, "No unit owns"):
             orchestrator.unit_for("unknown-stage")
@@ -277,19 +277,19 @@ class ResolverSafety(unittest.TestCase):
 
     def ready(self):
         self.approve()
-        runner.apply_result(self.state, "astra_plan", self.decision(), {"output": "plan"}, self.root, self.run)
+        runner.apply_result(self.state, "plan_task", self.decision(), {"output": "plan"}, self.root, self.run)
         value = self.decision("REWORK")
         output = self.run / "review.json"
         output.write_text(json.dumps(value))
         record = {"output": str(output), "source_revision": support.snapshot(self.root)["revision"]}
-        runner.apply_result(self.state, "astra_review", value, record, self.root, self.run)
+        runner.apply_result(self.state, "review_completion", value, record, self.root, self.run)
         value["diagnosis"] = "Missing input validation"
         return value, record
 
     def rejected(self, value, record):
         before = copy.deepcopy(self.state)
         with self.assertRaises((ValueError, support.Paused)):
-            runner.apply_result(self.state, "astra_resolve", value, record, self.root, self.run)
+            runner.apply_result(self.state, "resolve", value, record, self.root, self.run)
         self.assertEqual(before, self.state)
 
     def test_cannot_self_approve_completion(self):
@@ -317,7 +317,7 @@ class ResolverSafety(unittest.TestCase):
             "proposed_delta": "",
         }
         value["acceptance_criteria"][0]["criterion"] = approved[0]["criterion"] + " "
-        runner.apply_result(self.state, "astra_resolve", value, record, self.root, self.run)
+        runner.apply_result(self.state, "resolve", value, record, self.root, self.run)
         self.assertEqual(approved, self.state["acceptance_criteria"])
         self.assertEqual("RESOLVER_PENDING", self.state["status"])
         questions = human.internal_questions(self.state)
@@ -333,7 +333,7 @@ class ResolverSafety(unittest.TestCase):
         revision = support.snapshot(self.root)["revision"]
         for index in range(3):
             record = {
-                "stage": "astra_resolve",
+                "stage": "resolve",
                 "iteration": 1,
                 "output": str(self.run / f"failed-resolver-{index}.json"),
                 "source_revision": revision,
@@ -351,7 +351,7 @@ class ResolverSafety(unittest.TestCase):
             {**authorization, "consumed": False},
             {**authorization, "_novelty_consumed": True},
             {**authorization, "failure_key": "different"},
-            {**authorization, "identity": {**authorization["identity"], "stage": "terra"}},
+            {**authorization, "identity": {**authorization["identity"], "stage": "builder"}},
             {**authorization, "count": authorization["count"] + 1},
             {**authorization, "count": True},
             {**authorization, "count": float(authorization["count"])},
@@ -360,14 +360,14 @@ class ResolverSafety(unittest.TestCase):
             with self.subTest(authorization=denied), self.assertRaises(support.Paused):
                 orchestrator.prepare_request(
                     self.state,
-                    "astra_resolve",
+                    "resolve",
                     self.run / "state.json",
                     runner.SCHEMA_DIR,
                     retry_authorization=denied,
                 )
         request = orchestrator.prepare_request(
             self.state,
-            "astra_resolve",
+            "resolve",
             self.run / "state.json",
             runner.SCHEMA_DIR,
             retry_authorization=authorization,
@@ -395,11 +395,11 @@ class ResolverSafety(unittest.TestCase):
         # their source contract stays enforced by the after-stage snapshot.
         from units import common
 
-        for stage in ("sol", "astra_review", "astra_checkpoint"):
+        for stage in ("tester", "review_completion", "review_checkpoint"):
             self.assertEqual("workspace-write", common.launch_sandbox(stage, False), stage)
-        for stage in ("requirements_gather", "astra_plan", "glm_revise", "astra_discovery"):
+        for stage in ("requirements_gather", "plan_task", "revise_plan", "draft_plan"):
             self.assertEqual("read-only", common.launch_sandbox(stage, False), stage)
-        self.assertEqual("workspace-write", common.launch_sandbox("terra", True))
+        self.assertEqual("workspace-write", common.launch_sandbox("builder", True))
 
 
 class UnitHandoffs(unittest.TestCase):

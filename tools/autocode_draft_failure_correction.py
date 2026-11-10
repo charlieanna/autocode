@@ -26,7 +26,7 @@ except ImportError:
 FIELD = "draft_failure_correction"
 COMPATIBILITY = "unapproved_bugfix_compatibility_inference"
 TARGETS = {"unapproved_model_inference": "important_failure_cases", COMPATIBILITY: "required_behaviors"}
-ORIGINS = {"glm_draft", "astra_discovery", "glm_revise", "astra_finalize"}
+ORIGINS = {"glm_draft", "draft_plan", "revise_plan", "finalize_plan"}
 LISTS = ("required_behaviors", "scope_exclusions", "constraints", "permission_boundaries")
 SOURCES = (
     "task",
@@ -184,7 +184,7 @@ def receipts(state: RunState, report):
                     not (
                         event.get("kind") == "automatic_timeout_recovery"
                         and event.get("actor") == "runner"
-                        and event.get("next_stage") == "astra_challenge"
+                        and event.get("next_stage") == "review_plan"
                         and event.get("changed_files") == []
                     )
                     for event in state.get("user_events", [])
@@ -211,7 +211,7 @@ def receipts(state: RunState, report):
 
 def repair_obligations(state: RunState):
     """Supply exact adjacent rows omitted by the human-protected-field snapshot."""
-    report = ((state.get("planning") or {}).get("reports", {}).get("astra_challenge") or {}).get("report")
+    report = ((state.get("planning") or {}).get("reports", {}).get("review_plan") or {}).get("report")
     if not isinstance(report, dict):
         return None
     try:
@@ -282,9 +282,9 @@ def _obligation_mismatches(before, after, replacements, interpretation_correctio
 
 def corrections(state: RunState, body, changes, origin, *, interpretation_corrections=(), criterion_corrections=None):
     """Authority for exact glm_revise pairs only; every other change uses its existing guard."""
-    if origin != "glm_revise":
+    if origin != "revise_plan":
         return {}
-    report = ((state.get("planning") or {}).get("reports", {}).get("astra_challenge") or {}).get("report")
+    report = ((state.get("planning") or {}).get("reports", {}).get("review_plan") or {}).get("report")
     if not isinstance(report, dict):
         return {}
     try:

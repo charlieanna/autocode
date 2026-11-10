@@ -193,7 +193,7 @@ class SchemaCoverageTests(unittest.TestCase):
         import autocode_run_view as run_view
 
         schema = SCHEMA["properties"]["view"]["properties"]["usage"]
-        shown = run_view.view({"status": "RUNNING", "stages": [{"stage": "terra"}]})["usage"]
+        shown = run_view.view({"status": "RUNNING", "stages": [{"stage": "builder"}]})["usage"]
         util.validate_schema(shown, schema)
         for field, value in (
             ("version", 1),
@@ -227,7 +227,7 @@ class SchemaCoverageTests(unittest.TestCase):
 
         schema = SCHEMA["properties"]["view"]["properties"]["usage"]
         facts = evidence.launch_identity(
-            role="terra",
+            role="builder",
             engine="codex",
             provider="codex",
             model="gpt-6-sol",
@@ -236,8 +236,8 @@ class SchemaCoverageTests(unittest.TestCase):
             settings={},
         )
         stage = {
-            "stage": "terra",
-            "role": "terra",
+            "stage": "builder",
+            "role": "builder",
             "engine": "codex",
             "model": "gpt-6-sol",
             "execution_identity": facts,
@@ -269,7 +269,7 @@ class SchemaCoverageTests(unittest.TestCase):
         }
         state = {
             "status": "RUNNING",
-            "settings": {"engine": "codex", "roles": {"terra": {"engine": "codex", "model": "gpt-5.6-terra"}}},
+            "settings": {"engine": "codex", "roles": {"builder": {"engine": "codex", "model": "gpt-5.6-terra"}}},
         }
         with patch.object(coordination, "read", return_value=document):
             view = run_view.view(state, run_dir=Path("/runs/checkout"))

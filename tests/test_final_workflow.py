@@ -58,21 +58,21 @@ class FinalWorkflowTests(unittest.TestCase):
     def implement(self, value=None):
         record = {
             **self.record(),
-            "role": "terra",
-            "stage": "terra",
+            "role": "builder",
+            "stage": "builder",
             "after_ref": "saved-after",
             # This domain fixture changes no product file. Public subprocess
             # cases below exercise real Builder deltas and runner proof.
             "changed_files": [],
         }
-        runner.apply_result(self.state, "terra", value or self.implementation(), record, self.root, self.run)
+        runner.apply_result(self.state, "builder", value or self.implementation(), record, self.root, self.run)
 
     def test_continue_goes_directly_to_glm_and_retains_goal(self):
         self.enable()
         goal = copy.deepcopy(self.state["goal_contract"])
         iteration = self.state["iteration"]
         self.implement()
-        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual("builder", self.state["next_stage"])
         self.assertEqual("Next approved Builder batch", self.state["current_task"]["objective"])
         self.assertEqual(goal, self.state["goal_contract"])
         self.assertEqual(iteration + 1, self.state["iteration"])
@@ -89,7 +89,7 @@ class FinalWorkflowTests(unittest.TestCase):
     def test_self_check_is_not_independent_and_cannot_complete(self):
         self.enable()
         self.implement(self.implementation("REQUEST_FINAL_AUDIT"))
-        self.assertEqual("astra_checkpoint", self.state["next_stage"])
+        self.assertEqual("review_checkpoint", self.state["next_stage"])
         self.assertNotIn("validation", self.state)
         self.assertFalse(completion_gate.completion_ready(self.state, self.report()["decision"], s.snapshot(self.root)))
         self.assertFalse(self.state["final_audit_request"]["independent"])
@@ -114,24 +114,24 @@ class FinalWorkflowTests(unittest.TestCase):
     def test_astra_dispatch_requires_fresh_explicit_final_request(self):
         self.enable()
         with self.assertRaises(s.Paused):
-            w.dispatch_guard(self.state, "astra_checkpoint", self.root)
+            w.dispatch_guard(self.state, "review_checkpoint", self.root)
         self.implement(self.implementation("REQUEST_FINAL_AUDIT"))
-        w.dispatch_guard(self.state, "astra_checkpoint", self.root)
+        w.dispatch_guard(self.state, "review_checkpoint", self.root)
         self.evidence.write_text("changed")
         # Change actual source, not just ignored run-scoped evidence.
         (self.root / "new-code.py").write_text("# changed source")
         with self.assertRaises(s.Paused):
-            w.dispatch_guard(self.state, "astra_checkpoint", self.root)
+            w.dispatch_guard(self.state, "review_checkpoint", self.root)
 
     def test_sol_is_explicit_and_returns_directly_to_glm(self):
         self.enable()
         with self.assertRaises(s.Paused):
-            w.dispatch_guard(self.state, "sol", self.root)
+            w.dispatch_guard(self.state, "tester", self.root)
         self.implement(self.implementation("ESCALATE_SOL"))
-        self.assertEqual("sol", self.state["next_stage"])
-        record = {**self.record(), "role": "sol", "stage": "sol"}
-        runner.apply_result(self.state, "sol", self.report()["validation"], record, self.root, self.run)
-        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
+        record = {**self.record(), "role": "tester", "stage": "tester"}
+        runner.apply_result(self.state, "tester", self.report()["validation"], record, self.root, self.run)
+        self.assertEqual("builder", self.state["next_stage"])
         self.assertNotIn("validation", self.state)
         self.assertEqual(1, len(self.state["consultation_reports"]))
 
@@ -185,7 +185,7 @@ class FinalWorkflowTests(unittest.TestCase):
             },
         )
         self.apply(report)
-        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual("builder", self.state["next_stage"])
 
 
 class FinalSubprocessTests(test_workflow.WorkflowSubprocessTests):
@@ -202,8 +202,8 @@ class FinalSubprocessTests(test_workflow.WorkflowSubprocessTests):
         _, state = self.saved()
         self.assertEqual("COMPLETE", state["phase"])
         self.assertEqual(
-            ["terra", "terra", "astra_checkpoint"],
-            [r["stage"] for r in state["stages"] if r["stage"] in ("terra", "sol", "astra_checkpoint")],
+            ["builder", "builder", "review_checkpoint"],
+            [r["stage"] for r in state["stages"] if r["stage"] in ("builder", "tester", "review_checkpoint")],
         )
         before = (run / "state.json").read_bytes()
         self.launch(["--run-dir", str(run), "--no-chat"], 0)
@@ -215,6 +215,6 @@ class FinalSubprocessTests(test_workflow.WorkflowSubprocessTests):
         self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 0)
         _, state = self.saved()
         self.assertEqual(
-            ["terra", "sol", "terra", "astra_checkpoint"],
-            [r["stage"] for r in state["stages"] if r["stage"] in ("terra", "sol", "astra_checkpoint")],
+            ["builder", "tester", "builder", "review_checkpoint"],
+            [r["stage"] for r in state["stages"] if r["stage"] in ("builder", "tester", "review_checkpoint")],
         )

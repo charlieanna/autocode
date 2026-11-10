@@ -10,14 +10,14 @@ from units.common import ModelRequest
 
 
 class ReviewPromptTests(unittest.TestCase):
-    STAGES = ("sol", "astra_review", "astra_checkpoint")
+    STAGES = ("tester", "review_completion", "review_checkpoint")
     TASK = "Fix duplicate renewals and preserve public state after partial cancellation."
 
     def upstream(self):
         packet = {"task": self.TASK, "saved_answers": {"Q1": "Keep callback behavior."}}
         return ModelRequest(
-            "sol",
-            "sol",
+            "tester",
+            "tester",
             "Review independently.\nCURRENT HANDOFF DATA\n" + json.dumps(packet),
             {"source": "unchanged"},
             {"properties": {}, "required": []},

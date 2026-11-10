@@ -20,10 +20,10 @@ Example configuration::
     {"version": 1,
      "real_executable_sha256": "<sha256>",
      "routes": {
-       "terra": {"mode": "scripted_fixture",
+       "builder": {"mode": "scripted_fixture",
                  "command": ["/tmp/fixture-helper"],
                  "executable_sha256": "<sha256>"},
-       "sol": {"mode": "live_opencode"}}}
+       "tester": {"mode": "live_opencode"}}}
 
 Discovery commands (for example ``models``, ``auth list`` and ``--version``)
 go directly to the pinned real executable. Only ``run`` is stage-routed. This

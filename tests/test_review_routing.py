@@ -70,7 +70,7 @@ class PlanApprovalTests(unittest.TestCase):
         self.assertEqual(before, self.state)
         lifecycle.approve(self.state, selected, source="agent review under owner delegation 2026-10-29")
         provenance.stamp(before, self.state, {"command": "autocode --approve-goal", "claimed_as": "delegated agent"})
-        self.assertEqual("astra_checkpoint", workflow.review_stage(self.state))
+        self.assertEqual("review_checkpoint", workflow.review_stage(self.state))
         self.assertEqual(before["settings"]["roles"], self.state["settings"]["roles"])
         event = self.state["goal_contract"]["approval_event"]
         self.assertEqual(event, self.state["settings"]["workflow"]["approval_event"])
@@ -89,7 +89,7 @@ class PlanApprovalTests(unittest.TestCase):
         with self.assertRaises(support.Paused):
             workflow.guard(self.state)
         lifecycle.approve(self.state, second)
-        self.assertEqual("astra_checkpoint", workflow.review_stage(self.state))
+        self.assertEqual("review_checkpoint", workflow.review_stage(self.state))
         self.state["settings"]["review_routing"] = "separate"
         with self.assertRaises(support.Paused):
             workflow.guard(self.state)
@@ -107,14 +107,14 @@ class PlanApprovalTests(unittest.TestCase):
         original = body()
         self.assertEqual(original, routing.contract_body(self.state, original))
         approve_fixture(self.state, goals)
-        self.assertEqual("sol", workflow.review_stage(self.state))
+        self.assertEqual("tester", workflow.review_stage(self.state))
         self.assertNotIn("workflow", self.state["settings"])
 
     def test_legacy_workflow_approvals_still_require_their_exact_policy(self):
         approve_fixture(self.state, goals)
         self.state["status"] = "PAUSED_REQUESTED"
         workflow.activate(self.state, approval_source="legacy explicit operator choice")
-        self.assertEqual("astra_checkpoint", workflow.review_stage(self.state))
+        self.assertEqual("review_checkpoint", workflow.review_stage(self.state))
         with mock.patch.object(workflow, "APPROVAL_TEXT", "different policy"):
             with self.assertRaises(support.Paused):
                 workflow.guard(self.state)
@@ -139,9 +139,11 @@ class PublicCombinedRoutingTests(unittest.TestCase):
         _, state = self.saved()
         self.assertEqual("TASK_COMPLETE", state["status"])
         reviews = [
-            row["stage"] for row in state["stages"] if row["stage"] in ("sol", "astra_review", "astra_checkpoint")
+            row["stage"]
+            for row in state["stages"]
+            if row["stage"] in ("tester", "review_completion", "review_checkpoint")
         ]
-        self.assertEqual(["astra_checkpoint"], reviews)
+        self.assertEqual(["review_checkpoint"], reviews)
         self.assertEqual("PASS", state["validation"]["verdict"])
 
 

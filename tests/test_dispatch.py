@@ -287,10 +287,10 @@ class DispatchTests(unittest.TestCase):
             )
         runner.apply_result(
             self.state,
-            "sol",
+            "tester",
             value,
             {
-                "role": "sol",
+                "role": "tester",
                 "events": str(evidence),
                 "output": str(evidence),
                 "source_revision": s.snapshot(self.root)["revision"],
@@ -325,14 +325,14 @@ class DispatchTests(unittest.TestCase):
         self.state["settings"]["milestone_checkpoints"] = {"enabled": True}
         schemas = Path(d.__file__).with_name("autocode-schemas")
         self.state["current_task"]["milestone_ids"] = ["M1", "M2"]
-        batch = autoreview.prepare(self.state, "sol", self.run / "state.json", schemas)
+        batch = autoreview.prepare(self.state, "tester", self.run / "state.json", schemas)
         self.assertIn("milestone_results", batch.schema["required"])
         self.assertIn("must provide milestone_results", batch.prompt)
         self.assertNotIn("Do not include milestone_results", batch.prompt)
 
         self.state["current_task"].pop("milestone_ids")
         self.state["current_task"]["kind"] = "validate"
-        single = autoreview.prepare(self.state, "sol", self.run / "state.json", schemas)
+        single = autoreview.prepare(self.state, "tester", self.run / "state.json", schemas)
         self.assertNotIn("milestone_results", single.schema["properties"])
         self.assertFalse(single.schema["additionalProperties"])
         self.assertIn("Do not include milestone_results", single.prompt)
@@ -359,7 +359,7 @@ class DispatchTests(unittest.TestCase):
         self.prepare()
         self.state["settings"]["orchestration"]["max_parallel"] = 1
         record = self.build()
-        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual("builder", self.state["next_stage"])
         self.assertEqual("No tasks can be built in parallel now; one Builder takes the next task", record["summary"])
         # Without started_at the chat's "Recent steps" drops this step after a turn.
         self.assertLessEqual(record["started_at"], record["finished_at"])
@@ -378,11 +378,11 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual("M1\n", (self.root / "a.txt").read_text())
         self.assertEqual("M2\n", (self.root / "b.txt").read_text())
         self.assertEqual(head, d.git(self.root, "rev-parse", "HEAD"))
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertEqual([], sorted(m.accepted_ids(self.state)))
         batch = self.state["orchestration_history"][0]
         children = [s.read(Path(w["run_dir"]) / "state.json") for w in batch["workers"]]
-        self.assertNotEqual(children[0]["sessions"]["terra"], children[1]["sessions"]["terra"])
+        self.assertNotEqual(children[0]["sessions"]["builder"], children[1]["sessions"]["builder"])
         self.assertNotEqual(children[0]["workspace"], children[1]["workspace"])
         self.assertNotEqual(children[0]["current_task"]["id"], children[1]["current_task"]["id"])
         self.assertTrue(all(w["exit_code"] == 0 for w in batch["workers"]))
@@ -552,7 +552,7 @@ class DispatchTests(unittest.TestCase):
             [{"status": s.read(path)["status"]} for path in held.parent.glob("result-history-*.json")],
         )
         self.build()
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         # The relaunch rechecked the saved implementation under a fresh, discharged lifeline; no Builder reran.
         self.assertEqual(first, (self.root / ".autocode/barrier/M1").read_bytes())
         rerun = self.state["orchestration_history"][0]["workers"][0]
@@ -644,7 +644,7 @@ class DispatchTests(unittest.TestCase):
         d.request_retry(self.state, self.run, ["M2"])
         self.build()
         self.assertEqual(first, (self.root / ".autocode/barrier/M1").read_bytes())
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         attempts = [r for r in self.state["stages"] if r.get("worker_attempt")]
         self.assertEqual(3, len(attempts))
         self.assertAlmostEqual(sum(r["duration_seconds"] for r in attempts), self.state["active_seconds"])
@@ -690,7 +690,7 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual("M1\n" + hashlib.sha256(b"M1").hexdigest() + "\n", (self.root / "a.txt").read_text())
         self.assertEqual("M2\n", (self.root / "b.txt").read_text())
         self.assertEqual(sibling_attempt, (self.root / ".autocode/barrier/M2").read_bytes())
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertEqual(set(), m.accepted_ids(self.state))
         batch = self.state["orchestration_history"][0]
         for row in batch["workers"]:
@@ -707,7 +707,7 @@ class DispatchTests(unittest.TestCase):
             events = [
                 json.loads(line)
                 for record in child["stages"]
-                if record["stage"] == "terra"
+                if record["stage"] == "builder"
                 for line in Path(record["events"]).read_text().splitlines()
             ]
             checks = [e["item"] for e in events if e.get("item", {}).get("id") == "checksum"]
@@ -717,9 +717,9 @@ class DispatchTests(unittest.TestCase):
         self.prepare()
         with patch.dict(os.environ, {"AUTOCODE_BUILDER_BAD_REPORT": "M2"}):
             self.build()
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         attempts = [r for r in self.state["stages"] if r.get("worker_milestone") == "M2"]
-        self.assertEqual(["terra", "terra_report_repair"], [r["stage"] for r in attempts])
+        self.assertEqual(["builder", "builder_report_repair"], [r["stage"] for r in attempts])
 
     def test_completed_worker_missing_receipt_is_reconciled_without_rebuild(self):
         self.prepare()
@@ -730,7 +730,7 @@ class DispatchTests(unittest.TestCase):
         with patch.dict(os.environ, {"AUTOCODE_BUILDER_FAIL": "M1"}):
             self.build()
         self.assertEqual(first, (self.root / ".autocode/barrier/M1").read_bytes())
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
 
     def test_new_approved_plan_archives_old_stopped_batch(self):
         draft = self.prepare()
@@ -746,7 +746,7 @@ class DispatchTests(unittest.TestCase):
         self.state["next_stage"] = "orchestrator"
         self.build()
         self.assertEqual(["SUPERSEDED", "INTEGRATED"], [b["status"] for b in self.state["orchestration_history"]])
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
 
     def test_interrupted_worktree_setup_resumes_same_batch(self):
         self.prepare()
@@ -830,8 +830,8 @@ class DispatchTests(unittest.TestCase):
         self.state = s.read(self.run / "state.json")
         with patch.object(d, "run_workers", side_effect=AssertionError("Must not replay")):
             self.build()
-        self.assertEqual("sol", self.state["next_stage"])
-        self.assertEqual(2, sum(r.get("role") == "terra" for r in self.state["stages"]))
+        self.assertEqual("tester", self.state["next_stage"])
+        self.assertEqual(2, sum(r.get("role") == "builder" for r in self.state["stages"]))
 
     def test_parent_drift_and_pending_pause_block_integration(self):
         self.prepare()
@@ -895,17 +895,17 @@ class DispatchCliTests(unittest.TestCase):
         stages = [r["stage"] for r in state["stages"]]
         self.assertEqual(
             [
-                "astra_discovery",
-                "astra_plan",
-                "terra",
-                "terra",
+                "draft_plan",
+                "plan_task",
+                "builder",
+                "builder",
                 "orchestrator",
-                "sol",
-                "astra_review",
+                "tester",
+                "review_completion",
                 "orchestrator",
-                "terra",
-                "sol",
-                "astra_review",
+                "builder",
+                "tester",
+                "review_completion",
             ],
             stages,
         )

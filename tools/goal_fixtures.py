@@ -444,4 +444,4 @@ def approve_fixture(state: RunState, goals):
     human.evaluate(state)
     lifecycle.present(state)
     lifecycle.approve(state, goals.token(state["goal_contract"]))
-    state.update({"next_stage": "terra", "phase": "EXECUTING"})
+    state.update({"next_stage": "builder", "phase": "EXECUTING"})

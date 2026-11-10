@@ -12,13 +12,13 @@ import autocode_worker_limits as limits
 class WorkerLimitPolicyTests(unittest.TestCase):
     def test_only_saved_operator_bounds_and_ownership_are_copied(self):
         child = {
-            "roles": {"terra": {"model": "frozen", "reasoning_effort": "high"}},
+            "roles": {"builder": {"model": "frozen", "reasoning_effort": "high"}},
             "limits": {"tool_timeout_seconds": 1800, "stage_timeout_seconds": 3600, "max_seconds": 100},
             "milestone_checkpoints": {"enabled": True, "max_seconds": 5400},
             "budget_origins": {"max_seconds": "runner_default"},
         }
         parent = {
-            "roles": {"terra": {"model": "different", "reasoning_effort": "low"}},
+            "roles": {"builder": {"model": "different", "reasoning_effort": "low"}},
             "limits": {"tool_timeout_seconds": 5400, "stage_timeout_seconds": 0, "max_seconds": 200},
             "milestone_checkpoints": {"enabled": False, "max_seconds": 21600},
             "budget_origins": {key: "user_explicit" for key in (*[row[2] for row in limits.BOUNDS], "max_seconds")},
@@ -88,7 +88,7 @@ class SelectedWorkerLimitTests(unittest.TestCase):
                 "automatic_recoveries_since_resume": 3,
                 "stages": [{"tool_timeout_seconds": 1800, "stage_timeout_seconds": 3600}],
                 "settings": {
-                    "roles": {"terra": {"model": "frozen"}},
+                    "roles": {"builder": {"model": "frozen"}},
                     "limits": {"tool_timeout_seconds": 1800, "stage_timeout_seconds": 3600},
                     "milestone_checkpoints": {"max_seconds": 5400},
                 },

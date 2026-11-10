@@ -71,7 +71,7 @@ class RouteLineTests(unittest.TestCase):
         lines = catalogue.route_lines(found)
         self.assertTrue(lines)
         rows = {row["role"]: row for row in catalogue.route_rows(found)}
-        builder = rows["terra"]
+        builder = rows["builder"]
         self.assertEqual("Builder", builder["job"])
         self.assertEqual("kilocode", builder["tool"])
         self.assertIn(
@@ -87,7 +87,7 @@ class RouteLineTests(unittest.TestCase):
     def test_the_lines_can_be_narrowed_to_the_roles_a_run_uses(self):
         with mock.patch.object(discovery, "discover", return_value=FOUND):
             found = catalogue.preview(provider="kilocode")
-        lines = catalogue.route_lines(found, {"terra", "sol"})
+        lines = catalogue.route_lines(found, {"builder", "tester"})
         self.assertEqual(2, len(lines))
         self.assertTrue(lines[0].startswith("Builder: "))
         self.assertTrue(lines[1].startswith("Tester: "))
@@ -189,7 +189,7 @@ class SetupRoutesTests(unittest.TestCase):
 
 
 def arguments(**extra):
-    roles = ("requirements", "planner", "terra", "plan_reviewer", "sol", "completion", "task_planner")
+    roles = ("requirements", "planner", "builder", "plan_reviewer", "tester", "completion", "task_planner")
     values = {f"{role}_model": None for role in roles}
     values |= {f"{role}_provider": None for role in roles}
     values |= {f"{role}_reasoning_effort": None for role in roles}
@@ -200,13 +200,13 @@ def arguments(**extra):
 
 class NewRunRoutesTests(unittest.TestCase):
     provider = SimpleNamespace(
-        DEFAULT_MODELS={"task_planner": "fixed", "terra": "fixed", "sol": "fixed", "completion": "fixed"}
+        DEFAULT_MODELS={"task_planner": "fixed", "builder": "fixed", "tester": "fixed", "completion": "fixed"}
     )
 
     def select(self, args=None, *, joint=True, started=False):
         roles = {
             role: {"model": "fixed", "reasoning_effort": None}
-            for role in ("task_planner", "terra", "sol", "completion")
+            for role in ("task_planner", "builder", "tester", "completion")
         }
         with mock.patch.object(discovery, "discover", return_value=FOUND):
             code, output = capture(
@@ -231,7 +231,7 @@ class NewRunRoutesTests(unittest.TestCase):
         self.assertIn("Routes for this run, from kilocode's local listing:", output)
         self.assertIn("Builder: ", output)
         self.assertIn("Planner: ", output)  # joint planning runs the planning roles too
-        self.assertEqual(result["routes"]["terra"]["model"], roles["terra"]["model"])
+        self.assertEqual(result["routes"]["builder"]["model"], roles["builder"]["model"])
 
     def test_a_legacy_run_does_not_name_planning_roles_it_never_runs(self):
         _roles, result, output = self.select(joint=False)
@@ -241,7 +241,7 @@ class NewRunRoutesTests(unittest.TestCase):
         self.assertIn("\n  Builder: ", output)
 
     def test_a_named_model_keeps_the_quiet_default(self):
-        _roles, _result, output = self.select(arguments(terra_model="openai/gpt-6-sol"))
+        _roles, _result, output = self.select(arguments(builder_model="openai/gpt-6-sol"))
         self.assertNotIn("Routes for this run", output)
 
     def test_a_saved_run_does_not_repeat_the_choice(self):

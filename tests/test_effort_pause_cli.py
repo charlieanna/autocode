@@ -106,7 +106,7 @@ class EffortPauseCLI(unittest.TestCase):
         if view["needs"]["kind"] == "continue":
             view = run.advance_until_input()
         self.assertEqual("approve_plan", view["needs"]["kind"], view["stop_reason"])
-        reviews = [row for row in self.calls() if row["stage"] in ("astra_challenge", "astra_finalize")]
+        reviews = [row for row in self.calls() if row["stage"] in ("review_plan", "finalize_plan")]
         self.assertTrue(reviews, self.calls())
         for row in reviews:
             self.assertIn('model_reasoning_effort="high"', row["argv"])

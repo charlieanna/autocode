@@ -73,7 +73,7 @@ class ReviewerEffortCLI(unittest.TestCase):
         )
         before = self.public(run)
         self.assertEqual("clear", before["view"]["planning_depth"]["clarity"])
-        self.assertFalse(any(row["stage"] in ("astra_challenge", "astra_finalize") for row in self.calls()))
+        self.assertFalse(any(row["stage"] in ("review_plan", "finalize_plan") for row in self.calls()))
         if legacy:
             # Fixture setup only: represent a375-era checkpoint, which had no effort provenance.
             checkpoint = run.run_dir / "state.json"
@@ -112,11 +112,11 @@ class ReviewerEffortCLI(unittest.TestCase):
                 "user_explicit" if explicit else "runner_default",
                 after["settings"]["effort_origins"]["plan_reviewer"],
             )
-        reviews = [row for row in self.calls() if row["stage"] in ("astra_challenge", "astra_finalize")]
+        reviews = [row for row in self.calls() if row["stage"] in ("review_plan", "finalize_plan")]
         self.assertTrue(reviews, self.calls())
         for row in reviews:
             self.assertIn('model_reasoning_effort="medium"', row["argv"])
-        self.assertNotIn("terra", {row["stage"] for row in self.calls()})
+        self.assertNotIn("builder", {row["stage"] for row in self.calls()})
         self.assertIn("counts across revisions (small clear brief)", run.show_goal())
         self.assertIn(f"{len(reviews)}/2 plan-review calls used", run.show_goal())
         self.assertFalse(view["done"])
@@ -148,7 +148,7 @@ class ReviewerEffortCLI(unittest.TestCase):
         settings = self.public(run)["settings"]
         planner = copy.deepcopy(settings["roles"]["planner"])
         self.assertEqual("runner_default", settings["effort_origins"]["planner"])
-        self.assertFalse(any(row["stage"] == "astra_discovery" for row in self.calls()))
+        self.assertFalse(any(row["stage"] == "draft_plan" for row in self.calls()))
         # Fixture setup only: the levels a real run reads from its tool's listing.
         checkpoint = run.run_dir / "state.json"
         owned = json.loads(checkpoint.read_text())
@@ -159,13 +159,13 @@ class ReviewerEffortCLI(unittest.TestCase):
             view = run.advance_until_input()
         self.assertEqual("approve_plan", view["needs"]["kind"], view["stop_reason"])
         higher = route_fit.SCALE[route_fit.SCALE.index(planner["reasoning_effort"]) + 1]
-        drafts = [row for row in self.calls() if row["stage"] == "astra_discovery"]
+        drafts = [row for row in self.calls() if row["stage"] == "draft_plan"]
         self.assertTrue(drafts, self.calls())
         for row in drafts:
             self.assertIn(f'model_reasoning_effort="{higher}"', row["argv"])
         self.assertEqual(planner, self.public(run)["settings"]["roles"]["planner"], "the saved level is not rewritten")
         state = json.loads(checkpoint.read_text())
-        record = next(row for row in state["stages"] if row.get("stage") == "astra_discovery")
+        record = next(row for row in state["stages"] if row.get("stage") == "draft_plan")
         self.assertEqual(
             (higher, True, "hard_plan", ["vague_request"]),
             tuple(record["effort_choice"].get(key) for key in ("level", "raised", "reason", "signals")),

@@ -48,7 +48,7 @@ class ModelPreflightAttemptTests(unittest.TestCase):
         self.state = {
             "settings": {
                 "engine": "opencode",
-                "roles": {"sol": {"model": self.model}},
+                "roles": {"tester": {"model": self.model}},
                 "transport_identities": {"opencode": self.identity},
             },
             "stages": [],

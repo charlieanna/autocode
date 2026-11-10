@@ -79,7 +79,7 @@ class ReviewedPlanFeedbackCliTests(unittest.TestCase):
                 stream.write(stage + '\\n')
             feedback_rows = [row for row in data.get('requirement_trace_rows', [])
                              if row.get('source_quote') == 'Keep the same scope and standard-library-only constraint.']
-            if stage == 'astra_discovery' and feedback_rows:
+            if stage == 'draft_plan' and feedback_rows:
                 report['requirements_rerun'] = ''
                 report['requirement_trace'].extend(
                     _trace((row['requirement_id'], 'Python standard library only'))[0] for row in feedback_rows)
@@ -118,7 +118,7 @@ class ReviewedPlanFeedbackCliTests(unittest.TestCase):
         self.assertEqual("resume", held["needs"]["kind"])
         self.assertEqual("autocode", held["pause_category"])
         self.assertEqual("Feedback applied. Your work is saved; continue to update the plan.", held["chat"]["notice"])
-        self.assertEqual("astra_discovery", held["next_stage"])
+        self.assertEqual("draft_plan", held["next_stage"])
         self.assertEqual(stages_before, calls.read_text().splitlines(), "Consuming feedback launches no model")
         repeated = subprocess.run(command, env={**os.environ, **env}, capture_output=True, text=True, timeout=30)
         self.assertEqual(0, repeated.returncode, repeated.stdout + repeated.stderr)
@@ -133,9 +133,9 @@ class ReviewedPlanFeedbackCliTests(unittest.TestCase):
         stages = calls.read_text().splitlines()
         new = stages[len(stages_before) :]
         self.assertEqual(0, new.count("requirements_gather"), new)
-        self.assertEqual(1, new.count("astra_discovery"), new)
-        self.assertGreaterEqual(new.count("astra_challenge"), 1, "Independent review must still run")
-        self.assertNotIn("terra", new)
+        self.assertEqual(1, new.count("draft_plan"), new)
+        self.assertGreaterEqual(new.count("review_plan"), 1, "Independent review must still run")
+        self.assertNotIn("builder", new)
         self.assertFalse((workspace / "greet.py").exists())
         self.assertNotEqual(original["needs"]["token"], reviewed["needs"]["token"])
         self.assertEqual(1, sum(row.get("text") == text for row in reviewed["request_sources"]))

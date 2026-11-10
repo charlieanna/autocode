@@ -249,7 +249,7 @@ class OriginalOracleTests(unittest.TestCase):
     def test_explicit_user_revision_preserves_old_binding_and_fresh_proof(self):
         old = copy.deepcopy(self.binding)
         (self.project / "test_layout.py").write_text(VARIANTS["expected_value"])
-        self.state.update(status="PAUSED_REQUESTED", next_stage="sol")
+        self.state.update(status="PAUSED_REQUESTED", next_stage="tester")
         self.configure(SimpleNamespace(run_dir=self.run, resume_paused=True, revise_protected_tests=self.proposal()))
         self.assertNotEqual(old["binding_hash"], self.binding["binding_hash"])
         self.assertEqual(ORIGINAL, retained_text(old, self.project, "test_layout.py"))
@@ -261,21 +261,21 @@ class OriginalOracleTests(unittest.TestCase):
     def test_revision_needs_reconciled_pause_and_exact_old_and_current_inputs(self):
         for field, value in [
             ("status", "RUNNING"),
-            ("next_stage", "astra_review"),
-            ("active_stage", {"stage": "sol"}),
-            ("pending_report_repair", {"stage": "sol"}),
+            ("next_stage", "review_completion"),
+            ("active_stage", {"stage": "tester"}),
+            ("pending_report_repair", {"stage": "tester"}),
             ("uncertain_artifacts", ["old"]),
             ("active_runner_check", {"stage": "regression_proof"}),
         ]:
             state = copy.deepcopy(self.state)
-            self.state.update(status="PAUSED_REQUESTED", next_stage="sol")
+            self.state.update(status="PAUSED_REQUESTED", next_stage="tester")
             self.state[field] = value
             with self.assertRaises(ValueError):
                 self.configure(
                     SimpleNamespace(run_dir=self.run, resume_paused=True, revise_protected_tests=self.proposal())
                 )
             self.state = state
-        self.state.update(status="PAUSED_REQUESTED", next_stage="sol")
+        self.state.update(status="PAUSED_REQUESTED", next_stage="tester")
         for field, value in [("previous_hash", "stale"), ("files", {}), ("reason", ""), ("command", "")]:
             proposal = self.proposal()
             data = json.loads(proposal.read_text())

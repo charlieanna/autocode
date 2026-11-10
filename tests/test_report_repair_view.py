@@ -32,11 +32,11 @@ class ReportRepairViewTests(unittest.TestCase):
         return {
             "status": "RUNNING",
             "phase": "REPORT_REPAIR",
-            "next_stage": "sol",
-            "active_stage": {"stage": "sol_report_repair", "original_stage": "sol", "report_only": True},
+            "next_stage": "tester",
+            "active_stage": {"stage": "tester_report_repair", "original_stage": "tester", "report_only": True},
             "settings": {"report_repair": {"max_attempts": 2}},
             "pending_report_repair": {
-                "original": {"stage": "sol", "source_revision": "a" * 64, "output": "/private/report.json"},
+                "original": {"stage": "tester", "source_revision": "a" * 64, "output": "/private/report.json"},
                 "attempts": 1,
                 "original_error": replay_error(
                     "python -m unittest", "timed out after 900 seconds. Receipt: /private/log"
@@ -51,7 +51,7 @@ class ReportRepairViewTests(unittest.TestCase):
         before = copy.deepcopy(state)
         shown = run_view.view(state)
         diagnostic = shown["report_repair"]
-        self.assertEqual("sol", diagnostic["stage"])
+        self.assertEqual("tester", diagnostic["stage"])
         self.assertTrue(diagnostic["active"])
         self.assertEqual("recorded", diagnostic["freshness"])
         self.assertEqual("a" * 64, diagnostic["source_revision"])
@@ -79,7 +79,7 @@ class ReportRepairViewTests(unittest.TestCase):
         for change in (
             {"status": "PAUSED_INVALID_OUTPUT"},
             {"active_stage": {}},
-            {"active_stage": {"report_only": True, "original_stage": "terra"}},
+            {"active_stage": {"report_only": True, "original_stage": "builder"}},
         ):
             state = self.state()
             state.update(change)
@@ -89,7 +89,7 @@ class ReportRepairViewTests(unittest.TestCase):
 
     def test_saved_binding_changes_are_stale_not_active(self):
         for change in (
-            {"next_stage": "terra"},
+            {"next_stage": "builder"},
             {"goal_contract": {"hash": "b" * 64}},
             {"current_task": {"id": "different"}},
             {"current_task": {"source_revision": "b" * 64}},

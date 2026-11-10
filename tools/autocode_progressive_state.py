@@ -86,7 +86,7 @@ def ordinary_initial_draft(state: RunState) -> bool:
         or not goals.sealed(contract)
     ):
         return False
-    report = ((state.get("planning") or {}).get("reports") or {}).get("astra_discovery") or {}
+    report = ((state.get("planning") or {}).get("reports") or {}).get("draft_plan") or {}
     proposal = (report.get("report") or {}).get("progressive_proposal")
     return isinstance(proposal, dict) and proposal.get("version") == 0 and not rules.declares(proposal)
 
@@ -429,8 +429,8 @@ def prepare_seal(state: RunState, contract_token):
         },
     }
     # Approval consumes the actual final independent review, not a synthetic grant.
-    reviewer = "plan_finalize" if roles.planning_flow(state) == "v2" else "astra_finalize"
-    planner = "plan_revise" if reviewer == "plan_finalize" else "glm_revise"
+    reviewer = "plan_finalize" if roles.planning_flow(state) == "v2" else "finalize_plan"
+    planner = "plan_revise" if reviewer == "plan_finalize" else "revise_plan"
     final = reports.get(reviewer) or {}
     prior = reports.get(planner) or {}
     witness, reviewer_session = repair_provenance.witness(state, reviewer, final.get("output"))
@@ -875,7 +875,7 @@ def guard_dispatch(state: RunState, stage):
         return
     if stage == "orchestrator" or (state.get("current_task") or {}).get("milestone_ids"):
         raise util.Paused("PAUSED_PROGRESSIVE_AUTHORITY", "Progressive slice execution must be serial")
-    if stage not in ("terra", "sol", "astra_plan", "astra_review", "astra_checkpoint", "astra_resolve"):
+    if stage not in ("builder", "tester", "plan_task", "review_completion", "review_checkpoint", "resolve"):
         return
     if view(state).get("transition"):
         raise util.Paused(
@@ -885,7 +885,7 @@ def guard_dispatch(state: RunState, stage):
     try:
         active = require_active(state)
         task = state.get("current_task") or {}
-        if stage != "astra_plan" and task.get("slice_id") != active["definition"]["id"]:
+        if stage != "plan_task" and task.get("slice_id") != active["definition"]["id"]:
             raise ValueError("task is not bound to the active reviewed slice")
         if task:
             guard_assignment(state, task, task.get("affected_paths", []))
@@ -933,10 +933,10 @@ def _admit_attempt(state: RunState, record, before):
         guard_dispatch(state, stage)
     elif stage not in (
         "requirements_gather",
-        "astra_discovery",
-        "astra_challenge",
-        "glm_revise",
-        "astra_finalize",
+        "draft_plan",
+        "review_plan",
+        "revise_plan",
+        "finalize_plan",
         "requirements",
         "plan",
         "plan_review",
@@ -952,7 +952,7 @@ def _admit_attempt(state: RunState, record, before):
         if (
             approved
             and ledger.get("transition", {}).get("phase") == "detail"
-            and stage in ("glm_revise", "plan_revise")
+            and stage in ("revise_plan", "plan_revise")
         ):
             status = budget.check_budget(ledger["budget"], pool, review=True)
             if not status["allowed"]:
@@ -964,7 +964,7 @@ def _admit_attempt(state: RunState, record, before):
             ledger["budget"],
             identity,
             pool,
-            review=stage in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize")
+            review=stage in ("review_plan", "finalize_plan", "plan_review", "plan_finalize")
             and not record.get("report_only"),
         )
     except budget.BudgetExhausted as error:
@@ -972,7 +972,7 @@ def _admit_attempt(state: RunState, record, before):
     task = state.get("current_task") or {}
     if (
         approved
-        and stage in ("terra", "sol", "astra_plan", "astra_review", "astra_checkpoint", "astra_resolve")
+        and stage in ("builder", "tester", "plan_task", "review_completion", "review_checkpoint", "resolve")
         and task
     ):
         binding = ledger.get("tasks", {}).get(task["id"])
@@ -1360,7 +1360,7 @@ def checkpoint(state: RunState, current, record, *, product_findings):
                 "remaining_criteria": copy.deepcopy(ledger["outstanding_criteria"]),
                 "reason": "Remaining original product proof under the inherited spent allowance",
             }
-            planner = "plan_revise" if roles.planning_flow(state) == "v2" else "glm_revise"
+            planner = "plan_revise" if roles.planning_flow(state) == "v2" else "revise_plan"
             state.update(
                 {
                     "next_stage": planner,
@@ -1369,7 +1369,7 @@ def checkpoint(state: RunState, current, record, *, product_findings):
                 }
             )
         else:
-            state.update({"next_stage": "astra_review", "next_action": "Evaluate complete product proof"})
+            state.update({"next_stage": "review_completion", "next_action": "Evaluate complete product proof"})
         return
     # Only approved, previously unallocated future work may receive fresh capacity.
     head = future[0]
@@ -1388,7 +1388,7 @@ def checkpoint(state: RunState, current, record, *, product_findings):
         )
     ledger["pending_allowance"] = {"slice_id": head["id"], "pool_id": pool, "work_id": work}
     ledger["transition"] = {"phase": "detail", "source": copy.deepcopy(current), "slice_id": head["id"]}
-    planner = "plan_revise" if roles.planning_flow(state) == "v2" else "glm_revise"
+    planner = "plan_revise" if roles.planning_flow(state) == "v2" else "revise_plan"
     state.update({"next_stage": planner, "phase": "PLANNING", "next_action": "Detail the next approved delivery slice"})
 
 
@@ -1450,7 +1450,7 @@ def apply_revision(state: RunState, stage, value, record, *, product_findings):
     token = goals.token(state["goal_contract"])
     previous = ledger["plan"]
     planner_stage, reviewer_stage = (
-        ("plan_revise", "plan_finalize") if roles.planning_flow(state) == "v2" else ("glm_revise", "astra_finalize")
+        ("plan_revise", "plan_finalize") if roles.planning_flow(state) == "v2" else ("revise_plan", "finalize_plan")
     )
     if stage == planner_stage and transition["phase"] == "detail":
         proposal = value["progressive_proposal"]

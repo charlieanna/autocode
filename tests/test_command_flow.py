@@ -247,7 +247,7 @@ class ConfigToolFlow(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", state["status"])
         self.assertEqual("fixturetool", state["settings"]["provider"])
         self.assertEqual({}, state["sessions"])
-        sol = next(record for record in state["stages"] if record["stage"] == "sol")
+        sol = next(record for record in state["stages"] if record["stage"] == "tester")
         report = json.loads(Path(sol["output"]).read_text())
         self.assertTrue(report["checks"][0]["evidence_ref"].endswith("sol-greet.json"))
         self.assertFalse(report["checks"][0]["evidence_ref"].startswith("event:"))
@@ -257,7 +257,7 @@ class ConfigToolFlow(unittest.TestCase):
         # .autocode/, so it launches operational-write; its read-only SOURCE contract
         # stays enforced by the runner's after-stage snapshot, not the sandbox.
         self.assertEqual("workspace-write", sol["command"][sol["command"].index("--sandbox") + 1])
-        terra = next(record for record in state["stages"] if record["stage"] == "terra")
+        terra = next(record for record in state["stages"] if record["stage"] == "builder")
         self.assertEqual("workspace-write", terra["command"][terra["command"].index("--sandbox") + 1])
 
     def test_a_builder_that_changes_nothing_escalates_to_the_tools_stronger_model_and_the_validator_moves(self):
@@ -288,18 +288,18 @@ class ConfigToolFlow(unittest.TestCase):
             ]
 
         # Two ordinary attempts, then the tool's stronger model, spelled as the tool spells it.
-        self.assertEqual([("fixture-builder", "terra")] * 2 + [("fixture-validator", "terra")], models("terra"))
+        self.assertEqual([("fixture-builder", "builder")] * 2 + [("fixture-validator", "builder")], models("builder"))
         # The Validator's model built the change, so a different model the tool serves checked it.
-        self.assertEqual([("fixture-completion", "sol")], models("sol"))
+        self.assertEqual([("fixture-completion", "tester")], models("tester"))
         self.assertEqual(
             ["investigate", "retry", "investigate", "escalate"], [d["action"] for d in state["builder_retry_decisions"]]
         )
-        self.assertEqual({"sol": "fixture-completion"}, state["builder_retry_decisions"][-1]["checker_models"])
+        self.assertEqual({"tester": "fixture-completion"}, state["builder_retry_decisions"][-1]["checker_models"])
 
     def test_report_file_missing_exit_uses_receipt_without_tool_events_or_repair(self):
         self.env["AUTOCODE_FIXTURE_MISSING_CHECK_EXIT"] = "1"
         _, state = self.complete_run()
-        sol = next(record for record in state["stages"] if record["stage"] == "sol")
+        sol = next(record for record in state["stages"] if record["stage"] == "tester")
         self.assertEqual("", Path(sol["events"]).read_text())
         self.assertEqual("TASK_COMPLETE", state["status"])
         self.assertEqual(0, json.loads(Path(sol["output"]).read_text())["checks"][0]["exit_code"])
@@ -326,10 +326,10 @@ class ConfigToolFlow(unittest.TestCase):
             )
         self.assertTrue(state["sessions"])
         self.assertTrue(set(state["sessions"].values()) <= {entry["session"] for entry in logged})
-        sol = next(record for record in execution if record["stage"] == "sol")
+        sol = next(record for record in execution if record["stage"] == "tester")
         report = json.loads(Path(sol["output"]).read_text())
         self.assertEqual("event:prt_check", report["checks"][0]["evidence_ref"])
-        self.assertEqual(sol["thread_id"], state["sessions"]["sol"])
+        self.assertEqual(sol["thread_id"], state["sessions"]["tester"])
 
     def test_file_prompt_delivers_prompt_with_closed_stdin(self):
         run, _ = self.complete_run(prompt="file", observe_stdin=True)
@@ -375,7 +375,7 @@ class ConfigToolFlow(unittest.TestCase):
 
     def test_sessionless_checkpoint_resumes_without_relaunch(self):
         run, state = self.complete_run(track_invocations=True)
-        terra_index = next(index for index, record in enumerate(state["stages"]) if record["stage"] == "terra")
+        terra_index = next(index for index, record in enumerate(state["stages"]) if record["stage"] == "builder")
         record = copy.deepcopy(state["stages"][terra_index])
         for later in state["stages"][terra_index + 1 :]:
             base = Path(later["output"]).with_suffix("")
@@ -383,18 +383,18 @@ class ConfigToolFlow(unittest.TestCase):
                 artifact.unlink()
         state["stages"] = state["stages"][:terra_index]
         state["history"] = state["history"][:terra_index]
-        state.update(status="RUNNING", phase="EXECUTING", next_stage="terra", active_stage=record)
+        state.update(status="RUNNING", phase="EXECUTING", next_stage="builder", active_stage=record)
         (run / "state.json").write_text(json.dumps(state))
-        before = (run / "invocations.txt").read_text().splitlines().count("terra")
+        before = (run / "invocations.txt").read_text().splitlines().count("builder")
 
         self.launch("--run-dir", str(run), "--no-chat", answers="")
 
-        after = (run / "invocations.txt").read_text().splitlines().count("terra")
+        after = (run / "invocations.txt").read_text().splitlines().count("builder")
         self.assertEqual(before, after)
         saved = json.loads((run / "state.json").read_text())
-        self.assertNotEqual("terra", saved["next_stage"])
-        self.assertNotEqual("terra", saved.get("active_stage", {}).get("stage"))
-        self.assertTrue(any(stage.get("recovered_at") for stage in saved["stages"] if stage["stage"] == "terra"))
+        self.assertNotEqual("builder", saved["next_stage"])
+        self.assertNotEqual("builder", saved.get("active_stage", {}).get("stage"))
+        self.assertTrue(any(stage.get("recovered_at") for stage in saved["stages"] if stage["stage"] == "builder"))
 
     def test_a_plain_text_429_is_a_rate_limit_set_aside_by_a_plain_resume(self):
         # #562: ``codex exec`` without --json ends a rate-limited stage with plain ERROR lines and no JSON
@@ -406,7 +406,7 @@ class ConfigToolFlow(unittest.TestCase):
         paused = self.launch("--chat", "Build a greeting tool")
         self.assertEqual(2, paused.returncode, paused.stdout + paused.stderr)
         run = next((self.project / ".autocode/runs").iterdir())
-        self.assertIn("sol exited 1", json.loads((run / "state.json").read_text())["stop_reason"])
+        self.assertIn("tester exited 1", json.loads((run / "state.json").read_text())["stop_reason"])
 
         del self.env["AUTOCODE_FIXTURE_PLAIN_ERROR"]
         resumed = self.launch("--run-dir", str(run), "--resume-paused", "--no-chat", answers="")
@@ -416,12 +416,12 @@ class ConfigToolFlow(unittest.TestCase):
         self.assertTrue(
             view["stop_reason"].startswith("Provider rate limit retained by AutoResolver"), view["stop_reason"]
         )
-        self.assertEqual(1, (run / "invocations.txt").read_text().splitlines().count("sol"))  # never replayed
+        self.assertEqual(1, (run / "invocations.txt").read_text().splitlines().count("tester"))  # never replayed
 
     def test_sessionless_incomplete_checkpoints_pause_without_relaunch(self):
         run, state = self.complete_run(track_invocations=True)
-        terra = next(record for record in state["stages"] if record["stage"] == "terra")
-        before = (run / "invocations.txt").read_text().splitlines().count("terra")
+        terra = next(record for record in state["stages"] if record["stage"] == "builder")
+        before = (run / "invocations.txt").read_text().splitlines().count("builder")
         output = Path(terra["output"])
         for name, update in (
             ("absent-exit", lambda record: record.pop("exit_code")),
@@ -430,22 +430,22 @@ class ConfigToolFlow(unittest.TestCase):
         ):
             with self.subTest(name=name):
                 active = copy.deepcopy(terra)
-                state.update(status="RUNNING", phase="EXECUTING", next_stage="terra", active_stage=active)
+                state.update(status="RUNNING", phase="EXECUTING", next_stage="builder", active_stage=active)
                 update(active)
                 (run / "state.json").write_text(json.dumps(state))
                 result = self.launch("--run-dir", str(run), "--no-chat", answers="")
                 self.assertEqual(2, result.returncode, result.stdout + result.stderr)
                 saved = json.loads((run / "state.json").read_text())
                 self.assertIn("active_stage", saved)
-                self.assertEqual(before, (run / "invocations.txt").read_text().splitlines().count("terra"))
+                self.assertEqual(before, (run / "invocations.txt").read_text().splitlines().count("builder"))
                 if name == "missing-report":
                     output.with_suffix(".saved").rename(output)
 
     def test_sessionless_invalid_report_runs_report_only_repair(self):
         run, state = self.complete_run(track_invocations=True)
-        terra = next(record for record in state["stages"] if record["stage"] == "terra")
+        terra = next(record for record in state["stages"] if record["stage"] == "builder")
         Path(terra["output"]).write_text("{}")
-        state.update(status="RUNNING", phase="EXECUTING", next_stage="terra", active_stage=copy.deepcopy(terra))
+        state.update(status="RUNNING", phase="EXECUTING", next_stage="builder", active_stage=copy.deepcopy(terra))
         original_provider = runner.opencode
         self.addCleanup(setattr, runner, "opencode", original_provider)
         with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(self.root / "config"), "PATH": self.env["PATH"]}):
@@ -456,11 +456,11 @@ class ConfigToolFlow(unittest.TestCase):
 
         self.assertNotIn("pending_report_repair", state)
         self.assertTrue(state["report_repair_history"])
-        self.assertEqual("terra_report_repair", state["stages"][-1]["stage"])
+        self.assertEqual("builder_report_repair", state["stages"][-1]["stage"])
 
     def test_sessionless_legacy_repair_and_planning_retry_accept_durable_reports(self):
         run, state = self.complete_run()
-        terra = next(record for record in state["stages"] if record["stage"] == "terra")
+        terra = next(record for record in state["stages"] if record["stage"] == "builder")
         legacy = copy.deepcopy(state)
         rejected = copy.deepcopy(terra)
         rejected.update(
@@ -472,8 +472,8 @@ class ConfigToolFlow(unittest.TestCase):
 
         planning = copy.deepcopy(state)
         active = copy.deepcopy(terra)
-        active.update(stage="astra_discovery", rejected=True)
-        planning.update(status="PAUSED_INVALID_OUTPUT", next_stage="astra_discovery", active_stage=active)
+        active.update(stage="draft_plan", rejected=True)
+        planning.update(status="PAUSED_INVALID_OUTPUT", next_stage="draft_plan", active_stage=active)
         self.assertTrue(runner.prepare_planning_retry(planning, run))
         self.assertNotIn("active_stage", planning)
 

@@ -131,7 +131,7 @@ class ProjectTests(unittest.TestCase):
         self.events = self.run / "iterations" / "builder-01.jsonl"
         self.events.parent.mkdir()
         write(self.events, [codex("item.completed", "i1", type="command_execution", command="ls", exit_code=0)])
-        self.state = {"active_stage": {"stage": "terra", "events": str(self.events)}, "workspace": "/work"}
+        self.state = {"active_stage": {"stage": "builder", "events": str(self.events)}, "workspace": "/work"}
         self.public = {"status": "RUNNING", "needs": {"kind": "continue"}, "liveness": {"kind": "supervised"}}
 
     def project(self, **flags):
@@ -209,10 +209,10 @@ class StatusViewTests(unittest.TestCase):
                 "status": "RUNNING",
                 "iteration": 1,
                 "sessions": {},
-                "next_stage": "terra",
+                "next_stage": "builder",
                 "stages": [],
                 "active_stage": {
-                    "stage": "terra",
+                    "stage": "builder",
                     "iteration": 1,
                     "output": str(run / "builder-01.json"),
                     "events": str(events),

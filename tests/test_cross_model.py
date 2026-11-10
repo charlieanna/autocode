@@ -21,10 +21,10 @@ def roles(**models):
 class CrossModelTest(unittest.TestCase):
     def test_identical_builder_validator_is_rejected(self):
         state = roles(
-            terra="zai-coding-plan/glm-5.3",
-            sol="zai-coding-plan/glm-5.3",
+            builder="zai-coding-plan/glm-5.3",
+            tester="zai-coding-plan/glm-5.3",
             completion="xiaomi-token-plan-sgp/mimo-v2.6-pro",
-            glm="zai-coding-plan/glm-5.3",
+            planner="zai-coding-plan/glm-5.3",
             plan_reviewer="xiaomi-token-plan-sgp/mimo-v2.6-pro",
         )
         with self.assertRaises(support.Paused) as ctx:
@@ -34,10 +34,10 @@ class CrossModelTest(unittest.TestCase):
 
     def test_same_family_builder_validator_is_rejected(self):
         state = roles(
-            terra="xiaomi-token-plan-sgp/mimo-v2.6-pro",
-            sol="xiaomi-token-plan-sgp/mimo-v2.5-pro",
+            builder="xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            tester="xiaomi-token-plan-sgp/mimo-v2.5-pro",
             completion="zai-coding-plan/glm-5.3",
-            glm="zai-coding-plan/glm-5.3",
+            planner="zai-coding-plan/glm-5.3",
             plan_reviewer="xiaomi-token-plan-sgp/mimo-v2.6-pro",
         )
         with self.assertRaises(support.Paused) as ctx:
@@ -47,8 +47,8 @@ class CrossModelTest(unittest.TestCase):
 
     def test_bare_and_openai_gpt_aliases_are_the_same_exact_model(self):
         for producer, verifier, label in (
-            ("terra", "sol", "Builder/Tester"),
-            ("terra", "completion", "Builder/Completion Reviewer"),
+            ("builder", "tester", "Builder/Tester"),
+            ("builder", "completion", "Builder/Completion Reviewer"),
             ("planner", "plan_reviewer", "Planner/Plan Reviewer"),
         ):
             for builder, checker in (("gpt-6-sol", "openai/gpt-6-sol"), ("openai/gpt-6-sol", "gpt-6-sol")):
@@ -68,26 +68,26 @@ class CrossModelTest(unittest.TestCase):
         ):
             with self.subTest(builder=builder, checker=checker):
                 with self.assertRaises(support.Paused) as ctx:
-                    dispatch.enforce_cross_model_verification(roles(terra=builder, sol=checker))
+                    dispatch.enforce_cross_model_verification(roles(builder=builder, tester=checker))
                 self.assertIn("same family openai", str(ctx.exception))
 
     def test_a_gpt_only_engine_lets_different_tiers_check_each_other(self):
         # Codex reaches only GPT models, as the Claude Code engine reaches only Claude: there only one model
         # checking itself is refused.
-        state = roles(terra="gpt-6-sol", sol="gpt-6-astra")
+        state = roles(builder="gpt-6-sol", tester="gpt-6-astra")
         state["settings"]["engine"] = "codex"
         dispatch.enforce_cross_model_verification(state)
 
     def test_other_provider_prefixes_are_not_openai_aliases(self):
-        dispatch.enforce_cross_model_verification(roles(terra="custom/gpt-6-sol", sol="gpt-6-sol"))
-        dispatch.enforce_cross_model_verification(roles(terra="openai/custom-model", sol="custom-model"))
+        dispatch.enforce_cross_model_verification(roles(builder="custom/gpt-6-sol", tester="gpt-6-sol"))
+        dispatch.enforce_cross_model_verification(roles(builder="openai/custom-model", tester="custom-model"))
 
     def test_same_family_builder_completion_is_rejected(self):
         state = roles(
-            terra="zai-coding-plan/glm-5.3",
-            sol="xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            builder="zai-coding-plan/glm-5.3",
+            tester="xiaomi-token-plan-sgp/mimo-v2.6-pro",
             completion="zai-coding-plan/glm-5.2",
-            glm="zai-coding-plan/glm-5.3",
+            planner="zai-coding-plan/glm-5.3",
             plan_reviewer="xiaomi-token-plan-sgp/mimo-v2.6-pro",
         )
         with self.assertRaises(support.Paused) as ctx:
@@ -96,10 +96,10 @@ class CrossModelTest(unittest.TestCase):
 
     def test_same_family_planner_reviewer_is_rejected(self):
         state = roles(
-            terra="xiaomi-token-plan-sgp/mimo-v2.6-pro",
-            sol="zai-coding-plan/glm-5.3",
+            builder="xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            tester="zai-coding-plan/glm-5.3",
             completion="zai-coding-plan/glm-5.3",
-            glm="zai-coding-plan/glm-5.3",
+            planner="zai-coding-plan/glm-5.3",
             plan_reviewer="zai-coding-plan/glm-5.2",
         )
         with self.assertRaises(support.Paused) as ctx:
@@ -108,10 +108,10 @@ class CrossModelTest(unittest.TestCase):
 
     def test_cross_family_pair_passes(self):
         state = roles(
-            terra="xiaomi-token-plan-sgp/mimo-v2.6-pro",
-            sol="zai-coding-plan/glm-5.3",
+            builder="xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            tester="zai-coding-plan/glm-5.3",
             completion="zai-coding-plan/glm-5.3",
-            glm="zai-coding-plan/glm-5.3",
+            planner="zai-coding-plan/glm-5.3",
             plan_reviewer="xiaomi-token-plan-sgp/mimo-v2.6-pro",
         )
         dispatch.enforce_cross_model_verification(state)  # must not raise
@@ -119,20 +119,20 @@ class CrossModelTest(unittest.TestCase):
     def test_bare_glm_and_mimo_names_are_their_family(self):
         """The dashboard's Codex console routes GLM as bare glm-5.3 / glm-5.3-flash."""
         state = roles(
-            terra="glm-5.3-flash",
-            sol="glm-5.3",
+            builder="glm-5.3-flash",
+            tester="glm-5.3",
             completion="gpt-5.6-sol",
-            glm="zai-coding-plan/glm-5.3",
+            planner="zai-coding-plan/glm-5.3",
             plan_reviewer="openai/gpt-6-sol",
         )
         with self.assertRaises(support.Paused) as ctx:
             dispatch.enforce_cross_model_verification(state)
         self.assertIn("Builder/Tester: same family glm", str(ctx.exception))
         state = roles(
-            terra="gpt-5.6-terra",
-            sol="glm-5.3",
+            builder="gpt-5.6-terra",
+            tester="glm-5.3",
             completion="glm-5.3",
-            glm="mimo-v2.6-pro",
+            planner="mimo-v2.6-pro",
             plan_reviewer="xiaomi-token-plan-sgp/mimo-v2.5-pro",
         )
         with self.assertRaises(support.Paused) as ctx:
@@ -151,10 +151,10 @@ class CrossModelTest(unittest.TestCase):
 
     def test_single_model_mode_allows_same_model_with_role_specific_effort(self):
         state = roles(
-            terra="zai-coding-plan/glm-5.3",
-            sol="zai-coding-plan/glm-5.3",
+            builder="zai-coding-plan/glm-5.3",
+            tester="zai-coding-plan/glm-5.3",
             completion="zai-coding-plan/glm-5.3",
-            glm="zai-coding-plan/glm-5.3",
+            planner="zai-coding-plan/glm-5.3",
             plan_reviewer="zai-coding-plan/glm-5.3",
         )
         state["settings"]["single_model_mode"] = True
@@ -163,7 +163,7 @@ class CrossModelTest(unittest.TestCase):
     def test_every_kind_of_job_is_held_to_the_same_independence(self):
         # Every task takes the same path (#3010): a review or a discussion has a Builder too, so its
         # Tester may not grade work its own model wrote, as in a build.
-        state = roles(terra="gpt-5.6-terra", sol="gpt-5.6-terra", completion="gpt-5.6-terra")
+        state = roles(builder="gpt-5.6-terra", tester="gpt-5.6-terra", completion="gpt-5.6-terra")
         state["settings"]["engine"] = "codex"
         for kind in ("build", "bugfix", "review", "discuss", None):
             with self.subTest(kind=kind):
@@ -178,15 +178,15 @@ class CrossModelTest(unittest.TestCase):
         import autocode as runner
 
         state = roles(
-            terra="xiaomi-token-plan-sgp/mimo-v2.6-pro",
-            sol="xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            builder="xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            tester="xiaomi-token-plan-sgp/mimo-v2.6-pro",
             completion="zai-coding-plan/glm-5.3",
-            glm="zai-coding-plan/glm-5.3",
+            planner="zai-coding-plan/glm-5.3",
             plan_reviewer="xiaomi-token-plan-sgp/mimo-v2.6-pro",
         )
         state.update(
             iteration=1,
-            next_stage="sol",
+            next_stage="tester",
             settings={
                 **state["settings"],
                 "engine": "opencode",
@@ -196,7 +196,7 @@ class CrossModelTest(unittest.TestCase):
         )
         with self.assertRaises(support.Paused) as ctx:
             runner.run_role(
-                role="sol",
+                role="tester",
                 prompt="p",
                 sandbox="read-only",
                 workspace=self.state if False else Path("."),
@@ -212,15 +212,15 @@ class CrossModelTest(unittest.TestCase):
     def test_clashes_name_the_verifier_role_to_reroute(self):
         rows = verifier_independence.clashes(
             roles(
-                terra="zai-coding-plan/glm-5.3",
-                sol="zai-coding-plan/glm-5.3",
+                builder="zai-coding-plan/glm-5.3",
+                tester="zai-coding-plan/glm-5.3",
                 completion="xiaomi-token-plan-sgp/mimo-v2.6-pro",
-                glm="gpt-5.6-sol",
+                planner="gpt-5.6-sol",
                 plan_reviewer="gpt-5.6-sol",
             )["settings"]
         )
-        self.assertEqual(["sol", "plan_reviewer"], [row["verifier"] for row in rows])
-        self.assertEqual("terra", rows[0]["producer"])
+        self.assertEqual(["tester", "plan_reviewer"], [row["verifier"] for row in rows])
+        self.assertEqual("builder", rows[0]["producer"])
         self.assertIn("identical model", rows[0]["problem"])
 
     def test_cross_model_question_offers_models_that_pass_and_the_view_asks_for_one(self):
@@ -233,8 +233,8 @@ class CrossModelTest(unittest.TestCase):
             "settings": {
                 "engine": "codex",
                 "roles": {
-                    "terra": {"model": "gpt-5.6-terra"},
-                    "sol": {"model": "gpt-6-sol"},
+                    "builder": {"model": "gpt-5.6-terra"},
+                    "tester": {"model": "gpt-6-sol"},
                     "completion": {"model": "gpt-6-luna"},
                     "planner": {"model": "gpt-5.6-sol"},
                     "plan_reviewer": {"model": "gpt-5.6-sol"},
@@ -273,8 +273,8 @@ class CrossModelTest(unittest.TestCase):
                 "transport_identity": identity,
                 "transport_identities": {"opencode": identity},
                 "roles": {
-                    "terra": {"model": "gpt-6.1-sol"},
-                    "sol": {"model": "gpt-6.1-sol"},
+                    "builder": {"model": "gpt-6.1-sol"},
+                    "tester": {"model": "gpt-6.1-sol"},
                     "plan_reviewer": {"model": "claude-opus-5-5"},
                     "investigator": {"model": "glm-5"},
                     "architect": {"model": "qwen3-235b-a22b-2507"},
@@ -289,16 +289,24 @@ class CrossModelTest(unittest.TestCase):
             self.assertIn(model, view["needs"]["questions"][0]["why"])
         for model in expected:
             quota_route.validate(
-                state, "sol", model, configured_tool=False, cross_check=quota_route.cross_model_check("sol")
+                state, "tester", model, configured_tool=False, cross_check=quota_route.cross_model_check("tester")
             )
         with self.assertRaisesRegex(ValueError, "same family openai"):
             quota_route.validate(
-                state, "sol", "gpt-6-astra", configured_tool=False, cross_check=quota_route.cross_model_check("sol")
+                state,
+                "tester",
+                "gpt-6-astra",
+                configured_tool=False,
+                cross_check=quota_route.cross_model_check("tester"),
             )
         state["settings"]["provider"] = "opencode"
         with self.assertRaisesRegex(ValueError, "OpenCode provider/model"):
             quota_route.validate(
-                state, "sol", "claude-opus-5-5", configured_tool=False, cross_check=quota_route.cross_model_check("sol")
+                state,
+                "tester",
+                "claude-opus-5-5",
+                configured_tool=False,
+                cross_check=quota_route.cross_model_check("tester"),
             )
 
     def test_the_named_answer_switches_the_verifier_and_is_accepted(self):
@@ -350,8 +358,8 @@ class CrossModelTest(unittest.TestCase):
             "settings": {
                 "engine": "codex",
                 "roles": {
-                    "terra": {"model": "gpt-5.6-sol"},
-                    "sol": {"model": "gpt-5.6-sol"},
+                    "builder": {"model": "gpt-5.6-sol"},
+                    "tester": {"model": "gpt-5.6-sol"},
                     "completion": {"model": "gpt-6-luna"},
                     "planner": {"model": "gpt-5.6-terra"},
                     "plan_reviewer": {"model": "gpt-5.6-terra"},
@@ -360,19 +368,19 @@ class CrossModelTest(unittest.TestCase):
             "user_events": [],
         }
         asked = quota_route.cross_model_question(state)
-        self.assertEqual("sol", asked["route_role"])
+        self.assertEqual("tester", asked["route_role"])
         self.assertIn("gpt-6-luna", asked["candidates"])  # the Planner/Plan Reviewer clash does not refuse it
-        check = quota_route.cross_model_check("sol")
+        check = quota_route.cross_model_check("tester")
         with self.assertRaisesRegex(RuntimeError, r"^Builder/Tester: identical model gpt-5\.6-sol$"):
             check(state)  # the Tester's own pair still counts; the other pair does not
-        quota_route.validate(state, "sol", "gpt-6-luna", configured_tool=False, cross_check=check)
+        quota_route.validate(state, "tester", "gpt-6-luna", configured_tool=False, cross_check=check)
         quota_route.assign(
             state,
-            "sol",
+            "tester",
             "gpt-6-luna",
             at="t",
             via="answer",
-            attempt={"pause_status": quota_route.CROSS_MODEL_STATUS, "role": "sol"},
+            attempt={"pause_status": quota_route.CROSS_MODEL_STATUS, "role": "tester"},
         )
         with self.assertRaisesRegex(support.Paused, "Planner/Plan Reviewer"):
             dispatch.enforce_cross_model_verification(state)  # the launch guard still holds the other pair

@@ -50,7 +50,7 @@ except ImportError:
     import autocode_names as names
 
 
-REQUIRED_ROLES = ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")
+REQUIRED_ROLES = ("task_planner", "builder", "tester", "completion", "planner", "plan_reviewer")
 PLACEHOLDERS = {
     "model",
     "effort",
@@ -570,7 +570,7 @@ def _validate_builder_retry(config) -> None:
             raise ValueError(f"[builder_retry] {key} {value} is not in models")
     if "strong_effort" in table and (not isinstance(table["strong_effort"], str) or not table["strong_effort"].strip()):
         raise ValueError("[builder_retry] strong_effort must be a non-empty string")
-    if table["strong_model"] == config["roles"]["terra"]["model"]:
+    if table["strong_model"] == config["roles"]["builder"]["model"]:
         raise ValueError("[builder_retry] strong_model is the Builder's own model; name a stronger one")
     # The rule a new run's retry policy applies (autocode_builder_policy.configured), refused here at load.
     if verifier_independence.may_share(table["strong_model"], table["checker_model"]):

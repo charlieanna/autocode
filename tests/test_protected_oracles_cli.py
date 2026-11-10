@@ -118,10 +118,10 @@ class ProtectedOracleCLI(unittest.TestCase):
             if self.saved()[1]["status"].startswith("PAUSED_"):
                 args.append("--resume-paused")
             self.launch(args, 2)
-            if self.saved()[1]["next_stage"] == "sol":
+            if self.saved()[1]["next_stage"] == "tester":
                 break
         before = self.saved()[1]
-        self.assertEqual("sol", before["next_stage"])
+        self.assertEqual("tester", before["next_stage"])
         binding = before["settings"]["protected_tests"]
         import hashlib
 

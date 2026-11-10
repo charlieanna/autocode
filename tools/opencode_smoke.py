@@ -25,10 +25,10 @@ def main():
         evidence = Path(tempfile.mkdtemp(prefix="autocode-opencode-evidence-")).resolve()
         subprocess.run(["git", "init", "-q", str(root)], check=True)
         summary = []
-        for role in ("task_planner", "sol"):
+        for role in ("task_planner", "tester"):
             command, env, _ = opencode.launch(role, root, evidence, None, opencode.DEFAULT_MODELS[role], None, False)
             instructions = 'Do not read or edit files. Return only this JSON object: {"ok":true}.'
-            if role == "sol":
+            if role == "tester":
                 instructions = (
                     'Use the bash tool exactly once to execute: printf "AUTOCODE_TRANSPORT_OK\\n"\n' + instructions
                 )
@@ -52,7 +52,7 @@ def main():
             if report != {"ok": True}:
                 raise RuntimeError(f"Unexpected {role} response; inspect {log}")
             checks = [event["item"] for event in events if event.get("type") == "item.completed"]
-            if role == "sol" and not any(
+            if role == "tester" and not any(
                 check["exit_code"] == 0 and "AUTOCODE_TRANSPORT_OK" in check["aggregated_output"] for check in checks
             ):
                 raise RuntimeError(f"No successful executed Validator command; inspect {log}")

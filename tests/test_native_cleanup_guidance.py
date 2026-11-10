@@ -139,7 +139,7 @@ class NativeCleanupGuidanceTests(unittest.TestCase):
                 "roles": {
                     "planner": {"model": "controlled/glm", "reasoning_effort": "high"},
                     "task_planner": {"model": "controlled/mimo", "reasoning_effort": "high"},
-                    "sol": {"model": kilo.MODEL, "reasoning_effort": "high"},
+                    "tester": {"model": kilo.MODEL, "reasoning_effort": "high"},
                 },
                 "limits": {
                     "max_seconds": 7200,
@@ -218,7 +218,7 @@ class NativeCleanupGuidanceTests(unittest.TestCase):
             ("cleanup_error", "uncollected"),
             ("report_only", True),
             ("interrupted", True),
-            ("stage", "terra"),
+            ("stage", "builder"),
         ):
             with self.subTest(key=key, value=value):
                 state = self.state(timed_out=True)
@@ -228,7 +228,7 @@ class NativeCleanupGuidanceTests(unittest.TestCase):
         state["goal_contract"]["approval_status"] = "approved"
         self.assert_held(state)
         state = self.state(timed_out=True)
-        state["active_stage"]["stage"] = state["next_stage"] = "glm_revise"
+        state["active_stage"]["stage"] = state["next_stage"] = "revise_plan"
         self.assert_held(state)  # A legacy stage is outside the actual V2 caller.
 
     def test_malformed_native_directive_cannot_fall_back_to_ordinary_recovery(self):

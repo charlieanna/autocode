@@ -18,7 +18,7 @@ import json
 from datetime import datetime
 from typing import Any
 
-STAGES = ("sol", "astra_review", "astra_checkpoint")
+STAGES = ("tester", "review_completion", "review_checkpoint")
 PLANNING_ANSWERS = ("answer", "delegated")
 EXCERPT_CHARS = 240
 NOTE = (

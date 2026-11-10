@@ -15,7 +15,7 @@ from .common import execution_request
 
 
 def prepare(state: RunState, stage, state_path, schema_dir):
-    if stage not in ("astra_plan", "terra"):
+    if stage not in ("plan_task", "builder"):
         raise ValueError(f"Autocode cannot run {stage}")
     return execution_request(state, stage, state_path, schema_dir)
 

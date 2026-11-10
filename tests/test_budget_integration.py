@@ -46,7 +46,7 @@ class BudgetIntegrationTests(unittest.TestCase):
                 for entry in finished["resolver"]["human_escalations"].values()
             )
         )
-        self.assertEqual(2, sum(row["stage"] == "terra" for row in finished["stages"]))
+        self.assertEqual(2, sum(row["stage"] == "builder" for row in finished["stages"]))
 
     def test_explicit_abbreviated_cli_limit_remains_protected(self):
         self.env["AUTOCODE_FIXTURE_MODE"] = "milestones"

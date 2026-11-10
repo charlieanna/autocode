@@ -211,7 +211,7 @@ class ComponentDesignCliTests(unittest.TestCase):
         self.assertFalse((self.repo / "components").exists())
         observations = [json.loads(path.read_text()) for path in self.observations.glob("*.json")]
         alpha = [item for item in observations if item["component_id"] == "alpha"]
-        self.assertTrue({"requirements_gather", "astra_discovery", "terra", "sol"} <= {item["stage"] for item in alpha})
+        self.assertTrue({"requirements_gather", "draft_plan", "builder", "tester"} <= {item["stage"] for item in alpha})
         for item in observations:
             if item["component_id"] == "alpha":
                 self.assertIn(URL, item["prompt"], item["stage"])

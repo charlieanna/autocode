@@ -136,7 +136,13 @@ def _changed_code_references(packet):
 def deduplicate(base):
     """Copy a packet, replacing only exact duplicates when the whole packet shrinks."""
     result = copy.deepcopy(base)
-    if result.get("stage") not in ("terra", "sol", "astra_review", "astra_checkpoint", "write_acceptance_tests"):
+    if result.get("stage") not in (
+        "builder",
+        "tester",
+        "review_completion",
+        "review_checkpoint",
+        "write_acceptance_tests",
+    ):
         return result
     changed = False
     case_references = False

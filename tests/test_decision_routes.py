@@ -82,23 +82,23 @@ class UserRequestTests(unittest.TestCase):
     def test_a_reviewer_asking_the_user_must_choose_blocked(self):
         value = {"status": "CONTINUE", "user_request": {"kind": "decision"}}
         with self.assertRaisesRegex(ValueError, "must choose BLOCKED"):
-            self.route("astra_review", value)
+            self.route("review_completion", value)
 
     def test_a_final_only_builder_question_goes_to_the_resolver(self):
         value = {"status": "DONE", "user_request": {"kind": "blocker"}}
-        handled, _ = self.route("terra", value, final_only=True)
+        handled, _ = self.route("builder", value, final_only=True)
         self.assertTrue(handled)
         self.within.assert_called_once()
         self.queue.assert_called_once()
-        self.assertEqual({"source_stage": "terra", "source_report": True}, self.queue.call_args.kwargs)
+        self.assertEqual({"source_stage": "builder", "source_report": True}, self.queue.call_args.kwargs)
 
     def test_a_builder_question_keeps_its_report_and_goes_to_review(self):
         value = {"status": "DONE", "user_request": {"kind": "decision"}}
         record = {"source_revision": "r2", "changed_files": ["a.py"], "after_ref": "s2", "diff_ref": "d2"}
-        handled, state = self.route("terra", value, record=record)
+        handled, state = self.route("builder", value, record=record)
         self.assertTrue(handled)
-        self.assertEqual({"role": "terra", "request": {"kind": "decision"}}, state["agent_request"])
-        self.assertEqual("astra_review", state["next_stage"])
+        self.assertEqual({"role": "builder", "request": {"kind": "decision"}}, state["agent_request"])
+        self.assertEqual("review_completion", state["next_stage"])
         self.assertEqual(["a.py"], state["changed_files"])
         self.assertEqual(
             ("r2", "/w"), (state["implementation"]["source_revision"], state["implementation"]["workspace"])
@@ -106,9 +106,9 @@ class UserRequestTests(unittest.TestCase):
 
     def test_another_stage_records_the_request_and_continues(self):
         value = {"status": "PASS", "user_request": {"kind": "decision"}}
-        handled, state = self.route("sol", value)
+        handled, state = self.route("tester", value)
         self.assertFalse(handled)
-        self.assertEqual({"role": "sol", "request": {"kind": "decision"}}, state["agent_request"])
+        self.assertEqual({"role": "tester", "request": {"kind": "decision"}}, state["agent_request"])
         self.assertNotIn("next_stage", state)
 
 

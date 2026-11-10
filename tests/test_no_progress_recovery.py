@@ -37,7 +37,7 @@ class NoProgressBoundTests(unittest.TestCase):
         self.launch(["--run-dir", str(self.run), "--approve-goal", state["displayed_goal"]], 0)
         self.launch(["--run-dir", str(self.run), "--no-chat", "--pause-after-stage"], 2)
         _, state = self.saved()
-        self.assertEqual("terra", state["next_stage"])
+        self.assertEqual("builder", state["next_stage"])
         self.args = ["--run-dir", str(self.run), "--no-chat"]
         return state
 
@@ -62,7 +62,7 @@ class NoProgressBoundTests(unittest.TestCase):
             no_progress_batches=3,
             automatic_recoveries_since_resume=2,
             consecutive_timeout_recoveries=0,
-            automatic_timeout_recoveries=[{"stage": "glm_revise", "attempt_id": str(i)} for i in range(3)],
+            automatic_timeout_recoveries=[{"stage": "revise_plan", "attempt_id": str(i)} for i in range(3)],
         )
         return self.hold_at("PAUSED_NO_PROGRESS", state)
 
@@ -99,7 +99,7 @@ class NoProgressBoundTests(unittest.TestCase):
         """
         _, resumed = self.saved()
         view = self.view()
-        self.assertEqual(("RUNNING", "terra"), (view["status"], view["next_stage"]))
+        self.assertEqual(("RUNNING", "builder"), (view["status"], view["next_stage"]))
         self.assertIsNone(human.current(resumed))
         self.assertEqual(3, resumed["no_progress_batches"])
         self.assertEqual(limit, resumed["settings"]["limits"]["no_progress_batches"])
@@ -307,7 +307,7 @@ class NoProgressBoundTests(unittest.TestCase):
                 self.assertEqual("PAUSED_NO_PROGRESS", self.origin(blocked, request)["pause_status"])
                 self.assertEqual(count, blocked["no_progress_batches"])
                 self.assertEqual(held["goal_contract"], blocked["goal_contract"])
-                self.assertEqual("terra", blocked["next_stage"])
+                self.assertEqual("builder", blocked["next_stage"])
                 self.assertFalse((self.project / "greet.py").exists())
 
     def test_a_no_progress_bound_leaves_an_active_time_request_alone(self):
@@ -338,7 +338,7 @@ class NoProgressBoundTests(unittest.TestCase):
                 self.assertEqual(limit, blocked["settings"]["limits"]["no_progress_batches"])
                 self.assertEqual(held["active_seconds"], blocked["active_seconds"])
                 self.assertEqual(held["goal_contract"], blocked["goal_contract"])
-                self.assertEqual("terra", blocked["next_stage"])
+                self.assertEqual("builder", blocked["next_stage"])
                 self.assertFalse((self.project / "greet.py").exists())
 
 

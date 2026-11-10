@@ -103,14 +103,14 @@ class ParallelFixtureReportRepairTests(unittest.TestCase):
             },
             "finding_dispositions": [],
         }
-        schema = self.schema("sol-report.schema.json", "sol")
+        schema = self.schema("sol-report.schema.json", "tester")
         util.validate_schema(report, schema)
         # The old producer's Builder-only field is invalid on this valid Tester report.
         with self.assertRaisesRegex(ValueError, r"unexpected fields: summary"):
             util.validate_schema({**report, "summary": "Repaired report without replaying implementation"}, schema)
-        for root_stage in (None, "sol_report_repair", "terra_report_repair"):
+        for root_stage in (None, "tester_report_repair", "builder_report_repair"):
             with self.subTest(root_stage=root_stage):
-                result = self.repaired("sol", report, root_stage)
+                result = self.repaired("tester", report, root_stage)
                 self.assertEqual(report, result)
                 util.validate_schema(result, schema)
 
@@ -138,7 +138,7 @@ class ParallelFixtureReportRepairTests(unittest.TestCase):
         }
         schema = self.schema("astra-decision.schema.json", "task_planner")
         util.validate_schema(report, schema)
-        result = self.repaired("astra_review", report)
+        result = self.repaired("review_completion", report)
         self.assertEqual(report, result)
         util.validate_schema(result, schema)
 
@@ -154,15 +154,15 @@ class ParallelFixtureReportRepairTests(unittest.TestCase):
             "untested_behavior": ["Integration"],
             "recommended_checks": ["Run integration"],
         }
-        schema = self.schema("terra-report.schema.json", "terra")
+        schema = self.schema("terra-report.schema.json", "builder")
         with self.assertRaisesRegex(ValueError, r"missing summary"):
             util.validate_schema(report, schema)
-        result = self.repaired("terra", report, "sol_report_repair")
+        result = self.repaired("builder", report, "tester_report_repair")
         self.assertEqual({**report, "summary": "Repaired report without replaying implementation"}, result)
         util.validate_schema(result, schema)
 
     def test_existing_builder_summary_and_other_stage_fields_are_unchanged(self):
-        for stage in ("terra", "astra_checkpoint", "requirements_gather", "investigate_stuck"):
+        for stage in ("builder", "review_checkpoint", "requirements_gather", "investigate_stuck"):
             report = {
                 "summary": "Original uncertainty",
                 "status": "BLOCKED",
@@ -202,11 +202,11 @@ class ParallelQuotaTests(unittest.TestCase):
             '                **({"clarity": "clear"} if "--output-schema" in sys.argv and "clarity" in json.loads(\n'
             '                    Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text()).get("properties", {})\n'
             "                   else {})}\n"
-            '    if data["stage"] == "astra_challenge":\n'
+            '    if data["stage"] == "review_plan":\n'
             '        draft = ((data.get("goal_contract") or {}).get("body") or {})\n'
             '        return {"summary": "The three milestones cover the outputs", "concerns": [],\n'
             '                "source_trace": _source_trace(draft)}\n'
-            '    if data["stage"] in ("astra_discovery", "glm_revise", "astra_finalize"):\n'
+            '    if data["stage"] in ("draft_plan", "revise_plan", "finalize_plan"):\n'
             "        draft = plan()\n"
             '        draft["initial_task"] = {"kind": "implement", "milestone_id": "M1",\n'
             '            "objective": "Build first output", "affected_paths": ["a.txt"],\n'
@@ -215,19 +215,19 @@ class ParallelQuotaTests(unittest.TestCase):
             "        _cite(draft, data)\n"
             '        result = {"contract": draft, "summary": "Build independent outputs then combine",\n'
             '                  "contract_changes": [], "conflict_resolutions": [], "requirement_trace": []}\n'
-            '        if data["stage"] in ("astra_discovery", "glm_revise"):\n'
+            '        if data["stage"] in ("draft_plan", "revise_plan"):\n'
             '            result["code_refs"] = ["goal_contract.body"]\n'
             '            result["workspace_scope"] = {"spans_repositories": False, "external_parts": []}\n'
-            '        if data["stage"] == "astra_discovery":\n'
+            '        if data["stage"] == "draft_plan":\n'
             "            result.update(alternatives=[], uncertainties=[])\n"
-            '        if data["stage"] == "glm_revise":\n'
+            '        if data["stage"] == "revise_plan":\n'
             '            result["responses"] = []\n'
-            '        if data["stage"] == "astra_finalize":\n'
+            '        if data["stage"] == "finalize_plan":\n'
             '            result["decisions"] = []\n'
             '            result["source_trace"] = _source_trace(draft)\n'
             "        return result\n"
         )
-        stage = '    if data["stage"] == "astra_discovery":'
+        stage = '    if data["stage"] == "draft_plan":'
         self.assertIn(stage, code)
         code = code.replace(stage, planning + stage, 1)
         # Inject the fake provider behavior into the copied fixture on the unfixed revision too.
@@ -336,7 +336,7 @@ class ParallelQuotaTests(unittest.TestCase):
         ]
 
     def answer(self, run, model, expected=0):
-        return self.launch(["--run-dir", str(run), "--answer", "route-terra=" + model, "--no-chat"], expected)
+        return self.launch(["--run-dir", str(run), "--answer", "route-builder=" + model, "--no-chat"], expected)
 
     def resume(self, run):
         self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 0)
@@ -349,11 +349,13 @@ class ParallelQuotaTests(unittest.TestCase):
     def attempts(self, row):
         child = json.loads((Path(row["run_dir"]) / "state.json").read_text())
         return (
-            [(r.get("launch_route") or {}).get("model") for r in child.get("stages", []) if r.get("stage") == "terra"]
+            [(r.get("launch_route") or {}).get("model") for r in child.get("stages", []) if r.get("stage") == "builder"]
             + [(child["active_stage"].get("launch_route") or {}).get("model")]
             if child.get("active_stage")
             else [
-                (r.get("launch_route") or {}).get("model") for r in child.get("stages", []) if r.get("stage") == "terra"
+                (r.get("launch_route") or {}).get("model")
+                for r in child.get("stages", [])
+                if r.get("stage") == "builder"
             ]
         )
 
@@ -361,9 +363,9 @@ class ParallelQuotaTests(unittest.TestCase):
         _, state = self.paused()
         request = assert_operational_wait(self, state, "PAUSED_BUDGET")
         self.assertIn(
-            "--answer route-terra=MODEL --resolver-token - (reads AUTOCODE_RESOLVER_TOKEN)", state["stop_reason"]
+            "--answer route-builder=MODEL --resolver-token - (reads AUTOCODE_RESOLVER_TOKEN)", state["stop_reason"]
         )
-        self.assertIn("M1", next(q for q in request["questions"] if q["id"] == "route-terra")["question"])
+        self.assertIn("M1", next(q for q in request["questions"] if q["id"] == "route-builder")["question"])
 
     def test_ac2_answered_question_retries_exactly_that_worker_on_the_named_model(self):
         run, _ = self.paused()
@@ -399,7 +401,7 @@ class ParallelQuotaTests(unittest.TestCase):
     def test_ac6_investigation_reraise_preserves_the_worker_quota_payload(self):
         state = {"status": "RUNNING", "next_stage": "orchestrator", "stages": []}
         error = support.Paused("PAUSED_BUDGET", "quota")
-        error.quota_worker = {"role": "terra", "milestone_id": "M1"}
+        error.quota_worker = {"role": "builder", "milestone_id": "M1"}
 
         def dispatch_stage(state, stage):
             state["stages"].append({"stage": stage})
@@ -446,7 +448,7 @@ class ParallelQuotaTests(unittest.TestCase):
     def test_ac8_non_quota_worker_failure_keeps_the_generic_inspection_pause(self):
         _, state = self.paused("AUTOCODE_BUILDER_FAIL")
         request = assert_operational_wait(self, state, "PAUSED_ORCHESTRATOR_WORKER")
-        self.assertFalse(any(q.get("id") == "route-terra" for q in request.get("questions", [])))
+        self.assertFalse(any(q.get("id") == "route-builder" for q in request.get("questions", [])))
 
     def test_ac9_invalid_answers_are_refused_and_launch_nothing(self):
         run, _ = self.paused()
@@ -485,7 +487,7 @@ class ParallelQuotaTests(unittest.TestCase):
         self.assertEqual("BUILT", rows["M2"]["status"])
         assignment = [e for e in state["user_events"] if e["kind"] == "route_assignment"][-1]
         self.assertEqual(
-            ("terra", "zai-coding-plan/glm-5.3", "xiaomi-token-plan-sgp/mimo-v2"),
+            ("builder", "zai-coding-plan/glm-5.3", "xiaomi-token-plan-sgp/mimo-v2"),
             (assignment["role"], assignment["from"], assignment["to"]),
         )
         self.assertEqual("TASK_COMPLETE", self.resume(run)["status"])
@@ -495,7 +497,7 @@ class ParallelQuotaTests(unittest.TestCase):
     def test_ac12_present_non_quota_paused_result_keeps_the_generic_inspection_pause(self):
         _, state = self.paused("AUTOCODE_BUILDER_RESULT_STATUS")
         request = assert_operational_wait(self, state, "PAUSED_ORCHESTRATOR_WORKER")
-        self.assertFalse(any(q.get("id") == "route-terra" for q in request.get("questions", [])))
+        self.assertFalse(any(q.get("id") == "route-builder" for q in request.get("questions", [])))
 
     def test_ac13_a_quota_stopped_member_is_asked_for_a_model_and_retried_only_when_named(self):
         # #465: the view offers no same-model retry; --retry-builder still runs it, the quota having reset.
@@ -509,7 +511,7 @@ class ParallelQuotaTests(unittest.TestCase):
     def refusal_asked(self, state, milestone):
         """A batch member its provider's content filter refused (#465): asked like a quota stop, never offered a retry."""
         request = assert_operational_wait(self, state, "PAUSED_CONTENT_FILTER")
-        asked = next(q for q in request["questions"] if q["id"] == "route-terra")
+        asked = next(q for q in request["questions"] if q["id"] == "route-builder")
         self.assertEqual(
             (f"Builder (milestone {milestone})", "content_filter", GLM),
             (asked["job"], asked["cause"], asked["stopped_model"]),
@@ -523,7 +525,7 @@ class ParallelQuotaTests(unittest.TestCase):
             state["stop_reason"],
         )
         self.assertIn(
-            "--answer route-terra=MODEL --resolver-token - (reads AUTOCODE_RESOLVER_TOKEN)", state["stop_reason"]
+            "--answer route-builder=MODEL --resolver-token - (reads AUTOCODE_RESOLVER_TOKEN)", state["stop_reason"]
         )
         # Only commands the parent takes: the worker's own attempt is never named here (#288/#301).
         self.assertNotIn("--abandon-stage", state["stop_reason"])
@@ -652,7 +654,7 @@ class ParallelQuotaTests(unittest.TestCase):
         # a generic request that no answer can rerun M1 from.
         run, _ = self.paused(error=REFUSAL)
         self.inform(run)
-        self.launch(["--run-dir", str(run), "--resume-paused", "--terra-model", MIMO, "--no-chat"], 2)
+        self.launch(["--run-dir", str(run), "--resume-paused", "--builder-model", MIMO, "--no-chat"], 2)
         state = self.saved()[1]
         self.refusal_asked(state, "M1")
         self.assertEqual([GLM], self.attempts(self.workers(state)["M1"]))
@@ -695,12 +697,12 @@ class ParallelQuotaTests(unittest.TestCase):
         self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
         state = self.saved()[1]
         request = assert_operational_wait(self, state, status)
-        asked = next(q for q in request["questions"] if q["id"] == "route-terra")
+        asked = next(q for q in request["questions"] if q["id"] == "route-builder")
         self.assertEqual(
             ("Builder (milestone M2)", MIMO, GLM, GLM),
             (
                 asked["job"],
-                state["settings"]["roles"]["terra"]["model"],
+                state["settings"]["roles"]["builder"]["model"],
                 asked["current_model"],
                 asked["stopped_model"],
             ),

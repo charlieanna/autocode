@@ -340,7 +340,7 @@ def authority(state: RunState, worker, workspace, run_dir):
         _require(sdk.is_dir() and not sdk.is_relative_to(run), "Missing prebootstrapped SDK outside the current run")
         settings = state["settings"]
         _no_credentials(settings)
-        route = settings["roles"]["sol"]
+        route = settings["roles"]["tester"]
         _require(
             set(route) <= {"engine", "provider", "model", "reasoning_effort", "model_pinned"}
             and ("model_pinned" not in route or type(route["model_pinned"]) is bool)
@@ -354,7 +354,7 @@ def authority(state: RunState, worker, workspace, run_dir):
         _require(
             worker.get("engine") == worker.get("provider") == "opencode"
             and worker.get("configured") is False
-            and worker.get("role") == "sol"
+            and worker.get("role") == "tester"
             and worker.get("model") == profile["model"]
             and not worker.get("provider_session")
             and worker.get("planning") is False,
@@ -416,7 +416,7 @@ def authority(state: RunState, worker, workspace, run_dir):
             and args.get("--format") == "json"
             and Path(args.get("--dir", "")).resolve() == root
             and isinstance(args.get("--agent"), str)
-            and args["--agent"].startswith("autocode_sol"),
+            and args["--agent"].startswith("autocode_tester"),
             "Visual command must use the exact saved model, effort, agent and workspace",
         )
         agent = args["--agent"]

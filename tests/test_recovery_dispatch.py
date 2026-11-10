@@ -80,14 +80,14 @@ class SerialDispatchCapacityTests(unittest.TestCase):
         self.seed()
         self.greeting_contract()
         self.state["settings"]["orchestration"]["enabled"] = False
-        self.state.update(status="RUNNING", phase="EXECUTING", next_stage="terra")
+        self.state.update(status="RUNNING", phase="EXECUTING", next_stage="builder")
         base = self.run / "iterations/001/terra-01"
         base.parent.mkdir(parents=True, exist_ok=True)
         s.atomic_json(base.with_suffix(".before.json"), s.snapshot(self.root))
         base.with_suffix(".jsonl").write_text('{"type":"turn.failed","error":{"message":"model is at capacity"}}\n')
         self.state["active_stage"] = {
-            "role": "terra",
-            "stage": "terra",
+            "role": "builder",
+            "stage": "builder",
             "iteration": 1,
             "duration_seconds": 3,
             "output": str(base.with_suffix(".json")),
@@ -100,7 +100,7 @@ class SerialDispatchCapacityTests(unittest.TestCase):
             patch.object(runner, "run_role", side_effect=s.Paused("PAUSED_PROVIDER_CAPACITY", "model is at capacity")),
             patch.object(runner.time, "sleep"),  # capacity recovery backs off
         ):
-            result = runner.autopilot.dispatch_unit(runner, self.state, "terra", self.root, self.run)
+            result = runner.autopilot.dispatch_unit(runner, self.state, "builder", self.root, self.run)
         self.assertEqual(runner.orchestrator.SKIP, result)
         self.assertEqual(1, self.state["recovery_context"]["retry_number"])
         self.assertEqual("RUNNING", self.state["status"])
@@ -123,10 +123,10 @@ class ReportPausePropagationTests(unittest.TestCase):
         self.seed()
         self.greeting_contract()
         self.state["settings"]["orchestration"]["enabled"] = False
-        self.state.update(status="RUNNING", phase="EXECUTING", next_stage="terra")
+        self.state.update(status="RUNNING", phase="EXECUTING", next_stage="builder")
         record = {
-            "stage": "terra",
-            "role": "terra",
+            "stage": "builder",
+            "role": "builder",
             "iteration": 1,
             "exit_code": 0,
             "processes": [],
@@ -140,15 +140,15 @@ class ReportPausePropagationTests(unittest.TestCase):
             patch.object(runner, "commit_stage_result", side_effect=gate),
         ):
             with self.assertRaises(s.Paused) as caught:
-                runner.autopilot.dispatch_unit(runner, self.state, "terra", self.root, self.run)
+                runner.autopilot.dispatch_unit(runner, self.state, "builder", self.root, self.run)
         self.assertEqual("PAUSED_COMPLETION_GATE", caught.exception.status)
         self.assertEqual(("PAUSED_COMPLETION_GATE", str(gate)), (self.state["status"], self.state["stop_reason"]))
         self.assertNotIn("failure_history", self.state, "the gate is not a failed output")
         self.assertNotIn("stuck_investigation", self.state, "no Investigator")
         self.assertNotIn("active_stage", self.state, "a resume must not re-apply the same report")
-        self.assertEqual("terra", self.state["next_stage"], "a resume starts a fresh attempt of the stage")
+        self.assertEqual("builder", self.state["next_stage"], "a resume starts a fresh attempt of the stage")
         aside = self.state["stages"][-1]
-        self.assertEqual(("terra", str(gate)), (aside["stage"], aside["rejection_reason"]))
+        self.assertEqual(("builder", str(gate)), (aside["stage"], aside["rejection_reason"]))
         self.assertIn("archived-", aside["output"])
 
 

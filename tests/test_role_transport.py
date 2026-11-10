@@ -20,24 +20,24 @@ class ConfiguredTransportTests(unittest.TestCase):
             "provider": "gocode",
             "transport_identity": identity,
             "transport_identities": {"opencode": copy.deepcopy(identity)},
-            "roles": {"sol": {"engine": "opencode", "provider": None}},
+            "roles": {"tester": {"engine": "opencode", "provider": None}},
         }
 
     def test_whole_run_provider_is_configured_without_a_live_facade(self):
         settings = self.settings()
         before = copy.deepcopy(settings)
-        self.assertTrue(transport.configured(settings, "sol"))
+        self.assertTrue(transport.configured(settings, "tester"))
         self.assertEqual(before, settings)
 
     def test_legacy_single_transport_identity_is_enough(self):
         settings = self.settings()
         del settings["transport_identities"]
-        self.assertTrue(transport.configured(settings, "sol"))
+        self.assertTrue(transport.configured(settings, "tester"))
 
     def test_only_the_roles_effective_engine_can_use_the_whole_run_provider(self):
         settings = self.settings()
-        settings["roles"]["sol"]["engine"] = "codex"
-        self.assertFalse(transport.configured(settings, "sol"))
+        settings["roles"]["tester"]["engine"] = "codex"
+        self.assertFalse(transport.configured(settings, "tester"))
 
     def test_a_provider_name_alone_or_malformed_identity_grants_no_model_format(self):
         for identity in (
@@ -55,18 +55,18 @@ class ConfiguredTransportTests(unittest.TestCase):
             settings["transport_identity"] = identity
             settings["transport_identities"] = {"opencode": identity}
             with self.subTest(identity=identity):
-                self.assertFalse(transport.configured(settings, "sol"))
+                self.assertFalse(transport.configured(settings, "tester"))
 
     def test_the_native_opencode_provider_does_not_become_a_configured_tool(self):
         settings = self.settings()
         settings["provider"] = "opencode"
-        self.assertFalse(transport.configured(settings, "sol"))
+        self.assertFalse(transport.configured(settings, "tester"))
 
     def test_a_live_configured_facade_remains_a_valid_fallback_for_older_runs(self):
-        self.assertTrue(transport.configured({"roles": {"sol": {}}}, "sol", True))
+        self.assertTrue(transport.configured({"roles": {"tester": {}}}, "tester", True))
 
     def test_an_external_role_without_its_immutable_identity_still_refuses(self):
         settings = self.settings()
-        settings["roles"]["sol"]["provider"] = "other"
+        settings["roles"]["tester"]["provider"] = "other"
         with self.assertRaisesRegex(ValueError, "identity is missing"):
-            transport.configured(settings, "sol")
+            transport.configured(settings, "tester")

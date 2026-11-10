@@ -31,7 +31,7 @@ class NamedActionTokenTests(unittest.TestCase):
                 "stages": [],
                 "history": [],
                 "iteration": 2,
-                "next_stage": "terra",
+                "next_stage": "builder",
                 "phase": "EXECUTING",
                 "settings": {
                     "limits": {"max_cost_usd": 2.0},

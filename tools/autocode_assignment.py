@@ -29,7 +29,7 @@ try:
 except ImportError:
     import autocode_stray_writes as stray
 
-BUILDER = "terra"
+BUILDER = "builder"
 
 
 def contains(root, path):

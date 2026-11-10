@@ -29,7 +29,7 @@ def state(**changes):
         "goal_contract": contract,
         "settings": {"milestone_checkpoints": {"enabled": True}},
         "current_task": {"id": "task-2", "milestone_id": "M2"},
-        "active_stage": {"stage": "terra"},
+        "active_stage": {"stage": "builder"},
         "findings_ledger": [],
     }
     base.update(changes)
@@ -55,10 +55,10 @@ def states(view):
 
 class ProgressLineTests(unittest.TestCase):
     def test_a_fresh_runs_first_save_names_no_stage_it_has_not_chosen(self):
-        """A new run's first save carries the default next stage (astra_plan) for a moment before the
+        """A new run's first save carries the default next stage (plan_task) for a moment before the
         run chooses its first stage; the chat read that save and logged "Next: Planner" ahead of
         Requirements (2026-11-08 live run)."""
-        fresh = {"status": "RUNNING", "iteration": 1, "stages": [], "next_stage": "astra_plan"}
+        fresh = {"status": "RUNNING", "iteration": 1, "stages": [], "next_stage": "plan_task"}
         shown = progress_view.progress(fresh, accepted=[], stage="Planner", needs=run_view.needs(fresh))
         self.assertEqual("Starting the run", shown["headline"])
         self.assertIsNone(shown["stage"], "no stage is chosen yet")
@@ -66,7 +66,7 @@ class ProgressLineTests(unittest.TestCase):
         chosen = {**fresh, "phase": "DISCOVERING", "next_stage": "requirements_gather"}
         shown = progress_view.progress(chosen, accepted=[], stage="Requirements", needs=run_view.needs(chosen))
         self.assertEqual("Next: Requirements", shown["headline"])
-        planned = {**fresh, "phase": "PLANNING"}  # a run that does start at astra_plan says so once it has
+        planned = {**fresh, "phase": "PLANNING"}  # a run that does start at plan_task says so once it has
         shown = progress_view.progress(planned, accepted=[], stage="Planner", needs=run_view.needs(planned))
         self.assertEqual("Next: Planner", shown["headline"])
 
@@ -104,13 +104,13 @@ class ProgressLineTests(unittest.TestCase):
     def test_a_run_with_one_failed_check(self):
         saved = state(
             active_stage=None,
-            next_stage="terra",
+            next_stage="builder",
             validation=checked(("C1", "PASS"), ("C2", "FAIL")),
             findings_ledger=[
                 {
                     "id": "F1",
                     "status": "open",
-                    "source": "sol",
+                    "source": "tester",
                     "severity": "major",
                     "finding": "Reset link works after it expired",
                 },
@@ -199,9 +199,9 @@ class RequirementTests(unittest.TestCase):
 
     def test_a_build_after_the_check_moves_its_passes_to_earlier_checks(self):
         stages = [
-            {"stage": "terra", "output": "builder-1", "source_revision": "r2"},
-            {"stage": "sol", "output": "tester-2", "source_revision": "r2"},
-            {"stage": "terra", "output": "builder-2", "source_revision": "r3"},
+            {"stage": "builder", "output": "builder-1", "source_revision": "r2"},
+            {"stage": "tester", "output": "tester-2", "source_revision": "r2"},
+            {"stage": "builder", "output": "builder-2", "source_revision": "r3"},
         ]
         view = project(state(stages=stages, validation=checked(("C1", "PASS"), ("C2", "FAIL"))))
         self.assertTrue(view["requirements"]["rebuilt_since_check"])
@@ -209,9 +209,9 @@ class RequirementTests(unittest.TestCase):
 
     def test_a_build_that_changed_nothing_leaves_the_check_current(self):
         stages = [
-            {"stage": "sol", "output": "tester-2", "source_revision": "r2"},
+            {"stage": "tester", "output": "tester-2", "source_revision": "r2"},
             {"stage": "orchestrator", "output": "dispatch-1"},
-            {"stage": "terra", "output": "builder-2", "source_revision": "r2"},
+            {"stage": "builder", "output": "builder-2", "source_revision": "r2"},
         ]
         view = project(state(stages=stages, validation=checked(("C1", "PASS"))))
         self.assertFalse(view["requirements"]["rebuilt_since_check"])
@@ -220,9 +220,9 @@ class RequirementTests(unittest.TestCase):
     def test_a_check_newer_than_the_last_build_is_current(self):
         # The source changed with no Builder (an edit after completion), and the Tester checked it again.
         stages = [
-            {"stage": "terra", "output": "builder-1", "source_revision": "r1"},
-            {"stage": "sol", "output": "tester-2", "source_revision": "r2"},
-            {"stage": "astra_review", "output": "review-2", "source_revision": "r2"},
+            {"stage": "builder", "output": "builder-1", "source_revision": "r1"},
+            {"stage": "tester", "output": "tester-2", "source_revision": "r2"},
+            {"stage": "review_completion", "output": "review-2", "source_revision": "r2"},
         ]
         view = project(
             state(
@@ -247,8 +247,8 @@ class RequirementTests(unittest.TestCase):
         self.assertEqual("3 of 3 requirements checked (1 accepted in review)", accepted["requirements"]["label"])
         # A review of code the Builder has changed since is not a review of the code there now.
         saved["stages"] = [
-            {"stage": "sol", "output": "tester-2", "source_revision": "r2"},
-            {"stage": "terra", "output": "builder-3", "source_revision": "r3"},
+            {"stage": "tester", "output": "tester-2", "source_revision": "r2"},
+            {"stage": "builder", "output": "builder-3", "source_revision": "r3"},
         ]
         self.assertEqual("checked_earlier", states(project(saved, reviewed={"C3"}))[2])
 
@@ -291,7 +291,7 @@ class TaskAndHeadlineTests(unittest.TestCase):
 
     def test_a_saved_plan_not_shown_yet_still_waits_for_the_person(self):
         view = project(
-            state(status="AWAITING_GOAL_APPROVAL", active_stage=None, next_stage="astra_plan"), stage="Planner"
+            state(status="AWAITING_GOAL_APPROVAL", active_stage=None, next_stage="plan_task"), stage="Planner"
         )
         self.assertEqual(("Waiting for you", "plan approval needed"), (view["headline"], view["needs_you"]))
 

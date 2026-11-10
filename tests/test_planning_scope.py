@@ -38,7 +38,7 @@ class PlanningScopeTests(EpisodeCase):
     def prepare(self, report):
         return planning_scope.prepare_handoff(
             self.state,
-            "astra_discovery",
+            "draft_plan",
             report,
             {"output": "report.json"},
             investigation_stages=planner.INVESTIGATION_STAGES,
@@ -83,7 +83,7 @@ class PlanningScopeTests(EpisodeCase):
                 self.assertNotIn("goal_contract", self.state)
 
     def test_optional_field_and_guidance_reach_both_planner_stages(self):
-        for stage in ("astra_discovery", "glm_revise"):
+        for stage in ("draft_plan", "revise_plan"):
             with self.subTest(stage=stage):
                 schema = planner.schema_for(self.state, stage)
                 self.assertEqual(workspace_scope.SCHEMA, schema["properties"].get("workspace_scope"))
@@ -94,27 +94,27 @@ class PlanningScopeTests(EpisodeCase):
 
     def test_grounded_discovery_stops_before_review_and_publishes_exact_scope(self):
         original = copy.deepcopy(self.report)
-        self.apply("astra_discovery", self.report)
+        self.apply("draft_plan", self.report)
         records.normalize_human_boundary(self.state, self.state["run_dir"])
         view = run_view.view(self.state)
         self.assertEqual("answer", view["needs"]["kind"])
         self.assertTrue(view["needs"]["questions"][0]["id"].startswith(scope.PREFIX))
         self.assertEqual([self.part], view["scope"]["external_parts"])
         self.assertIsNone(view["scope"]["decision"])
-        self.assertEqual("astra_discovery", view["next_stage"])
+        self.assertEqual("draft_plan", view["next_stage"])
         self.assertFalse(goals.approved(self.state))
         self.assertEqual(original, self.report)
 
     def test_revision_can_discover_scope_without_overwriting_the_current_contract(self):
-        self.apply("astra_discovery", discovery(body()))
+        self.apply("draft_plan", discovery(body()))
         before = copy.deepcopy(self.state["goal_contract"])
         revision = copy.deepcopy(self.report)
         for key in ("alternatives", "uncertainties"):
             revision.pop(key)
         revision.update(responses=[])
-        self.apply("glm_revise", revision)
+        self.apply("revise_plan", revision)
         self.assertEqual([self.part], scope.view(self.state)["external_parts"])
-        self.assertEqual("glm_revise", self.state["next_stage"])
+        self.assertEqual("revise_plan", self.state["next_stage"])
         self.assertEqual(before, self.state["goal_contract"])
 
     def test_uncited_or_outside_evidence_cannot_create_external_work(self):
@@ -122,24 +122,24 @@ class PlanningScopeTests(EpisodeCase):
             with self.subTest(evidence=evidence):
                 report = copy.deepcopy(self.report)
                 report["workspace_scope"]["external_parts"][0]["evidence"] = evidence
-                self.apply("astra_discovery", report)
+                self.apply("draft_plan", report)
                 self.assertEqual([], scope.view(self.state)["external_parts"])
                 self.assertEqual(["history-service"], scope.view(self.state)["dropped"])
-                self.assertEqual("astra_challenge", self.state["next_stage"])
+                self.assertEqual("review_plan", self.state["next_stage"])
 
     def test_quoted_work_is_grounded_in_the_saved_request(self):
         report = copy.deepcopy(self.report)
         report["workspace_scope"]["external_parts"][0].update(source_quote=self.state["task"], evidence="")
-        self.apply("astra_discovery", report)
+        self.apply("draft_plan", report)
         self.assertEqual(self.state["task"], scope.view(self.state)["external_parts"][0]["source_quote"])
 
     def test_empty_model_refresh_cannot_erase_discovered_work(self):
         workspace_scope.record(self.state, self.report["workspace_scope"], {}, stage="requirements_gather")
         report = copy.deepcopy(self.report)
         report["workspace_scope"] = {"spans_repositories": False, "external_parts": []}
-        self.apply("astra_discovery", report)
+        self.apply("draft_plan", report)
         self.assertEqual([self.part], scope.view(self.state)["external_parts"])
-        self.assertEqual("astra_discovery", self.state["next_stage"])
+        self.assertEqual("draft_plan", self.state["next_stage"])
 
     def test_already_assigned_scope_continues_without_a_second_question(self):
         workspace_scope.record(self.state, self.report["workspace_scope"], {}, stage="requirements_gather")
@@ -148,13 +148,13 @@ class PlanningScopeTests(EpisodeCase):
         with mock.patch.object(
             scope.assignment, "current", return_value={"identity": workspace_scope.identity(self.state)}
         ):
-            self.apply("astra_discovery", report)
+            self.apply("draft_plan", report)
             self.assertIsNone(scope.question(self.state))
-        self.assertEqual("astra_challenge", self.state["next_stage"])
+        self.assertEqual("review_plan", self.state["next_stage"])
 
     def test_legacy_report_keeps_the_existing_planning_path(self):
-        self.apply("astra_discovery", discovery(body()))
-        self.assertEqual("astra_challenge", self.state["next_stage"])
+        self.apply("draft_plan", discovery(body()))
+        self.assertEqual("review_plan", self.state["next_stage"])
         self.assertNotIn("workspace_scope", self.state)
 
 
@@ -193,12 +193,12 @@ class RetainedPlanningScopeTests(EpisodeCase):
         self.output.parent.mkdir()
         self.output.write_text(json.dumps(self.report))
         self.state["run_dir"] = str(self.output.parent / "run")
-        self.record = {"stage": "astra_discovery", "output": str(self.output), "source_revision": "original"}
+        self.record = {"stage": "draft_plan", "output": str(self.output), "source_revision": "original"}
 
     def hold(self):
         import autopilot
 
-        autopilot.apply_planning(self.state, "astra_discovery", self.report, self.record)
+        autopilot.apply_planning(self.state, "draft_plan", self.report, self.record)
         return copy.deepcopy(self.state)
 
     def resume(self):
@@ -212,7 +212,7 @@ class RetainedPlanningScopeTests(EpisodeCase):
     def test_exact_assignment_resumes_the_saved_draft_once_without_a_new_report(self):
         self.hold()
         self.assertTrue(self.resume())
-        self.assertEqual("astra_challenge", self.state["next_stage"])
+        self.assertEqual("review_plan", self.state["next_stage"])
         self.assertFalse(goals.approved(self.state))
         self.assertEqual([], self.state["stages"])
         self.assertEqual([self.part], scope.parts(self.state))
@@ -230,19 +230,19 @@ class RetainedPlanningScopeTests(EpisodeCase):
     def test_saved_revision_continues_to_review_without_replacing_the_report(self):
         import autopilot
 
-        self.apply("astra_discovery", discovery(body()))
-        self.state["planning"]["reports"]["astra_challenge"] = {"report": {"concerns": []}}
+        self.apply("draft_plan", discovery(body()))
+        self.state["planning"]["reports"]["review_plan"] = {"report": {"concerns": []}}
         revision = copy.deepcopy(self.report)
         for key in ("alternatives", "uncertainties"):
             revision.pop(key)
         revision["responses"] = []
         self.output.write_text(json.dumps(revision))
-        record = {**self.record, "stage": "glm_revise"}
-        autopilot.apply_planning(self.state, "glm_revise", revision, record)
+        record = {**self.record, "stage": "revise_plan"}
+        autopilot.apply_planning(self.state, "revise_plan", revision, record)
         self.assertEqual("PAUSED_SCOPE_DECISION", self.state["status"])
         self.assertTrue(self.resume())
-        self.assertEqual("astra_finalize", self.state["next_stage"])
-        self.assertEqual(str(self.output), self.state["planning"]["reports"]["glm_revise"]["output"])
+        self.assertEqual("finalize_plan", self.state["next_stage"])
+        self.assertEqual(str(self.output), self.state["planning"]["reports"]["revise_plan"]["output"])
         self.assertFalse(goals.approved(self.state))
 
     def test_changed_source_report_or_authority_refuses_reuse(self):
@@ -279,14 +279,14 @@ class RetainedPlanningScopeTests(EpisodeCase):
         self.assertEqual(before, self.state)
 
     def test_assignment_keeps_resolved_questions_settled_when_peer_exclusions_expand(self):
-        self.apply("astra_discovery", discovery(clarification_only([question("Q1")])))
+        self.apply("draft_plan", discovery(clarification_only([question("Q1")])))
         handoff_hash = self.state["investigation_request"]["handoff_hash"]
         self.report["machine_resolutions"] = [self.resolution("Q1", handoff_hash)]
         self.output.write_text(json.dumps(self.report))
         self.hold()
         self.assertNotIn("investigation_request", self.state)
         self.assertTrue(self.resume())
-        self.assertEqual("astra_challenge", self.state["next_stage"])
+        self.assertEqual("review_plan", self.state["next_stage"])
         self.assertEqual(["Q1"], [row["question_id"] for row in self.state["machine_resolutions"]])
         self.assertIn(scope.exclusion(self.part), self.state["goal_contract"]["body"]["scope_exclusions"])
         self.assertFalse(goals.approved(self.state))
@@ -311,7 +311,7 @@ class RetainedPlanningScopeTests(EpisodeCase):
         with mock.patch.object(planning_scope.clarification, "clarify_discoverable", return_value=(self.report, False)):
             planning_scope.prepare_handoff(
                 self.state,
-                "astra_discovery",
+                "draft_plan",
                 self.report,
                 self.record,
                 investigation_stages=planner.INVESTIGATION_STAGES,
@@ -345,7 +345,7 @@ class PlanningScopeProviderTests(unittest.TestCase):
             root = Path(temporary)
             schema, output = root / "schema.json", root / "output.json"
             packet = {
-                "stage": "glm_revise",
+                "stage": "revise_plan",
                 "goal_contract": {"revision": 1, "hash": "saved", "body": body()},
                 "joint_planning": True,
             }

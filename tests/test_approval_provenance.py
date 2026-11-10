@@ -137,7 +137,7 @@ class StampTests(unittest.TestCase):
         self.assertEqual(0, provenance.stamp({}, {"user_events": [plan_event(actor="runner")]}, {}, record=refuse))
 
     def test_a_goal_edit_records_who_edited_on_the_draft_it_installed(self):
-        before = {"revision": 1, "hash": "a", "origin": "astra_finalize", "created_at": "2026-10-15T07:00:00+00:00"}
+        before = {"revision": 1, "hash": "a", "origin": "finalize_plan", "created_at": "2026-10-15T07:00:00+00:00"}
         saved = {"workspace": "/w", "user_events": [], "goal_contract": before}
         edited = {"revision": 2, "hash": "b", "origin": "user_cli_edit", "created_at": "2026-10-15T07:30:00+00:00"}
         candidate = {"workspace": "/w", "user_events": [], "goal_contract": edited, "contract_history": [dict(before)]}
@@ -155,7 +155,7 @@ class StampTests(unittest.TestCase):
         legacy = {"revision": 2, "hash": "b", "origin": "user_cli_edit"}
         saved = {"user_events": [], "goal_contract": dict(legacy)}
         self.assertEqual(0, provenance.stamp(saved, {"user_events": [], "goal_contract": legacy}, {}, record=refuse))
-        planned = {"revision": 3, "hash": "c", "origin": "astra_finalize"}
+        planned = {"revision": 3, "hash": "c", "origin": "finalize_plan"}
         self.assertEqual(0, provenance.stamp(saved, {"goal_contract": planned}, {}, record=refuse))
         self.assertNotIn("provenance", legacy)
 
@@ -267,7 +267,7 @@ class ViewTests(unittest.TestCase):
         edited = {"revision": 3, "hash": "b", "origin": "user_cli_edit", "created_at": "2026-10-15T07:30:00+00:00"}
         state = {
             "contract_history": [
-                {"revision": 1, "hash": "a", "origin": "astra_finalize", "created_at": "2026-10-15T07:00:00+00:00"},
+                {"revision": 1, "hash": "a", "origin": "finalize_plan", "created_at": "2026-10-15T07:00:00+00:00"},
                 # An edit saved before AutoCode recorded editors, replaced by the stamped one below.
                 {"revision": 2, "hash": "old", "origin": "user_cli_edit", "created_at": "2026-10-15T07:10:00+00:00"},
             ],
@@ -440,7 +440,7 @@ class CompletionAcceptanceTests(unittest.TestCase):
         self.state.update(
             status="PAUSED_INVALID_OUTPUT",
             phase="PAUSED_OR_BLOCKED",
-            next_stage="astra_review",
+            next_stage="review_completion",
             stop_reason="Completion report could not be produced",
         )
         for key, value in (("user.name", "Ana Example"), ("user.email", email)):

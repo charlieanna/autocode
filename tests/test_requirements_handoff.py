@@ -76,7 +76,7 @@ class RequirementsHandoffTests(unittest.TestCase):
                 "user_events": [],
             }
             handoff.accept(state, value, {"output": None}, check_code_refs=mock.Mock(), queue=mock.Mock())
-            prompt, _ = autoplanner.context(state, "astra_discovery", workspace / "state.json")
+            prompt, _ = autoplanner.context(state, "draft_plan", workspace / "state.json")
         packet = json.loads(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[1])
         received = packet["requirements_handoff"]["report"]
         self.assertEqual(examples, received["acceptance_tests"])

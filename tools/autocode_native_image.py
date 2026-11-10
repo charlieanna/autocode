@@ -127,7 +127,7 @@ class NativeImagePreparation:
 
         context, argv, child, prompt = visual._prepare(
             self.state,
-            "sol",
+            "tester",
             self.root,
             self.run,
             self.base,

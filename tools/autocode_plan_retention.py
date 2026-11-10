@@ -30,8 +30,8 @@ except ImportError:
 
 # The default flow is affected by the incident. V2 keeps its separately sealed
 # artifact protocol; changing that protocol is outside this fix.
-AUTHORS = {"astra_discovery", "glm_revise", "astra_finalize"}
-FINAL = {"astra_finalize"}
+AUTHORS = {"draft_plan", "revise_plan", "finalize_plan"}
+FINAL = {"finalize_plan"}
 REVIEWED_EXAMPLES_RULE = """
 FINAL EXAMPLE CHECK. prior_review_examples supplies the accepted first Plan Reviewer's
 observations from unchanged source. For a listed criterion, compare its current
@@ -147,7 +147,7 @@ def model_schema(schema, state: RunState, stage):
     body = result["properties"]["contract"]
     criteria = body["properties"]["acceptance_criteria"]
     full_row = copy.deepcopy(criteria["items"])
-    if stage == "astra_discovery":
+    if stage == "draft_plan":
         row_reference = {
             "type": "object",
             "properties": {"retain_criterion": {"type": "string"}, "sha256": {"type": "string"}},
@@ -193,7 +193,7 @@ def model_schema(schema, state: RunState, stage):
         )
         reference["required"].append("open_blocking_questions")
         result["properties"]["contract"] = reference
-    if stage == "glm_revise":
+    if stage == "revise_plan":
         result["properties"]["contract"] = revision_reference.model_schema(body, token(state))
     return result
 
@@ -301,7 +301,7 @@ def validated_trace(state: RunState):
     """Inherit a trace only from the report that produced this exact contract."""
     contract = state.get("goal_contract") or {}
     origin = str(contract.get("origin") or "")
-    previous = {"glm_draft": "astra_discovery"}.get(origin, origin)
+    previous = {"glm_draft": "draft_plan"}.get(origin, origin)
     report = ((state.get("planning") or {}).get("reports") or {}).get(previous, {}).get("report") or {}
     saved, proposed = contract.get("body"), report.get("contract")
     if not isinstance(saved, dict) or not isinstance(proposed, dict):
@@ -352,7 +352,7 @@ def prior_review_examples(state: RunState, route: str, snapshot_revision: Callab
     history = state.get("contract_history") or []
     if (
         len(history) != 1
-        or current.get("origin") != "glm_revise"
+        or current.get("origin") != "revise_plan"
         or current.get("revision") != 2
         or state.get("user_events")
         or state.get("answers")
@@ -372,7 +372,7 @@ def prior_review_examples(state: RunState, route: str, snapshot_revision: Callab
         or not _example_scope_matches(before, after)
     ):
         return None
-    entry = ((state.get("planning") or {}).get("reports") or {}).get("astra_challenge") or {}
+    entry = ((state.get("planning") or {}).get("reports") or {}).get("review_plan") or {}
     summary = (entry.get("report") or {}).get("summary")
     if not entry.get("output") or not isinstance(summary, str) or not 0 < len(summary) <= 4096:
         return None
@@ -386,7 +386,7 @@ def prior_review_examples(state: RunState, route: str, snapshot_revision: Callab
         return None
     for record in reversed(state.get("stages") or []):
         if (
-            record.get("stage") == "astra_challenge"
+            record.get("stage") == "review_plan"
             and record.get("output") == entry["output"]
             and record.get("contract_hash") == prior["hash"]
             and record.get("iteration") == state.get("iteration")

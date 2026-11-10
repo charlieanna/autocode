@@ -69,50 +69,50 @@ class EvidenceBoundaryTests(AdversarialCase):
         self.assertEqual("TASK_COMPLETE", view["status"])
         actual = self.greeting()
         self.assertEqual((0, "Hello, Ada\n"), (actual.returncode, actual.stdout))
-        self.assertTrue(self.trace("stage_enter", stage="sol"))
-        self.assertTrue(self.trace("stage_enter", stage="astra_review"))
+        self.assertTrue(self.trace("stage_enter", stage="tester"))
+        self.assertTrue(self.trace("stage_enter", stage="review_completion"))
 
     def test_completion_accepts_id_only_report(self):
         view = self.complete_case("review_id_only")
         self.assertTrue(view["done"], self.root)
-        self.assertEqual("id_only", self.require_injection("astra_review")[-1]["shape"])
+        self.assertEqual("id_only", self.require_injection("review_completion")[-1]["shape"])
         self.assertFalse(self.trace("evidence_rejection_observed"))
 
     def test_conflicting_completion_text_gets_report_repair(self):
         view = self.complete_case("review_wrong_literal_once")
         self.assertTrue(view["done"], self.root)
         self.assertEqual(
-            ["conflicting_legacy", "id_only"], [row["shape"] for row in self.require_injection("astra_review")]
+            ["conflicting_legacy", "id_only"], [row["shape"] for row in self.require_injection("review_completion")]
         )
         self.assertTrue(
             any("criterion text conflicts" in row["error"] for row in self.trace("evidence_rejection_observed"))
         )
-        self.assertEqual(1, len(self.trace("stage_enter", stage="terra")), "Report repair must not repeat the build")
+        self.assertEqual(1, len(self.trace("stage_enter", stage="builder")), "Report repair must not repeat the build")
 
     def test_id_only_deferred_blocker_reaches_the_resolver(self):
         self.complete_case("review_deferred_blocker")
-        self.assertEqual("id_only", self.require_injection("astra_review")[0]["shape"])
-        self.assertTrue(self.trace("stage_enter", "astra_resolve"), self.root)
+        self.assertEqual("id_only", self.require_injection("review_completion")[0]["shape"])
+        self.assertTrue(self.trace("stage_enter", "resolve"), self.root)
         self.assertFalse(
-            self.trace("evidence_rejection_observed", "astra_review"),
+            self.trace("evidence_rejection_observed", "review_completion"),
             "A deferred blocker must not fail loading criterion text from disk",
         )
 
     def test_validator_cannot_claim_zero_exit_for_failing_command(self):
         view = self.complete_case("evidence_failing_exit")
-        rows = self.require_injection("sol")
+        rows = self.require_injection("tester")
         self.assertTrue(any(row["actual_exit"] != 0 and row["claimed_exit"] == 0 for row in rows))
         self.assert_not_complete(view)
 
     def test_validator_cannot_replay_builder_event_without_executing_check(self):
         view = self.complete_case("evidence_cross_stage")
-        rows = self.require_injection("sol")
+        rows = self.require_injection("tester")
         self.assertTrue(all(row["fresh_command_executed"] is False for row in rows))
         self.assert_not_complete(view)
 
     def test_validator_command_must_match_its_executed_event(self):
         view = self.complete_case("evidence_wrong_command")
-        rows = self.require_injection("sol")
+        rows = self.require_injection("tester")
         self.assertTrue(all(row["actual_exit"] == 0 and row["command"] != row["prescribed_command"] for row in rows))
         self.assert_not_complete(view)
 
@@ -122,7 +122,7 @@ class EvidenceBoundaryTests(AdversarialCase):
         # replaying a prior task/contract must still be refused.
         control = self.complete_case("evidence_capture_identity")
         self.assertTrue(control["done"], self.root)
-        prior = self.trace("evidence_identity_recorded", stage="sol")[-1]["identity"]
+        prior = self.trace("evidence_identity_recorded", stage="tester")[-1]["identity"]
         from .harness.project import git
 
         # The next turn plans against the files delivered in the first turn.
@@ -148,7 +148,7 @@ class EvidenceBoundaryTests(AdversarialCase):
 
     def test_validator_cannot_attest_to_a_different_contract(self):
         view = self.stale_identity_case("evidence_stale_contract")
-        rows = self.require_injection("sol")
+        rows = self.require_injection("tester")
         self.assertTrue(
             all(
                 row["current_revision"] != row["claimed_revision"] and row["current_hash"] != row["claimed_hash"]
@@ -159,34 +159,34 @@ class EvidenceBoundaryTests(AdversarialCase):
         self.assertTrue(
             any(
                 "$.contract_hash: invalid enum" in row["error"]
-                for row in self.trace("evidence_rejection_observed", stage="sol")
+                for row in self.trace("evidence_rejection_observed", stage="tester")
             ),
             self.root,
         )
 
     def test_validator_cannot_replay_a_previously_dispatched_task(self):
         view = self.stale_identity_case("evidence_stale_task")
-        rows = self.require_injection("sol")
+        rows = self.require_injection("tester")
         self.assertTrue(all(row["current_task_id"] != row["claimed_task_id"] for row in rows))
         self.assert_not_complete(view)
         self.assertTrue(
             any(
                 "$.task_id: invalid enum" in row["error"]
-                for row in self.trace("evidence_rejection_observed", stage="sol")
+                for row in self.trace("evidence_rejection_observed", stage="tester")
             ),
             self.root,
         )
 
     def test_completion_owner_cannot_break_source_after_validation(self):
         view = self.complete_case("evidence_late_source_mutation")
-        rows = self.require_injection("astra_review")
+        rows = self.require_injection("review_completion")
         self.assertTrue(any(row["before_sha256"] != row["after_sha256"] for row in rows))
         self.assert_not_complete(view)
 
     def test_vacuous_test_success_cannot_complete_a_broken_deliverable(self):
         view = self.complete_case("evidence_vacuous_tests")
-        self.require_injection("terra")
-        validations = self.trace("evidence_executed_vacuous_test_suite", stage="sol")
+        self.require_injection("builder")
+        validations = self.trace("evidence_executed_vacuous_test_suite", stage="tester")
         self.assertTrue(validations, f"Vacuous test result never reached Validator: {self.root}")
         self.assertTrue(all(row["actual_exit"] == 0 for row in validations))
         self.assert_broken_greeting()
@@ -194,19 +194,19 @@ class EvidenceBoundaryTests(AdversarialCase):
 
     def test_unrelated_successful_command_cannot_satisfy_approved_test(self):
         view = self.complete_case("evidence_weak_command")
-        self.require_injection("sol")
+        self.require_injection("tester")
         self.assert_broken_greeting()
         self.assert_not_complete(view)
 
     def test_builder_cannot_hide_an_out_of_scope_write_from_its_report(self):
         view = self.complete_case("evidence_out_of_scope")
-        rows = self.require_injection("terra")
+        rows = self.require_injection("builder")
         self.assertTrue(all(row["path"] not in row["declared_paths"] for row in rows))
         self.assert_not_complete(view)
 
     def test_self_authored_receipt_cannot_attest_to_an_unexecuted_test(self):
         view = self.complete_case("evidence_forged_receipt")
-        rows = self.require_injection("sol")
+        rows = self.require_injection("tester")
         self.assertTrue(
             all(
                 row["actual_exit"] == 0
@@ -217,7 +217,7 @@ class EvidenceBoundaryTests(AdversarialCase):
         )
         self.assert_broken_greeting()
         self.assert_not_complete(view)
-        rejections = self.trace("evidence_rejection_observed", stage="sol")
+        rejections = self.trace("evidence_rejection_observed", stage="tester")
         self.assertTrue(
             any("runner re-ran" in row["error"] for row in rejections),
             "The independent replay must expose the forged result",

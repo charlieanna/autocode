@@ -334,7 +334,7 @@ class CleanReplayTests(unittest.TestCase):
         self.events.write_text("runner-authenticated validator execution\n")
         self.command = f"{sys.executable} -m unittest -v test_app"
         self.record = {
-            "stage": "sol",
+            "stage": "tester",
             "events": str(self.events),
             "output": "validator.json",
             "task_id": "T1",
@@ -400,7 +400,7 @@ class CleanReplayTests(unittest.TestCase):
         self.replay()
         self.events.write_text("different validator execution\n")
         self.assertEqual(1, self.replay()["scheduling"]["executed_count"])
-        self.record["stage"] = "terra"
+        self.record["stage"] = "builder"
         self.assertIsNone(self.replay()["checks"][0]["scheduling"])
 
     def test_approved_command_and_explicit_repeat_are_always_executed(self):

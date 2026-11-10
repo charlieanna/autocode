@@ -20,7 +20,7 @@ class CheckpointTests(unittest.TestCase):
                 {"id": "C1", "criterion": "Mobile text visible"},
                 {"id": "C2", "criterion": "Regression passes"},
             ],
-            "active_stage": {"stage": "terra", "activity": {"completed_tool_count": 21}},
+            "active_stage": {"stage": "builder", "activity": {"completed_tool_count": 21}},
         }
 
     def test_durable_checkpoint_before_completion_and_reload(self):

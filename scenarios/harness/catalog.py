@@ -139,7 +139,7 @@ class Scenario:
     # the solution path prefixes the scripted model delivers in turn i (0 = the brief).
     fake_turn_paths: tuple[tuple[str, ...], ...] = ()
     # [fake] answers: {question_id = answer} the person gives explicitly, for a question the driver
-    # never answers by default (an AutoResolver stop such as a quota question, ``route-sol``).
+    # never answers by default (an AutoResolver stop such as a quota question, ``route-tester``).
     fake_answers: tuple[tuple[str, str], ...] = ()
     # [fake] acknowledge: {PAUSED_STATUS = [flags...]} the person types with --resume-paused to continue a pause
     # the driver never continues by default, such as a cost cap (PAUSED_COST_LIMIT, #721); each once per run.

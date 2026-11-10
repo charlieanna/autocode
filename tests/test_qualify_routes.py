@@ -35,7 +35,7 @@ TABLE = {
                 "evidence": "A public benchmark admitted it.",
             }
         ],
-        "terra": [
+        "builder": [
             {
                 "model": "openai/gpt-6-luna",
                 "routes": ["openai/gpt-6-luna"],
@@ -56,8 +56,8 @@ def state(status="TASK_COMPLETE", kind="live"):
             "planning_flow": "v2",
             "roles": {
                 "planner": {"model": "zai-coding-plan/glm-5.3", "reasoning_effort": "high"},
-                "terra": {"model": "openai/gpt-6-sol", "reasoning_effort": "medium"},
-                "sol": {"model": "zai-coding-plan/glm-5.3", "reasoning_effort": "medium"},
+                "builder": {"model": "openai/gpt-6-sol", "reasoning_effort": "medium"},
+                "tester": {"model": "zai-coding-plan/glm-5.3", "reasoning_effort": "medium"},
             },
         },
     }
@@ -66,7 +66,7 @@ def state(status="TASK_COMPLETE", kind="live"):
 ATTEMPTS = {
     "attempts": [
         {"role": "planner", "model": "zai-coding-plan/glm-5.3"},
-        {"role": "terra", "model": "openai/gpt-6-sol"},
+        {"role": "builder", "model": "openai/gpt-6-sol"},
     ]
 }
 
@@ -154,13 +154,13 @@ class QualifyRoutesTests(unittest.TestCase):
     def test_a_model_the_table_does_not_list_is_added_only_when_the_run_reached_it(self):
         code, output = self.run_script("--date", "2026-10-25")
         self.assertEqual(0, code, output)
-        builders = {entry["model"]: entry for entry in self.written()["roles"]["terra"]}
+        builders = {entry["model"]: entry for entry in self.written()["roles"]["builder"]}
         self.assertEqual({"openai/gpt-6-luna", "openai/gpt-6-sol"}, set(builders))
         self.assertEqual("qualified", builders["openai/gpt-6-sol"]["provenance"])
         self.assertEqual(["openai/gpt-6-sol"], builders["openai/gpt-6-sol"]["routes"])
         # A configured role with no attempt anywhere is named and never qualified.
         self.assertIn("Tester: not qualified", output)
-        self.assertNotIn("sol", self.written()["roles"])
+        self.assertNotIn("tester", self.written()["roles"])
 
     def test_a_fake_run_qualifies_nothing(self):
         (self.run_dir / "state.json").write_text(json.dumps(state(kind="fake")), encoding="utf-8")
@@ -201,7 +201,7 @@ class QualifyRoutesTests(unittest.TestCase):
                     "historical_estimated_cost_usd": 0.15,
                 },
                 {"role": "planner", "model": "zai-coding-plan/glm-5.3", "duration_seconds": 900, "rejected": True},
-                {"role": "terra", "model": "openai/gpt-6-sol", "duration_seconds": None},
+                {"role": "builder", "model": "openai/gpt-6-sol", "duration_seconds": None},
             ]
         }
         with mock.patch.object(qualify_routes.usage, "accounting", return_value=attempts):
@@ -226,7 +226,7 @@ class QualifyRoutesTests(unittest.TestCase):
             },
             planner,
         )
-        (builder,) = [entry for entry in roles["terra"] if entry["model"] == "openai/gpt-6-sol"][0]["runs"]
+        (builder,) = [entry for entry in roles["builder"] if entry["model"] == "openai/gpt-6-sol"][0]["runs"]
         self.assertIsNone(builder["minutes"])  # unknown stays unknown, never a guess
         self.assertIsNone(builder["cost_usd"])
         # The same run merged again adds no second record.
@@ -288,7 +288,7 @@ class QualifyRoutesTests(unittest.TestCase):
                 {**failed, "rejected": True},
                 {**failed, "interrupted": True},
                 {**failed, "report_only": True},
-                {"role": "task_planner", "route_role": "sol", "model": "zai-coding-plan/glm-5.3"},
+                {"role": "task_planner", "route_role": "tester", "model": "zai-coding-plan/glm-5.3"},
                 {"role": "planner", "model": "zai-coding-plan/glm-5.3"},
             ]
         }
