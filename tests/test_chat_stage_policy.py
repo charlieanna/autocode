@@ -288,6 +288,22 @@ class PipelineTests(unittest.TestCase):
         )
         self.assertEqual("-", panel.ascii_mark("–"))
 
+    def test_the_plan_reviewer_and_completion_rows_show_their_own_slots_not_the_resolvers(self):
+        # #3087: the Plan Reviewer row read the Resolver's astra slot, so a run whose Plan Reviewer was
+        # independent of the Planner showed the Planner's model on it.
+        current = view()
+        current["routes"] = {
+            **ROUTES,
+            "glm": {"model": "openai/gpt-6.1-sol"},
+            "astra": {"model": "openai/gpt-6.1-sol"},
+            "plan_reviewer": {"model": "anthropic/claude-opus-5-5"},
+            "completion": {"model": "anthropic/claude-sonnet-5-5"},
+        }
+        texts = [text for _mark, text in self.marks(current)]
+        self.assertEqual("Planner · gpt-6.1-sol", texts[1])
+        self.assertEqual("Plan Reviewer · claude-opus-5-5", texts[2])
+        self.assertEqual("Completion Reviewer · claude-sonnet-5-5", texts[5])
+
     def test_an_older_core_without_the_record_marks_nothing_done(self):
         older = view()
         older["routes"] = ROUTES
