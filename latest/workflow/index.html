@@ -2378,7 +2378,7 @@
 
 
 <h1 id="workflow-planning-approval-and-handoffs">Workflow: planning, approval, and handoffs<a class="headerlink" href="#workflow-planning-approval-and-handoffs" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/448af0c32a78804325c69963a0e66cf1af00ebca/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/25318245319ffcbbca411e7e2af4ff2926fa8398/README.md">← Back to README</a></p>
 <p>This page covers the end-to-end conversation flow: how a rough idea becomes an
 approved plan, how that plan is implemented and reviewed, and what Autopilot
 coordinates along the way.</p>
@@ -2389,26 +2389,15 @@ The Planner drafts the implementation plan. The Plan Reviewer challenges that dr
 in the same conversation. Implementation starts only after you explicitly approve it.</p>
 <p>After approval, Autocode handles the handoffs:</p>
 <pre><code class="language-text">You → Requirements first, on every run and follow-up turn: it names the kind of job (build, bugfix,
-   review, design, discuss), saved as `workflow`; `--workflow KIND` names it instead (a pinned build or bug fix
-   still runs Requirements; review, design and discuss start their own first stages). A flow without Requirements
-   (v2 planning, no Requirements role) has the Job recognizer name it first
-   review → Reviewer only: findings written to review/findings.json, repository untouched, run complete
-   bugfix → the standard implementation pipeline below: Requirements → Planner → Plan Reviewer → approval
-   design → Architect first: a design review is written to review/design-review.json (goals met,
-            blocking/advisory concerns, questions for you), repository untouched, run complete;
-            a request for a NEW design → the build pipeline below; its plan may not change a file an
-            earlier turn of the same conversation wrote (a discussion's decision record) unless your
-            newest message names it, so the design job writes its design and only reads the rest
+   review, design, discuss), saved as `workflow`; `--workflow KIND` names it instead. Every kind then
+   takes the same path (#3010): Requirements → Planner → Plan Reviewer → your approval → Builder →
+   Tester → Completion Reviewer. The kind labels the run and its report. A flow without Requirements
+   (v2 planning, no Requirements role) is planned as a build.
    discuss → nothing to write: Requirements answers it itself from the code, citing the files it
-            read, repository untouched, turn complete; a note to write → the build pipeline below
-   (a design review's or a discussion's questions do not hold the run: it completes, and you
-    answer them with --follow-up, the next turn of the same run; a reply to a design review
-    → the Architect revises that review in review/design-review.json as revision n+1, the same
-    concern ids kept, settled ones marked resolved, the repository outside review/ untouched)
-   build → the build pipeline below;
-           implementing an APPROVED design document as written, or &quot;Build it.&quot; after a design turn
-             (the design that turn wrote) → Architect checks it against the repository first,
-             repository untouched:
+            read, repository untouched, turn complete; a note to write → the pipeline below
+   build of an APPROVED design document as written, or &quot;Build it.&quot; after a design turn
+             (the design that turn wrote) → the Design Reviewer checks it against the repository
+             first, repository untouched:
              conflicts (a frozen API, a documented invariant) → written to &lt;design&gt;.blockers.json,
                run stops (PAUSED_DESIGN_CONFLICT), nothing built, you decide;
              no conflicts → the design's binding decisions become a constraint and the pipeline starts
@@ -3100,7 +3089,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   root, normally the package (<code>test_greet.TestGreet.test_x</code>), and a node:test file there that runs another test runner is still not named
   proof (#380). A feature that adds the first Go module in the package, on a
   base with no Go project, is not held to a base Go suite that cannot exist,
-  as at the root (<a href="https://github.com/charlieanna/autocode/blob/448af0c32a78804325c69963a0e66cf1af00ebca/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
+  as at the root (<a href="https://github.com/charlieanna/autocode/blob/25318245319ffcbbca411e7e2af4ff2926fa8398/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
 <li>Only the package's existing tests are retained as
   <a href="../protected-tests/">original test gates</a>, with the package suite as their
   command unless <code>--test-command</code> gives one, so a large repository does not bind
@@ -3124,8 +3113,8 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   package. Before each Tester and
   Completion Reviewer dispatch, in every package run, whether or not it owes a
   regression proof, the runner compares the candidate with the run's base, as
-  the regression proof reads it. The Code Reviewer, Designer and Design
-  Reviewer dispatches are not checked. A file added, modified (its content or
+  the regression proof reads it. The Design Reviewer's dispatch is not
+  checked. A file added, modified (its content or
   its mode) or deleted outside the package (another package, a file at the
   repository root, a shared lockfile or workspace file; a rename counts on both
   sides) opens one blocking finding with source <code>runner</code> that names each path
@@ -3178,7 +3167,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   also leaves a change outside the package <code>UNVERIFIED</code>, because the package
   suite never ran it.</p>
 <p>The <code>feature-monorepo-package</code> scenario
-(<a href="https://github.com/charlieanna/autocode/blob/448af0c32a78804325c69963a0e66cf1af00ebca/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
+(<a href="https://github.com/charlieanna/autocode/blob/25318245319ffcbbca411e7e2af4ff2926fa8398/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
 one package of a two-package repository with <code>--package</code> and the scripted
 model. Its reference completes; its broken variant, which also edits the other
 package, stops with each of those files named in the open <code>runner</code> finding.
@@ -3289,17 +3278,9 @@ and the runner, not a model, runs something that shows it.</p>
   counterexample's exit code) and shown in the answer's evidence list.</li>
 </ul>
 <h3 id="design-a-concern-about-todays-code-carries-a-probe">Design: a concern about today's code carries a probe<a class="headerlink" href="#design-a-concern-about-todays-code-carries-a-probe" title="Permanent link">&para;</a></h3>
-<p>The design workflow's Architect judges a document, so nothing is applied. The
+<p>The Design Reviewer judges a document against the code, so nothing is applied. The
 same probe rule as discussions applies to what it says about the code.</p>
 <ul>
-<li><strong>Reviewing a design (<code>review_design</code>).</strong> Every blocking concern carries
-  <code>example</code>, the problem as one concrete case in plain English. A concern that
-  rests on what the code does today (an ordering check, a charge per call)
-  also carries <code>probe</code>, a command that exits 0 exactly when the code behaves
-  that way. The runner runs every probe in a scratch copy and rejects the
-  review if one fails. A concern about the design text alone (a missing
-  rollback step) has no probe. Probed concerns are recorded in
-  <code>design_review.probes</code>.</li>
 <li><strong>Checking an approved design (<code>check_design</code>).</strong> Every conflict carries
   <code>example</code>. A conflict with something the code enforces today carries
   <code>probe</code>; a constraint that lives in prose (a README rule) has none. The
@@ -3433,7 +3414,7 @@ it is generated from the front matter so reviewers can read the plan.</p>
 holds it. A plan read back from the file has the same goal hash as the run's. The scenario runner
 (<code>scenarios/run.py</code>) checks this at every plan approval its catalog runs reach: it exports the plan
 and reads the file back with <code>--check</code> before it approves the plan
-(<a href="https://github.com/charlieanna/autocode/blob/448af0c32a78804325c69963a0e66cf1af00ebca/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
+(<a href="https://github.com/charlieanna/autocode/blob/25318245319ffcbbca411e7e2af4ff2926fa8398/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
 committing it approves nothing. Text that looks like a credential is masked before the file is
 written, with the same policy as <code>autocode bundle</code>; the export then says that the file's goal hash
 differs from the run's.</p>

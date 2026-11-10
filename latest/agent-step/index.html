@@ -1934,7 +1934,7 @@
 
 
 <h1 id="autocode-inside-your-coding-agent">AutoCode inside your coding agent<a class="headerlink" href="#autocode-inside-your-coding-agent" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/448af0c32a78804325c69963a0e66cf1af00ebca/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/25318245319ffcbbca411e7e2af4ff2926fa8398/README.md">← Back to README</a></p>
 <p>Most people already work in Claude Code, Codex or Cursor. AutoCode can run as one
 step inside that agent instead of replacing it: the agent starts an AutoCode run
 in the repository, tells you where it stands at each stop, passes on your plan
@@ -2002,7 +2002,7 @@ calls use the run's saved settings. Each call is recorded in the run's
 <p>A call returns when the run next needs you or completes, which can take as long
 as the work does. Raise your MCP client's tool timeout for long tasks.</p>
 <h2 id="claude-code-skill">Claude Code skill<a class="headerlink" href="#claude-code-skill" title="Permanent link">&para;</a></h2>
-<p>Copy <a href="https://github.com/charlieanna/autocode/blob/448af0c32a78804325c69963a0e66cf1af00ebca/examples/agent-step/skills/autocode/SKILL.md"><code>examples/agent-step/skills/autocode</code></a>
+<p>Copy <a href="https://github.com/charlieanna/autocode/blob/25318245319ffcbbca411e7e2af4ff2926fa8398/examples/agent-step/skills/autocode/SKILL.md"><code>examples/agent-step/skills/autocode</code></a>
 to <code>.claude/skills/autocode</code> in your project, or to <code>~/.claude/skills/autocode</code> for
 every project. Claude Code then uses it when you ask for AutoCode. The skill runs
 the step with the Python that has AutoCode installed: set <code>AUTOCODE_PYTHON</code> to
@@ -2042,18 +2042,16 @@ a tool result with <code>isError</code> and the reason, so the agent can read it
 arguments are checked against each tool's schema, and an argument it does not
 name, such as <code>options</code>, is refused.</p>
 <h2 id="verify-a-change-you-made">Verify a change you made<a class="headerlink" href="#verify-a-change-you-made" title="Permanent link">&para;</a></h2>
-<p>To have AutoCode's independent Code Reviewer judge a change the agent already
-made, start a review run that names the change and what it should do, then read
-the evidence:</p>
+<p>To have AutoCode judge a change the agent already made, start a review run that
+names the change and what it should do, then read the evidence:</p>
 <ul>
 <li>skill: <code>$STEP start "Review the uncommitted change in this workspace (git diff HEAD). It should ..." --workflow review -- FLAGS</code>, then <code>$STEP evidence --markdown</code>;</li>
 <li>MCP: <code>autocode_start</code> with <code>{"brief": "Review the uncommitted change ...", "workflow": "review"}</code>, then <code>autocode_evidence</code>.</li>
 </ul>
-<p>A review run goes straight to the Code Reviewer (<code>review_change</code>), changes nothing
-outside <code>review/</code>, needs no plan approval, and proves each blocking finding with a
-test that fails on the change (<a href="../workflow/#the-flow">the review workflow</a>). Its
-evidence is the report it recorded (<code>availability</code> <code>recorded</code>): a review delivers no
-build, so unlike a build's report it is not rechecked against the workspace.</p>
+<p>A review run takes the same path as every task (#3010): Requirements, the Planner and
+the Plan Reviewer plan what the review delivers, the person approves that plan, and the
+Builder, Tester and Completion Reviewer deliver and check it
+(<a href="../workflow/#the-flow">the flow</a>). <code>--workflow review</code> labels the run and its report.</p>
 
 
 
