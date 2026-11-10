@@ -8,6 +8,7 @@ import copy
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode_resolver_human as human
 import autocode_run_records as records
@@ -94,6 +95,39 @@ class DeferredApprovalRestarts(unittest.TestCase):
             ask_for_approval(self.state, self.run_dir)
         self.state["user_events"].append({"kind": "automatic_timeout_recovery", "actor": "runner"})
         ask_for_approval(self.state, self.run_dir)
+        self.assertEqual("PAUSED_APPROVAL_DEFERRED", self.state["status"])
+
+    def small_brief_review_spent(self):
+        # A small clear brief pays one review total across cycles (#1564), and this one is spent.
+        self.state["planning"].update(
+            astra_calls=2, review_depth_reduced=True, review_call_limit=2, review_call_limit_origin="runner_default"
+        )
+
+    def test_a_restart_because_the_source_moved_renews_a_spent_small_brief_review(self):
+        # A pull landed in the checkout after the final review: the plan is re-checked against the
+        # current source, and the reviews spent on the old source do not stop that re-check (a live
+        # run stopped at "2/2 plan-review calls used" and asked the person to raise the limit).
+        self.small_brief_review_spent()
+        with patch.object(human, "_decision", return_value=("defer", human.SOURCE_MOVED)):
+            ask_for_approval(self.state, self.run_dir)
+        self.assertEqual(("RUNNING", "astra_challenge"), (self.state["status"], self.state["next_stage"]))
+        planning = self.state["planning"]
+        self.assertEqual((0, {"from": 2, "to": 0}), (planning["astra_calls"], planning["source_change_renewal"]))
+        self.assertEqual((2, "runner_default"), (planning["review_call_limit"], planning["review_call_limit_origin"]))
+        self.assertTrue(self.state["planning_history"][-1]["source_change_restart"])
+
+    def test_a_restart_for_another_reason_keeps_the_small_brief_total(self):
+        self.small_brief_review_spent()
+        ask_for_approval(self.state, self.run_dir)
+        self.assertEqual(("RUNNING", "astra_challenge"), (self.state["status"], self.state["next_stage"]))
+        self.assertEqual(2, self.state["planning"]["astra_calls"])
+        self.assertNotIn("source_change_renewal", self.state["planning"])
+
+    def test_source_moved_restarts_stay_bounded(self):
+        self.small_brief_review_spent()
+        with patch.object(human, "_decision", return_value=("defer", human.SOURCE_MOVED)):
+            for _ in range(3):
+                ask_for_approval(self.state, self.run_dir)
         self.assertEqual("PAUSED_APPROVAL_DEFERRED", self.state["status"])
 
     def pause_approval(self):
