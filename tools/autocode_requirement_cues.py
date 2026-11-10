@@ -82,7 +82,9 @@ def _without_label_headings(text):
             words = [word.strip(".,;:!?()\"'").lower() for word in match.group(1).split()]
             if all(word in _CUE_WORDS or word in _LABEL_WORDS for word in words if word):
                 continue
-            line = match.group(1).rstrip(".!?") + "."
+            # Keep the heading's source text as-is (#3054): a citation must resolve
+            # to a verbatim substring of the task, and `## Why` is what the task holds.
+            line = line.rstrip()
         out.append(line)
     return "\n".join(out)
 
