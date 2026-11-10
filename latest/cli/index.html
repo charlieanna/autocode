@@ -2410,7 +2410,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/2d648c2d6eee97c08819218b3b440150c838b283/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/a0cd4b51dc1f15df57656dbc7f103a1209ba2001/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2636,7 +2636,7 @@ they do not represent charges.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/2d648c2d6eee97c08819218b3b440150c838b283/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/a0cd4b51dc1f15df57656dbc7f103a1209ba2001/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3246,7 +3246,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/2d648c2d6eee97c08819218b3b440150c838b283/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/a0cd4b51dc1f15df57656dbc7f103a1209ba2001/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3318,24 +3318,28 @@ spent time and recovery allowances remain intact.</p>
 <td>New run: choose every role's model from the tool's connected accounts (#1426) - cheapest qualified route per role, checkers independent, the routes still unproven probed at their own reasoning level before the first stage. Per-role model flags, <code>--single-model</code> and role-provider flags still win; a saved run keeps the routes it started with; a selection that cannot field an independent checker refuses to start, in account terms. <code>--no-auto-select</code> is the explicit opt-out. Preview with <code>autocode models --selection</code>. Not yet the default: that flip waits on #1426 step 12's qualification. See <a href="../models/#choosing-models-automatically">Choosing models automatically</a>.</td>
 </tr>
 <tr>
-<td><code>--requirements-model</code>, <code>--glm-model</code>, <code>--plan-reviewer-model</code></td>
-<td>Planning-role model overrides (bare GPT names).</td>
+<td><code>--requirements-model</code>, <code>--planner-model</code>, <code>--plan-reviewer-model</code></td>
+<td>Model for Requirements, the Planner or the Plan Reviewer.</td>
 </tr>
 <tr>
-<td><code>--astra-model</code>, <code>--terra-model</code>, <code>--sol-model</code>, <code>--completion-model</code></td>
-<td>Execution-role model overrides (<code>provider/model</code> IDs).</td>
+<td><code>--task-planner-model</code>, <code>--builder-model</code>, <code>--tester-model</code>, <code>--completion-model</code></td>
+<td>Model for the per-task Planner, the Builder, the Tester or the Completion Reviewer. The per-task Planner's route also runs the Plan Reviewer and the Completion Reviewer in a run without their own routes, and the Resolver starts from it.</td>
 </tr>
 <tr>
-<td><code>--astra-provider</code>, <code>--terra-provider</code>, <code>--sol-provider</code>, <code>--completion-provider</code></td>
+<td><code>--task-planner-provider</code>, <code>--builder-provider</code>, <code>--tester-provider</code>, <code>--completion-provider</code></td>
 <td>Per-role Codex provider override (Responses API); the saved engine stays the same.</td>
 </tr>
 <tr>
-<td><code>--reasoning-effort</code>, <code>--astra-reasoning-effort</code>, <code>--terra-reasoning-effort</code>, <code>--sol-reasoning-effort</code>, <code>--completion-reasoning-effort</code></td>
-<td>Shared or execution-role reasoning effort (<code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code>, <code>max</code>).</td>
+<td><code>--reasoning-effort</code>, <code>--task-planner-reasoning-effort</code>, <code>--builder-reasoning-effort</code>, <code>--tester-reasoning-effort</code>, <code>--completion-reasoning-effort</code></td>
+<td>Shared or per-role reasoning effort (<code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code>, <code>max</code>).</td>
 </tr>
 <tr>
-<td><code>--glm-reasoning-effort</code>, <code>--requirements-reasoning-effort</code>, <code>--plan-reviewer-reasoning-effort</code></td>
+<td><code>--planner-reasoning-effort</code>, <code>--requirements-reasoning-effort</code>, <code>--plan-reviewer-reasoning-effort</code></td>
 <td>Reasoning effort for the Planner, Requirements or Plan Reviewer.</td>
+</tr>
+<tr>
+<td><code>--glm-model</code>, <code>--glm-reasoning-effort</code>, <code>--astra-model</code>, <code>--astra-reasoning-effort</code>, <code>--astra-provider</code>, <code>--terra-model</code>, <code>--terra-reasoning-effort</code>, <code>--terra-provider</code>, <code>--sol-model</code>, <code>--sol-reasoning-effort</code>, <code>--sol-provider</code></td>
+<td>The old spellings of <code>--planner-*</code>, <code>--task-planner-*</code>, <code>--builder-*</code> and <code>--tester-*</code>, kept as aliases while AutoCode's code names are replaced by job names (<code>tools/autocode_names.py</code>).</td>
 </tr>
 <tr>
 <td><code>--resolver-model</code>, <code>--resolver-reasoning-effort</code></td>
@@ -4287,7 +4291,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/2d648c2d6eee97c08819218b3b440150c838b283/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/a0cd4b51dc1f15df57656dbc7f103a1209ba2001/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
