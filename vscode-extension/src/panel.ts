@@ -1825,7 +1825,8 @@ function renderChat(data) {
       app.classList.remove('muted');
       const card = el('div', 'decision-card');
       card.appendChild(el('div', 'speaker', 'AutoCode'));
-      card.appendChild(el('div', 'message-content', data.waitingForStart ? 'Waiting to start. Complete setup to continue.' : 'Thinking…'));
+      card.appendChild(el('div', 'message-content', data.waitingForStart ? 'Waiting to start. Complete setup to continue.'
+        : data.startingLabel ? data.startingLabel.charAt(0).toUpperCase() + data.startingLabel.slice(1) + '…' : 'Thinking…'));
       app.appendChild(card);
     } else if (welcoming) {
       app.classList.remove('muted');
