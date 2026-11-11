@@ -5093,7 +5093,7 @@ test('a stage on a later attempt shows a struggling warning in the working card'
   const ui = await openChat(t, meteredView());
   const warn = ui.document.getElementById('struggling');
   assert.ok(warn, 'the working card carries the warning');
-  assert.equal(warn.textContent, '⚠ Tester · attempt 2 · 42s · last one answer rejected');
+  assert.equal(warn.textContent, '⚠ Tester · attempt 2 · 42s · last answer rejected');
   const calm = meteredView();
   calm.usage.accounting.attempts = calm.usage.accounting.attempts.filter((row) => !row.rejected);
   await ui.poll(calm);
