@@ -924,6 +924,8 @@ export function panelHtml(chat = false): string {
   .notice { border-left-color: var(--vscode-textLink-foreground, #3794ff); background: transparent; }
   .actions { display: flex; gap: 8px; margin-top: 14px; }
   .muted { opacity: .65; }
+  .range-hint { font-size: .76rem; color: var(--vscode-errorForeground); margin-top: 3px; }
+  .range-hint:empty { display: none; }
   ${chat ? chatStyles : ""}
   ${chat ? "#composer .chip[hidden] { display: none; }" : ""}
   ${chat ? METER_STYLES : ""}
@@ -1484,6 +1486,10 @@ function render(state) {
               item.textContent = option;
               input.appendChild(item);
             });
+            // The core's proposed default is preselected: taking it is one click, not a choice plus a click.
+            if (decision.suggested && decision.options.indexOf(decision.suggested) >= 0 && !answers[name]) {
+              answers[name] = decision.suggested;
+            }
           } else {
             input = document.createElement('input');
             input.type = 'text';
@@ -1492,10 +1498,19 @@ function render(state) {
           }
           input.dataset.question = name;
           if (answers[name]) input.value = answers[name];
-          const save = () => { answers[name] = input.value; updateActionButton(); };
+          // A number the button will not take says why beside the field, as it is typed.
+          const hint = decision.input ? el('div', 'range-hint') : null;
+          const save = () => {
+            answers[name] = input.value;
+            if (hint) hint.textContent = integerHint(input.value, decision.input);
+            updateActionButton();
+          };
+          if (hint) save();
           input.addEventListener('change', save);
           input.addEventListener('input', save);
+          input.addEventListener('keydown', enterTakes);
           box.appendChild(input);
+          if (hint) box.appendChild(hint);
           form.appendChild(box);
         });
         cardContent.appendChild(form);
@@ -1736,6 +1751,10 @@ function render(state) {
           item.textContent = option;
           input.appendChild(item);
         });
+        // The core's proposed default is preselected: taking it is one click, not a choice plus a click.
+        if (decision.suggested && decision.options.indexOf(decision.suggested) >= 0 && !answers[name]) {
+          answers[name] = decision.suggested;
+        }
       } else {
         input = document.createElement('input');
         input.type = 'text';
@@ -1744,10 +1763,19 @@ function render(state) {
       }
       input.dataset.question = name;
       if (answers[name]) input.value = answers[name];
-      const save = () => { answers[name] = input.value; updateActionButton(); };
+      // A number the button will not take says why beside the field, as it is typed.
+      const hint = decision.input ? el('div', 'range-hint') : null;
+      const save = () => {
+        answers[name] = input.value;
+        if (hint) hint.textContent = integerHint(input.value, decision.input);
+        updateActionButton();
+      };
+      if (hint) save();
       input.addEventListener('change', save);
       input.addEventListener('input', save);
+      input.addEventListener('keydown', enterTakes);
       box.appendChild(input);
+      if (hint) box.appendChild(hint);
       form.appendChild(box);
     });
     app.appendChild(form);
@@ -1842,6 +1870,28 @@ function renderChangeset(set, state) {
   }
 }
 
+/** Why a typed number is not takeable yet: the sentence a disabled button owed beside its field. */
+function integerHint(value, input) {
+  if (!value) return '';
+  const number = /^[0-9]+$/.test(value) ? Number(value) : NaN;
+  if (!Number.isSafeInteger(number)) return 'Enter a whole number';
+  if (number < input.minimum) return 'Enter at least ' + input.minimum;
+  if (number > input.maximum) return 'Enter at most ' + input.maximum;
+  return '';
+}
+
+/** Enter in an answer field takes the action its own button names, and only while that button could. */
+function enterTakes(event) {
+  if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+  const target = event.target;
+  if (!target || target.tagName !== 'INPUT') return;
+  const button = String(target.dataset.question || '').indexOf('raise:') === 0
+    ? document.getElementById('raise-bound') : document.getElementById('take-action');
+  if (!button || button.disabled) return;
+  event.preventDefault();
+  button.click();
+}
+
 function updateActionButton() {
   const take = document.getElementById('take-action');
   if (!take || !current) return;
@@ -1868,10 +1918,13 @@ function renderBoundRaise(container, state) {
   field.setAttribute('aria-label', input.label);
   field.dataset.question = name;
   if (answers[name]) field.value = answers[name];
-  const save = () => { answers[name] = field.value; updateRaiseButton(); };
+  const hint = el('div', 'range-hint');
+  const save = () => { answers[name] = field.value; hint.textContent = integerHint(field.value, input); updateRaiseButton(); };
   field.addEventListener('change', save);
   field.addEventListener('input', save);
+  field.addEventListener('keydown', enterTakes);
   box.appendChild(field);
+  box.appendChild(hint);
   const raise = el('button', null, (state.taking || state.working) ? 'Working…' : RAISE_LABEL);
   raise.id = 'raise-bound';
   raise.addEventListener('click', () => vscode.postMessage({ type: 'raise', value: answers[name] || '',
