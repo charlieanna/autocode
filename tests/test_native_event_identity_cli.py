@@ -9,7 +9,7 @@ INJECT = textwrap.dedent("""
     original_emit = emit
 
     def emit(kind, **part):
-        if kind == 'tool_use' and stage == 'tester' and not repairing and part.get('id') == 'synthetic-original-sol':
+        if kind == 'tool_use' and stage == 'tester' and not repairing and part.get('id') == 'synthetic-original-tester':
             earlier = {**part, 'state': {**part['state'], 'metadata': {}}}
             if args.fault == 'conflicting_command':
                 earlier['state']['input'] = {'command': 'python3 conflicting-observation.py'}
