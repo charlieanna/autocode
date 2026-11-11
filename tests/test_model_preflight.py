@@ -96,6 +96,19 @@ class BareProbeAgentTests(unittest.TestCase):
                 self.assertEqual(["activity.mjs"], written["plugin"])
                 self.assertEqual("/h", env["HOME"])
 
+    def test_the_probe_runs_from_the_folder_it_is_given_not_the_project(self):
+        # OpenCode and Kilo add the --dir folder's AGENTS.md to every request: AutoCode's own made each probe
+        # about 10,300 input tokens instead of about 600 (a live run, 2026-11-11).
+        config = {"agent": {"autocode_tester_x": {}}}
+        argv = ["kilo", "run", "--dir", "/project", "--agent", "autocode_tester_x", "--model", "m"]
+        env = {"KILO_CONFIG_CONTENT": json.dumps(config)}
+        ran, _env = preflight.bare(list(argv), dict(env), home="/empty")
+        self.assertEqual("/empty", ran[ran.index("--dir") + 1])
+        ran, _env = preflight.bare(list(argv), dict(env))
+        self.assertEqual("/project", ran[ran.index("--dir") + 1], "no folder given keeps the launch's own")
+        other = ["claude", "-p", "--dir", "/project"]
+        self.assertEqual(other, preflight.bare(list(other), {}, home="/empty")[0], "another tool is left alone")
+
     def test_a_launch_without_an_inline_agent_is_left_alone(self):
         for argv, env in (
             (["claude", "-p", "x"], {"OPENCODE_CONFIG_CONTENT": "{}"}),
@@ -591,6 +604,28 @@ class PreflightCheckTests(unittest.TestCase):
 
         self.assertFalse(self.check(events))
         self.assertEqual(["plan/glm", "plan/mimo"], self.calls)
+
+    def test_a_probe_reads_no_project_instructions_and_leaves_no_folder_behind(self):
+        (self.root / "AGENTS.md").write_text("project rules " * 4000)
+        homes = []
+        execute = self.fake_execute({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS})
+
+        def launch(**kwargs):
+            config = {"agent": {"autocode_tester_x": {}}}
+            argv = ["kilo", "run", "--dir", str(kwargs["workspace"]), "--agent", "autocode_tester_x", "--model", "m"]
+            ran, _env = kwargs["prepare"](argv, {"KILO_CONFIG_CONTENT": json.dumps(config)})
+            home = Path(ran[ran.index("--dir") + 1])
+            homes.append(home)
+            self.assertTrue(home.is_dir())
+            self.assertEqual([], list(home.iterdir()), "the probe's folder is empty")
+            self.assertFalse(home.resolve().is_relative_to(self.root.resolve()), "it is outside the project")
+            return execute(**kwargs)
+
+        with patch.object(preflight.transport, "execute", side_effect=launch):
+            runner = types.SimpleNamespace(opencode=self.adapter)
+            self.assertTrue(preflight.check(runner, self.state, self.run_dir, self.root))
+        self.assertEqual(2, len(homes))
+        self.assertFalse(any(home.exists() for home in homes), "each probe's folder is removed after it")
 
     def test_a_saved_route_probes_at_its_roles_effort_and_certifies_the_level(self):
         # #2057: every route, saved or selected, proves the level it will launch at.
