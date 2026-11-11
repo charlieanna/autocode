@@ -4,7 +4,7 @@ import json
 import unittest
 
 from autocode_goals import check_requirement_handoff
-from autocode_requirement_cues import cue_sentences
+from autocode_requirement_cues import cue_sentences, sentences
 
 
 def report(*quotes):
@@ -63,6 +63,26 @@ class RequirementBlockTests(unittest.TestCase):
             with self.subTest(task=task):
                 self.assertEqual([task], cue_sentences(task))
                 check_requirement_handoff({"task": task}, report(task))
+
+    def test_a_bare_list_marker_is_not_a_sentence(self):
+        # #3118: "2." split off "2. The panel ..." was a sentence of its own, so it was "covered"
+        # and "out of scope" by any quote holding a standalone 2, and its number had to survive.
+        task = (
+            "Fix the panel.\n1. The panel lists the stages. It is fine.\n2) The panel hid levels.\n"
+            "- Keep the docs.\n3.\n10. Version 2. Pick 1."
+        )
+        self.assertEqual(
+            [
+                "Fix the panel.",
+                "The panel lists the stages.",
+                "It is fine.",
+                "2) The panel hid levels.",
+                "- Keep the docs.",
+                "Version 2.",
+                "Pick 1.",
+            ],
+            sentences(task),
+        )
 
     def test_blank_paragraphs_need_independent_coverage(self):
         first, second = "You must preserve tests", "You must preserve source"

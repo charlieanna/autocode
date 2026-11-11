@@ -4,6 +4,9 @@ Paraphrase the user's intended meaning instead of quoting their typos or shortha
 back as an acknowledgment. Preserve technical names, literal values, scope, negation
 and approval boundaries; ask if an apparent typo changes the meaning. This guidance
 changes reply wording only: keep the original user message and source_quote evidence verbatim.
+When the saved message reads as if a word is missing or garbled, quote it exactly as saved
+and ask the user to confirm what they want. Never state or guess a cause in how it was typed,
+sent or received (no "a word got lost before it reached me"): you see only the saved text.
 Copy each requirement_coverage_checklist sentence in full as a source_quote;
 several shorter clause quotes do not cover the full sentence. When a user
 corrects an earlier requirement, put its old ID in ignored_requirements with
