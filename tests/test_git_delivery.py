@@ -196,6 +196,28 @@ class AtomicDeliveryTests(unittest.TestCase):
         )
         return after["head"]
 
+    def recorded_follow_up(self, text, committed=False):
+        before = scope.snapshot(self.root, self.state)
+        (self.root / "app.py").write_text(text)
+        if committed:
+            self.git("add", ".")
+            self.git("commit", "-qm", "Builder committed its follow-up")
+        after = scope.snapshot(self.root, self.state)
+        base = self.run / ("builder-" + str(len(self.state.get("stages", []))))
+        util.atomic_json(base.with_suffix(".before.json"), before)
+        util.atomic_json(base.with_suffix(".after.json"), after)
+        self.state.setdefault("stages", []).append(
+            {
+                "stage": "builder",
+                "exit_code": 0,
+                "contract_hash": self.state["goal_contract"]["hash"],
+                "source_revision": after["revision"],
+                "before_ref": str(base.with_suffix(".before.json")),
+                "after_ref": str(base.with_suffix(".after.json")),
+            }
+        )
+        return after
+
     def test_builder_commit_is_reconciled_into_the_approved_atomic_delivery(self):
         self.state["workflow"] = {"kind": "bugfix"}
         self.state["task_branch"] = self.git("symbolic-ref", "--short", "HEAD")
@@ -426,7 +448,9 @@ class AtomicDeliveryTests(unittest.TestCase):
                         "commit-tree", "HEAD^{tree}", "-p", self.parent, "-m", "launch snapshot"
                     )
                 elif kind == "staged":
+                    (self.root / "app.py").write_text("stale staged bytes\n")
                     self.git("add", "app.py")
+                    (self.root / "app.py").write_text("new\n")
                 elif kind == "outside":
                     (self.root / "other.txt").write_text("unrelated\n")
                 else:
@@ -517,3 +541,86 @@ class AtomicDeliveryTests(unittest.TestCase):
         self.assertNotIn("completed_at", self.state)
         self.assertNotIn("final_decision", self.state)
         callbacks["save_record"].assert_called_once()
+
+    def test_ac1_benign_staged_index_delivered(self):
+        self.git("add", "app.py", "test_app.py")
+        self.assertEqual({"app.py", "test_app.py"}, set(self.git("diff", "--cached", "--name-only").splitlines()))
+        self.assertEqual("", self.git("diff", "--name-only"))
+        self.assertTrue(delivery.prepare(self.state, self.root, self.current))
+        self.assertEqual("1", self.git("rev-list", "--count", self.parent + "..HEAD"))
+        self.assertEqual(
+            {"app.py", "test_app.py"},
+            set(self.git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").splitlines()),
+        )
+        self.assertEqual("", self.git("status", "--porcelain"))
+
+    def test_ac2_hostile_staged_work_still_refuses(self):
+        for kind in ("outside", "stale"):
+            with self.subTest(kind=kind):
+                if kind == "outside":
+                    (self.root / "other.txt").write_text("unrelated\n")
+                    self.git("add", "other.txt")
+                    (self.root / "other.txt").unlink()
+                else:
+                    (self.root / "app.py").write_text("stale\n")
+                    self.git("add", "app.py")
+                    (self.root / "app.py").write_text("new\n")
+                before = self.git("status", "--porcelain")
+                with self.assertRaisesRegex(ValueError, "Staged work must be reconciled before atomic Git delivery"):
+                    delivery.prepare(self.state, self.root, scope.snapshot(self.root, self.state))
+                self.assertEqual(self.parent, self.git("rev-parse", "HEAD"))
+                self.assertEqual(before, self.git("status", "--porcelain"))
+                self.git("restore", "--staged", ".")
+
+    def test_ac3_redelivery_after_autocode_followup(self):
+        self.assertTrue(delivery.prepare(self.state, self.root, self.current))
+        first = self.git("rev-parse", "HEAD")
+        self.recorded_follow_up("followup\n")
+        self.assertTrue(delivery.prepare(self.state, self.root, scope.snapshot(self.root, self.state)))
+        self.assertEqual("1", self.git("rev-list", "--count", first + "..HEAD"))
+        self.assertEqual(first, self.git("rev-parse", "HEAD^"))
+        carried = subprocess.run(
+            ["git", "-C", str(self.root), "show", "HEAD:app.py"], capture_output=True, check=True
+        ).stdout
+        self.assertEqual(b"followup\n", carried)
+        self.assertEqual("", self.git("status", "--porcelain"))
+        after = scope.snapshot(self.root, self.state)
+        self.assertTrue(delivery.ready(self.state, after))
+        self.assertEqual(after["head"], self.state["git_delivery"]["commit"])
+        self.assertEqual(first, util.read(self.run / "git-delivery.json")["superseded"]["commit"])
+        delivered = self.git("rev-parse", "HEAD")
+        self.recorded_follow_up("committed followup\n", committed=True)
+        self.assertTrue(delivery.prepare(self.state, self.root, scope.snapshot(self.root, self.state)))
+        self.assertEqual("1", self.git("rev-list", "--count", delivered + "..HEAD"))
+        self.assertEqual(delivered, self.git("rev-parse", "HEAD^"))
+        carried = subprocess.run(
+            ["git", "-C", str(self.root), "show", "HEAD:app.py"], capture_output=True, check=True
+        ).stdout
+        self.assertEqual(b"committed followup\n", carried)
+        self.assertEqual("", self.git("status", "--porcelain"))
+        latest = scope.snapshot(self.root, self.state)
+        self.assertTrue(delivery.ready(self.state, latest))
+        self.assertEqual(latest["head"], self.state["git_delivery"]["commit"])
+
+    def test_ac4_unwitnessed_change_after_delivery_fails_closed(self):
+        self.assertTrue(delivery.prepare(self.state, self.root, self.current))
+        head = self.git("rev-parse", "HEAD")
+        receipt = (self.run / "git-delivery.json").read_bytes()
+        message = "Source, index or Git HEAD changed after delivery; reconcile before completion"
+        (self.root / "app.py").write_text("outside edit\n")
+        with self.assertRaisesRegex(ValueError, message):
+            delivery.prepare(self.state, self.root, scope.snapshot(self.root, self.state))
+        self.assertEqual(head, self.git("rev-parse", "HEAD"))
+        self.assertEqual("1", self.git("rev-list", "--count", self.parent + "..HEAD"))
+        self.assertEqual(receipt, (self.run / "git-delivery.json").read_bytes())
+        (self.root / "app.py").write_text("external commit\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "Outside commit")
+        outside = self.git("rev-parse", "HEAD")
+        before = self.git("status", "--porcelain")
+        with self.assertRaisesRegex(ValueError, message):
+            delivery.prepare(self.state, self.root, scope.snapshot(self.root, self.state))
+        self.assertEqual(outside, self.git("rev-parse", "HEAD"))
+        self.assertEqual("2", self.git("rev-list", "--count", self.parent + "..HEAD"))
+        self.assertEqual(receipt, (self.run / "git-delivery.json").read_bytes())
+        self.assertEqual(before, self.git("status", "--porcelain"))
