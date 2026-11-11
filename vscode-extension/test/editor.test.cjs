@@ -377,11 +377,16 @@ test('toolbar buttons are icons with accessible names and unchanged ids', async 
 test('a narrow sidebar hides the keyboard hint and lets the composer row wrap so Send stays reachable', async (t) => {
   const ui = await openChat(t, chatView());
   const rules = [...ui.document.styleSheets].flatMap((sheet) => [...sheet.cssRules]);
-  const narrow = rules.find((rule) => rule.conditionText === '(max-width: 240px)');
+  const narrow = rules.find((rule) => rule.conditionText === '(max-width: 480px)');
   assert.ok(narrow, 'chat styles need a narrow-composer rule');
   const nested = [...narrow.cssRules];
   assert.equal(nested.find((rule) => rule.selectorText === '.keyboard-hint').style.display, 'none');
   assert.equal(nested.find((rule) => rule.selectorText === '#composer .actions').style.getPropertyValue('flex-wrap'), 'wrap');
+  const chipLabel = rules.find((rule) => rule.selectorText === '#composer .chip span');
+  assert.ok(chipLabel, 'chip labels need an ellipsis rule');
+  assert.equal(chipLabel.style.getPropertyValue('text-overflow'), 'ellipsis');
+  const engineLabel = rules.find((rule) => rule.selectorText === '#engine-picker span');
+  assert.ok(engineLabel, 'the engine chip label needs a width cap so a long provider id cannot push Send out of the sidebar');
 });
 
 test('engine chip shows the engine new chats will use and opens the picker', async (t) => {
