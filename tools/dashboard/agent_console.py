@@ -85,6 +85,13 @@ def json_file(p):
         return {"_console_error": str(e)}
 
 
+def saved_state(run):
+    """The run's saved state as the dashboard names it (dashboard_run_state.legacy_names), or the
+    ``_console_error`` record ``json_file`` gives for an unreadable one."""
+    state = json_file(run_state.path(run))
+    return state if "_console_error" in state else run_state.legacy_names(state)
+
+
 def configured_zai(config_path=None):
     try:
         data = tomllib.loads(
@@ -684,7 +691,7 @@ class LegacyConsole:
         return r if r.is_dir() and run_state.path(r).is_file() else None
 
     def view(self, ws, run, s=None):
-        s = obj(s) if s is not None else json_file(run_state.path(run))
+        s = obj(s) if s is not None else saved_state(run)
         contract = obj(s.get("goal_contract"))
         body = obj(contract.get("body"))
         criteria = items(body.get("acceptance_criteria")) or items(s.get("acceptance_criteria"))
@@ -764,7 +771,7 @@ class LegacyConsole:
                         }
                     )
                     continue
-                s = json_file(run_state.path(run))
+                s = saved_state(run)
                 rows.append(
                     {"workspace": str(ws), "run": str(run), "error": "state unavailable: " + s["_console_error"]}
                     if "_console_error" in s

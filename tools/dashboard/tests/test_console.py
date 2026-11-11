@@ -222,6 +222,18 @@ class Tests(unittest.TestCase):
         (self.run / "state.json").write_text(json.dumps(self.state))
         self.assertEqual(request, self.c.view(self.ws, self.run)["user_request"])
 
+    def test_a_run_saved_with_the_job_names_is_read_with_the_dashboards_names(self):
+        self.state.update(
+            settings={"joint_planning": True},
+            goal_contract={"origin": "planner_draft"},
+            stages=[{"stage": "draft_plan", "role": "planner", "exit_code": 0}],
+        )
+        (self.run / "state.json").write_text(json.dumps(self.state))
+        self.assertEqual("glm", self.c.view(self.ws, self.run)["discovery_role"])
+        self.state["stages"].append({"stage": "review_plan", "role": "task_planner", "exit_code": 0})
+        (self.run / "state.json").write_text(json.dumps(self.state))
+        self.assertEqual("astra", self.c.view(self.ws, self.run)["discovery_role"])
+
     def test_discovery_summary_and_author_follow_saved_successful_planning_stage(self):
         self.state.update(
             settings={"joint_planning": True},
