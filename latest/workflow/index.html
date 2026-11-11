@@ -2322,7 +2322,7 @@
 
 
 <h1 id="workflow-planning-approval-and-handoffs">Workflow: planning, approval, and handoffs<a class="headerlink" href="#workflow-planning-approval-and-handoffs" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/bdb883fad8c1b9b9b6056bcc678038f989340714/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/475fee4fa5f978479770262d2696bfd387311464/README.md">← Back to README</a></p>
 <p>This page covers the end-to-end conversation flow: how a rough idea becomes an
 approved plan, how that plan is implemented and reviewed, and what Autopilot
 coordinates along the way.</p>
@@ -3033,7 +3033,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   root, normally the package (<code>test_greet.TestGreet.test_x</code>), and a node:test file there that runs another test runner is still not named
   proof (#380). A feature that adds the first Go module in the package, on a
   base with no Go project, is not held to a base Go suite that cannot exist,
-  as at the root (<a href="https://github.com/charlieanna/autocode/blob/bdb883fad8c1b9b9b6056bcc678038f989340714/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
+  as at the root (<a href="https://github.com/charlieanna/autocode/blob/475fee4fa5f978479770262d2696bfd387311464/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
 <li>Only the package's existing tests are retained as
   <a href="../protected-tests/">original test gates</a>, with the package suite as their
   command unless <code>--test-command</code> gives one, so a large repository does not bind
@@ -3111,7 +3111,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   also leaves a change outside the package <code>UNVERIFIED</code>, because the package
   suite never ran it.</p>
 <p>The <code>feature-monorepo-package</code> scenario
-(<a href="https://github.com/charlieanna/autocode/blob/bdb883fad8c1b9b9b6056bcc678038f989340714/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
+(<a href="https://github.com/charlieanna/autocode/blob/475fee4fa5f978479770262d2696bfd387311464/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
 one package of a two-package repository with <code>--package</code> and the scripted
 model. Its reference completes; its broken variant, which also edits the other
 package, stops with each of those files named in the open <code>runner</code> finding.
@@ -3141,6 +3141,23 @@ results read inside <code>DIR</code>. A run of zero tests, of only skipped tests
 incomplete results is then refused, as for the same runner at the root. A direct
 node:test command in that form always runs fresh and is never reused from the
 baseline cache, as at the root.</p>
+<p>A run of the whole repository, without <code>--package</code>, finds the package around tests
+its root suite cannot run. When the Tester's tests, or a proof's changed tests, all
+sit inside one directory below the root that has its own manifest (<code>package.json</code>,
+<code>go.mod</code>, <code>Cargo.toml</code>, <code>pyproject.toml</code>, <code>setup.py</code>, <code>setup.cfg</code> or <code>Gemfile</code>) and
+a suite detected there runs them, they run with that suite from that directory, as
+if the run had named it with <code>--package</code>. The innermost such directory wins. The
+regression proof does this only when every changed code file is inside that
+directory; a code change elsewhere keeps the root's suite. A Node package in a
+Python repository (this repository's <code>vscode-extension/</code>) is the case it was
+added for: its tests were handed to the root's pytest, which cannot run them, and
+the run paused for a <code>--test-command</code>.</p>
+<p>A Node package whose <code>test</code> script builds first, in the form
+<code>BUILD &amp;&amp; node --test FILES</code>, runs its build steps before a targeted test run, with
+the package's <code>node_modules/.bin</code> on the path (<code>npm exec --call 'BUILD' &amp;&amp; node
+--test FILE</code>); the whole suite still runs as <code>npm test</code>. A scratch copy links each
+package's own <code>node_modules</code> (beside a tracked <code>package.json</code>) from the checkout,
+or from its main checkout when a task worktree has none.</p>
 <p>Not covered yet (#711):</p>
 <ul>
 <li>Nothing limits what the Builder writes while it works: a change outside the
@@ -3164,16 +3181,17 @@ baseline cache, as at the root.</p>
   instrumentation"), in a run with or without <code>--package</code>. A package run's own
   suite has that form, so its native visual checks cannot run it.</li>
 <li>The test environment still comes from the repository root: the Python
-  interpreter is the root's, and only the root's <code>node_modules</code>, <code>.venv</code> or
-  <code>venv</code> are linked into scratch copies. A package's own <code>node_modules</code> or
-  <code>.venv</code> is not used.</li>
+  interpreter is the root's, and only the root's <code>.venv</code> or <code>venv</code> is linked
+  into scratch copies. A package's own <code>.venv</code> is not used; its own
+  <code>node_modules</code> is (above).</li>
 <li>A package run never reuses an earlier passing Python proof; it runs again.</li>
 <li>The first-Go-module rule (#685) still looks for a Go project in the whole
   repository. A Go module, workspace or Go source in another package counts, so
   a first Go module in this package is then held to a base suite that cannot
   run, and the proof stays <code>UNVERIFIED</code>.</li>
-<li>The Tester's acceptance tests, written before the Builder starts, still run
-  with the suite detected at the repository root.</li>
+<li>The Tester's acceptance tests, written before the Builder starts, run with the
+  suite detected at the repository root, or with the suite of the package around
+  them when the root's cannot run them (above), even in a <code>--package</code> run.</li>
 <li>Diff coverage and the mutation report, which never change a verdict, are not
   narrowed to a package's commands and may be skipped.</li>
 </ul>
@@ -3358,7 +3376,7 @@ it is generated from the front matter so reviewers can read the plan.</p>
 holds it. A plan read back from the file has the same goal hash as the run's. The scenario runner
 (<code>scenarios/run.py</code>) checks this at every plan approval its catalog runs reach: it exports the plan
 and reads the file back with <code>--check</code> before it approves the plan
-(<a href="https://github.com/charlieanna/autocode/blob/bdb883fad8c1b9b9b6056bcc678038f989340714/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
+(<a href="https://github.com/charlieanna/autocode/blob/475fee4fa5f978479770262d2696bfd387311464/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
 committing it approves nothing. Text that looks like a credential is masked before the file is
 written, with the same policy as <code>autocode bundle</code>; the export then says that the file's goal hash
 differs from the run's.</p>

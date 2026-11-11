@@ -1990,7 +1990,7 @@
 
 
 <h1 id="task-lanes-and-multiple-tasks">Task lanes and multiple tasks<a class="headerlink" href="#task-lanes-and-multiple-tasks" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/bdb883fad8c1b9b9b6056bcc678038f989340714/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/475fee4fa5f978479770262d2696bfd387311464/README.md">← Back to README</a></p>
 <h2 id="connected-task-lanes">Connected task lanes<a class="headerlink" href="#connected-task-lanes" title="Permanent link">&para;</a></h2>
 <p>Use <code>autocode tasks</code> (or <code>autocode tasks</code>) when several complete Autocode tasks must
 run in order or independently. Tasks inside one lane run sequentially in the same
@@ -2462,8 +2462,12 @@ says which task is working there and exits with status 2, changing nothing. Run
 the same command again once the other run stops, or start the task without
 <code>--in-place</code> so it gets its own worktree. Answering, approving or giving feedback to
 a waiting run launches no agent and is not blocked. Requirements only reads the
-checkout, so it runs while another run holds it: a question Requirements answers
-itself finishes without waiting, and a change waits only when planning would start. AutoCode never merges branches;
+checkout, so it runs while another run holds it and never holds it itself: a question
+Requirements answers itself finishes without waiting, and a change waits only when planning
+would start. While a run is ready to go on but waits for another run to leave the checkout, its
+status view says so in <code>checkout_wait</code> (and in <code>chat.progress</code>); the VS Code chat keeps showing
+that wait instead of a Continue button, and takes the run's named continue once the checkout is
+free. AutoCode never merges branches;
 see <a href="#when-a-task-finishes">When a task finishes</a> for committing and removing worktrees.</p>
 <p>See also: <a href="../figma/">Figma design</a> · <a href="../workflow/">Workflow</a></p>
 
