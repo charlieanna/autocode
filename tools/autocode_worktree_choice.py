@@ -28,7 +28,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -81,7 +81,8 @@ def where(state: RunState, workspace=None) -> dict | None:
     path = str(workspace) if workspace is not None else state.get("workspace")
     if not isinstance(path, str) or not path:
         return None
-    record = state.get(KEY) if isinstance(state.get(KEY), dict) else {}
+    saved = state.get(KEY)
+    record: dict = saved if isinstance(saved, dict) else {}
     branch, project = state.get("task_branch"), state.get("project_workspace")
     if isinstance(branch, str) and branch and isinstance(project, str) and project:
         existing = bool(record.get("existing_branch"))
@@ -330,13 +331,14 @@ def _active(folder: Path) -> list[dict]:
             if run_dir.is_symlink() or path.is_symlink() or not path.is_file() or str(run_dir) in archived:
                 continue
             try:
-                state = json.loads(path.read_text())
+                loaded = json.loads(path.read_text())
             except (OSError, ValueError):
                 continue
-            if not isinstance(state, dict) or state.get("status") in COMPLETE:
+            if not isinstance(loaded, dict) or loaded.get("status") in COMPLETE:
                 continue
-            record = state.get(KEY) if isinstance(state.get(KEY), dict) else {}
-            if record.get("state") == "moved":
+            state = cast("RunState", loaded)
+            record = loaded.get(KEY)
+            if isinstance(record, dict) and record.get("state") == "moved":
                 continue  # its row is the run in its own worktree
             place = where(state, checkout) or {}
             chats.append(
