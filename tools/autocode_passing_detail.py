@@ -51,7 +51,9 @@ def move(result, moved) -> None:
         proof["passing_detail_instruction"] = INSTRUCTION.format(fields=PASS_TO_PASS)
     validation = result.get("validation")
     replay = validation.get("check_replay") if isinstance(validation, dict) else None
-    rows = replay.get("checks") if isinstance(replay, dict) else None
+    if not isinstance(replay, dict):
+        return
+    rows = replay.get("checks")
     if isinstance(rows, list) and "passing_detail_instruction" not in replay:
         lists = {}
         for index, row in enumerate(rows):
