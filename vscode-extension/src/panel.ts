@@ -912,6 +912,18 @@ let renderedState = '';
 let checkpointCompare = Object.create(null);
 let workingCompare = null;
 const ACTIVITY_MARKS = { command: '$', edit: '±', tool: '·', thinking: '∴', message: '»' };
+// What each mark stands for, as a tooltip and for screen readers: the marks alone explain nothing.
+const ACTIVITY_NAMES = { command: 'Ran a command', edit: 'Changed files', tool: 'Used a tool', thinking: 'Thinking', message: 'Said' };
+
+function activityMark(row) {
+  const failed = row.status === 'failed';
+  const mark = el('span', 'activity-mark', failed ? '✗' : (ACTIVITY_MARKS[row.kind] || '·'));
+  const name = (ACTIVITY_NAMES[row.kind] || 'Step') + (failed ? ' (failed)' : row.status === 'running' ? ' (running)' : '');
+  mark.title = name;
+  mark.setAttribute('role', 'img');
+  mark.setAttribute('aria-label', name);
+  return mark;
+}
 // The live agent log kept by entry id across reads (the terminal chat's LiveLog).
 const liveLog = new Map();
 // Thoughts a person unfolded; every other thought shows as one line, as the terminal folds them.
@@ -975,9 +987,8 @@ function renderChatProgress(container, state) {
         agent = row.agent;
         list.appendChild(el('div', 'log-agent', agent));
       }
-      const mark = row.status === 'failed' ? '✗' : (ACTIVITY_MARKS[row.kind] || '·');
       const line = el('div', 'activity-row ' + (row.status || '') + (row.kind === 'thinking' ? ' thinking' : ''));
-      line.appendChild(el('span', 'activity-mark', mark));
+      line.appendChild(activityMark(row));
       if (row.kind === 'thinking') {
         // Reasoning folds to one line; a click unfolds it. The core's streaming marker is
         // shown as a tooltip, not as part of the thought.
@@ -1006,9 +1017,8 @@ function renderChatProgress(container, state) {
     const list = el('div', 'activity');
     list.setAttribute('aria-label', 'What AutoCode is doing');
     events.forEach((row) => {
-      const mark = row.status === 'failed' ? '✗' : (ACTIVITY_MARKS[row.kind] || '·');
       const line = el('div', 'activity-row ' + (row.status || ''));
-      line.appendChild(el('span', 'activity-mark', mark));
+      line.appendChild(activityMark(row));
       line.appendChild(el('span', null, row.text));
       list.appendChild(line);
     });
