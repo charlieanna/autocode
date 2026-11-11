@@ -971,6 +971,9 @@ const liveLog = new Map();
 const openThoughts = new Set();
 let checkpointResult = null;
 const tabScroll = Object.create(null);
+// The tab strip's keyboard state: the tab keys in order and the selected one.
+let tabKeys = [];
+let activeTabKey = '';
 
 function el(tag, cls, text) {
   const node = document.createElement(tag);
@@ -1108,22 +1111,22 @@ function renderChatProgress(container, state) {
       list.appendChild(logLine(group));
     });
     container.appendChild(list);
-    return;
-  }
-  // What the running step does now: core-written display text, never proof that it worked.
-  const events = state.chat && Array.isArray(state.chat.activity)
-    ? state.chat.activity.filter((row) => row && typeof row.text === 'string' && row.text).slice(-6) : [];
-  if (events.length) {
-    const list = el('div', 'activity');
-    list.setAttribute('aria-label', 'What AutoCode is doing');
-    events.forEach((row) => {
-      const mark = row.status === 'failed' ? '✗' : (ACTIVITY_MARKS[row.kind] || '·');
-      const line = el('div', 'activity-row ' + (row.status || ''));
-      line.appendChild(el('span', 'activity-mark', mark));
-      line.appendChild(el('span', null, row.text));
-      list.appendChild(line);
-    });
-    container.appendChild(list);
+  } else {
+    // What the running step does now: core-written display text, never proof that it worked.
+    const events = state.chat && Array.isArray(state.chat.activity)
+      ? state.chat.activity.filter((row) => row && typeof row.text === 'string' && row.text).slice(-6) : [];
+    if (events.length) {
+      const list = el('div', 'activity');
+      list.setAttribute('aria-label', 'What AutoCode is doing');
+      events.forEach((row) => {
+        const mark = row.status === 'failed' ? '✗' : (ACTIVITY_MARKS[row.kind] || '·');
+        const line = el('div', 'activity-row ' + (row.status || ''));
+        line.appendChild(el('span', 'activity-mark', mark));
+        line.appendChild(el('span', null, row.text));
+        list.appendChild(line);
+      });
+      container.appendChild(list);
+    }
   }
   if (state.workingDiff) {
     const show = el('button', 'secondary', state.workingDiff.label);
@@ -2054,13 +2057,19 @@ function renderTabs(data) {
   const host = document.getElementById('chat-tabs');
   if (!host) return;
   const rows = data.tabs || [{ key: data.runKey || '', name: data.runKey ? 'Chat' : 'New chat' }];
+  tabKeys = rows.map((tab) => tab.key);
+  activeTabKey = data.activeKey || '';
   const signature = JSON.stringify([rows, data.activeKey]);
   if (host.dataset.content === signature) return;
   host.dataset.content = signature;
+  // A selection rebuilds the strip: keyboard focus that was on it moves to the new active tab,
+  // not to the body (the composer and everything else keep their focus untouched).
+  const stripHadFocus = host.contains(document.activeElement);
   host.textContent = '';
   rows.forEach((tab) => {
     const item = el('div', 'chat-tab' + (tab.key === data.activeKey ? ' active' : ''));
     item.role = 'tab';
+    item.tabIndex = tab.key === data.activeKey ? 0 : -1;
     item.setAttribute('aria-selected', tab.key === data.activeKey ? 'true' : 'false');
     const name = el('span', 'name', tab.name);
     item.appendChild(name);
@@ -2077,7 +2086,9 @@ function renderTabs(data) {
       item.appendChild(dot);
     }
     if (rows.length > 1) {
-      const close = el('span', 'close', '×');
+      // A real button: the strip's only close affordance must be reachable and pressable by keyboard.
+      const close = el('button', 'close', '×');
+      close.type = 'button';
       close.title = 'Close chat';
       close.setAttribute('aria-label', 'Close chat ' + tab.name);
       close.addEventListener('click', (event) => {
@@ -2095,6 +2106,7 @@ function renderTabs(data) {
   // A new chat opens past the visible strip; keep the chat you are in on screen.
   const active = host.querySelector('.chat-tab.active');
   if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  if (stripHadFocus && active) active.focus();
 }
 
 function renderChat(data) {
@@ -2457,6 +2469,19 @@ if (chatMode) {
     vscode.setState({ ...(vscode.getState() || {}), modelDetailsOpen: disclosure.open });
   });
   document.getElementById('history').addEventListener('click', () => vscode.postMessage({ type: 'history' }));
+  // The tab strip works from the keyboard: arrows (and Home/End) move over the chats and select,
+  // the same selection a click makes, with the roving tabindex renderTabs keeps.
+  document.getElementById('chat-tabs').addEventListener('keydown', (event) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const host = document.getElementById('chat-tabs');
+    const index = tabKeys.indexOf(activeTabKey);
+    if (!tabKeys.length || index < 0) return;
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabKeys.length - 1
+      : event.key === 'ArrowRight' ? (index + 1) % tabKeys.length : (index - 1 + tabKeys.length) % tabKeys.length;
+    if (host.children[next]) host.children[next].focus();
+    if (tabKeys[next] !== activeTabKey) vscode.postMessage({ type: 'select_tab', tabKey: tabKeys[next] });
+  });
   document.getElementById('connections').addEventListener('click', () => vscode.postMessage({ type: 'connections' }));
   document.getElementById('details').addEventListener('click', () => {
     if (chatEnvelope && chatEnvelope.runKey) vscode.postMessage({ type: 'details' });
