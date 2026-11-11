@@ -305,7 +305,7 @@ test("each stage shows the model, level, time, tokens and spend its own attempts
   const header = runHeader(working(), STARTED);
   // Always visible, without opening the details: the working stage and what it is doing.
   assert.equal(header?.current, "Planner working · claude-opus-5-5 · high · 30s · 29k+ tokens · $0.12 · reading files");
-  assert.deepEqual(header?.facts, ["42k+ tokens", "1m30s working"]);
+  assert.deepEqual(header?.facts, ["1m30s working"]);
   const stages = section(header, "pipeline");
   assert.equal(stages?.title, "Stages");
   assert.deepEqual(stages?.lines.slice(1, 4), [
@@ -321,7 +321,7 @@ test("each stage shows the model, level, time, tokens and spend its own attempts
 
 test("cost and usage restate the core's accounting, tokens, time and attempts as the terminal's /details does", () => {
   const usage = section(runHeader(working(), STARTED), "usage");
-  assert.equal(usage?.summary, "$0.05+ of $5.00");
+  assert.equal(usage?.summary, "$0.17+ of $5.00 · 42k+ tokens");
   assert.deepEqual(usage?.lines, [
     "Accounted so far: $0.05 (1 running)",
     "  Running stage so far: $0.12",

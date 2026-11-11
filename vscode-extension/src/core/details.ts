@@ -14,7 +14,7 @@
  * as the terminal chat words them. Display only: nothing here is an action.
  */
 
-import { duration, money as stageMoney, stages as meterStages, tokens as stageTokens, type StageRow } from "./meter";
+import { duration, money as stageMoney, runTotal, stages as meterStages, tokens as stageTokens, totalText, type StageRow } from "./meter";
 
 type Row = Record<string, unknown>;
 
@@ -408,7 +408,8 @@ function usageSection(view: Row): DetailSection | null {
   if (isNumber(cost.running_usd) && cost.running_usd > 0) lines.push(`  Running stage so far: ${stageMoney(cost.running_usd)}`);
   if (isNumber(cost.estimated_usd)) lines.push(`  Price-table estimate: ${stageMoney(cost.estimated_usd)}${text(cost.prices_as_of) ? ` (prices as of ${text(cost.prices_as_of)})` : ""}`);
   const reported = mapping(accounting.cost).reported_usd ?? cost.reported_usd;
-  if (reported !== null && reported !== undefined) lines.push(`  Provider-reported: ${quantity(reported, true)}`);
+  const reportedText = quantity(reported, true);
+  if (reportedText !== "unknown" && reportedText !== "$0 known") lines.push(`  Provider-reported: ${reportedText}`);
   if (isNumber(cost.inherited_usd)) lines.push(`  Carried over from a restored step: ${stageMoney(cost.inherited_usd)}`);
   lines.push(isNumber(cost.cap_usd) && cost.cap_usd > 0 ? `  Spending cap: ${stageMoney(cost.cap_usd)}` : "  Spending cap: none");
   for (const row of rows(mapping(cost.breakdown).by_billing)) {
@@ -445,7 +446,8 @@ function usageSection(view: Row): DetailSection | null {
     }
   }
   lines.push("Estimates and provider reports are not an invoice.");
-  const summary = `${accounted}${complete ? "" : "+"}` + (isNumber(cost.cap_usd) && cost.cap_usd > 0 ? ` of ${stageMoney(cost.cap_usd)}` : "");
+  // The same total as the toolbar's cost line: accounted spend with the running stage's so far.
+  const summary = totalText(runTotal(view)) || `${accounted}${complete ? "" : "+"}`;
   return { id: "usage", title: "Cost and usage", summary, lines };
 }
 
@@ -592,12 +594,7 @@ export function runHeader(view: unknown, at = Date.now()): RunHeader | null {
   const facts: string[] = [];
   const spend = spendSummary(source);
   if (spend) facts.push(spend);
-  // The run's tokens and working time: the same figures the Cost and usage section lists.
-  const used = mapping(mapping(mapping(source.usage).accounting).tokens);
-  const input = mapping(used.input_tokens);
-  const output = mapping(used.output_tokens);
-  const total = (isNumber(input.known) ? input.known : 0) + (isNumber(output.known) ? output.known : 0);
-  if (total) facts.push(`${stageTokens(total)}${input.complete === true && output.complete === true ? "" : "+"} tokens`);
+  // The run's working time; its spend and tokens are already on the toolbar's cost line.
   const seconds = executionSeconds(source);
   if (seconds !== null) facts.push(`${duration(seconds)} working`);
   const wrong = recoveries(source).length;

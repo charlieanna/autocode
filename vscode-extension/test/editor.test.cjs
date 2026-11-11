@@ -1609,7 +1609,6 @@ test('the run header shows the working stage and what it does, and its details t
   // Visible without opening anything: the working stage's model, level, time, tokens, spend and doing.
   assert.match(ui.document.querySelector('#header-stage').textContent,
     /^Requirements working · claude-sonnet-5-5 · medium · 1m1\ds · 9\.4k\+ tokens · \$0\.04 · reading the issue list$/);
-  assert.match(ui.document.querySelector('#header-facts').textContent, /9\.4k\+ tokens/);
   ui.document.querySelector('#header-toggle').click();
   const details = ui.document.querySelector('#header-details');
   assert.deepEqual([...details.querySelectorAll('.detail-section')].map((node) => node.dataset.section), ['where', 'pipeline', 'wrong', 'spend', 'usage']);
