@@ -131,6 +131,8 @@ test("budget cost distinguishes known zero, unknown, partial and missing cap fie
       expected: "Cost counted toward cap: at least $0.00 / $2.00 cap (partial)" },
     { cost: { spent_usd: -1, cap_usd: Number.NaN, complete: false },
       expected: "Cost counted toward cap: unknown · cap not reported (partial)" },
+    { cost: { spent_usd: 0, running_usd: 0.102963, cap_usd: null, complete: false, unpriced_stages: 0 },
+      expected: "Cost counted toward cap: at least $0.00 · no configured cap (partial) · running stage $0.1030 so far" },
     { cost: { spent_usd: 0.25, complete: true, unpriced_stages: 1 },
       expected: "Cost counted toward cap: at least $0.2500 · cap not reported (partial; 1 unpriced stage)" },
   ];

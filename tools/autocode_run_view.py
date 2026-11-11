@@ -244,6 +244,8 @@ def view(
     stages = state.get("stages")
     launches = [*(stages if isinstance(stages, list) else []), active]
     plan = approved_contract(state)
+    # Tokens and cost so far, by role (autocode_usage.summary), with the live accounting the cost reads.
+    usage_summary = autocode_usage.summary(state)
     result = {
         "replay_source": None if invalid_replay else replay_view.project(state, run_dir=run_dir),
         "replay_progress": replay_progress,
@@ -335,9 +337,10 @@ def view(
         "evidence_report": evidence_report(state),
         "acceptance_tests": acceptance_tests.view(state),  # spec-first Tester files and results (#1200)
         # Tokens and cost so far, by role (autocode_usage.summary): reported, estimated and unknown kept apart.
-        "usage": autocode_usage.summary(state),
-        # Spend against the person's money cap at the dated price table (autocode_cost, #721).
-        "cost": cost.view(state),
+        "usage": usage_summary,
+        # Spend against the person's money cap at the dated price table (autocode_cost, #721), and what
+        # the running stage has spent so far (`running_usd`), from the live accounting above.
+        "cost": cost.view(state, accounting=usage_summary["accounting"]),
         # How the struggles behind the run's escalations and Builder retries ended, as the runner
         # stamped them (autocode_route_ladder): `passed` once the run completed on work a validation
         # passed or moved on from it, `paused` at a retry-limit pause, `open` while unresolved.

@@ -56,6 +56,8 @@ export interface Usage {
 /** Existing core accounting used for the money cap; prices and policy stay in the core. */
 export interface BudgetCost {
   spent_usd?: number | null;
+  /** What the running stage has spent so far; not in `spent_usd` or the cap check until it finishes. */
+  running_usd?: number | null;
   cap_usd?: number | null;
   unpriced_stages?: number;
   complete?: boolean;
@@ -150,9 +152,11 @@ export function usageDisplay(usage?: Usage | null, cost?: BudgetCost | null): Us
     : cost.cap_usd === null ? "no configured cap" : "cap not reported";
   const partial = complete ? "" : ` (partial${unpriced ? `; ${count(unpriced)} unpriced stage${unpriced === 1 ? "" : "s"}` : ""})`;
   const limit = finite(cost.cap_usd) && cost.cap_usd > 0 ? ` / ${cap} cap` : ` · ${cap}`;
-  display.cost = `Cost counted toward cap: ${amount}${limit}${partial}`;
+  const running = finite(cost.running_usd) ? `${usd(cost.running_usd!)} so far` : "";
+  display.cost = `Cost counted toward cap: ${amount}${limit}${partial}${running ? ` · running stage ${running}` : ""}`;
   display.details.unshift(
     { label: "Cost counted toward cap", value: amount + partial },
+    ...(running ? [{ label: "Running stage", value: `${running}, counted toward the cap when it finishes` }] : []),
     { label: "Cost cap", value: cap },
     { label: "Budget cost basis", value: "The core compares this known subtotal with the cap. Unpriced or unreported usage may be missing. This is not a provider bill." },
   );

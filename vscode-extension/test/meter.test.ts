@@ -137,6 +137,23 @@ test("the run total is the core's own, with its cap", () => {
   assert.equal(runTotal({}), null);
 });
 
+test("the running stage's spend so far is in its row and the total", () => {
+  // Ankur, 2026-11-11: the header read "$0+ · 1.9M+ tokens" while Requirements ran, since nothing had finished.
+  const running = attempt("requirements_gather", "Requirements", { active: true, duration_seconds: null, started_at: "2026-11-02T01:09:00Z" });
+  const shown = view([running], { spent: 0, complete: false });
+  (shown as unknown as { cost: Record<string, unknown> }).cost.running_usd = 0.103;
+  assert.equal(totalText(runTotal(shown)), "$0.103+ · 184k+ tokens");
+  assert.deepEqual(stageLines(stages(shown, NOW)[0]!), { head: "Requirements · 1m00s · $0.103", detail: "gpt-x high · 1.2k tokens" });
+  // A second round adds the running attempt to the stage's finished spend.
+  const again = view([
+    attempt("review_plan", "Plan Reviewer"),
+    attempt("review_plan", "Plan Reviewer", { active: true, duration_seconds: null }),
+  ], { spent: 0.2, byStage: [{ stage: "review_plan", spent_usd: 0.2 }] });
+  (again as unknown as { cost: Record<string, unknown> }).cost.running_usd = 0.05;
+  assert.equal(stages(again, NOW)[0]!.spentUsd, 0.25);
+  assert.equal(runTotal(again)!.spentUsd, 0.25);
+});
+
 test("the session adds chats without counting a restored step's spend twice", () => {
   const first = runTotal(view([], { spent: 1.0 }));
   const restored = runTotal(view([], { spent: 1.5, inherited: 1.0 }));

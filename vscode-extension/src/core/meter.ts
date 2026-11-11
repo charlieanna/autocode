@@ -4,9 +4,10 @@
  *
  * Every figure is a value the core wrote: an attempt's route, start, duration, outcome and
  * attributed tokens (`usage.accounting.attempts`), a stage's accounted spend
- * (`cost.breakdown.by_stage`) and the run's accounted total (`cost.spent_usd`). The only
- * arithmetic is adding one stage's own attempts together, and adding separate chats' run
- * totals for the session line. Display only: nothing here chooses a route or spends.
+ * (`cost.breakdown.by_stage`), the running stage's spend so far (`cost.running_usd`) and the
+ * run's accounted total (`cost.spent_usd`). The only arithmetic is adding one stage's own
+ * attempts together, adding the running stage's spend to the run's, and adding separate chats'
+ * run totals for the session line. Display only: nothing here chooses a route or spends.
  */
 
 export type StageState = "done" | "working" | "failed" | "retrying";
@@ -125,7 +126,10 @@ export function stages(view: unknown, now = Date.now()): StageRow[] {
   const root = mapping(view);
   const attempts = rows(mapping(mapping(root.usage).accounting).attempts)
     .filter((row) => !row.runner_owned && row.usage_basis !== "runner");
-  const spend = new Map(rows(mapping(mapping(root.cost).breakdown).by_stage).map((row) => [row.stage, row]));
+  const cost = mapping(root.cost);
+  const spend = new Map(rows(mapping(cost.breakdown).by_stage).map((row) => [row.stage, row]));
+  // The running stage is in no finished-stage row yet; its spend so far is the core's `running_usd`.
+  const running = isNumber(cost.running_usd) ? cost.running_usd : null;
   const grouped = new Map<string, Row[]>();
   for (const row of attempts) {
     // A report repair (`sol_report_repair`) is another attempt at the stage it repairs.
@@ -152,6 +156,7 @@ export function stages(view: unknown, now = Date.now()): StageRow[] {
     // A repaired stage's cost is its own stage row and its repair's: separate stages of one ledger.
     const costs = [...new Set(group.map((row) => String(row.stage)))]
       .map((name) => mapping(spend.get(name)).spent_usd).filter(isNumber);
+    if (newest.active && running !== null) costs.push(running);
     const working = state === "working" || state === "retrying";
     return {
       stage,
@@ -201,7 +206,9 @@ export function runTotal(view: unknown): RunTotal | null {
   const root = mapping(view);
   const cost = mapping(root.cost);
   const used = mapping(mapping(mapping(root.usage).accounting).tokens);
-  const spent = isNumber(cost.spent_usd) ? cost.spent_usd : null;
+  const finished = isNumber(cost.spent_usd) ? cost.spent_usd : null;
+  // What the running stage has spent so far; the total stays a floor (`complete` false) until it finishes.
+  const spent = isNumber(cost.running_usd) ? (finished ?? 0) + cost.running_usd : finished;
   const [input, inputWhole] = known(used.input_tokens);
   const [output, outputWhole] = known(used.output_tokens);
   if (spent === null && !input && !output) return null;
