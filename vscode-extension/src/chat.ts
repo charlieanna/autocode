@@ -227,10 +227,6 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     const index = this.tabs.findIndex((tab) => tab.key === key);
     if (index < 0 || this.tabs.length === 1) return;
     this.tabs.splice(index, 1);
-    // A tab closed mid-reply would otherwise keep the streaming pace for every chat: nothing
-    // tracks its extract again to quiet it, so the short interval would never end.
-    this.streamText.delete(key);
-    this.streamQuiet.delete(key);
     if (this.activeKey === key) {
       const neighbor = this.tabs[Math.min(index, this.tabs.length - 1)] ?? this.tabs[0]!;
       this.activate(neighbor.key);
@@ -261,6 +257,14 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
 
   /** The wait before the next read: short while a reply is still changing, else ``seconds``. */
   private pace(seconds: number): number {
+    // Only open tabs count. A tab that went away mid-reply (closed, deleted as the only tab, or replaced
+    // when the webview restores its tabs) is never read again to quiet it, so it would hold every
+    // chat at the streaming pace for the rest of the window's life.
+    for (const key of [...this.streamText.keys()]) {
+      if (this.tabs.some((tab) => tab.key === key)) continue;
+      this.streamText.delete(key);
+      this.streamQuiet.delete(key);
+    }
     for (const [key, text] of this.streamText) {
       if (text && (this.streamQuiet.get(key) ?? 0) < STREAM_QUIET_POLLS) return Math.min(STREAM_POLL_SECONDS, seconds);
     }

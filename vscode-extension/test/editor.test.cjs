@@ -2699,6 +2699,33 @@ test('closing a chat that was mid-reply returns every poll to the ordinary inter
   assert.equal(reads(), settled + 1, 'the ordinary interval still polls the chat that is open');
 });
 
+test('deleting the only chat while it was mid-reply returns the next chat to the ordinary interval', async (t) => {
+  const growing = (text) => ({ status: 'RUNNING', done: false, needs: { kind: 'continue' }, chat: {
+    phase: 'requirements', context: 'turn-one', input: null,
+    messages: [{ id: 'u1', role: 'user', text: 'A book app' }, { id: 'live', role: 'assistant', text, streaming: true }],
+  } });
+  const other = { workspace: '/ws', runDir: '/ws/.autocode/runs/other' };
+  const views = new Map([
+    [run.runDir, growing('Who')],
+    [other.runDir, { status: 'RUNNING', done: false, needs: { kind: 'continue' } }],
+  ]);
+  const ui = await openChat(t, growing('Who'), run, { statusFor: (target) => views.get(target.runDir) });
+  // The only tab is deleted while its reply still grows: a fresh chat replaces it without closing it.
+  ui.chat.forget(run);
+  await flush();
+  ui.chat.show(other);
+  await flush();
+  const reads = () => controller.status.mock.callCount();
+  t.mock.timers.tick(250); await flush();
+  t.mock.timers.tick(250); await flush();
+  const settled = reads();
+  t.mock.timers.tick(250); await flush();
+  t.mock.timers.tick(250); await flush();
+  assert.equal(reads(), settled, 'a deleted chat must not hold every poll at the streaming pace');
+  t.mock.timers.tick(5000); await flush();
+  assert.equal(reads(), settled + 1, 'the ordinary interval still polls the chat that is open');
+});
+
 test('a second refresh joins the running poll cycle instead of returning before it lands', async (t) => {
   const own = new RunController(host.log);
   const base = { status: 'RUNNING', done: false, needs: { kind: 'continue' }, chat: {
