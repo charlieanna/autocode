@@ -771,7 +771,7 @@ async function openPanel(t, initial, onAction, panelController = controller) {
   return {
     document: dom.window.document, window: dom.window, messages,
     take: () => [...dom.window.document.querySelectorAll('button')].find((button) => button.textContent !== 'Refresh'),
-    async poll(next = view) { view = next; t.mock.timers.tick(5000); await flush(); },
+    async poll(next = view) { view = next; t.mock.timers.tick(5000); await flush(); await panel.refresh(); },
     setView(next) { view = next; },
   };
 }
@@ -1188,7 +1188,7 @@ async function openChat(t, initial, selected = run, options = {}) {
     chat, document: dom.window.document, window: dom.window, sent, saved,
     get webviewState() { return persisted; },
     setView(next) { value = next; },
-    async poll(next = value) { value = next; t.mock.timers.tick(5000); await flush(); },
+    async poll(next = value) { value = next; t.mock.timers.tick(5000); await flush(); await chat.refresh(); },
     async visible(visible) { view.visible = visible; visibility(); await flush(); },
     type(text) { const field = dom.window.document.querySelector('#message'); field.value = text; field.dispatchEvent(new dom.window.Event('input')); },
     submit() { dom.window.document.querySelector('#composer').dispatchEvent(new dom.window.Event('submit', { cancelable: true })); },
@@ -2133,6 +2133,26 @@ test('status polls speed up while a reply is streaming and slow down once it is 
   assert.equal(reads(), quiet, 'an unchanged extract no longer forces the short pace');
   t.mock.timers.tick(5000); await flush();
   assert.equal(reads(), quiet + 1, 'the ordinary poll interval is back');
+});
+
+test('a second refresh joins the running poll cycle instead of returning before it lands', async (t) => {
+  const own = new RunController(host.log);
+  const base = { status: 'RUNNING', done: false, needs: { kind: 'continue' }, chat: {
+    phase: 'requirements', context: 'turn-one', input: null,
+    messages: [{ id: 'u1', role: 'user', text: 'A book app' }],
+  } };
+  const ui = await openChat(t, base, run, { controller: own });
+  let release;
+  t.mock.method(own, 'pollStatus', () => new Promise((resolve) => { release = () => resolve(structuredClone(base)); }));
+  const first = ui.chat.refresh();
+  await flush();
+  let joined = false;
+  const second = ui.chat.refresh().then(() => { joined = true; });
+  await flush();
+  assert.equal(joined, false, 'joining refresh() must wait for the running cycle, not resolve at once');
+  release();
+  await Promise.all([first, second]);
+  assert.equal(joined, true);
 });
 
 test('requirements chat offers Continue when no step is running instead of thinking forever', async (t) => {
