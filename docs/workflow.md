@@ -460,7 +460,15 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.
   ref of a run whose directory is gone, after a day's grace. Each
   suite run may take as long as the run's tool-call limit, at least 900 seconds
   and with no limit when the run turned that limit off;
-  `settings.regression.test_timeout` overrides it. The new or changed tests
+  `settings.regression.test_timeout` overrides it. When the detected whole
+  suite does not finish on the original code within that limit, the proof
+  does not stop to ask for a longer limit or a narrower command: it runs
+  instead with the original tests nearest the change (changed tests the base
+  already holds, and base tests named after a changed file, such as
+  `test_calc.py` for `calc.py`), and records the decision, the timed-out command and
+  the reason as the proof's `suite_fallback`, a note and a review reason. A later
+  proof of the same run goes straight to those tests. An explicit
+  `--test-command` is never replaced. The new or changed tests
   must fail on the original code and pass on the current code, and every test
   that passed on base must still pass (not fail, be skipped or disappear). A
   repair that changes no test is proved by the tests the project already had:

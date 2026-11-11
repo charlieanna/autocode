@@ -571,6 +571,48 @@ class ReadyGateTests(unittest.TestCase):
             self.ready(draft, out)
 
 
+class ListMarkerTests(unittest.TestCase):
+    """A numbered list marker is not a requirement sentence (#3118)."""
+
+    TASK = (
+        "Fix the panel.\n"
+        "1. The panel lists 2 stage groups.\n"
+        "2. The panel hid reasoning levels.\n"
+        "3. Version 2 docs stay as they are."
+    )
+
+    def test_list_items_trace_with_or_without_their_markers(self):
+        records = [{"id": "task:0", "text": self.TASK}]
+        out = wrapper(
+            out_of_scope=[
+                {"source_id": "task:0", "quote": "Version 2 docs stay as they are.", "reason": "Docs are unchanged"}
+            ]
+        )
+        for quotes in (
+            ["Fix the panel.", "1. The panel lists 2 stage groups.", "2. The panel hid reasoning levels."],
+            ["Fix the panel.", "The panel lists 2 stage groups.", "The panel hid reasoning levels."],
+        ):
+            with self.subTest(quotes=quotes):
+                draft = body([criterion("AC1", "The panel lists 2 stage groups and shows reasoning levels.", quotes)])
+                trace.check_citations(draft, records)
+                # Before the fix the markers were sentences: '2.' was both covered (the cited "2 stage
+                # groups") and out of scope ("Version 2 docs"), and '1.' and '3.' were neither.
+                trace.check_ready(draft, records, out)
+
+    def test_the_item_text_itself_still_needs_coverage(self):
+        records = [{"id": "task:0", "text": self.TASK}]
+        out = wrapper(
+            out_of_scope=[
+                {"source_id": "task:0", "quote": "Version 2 docs stay as they are.", "reason": "Docs are unchanged"}
+            ]
+        )
+        draft = body(
+            [criterion("AC1", "The panel lists 2 stage groups.", ["Fix the panel.", "The panel lists 2 stage groups."])]
+        )
+        with self.assertRaisesRegex(ValueError, "neither cited nor out of scope: 'The panel hid reasoning levels.'"):
+            trace.check_ready(draft, records, out)
+
+
 class SentenceWordBoundaryTests(unittest.TestCase):
     def test_excluding_context_does_not_also_exclude_a_branch_label(self):
         context = "This qualification runs parallel Builders and Orchestrator integration."

@@ -396,7 +396,17 @@ def _recovery_completed(directory, root):
     return saved, path, reference, pointer_sha
 
 
-def run(directory, identity, execute, *, reuse_allowed, reason, current_identity, owned_preparation=False):
+def run(
+    directory,
+    identity,
+    execute,
+    *,
+    reuse_allowed,
+    reason,
+    current_identity,
+    owned_preparation=False,
+    reusable_result=None,
+):
     """Execute or resume exactly one obligation, preserving every attempt.
 
     An attempt that ends in an exception is known-failed state, not uncertainty:
@@ -404,8 +414,12 @@ def run(directory, identity, execute, *, reuse_allowed, reason, current_identity
     cleared, so the next attempt runs a fresh check instead of pausing forever
     (#414). A hard crash or uncertain command ownership leaves the pending launch for
     a person to reconcile; an exception cannot authorize another unsafe launch. Completed receipts
-    survive controller restart without a second launch.
+    survive controller restart without a second launch. ``reusable_result`` replaces
+    ``reusable`` for an obligation whose own policy accepts a receipt (the protected
+    original run a supersedes list excuses, #3040); it still sees only the authenticated
+    receipt of this exact identity, after which the identity is compared afresh.
     """
+    accept = reusable_result or reusable
     root = Path(directory)
     if any(path.is_symlink() for path in (root, root.parent, root.parent.parent, root / "writer.lock")):
         raise util.Paused("PAUSED_VERIFICATION_UNCERTAIN", "Verification receipt directory is symlinked")
@@ -431,7 +445,7 @@ def run(directory, identity, execute, *, reuse_allowed, reason, current_identity
         saved, receipt_path, reference = completed if completed else (None, None, None)
         if pointer.exists() and not saved:
             reason = "missing_or_tampered_receipt"
-        if reuse_allowed and saved and reusable(saved["result"], root=directory):
+        if reuse_allowed and saved and accept(saved["result"], root=directory):
             if current_identity() == identity:
                 result = saved["result"]
                 return {

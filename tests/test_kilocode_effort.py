@@ -142,8 +142,8 @@ class KiloEffortTests(unittest.TestCase):
             argv, _, _ = self.launch("medium")
         self.assertEqual(2, len(calls))
         self.assertGreater(calls[1], 0)
-        self.assertEqual(30, calls[0])
-        self.assertLessEqual(calls[1], 90)
+        self.assertEqual(60, calls[0])
+        self.assertLessEqual(calls[1], 120)
         self.assertEqual("medium", argv[argv.index("--variant") + 1])
 
     def test_each_way_the_listing_fails_names_its_own_cause(self):

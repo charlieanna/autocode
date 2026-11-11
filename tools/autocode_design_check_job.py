@@ -216,7 +216,9 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None,
     # A follow-up that builds the design the previous turn proposed is planned from it, not as a
     # revision of that turn's contract (autocode_follow_up.plan_afresh); otherwise nothing moves.
     follow_up.plan_afresh(state)
-    state.update({"status": "RUNNING", "phase": "PLANNING", "next_stage": workflows.planner_stage(state)})
+    # A re-check that passes after a stopped one retires that stop's reason, which told the person to
+    # decide using the blockers file removed above (#2992).
+    run_status.running(state, "PLANNING", next_stage=workflows.planner_stage(state))
 
 
 def owns(state: RunState) -> bool:
