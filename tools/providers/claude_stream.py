@@ -92,6 +92,11 @@ BACKGROUND_KEYS = (
     "timedOutAfterMs",
 )
 FILE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
+# What a tool call names, kept on its item for the chat's live log ("Searched tools for “x”"): only
+# these inputs, each a bounded string. Not ``arguments``: that names a call's full signature, which
+# the stuck-loop check compares (autocode_tool_activity), and this is display text only.
+DISPLAY_INPUTS = ("file_path", "path", "pattern", "query", "url", "description")
+DISPLAY_LIMIT = 200
 USAGE_LIMIT_ERRORS = ("usage_limit_reached", "model_requires_usage_credits")
 AUTH_ERRORS = (
     "authentication_failed",
@@ -122,6 +127,15 @@ _PLACEHOLDER = "(Bash completed with no output)"
 
 def _dict(value: Any) -> dict:
     return value if isinstance(value, dict) else {}
+
+
+def _display_input(arguments: dict) -> dict:
+    """The inputs of a tool call that say what it looked at, each a bounded string."""
+    return {
+        key: value[:DISPLAY_LIMIT]
+        for key in DISPLAY_INPUTS
+        if isinstance(value := arguments.get(key), str) and value.strip()
+    }
 
 
 def _count(value: Any) -> int | None:
@@ -546,7 +560,9 @@ class Translator:
         else:
             label = str(name or "tool")
             self._tools[tool_id] = {"id": identifier, "type": "tool_call", "name": label}
-            item = {"id": identifier, "type": "tool_call", "name": label, "status": "in_progress"}
+            if shown := _display_input(arguments):
+                self._tools[tool_id]["display_input"] = shown
+            item = {**self._tools[tool_id], "status": "in_progress"}
         return [{"type": "item.started", "item": item}]
 
     def _on_user(self, row: dict) -> list[dict]:
@@ -594,7 +610,10 @@ class Translator:
             if isinstance(meta, dict) and meta.get("persistedOutputPath"):
                 item["output_truncated"] = True
             return [{"type": "item.completed", "item": item}]
-        detail = {"changes": tool["changes"]} if tool["type"] == "file_change" else {"name": tool["name"]}
+        if tool["type"] == "file_change":
+            detail = {"changes": tool["changes"]}
+        else:
+            detail = {key: tool[key] for key in ("name", "display_input") if key in tool}
         outcome = {"status": "failed" if block.get("is_error") is True else "completed"}
         return [{"type": "item.completed", "item": {"id": tool["id"], "type": tool["type"], **detail, **outcome}}]
 
