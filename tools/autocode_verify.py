@@ -2429,7 +2429,7 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
     )
     if (
         exit_zero
-        and comparable.get("health") == "passing"
+        and (comparable or {}).get("health") == "passing"
         and not fail
         and (untyped or framework is None or framework.name != "junit")
     ):
@@ -2449,7 +2449,7 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
             ignored_inputs=ignored_inputs,
             keep_tests=not untyped,
         )
-    elif exit_zero and untyped and comparable.get("health") != "passing":
+    elif exit_zero and untyped and (comparable or {}).get("health") != "passing":
         # G1 (#652): a base suite that is not green cannot anchor preservation.
         # Its own definition fails, so a candidate that narrows the script to
         # hide a broken function shows exit 0 with nothing contradicted. A
