@@ -1123,11 +1123,15 @@ function chatPlaceFor(tab: ChatTab) {
   if (!list) return { places: [], error: tab.placesError ? "This AutoCode cannot say where a chat works; it works in your folder. Update AutoCode." : "", chosen: null, branch: null, warning: null, folder: "" };
   const chosen = tab.placeChoice?.place ?? list.defaultPlace;
   const place = list.places.find((row) => row.id === chosen);
+  // A branch the list no longer offers (merged and gone) is not a pick the picker may claim: the
+  // summary would name it while the select has nothing to show, and no start can take it.
+  const wanted = tab.placeChoice?.branch ?? null;
+  const branch = wanted && place?.branches.some((row) => row.name === wanted) ? wanted : null;
   return {
     folder: list.folder,
     error: "",
     chosen,
-    branch: tab.placeChoice?.branch ?? null,
+    branch,
     warning: place?.warning ?? null,
     places: list.places.map((row) => ({
       id: row.id, label: row.label, does: row.does, warning: row.warning,
