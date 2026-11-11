@@ -10,7 +10,7 @@
 
 import * as vscode from "vscode";
 import { realpath } from "node:fs/promises";
-import { invoke, readStatus, stream, tail, type CliResult } from "./core/cli";
+import { invoke, readStatus, stream, tail, STATUS_TIMEOUT_MS, type CliResult } from "./core/cli";
 import { LEGACY_PLACEMENT, placementArgs } from "./core/worktrees";
 import {
   applyDecisions,
@@ -117,9 +117,13 @@ export class RunController {
   /** The run pointers and the open project's chats. Read-only: it starts nothing. */
   async list(includeArchived = false): Promise<RegistryList> {
     const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Bounded like a status poll: this drives the sidebar's refresh loop, so a
+    // hung registry read must fail and let the next tick retry, not wedge it.
     const result = await invoke(
       folder ? { ...this.settings, cwd: folder } : this.settings,
       ["registry", "list", "--json", ...(includeArchived ? ["--include-archived"] : [])],
+      {},
+      STATUS_TIMEOUT_MS,
     );
     if (result.code !== 0) throw new Error(tail(result));
     return readRegistryList(result.stdout);
@@ -143,7 +147,7 @@ export class RunController {
 
   /** The run modes the core offers for a new chat. Read-only: it starts nothing. */
   async modes(): Promise<RunModes> {
-    const result = await invoke(this.settings, ["modes", "list", "--json"]);
+    const result = await invoke(this.settings, ["modes", "list", "--json"], {}, STATUS_TIMEOUT_MS);
     if (result.code !== 0) throw new Error(tail(result));
     return readRunModes(result.stdout);
   }

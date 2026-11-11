@@ -69,17 +69,22 @@ export function activate(context: vscode.ExtensionContext): void {
       status.tooltip = line.tooltip;
       status.command = { command: "autocode.openRun", title: "Open Run", arguments: [currentWatched] };
       status.show();
-    } catch {
+    } catch (error) {
       if (sequence === statusSequence && sameRun(watched, currentWatched)) {
-        status.hide();
+        // A read that failed keeps the bar up saying so: the line is the run's
+        // only quick state, and hiding it looks like the run stopped reporting.
+        status.text = "$(warning) AutoCode: status unavailable";
+        status.tooltip = messageOf(error);
+        status.command = { command: "autocode.openRun", title: "Open Run", arguments: [currentWatched] };
+        status.show();
       }
     }
   };
 
+  // Surfaces refresh together so one slow read (the runs registry) cannot delay
+  // the status line or the chat's own polls behind it.
   const refresh = async (): Promise<void> => {
-    await runs.refresh();
-    await updateStatus();
-    await chat.refresh();
+    await Promise.all([runs.refresh(), updateStatus(), chat.refresh()]);
   };
 
   const chat = new ChatView(controller, context.workspaceState, {

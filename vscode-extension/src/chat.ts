@@ -509,8 +509,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   private async runRefresh(): Promise<void> {
     const sequence = this.sequence;
     try {
-      // Tabs read in parallel: one slow or hung --status must not freeze the others
-      // until its timeout (#1711 timing gaps).
+      // Tabs read in parallel and posted as each lands: one slow or hung --status
+      // must not freeze the others' display until its timeout (#1711 timing gaps).
       await Promise.all([...this.tabs].filter((tab) => tab.run).map(async (tab) => {
         try {
           const status = await this.controller.pollStatus(tab.run!);
@@ -530,6 +530,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
             tab.readError = "";
           } else if (sequence === this.sequence && !tab.starting) tab.readError = messageOf(error);
         }
+        if (sequence === this.sequence) this.post();
       }));
     } finally {
       this.refreshing = null;
