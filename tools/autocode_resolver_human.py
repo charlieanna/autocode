@@ -963,6 +963,24 @@ def supersede_operational(state: RunState, reason):
     return True
 
 
+def withdraw_queued_operational(state: RunState, stage) -> bool:
+    """Withdraw the operational request queued, not yet published, for a stop at ``stage``; True if it did.
+
+    ``supersede_operational`` withdraws the published one. A request AutoResolver deferred stays queued
+    in RESOLVER_PENDING, and ``release_stranded_operational`` would return it to its pause later. Once a
+    person sets the stopped attempt aside, the request asks about an attempt that no longer exists, so it
+    is withdrawn too (#3159). The abandonment's own ``stage_abandoned`` event records why.
+    """
+    proposal = state.get(PRIVATE) or {}
+    if (
+        proposal.get("scope") not in ("operational_exhaustion", "blocker")
+        or (proposal.get("origin") or {}).get("stage") != stage
+    ):
+        return False
+    state.pop(PRIVATE, None)
+    return True
+
+
 RESPONSE_RECEIVED = (
     "AutoResolver received the human response; no execution, approval or additional allowance was authorized."
 )

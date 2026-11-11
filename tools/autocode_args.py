@@ -592,6 +592,13 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         help="Send brief feedback to the Requirements Gatherer; never approves implementation",
     )
     parser.add_argument(
+        "--report-discrepancy",
+        metavar="TEXT",
+        help="At a pause you requested while the approved plan is being built, tell the reviewers where the "
+        "code departs from that plan; needs --review-token with the approved plan's token; keeps the plan "
+        "approved and the run paused, and never approves, accepts or closes anything",
+    )
+    parser.add_argument(
         "--follow-up",
         metavar="TEXT",
         help="Say the next thing to a finished run: it recognizes the new job and continues in the same run directory, carrying a review's findings forward",
@@ -661,6 +668,7 @@ def user_actions(args) -> dict[str, bool]:
         "--reject-review": bool(args.reject_review),
         "--reconcile-review": bool(args.reconcile_review),
         "--feedback": args.feedback is not None,
+        "--report-discrepancy": getattr(args, "report_discrepancy", None) is not None,
         "--stage-model": getattr(args, "stage_model", None) is not None,
         "--follow-up": args.follow_up is not None,
         "--accept-completion": bool(args.accept_completion),

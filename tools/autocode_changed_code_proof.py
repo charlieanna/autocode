@@ -126,12 +126,14 @@ def collect(proof, result, framework, workspace, out, tree, execution_context, *
         coverage = {"source_revision": source_revision, "proof_context": context, "files": []}
         mutated = {"source_revision": source_revision, "proof_context": context, "files": []}
         inventory = None
+    texts = line_texts(tree, inventory)
     assessment = policy.assess(
         inventory,
         coverage,
         mutated,
         source_revision=source_revision,
         proof_context=context,
+        texts=texts,
     )
     if custody_gaps:
         assessment["reason"] = "Changed-code input custody failed: " + ", ".join(custody_gaps[:20])
@@ -141,9 +143,29 @@ def collect(proof, result, framework, workspace, out, tree, execution_context, *
         "mutation": mutated,
         "command_outputs": [receipt["output"] for receipt in proof["changed_code_receipts"]],
         "custody_gaps": custody_gaps,
+        "line_texts": texts,
     }
     proof["changed_code_evidence"] = assessment
     return mutation.final(report, proof["verdict"], proof.get("case_tests"))
+
+
+def line_texts(tree, inventory):
+    """Each inventoried file's changed-line texts, read from its exact measured bytes in the tree (#2977).
+
+    A file that cannot be read, or whose bytes no longer match its inventoried hash, has no entry: its
+    obligations then carry no source_line, and their review is checked by handle alone, as before.
+    """
+    result = {}
+    root = Path(tree).resolve()
+    for row in inventory if isinstance(inventory, list) else []:
+        try:
+            data = measurement.source(root, row["path"])
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        entry = policy.line_texts(data, row.get("sha256"), row.get("lines") or [])
+        if entry is not None:
+            result[row["path"]] = entry
+    return result
 
 
 def selected_tests(framework, result):
@@ -178,6 +200,7 @@ def reviewed(proof, exceptions):
         source_revision=original.get("source_revision"),
         proof_context=original.get("proof_context"),
         exceptions=exceptions,
+        texts=inputs.get("line_texts"),
     )
     if inputs.get("inventory") is None and inputs.get("custody_gaps"):
         result["reason"] = "Changed-code input custody failed: " + ", ".join(inputs["custody_gaps"][:20])

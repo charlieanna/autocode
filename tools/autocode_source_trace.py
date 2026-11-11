@@ -436,7 +436,11 @@ def resolve_sentence_ids(contract, records):
     """Replace each citation whose quote is a sentence id by that sentence's verbatim text, in place.
 
     Everything after this (citation checks, coverage, survival, the seal, the saved contract) sees verbatim quotes
-    only. An id that names no sentence is left as written, so the citation check refuses it."""
+    only. An id that names no sentence is left as written, so the citation check refuses it.
+
+    A criterion that names one sentence twice (its id and its text, or the same id again) then holds two
+    identical citations. The repeat adds nothing, and the model never wrote one quote twice, so a repair asked to
+    remove it cannot see what to change (#3119): keep the first and drop the rest."""
     by_id = {row["id"]: row for row in records}
     for row in (contract or {}).get("acceptance_criteria") or []:
         for citation in row.get("sources") or []:
@@ -449,6 +453,27 @@ def resolve_sentence_ids(contract, records):
             sentences = cues.sentences(source["text"])
             if int(match["number"]) <= len(sentences):
                 citation["quote"] = sentences[int(match["number"]) - 1]
+        if isinstance(row.get("sources"), list):
+            row["sources"] = _without_repeats(row["sources"])
+
+
+def _without_repeats(citations):
+    """``citations`` less each citation that repeats an earlier one's source and quote, as check_citations compares them."""
+    kept, seen = [], set()
+    for citation in citations:
+        # Only well-formed citations merge; anything else stays for check_citations to refuse.
+        if (
+            isinstance(citation, dict)
+            and set(citation) == {"source_id", "quote"}
+            and isinstance(citation["source_id"], str)
+            and isinstance(citation["quote"], str)
+        ):
+            key = (citation["source_id"], citation["quote"].strip())
+            if key in seen:
+                continue
+            seen.add(key)
+        kept.append(citation)
+    return kept
 
 
 def uncited_sentences(state: RunState, body, records):

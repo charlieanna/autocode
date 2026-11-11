@@ -2635,6 +2635,20 @@ def auth_timeout_once(stage: str) -> int | None:
     return 1
 
 
+def refused_resolver(stage: str) -> bool:
+    """Whether this Resolver call is refused under SCENARIO_FAKE_REFUSE_RESOLVER (#3159).
+
+    Each Resolver call is witnessed beside the fake config, outside the source workspace."""
+    model = os.environ.get("SCENARIO_FAKE_REFUSE_RESOLVER")
+    if not model or stage != "resolve":
+        return False
+    refused = model_argument() == model
+    witness = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name("resolver-calls.jsonl")
+    with witness.open("a") as handle:
+        handle.write(json.dumps({"model": model_argument(), "refused": refused}) + "\n")
+    return refused
+
+
 def capacity_once(stage: str, session: str) -> int | None:
     """One terminal overload before Requirements produces a report (#1071).
 
@@ -2724,6 +2738,12 @@ def _main() -> int:
         # Fault "quota_once" (scenarios/catalog/quota-route-handoff): the Tester's model has no quota left.
         # It fails the first time; once a person names another model the Tester runs normally.
         emit({"type": "error", "error": {"message": "subscription usage limit reached; add credits"}})
+        return 3
+    if refused_resolver(stage):
+        # SCENARIO_FAKE_REFUSE_RESOLVER names a model (#3159): every Resolver call on it is refused by the
+        # provider's content filter, as AutoCode's own scoped retry of a held Resolver was in #3093's run.
+        # A call on any other model answers normally.
+        emit({"type": "error", "error": {"message": "The response was blocked by the provider's content filter"}})
         return 3
     if CONFIG.get("fault") == "builder_quota_once" and stage == "builder" and model_argument() == QUOTA_SPENT_BUILDER:
         # Fault "builder_quota_once" (scenarios/catalog/route-builder-handoff): the Builder writes a

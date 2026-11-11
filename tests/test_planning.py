@@ -2152,6 +2152,52 @@ class ReviewDepthPolicyTests(unittest.TestCase):
         self.assertEqual(2, state["planning"]["plan_review_calls"])
         self.assertEqual(0, state["planning"]["internal_answer_renewals"])
 
+    def spent_shown_plan(self, **extra):
+        """2/2 spent reviewing the plan shown for approval; the person then asks for a change (#3094)."""
+        state = self.state(**extra)
+        state["planning"]["inputs"] = cycle.planning_inputs(state)
+        planning.charge(state, "review_plan")
+        planning.charge(state, "finalize_plan")
+        state["brief_feedback"] = [{"id": "feedback-1", "text": "Also guard mixed destinations"}]
+        return state
+
+    def test_a_person_s_plan_change_gets_its_own_review_allowance(self):
+        # #3094, live 2026-11-10: the initial review loop spent both calls, the person asked for one change
+        # at plan approval, and the revised draft paused at 2/2 before anyone reviewed it.
+        state = self.spent_shown_plan()
+        self.assertEqual(2, state["planning"]["plan_review_calls"])
+        cycle.start(state)
+        record = state["planning"]
+        self.assertEqual((2, 4), (record["plan_review_calls"], planning.review_call_limit(state)), "usage is kept")
+        self.assertEqual(
+            {"feedback": ["feedback:feedback-1"], "calls_used": 2, "from": 2, "to": 4}, record["feedback_renewal"]
+        )
+        self.assertTrue(record["review_depth_reduced"], "the reduced depth still applies to the revision")
+        planning.charge(state, "review_plan")
+        planning.charge(state, "finalize_plan")
+        self.assertEqual(4, state["planning"]["plan_review_calls"], "earlier cycles are not added twice")
+        with self.assertRaises(support.Paused):
+            planning.charge(state, "review_plan")
+
+    def test_a_plan_change_renews_once_and_never_against_the_persons_own_limit(self):
+        state = self.spent_shown_plan()
+        cycle.new_cycle(state)
+        planning.charge(state, "review_plan")
+        planning.charge(state, "finalize_plan")
+        cycle.new_cycle(state)  # the same feedback again (an internal restart) is no new request
+        self.assertEqual((4, 4), (state["planning"]["plan_review_calls"], planning.review_call_limit(state)))
+        self.assertNotIn("feedback_renewal", state["planning"])
+        explicit = self.spent_shown_plan()
+        explicit["planning"].update(review_call_limit=2, review_call_limit_origin="user_explicit")
+        cycle.new_cycle(explicit)
+        self.assertEqual(2, planning.review_call_limit(explicit), "a total the person chose is kept")
+        self.assertNotIn("feedback_renewal", explicit["planning"])
+        approved = self.spent_shown_plan()
+        approved["brief_feedback"][0]["contract_token"] = "r1:h"
+        approved["user_events"] = [{"kind": "goal_approval", "actor": "user_cli", "token": "r1:h"}]
+        cycle.new_cycle(approved)
+        self.assertEqual(2, planning.review_call_limit(approved), "an approved plan's correction has its own path")
+
     def test_normal_brief_resets_per_cycle_as_today(self):
         state = self.state(workflow={"kind": "build", "clarity": "vague"})
         planning.charge(state, "review_plan")

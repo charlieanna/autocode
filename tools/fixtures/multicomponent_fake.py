@@ -489,6 +489,18 @@ def _equivalent(row: dict, files: dict, proof: dict) -> tuple[str, str] | None:
     return "equivalent_mutant", reason[1]
 
 
+def quote_changed_lines(data, rows):
+    """Each decision with its gap's source_line from the handoff, as a Tester quotes the line it decides (#2977)."""
+    texts = {}
+    evidence = ((data.get("regression_proof") or {}).get("changed_code_evidence") or {}).get("obligations") or []
+    for row in evidence if isinstance(evidence, list) else []:
+        for gap in [row, *(row.get("gaps") or [])] if isinstance(row, dict) else []:
+            for key in ("gap_id", "handle"):
+                if isinstance(gap, dict) and isinstance(gap.get(key), str):
+                    texts[gap[key]] = gap.get("source_line", "")
+    return [{**row, "source_line": texts.get(row.get("gap_id"), "")} for row in rows]
+
+
 def changed_code_reasons(spec: dict, data: dict) -> list:
     """The fixture Tester's reasons for its own scripted lines that have no mutation site.
 
@@ -640,7 +652,7 @@ def main() -> int:
     if "--output-schema" in sys.argv:
         schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
         if stage in ("tester", "review_checkpoint") and "changed_code_exceptions" in schema.get("properties", {}):
-            report["changed_code_exceptions"] = changed_code_reasons(spec, data)
+            report["changed_code_exceptions"] = quote_changed_lines(data, changed_code_reasons(spec, data))
         if "source_verdict" in schema.get("properties", {}):
             report.setdefault(
                 "source_verdict",
