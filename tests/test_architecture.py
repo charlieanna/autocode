@@ -67,6 +67,7 @@ TANGLED: frozenset[str] = frozenset()
 # 2026-11-08: triage application validation moved to autocode_requirements_triage, shrinking autopilot.py.
 # 2026-11-11: the flaky-suite-test recheck (#2942) lives in autocode_suite_flakes; its import and the one
 # argument _preserve_suite passes to the suite judgment raised autocode_verify.py by 3 and _preserve_suite by 1.
+# Master was already at 3014 lines (limit 3012) when this merged it, so the limit is 3014 + 3.
 MAX_LINES = {
     "autocode.py": 1830,
     "autocode_goals.py": 1404,
@@ -74,7 +75,7 @@ MAX_LINES = {
     "autopilot.py": 1392,
     "autocode_run_actions.py": 366,
     "autocode_args.py": 1038,
-    "autocode_verify.py": 3013,
+    "autocode_verify.py": 3017,
 }
 
 # Line counts of the largest functions, (module, function): lines. handle() was 946 lines before its
@@ -122,7 +123,6 @@ STATUS_WRITERS = frozenset(
         "autocode_checkpoint_continuation",
         "autocode_classification_recovery",
         "autocode_dependency",
-        "autocode_design_check_job",
         "autocode_design_intake",
         "autocode_design_revision",
         "autocode_dispatch",

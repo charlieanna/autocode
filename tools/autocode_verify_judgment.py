@@ -27,6 +27,13 @@ except ImportError:
     import autocode_verification_schedule as schedule
 
 
+# Read by autocode_proof_recognition: on a suite whose results were never parsed, this refusal says
+# only that the exit-code fallback could not bound the base definition, not that a test failed.
+BASE_DEFINITION_UNKNOWN = (
+    "The base suite definition could not be established ({}); preservation of existing behavior is unproven"
+)
+
+
 def judge_regression(
     on_candidate,
     on_base,
@@ -393,11 +400,7 @@ def judge_suite(
         boundary = (base_definition or {}).get("boundary") or ""
         definition_run = (base_definition or {}).get("run")
         if boundary:
-            unverified.append(
-                "The base suite definition could not be established ("
-                + boundary
-                + "); preservation of existing behavior is unproven"
-            )
+            unverified.append(BASE_DEFINITION_UNKNOWN.format(boundary))
         elif definition_run is not None:
             if definition_run["timed_out"]:
                 unverified.append(
@@ -446,3 +449,54 @@ def judge_suite(
             "The project suite already fails on base and per-test results are unavailable, "
             "so new failures cannot be ruled out (narrow it with --test-command)"
         )
+
+
+def judge_retained_runner(definition, base_suite, fail, unverified):
+    """Judge the candidate's tests run over the base's retained runner inputs (#2966).
+
+    A named test can launch a child suite whose selection a runner input (a manifest
+    script, a runner file, a data file it reads) decides, so its identity passes on both
+    sides while the child runs other tests. ``definition`` is that run, from
+    _run_suite_base_definition with ``keep_tests``, or None when no retained runner input
+    changed. A test that passed on base must still pass there; a run that cannot show
+    it leaves preservation unproven. A test only the candidate has may fail there, since
+    it can need the candidate's own runner inputs.
+    """
+    if not definition:
+        return
+    prefix = "The base suite definition's runner inputs over the candidate code"
+    if definition["boundary"]:
+        unverified.append(
+            f"{prefix} could not be established ({definition['boundary']}); preservation of existing behavior is unproven"
+        )
+        return
+    run = definition["run"]
+    if run is None:
+        return
+    results = run.get("results")
+    base_results = ((base_suite or {}).get("receipt") or {}).get("results") or {}
+    if (
+        run["timed_out"]
+        or not command_receipt.completed(run)
+        or run["exit_code"] in (126, 127)
+        or results is None
+        or not base_results.get("passed")
+    ):
+        unverified.append(
+            f"{prefix} did not run to completion with per-test results to compare with base; "
+            "preservation of existing behavior is unproven"
+        )
+        return
+    base_passed = set(base_results["passed"])
+    failed = sorted(base_passed & set(results["failed"]))
+    if failed:
+        fail.append(
+            f"{prefix}: tests that pass on base fail, so the candidate changed what they run: " + ", ".join(failed[:20])
+        )
+    lost = sorted(base_passed - set(results["passed"]) - set(failed))
+    if lost and results.get("complete"):
+        fail.append(f"{prefix}: tests that pass on base did not pass: " + ", ".join(lost[:20]))
+    elif not results.get("complete") and not failed:
+        unverified.append(f"{prefix}: the per-test results were incomplete; preservation is unproven")
+    if run["exit_code"] != 0 and not results["failed"]:
+        unverified.append(f"{prefix}: the run exited {run['exit_code']} with no failing test reported")

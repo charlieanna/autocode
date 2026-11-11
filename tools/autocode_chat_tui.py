@@ -106,6 +106,7 @@ COMPOSER_ROWS = 6  # the reply box grows to this many rows as the text wraps, th
 MENU_ROWS = 10  # at most; fewer where the screen is short, scrolled to keep the choice in view
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 PASTE_START, PASTE_END = "\x1b[200~", "\x1b[201~"  # bracketed paste, so a pasted newline is not Enter
+PASTE_PATIENCE = 40  # empty reads (50 ms each, about 2 s) before an unclosed paste ends
 ESCAPE = "\x1b"  # the Esc key on its own
 WORDMARK = (
     "▄▀█ █░█ ▀█▀ █▀█ █▀▀ █▀█ █▀▄ █▀▀",
@@ -739,10 +740,17 @@ def read_paste(read, consumed: list | None = None) -> str | None:
             consumed.extend(keys)
         return None
     text = ""
+    quiet = 0
     while not text.endswith(PASTE_END):
         key = read()
-        if key is None:  # the terminal stopped sending without closing the paste
-            break
+        if key is None:
+            # A slow terminal or link pauses inside a long paste: the rest is still the paste's
+            # text, never keys (#3074). Only a terminal silent this long never closes it.
+            quiet += 1
+            if quiet >= PASTE_PATIENCE:
+                break
+            continue
+        quiet = 0
         if isinstance(key, str):
             text += key
     return safe_text(text.removesuffix(PASTE_END).replace("\r\n", "\n").replace("\r", "\n")).rstrip("\n")
@@ -1403,22 +1411,37 @@ class ChatTUI:
                 self._screen.timeout(100 if self._asking or was_waiting else -1)
         return None
 
-    def _discard_typeahead(self) -> bool:
-        """Drop unseen answers, retaining an exit on an empty draft at the prompt boundary."""
+    def _take_typeahead(self) -> tuple[bool, str]:
+        """The keys typed before this question showed: whether they ask to leave, and their text.
+
+        Keys typed while the client was busy between polls (reading status, writing a reply) wait
+        in the terminal until the question's box opens. They are the person's words, so their text
+        joins the draft, as if typed into the box (#3074), and the question decides with the rest of
+        the draft whether it answers (``_typed_ahead_for``) or is kept behind a notice. Enter and
+        other keys are never taken as an answer to a question that was not shown yet. Ctrl-D on an
+        empty draft still leaves. A stream longer than the bound is flushed.
+        """
         exit_requested = False
-        self._screen.timeout(0)
+        typed = Composer()
         try:
             for _ in range(4096):
+                self._screen.timeout(0)  # _read_key restores its own wait after an escape
                 key = self._read_key()
                 if key is None:
                     break
                 if key == "\x04" and not self._composer.text:
                     exit_requested = True
+                elif isinstance(key, Pasted):
+                    typed.insert(key.text)
+                elif key in (curses.KEY_BACKSPACE, "\b", "\x7f"):
+                    typed.backspace()
+                elif isinstance(key, str) and key.isprintable():
+                    typed.insert(key)
         finally:
             with contextlib.suppress(curses.error):
                 curses.flushinp()
             self._screen.timeout(100 if self._asking or self._waiting else -1)
-        return exit_requested
+        return exit_requested, typed.text
 
     def ask(self, prompt: str) -> str:
         with self._lock:
@@ -1426,8 +1449,13 @@ class ChatTUI:
                 raise EOFError
             asked_context = self._context_key
             reading = self._history_anchor() if not self._anchored else None
-            if self._discard_typeahead():
+            leave, typed_ahead = self._take_typeahead()
+            if leave:
                 raise EOFError
+            if typed_ahead:
+                if not self._composer.text:
+                    self._draft_context, self._draft_unasked = self._draft_identity(), True
+                self._composer.insert(typed_ahead)
             if self._launched:
                 with contextlib.suppress(curses.error):
                     curses.beep()  # AutoCode worked and now needs you: the terminal's own alert
@@ -1449,7 +1477,10 @@ class ChatTUI:
                 self._composer.history = [*self._composer.history, self._composer.text][-HISTORY_LIMIT:]
                 self._transcript.info(
                     "Earlier draft kept",
-                    "The prompt changed. After checking this question, press Up to recover your earlier draft.",
+                    "You typed this before the question showed, so it is not your answer. After checking this "
+                    "question, press Up to recover it."
+                    if typed_ahead
+                    else "The prompt changed. After checking this question, press Up to recover your earlier draft.",
                 )
             self._prompt = prompt
             self._asking = True
@@ -1480,10 +1511,11 @@ class ChatTUI:
             while True:
                 if self.idle is not None:
                     self.idle()
-                key = self._read_key()
-                answer = self._handle(key, asking=True)
-                if key is not None:
-                    self._draw()
+                with self._lock:  # curses is not thread-safe: read, handle and draw as one step
+                    key = self._read_key()
+                    answer = self._handle(key, asking=True)
+                    if key is not None:
+                        self._draw()
                 if answer is not None:
                     if composer_label(prompt, True) == "New chat" and answer.strip():
                         # The request starts a run now: the screen says "Starting the run…" from this

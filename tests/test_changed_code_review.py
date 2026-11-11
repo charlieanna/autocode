@@ -1,6 +1,7 @@
 """Changed-line reasons need an independent, exact-bound and evidenced decision."""
 
 import copy
+import hashlib
 import json
 import tempfile
 import unittest
@@ -19,6 +20,9 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS = ROOT / "tools/autocode-schemas"
 
 
+CALC = {"calc.py": {"sha256": "a" * 64, "lines": {"2": "return a + b"}}}
+
+
 def assessment():
     return evidence.assess(
         [{"path": "calc.py", "sha256": "a" * 64, "lines": [2]}],
@@ -26,6 +30,7 @@ def assessment():
         None,
         source_revision="source-one",
         proof_context="proof-one",
+        texts=CALC,
     )
 
 
@@ -48,6 +53,7 @@ class ChangedCodeReviewTests(unittest.TestCase):
         self.gap = self.assessment["obligations"][0]
         self.decision = {
             "gap_id": self.gap["gap_id"],
+            "source_line": "return a + b",
             "decision": "accept",
             "reason_kind": "equivalent_mutant",
             "reason": "The replaced literal is unreachable under the independently checked input invariant.",
@@ -117,6 +123,7 @@ class ChangedCodeReviewTests(unittest.TestCase):
             source_revision="source-one",
             proof_context="proof-one",
             exceptions=bound,
+            texts=CALC,
         )
         self.assertEqual("PASS", result["status"])
         self.assertEqual("excepted", result["obligations"][0]["status"])
@@ -425,6 +432,7 @@ class TesterOnlyGapTests(unittest.TestCase):
             decisions = [
                 {
                     "gap_id": gap["handle"],
+                    "source_line": "",
                     "decision": "reject",
                     "reason_kind": "equivalent_mutant",
                     "reason": "No test observes this line.",
@@ -463,3 +471,213 @@ class TesterOnlyGapTests(unittest.TestCase):
             "Tester rejected a reason for calc.py:3: No test calls adjust(0); add one asserting 0.",
             state["next_action"],
         )
+
+
+def corpus_source():
+    """A TypeScript helper shaped like the S6 sample in #2977 (vscode-extension/test/helpers/action-corpus.ts)."""
+    lines = [f"// filler {number}" for number in range(1, 46)]
+    lines[0] = 'import { readFileSync } from "node:fs";'
+    lines[3] = "/**"
+    lines[4] = " * The shared action corpus every client's next-command test reads."
+    lines[5] = " */"
+    lines[13] = 'export const SURFACE = "typescript_client";'
+    lines[28] = "export interface CorpusCase {"
+    lines[29] = "  surfaces:   string[];"
+    lines[30] = "}"
+    lines[39] = "export function repositoryRoot(): string {"
+    lines[40] = "  return " + " + ".join(f'"segment{n}"' for n in range(30)) + ";"
+    return ("\n".join(lines) + "\n").encode()
+
+
+class ExactLineTests(unittest.TestCase):
+    """A reason must describe the exact line its handle binds (#2977)."""
+
+    PATH = "vscode-extension/test/helpers/action-corpus.ts"
+    LINES = [5, 14, 30, 40, 41]
+
+    def setUp(self):
+        self.data = corpus_source()
+        self.digest = hashlib.sha256(self.data).hexdigest()
+        self.texts = {self.PATH: evidence.line_texts(self.data, self.digest, self.LINES)}
+        self.inventory = [{"path": self.PATH, "sha256": self.digest, "lines": self.LINES}]
+        self.assessment = self.assess()
+        self.comment, self.surface, self.typing, self.root, self.long = self.assessment["obligations"]
+        self.record = {
+            "stage": "tester",
+            "role": "tester",
+            "source_revision": "source-one",
+            "changed_files": [],
+            "output": "/run/tester.json",
+        }
+        self.refs = {"check:1": "event:verified", self.PATH: "/workspace/" + self.PATH}
+
+    def assess(self, exceptions=()):
+        return evidence.assess(
+            self.inventory,
+            None,
+            None,
+            source_revision="source-one",
+            proof_context="proof-one",
+            exceptions=exceptions,
+            texts=self.texts,
+        )
+
+    def decision(self, gap, source_line, reason, kind="instrumentation_unavailable"):
+        return {
+            "gap_id": gap["handle"],
+            "source_line": source_line,
+            "decision": "accept",
+            "reason_kind": kind,
+            "reason": reason,
+            "evidence_refs": ["check:1", self.PATH],
+        }
+
+    def bind(self, decisions):
+        return review.bind(
+            self.assessment,
+            decisions,
+            self.record,
+            offered_schema=wire(state={"regression_proof": {"changed_code_evidence": self.assessment}}),
+            verified_refs=self.refs,
+        )
+
+    def test_each_gap_carries_the_bounded_text_of_its_own_line(self):
+        self.assertEqual(
+            [
+                "* The shared action corpus every client's next-command test reads.",
+                'export const SURFACE = "typescript_client";',
+                "surfaces: string[];",
+                "export function repositoryRoot(): string {",
+            ],
+            [row["source_line"] for row in self.assessment["obligations"][:4]],
+        )
+        self.assertEqual(evidence.SOURCE_LINE_LIMIT, len(self.long["source_line"]))
+        self.assertTrue(self.long["source_line"].startswith('return "segment0" + "segment1"'))
+        # Other bytes than the inventoried file give no text: the handle alone still binds.
+        stale = {self.PATH: evidence.line_texts(self.data + b"// edited\n", self.digest, self.LINES)}
+        self.assertEqual({self.PATH: None}, stale)
+        moved = {self.PATH: {**self.texts[self.PATH], "sha256": "b" * 64}}
+        for texts in (stale, moved, None, {"other.ts": self.texts[self.PATH]}):
+            rows = evidence.assess(
+                self.inventory, None, None, source_revision="source-one", proof_context="proof-one", texts=texts
+            )["obligations"]
+            self.assertFalse(any("source_line" in row for row in rows))
+
+    def test_the_retained_s6_reasons_that_describe_other_lines_are_refused(self):
+        """The accepted S6 report put reasons for one line under the handle of another."""
+        drifted = [
+            # Bound to the corpus comment, the reason explains the SURFACE constant.
+            self.decision(
+                self.comment,
+                'export const SURFACE = "typescript_client";',
+                "SURFACE names this client's surface in the shared corpus; a different constant drops every case.",
+            ),
+            # Bound to SURFACE, the reason explains CorpusCase.surfaces typing.
+            self.decision(
+                self.surface,
+                "surfaces: string[];",
+                "CorpusCase.surfaces is a type annotation with no runtime behavior to mutate.",
+            ),
+            # Bound to repositoryRoot(), the reason explains an import in another file.
+            self.decision(
+                self.root,
+                'import { applicableCases } from "./helpers/action-corpus";',
+                "The import in next-command.test.ts is exercised by every corpus test.",
+            ),
+        ]
+        with self.assertRaises(ValueError) as raised:
+            self.bind(drifted)
+        message = str(raised.exception)
+        for gap in (self.comment, self.surface, self.root):
+            self.assertIn(f"{gap['handle']} quotes ", message)
+            self.assertIn(f"{self.PATH}:{gap['line']}, which is {json.dumps(gap['source_line'])}", message)
+        self.assertIn("must justify that exact line", message)
+        # One drifted row among correct ones still returns the whole report.
+        correct = self.decision(self.typing, "surfaces: string[];", "A type annotation; tsc checks it.")
+        with self.assertRaisesRegex(ValueError, f"{self.surface['handle']} quotes"):
+            self.bind([correct, drifted[1]])
+
+    def test_the_mismatch_returns_the_report_before_check_replay_even_after_a_repair(self):
+        import autocode_changed_code_review_application as application
+
+        state = {"regression_proof": {"changed_code_evidence": self.assessment, "path": "/run/proof.json"}}
+        value = {
+            "verdict": "PASS",
+            "checks": [{"exit_code": 0, "evidence_ref": "check-output"}],
+            review.FIELD: [self.decision(self.surface, "surfaces: string[];", "A type annotation.")],
+        }
+        for record in (self.record, {**self.record, "report_repaired": True}):
+            with self.subTest(record=record), self.assertRaisesRegex(ValueError, "describes a different line"):
+                application.preflight(state, value, record, passing_claim=True)
+        # Another source revision is not this proof's review; the binder refuses it on its own terms.
+        self.assertIsNone(application.require_exact_lines(state, value, {**self.record, "source_revision": "x"}))
+
+    def test_exact_quotes_bind_comment_type_code_and_long_lines(self):
+        """Positive controls: a reason that names its own line binds, whatever kind of line it is."""
+        decisions = [
+            self.decision(
+                self.comment,
+                " * The shared action corpus every client's next-command test reads.",
+                "A documentation comment inside a block the inventory could not classify; it has no runtime behavior.",
+                "defensive_unreachable",
+            ),
+            self.decision(
+                self.surface,
+                'export   const SURFACE = "typescript_client";',  # whitespace differences are not drift
+                "next-command.test.ts filters the corpus by SURFACE and asserts the typescript_client cases run.",
+            ),
+            self.decision(self.typing, "\tsurfaces: string[];", "A type annotation erased at compile time."),
+            self.decision(
+                self.root,
+                "export function repositoryRoot(): string {",
+                "The function header; its body is exercised by every corpus load.",
+            ),
+            # The whole long line, or the bounded text the handoff showed, names the same line.
+            self.decision(self.long, corpus_source().decode().splitlines()[40], "The returned path literal."),
+        ]
+        bound = self.bind(decisions)
+        self.assertEqual(
+            [gap["source_line"] for gap in self.assessment["obligations"]], [row["source_line"] for row in bound]
+        )
+        result = self.assess(bound)
+        self.assertEqual("PASS", result["status"])
+        self.assertEqual({"excepted"}, {row["status"] for row in result["obligations"]})
+        decisions[-1]["source_line"] = self.long["source_line"]
+        self.assertTrue(self.bind(decisions[-1:]))
+
+    def test_the_assessor_never_excepts_a_line_with_another_lines_quote(self):
+        bound = self.bind([self.decision(self.surface, self.surface["source_line"], "SURFACE is asserted.")])
+        self.assertEqual("excepted", self.assess(bound)["obligations"][1]["status"])
+        bound[0]["source_line"] = self.typing["source_line"]
+        self.assertEqual("reason_required", self.assess(bound)["obligations"][1]["status"])
+
+    def test_a_report_offered_the_legacy_fields_binds_without_a_quote(self):
+        legacy = wire(state={"regression_proof": {"changed_code_evidence": self.assessment}})
+        legacy["properties"][review.FIELD]["items"]["properties"].pop("source_line")
+        row = self.decision(self.surface, "", "SURFACE is asserted.")
+        del row["source_line"]
+        bound = review.bind(self.assessment, [row], self.record, offered_schema=legacy, verified_refs=self.refs)
+        self.assertEqual(self.surface["source_line"], bound[0]["source_line"])
+        # A current offer requires the quote.
+        with self.assertRaisesRegex(ValueError, "Malformed"):
+            self.bind([row])
+
+    def test_the_request_for_undecided_lines_quotes_each_line(self):
+        """The repair handoff carries this error, not the proof's rows, so it names each line's text."""
+        import autocode_changed_code_review_application as application
+
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        schema = Path(folder.name) / "tester.schema.json"
+        schema.write_text(json.dumps(wire(state={"regression_proof": {"changed_code_evidence": self.assessment}})))
+        state = {"regression_proof": {"changed_code_evidence": self.assessment, "path": "/run/proof.json"}}
+        with self.assertRaises(ValueError) as raised:
+            application.require_tester_decisions(
+                state, {"verdict": "PASS", review.FIELD: []}, {**self.record, "schema": str(schema)}
+            )
+        self.assertIn(
+            f"{self.surface['handle']} {self.PATH}:14 ({self.surface['gap_id']}) "
+            + json.dumps('export const SURFACE = "typescript_client";'),
+            str(raised.exception),
+        )
+        self.assertIn("as source_line", str(raised.exception))

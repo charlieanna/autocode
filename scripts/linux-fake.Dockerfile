@@ -48,6 +48,38 @@ RUN python3.11 -m venv /opt/autocode-venv \
     && useradd --uid 1000 --gid autocode --create-home --shell /bin/bash autocode \
     && chown -R autocode:autocode /opt/autocode-venv
 
+# Tests import AutoCode as the installed autocode_cli package, which a development checkout gets
+# from `pip install -e .` (#2955). The image holds no copy of AutoCode: this import hook maps the
+# package to the checkout mounted at /workspace when it is imported, as setuptools' editable finder
+# does, so every interpreter of this venv runs the mounted candidate, uncommitted changes included,
+# with no install, network access or writable image.
+RUN cat > /opt/autocode-venv/lib/python3.11/site-packages/_autocode_checkout_package.py <<'PY'
+"""Import autocode_cli from the checkout mounted at /workspace, as an editable install maps it."""
+
+import importlib.util
+import os.path
+import sys
+
+PACKAGE = "autocode_cli"
+CHECKOUT = "/workspace"
+
+
+class CheckoutPackageFinder:
+    @classmethod
+    def find_spec(cls, name, path=None, target=None):
+        source = os.path.join(CHECKOUT, "tools")
+        init = os.path.join(source, "__init__.py")
+        if name != PACKAGE or not os.path.isfile(init):
+            return None
+        return importlib.util.spec_from_file_location(name, init, submodule_search_locations=[source])
+
+
+# Appended, as setuptools appends its finder: a package earlier on sys.path still wins.
+sys.meta_path.append(CheckoutPackageFinder)
+PY
+RUN printf 'import _autocode_checkout_package\n' \
+    > /opt/autocode-venv/lib/python3.11/site-packages/_autocode_checkout_package.pth
+
 ENV PATH="/opt/autocode-venv/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin" \
     HOME="/home/autocode" \
     PYTHONDONTWRITEBYTECODE="1" \

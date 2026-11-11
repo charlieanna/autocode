@@ -122,15 +122,19 @@ def recover_legacy_report_repair(state: RunState, run_dir, workspace):
     return True
 
 
+def _route_stop(record):
+    """The status a provider stopped this attempt with on its model (quota or a content-filter refusal),
+    not on the work, else None."""
+    try:
+        status = support.failure_status(record["events"], record=record) if record.get("events") else None
+    except (OSError, ValueError, TypeError):
+        return None
+    return status if status in quota_route.STATUSES else None
+
+
 def _stopped_on_route(record):
     """The provider stopped this attempt on its model (quota or a content-filter refusal), not on the work."""
-    try:
-        return (
-            bool(record.get("events"))
-            and support.failure_status(record["events"], record=record) in quota_route.STATUSES
-        )
-    except (OSError, ValueError, TypeError):
-        return False
+    return _route_stop(record) is not None
 
 
 def abandon_stage(state: RunState, run_dir, workspace, selected, *, launch=None, actor="user_cli"):
@@ -161,7 +165,13 @@ def abandon_stage(state: RunState, run_dir, workspace, selected, *, launch=None,
         changed_files=support.changed_paths(before, after),
         abandoned=True,
     )
+    route_stop = _route_stop(record)
+    if route_stop:
+        # Kept on the archived attempt: a recovery retry it ran under is not spent by it when the
+        # provider returned no response (autocode_resolver_recovery._returned_nothing, #3159).
+        record["route_stop"] = route_stop
     resolver_human.supersede_operational(state, f"{operator} abandoned the selected uncertain attempt")
+    resolver_human.withdraw_queued_operational(state, record.get("original_stage") or record["stage"])
     originals = records.archive_rejected_stage(
         state, run_dir, record, f"{operator} abandoned uncertain response; workspace edits retained"
     )
@@ -172,7 +182,7 @@ def abandon_stage(state: RunState, run_dir, workspace, selected, *, launch=None,
     # A quota stop or a content-filter refusal says nothing about how the model coped with the
     # work: the person names the next model (autocode_quota_route, #184), and nothing changes the
     # route on its own (a higher effort on the refusing model would be refused again).
-    if not _stopped_on_route(record):
+    if not route_stop:
         escalation.advance(
             state,
             record.get("route_role", record["role"]),
@@ -1340,10 +1350,32 @@ def retry_format_failed_report(state: RunState, run_dir, workspace, selected):
     records.write_json(run_dir / "state.json", state)
 
 
-def prepare_abandoned_completion_revalidation(state: RunState, run_dir, workspace):
-    """Repair old completion-abandonment routing on explicit resume only."""
+def _inspected_pause(state: RunState, origin):
+    """The pause a completion recovery below judges (#3020).
+
+    Without ``origin`` it is the saved status. A resume holding the run's current operational
+    request passes the pause that request retained, so it never has to publish that pause over the
+    real status (and leave it there when a check raises) for these checks to read it. The request is
+    authenticated again here, so the argument adds no authority the saved run does not carry: an
+    origin that is not the current request's own pause returns None, which no check accepts.
+    """
+    if origin is None:
+        return state.get("status")
+    issued = resolver_human.current(state)
+    if not issued or issued["scope"] != "operational_exhaustion":
+        return None
+    entry = state["resolver"]["human_escalations"][issued["request_id"]]
+    return origin if entry["identity"]["proposal"]["origin"].get("pause_status") == origin else None
+
+
+def prepare_abandoned_completion_revalidation(state: RunState, run_dir, workspace, *, origin=None):
+    """Repair old completion-abandonment routing on explicit resume only.
+
+    ``origin`` is the retained pause of the current operational request (``_inspected_pause``).
+    """
+    paused = _inspected_pause(state, origin)
     if (
-        state.get("status") not in ("PAUSED_STAGE_ABANDONED", "PAUSED_INVALID_OUTPUT", "PAUSED_REPEATED_FAILURE")
+        paused not in ("PAUSED_STAGE_ABANDONED", "PAUSED_INVALID_OUTPUT", "PAUSED_REPEATED_FAILURE")
         or state.get("next_stage") != "review_completion"
         or state.get("validation")
         or any(state.get(key) for key in ("active_stage", "pending_report_repair", "uncertain_artifacts"))
@@ -1417,7 +1449,7 @@ def prepare_abandoned_completion_revalidation(state: RunState, run_dir, workspac
         }
         if not failure.get("attempts") or not set(failure["attempts"]) <= attempts:
             return False
-    elif state["status"] != "PAUSED_STAGE_ABANDONED":
+    elif paused != "PAUSED_STAGE_ABANDONED":
         return False
     stage = workflow.review_stage(state)
     if failures.repeated(state, {"stage": stage, "source_revision": revision}):
@@ -1426,7 +1458,7 @@ def prepare_abandoned_completion_revalidation(state: RunState, run_dir, workspac
         {
             "at": records.now(),
             "attempt_id": selected,
-            "previous_status": state["status"],
+            "previous_status": paused,
             "stage": stage,
             "reason": "Explicit resume requires fresh validation after abandoned completion",
         }
@@ -1442,7 +1474,7 @@ def prepare_abandoned_completion_revalidation(state: RunState, run_dir, workspac
     return True
 
 
-def prepare_timeout_archived_completion(state: RunState, run_dir, workspace):
+def prepare_timeout_archived_completion(state: RunState, run_dir, workspace, *, origin=None):
     """Re-open one checkpoint whose current validation a stopped completion review retired.
 
     A read-only Completion Review that stopped mid-call changed nothing, so the Tester report its
@@ -1450,13 +1482,15 @@ def prepare_timeout_archived_completion(state: RunState, run_dir, workspace):
     evidence pin intact. That archived report is the one thing the completion gate lacked, so it is
     put back — never adopted for a source it did not check, and never as a claim of completion: the
     ordinary gate re-decides it. A checkpoint whose evidence no longer binds stays paused, because
-    the runner cannot restore authority an inspection would not re-establish.
+    the runner cannot restore authority an inspection would not re-establish. ``origin`` is the
+    retained pause of the current operational request (``_inspected_pause``).
     """
     recovery = state.get("recovery_context") or {}
     attempt = recovery.get("attempt_id")
     task_id = (state.get("current_task") or {}).get("id")
+    paused = _inspected_pause(state, origin)
     if (
-        state.get("status") not in ("PAUSED_COMPLETION_GATE", "PAUSED_REPEATED_FAILURE")
+        paused not in ("PAUSED_COMPLETION_GATE", "PAUSED_REPEATED_FAILURE")
         or state.get("next_stage") != "review_completion"
         or state.get("validation")
         or not attempt
@@ -1535,7 +1569,7 @@ def prepare_timeout_archived_completion(state: RunState, run_dir, workspace):
         {
             "at": records.now(),
             "attempt_id": attempt,
-            "previous_status": state["status"],
+            "previous_status": paused,
             "stage": "review_completion",
             "reason": "Restored the current pinned validation that a stopped completion review had retired",
         }

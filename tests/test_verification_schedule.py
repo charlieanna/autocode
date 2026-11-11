@@ -495,6 +495,68 @@ class ExecutionIdentityTests(unittest.TestCase):
                     self.assertTrue(result["reuse_supported"])
                     self.assertEqual(expected, result)
 
+    def test_prefixed_and_package_runtimes_bind_where_the_command_executes(self):
+        # #2982: an env-prefixed interpreter, a PATH lookup and a `cd PACKAGE && RUNNER` command
+        # execute in the workspace or its package. Their recorded interpreter is the one that
+        # launch selects, never a same-named executable in the controller's cwd.
+        project = Project({"app.py": "VALUE = 1\n", "pkg/app.py": "VALUE = 2\n", ".gitignore": ".venv\nbin\n"})
+        self.addCleanup(project.close)
+        controller = Path(tempfile.mkdtemp(prefix="controller-"))
+        self.addCleanup(shutil.rmtree, controller)
+        runtimes = {}
+        for name, path in (
+            ("workspace", project.root / ".venv/bin/python"),
+            ("package", project.root / "pkg/.venv/bin/python"),
+            ("package node", project.root / "pkg/bin/node"),
+            ("controller", controller / ".venv/bin/python"),
+            ("controller node", controller / "pkg/bin/node"),
+            ("controller package", controller / "pkg/.venv/bin/python"),
+        ):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"#!/bin/sh\necho {name}\n")
+            path.chmod(0o755)
+            runtimes[name] = path
+        self.assertEqual(
+            "workspace",
+            subprocess.run(
+                shlex.split("env A=1 .venv/bin/python -m unittest -v"), cwd=project.root, capture_output=True, text=True
+            ).stdout.strip(),
+        )
+
+        def bound(command, **environment):
+            with (
+                contextlib.chdir(controller),
+                mock.patch.object(verify, "test_environment", return_value=environment),
+            ):
+                return verify.execution_identity(project.root, command=command, full=False)
+
+        def interpreter(name):
+            return schedule.tree_identity(runtimes[name])
+
+        cases = {
+            "env A=1 .venv/bin/python -m unittest -v": ("workspace", {}),
+            "env PATH=.venv/bin python -m unittest -v": ("workspace", {}),
+            "python -m unittest -v": ("workspace", {"PATH": ".venv/bin"}),
+            "cd pkg && .venv/bin/python -m unittest -v": ("package", {}),
+            "cd pkg && env PATH=.venv/bin python -m unittest -v": ("package", {}),
+            "cd pkg && bin/node --test": ("package node", {}),
+            f"env A=1 {runtimes['controller']} -m unittest -v": ("controller", {}),
+        }
+        for command, (expected, environment) in cases.items():
+            with self.subTest(command=command):
+                self.assertEqual(interpreter(expected), bound(command, **environment)["interpreter"])
+        # A relative PYTHONPATH is read from the package directory the command enters.
+        self.assertEqual(
+            [], bound("cd pkg && env PYTHONPATH=.. .venv/bin/python -m unittest -v")["unbound_relative_pythonpath"]
+        )
+        self.assertEqual(
+            ["../.."],
+            bound("cd pkg && env PYTHONPATH=../.. .venv/bin/python -m unittest -v")["unbound_relative_pythonpath"],
+        )
+        # The binding is corrected, not widened: these commands still execute fresh.
+        self.assertFalse(bound("env A=1 .venv/bin/python -m unittest -v")["reuse_supported"])
+        self.assertFalse(bound("cd pkg && .venv/bin/python -m unittest -v")["reuse_supported"])
+
     def test_fixture_symlinks_cannot_hide_unbound_target_changes(self):
         project = Project({"app.py": "x = 1\n", ".gitignore": "ignored-fixture\n"})
         self.addCleanup(project.close)
