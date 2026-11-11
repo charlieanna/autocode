@@ -91,13 +91,7 @@ try:
     from . import autocode_vitest_tests as vitest_tests
     from .autocode_suite_health import suite_health
     from .autocode_test_framework import Framework
-    from .autocode_verification_commands import (
-        _go_test,
-        cannot_run,
-        command_framework,
-        select_commands,
-        untargeted,
-    )
+    from .autocode_verification_commands import _go_test, command_framework, select_commands, unheld, untargeted
     from .autocode_verification_commands import _mentions_tests as _mentions_tests
 except ImportError:
     import autocode_agent_env as agent_env
@@ -139,13 +133,7 @@ except ImportError:
     import autocode_vitest_tests as vitest_tests
     from autocode_suite_health import suite_health
     from autocode_test_framework import Framework
-    from autocode_verification_commands import (
-        _go_test,
-        cannot_run,
-        command_framework,
-        select_commands,
-        untargeted,
-    )
+    from autocode_verification_commands import _go_test, command_framework, select_commands, unheld, untargeted
     from autocode_verification_commands import _mentions_tests as _mentions_tests
 
 PASS, FAIL, UNVERIFIED = "PASS", "FAIL", "UNVERIFIED"
@@ -2857,15 +2845,9 @@ def verify(
         if trees and runnable_tests and commands["regression"]:
             _prove_regression(run, trees, no_go_project=no_go_project, no_junit_project=no_junit_project)
         elif "base_with_tests" in trees and commands["suite"]:
-            # No targeted command: the whole suite proves the flip when base was green, but only a suite
-            # that can hold the new tests. One that cannot never ran them, on base or anywhere (#2889).
-            # An explicit command the framework does not describe is judged by nothing here.
-            if cannot_run(framework, runnable_tests) and commands["suite"] == framework.suite:
-                unverified.append(
-                    "The proving tests are not in the suite that ran, so it cannot show whether they fail on the "
-                    f"original code: {', '.join(runnable_tests)} (the {framework.name} suite "
-                    f"`{framework.suite}` cannot run them)"
-                )
+            # No targeted command: the whole suite proves the flip when base was green, if it holds the tests.
+            if reason := unheld(framework, commands["suite"], runnable_tests):
+                unverified.append(reason)
             elif base_suite is None or base_suite["health"] != "passing":
                 unverified.append(
                     "No targeted regression command, and the base suite is not green, "

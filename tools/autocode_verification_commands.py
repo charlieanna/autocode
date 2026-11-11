@@ -116,6 +116,19 @@ def cannot_run(framework, test_paths) -> bool:
     return bool(paths) and framework is not None and framework.name in TARGETING and not framework.targeted(paths)
 
 
+def unheld(framework, suite, test_paths) -> str | None:
+    """Why the whole ``suite`` cannot show whether ``test_paths`` fail on the original code, or None.
+
+    Only the framework's own suite is judged: a trusted command it does not describe may hold them.
+    """
+    if framework is None or suite != framework.suite or not cannot_run(framework, test_paths):
+        return None
+    return (
+        "The proving tests are not in the suite that ran, so it cannot show whether they fail on the "
+        f"original code: {', '.join(test_paths)} (the {framework.name} suite `{framework.suite}` cannot run them)"
+    )
+
+
 def untargeted(framework, test_paths) -> str:
     """Say which suite could not run these test files, so a wrong binding reads as one (#2609)."""
     found = f"the detected {framework.name} suite `{framework.suite}`" if framework else "no detected test suite"

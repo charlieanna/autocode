@@ -66,6 +66,17 @@ class SuiteHoldsTestsTests(unittest.TestCase):
                 self.assertFalse(command_policy.cannot_run(framework, spec))
         self.assertFalse(command_policy.cannot_run(Framework("node", "npm test"), []))
 
+    def test_only_the_frameworks_own_suite_is_said_not_to_hold_the_tests(self):
+        spec = ["backend/spec/requests/grader_spec.rb"]
+        node = Framework("node", "npm test --silent")
+        self.assertEqual(
+            "The proving tests are not in the suite that ran, so it cannot show whether they fail on the original "
+            "code: backend/spec/requests/grader_spec.rb (the node suite `npm test --silent` cannot run them)",
+            command_policy.unheld(node, "npm test --silent", spec),
+        )
+        self.assertIsNone(command_policy.unheld(node, "cd backend && bundle exec rspec", spec))
+        self.assertIsNone(command_policy.unheld(None, "make test", spec))
+
 
 class ExplicitUnittestProofTests(unittest.TestCase):
     @unittest.skipUnless(verify._python_can_import(sys.executable, "pytest"), "pytest is not installed")
