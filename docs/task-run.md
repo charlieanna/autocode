@@ -2999,6 +2999,18 @@ marked `unavailable` against the run's other routes, `reset` and `file` null, an
 a client reads the list again afterwards. A refused change exits 2 with the reason on stderr and
 saves nothing.
 
+At a pause the person requested while the approved plan is being built, the status view's
+`implementation_discrepancy` lets them say where the code departs from that plan without revising it
+(#3045). `offer` is null unless a report may be sent now; otherwise it has `label`, `effect` and
+`next_command`, the argument array `--workspace WS --run-dir RUN --review-token TOKEN
+--report-discrepancy MESSAGE` with `MESSAGE` replaced by the person's text and `TOKEN` the approved
+plan's. `reports` lists every saved report (`id`, `text`, `at`, `contract_token`, `task_id`,
+`milestone_id`, `source_revision`, and `current`, true while it is bound to the current plan
+revision). The whole field is null when there is neither. A report keeps the plan approved and the
+run paused; the Tester of that task and the Completion Reviewer read it as an allegation to check
+against the approved plan when the person resumes, and it never approves, accepts, closes a finding
+or changes a limit. A change to the plan itself stays `--feedback`.
+
 ## Worktrees for clients
 
 A chat changes files either in a worktree and branch of its own or in the person's folder, and a
