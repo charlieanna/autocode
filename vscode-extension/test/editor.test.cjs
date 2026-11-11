@@ -1237,12 +1237,19 @@ async function openChat(t, initial, selected = run, options = {}) {
   await flush();
   if (selected !== false) chat.show(selected);
   await flush();
+  // A poll cycle can take more than one flush to land (#2967). refresh() joins a cycle already
+  // reading, so a poll made while an older cycle reads would land that cycle's earlier fixture and
+  // miss the change the case just made. Wait, without starting a read, for every running cycle
+  // (including the one a tab switch queues behind it) before the case reads or polls.
+  assert.ok('refreshing' in chat, 'the chat still tracks its running poll cycle');
+  const settled = async () => { while (chat.refreshing) await chat.refreshing; };
+  await settled();
   t.after(() => { chat.dispose(); dom.window.close(); });
   return {
     chat, document: dom.window.document, window: dom.window, sent, saved,
     get webviewState() { return persisted; },
     setView(next) { value = next; },
-    async poll(next = value) { value = next; t.mock.timers.tick(5000); await flush(); await chat.refresh(); },
+    async poll(next = value) { value = next; await settled(); t.mock.timers.tick(5000); await flush(); await chat.refresh(); },
     async visible(visible) { view.visible = visible; visibility(); await flush(); },
     type(text) { const field = dom.window.document.querySelector('#message'); field.value = text; field.dispatchEvent(new dom.window.Event('input')); },
     submit() { dom.window.document.querySelector('#composer').dispatchEvent(new dom.window.Event('submit', { cancelable: true })); },
@@ -5022,6 +5029,33 @@ test('test_ac1_background_tab_need_notifies_once', async (t) => {
   assert.equal(host.notices.length, 1);
   assert.equal(host.notices[0].message, 'AutoCode: alpha is waiting for you - approval of the plan AutoCode displayed');
   assert.deepEqual(host.notices[0].items, ['Open chat']);
+});
+
+test('a chat poll reads the run as it is when polled, not through a read that began before (#2967)', async (t) => {
+  const own = new RunController(host.log);
+  const views = new Map([[alpha.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { controller: own, statusFor: (target) => views.get(target.runDir) });
+  // Hold one read open after it has taken the run's state, as a slow host's --status does.
+  const read = own.pollStatus;
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  let holding = true;
+  t.mock.method(own, 'pollStatus', async (target) => {
+    const view = await read.call(own, target);
+    if (holding) { holding = false; await held; }
+    return view;
+  });
+  const older = ui.chat.refresh();
+  await flush();
+  views.set(alpha.runDir, approveView('r1:abc'));
+  const polled = ui.poll();
+  await flush();
+  release();
+  await Promise.all([older, polled]);
+  assert.equal(host.notices.length, 1, 'the poll reads the approval made after the older read began');
+  assert.equal(host.notices[0].message, 'AutoCode: alpha is waiting for you - approval of the plan AutoCode displayed');
+  await ui.poll();
+  assert.equal(host.notices.length, 1, 'the approval is still announced once');
 });
 
 test('test_ac2_same_need_second_poll_does_not_repeat', async (t) => {
