@@ -124,6 +124,8 @@ CODEX_MODELS = ("gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra")
 CODEX_DEFAULTS = {role: "gpt-5.6-sol" for role in ORDER} | {"builder": "gpt-5.6-terra", "plan_reviewer": "gpt-6-astra"}
 # The level a model with no reasoning variants takes: its own default, sent as no level at all.
 OWN_DEFAULT = "default"
+# A new chat's pick for itself alone (chat_view): ``autocode stages list --chat-stage ROLE MODEL EFFORT``.
+CHAT_FLAG = "--chat-stage"
 _MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:@+/-]{0,199}$")
 _BACKEND = re.compile(r"[a-z][a-z0-9_]{0,62}$")
 HEADER = (
@@ -338,8 +340,13 @@ def view(backend, workspace=None, *, file=None, resolve=None, discover=None) -> 
     option's ``effort_choices``, refusing anything else, and ``reset.next_command`` while a choice is
     saved. ``options_stop`` says why no options could be listed.
     """
-    file, saved, fallback, options, stop = _read(backend, workspace, file, resolve, discover)
-    effective = _effective(saved, fallback, options)
+    return _build(backend, *_read(backend, workspace, file, resolve, discover))
+
+
+def _build(backend, file, saved, fallback, options, stop, effective=None) -> dict:
+    """``view`` from what ``_read`` found; ``effective`` (each role's model) defaults to the saved choices'."""
+    if effective is None:
+        effective = _effective(saved, fallback, options)
     stages = []
     for role, _job, does, advice in STAGES:
         rows = _rows(role, options, effective, backend)
@@ -474,8 +481,19 @@ def choose(backend, picks, workspace=None, *, file=None, resolve=None, discover=
         if role not in ORDER:
             raise ValueError(f"{role} is not a stage; the stages are {', '.join(ORDER)}")
     file, saved, fallback, options, stop = _read(backend, workspace, file, resolve, discover)
+    _check(backend, picks, saved, fallback, options, stop)
+    every = load(file)
+    for role, (model, effort) in picks.items():
+        every.setdefault(backend, {})[role] = {"model": model, "effort": None if effort == OWN_DEFAULT else effort}
+    save(every, file)
+    return view(backend, workspace, file=file, resolve=resolve, discover=discover)
+
+
+def _check(backend, picks, saved, fallback, options, stop) -> dict:
+    """Refuse (ValueError) a pick the backend does not offer, a level its model does not take, or a model
+    a checker or producer of the stage runs once every pick stands; return each role's model then."""
     label = BACKEND_LABELS.get(backend, backend)
-    if stop:
+    if stop and picks:
         raise ValueError(f"cannot list {label}'s models: {stop}")
     by_model = {option["model"]: option for option in options}
     after = {**saved, **{role: {"model": model, "effort": effort} for role, (model, effort) in picks.items()}}
@@ -490,11 +508,48 @@ def choose(backend, picks, workspace=None, *, file=None, resolve=None, discover=
             raise ValueError(f"the {LABELS[role]} cannot run {model}: {reason}")
         if effort not in effort_choices(option):
             raise ValueError(f"{model} takes {', '.join(effort_choices(option))}, not {effort}")
-    every = load(file)
-    for role, (model, effort) in picks.items():
-        every.setdefault(backend, {})[role] = {"model": model, "effort": None if effort == OWN_DEFAULT else effort}
-    save(every, file)
-    return view(backend, workspace, file=file, resolve=resolve, discover=discover)
+    return effective
+
+
+def chat_view(backend, picks, list_command, workspace=None, *, file=None, resolve=None, discover=None) -> dict:
+    """The new-task view for one chat that has not started, with ``picks`` (``{role: (model, effort)}``) for it alone.
+
+    A client shows a new chat the stages it will run before it starts and lets the person change them
+    for that chat only (owner request 2026-11-11): nothing is saved, and the saved choices keep serving
+    every other new task. The view is ``view`` with, for each stage, ``chat`` (this chat's pick, or
+    null), ``chat_set.next_command`` (``list_command`` with the other picks and this stage's
+    ``--chat-stage ROLE MODEL EFFORT``, filled as ``set`` is) and ``chat_reset.next_command`` (without
+    this stage's pick, or null), and options marked ``unavailable`` against the routes the chat will
+    run. ``chat`` at the top says how the chat starts: ``start_args``, the stage flags a client adds to
+    the new run's start unchanged (a typed flag, so the launch checks it again and its level is exact),
+    and ``next_command``, this view again. Refuses (ValueError) a pick ``choose`` would refuse.
+    """
+    for role in picks:
+        if role not in ORDER:
+            raise ValueError(f"{role} is not a stage; the stages are {', '.join(ORDER)}")
+    found = _read(backend, workspace, file, resolve, discover)
+    effective = _check(backend, picks, *found[1:])
+    current = _build(backend, *found, effective)
+    order = [role for role in ORDER if role in picks]
+
+    def picked(*, without=None):
+        words = []
+        for role in order:
+            if role != without:
+                words += [CHAT_FLAG, role, picks[role][0], picks[role][1]]
+        return words
+
+    start = []
+    for stage in current["stages"]:
+        role = stage["id"]
+        pick = picks.get(role)
+        stage["chat"] = {"model": pick[0], "effort": None if pick[1] == OWN_DEFAULT else pick[1]} if pick else None
+        stage["chat_set"] = {"next_command": [*list_command, *picked(without=role), CHAT_FLAG, role, "MODEL", "EFFORT"]}
+        stage["chat_reset"] = {"next_command": [*list_command, *picked(without=role)]} if pick else None
+        if pick:
+            start += [stage["flag"], pick[0]] + ([stage["effort_flag"], pick[1]] if pick[1] != OWN_DEFAULT else [])
+    current["chat"] = {"start_args": start, "next_command": [*list_command, *picked()]}
+    return current
 
 
 def reset(backend, role=None, workspace=None, *, file=None, resolve=None, discover=None) -> dict:

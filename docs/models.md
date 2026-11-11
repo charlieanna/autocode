@@ -222,6 +222,23 @@ selection picks for it (below). `autocode stages set STAGE --model MODEL --effor
 A saved level differs from a typed one in one way: for the three review stages it is a ceiling
 ([reasoning effort](#reasoning-effort)). Every other stage runs at the level you saved.
 
+### Changing a new chat's models
+
+A client can show a chat that has not started the model and level each stage will run, and let the
+person change them for that chat alone (owner request 2026-11-11):
+
+```sh
+autocode stages list --chat-stage builder claude-sonnet-5-5 high   # what a new chat runs with that Builder
+```
+
+Each `--chat-stage STAGE MODEL EFFORT` is checked as `autocode stages set` checks a saved choice (a
+model the backend offers, a level it takes, a checker never sharing its producer's model, judged
+against the chat's other stages) and saved nowhere: other new tasks keep the saved choices. The list
+marks the stage `(this chat)` and, with `--json`, names `chat.start_args`, the stage flags
+(`--builder-model claude-sonnet-5-5 --builder-reasoning-effort high`) the chat's run starts with. They
+are typed flags, so the start checks them again, the level is exact, and the saved choice for that
+stage is not taken; every other stage takes its saved choice or default as usual.
+
 ### Changing a started run's models
 
 A task already running keeps its routes, so `autocode stages` reaches only new tasks. To change
