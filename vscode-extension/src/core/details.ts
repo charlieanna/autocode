@@ -25,10 +25,32 @@ export interface PipelineStep {
   label: string;
   state: StepState;
   mark: string;
-  /** Model, level, time, tokens, spend and runs, or why it was skipped. */
+  /** Model, level, time, tokens, spend and runs, or why it was skipped, as one line (the row's tooltip). */
   detail: string;
   /** What the working stage is doing now (`chat.now`), empty otherwise. */
   now: string;
+  /** The stage table's cells: the model without its provider, the level, and what the stage's own attempts used. */
+  model: string;
+  level: string;
+  /** The whole route as the view names it (`provider/model level`), for a reader who needs it. */
+  route: string;
+  time: string;
+  tokens: string;
+  cost: string;
+  /** How many times the stage launched, and how many of those failed (rejected, timed out, interrupted or exited nonzero). */
+  attempts: number;
+  failed: number;
+  /** The same in words, empty for a stage that launched once: "4 attempts, 3 failed" or "ran 3 times". */
+  runs: string;
+  /** Why the newest failed attempt did not succeed, while the stage retries or after it failed. */
+  why: string;
+}
+
+/** The stage table's last row: the run's working time, tokens and accounted spend, as the core totals them. */
+export interface StageTotal {
+  time: string;
+  tokens: string;
+  cost: string;
 }
 
 export interface DetailSection {
@@ -44,10 +66,13 @@ export interface RunHeader {
   state: string;
   label: string;
   sentence: string;
+  /** One row per stage: the view's pipeline, with any other job the run launched (a model preflight) where it ran. */
   pipeline: PipelineStep[];
-  /** The working (or next) stage, always shown: its model, level, time, tokens, spend and what it does now. */
+  /** The stage table's total row, or null before the run has used anything. */
+  total: StageTotal | null;
+  /** What the working stage is doing now, always shown under the stage table; empty when nothing is said. */
   current: string;
-  /** The collapsed header's short facts: spend, tokens, time and what went wrong. */
+  /** The collapsed header's short facts: how the spend splits and what went wrong. */
   facts: string[];
   /** Where the chat changes files, always shown: its own worktree and branch, or the person's folder. */
   place: string;
@@ -84,7 +109,10 @@ function clock(value: unknown): string {
 // ---- Pipeline: the view's `pipeline` rows, with each job's own attempts ----------------------
 
 /** A job's launched attempts as the meter reads them (`usage.accounting.attempts`), several stages of one job together. */
-interface JobUse { model: string; level: string; seconds: number | null; tokens: number; tokensComplete: boolean; spent: number | null; attempts: number; failed: number }
+interface JobUse {
+  model: string; level: string; seconds: number | null; tokens: number; tokensComplete: boolean; spent: number | null;
+  attempts: number; failed: number; why: string; active: boolean;
+}
 
 function jobUse(view: Row, now: number): Map<string, JobUse> {
   const used = new Map<string, JobUse>();
@@ -101,6 +129,8 @@ function jobUse(view: Row, now: number): Map<string, JobUse> {
       spent: add(seen?.spent ?? null, row.spentUsd),
       attempts: (seen?.attempts ?? 0) + row.attempts,
       failed: (seen?.failed ?? 0) + row.failedAttempts,
+      why: row.why || seen?.why || "",
+      active: Boolean(seen?.active) || row.state === "working" || row.state === "retrying",
     });
   }
   return used;
@@ -121,26 +151,69 @@ function latestFor(view: Row, label: string): string {
 
 const shortModel = (model: string): string => (model.includes("/") ? model.slice(model.lastIndexOf("/") + 1) : model);
 
+/** A stage's row from the view's pipeline state and the meter's reading of its own attempts. */
+function stepOf(label: string, state: StepState, row: Row, use: JobUse | undefined, view: Row): PipelineStep {
+  const model = text(row.model) || use?.model || "";
+  const level = text(row.reasoning_effort) || use?.level || "";
+  const step: PipelineStep = {
+    label, state, mark: STEP_MARKS[state], detail: "", now: state === "working" ? nowFor(view, label) : "",
+    model: shortModel(model), level, route: [model, level].filter(Boolean).join(" "),
+    time: "", tokens: "", cost: "", attempts: use?.attempts ?? 0, failed: use?.failed ?? 0, runs: "", why: "",
+  };
+  if (state === "skipped") {
+    step.detail = "skipped" + (text(row.reason) ? `: ${text(row.reason)}` : "");
+    return step;
+  }
+  if (use?.seconds && use.seconds >= 1) step.time = duration(use.seconds);
+  if (use?.tokens) step.tokens = `${stageTokens(use.tokens)}${use.tokensComplete ? "" : "+"}`;
+  const spent = use?.spent ?? (isNumber(row.spent_usd) ? row.spent_usd : null);
+  if (spent !== null && (spent > 0 || use)) step.cost = stageMoney(spent);
+  // A stage that ran again after succeeding (a second plan-review round) is not a retry.
+  if (use && use.attempts > 1) step.runs = use.failed ? `${use.attempts} attempts, ${use.failed} failed` : `ran ${use.attempts} times`;
+  if (use?.failed && use.why) step.why = use.why;
+  step.detail = [step.model, step.level, step.time, step.tokens && `${step.tokens} tokens`, step.cost, step.runs].filter(Boolean).join(" · ");
+  return step;
+}
+
+/**
+ * One row per stage: the view's pipeline in its order, and any other job the run launched (a model
+ * preflight, an Investigator) at the place it first ran, so every launched attempt is on the table once.
+ */
 export function pipelineSteps(view: Row, now = Date.now()): PipelineStep[] {
   const used = jobUse(view, now);
-  return rows(view.pipeline).flatMap((row) => {
+  const listed = rows(view.pipeline).filter((row) => text(row.label) && STEP_STATES.has(row.state as string));
+  const named = new Set(listed.map((row) => text(row.label)));
+  const order = [...used.keys()];
+  const extra = (job: string): PipelineStep => {
+    const use = used.get(job)!;
+    return stepOf(job, use.active && view.done !== true ? "working" : "ran", {}, use, view);
+  };
+  const steps: PipelineStep[] = [];
+  const placed = new Set<string>();
+  for (const row of listed) {
     const label = text(row.label);
-    const state = row.state as StepState;
-    if (!label || !STEP_STATES.has(state)) return [];
-    let detail: string;
-    const use = used.get(label);
-    if (state === "skipped") detail = "skipped" + (text(row.reason) ? `: ${text(row.reason)}` : "");
-    else {
-      const parts = [shortModel(text(row.model) || use?.model || ""), text(row.reasoning_effort) || use?.level || ""];
-      if (use?.seconds && use.seconds >= 1) parts.push(duration(use.seconds));
-      if (use?.tokens) parts.push(`${stageTokens(use.tokens)}${use.tokensComplete ? "" : "+"} tokens`);
-      const spent = use?.spent ?? (isNumber(row.spent_usd) ? row.spent_usd : null);
-      if (spent !== null && (spent > 0 || use)) parts.push(stageMoney(spent));
-      if (use && use.attempts > 1) parts.push(use.failed ? `attempt ${use.attempts}` : `${use.attempts} runs`);
-      detail = parts.filter(Boolean).join(" · ");
-    }
-    return [{ label, state, mark: STEP_MARKS[state], detail, now: state === "working" ? nowFor(view, label) : "" }];
-  });
+    // A job the pipeline does not list, launched before this one, goes in front of it.
+    const at = order.indexOf(label);
+    if (at >= 0) for (const job of order.slice(0, at)) if (!named.has(job) && !placed.has(job)) { steps.push(extra(job)); placed.add(job); }
+    steps.push(stepOf(label, row.state as StepState, row, used.get(label), view));
+  }
+  // The rest ran after every listed stage that ran: after the last stage that has run or works now.
+  const rest = order.filter((job) => !named.has(job) && !placed.has(job)).map(extra);
+  if (rest.length) {
+    let last = -1;
+    steps.forEach((step, index) => { if (step.state === "ran" || step.state === "working") last = index; });
+    steps.splice(last + 1, 0, ...rest);
+  }
+  return steps;
+}
+
+/** The detail beside a stage in Show details: what the table leaves out, its whole route and its attempts. */
+function stageDetail(step: PipelineStep): string {
+  if (step.state === "skipped") return `${step.label}: ${step.detail}`;
+  const parts: string[] = [];
+  if (step.route) parts.push(step.state === "pending" || step.state === "next" || step.state === "not_run" ? `will run on ${step.route}` : step.route);
+  if (step.runs) parts.push(step.why ? `${step.runs}, the last ${step.why === "answer rejected" ? "with its answer rejected" : step.why}` : step.runs);
+  return parts.length ? `${step.label}: ${parts.join("; ")}` : step.label;
 }
 
 function pipelineSection(view: Row, steps: PipelineStep[]): DetailSection | null {
@@ -151,7 +224,7 @@ function pipelineSection(view: Row, steps: PipelineStep[]): DetailSection | null
   const summary = working ? `${working.label} working` : next ? `${next.label} next` : `${ran} of ${steps.length} ran`;
   const lines: string[] = [];
   for (const step of steps) {
-    lines.push(`${step.mark} ${step.label}${step.detail ? ` · ${step.detail}` : ""}`);
+    lines.push(`${step.mark} ${stageDetail(step)}`);
     if (step.state !== "working") continue;
     if (step.now) lines.push(`  Now: ${step.now}`);
     const latest = latestFor(view, step.label);
@@ -160,12 +233,20 @@ function pipelineSection(view: Row, steps: PipelineStep[]): DetailSection | null
   return { id: "pipeline", title: "Stages", summary, lines };
 }
 
-/** The working stage, or the one that runs next, as one always-visible line. */
+/** What the working stage is doing now, under the stage table; its model and usage are on its row. */
 function currentLine(steps: PipelineStep[]): string {
-  const step = steps.find((row) => row.state === "working") ?? steps.find((row) => row.state === "next");
-  if (!step) return "";
-  const head = `${step.label} ${step.state === "working" ? "working" : "next"}${step.detail ? ` · ${step.detail}` : ""}`;
-  return step.now ? `${head} · ${step.now}` : head;
+  const step = steps.find((row) => row.state === "working" && row.now);
+  return step ? `${step.label}: ${step.now}` : "";
+}
+
+/** The table's total row: the run's working time and its accounted tokens and spend, each a floor while incomplete. */
+function stageTotal(view: Row): StageTotal | null {
+  const seconds = executionSeconds(view);
+  const total = runTotal(view);
+  if (seconds === null && !total) return null;
+  const cost = total?.spentUsd === null || !total ? "" : `${stageMoney(total.spentUsd)}${total.costComplete ? "" : "+"}`;
+  const used = total?.tokens ? `${stageTokens(total.tokens)}${total.tokensComplete ? "" : "+"}` : "";
+  return { time: seconds === null ? "" : duration(seconds), tokens: used, cost };
 }
 
 // ---- Where the run is: `summary` and `explanation` -----------------------------------------
@@ -594,9 +675,7 @@ export function runHeader(view: unknown, at = Date.now()): RunHeader | null {
   const facts: string[] = [];
   const spend = spendSummary(source);
   if (spend) facts.push(spend);
-  // The run's working time; its spend and tokens are already on the toolbar's cost line.
-  const seconds = executionSeconds(source);
-  if (seconds !== null) facts.push(`${duration(seconds)} working`);
+  // The run's working time, tokens and spend are the stage table's total row.
   const wrong = recoveries(source).length;
   if (wrong) facts.push(`${wrong} ${wrong === 1 ? "thing" : "things"} went wrong, handled`);
   const place = worktree(source);
@@ -612,5 +691,8 @@ export function runHeader(view: unknown, at = Date.now()): RunHeader | null {
     pathSection(source),
     decisionsSection(source),
   ].filter((section): section is DetailSection => section !== null);
-  return { state: now.state, label: now.label, sentence: now.sentence, pipeline: steps, current: currentLine(steps), facts, place: place.label, sections };
+  return {
+    state: now.state, label: now.label, sentence: now.sentence, pipeline: steps, total: steps.length ? stageTotal(source) : null,
+    current: currentLine(steps), facts, place: place.label, sections,
+  };
 }

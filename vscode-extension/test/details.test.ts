@@ -296,27 +296,121 @@ function working(extra: Record<string, unknown> = {}) {
 
 test("each stage shows the model, level, time, tokens and spend its own attempts used, and the working one what it does now", () => {
   const steps = pipelineSteps(working(), STARTED);
-  assert.deepEqual(steps.map((row) => [row.label, row.detail, row.now]), [
-    ["Requirements", "claude-sonnet-5-5 · high · 1m00s · 13k tokens · $0.05", ""],
+  assert.deepEqual(steps.map((row) => [row.label, row.model, row.level, row.time, row.tokens, row.cost, row.now]), [
+    ["Requirements", "claude-sonnet-5-5", "high", "1m00s", "13k", "$0.05", ""],
     // The running attempt: its time so far, its tokens as a floor and the core's running spend.
-    ["Planner", "claude-opus-5-5 · high · 30s · 29k+ tokens · $0.12", "reading files"],
-    ["Plan Reviewer", "claude-opus-5-5 · medium", ""],
+    ["Planner", "claude-opus-5-5", "high", "30s", "29k+", "$0.12", "reading files"],
+    ["Plan Reviewer", "claude-opus-5-5", "medium", "", "", "", ""],
+  ]);
+  assert.deepEqual(steps.map((row) => row.detail), [
+    "claude-sonnet-5-5 · high · 1m00s · 13k tokens · $0.05",
+    "claude-opus-5-5 · high · 30s · 29k+ tokens · $0.12",
+    "claude-opus-5-5 · medium",
   ]);
   const header = runHeader(working(), STARTED);
-  // Always visible, without opening the details: the working stage and what it is doing.
-  assert.equal(header?.current, "Planner working · claude-opus-5-5 · high · 30s · 29k+ tokens · $0.12 · reading files");
-  assert.deepEqual(header?.facts, ["1m30s working"]);
+  // Always visible under the stage table: what the working stage is doing; its figures are its row.
+  assert.equal(header?.current, "Planner: reading files");
+  // The table's total row is the run's own working time, tokens and accounted spend, each a floor while incomplete.
+  assert.deepEqual(header?.total, { time: "1m30s", tokens: "42k+", cost: "$0.17+" });
+  assert.deepEqual(header?.facts, [], "the working time is the total row now, not a fact");
   const stages = section(header, "pipeline");
   assert.equal(stages?.title, "Stages");
-  assert.deepEqual(stages?.lines.slice(1, 4), [
-    "● Planner · claude-opus-5-5 · high · 30s · 29k+ tokens · $0.12",
+  // Show details adds what the table leaves out: the whole route, and what each stage is doing.
+  assert.deepEqual(stages?.lines, [
+    "✓ Requirements: claude-sonnet-5-5 high",
+    "● Planner: claude-opus-5-5 high",
     "  Now: reading files",
     "  Latest: The CSV writer drops the header row",
+    "· Plan Reviewer: will run on claude-opus-5-5 medium",
   ]);
-  // Before anything ran, the next stage is the one shown.
+  // Before anything ran there is nothing to say under the table, and no total.
   const before = runHeader(view({ pipeline: [step("requirements", "Requirements", "next", { model: "claude-sonnet-5-5", reasoning_effort: "medium" })] }));
-  assert.equal(before?.current, "Requirements next · claude-sonnet-5-5 · medium");
+  assert.equal(before?.current, "");
+  assert.equal(before?.total, null);
+  assert.deepEqual(before?.pipeline.map((row) => [row.mark, row.label, row.model, row.level]), [["›", "Requirements", "claude-sonnet-5-5", "medium"]]);
   assert.equal(runHeader(view({ pipeline: [] }))?.current, "");
+});
+
+test("a stage's model is shown without its provider, and the whole route is kept for details", () => {
+  // Ankur, 2026-11-11: the Stages list read "xiaomi-token-plan-sgp/mimo-v2.6-pro medium · 599k tokens" on a second line.
+  const header = runHeader(view({
+    pipeline: [step("requirements", "Requirements", "ran", { model: "xiaomi-token-plan-sgp/mimo-v2.6-pro", reasoning_effort: "medium" })],
+  }));
+  const [row] = header!.pipeline;
+  assert.deepEqual([row!.model, row!.level, row!.route], ["mimo-v2.6-pro", "medium", "xiaomi-token-plan-sgp/mimo-v2.6-pro medium"]);
+  assert.equal(section(header, "pipeline")?.lines[0], "✓ Requirements: xiaomi-token-plan-sgp/mimo-v2.6-pro medium");
+});
+
+test("a stage that launched more than once counts its attempts and failures, and a retry says why", () => {
+  const retried = working({
+    pipeline: [step("requirements", "Requirements", "ran"), step("planner", "Planner", "working", { model: "claude-opus-5-5", reasoning_effort: "high" })],
+    usage: { accounting: { attempts: [
+      attempt("requirements_gather", "Requirements", { rejected: true }),
+      attempt("requirements_gather", "Requirements"),
+      attempt("draft_plan", "Planner", { timed_out: true }),
+      attempt("draft_plan", "Planner", { active: true, duration_seconds: null, started_at: "2026-11-11T07:59:30Z" }),
+    ] } },
+  });
+  const steps = pipelineSteps(retried, STARTED);
+  assert.deepEqual(steps.map((row) => [row.label, row.attempts, row.failed, row.runs, row.why]), [
+    // It failed once and then succeeded: counted, but no longer retrying.
+    ["Requirements", 2, 1, "2 attempts, 1 failed", ""],
+    ["Planner", 2, 1, "2 attempts, 1 failed", "timed out"],
+  ]);
+  assert.deepEqual(section(runHeader(retried, STARTED), "pipeline")?.lines.slice(0, 2), [
+    "✓ Requirements: claude-sonnet-5-5 high; 2 attempts, 1 failed",
+    "● Planner: claude-opus-5-5 high; 2 attempts, 1 failed, the last timed out",
+  ]);
+  // Another review round after a success is not a failure.
+  const rounds = pipelineSteps(working({
+    pipeline: [step("plan_reviewer", "Plan Reviewer", "ran")],
+    usage: { accounting: { attempts: [attempt("review_plan", "Plan Reviewer"), attempt("review_plan", "Plan Reviewer")] } },
+  }), STARTED);
+  assert.deepEqual(rounds.map((row) => [row.attempts, row.failed, row.runs]), [[2, 0, "ran 2 times"]]);
+  const single = pipelineSteps(working(), STARTED)[0]!;
+  assert.deepEqual([single.attempts, single.runs], [1, ""]);
+});
+
+test("a job the pipeline does not list, such as the model preflight, gets its own row where it ran", () => {
+  // Ankur, 2026-11-11: Model Preflight was in the Stages list but not in the header's pipeline.
+  const shown = working({
+    pipeline: [
+      step("requirements", "Requirements", "ran"),
+      step("planner", "Planner", "working", { model: "zai-coding-plan/glm-5.3", reasoning_effort: "high" }),
+      step("plan_reviewer", "Plan Reviewer", "pending"),
+    ],
+    usage: { accounting: { attempts: [
+      attempt("requirements_gather", "Requirements"),
+      attempt("model_preflight", "Model Preflight", { launch_route: { model: "zai-coding-plan/glm-5.3" } }),
+      attempt("model_preflight", "Model Preflight", { launch_route: { model: "zai-coding-plan/glm-5.3" } }),
+      attempt("draft_plan", "Planner", { active: true, duration_seconds: null, started_at: "2026-11-11T07:59:30Z" }),
+      attempt("investigate_stuck", "Investigator", { active: true, duration_seconds: null, started_at: "2026-11-11T07:59:50Z" }),
+    ] } },
+  });
+  const steps = pipelineSteps(shown, STARTED);
+  assert.deepEqual(steps.map((row) => [row.label, row.state, row.model, row.time, row.runs]), [
+    ["Requirements", "ran", "claude-sonnet-5-5", "1m00s", ""],
+    ["Model Preflight", "ran", "glm-5.3", "2m00s", "ran 2 times"],
+    ["Planner", "working", "glm-5.3", "30s", ""],
+    // Launched after every listed stage that ran, so it comes after the working one.
+    ["Investigator", "working", "claude-sonnet-5-5", "10s", ""],
+    ["Plan Reviewer", "pending", "", "", ""],
+  ]);
+  // A view with no pipeline still lists every stage its attempts ran, in the order they first ran.
+  const bare = pipelineSteps({ usage: { accounting: { attempts: [attempt("requirements_gather", "Requirements"), attempt("draft_plan", "Planner")] } } }, STARTED);
+  assert.deepEqual(bare.map((row) => [row.label, row.state]), [["Requirements", "ran"], ["Planner", "ran"]]);
+  // A finished run has nothing working, even an attempt the view still marks active.
+  const ended = pipelineSteps({ done: true, usage: { accounting: { attempts: [attempt("draft_plan", "Planner", { active: true })] } } }, STARTED);
+  assert.deepEqual(ended.map((row) => row.state), ["ran"]);
+});
+
+test("the total row appears once the run has worked or spent, and only with a stage table", () => {
+  const timed = runHeader(view({ efficiency: { time: { summed_execution_seconds: 125 } } }));
+  assert.deepEqual(timed?.total, { time: "2m05s", tokens: "", cost: "" });
+  const spent = runHeader(view({ cost: { spent_usd: 1.5, complete: true }, usage: { accounting: { tokens: {
+    input_tokens: { value: 900_000, known: 900_000, complete: true }, output_tokens: { value: 40_000, known: 40_000, complete: true } } } } }));
+  assert.deepEqual(spent?.total, { time: "", tokens: "940k", cost: "$1.50" });
+  assert.equal(runHeader({ summary: { state: "working" }, cost: { spent_usd: 1, complete: true } })?.total, null, "no stages, no table");
 });
 
 test("cost and usage restate the core's accounting, tokens, time and attempts as the terminal's /details does", () => {

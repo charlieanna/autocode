@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { duration, finishSummary, money, runTotal, sessionTotal, stageLines, stages, struggling, tokens, totalText } from "../src/core/meter";
+import { duration, finishSummary, money, runTotal, sessionTotal, stages, struggling, tokens, totalText, type StageRow } from "../src/core/meter";
 import { statusLine } from "../src/statusBar";
 import type { StatusView } from "../src/core/view";
 
@@ -48,20 +48,23 @@ function view(attempts: Record<string, unknown>[], options: { spent?: number; by
   } as unknown as StatusView;
 }
 
+/** A stage's job, seconds, spend, route, tokens and attempts: what the run header's stage table shows. */
+const used = (row: StageRow) => [row.job, row.seconds, row.spentUsd, row.route, row.tokens, row.attempts];
+
 test("each stage shows its model, time, tokens and cost", () => {
   const rows = stages(view([
     attempt("requirements_gather", "Requirements"),
     attempt("terra", "Builder", { launch_route: { model: "gpt-terra", reasoning_effort: "medium" } }),
   ], { byStage: [{ stage: "terra", spent_usd: 0.12 }] }), NOW);
   assert.deepEqual(rows.map((row) => row.job), ["Requirements", "Builder"]);
-  assert.deepEqual(stageLines(rows[1]!), { head: "Builder · 30s · $0.12", detail: "gpt-terra medium · 1.2k tokens" });
+  assert.deepEqual(used(rows[1]!), ["Builder", 30, 0.12, "gpt-terra medium", 1200, 1]);
   assert.equal(rows[1]!.state, "done");
 });
 
 test("a stage with no model shows no cost or model row", () => {
   const plain = attempt("orchestrator", "Orchestrator", { launch_route: {}, attributed_tokens: {} });
   const [row] = stages(view([plain], { byStage: [{ stage: "orchestrator", spent_usd: 0 }] }), NOW);
-  assert.deepEqual(stageLines(row!), { head: "Orchestrator · 30s", detail: "" });
+  assert.deepEqual(used(row!), ["Orchestrator", 30, 0, "", 0, 1]);
 });
 
 test("a retry is struggling and says why the last attempt failed", () => {
@@ -86,7 +89,7 @@ test("a report repair is the repaired stage's next attempt, and its cost is adde
   const costs = [{ stage: "sol", spent_usd: 0.25 }, { stage: "sol_report_repair", spent_usd: 0.1 }];
   const tester = stages(view([rejected, attempt("resolver", "Resolver"), repaired], { byStage: costs }), NOW)[0]!;
   assert.deepEqual([tester.state, tester.attempts, tester.spentUsd], ["done", 2, 0.35]);
-  assert.equal(stageLines(tester).head, "Tester · 48s · $0.35 · attempt 2");
+  assert.deepEqual([tester.seconds, tester.failedAttempts], [48, 1]);
 });
 
 test("a stage running again after a success is another round, not a retry", () => {
@@ -98,7 +101,7 @@ test("a stage running again after a success is another round, not a retry", () =
   const [row] = stages(shown, NOW);
   assert.equal(row!.state, "working");
   assert.equal(struggling(shown, NOW), "");
-  assert.equal(stageLines(row!).head, "Plan Reviewer · 1m00s · 2 runs");
+  assert.deepEqual([row!.attempts, row!.failedAttempts, row!.seconds], [2, 0, 60]);
 });
 
 test("a first attempt at work is not struggling", () => {
@@ -110,7 +113,7 @@ test("a first attempt at work is not struggling", () => {
 test("a failed attempt is marked with its reason, and a nonzero exit counts as failed", () => {
   const [timedOut] = stages(view([attempt("sol", "Tester", { timed_out: true })]), NOW);
   assert.equal(timedOut!.state, "failed");
-  assert.match(stageLines(timedOut!).detail, /timed out/);
+  assert.equal(timedOut!.why, "timed out");
   const shown = view([attempt("terra", "Builder", { exit_code: 1 }), attempt("terra", "Builder", { active: true, duration_seconds: 5 })]);
   assert.equal(struggling(shown, NOW), "Builder · attempt 2 · 35s · last one exit 1");
 });
@@ -121,7 +124,7 @@ test("incomplete tokens are marked as a floor, and runner-owned attempts are not
   });
   const rows = stages(view([partial, attempt("runner", "Runner", { runner_owned: true })]), NOW);
   assert.equal(rows.length, 1);
-  assert.match(stageLines(rows[0]!).detail, /1\.1k\+ tokens/);
+  assert.deepEqual([rows[0]!.tokens, rows[0]!.tokensComplete], [1050, false]);
   assert.deepEqual(stages({}, NOW), []);
 });
 
@@ -143,7 +146,7 @@ test("the running stage's spend so far is in its row and the total", () => {
   const shown = view([running], { spent: 0, complete: false });
   (shown as unknown as { cost: Record<string, unknown> }).cost.running_usd = 0.103;
   assert.equal(totalText(runTotal(shown)), "$0.103+ · 184k+ tokens");
-  assert.deepEqual(stageLines(stages(shown, NOW)[0]!), { head: "Requirements · 1m00s · $0.103", detail: "gpt-x high · 1.2k tokens" });
+  assert.deepEqual(used(stages(shown, NOW)[0]!), ["Requirements", 60, 0.103, "gpt-x high", 1200, 1]);
   // A second round adds the running attempt to the stage's finished spend.
   const again = view([
     attempt("review_plan", "Plan Reviewer"),
