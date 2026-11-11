@@ -126,6 +126,8 @@ class ChangedCodeReportTests(unittest.TestCase):
         view = public_view()
         source, context, digest = "a" * 64, "c" * 64, "d" * 64
         inventory = [{"path": "src/value.py", "sha256": digest, "lines": [2, 3, 4]}]
+        lines = {"2": "return low", "3": "raise ParserState(state)", "4": "return high"}
+        texts = {"src/value.py": {"sha256": digest, "lines": lines}}
         mutation = {
             "source_revision": source,
             "proof_context": context,
@@ -144,7 +146,9 @@ class ChangedCodeReportTests(unittest.TestCase):
                 }
             ],
         }
-        initial = changed_code.assess(inventory, None, mutation, source_revision=source, proof_context=context)
+        initial = changed_code.assess(
+            inventory, None, mutation, source_revision=source, proof_context=context, texts=texts
+        )
         gap = initial["obligations"][1]
         decision = {
             **{key: gap[key] for key in ("gap_id", "path", "sha256", "line")},
@@ -163,6 +167,7 @@ class ChangedCodeReportTests(unittest.TestCase):
             source_revision=source,
             proof_context=context,
             exceptions=[decision],
+            texts=texts,
         )
         view["evidence"]["regression_proof"] = {"verdict": "PASS", "changed_code_evidence": assessment}
         view["verification"]["changed_code_evidence"] = copy.deepcopy(assessment)
@@ -207,6 +212,8 @@ class ChangedCodeReportTests(unittest.TestCase):
             "Unresolved obligations block completion",
             "Independently accepted Tester reason",
             "Parser excludes this defensive state.",
+            # The accepted reason sits beside the exact line it justifies (#2977).
+            f"src/value.py:3 ({'d' * 64}): raise ParserState(state)",
             "owned/tester.json",
             "owned/tester-check.log",
             "mutation_only",

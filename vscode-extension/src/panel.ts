@@ -281,6 +281,9 @@ export class RunPanel {
       const question = key === "approval" ? "Approve every plan of the change set together?" : "Run the change set's integration check now?";
       const button = key === "approval" ? "Approve all" : "Run the check";
       if ((await vscode.window.showWarningMessage(question, { modal: true }, button)) !== button) return;
+      // A joint check runs a while: say it is working before it starts, like the take and
+      // raise paths, or the card keeps its buttons looking clickable while they are not.
+      this.post({ ...stateFor(view, this.run, this.controller, true), changeset: await this.changesetCard(view) });
       await this.controller.takeChangeset(view, this.run, key, token);
     } catch (error) {
       void vscode.window.showErrorMessage(`AutoCode: ${messageOf(error)}`);
@@ -369,7 +372,7 @@ export class RunPanel {
         return;
       }
       if (numeric || planning || (requiresConfirmation(view.needs ?? null) && confirmPersonOnly())) {
-        const button = numeric ? numericActionLabel(state) : planning?.label ?? "Take it anyway";
+        const button = numeric ? numericActionLabel(state) : planning?.label ?? "Continue";
         const proceed = await vscode.window.showWarningMessage(
           numeric ?? planning?.title ?? `AutoCode stopped this run for a person to decide (${view.needs?.kind}). Taking its named action applies your answer to that decision.`,
           { modal: true, detail: numeric ? numericRecoveryEffect(state) : planning?.detail ?? needsSummary(view) },
@@ -918,6 +921,8 @@ export function panelHtml(chat = false): string {
   .live-log .thought .fold-line { font-style: normal; }
   pre { white-space: pre-wrap; word-break: break-all; font-size: .76rem; background: var(--vscode-textCodeBlock-background);
         padding: 8px; border-radius: 4px; }
+  /* A saved-code or working diff can be thousands of lines: it scrolls inside the thread, never stretches it. */
+  pre.diff { max-height: 40vh; overflow: auto; }
   .gap, .notice { border-left: 3px solid var(--vscode-inputValidation-warningBorder, #cc8800);
                   background: var(--vscode-inputValidation-warningBackground, rgba(204,136,0,.12));
                   padding: 8px 10px; margin: 12px 0; font-size: .84rem; }
@@ -971,6 +976,9 @@ const liveLog = new Map();
 const openThoughts = new Set();
 let checkpointResult = null;
 const tabScroll = Object.create(null);
+// The tab strip's keyboard state: the tab keys in order and the selected one.
+let tabKeys = [];
+let activeTabKey = '';
 
 function el(tag, cls, text) {
   const node = document.createElement(tag);
@@ -1141,7 +1149,7 @@ function renderChatProgress(container, state) {
     const files = (comparison.changed_files || []).length;
     const since = comparison.since === 'start' ? 'the run started' : 'the last saved step';
     container.appendChild(el('div', 'why', files + ' file(s) changed since ' + since + (comparison.truncated ? ' · diff truncated' : '')));
-    const patch = el('pre');
+    const patch = el('pre', 'diff');
     patch.textContent = comparison.patch || 'The Builder has not changed any files yet.';
     container.appendChild(patch);
   }
@@ -1458,8 +1466,8 @@ function render(state) {
       cardContent.appendChild(el('h2', null, 'No action the client can take'));
       const box = el('div', 'gap');
       box.appendChild(el('div', null,
-        'AutoCode named no action this client is allowed to take. That is a gap in the CLI or the '
-        + 'status view (#1012), not something the extension should work around.'));
+        'AutoCode named no action this client is allowed to take. That is a gap in AutoCode itself, '
+        + 'not something the extension should work around.'));
       box.appendChild(el('pre', null, state.gap));
       cardContent.appendChild(box);
     } else if (!state.done && state.needKind === 'continue' && state.working) {
@@ -1579,7 +1587,7 @@ function render(state) {
           box.appendChild(el('div', 'why', step
             ? files + ' file(s) changed in this step' + (comparison.truncated ? ' · diff truncated' : '')
             : files + ' file(s) differ from this checkpoint' + (comparison.truncated ? ' · diff truncated' : '')));
-          const patch = el('pre');
+          const patch = el('pre', 'diff');
           patch.textContent = comparison.patch || (step ? 'This step changed no files.' : 'The files match this checkpoint.');
           box.appendChild(patch);
         }
@@ -1726,8 +1734,8 @@ function render(state) {
     app.appendChild(el('h2', null, 'No action the client can take'));
     const box = el('div', 'gap');
     box.appendChild(el('div', null,
-      'AutoCode named no action this client is allowed to take. That is a gap in the CLI or the '
-      + 'status view (#1012), not something the extension should work around.'));
+      'AutoCode named no action this client is allowed to take. That is a gap in AutoCode itself, '
+      + 'not something the extension should work around.'));
     box.appendChild(el('pre', null, state.gap));
     app.appendChild(box);
   } else if (!state.done && !state.stopped) {
@@ -2054,13 +2062,19 @@ function renderTabs(data) {
   const host = document.getElementById('chat-tabs');
   if (!host) return;
   const rows = data.tabs || [{ key: data.runKey || '', name: data.runKey ? 'Chat' : 'New chat' }];
+  tabKeys = rows.map((tab) => tab.key);
+  activeTabKey = data.activeKey || '';
   const signature = JSON.stringify([rows, data.activeKey]);
   if (host.dataset.content === signature) return;
   host.dataset.content = signature;
+  // A selection rebuilds the strip: keyboard focus that was on it moves to the new active tab,
+  // not to the body (the composer and everything else keep their focus untouched).
+  const stripHadFocus = host.contains(document.activeElement);
   host.textContent = '';
   rows.forEach((tab) => {
     const item = el('div', 'chat-tab' + (tab.key === data.activeKey ? ' active' : ''));
     item.role = 'tab';
+    item.tabIndex = tab.key === data.activeKey ? 0 : -1;
     item.setAttribute('aria-selected', tab.key === data.activeKey ? 'true' : 'false');
     const name = el('span', 'name', tab.name);
     item.appendChild(name);
@@ -2077,7 +2091,9 @@ function renderTabs(data) {
       item.appendChild(dot);
     }
     if (rows.length > 1) {
-      const close = el('span', 'close', '×');
+      // A real button: the strip's only close affordance must be reachable and pressable by keyboard.
+      const close = el('button', 'close', '×');
+      close.type = 'button';
       close.title = 'Close chat';
       close.setAttribute('aria-label', 'Close chat ' + tab.name);
       close.addEventListener('click', (event) => {
@@ -2095,11 +2111,12 @@ function renderTabs(data) {
   // A new chat opens past the visible strip; keep the chat you are in on screen.
   const active = host.querySelector('.chat-tab.active');
   if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  if (stripHadFocus && active) active.focus();
 }
 
 function renderChat(data) {
   const thread = document.getElementById('thread');
-  document.getElementById('engine-name').textContent = data.engine || 'opencode';
+  document.getElementById('engine-name').textContent = data.engine || 'OpenCode';
   // The core's run mode for this chat; only a chat that has not started offers one.
   document.getElementById('mode-picker').hidden = !data.mode;
   document.getElementById('mode-name').textContent = data.mode || '';
@@ -2457,6 +2474,19 @@ if (chatMode) {
     vscode.setState({ ...(vscode.getState() || {}), modelDetailsOpen: disclosure.open });
   });
   document.getElementById('history').addEventListener('click', () => vscode.postMessage({ type: 'history' }));
+  // The tab strip works from the keyboard: arrows (and Home/End) move over the chats and select,
+  // the same selection a click makes, with the roving tabindex renderTabs keeps.
+  document.getElementById('chat-tabs').addEventListener('keydown', (event) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const host = document.getElementById('chat-tabs');
+    const index = tabKeys.indexOf(activeTabKey);
+    if (!tabKeys.length || index < 0) return;
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabKeys.length - 1
+      : event.key === 'ArrowRight' ? (index + 1) % tabKeys.length : (index - 1 + tabKeys.length) % tabKeys.length;
+    if (host.children[next]) host.children[next].focus();
+    if (tabKeys[next] !== activeTabKey) vscode.postMessage({ type: 'select_tab', tabKey: tabKeys[next] });
+  });
   document.getElementById('connections').addEventListener('click', () => vscode.postMessage({ type: 'connections' }));
   document.getElementById('details').addEventListener('click', () => {
     if (chatEnvelope && chatEnvelope.runKey) vscode.postMessage({ type: 'details' });

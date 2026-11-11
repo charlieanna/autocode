@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 try:
     from . import autocode_action_authority as action_authority
     from . import autocode_action_decisions as action_decisions
+    from . import autocode_action_discrepancy as action_discrepancy
     from . import autocode_action_edits as action_edits
     from . import autocode_action_prepare as action_prepare
     from . import autocode_action_recovery as action_recovery
@@ -55,6 +56,7 @@ try:
 except ImportError:
     import autocode_action_authority as action_authority
     import autocode_action_decisions as action_decisions
+    import autocode_action_discrepancy as action_discrepancy
     import autocode_action_edits as action_edits
     import autocode_action_prepare as action_prepare
     import autocode_action_recovery as action_recovery
@@ -305,6 +307,7 @@ STEPS = (
     action_recovery.reconcile_checkpoint,  # metadata-only ownership inspection, before configuration/decisions
     honor_stops,  # an applied or pending stop, and a bound retry mixed with other actions
     action_stage_model.apply,  # --stage-model: one stage's route on a started run, between stages; no launch
+    action_discrepancy.apply,  # --report-discrepancy: a report against the approved plan, kept for the Tester; no launch
     action_decisions.preflight,  # invalid approval cannot reconcile or migrate a stopped attempt
     action_edits.apply,  # a standalone edit: design revision, dependency, report recovery, repair handoff
     action_recovery.gate_failures,  # a classification or job failure, and its exact retry

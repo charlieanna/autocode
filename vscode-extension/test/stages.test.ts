@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { backendArgs, chatRoute, chatSource, currentRoute, fillChatSet, fillSet, readStages } from "../src/core/stages";
+import { listKey, MAX_AGE_MS, StageListCache, STORAGE_KEY } from "../src/core/stage-cache";
 
 const OPUS = "claude-opus-5-5";
 const set = ["stages", "set", "terra", "--backend", "claude", "--json", "--model", "MODEL", "--effort", "EFFORT"];
@@ -91,4 +92,74 @@ test("a new chat's list names its picks, the command for each and the flags its 
   }
   assert.equal(readStages(JSON.stringify({ ...raw, chat: { ...raw.chat, next_command: ["stages", "set", "terra"] } })).chat, null);
   assert.equal(readStages(JSON.stringify({ ...raw, chat: { ...raw.chat, next_command: [...list, "--run-dir", "/r"] } })).chat, null);
+});
+
+// The shared new-chat list cache: what it shows at once, when it reads again, and what it keeps.
+
+test("a saved list is shown at once and counted stale, never as fresh", () => {
+  const saved = new Map([[STORAGE_KEY, { k: { stdout: view(), at: 5 } }]]);
+  const cache = new StageListCache({ get: <T>(key: string) => saved.get(key) as T | undefined, update: async () => {} }, () => 1000);
+  assert.ok(cache.peek("k"), "the saved list is shown without waiting for the CLI");
+  assert.equal(cache.fresh("k"), false, "a saved list is read again in the background");
+});
+
+test("the cache key names the folder, the CLI and the exact arguments", () => {
+  assert.notEqual(listKey("/a", "autocode", [], ["stages", "list"]), listKey("/b", "autocode", [], ["stages", "list"]));
+  assert.notEqual(listKey("/a", "autocode", [], ["stages", "list"]), listKey("/a", "other", [], ["stages", "list"]));
+  assert.notEqual(listKey("/a", "autocode", [], ["stages", "list"]), listKey("/a", "autocode", ["-u"], ["stages", "list"]));
+  assert.notEqual(listKey("/a", "autocode", [], ["stages", "list"]), listKey("/a", "autocode", [], ["stages", "set"]));
+  assert.equal(listKey(undefined, "autocode", [], ["x"]), listKey("", "autocode", [], ["x"]), "no folder is one folder");
+});
+
+test("concurrent reads of one list share a single call", async () => {
+  const cache = new StageListCache(undefined, () => 1);
+  let reads = 0;
+  const slow = (): Promise<string> => { reads++; return new Promise((resolve) => setTimeout(() => resolve(view()), 5)); };
+  const [a, b, c] = await Promise.all([cache.load("k", slow), cache.load("k", slow), cache.load("k", slow)]);
+  assert.equal(reads, 1, "three surfaces wanting the list make one call");
+  assert.equal(a.stages[0]!.id, "terra");
+  assert.equal(b.stages[0]!.id, "terra");
+  assert.equal(c.stages[0]!.id, "terra");
+  assert.equal(cache.fresh("k"), true);
+  assert.equal(cache.loading("k"), false);
+});
+
+test("a list made stale while it is read is kept but never counted fresh", async () => {
+  let now = 100;
+  const cache = new StageListCache(undefined, () => now);
+  let release!: () => void;
+  const reading = cache.load("k", () => new Promise<string>((resolve) => { release = () => resolve(view()); }));
+  cache.expire();
+  release();
+  await reading;
+  assert.ok(cache.peek("k"), "the answer is still shown");
+  assert.equal(cache.fresh("k"), false, "a read that began before expire must not outlast it");
+  now += MAX_AGE_MS;
+  assert.equal(cache.fresh("k"), false, "an old timestamp does not age into fresh");
+});
+
+test("a list that does not parse is neither kept nor shown", async () => {
+  const cache = new StageListCache(undefined, () => 1);
+  await assert.rejects(() => cache.load("k", async () => "not json"));
+  assert.equal(cache.peek("k"), undefined);
+  assert.equal(cache.fresh("k"), false);
+  cache.put("k", "also not json");
+  assert.equal(cache.peek("k"), undefined, "a put of an unreadable list keeps nothing");
+});
+
+test("a read again tells its listeners; an expire says every list went stale", async () => {
+  const cache = new StageListCache(undefined, () => 1);
+  const seen: string[] = [];
+  cache.onChange((key) => seen.push(key));
+  await cache.load("k", async () => view());
+  cache.put("j", view());
+  cache.expire();
+  assert.deepEqual(seen, ["k", "j", ""]);
+});
+
+test("the newest lists are kept and the oldest dropped", async () => {
+  const cache = new StageListCache(undefined, () => 1);
+  for (let i = 0; i < 9; i++) await cache.load(`k${i}`, async () => view());
+  assert.equal(cache.peek("k0"), undefined, "the oldest goes first");
+  assert.ok(cache.peek("k8"), "the newest stays");
 });

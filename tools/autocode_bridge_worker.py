@@ -47,6 +47,7 @@ FORBIDDEN_OPTIONS = {
     "--delegate-all",
     "--reject-assumption",
     "--feedback",
+    "--report-discrepancy",
     "--follow-up",
     "--edit-goal",
     "--goal-file",

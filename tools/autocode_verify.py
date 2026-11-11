@@ -1647,13 +1647,18 @@ def execution_identity(
     ]
     source_metadata = source_snapshot.metadata(workspace, source_snapshot_value.get("files", {}))
     environment = test_environment(workspace)
-    invocation = python_tests.parse(command)
+    # The command executes in the workspace, or the package ``cd PACKAGE && RUNNER``
+    # enters: resolve its relative paths there, never in the controller cwd (#2982).
+    package = package_scope.entered(command)
+    command_root = workspace.resolve() / package[0] if package else workspace.resolve()
+    inner_command = package[1] if package else command
+    invocation = python_tests.parse(inner_command)
     if invocation and invocation.prefix:
         environment.update(word.split("=", 1) for word in invocation.prefix[1:])
     relative_pythonpath = [
         p
         for p in environment.get("PYTHONPATH", "").split(os.pathsep)
-        if p and not Path(p).is_absolute() and not (workspace / p).resolve().is_relative_to(workspace.resolve())
+        if p and not Path(p).is_absolute() and not (command_root / p).resolve().is_relative_to(workspace.resolve())
     ]
     try:
         words = shlex.split(command or "")
@@ -1667,19 +1672,15 @@ def execution_identity(
     python = (
         invocation.python if invocation else words[0] if python_command else python_for(dependencies_from or workspace)
     )
-    node_invocation = node_tests.parse(command)
+    node_invocation = node_tests.parse(inner_command)
     runtime = node_invocation.node if node_invocation else python
-    search_path = environment.get("PATH", "")
-    if node_invocation or python_command:
-        command_root = workspace.resolve()
-        if os.path.dirname(runtime) and not Path(runtime).is_absolute():
-            runtime = str(command_root / runtime)
-        # The shell executes in the proof workspace. Relative and empty PATH
-        # entries must select its runtime, never a binary in the controller cwd.
-        search_path = os.pathsep.join(
-            str(Path(entry) if Path(entry).is_absolute() else command_root / entry)
-            for entry in search_path.split(os.pathsep)
-        )
+    if os.path.dirname(runtime) and not Path(runtime).is_absolute():
+        runtime = str(command_root / runtime)
+    # Relative and empty PATH entries are rooted the same way; absolute runtimes are unchanged.
+    search_path = os.pathsep.join(
+        str(Path(entry) if Path(entry).is_absolute() else command_root / entry)
+        for entry in environment.get("PATH", "").split(os.pathsep)
+    )
     executable = shutil.which(runtime, path=search_path)
     venv_config = Path(executable).parent.parent / "pyvenv.cfg" if executable else None
     try:
