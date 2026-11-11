@@ -539,8 +539,10 @@ Where a new test belongs:
 
 Tests live in `tests/`; do not start a second test directory. For new
 end-to-end coverage add a catalog entry with an oracle, a reference solution
-and a broken variant (see `scenarios/README.md`). Live-model runs need `--i-authorize-live-model-spend` and are never part of a
-routine test run. To run scenarios live on Claude models from a Claude Code cloud session
+and a broken variant (see `scenarios/README.md`). Live-model runs are never part of a
+routine test run; the test drivers that can launch one (`scenarios/run.py`,
+`autocode arena run`, `tools/provider_conformance.py` and the other harnesses) refuse it without
+`--i-authorize-live-model-spend`. To run scenarios live on Claude models from a Claude Code cloud session
 (setup, batches, restarts, reading results), follow `examples/claude-provider/CLOUD-SESSION.md`.
 
 ## Fake-first verification and optional live runs
@@ -579,8 +581,11 @@ Documentation, CI and test-only changes do not require live runs.
   unrelated roles. See `docs/providers.md` and
   `scenarios/harness/profiles.py` for supported configurations.
 - **Authorization.** A justified live check within this policy is authorized
-  by this file; the agent passes `--i-authorize-live-model-spend` without asking
-  for approval on every run. This does not authorize unrelated paid sweeps.
+  by this file; the agent passes `--i-authorize-live-model-spend` to a test
+  driver without asking for approval on every run. The main `autocode` command
+  has no such flag and refuses it as unrecognized: it has no live-spend gate of
+  its own, so a direct live run needs only `--max-cost-usd 0` (above).
+  This does not authorize unrelated paid sweeps.
 - **Classify failures before retrying.** Separate introduced defects from
   quota, setup and model variance. Do not automatically launch a paid baseline
   run or try another provider. Use a baseline only when a concrete comparison
