@@ -729,13 +729,15 @@ def test_environment(tree, env=None):
 
     The tree (and its ``src/``) goes first on PYTHONPATH so an editable install
     of the user's checkout (a ``.pth`` file in a linked venv) cannot shadow the
-    code being tested. A parent checkout whose regular ``tests`` package would
-    capture this tree's ``tests/`` directory is left off the path. Credential-like
-    variables are withheld: the tests are model-written code (autocode_agent_env).
+    code being tested, mapped package names included (#2988). A parent checkout
+    whose regular ``tests`` package would capture this tree's ``tests/``
+    directory is left off the path. Credential-like variables are withheld: the
+    tests are model-written code (autocode_agent_env).
     """
     environment = dict(agent_env.scrubbed(os.environ if env is None else env), PYTHONDONTWRITEBYTECODE="1", CI="1")
     roots = [str(Path(tree) / "src")] if (Path(tree) / "src").is_dir() else []
     roots.append(str(tree))
+    roots.extend(test_env.scratch_import_roots(tree))
     roots.extend(_proof_pythonpath(tree, environment.get("PYTHONPATH", "")))
     environment["PYTHONPATH"] = os.pathsep.join(roots)
     python = test_env.virtualenv_python(tree)
@@ -1712,7 +1714,7 @@ def execution_identity(
             raise ValueError("Verification runtime identity could not be collected")
         paths = json.loads(probe.stdout) + environment.get("PYTHONPATH", "").split(os.pathsep)
     paths = [(Path(p) if Path(p).is_absolute() else workspace / p).resolve() for p in paths if p]
-    roots = {p for p in paths if not p.is_relative_to(workspace.resolve())}
+    roots = test_env.external_roots(paths, workspace)
     editable_sources, unbound_editables = {}, []
     for site in set(paths):
         for metadata in site.glob("*.dist-info/direct_url.json"):
