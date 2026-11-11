@@ -14,7 +14,7 @@ import type { RunController, RunRef } from "./controller";
 import { markdown, type TextNode } from "./chat-markdown";
 import { chatStyles, installChatBehavior } from "./upstream/kilo-chat";
 import { telemetry, type Telemetry } from "./core/telemetry";
-import { finishSummary, runTotal, stageLines, stages, struggling, totalText, type FinishSummary, type StageRow } from "./core/meter";
+import { finishSummary, runTotal, struggling, totalText, type FinishSummary } from "./core/meter";
 import { runHeader, type RunHeader } from "./core/details";
 
 export interface Decision {
@@ -105,7 +105,7 @@ export interface PanelState {
   changeset?: ChangesetState | null;
   /** The raise the view names apart from next_command for the bound holding the run (#2044), or null. */
   boundRaise: IntegerCommandInput | null;
-  /** Each stage's outcome, time, cost, attempts, model and tokens, from the view's own records. */
+  /** The struggling warning and the run's cost line, from the view's own records. */
   meter?: MeterState;
   /** A finished run's closing card, or null while it runs. */
   finish?: FinishSummary | null;
@@ -113,9 +113,8 @@ export interface PanelState {
   header?: RunHeader | null;
 }
 
-/** The stage rows, the struggling warning and the run's cost line the chat shows. */
+/** The struggling warning and the run's cost line the chat shows; each stage's row is the run header's. */
 export interface MeterState {
-  stages: (StageRow & { head: string; detail: string })[];
   struggling: string;
   total: string;
 }
@@ -123,7 +122,6 @@ export interface MeterState {
 /** The meter for one status view: display only, every figure the core's own. */
 export function meterOf(view: StatusView, now = Date.now()): MeterState {
   return {
-    stages: stages(view, now).map((row) => ({ ...row, ...stageLines(row) })),
     struggling: view.done ? "" : struggling(view, now),
     total: totalText(runTotal(view)),
   };
@@ -736,9 +734,6 @@ const METER_STYLES = `
   #run-cost { flex: 1 1 auto; align-self: center; font-size: .75rem; opacity: .85; white-space: nowrap;
               overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   #run-cost .session { opacity: .75; }
-  #stages { flex-shrink: 0; margin: 0 6px 6px; border: 1px solid var(--vscode-panel-border); border-radius: 6px;
-            padding: 4px 8px; font-size: .75rem; }
-  #stages[hidden] { display: none; }
   #chat-models { flex-shrink: 0; margin: 0 6px 6px; border: 1px solid var(--vscode-panel-border); border-radius: 6px;
                  padding: 4px 8px; font-size: .75rem; max-height: 40vh; overflow-y: auto; }
   #chat-models[hidden] { display: none; }
@@ -766,17 +761,9 @@ const METER_STYLES = `
                               color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border); font-size: .72rem; }
   #chat-place .chat-place-warning { color: var(--vscode-editorWarning-foreground, #cc8800); margin: 2px 0; }
   #chat-place .chat-place-note { opacity: .75; margin: 2px 0; }
-  #stages-head { display: flex; justify-content: space-between; align-items: baseline; }
   .stages-title { font-weight: 600; text-transform: uppercase; letter-spacing: .05em; opacity: .75; font-size: .7rem; }
   button.link { background: none; border: none; padding: 0; color: var(--vscode-textLink-foreground); font-size: .72rem; }
   button.link[hidden] { display: none; }
-  .stage { display: grid; grid-template-columns: 1.4ch 1fr; column-gap: 4px; padding: 2px 0; }
-  .stage .mark { grid-row: span 2; }
-  .stage .detail { opacity: .7; overflow-wrap: anywhere; }
-  .stage.done .mark { color: var(--vscode-charts-green, #3a7d3a); }
-  .stage.working .mark { color: var(--vscode-charts-blue, #1a6fb0); }
-  .stage.retrying .mark, .stage.retrying .head { color: var(--vscode-editorWarning-foreground, #cc8800); }
-  .stage.failed .mark, .stage.failed .head { color: var(--vscode-errorForeground, #a1260d); }
   .struggling { border-left: 3px solid var(--vscode-editorWarning-foreground, #cc8800); padding: 3px 8px; margin: 4px 0;
                 color: var(--vscode-editorWarning-foreground, #cc8800); font-size: .85rem; }
   .chat-tab .dot.needs { color: var(--vscode-editorWarning-foreground, #cc8800); }
@@ -790,14 +777,43 @@ const METER_STYLES = `
   #run-header { flex-shrink: 0; margin: 4px 6px 2px; padding: 5px 8px; border: 1px solid var(--vscode-panel-border);
                 border-radius: 6px; font-size: .78rem; background: var(--vscode-sideBar-background, transparent); }
   #run-header[hidden], #header-details[hidden] { display: none; }
-  #pipeline { display: flex; flex-wrap: wrap; gap: 2px 10px; list-style: none; margin: 0 0 4px; padding: 0; }
-  #pipeline li { white-space: nowrap; opacity: .7; }
-  #pipeline li .mark { margin-right: 3px; }
-  #pipeline li.ran { opacity: .9; }
-  #pipeline li.ran .mark { color: var(--vscode-charts-green, #3a7d3a); }
-  #pipeline li.working, #pipeline li.next { opacity: 1; font-weight: 600; }
-  #pipeline li.working .mark { color: var(--vscode-charts-blue, #1a6fb0); }
-  #pipeline li.skipped { text-decoration: line-through; opacity: .55; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  /* The stage table: one aligned row per stage, the model cut short before a number is. */
+  #pipeline { width: 100%; border-collapse: collapse; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
+  #pipeline[hidden] { display: none; }
+  #pipeline th { font-weight: 600; text-transform: uppercase; letter-spacing: .05em; opacity: .6; font-size: .62rem;
+                 text-align: left; padding: 0 4px 2px; white-space: nowrap; }
+  #pipeline td { padding: 1px 4px; white-space: nowrap; vertical-align: baseline; }
+  #pipeline .num { text-align: right; }
+  #pipeline td.mark { width: 1.6ch; padding-right: 2px; text-align: center; }
+  #pipeline .model { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  #pipeline td.model, #pipeline .sub { opacity: .75; }
+  #pipeline .sub { font-size: .7rem; overflow: hidden; text-overflow: ellipsis; }
+  #pipeline .sub:empty { display: none; }
+  #pipeline .runs { margin-left: 5px; padding: 0 5px; border-radius: 8px; font-size: .64rem; font-weight: 400;
+                    background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+  #pipeline .runs.failed { background: transparent; color: var(--vscode-editorWarning-foreground, #cc8800);
+                           border: 1px solid var(--vscode-editorWarning-foreground, #cc8800); }
+  #pipeline tr.retrying .runs { background: var(--vscode-editorWarning-foreground, #cc8800); color: var(--vscode-editor-background, #fff); }
+  #pipeline tbody tr.ran td.mark { color: var(--vscode-charts-green, #3a7d3a); }
+  #pipeline tbody tr.working td { background: var(--vscode-list-inactiveSelectionBackground, rgba(128, 128, 128, .18)); }
+  #pipeline tbody tr.working td:first-child { border-radius: 4px 0 0 4px; }
+  #pipeline tbody tr.working td:last-child { border-radius: 0 4px 4px 0; }
+  #pipeline tbody tr.working td.mark { color: var(--vscode-charts-blue, #1a6fb0); }
+  #pipeline tbody tr.retrying td.mark { color: var(--vscode-editorWarning-foreground, #cc8800); }
+  #pipeline tbody tr.working td.name, #pipeline tbody tr.next td.name { font-weight: 600; }
+  #pipeline tbody tr.pending, #pipeline tbody tr.not_run, #pipeline tbody tr.skipped { opacity: .55; }
+  #pipeline tbody tr.skipped td.name { text-decoration: line-through; }
+  #pipeline tfoot td { border-top: 1px solid var(--vscode-panel-border); padding-top: 2px; font-weight: 600; }
+  /* A sidebar too narrow for a model column shows the model under the stage's name instead. */
+  @media (min-width: 560px) { #pipeline .sub, #pipeline .later { display: none; } }
+  @media (max-width: 559px) {
+    #pipeline .model { display: none; }
+    #pipeline td.later { text-align: right; opacity: .75; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    #pipeline td.name, #pipeline th.name { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  }
+  /* Narrower still, the time and cost stay and the tokens go; Show details and the toolbar still have them. */
+  @media (max-width: 340px) { #pipeline .tokens { display: none; } }
   #header-now { display: flex; gap: 6px; align-items: baseline; }
   #header-label { flex: none; font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; padding: 0 5px; border-radius: 3px;
                   background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
@@ -806,7 +822,7 @@ const METER_STYLES = `
   #header-sentence { min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   #header-facts { opacity: .75; margin-top: 2px; }
   #header-facts:empty { display: none; }
-  #header-stage { margin-top: 2px; overflow-wrap: anywhere; }
+  #header-stage { margin-top: 2px; overflow-wrap: anywhere; opacity: .85; }
   #header-stage:empty { display: none; }
   #header-place { opacity: .8; margin-top: 2px; overflow-wrap: anywhere; }
   #header-place:empty { display: none; }
@@ -906,12 +922,11 @@ export function panelHtml(chat = false): string {
 </style>
 </head>
 <body>
-${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools"><span id="run-cost" role="status" aria-label="Run cost"></span>${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel, true)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="chat-tabs" role="tablist" aria-label="Open chats"></div><section id="run-header" aria-label="Run overview" hidden><ol id="pipeline" aria-label="Pipeline"></ol><div id="header-now"><span id="header-label"></span><span id="header-sentence"></span></div><div id="header-stage"></div><div id="header-place"></div><div id="header-facts"></div><button type="button" id="header-toggle" class="link" aria-expanded="false" aria-controls="header-details">Show details</button><div id="header-details" hidden></div></section><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
+${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools"><span id="run-cost" role="status" aria-label="Run cost"></span>${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel, true)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="chat-tabs" role="tablist" aria-label="Open chats"></div><section id="run-header" aria-label="Run overview" hidden><div id="header-now"><span id="header-label"></span><span id="header-sentence"></span></div><table id="pipeline" aria-label="Stages"><thead><tr><th scope="col"><span class="sr-only">State</span></th><th scope="col" class="name">Stage</th><th scope="col" class="model">Model</th><th scope="col" class="num">Time</th><th scope="col" class="num tokens">Tokens</th><th scope="col" class="num">Cost</th></tr></thead><tbody></tbody><tfoot></tfoot></table><div id="header-stage"></div><div id="header-place"></div><div id="header-facts"></div><button type="button" id="header-toggle" class="link" aria-expanded="false" aria-controls="header-details">Show details</button><div id="header-details" hidden></div></section><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
 <div id="app" class="muted">${chat ? "Describe what you want to build, fix, review, or discuss." : "Loading…"}</div>
 ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messages</button>
 <details id="chat-place" aria-label="Where this chat works" hidden><summary><span class="stages-title">Where this chat works</span> <span id="chat-place-summary"></span></summary><div id="chat-place-body"></div></details>
 <details id="chat-models" aria-label="This chat's models" open hidden><summary><span class="stages-title">This chat's models</span> <span id="chat-models-summary"></span></summary><div id="chat-models-body"></div></details>
-<section id="stages" aria-label="Stages" hidden><div id="stages-head"><span class="stages-title">Stages</span><button type="button" id="stages-more" class="link" hidden></button></div><div id="stage-rows"></div></section>
 <section id="telemetry" aria-label="Models and usage">
 <details id="usage-details"><summary id="telemetry-summary"><span class="telemetry-heading">Models &amp; usage</span>
 <span id="model-summary">Model not reported</span><span id="usage-summary">Tokens not reported · Cost not reported</span></summary>
@@ -929,9 +944,6 @@ const app = document.getElementById('app');
 const chatMode = ${chat};
 const RAISE_LABEL = ${JSON.stringify(RAISE_LABEL)};
 const WELCOME_TEXT = ${JSON.stringify(WELCOME_TEXT)};
-const STAGE_ROWS = 4;
-const STAGE_MARKS = { done: '✓', working: '●', retrying: '↻', failed: '✗' };
-let stagesExpanded = false;
 const initialWebviewState = vscode.getState?.() || {};
 // The header's details stay open or closed across reads, tabs and a recreated webview.
 let headerOpen = initialWebviewState.headerOpen === true;
@@ -1189,17 +1201,56 @@ function renderHeader(data) {
   host.dataset.content = key;
   host.className = header.state || '';
   const pipeline = document.getElementById('pipeline');
-  pipeline.textContent = '';
   pipeline.hidden = !header.pipeline.length;
+  const body = pipeline.querySelector('tbody');
+  body.textContent = '';
   header.pipeline.forEach((step) => {
-    const item = el('li', step.state);
+    // A working stage after a failed attempt is retrying: its badge and mark say so.
+    const item = el('tr', step.state + (step.state === 'working' && step.why ? ' retrying' : ''));
     item.dataset.job = step.label;
-    item.appendChild(el('span', 'mark', step.mark));
-    item.appendChild(el('span', null, step.label));
-    item.title = step.label + (step.detail ? ' · ' + step.detail : '');
+    item.appendChild(el('td', 'mark', step.state === 'working' && step.why ? '↻' : step.mark));
+    const route = step.state === 'skipped' ? 'skipped' : [step.model, step.level].filter(Boolean).join(' ');
+    const name = el('td', 'name', step.label);
+    if (step.attempts > 1) {
+      // A small count; the words are its tooltip and Show details. Amber when an attempt failed.
+      const badge = el('span', 'runs' + (step.failed ? ' failed' : ''), '×' + step.attempts);
+      badge.title = step.runs;
+      badge.setAttribute('aria-label', step.runs);
+      name.appendChild(badge);
+    }
+    // A narrow sidebar has no model column: a stage that used something shows its model under its
+    // name, and one that has not (still to come or skipped) beside it, where its figures would be.
+    const idle = !step.time && !step.tokens && !step.cost;
+    name.appendChild(el('div', 'sub', idle ? '' : route));
+    item.appendChild(name);
+    item.appendChild(el('td', 'model', route));
+    if (idle) {
+      const later = el('td', 'later', route);
+      later.colSpan = 3;
+      item.appendChild(later);
+    } else {
+      item.appendChild(el('td', 'num time', step.time));
+      item.appendChild(el('td', 'num tokens', step.tokens));
+      item.appendChild(el('td', 'num cost', step.cost));
+    }
+    // The whole route and why a retry is running, for a reader who hovers; Show details says the same.
+    item.title = [step.label, step.state === 'skipped' ? step.detail : step.route, step.tokens ? step.tokens + ' tokens' : '',
+      step.runs, step.why ? 'last one ' + step.why : ''].filter(Boolean).join(' · ');
     if (step.state === 'working') item.setAttribute('aria-current', 'step');
-    pipeline.appendChild(item);
+    body.appendChild(item);
   });
+  const foot = pipeline.querySelector('tfoot');
+  foot.textContent = '';
+  if (header.total) {
+    const total = el('tr', 'total');
+    total.appendChild(el('td', 'mark', ''));
+    total.appendChild(el('td', 'name', 'Total'));
+    total.appendChild(el('td', 'model', ''));
+    total.appendChild(el('td', 'num time', header.total.time));
+    total.appendChild(el('td', 'num tokens', header.total.tokens));
+    total.appendChild(el('td', 'num cost', header.total.cost));
+    foot.appendChild(total);
+  }
   document.getElementById('header-label').textContent = header.label;
   document.getElementById('header-sentence').textContent = header.sentence;
   document.getElementById('header-stage').textContent = header.current || '';
@@ -1230,7 +1281,7 @@ function renderHeader(data) {
   });
 }
 
-/** The cost line in the toolbar and the stage rows above the usage section. */
+/** The cost line in the toolbar; each stage's model and usage is the run header's stage table. */
 function renderMeter(data) {
   const meter = data.state && data.state.meter;
   const cost = document.getElementById('run-cost');
@@ -1243,27 +1294,6 @@ function renderMeter(data) {
     cost.title = [meter && meter.total ? 'This run: ' + meter.total : '', data.session ? 'All open chats: ' + data.session : '']
       .filter(Boolean).join(' · ');
   }
-  const section = document.getElementById('stages');
-  if (!section) return;
-  const rows = meter ? meter.stages : [];
-  section.hidden = !rows.length;
-  const key = JSON.stringify([rows, stagesExpanded]);
-  if (section.dataset.content === key) return;
-  section.dataset.content = key;
-  const host = document.getElementById('stage-rows');
-  host.textContent = '';
-  const shown = stagesExpanded ? rows : rows.slice(-STAGE_ROWS);
-  const more = document.getElementById('stages-more');
-  more.hidden = rows.length <= STAGE_ROWS;
-  more.textContent = stagesExpanded ? 'Show fewer' : (rows.length - STAGE_ROWS) + ' earlier';
-  shown.forEach((row) => {
-    const item = el('div', 'stage ' + row.state);
-    item.dataset.stage = row.stage;
-    item.appendChild(el('span', 'mark', STAGE_MARKS[row.state] || '·'));
-    item.appendChild(el('span', 'head', row.head));
-    if (row.detail) item.appendChild(el('span', 'detail', row.detail));
-    host.appendChild(item);
-  });
 }
 
 function renderStopped(stopped) {
@@ -2339,10 +2369,6 @@ if (chatMode) {
     headerOpen = !headerOpen;
     vscode.setState({ ...(vscode.getState() || {}), headerOpen });
     if (chatEnvelope) renderHeader(chatEnvelope);
-  });
-  document.getElementById('stages-more').addEventListener('click', () => {
-    stagesExpanded = !stagesExpanded;
-    if (chatEnvelope) renderMeter(chatEnvelope);
   });
   document.getElementById('pause-run').addEventListener('click', () => {
     if (chatEnvelope && chatEnvelope.runKey) vscode.postMessage({ type: 'pause', runKey: chatEnvelope.runKey });

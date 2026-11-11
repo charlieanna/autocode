@@ -109,15 +109,12 @@ unpriced stages; unknown amounts stay unknown. The expanded breakdown keeps the
 historical comparison estimate separately. These figures describe recorded usage,
 not an invoice or a guarantee that the next step fits within the cap.
 
-**Stages** sits above Models & usage once a run has launched one. Each stage
-takes a row for how it went (✓ done, ● working, ↻ retrying, ✗ failed), its time,
-cost and attempt number, and a second row for its model, reasoning level and
-tokens (`+` when some are not reported yet). The newest four show; **N earlier**
-lists the rest. A report repair counts as the repaired stage's next attempt. When
-the working stage is retrying after a failed attempt, the working card shows a
-warning with which attempt it is, how long it has run and why the last one
-failed. A stage that runs again after succeeding, such as a second plan-review
-round, shows **2 runs** and no warning. The toolbar
+Each stage's model and usage is a row of the run header's stage table (below).
+A report repair counts as the repaired stage's next attempt. When the working
+stage is retrying after a failed attempt, its row shows ↻ and the working card
+shows a warning with which attempt it is, how long it has run and why the last
+one failed. A stage that runs again after succeeding, such as a second
+plan-review round, counts its runs and shows no warning. The toolbar
 shows the run's cost against its cap and its tokens; with two or more chats open
 it adds a total for all of them, which leaves out what a restored run carried
 over and ends in `+` while any chat has not been read yet. These figures are the
@@ -180,18 +177,25 @@ logs and evidence (the run directory), never the code branch or task worktree, a
 a chat that is still running. Archive is reversible; Delete is not.
 
 Above the conversation, a run header stays in view while you scroll, like Kilo
-Code's task header. It shows the pipeline (Requirements, Planner, Plan Reviewer,
-Builder, Tester, Completion Reviewer) with each job marked ✓ ran, ● working,
-› next, – skipped or · still to come; hover a job for its model, reasoning level,
-time, tokens and spend, or why it was skipped. Below it are where the run is in
-one sentence, then the working stage (or the one that runs next) on its own
-line: its model and level, how long it has run, its tokens and spend so far, and
-what it is doing now (`reading files`, `running a command`). The facts line says
-how the spend splits between the Builder and checking, the run's working time
-and how many things went wrong (the toolbar keeps the run's spend and tokens). **Show details** unfolds the same
+Code's task header. It says where the run is in one sentence, then shows every
+stage in one aligned table: Requirements, Planner, Plan Reviewer, Builder, Tester
+and Completion Reviewer, plus any other job the run launched (a model preflight,
+an Investigator) where it ran. Each row has the stage's mark (✓ ran, ● working,
+↻ retrying, › next, – skipped, · still to come), its name with a ×N badge when it
+launched more than once (amber when an attempt failed; hover for the count in
+words), its model without the provider prefix and reasoning level, and the time,
+tokens and cost of its own attempts (`+` while some are not reported yet). The
+working stage's row is highlighted. A **Total** row gives the run's working time,
+tokens and accounted spend. Hover a row for its whole route, or why it was
+skipped. Where the sidebar is too narrow for a model column, the model sits under
+the stage's name (or beside a stage that has not run yet), and below 340 pixels
+the tokens column gives way to time and cost. Under the table, a line says what
+the working stage is doing now (`reading files`, `running a command`), then where
+the chat works, then how the spend splits between the Builder and checking and
+how many things went wrong. **Show details** unfolds the same
 reading as the terminal chat's `/details`, `/why` and `/spend`: where the run
-is; each stage's model, level, time, tokens, cost and runs, with the working
-stage's latest message; every recovery and what AutoCode did about it; where the
+is; each stage's whole route and attempts (`4 attempts, 3 failed`, and why the
+last failed), with what the working stage is doing and its latest message; every recovery and what AutoCode did about it; where the
 money went and what the checking produced; **Cost and usage** (the accounted
 total and why it may be a floor, the running stage's spend, the price-table and
 provider-reported figures, the cap, tokens by kind, time by kind of work, total
