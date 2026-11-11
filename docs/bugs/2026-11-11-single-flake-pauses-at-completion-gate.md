@@ -1,7 +1,7 @@
 # One flaky test failure stops a run at the completion gate
 
 **Seen:** 2026-11-11, while adding the completion writer for project notes (#2943), with the
-offline fake provider. **Open:** belongs to the flake policy in #2942.
+offline fake provider. **Fix:** #3197 (#2942).
 
 ## What happens
 
@@ -24,14 +24,14 @@ The run reaches this stop with the stages `builder, regression_proof, tester, re
 review_completion`. A reviewer that returns REWORK instead gets past it, but only by making the
 Builder change the source.
 
-## Why it is not fixed here
+## Fix
 
-The two rules disagree. #2065 replays a proof so that one flake does not drive REWORK. #2475
-keeps a finding open on every source it failed on, so that a later pass cannot hide a failure
-that comes and goes. Deciding between them, for example by routing the open finding to the
-Builder or the Investigator, or by settling it on a recognized flake with its receipts, is the
-flake policy #2942 asks for. Either way the run must not stop at the gate.
+#3197 keeps the finding open, because the test was not seen failing on the original code, so it is
+not a recognized flake. A completion request on that source is now sent back once, with a note
+naming the intermittent failure, so the Builder makes the change or the test reliable. A second
+request goes to the Investigator through the existing `PAUSED_COMPLETION_REVIEW` route. The run
+no longer stops at the gate.
 
-The completion writer in #2943 does not depend on that choice. It reads the replay pair from the
+The completion writer in #2943 does not depend on that fix. It reads the replay pair from the
 proof history whichever later source the run delivers, so a run that is sent back after the
 replay still keeps the flaky test as a project note.
