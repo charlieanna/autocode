@@ -162,6 +162,7 @@ class RunViewTests(unittest.TestCase):
                 "direct_rework_assignments",
                 "efficiency",
                 "run_metrics",
+                "pipeline",
                 "recovery",
                 "recoveries",
                 "verification",

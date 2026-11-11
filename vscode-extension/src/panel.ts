@@ -15,6 +15,7 @@ import { markdown, type TextNode } from "./chat-markdown";
 import { chatStyles, installChatBehavior } from "./upstream/kilo-chat";
 import { telemetry, type Telemetry } from "./core/telemetry";
 import { finishSummary, runTotal, stageLines, stages, struggling, totalText, type FinishSummary, type StageRow } from "./core/meter";
+import { runHeader, type RunHeader } from "./core/details";
 
 export interface Decision {
   questionId: string;
@@ -106,6 +107,8 @@ export interface PanelState {
   meter?: MeterState;
   /** A finished run's closing card, or null while it runs. */
   finish?: FinishSummary | null;
+  /** The header at the top of the chat: the pipeline, where the run is, and its details. */
+  header?: RunHeader | null;
 }
 
 /** The stage rows, the struggling warning and the run's cost line the chat shows. */
@@ -534,6 +537,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     boundRaise,
     meter: meterOf(view),
     finish: finishSummary(view),
+    header: runHeader(view),
   };
 }
 
@@ -757,6 +761,33 @@ const METER_STYLES = `
   .finish .facts { display: grid; grid-template-columns: max-content 1fr; gap: 3px 10px; font-size: .84rem; margin-bottom: 8px; }
   .finish .facts span:nth-child(odd) { opacity: .7; }
   .finish .files { overflow-wrap: anywhere; }
+  #run-header { flex-shrink: 0; margin: 4px 6px 2px; padding: 5px 8px; border: 1px solid var(--vscode-panel-border);
+                border-radius: 6px; font-size: .78rem; background: var(--vscode-sideBar-background, transparent); }
+  #run-header[hidden], #header-details[hidden] { display: none; }
+  #pipeline { display: flex; flex-wrap: wrap; gap: 2px 10px; list-style: none; margin: 0 0 4px; padding: 0; }
+  #pipeline li { white-space: nowrap; opacity: .7; }
+  #pipeline li .mark { margin-right: 3px; }
+  #pipeline li.ran { opacity: .9; }
+  #pipeline li.ran .mark { color: var(--vscode-charts-green, #3a7d3a); }
+  #pipeline li.working, #pipeline li.next { opacity: 1; font-weight: 600; }
+  #pipeline li.working .mark { color: var(--vscode-charts-blue, #1a6fb0); }
+  #pipeline li.skipped { text-decoration: line-through; opacity: .55; }
+  #header-now { display: flex; gap: 6px; align-items: baseline; }
+  #header-label { flex: none; font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; padding: 0 5px; border-radius: 3px;
+                  background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+  #run-header.needs_you #header-label { background: var(--vscode-editorWarning-foreground, #cc8800); color: var(--vscode-editor-background, #fff); }
+  #run-header.done #header-label { background: var(--vscode-charts-green, #3a7d3a); }
+  #header-sentence { min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  #header-facts { opacity: .75; margin-top: 2px; }
+  #header-facts:empty { display: none; }
+  #header-toggle { margin-top: 2px; }
+  #header-details { max-height: 35vh; overflow-y: auto; margin-top: 4px; border-top: 1px solid var(--vscode-panel-border); padding-top: 4px; }
+  .detail-section { margin: 4px 0 8px; }
+  .detail-head { display: flex; gap: 8px; align-items: baseline; }
+  .detail-title { font-weight: 600; text-transform: uppercase; letter-spacing: .05em; opacity: .75; font-size: .68rem; }
+  .detail-summary { opacity: .85; }
+  .detail-line { overflow-wrap: anywhere; padding: 1px 0; }
+  .detail-line.sub { padding-left: 12px; opacity: .8; }
 `;
 
 /** What a new chat says AutoCode does: every change takes one path (#3010); a question is answered directly. */
@@ -842,7 +873,7 @@ export function panelHtml(chat = false): string {
 </style>
 </head>
 <body>
-${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools"><span id="run-cost" role="status" aria-label="Run cost"></span>${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel, true)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="chat-tabs" role="tablist" aria-label="Open chats"></div><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
+${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools"><span id="run-cost" role="status" aria-label="Run cost"></span>${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel, true)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="chat-tabs" role="tablist" aria-label="Open chats"></div><section id="run-header" aria-label="Run overview" hidden><ol id="pipeline" aria-label="Pipeline"></ol><div id="header-now"><span id="header-label"></span><span id="header-sentence"></span></div><div id="header-facts"></div><button type="button" id="header-toggle" class="link" aria-expanded="false" aria-controls="header-details">Show details</button><div id="header-details" hidden></div></section><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
 <div id="app" class="muted">${chat ? "Describe what you want to build, fix, review, or discuss." : "Loading…"}</div>
 ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messages</button>
 <section id="stages" aria-label="Stages" hidden><div id="stages-head"><span class="stages-title">Stages</span><button type="button" id="stages-more" class="link" hidden></button></div><div id="stage-rows"></div></section>
@@ -868,6 +899,8 @@ const STAGE_ROWS = 4;
 const STAGE_MARKS = { done: '✓', working: '●', retrying: '↻', failed: '✗' };
 let stagesExpanded = false;
 const initialWebviewState = vscode.getState?.() || {};
+// The header's details stay open or closed across reads, tabs and a recreated webview.
+let headerOpen = initialWebviewState.headerOpen === true;
 let chatEnvelope = null;
 const chatBehavior = chatMode ? (${installChatBehavior.toString()})() : null;
 let current = null;
@@ -1062,6 +1095,54 @@ function renderWelcome() {
     box.appendChild(button);
   });
   app.appendChild(box);
+}
+
+/** The run header at the top of the chat: the pipeline, where the run is, then its details on request. */
+function renderHeader(data) {
+  const host = document.getElementById('run-header');
+  if (!host) return;
+  const header = data.state && data.state.header;
+  host.hidden = !header;
+  if (!header) { host.dataset.content = ''; return; }
+  const key = JSON.stringify([header, headerOpen]);
+  if (host.dataset.content === key) return;
+  host.dataset.content = key;
+  host.className = header.state || '';
+  const pipeline = document.getElementById('pipeline');
+  pipeline.textContent = '';
+  pipeline.hidden = !header.pipeline.length;
+  header.pipeline.forEach((step) => {
+    const item = el('li', step.state);
+    item.dataset.job = step.label;
+    item.appendChild(el('span', 'mark', step.mark));
+    item.appendChild(el('span', null, step.label));
+    item.title = step.label + (step.detail ? ' · ' + step.detail : '');
+    if (step.state === 'working') item.setAttribute('aria-current', 'step');
+    pipeline.appendChild(item);
+  });
+  document.getElementById('header-label').textContent = header.label;
+  document.getElementById('header-sentence').textContent = header.sentence;
+  document.getElementById('header-facts').textContent = header.facts.join(' · ');
+  const toggle = document.getElementById('header-toggle');
+  toggle.textContent = headerOpen ? 'Hide details' : 'Show details';
+  toggle.setAttribute('aria-expanded', headerOpen ? 'true' : 'false');
+  const details = document.getElementById('header-details');
+  details.hidden = !headerOpen;
+  details.textContent = '';
+  if (!headerOpen) return;
+  header.sections.forEach((section) => {
+    const box = el('div', 'detail-section');
+    box.dataset.section = section.id;
+    const head = el('div', 'detail-head');
+    head.appendChild(el('span', 'detail-title', section.title));
+    if (section.summary) head.appendChild(el('span', 'detail-summary', section.summary));
+    box.appendChild(head);
+    section.lines.forEach((line) => {
+      const sub = line.startsWith('  ');
+      box.appendChild(el('div', 'detail-line' + (sub ? ' sub' : ''), sub ? line.slice(2) : line));
+    });
+    details.appendChild(box);
+  });
 }
 
 /** The cost line in the toolbar and the stage rows above the usage section. */
@@ -1871,6 +1952,7 @@ function renderChat(data) {
       app.classList.add('muted');
     }
   }
+  renderHeader(data);
   renderMeter(data);
   renderTelemetry(data.state && data.state.telemetry);
   updateComposer();
@@ -1985,6 +2067,11 @@ if (chatMode) {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); document.getElementById('composer').requestSubmit(); }
   });
   document.getElementById('new-chat').addEventListener('click', () => vscode.postMessage({ type: 'new' }));
+  document.getElementById('header-toggle').addEventListener('click', () => {
+    headerOpen = !headerOpen;
+    vscode.setState({ ...(vscode.getState() || {}), headerOpen });
+    if (chatEnvelope) renderHeader(chatEnvelope);
+  });
   document.getElementById('stages-more').addEventListener('click', () => {
     stagesExpanded = !stagesExpanded;
     if (chatEnvelope) renderMeter(chatEnvelope);
