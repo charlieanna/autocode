@@ -1,7 +1,7 @@
 """Project one verification run's collected evidence into its public result.
 
-Execution and judgment remain with the caller. This helper neither runs checks
-nor changes their verdict, receipts or source binding.
+Execution and judgment remain with the caller. These helpers neither run checks
+nor change their verdict, receipts or source binding.
 """
 
 
@@ -46,3 +46,22 @@ def assemble(run, *, verdict, source_revision, test_files, source_files, stats, 
         "test_prerequisites": proof.get("test_prerequisites"),
         "checks": run.checks,
     }
+
+
+def feedback(result, *, limit=3000) -> str:
+    """A compact, model-readable account of a failed or unverified verification."""
+    lines = [f"Verdict: {result['verdict']}"]
+    if (result.get("framework") or {}).get("note"):
+        lines.append(f"Note: {result['framework']['note']}")
+    lines += [f"- FAIL: {reason}" for reason in result["failures"]]
+    lines += [f"- UNVERIFIED: {reason}" for reason in result["unverified"]]
+    lines += [f"- Note: {note}" for note in result["notes"]]
+    if result.get("fail_to_pass"):
+        lines.append("Fail-to-pass tests: " + ", ".join(result["fail_to_pass"][:20]))
+    commands = result["commands"]
+    lines.append(f"Regression command ({commands['regression_source']}): {commands['regression']}")
+    lines.append(f"Suite command ({commands['suite_source']}): {commands['suite']}")
+    for label, receipt in result["checks"].items():
+        lines.append(f"\n## {label}: exit {receipt['exit_code']}{' (timed out)' if receipt['timed_out'] else ''}")
+        lines.append(receipt["tail"][-limit:])
+    return "\n".join(lines)
