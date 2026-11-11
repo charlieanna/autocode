@@ -181,18 +181,28 @@ a chat that is still running. Archive is reversible; Delete is not.
 Above the conversation, a run header stays in view while you scroll, like Kilo
 Code's task header. It shows the pipeline (Requirements, Planner, Plan Reviewer,
 Builder, Tester, Completion Reviewer) with each job marked ✓ ran, ● working,
-› next, – skipped or · still to come; hover a job for its model, reasoning level
-and spend, or why it was skipped. Below it are where the run is in one sentence,
-how the spend splits between the Builder and checking, and how many things went
-wrong. **Show details** unfolds the same reading as the terminal chat's
-`/details`, `/why` and `/spend`: where the run is, each stage's model, level and
-cost, every recovery and what AutoCode did about it, where the money went and
-what the checking produced, the verification once the run finishes, the
-planning path and which stages ran or were skipped and why. The choice to keep
-details open is remembered. Everything in the header comes from the status view
-(`summary`, `explanation`, `pipeline`, `recoveries`, `run_metrics`,
-`verification`, `stage_policy`, `stage_decisions`); it shows no command or flag
-and takes no action.
+› next, – skipped or · still to come; hover a job for its model, reasoning level,
+time, tokens and spend, or why it was skipped. Below it are where the run is in
+one sentence, then the working stage (or the one that runs next) on its own
+line: its model and level, how long it has run, its tokens and spend so far, and
+what it is doing now (`reading files`, `running a command`). The facts line says
+how the spend splits between the Builder and checking, the run's working time
+and how many things went wrong (the toolbar keeps the run's spend and tokens). **Show details** unfolds the same
+reading as the terminal chat's `/details`, `/why` and `/spend`: where the run
+is; each stage's model, level, time, tokens, cost and runs, with the working
+stage's latest message; every recovery and what AutoCode did about it; where the
+money went and what the checking produced; **Cost and usage** (the accounted
+total and why it may be a floor, the running stage's spend, the price-table and
+provider-reported figures, the cap, tokens by kind, time by kind of work, total
+execution time and every attempt with its model, level, outcome and tokens); the
+models saved for the next attempts and any route changes; the verification once
+the run finishes; the planning path; and which stages ran or were skipped and
+why. A stage with no saved route of its own shows the model its attempt launched
+on. The choice to keep details open is remembered. Everything in the header
+comes from the status view (`summary`, `explanation`, `pipeline`, `recoveries`,
+`run_metrics`, `cost`, `usage`, `efficiency`, `routes`, `escalations`,
+`route_assignments`, `chat.now`, `chat.log`, `verification`, `stage_policy`,
+`stage_decisions`); it shows no command or flag and takes no action.
 
 While a step works, the conversation shows the live agent log the status view
 names (`view.chat.log`): what each running agent thinks (`∴`), says (`»`) and
