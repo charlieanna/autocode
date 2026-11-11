@@ -981,62 +981,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../dashboard/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Dashboard
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../macos-app/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    macOS app
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1778,10 +1722,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#dashboard-and-installation" class="md-nav__link">
+  <a href="#installation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Dashboard and installation
+        Installation
       
     </span>
   </a>
@@ -2098,10 +2042,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#dashboard-and-installation" class="md-nav__link">
+  <a href="#installation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Dashboard and installation
+        Installation
       
     </span>
   </a>
@@ -2181,7 +2125,7 @@
 <p>Status: proposed execution plan, not an executed validation report.
 Prepared against the working checkout on 2026-09-26, including uncommitted work.</p>
 <p>Execution update: current evidence and remaining coverage are recorded in
-<a href="https://github.com/charlieanna/autocode/blob/74323cbce15a0a37e30a4cac1c66f20ad38f7eba/VALIDATION.md"><code>VALIDATION.md</code></a>. Several initial harness blockers below have
+<a href="https://github.com/charlieanna/autocode/blob/c4b9b980d4e12d8c135144171ce080014f00b93f/VALIDATION.md"><code>VALIDATION.md</code></a>. Several initial harness blockers below have
 since been repaired; they describe the initial audit, not today's code. Synthetic
 <code>BUGFIX-01</code> and <code>FEATURE-01</code> now implement the T02/T03 fixtures. Campaign profiles
 use advertised GLM low/high/max and MiMo low/medium/high variants; GLM medium is
@@ -2204,7 +2148,7 @@ proves a safety case, not successful delivery. An exit code of zero proves neith
 <p>This plan does not authorize model spending, changes to another project, production
 deployments, process termination, or cleanup of existing runs. Approve each live
 case's fixture/project, scope, provider/model configuration, and budget first.
-Follow <a href="https://github.com/charlieanna/autocode/blob/74323cbce15a0a37e30a4cac1c66f20ad38f7eba/RELIABILITY.md">reliability priorities</a>; reuse suitable authorized
+Follow <a href="https://github.com/charlieanna/autocode/blob/c4b9b980d4e12d8c135144171ce080014f00b93f/RELIABILITY.md">reliability priorities</a>; reuse suitable authorized
 projects rather than creating arbitrary applications to fill the matrix.</p>
 <h2 id="2-preconditions">2. Preconditions<a class="headerlink" href="#2-preconditions" title="Permanent link">&para;</a></h2>
 <p>Complete T00 before interpreting higher-level results.</p>
@@ -2386,7 +2330,7 @@ bounded; "production ready" or "handle scale" is not an acceptance test.</p>
 <li><strong>Prove the oracle.</strong> Run the reference implementation and defect controls.
    Include a no-op implementation, an incorrect boundary result, a weakened test,
    and forged success evidence. Preserve results outside candidate control.</li>
-<li><strong>Exercise planning.</strong> Start with the real CLI or dashboard, not pre-approved
+<li><strong>Exercise planning.</strong> Start with the real CLI or VS Code client, not pre-approved
    state. Answer only actual question IDs. Check that answers are retained, known
    answers are not repeatedly requested under unchanged requirements, and open
    blockers cannot disappear without a recorded resolution.</li>
@@ -2402,7 +2346,7 @@ bounded; "production ready" or "handle scale" is not an acceptance test.</p>
 <li><strong>Validate independently.</strong> Run the protected oracle against the actual final
    candidate revision, not an earlier worktree or only the Builder's tests. Verify
    every required criterion, full flow, unresolved findings, and human review.</li>
-<li><strong>Check completion and restart.</strong> Saved status, CLI, and dashboard must agree.
+<li><strong>Check completion and restart.</strong> Saved status, CLI, and VS Code client must agree.
    An unchanged completed run must not rebuild. Changed source/evidence must
    invalidate completion rather than reuse stale acceptance.</li>
 <li><strong>Close the case.</strong> Record elapsed/active time, reported usage including unknowns,
@@ -2573,17 +2517,12 @@ catalogue map (<code>audits/autopilot-test-catalogue/coverage-map.json</code> at
 <tr>
 <td>Interventions</td>
 <td><code>test_interventions</code>, <code>test_intervention_ordering</code></td>
-<td>End-to-end CLI/dashboard races with accepted receipts and restart</td>
+<td>End-to-end CLI races with accepted receipts and restart</td>
 </tr>
 <tr>
 <td>Providers and role routes</td>
 <td><code>test_command_provider</code>, <code>test_provider_registry</code>, <code>test_opencode</code>, <code>test_opencode_routing</code>, <code>test_all_role_models</code>; WIP <code>test_cross_model</code></td>
 <td>End-to-end launch identities across defaults, overrides, escalation, and resume; allowed model-tier combinations as well as negative cases</td>
-</tr>
-<tr>
-<td>Dashboard</td>
-<td><code>tools/dashboard/tests/test_*.py</code>, <code>test_*.js</code>, browser fixtures</td>
-<td>Count node/DOM-stub checks separately from real browser tests; desktop/mobile, keyboard, stale-state, and human-review acceptance</td>
 </tr>
 <tr>
 <td>Product fixtures</td>
@@ -2665,31 +2604,12 @@ full source discovery form is <code>python -m unittest discover -s tools -t . -p
 'test_*.py'</code>. The <code>-t .</code> preserves package-relative imports. This is <strong>not an
 approved offline command for the current checkout</strong>; classify every discovered
 suite before restoring it to routine use.</p>
-<h3 id="dashboard-and-installation">Dashboard and installation<a class="headerlink" href="#dashboard-and-installation" title="Permanent link">&para;</a></h3>
-<p>With Node and the relevant browser/loopback prerequisites available:</p>
-<pre><code class="language-sh">fixture_python -m unittest discover -s tools/dashboard/tests -p 'test_*.py'
-(
-  for test_file in tools/dashboard/tests/test_*.js; do
-    PATH=&quot;$REPO/.venv/bin:$PATH&quot; node &quot;$test_file&quot; || exit 1
-  done
-)
-</code></pre>
-<p>Record each JS program's exit status and require all selected programs to run;
-a loop that stops early is not a passing aggregate suite. Missing browser binaries
-are <code>BLOCKED_ENV</code>, not an accepted UI result. Run the real-browser lifecycle and
-accessibility cases as well as node-only tests, with fixture servers that cannot
-launch live agents. Check the supported browser's console and network failures.</p>
-<p>The real-browser suites are
-<a href="https://github.com/charlieanna/autocode/blob/74323cbce15a0a37e30a4cac1c66f20ad38f7eba/tools/dashboard/tests/test_m3_lifecycle_browser_ui.js"><code>test_m3_lifecycle_browser_ui.js</code></a>
-and <a href="https://github.com/charlieanna/autocode/blob/74323cbce15a0a37e30a4cac1c66f20ad38f7eba/tools/dashboard/tests/test_shell_a11y_ui.js"><code>test_shell_a11y_ui.js</code></a>.
-They require <code>agent-browser</code>, Python fixture servers, and localhost access, and
-write evidence. Verify those prerequisites before selecting them; node/DOM-stub
-results must not be substituted for these rendered-browser checks.</p>
+<h3 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h3>
 <p>Build a wheel in an isolated build environment and install it into a fresh virtual
 environment. From a directory outside the source checkout, exercise every script
 declared in <code>pyproject.toml</code>, then rerun the applicable fake-provider workflows
 with <code>AUTOCODE_TEST_CLI</code> pointing to that installed <code>autocode</code>. Verify packaged
-schemas, dashboard assets, provider configs, and module imports. Record source and
+schemas, provider configs, and module imports. Record source and
 installed results separately; an editable install is not a wheel-install test.</p>
 <h3 id="live-trials">Live trials<a class="headerlink" href="#live-trials" title="Permanent link">&para;</a></h3>
 <p>Do not reuse the fake HOME/auth setup for live trials. Preserve the approved
@@ -2770,7 +2690,7 @@ every model and frontend:</p>
 </tr>
 <tr>
 <td>Frontends</td>
-<td>Full CLI coverage; dashboard T01/T06/T10 journeys; macOS host launch, reconnect, and quit behavior on a fixture run</td>
+<td>Full CLI coverage; VS Code client T01/T06/T10 journeys on a fixture run</td>
 </tr>
 <tr>
 <td>Platforms</td>
@@ -2914,8 +2834,7 @@ unassisted successful trial. Preserve the original failure and the intervention.
    declare dependable complex-project delivery based on fake fixtures alone.</li>
 </ol>
 <p>See also: <a href="../testing/">testing guide</a>, <a href="../workflow/">workflow</a>,
-<a href="../execution/">execution and recovery</a>, <a href="../providers/">providers</a>,
-<a href="../dashboard/#dashboard-verification">dashboard verification</a>, and <a href="https://github.com/charlieanna/autocode/blob/74323cbce15a0a37e30a4cac1c66f20ad38f7eba/scenarios/README.md">scenarios</a>.</p>
+<a href="../execution/">execution and recovery</a>, <a href="../providers/">providers</a> and <a href="https://github.com/charlieanna/autocode/blob/c4b9b980d4e12d8c135144171ce080014f00b93f/scenarios/README.md">scenarios</a>.</p>
 
 
 

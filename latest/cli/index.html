@@ -1312,62 +1312,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../dashboard/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Dashboard
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../macos-app/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    macOS app
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -2410,7 +2354,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/74323cbce15a0a37e30a4cac1c66f20ad38f7eba/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/c4b9b980d4e12d8c135144171ce080014f00b93f/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2476,10 +2420,6 @@ controls. Role/model selection is in <a href="../models/">Models</a>; provider s
 <tr>
 <td><code>autocode components</code></td>
 <td>Build the components of an architecture record in parallel and combine them (see <a href="../task-lanes/#building-components-of-an-architecture-in-parallel">Task lanes</a>); with <code>--integrate TARGET --run-local</code>, also start the combined system with Docker Compose and run its smoke check (see <a href="../task-lanes/#running-the-combined-system-locally">Running the combined system locally</a>).</td>
-</tr>
-<tr>
-<td><code>autocode dashboard</code></td>
-<td>Local browser dashboard.</td>
 </tr>
 <tr>
 <td><code>autocode unattended</code></td>
@@ -2555,7 +2495,7 @@ controls. Role/model selection is in <a href="../models/">Models</a>; provider s
 </tr>
 <tr>
 <td><code>autocode completion bash\|zsh\|fish</code></td>
-<td>Print a shell completion script read from the CLI's parsers: the commands, every public option of the main command with its choices, and file names after an option that takes a path. A subcommand completes from the parser it reads: its options, its commands (<code>output read</code>, <code>arena run</code>) and their options, or its argument's choices (<code>completion bash</code>). <code>capture</code>, <code>registry</code>, <code>intervention</code> and <code>dashboard</code> complete only <code>--help</code>. Load it with <code>source &lt;(autocode completion bash)</code> (zsh the same, after <code>compinit</code>; fish <code>autocode completion fish \| source</code>), or save it; see <a href="../install/#shell-completion">Shell completion</a>.</td>
+<td>Print a shell completion script read from the CLI's parsers: the commands, every public option of the main command with its choices, and file names after an option that takes a path. A subcommand completes from the parser it reads: its options, its commands (<code>output read</code>, <code>arena run</code>) and their options, or its argument's choices (<code>completion bash</code>). <code>capture</code>, <code>registry</code> and <code>intervention</code> complete only <code>--help</code>. Load it with <code>source &lt;(autocode completion bash)</code> (zsh the same, after <code>compinit</code>; fish <code>autocode completion fish \| source</code>), or save it; see <a href="../install/#shell-completion">Shell completion</a>.</td>
 </tr>
 <tr>
 <td><code>autocode models [--provider NAME] [--workspace PATH] [--json] [--prices] [--selection]</code></td>
@@ -2620,7 +2560,7 @@ updates an installation or rewrites run state itself.</p>
 <p><code>autocode</code> is the only installed command. The earlier per-unit scripts (<code>autopilot</code>, <code>autoplanner</code>,
 <code>autocode-build</code>, <code>autoreview</code>, <code>autoresolver</code>, <code>autocode-orchestrator</code> and the per-tool scripts) are no
 longer installed: use <code>autocode --unit autoplanner|autocode|autoreview|autoresolver</code> and the public
-subcommands (<code>autocode issue</code>, <code>unattended</code>, <code>ui</code>, <code>tasks</code>, <code>components</code>, <code>arena</code>, <code>dashboard</code>). Their modules still run as
+subcommands (<code>autocode issue</code>, <code>unattended</code>, <code>ui</code>, <code>tasks</code>, <code>components</code>, <code>arena</code>). Their modules still run as
 <code>python -m autocode_cli.&lt;module&gt;</code>. Internal stage and unit names keep their existing meaning.</p>
 <h2 id="offline-demo">Offline demo<a class="headerlink" href="#offline-demo" title="Permanent link">&para;</a></h2>
 <p>Run <code>autocode demo</code> after installation; Git and Python are enough. You do not need
@@ -2636,7 +2576,7 @@ they do not represent charges.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/74323cbce15a0a37e30a4cac1c66f20ad38f7eba/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/c4b9b980d4e12d8c135144171ce080014f00b93f/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -2854,7 +2794,7 @@ command does not quietly leave two runs of one request behind (#2340).</p>
 history. The environment variable alone never authorizes anything — the flag must still be
 present. For the AutoResolver token specifically, <code>-</code> on a saved run reads the request that run
 already holds, so a status screen or recovery hint never has to print the value: the printed
-<code>--resolver-token -</code> works on its own (#2958). <code>TaskRun</code>, dashboard actions and the trial driver
+<code>--resolver-token -</code> works on its own (#2958). <code>TaskRun</code> and the trial driver
 pass these tokens through each CLI child's environment; their process arguments and saved command
 records contain <code>-</code>. Literal CLI tokens remain supported. The controller always removes all eight
 variables before launching a provider or test command, even if named in <code>AUTOCODE_PASS_ENV</code>.
@@ -3246,7 +3186,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/74323cbce15a0a37e30a4cac1c66f20ad38f7eba/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/c4b9b980d4e12d8c135144171ce080014f00b93f/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3914,11 +3854,6 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 <td>Read-only run analysis; optionally save its evidence report in <code>--out</code>.</td>
 </tr>
 <tr>
-<td><code>autocode dashboard</code></td>
-<td><code>--workspace</code>, <code>--watch-root</code>, <code>--watch-depth</code>, <code>--runner</code>, <code>--port</code>, <code>--provider</code></td>
-<td>Repeated projects and discovery roots, discovery depth (3), CLI runner, local port (8765) and provider for new runs.</td>
-</tr>
-<tr>
 <td><code>autocode changeset</code></td>
 <td><code>--run-dir</code>, <code>--target</code>, <code>--workspace</code>, <code>--set-token</code>, <code>--in</code>, <code>--reason</code>, <code>--message</code>, <code>--json</code></td>
 <td>The source run (with every other action: any run of the change set), the repository as its <code>scope.external_parts</code> names it (with <code>reopen</code> and <code>pr-body</code>: the run to act on), the registered project to start the linked run in, the <code>approval.set_token</code> that <code>status</code> showed (<code>-</code> reads <code>AUTOCODE_CHANGESET_TOKEN</code>), the run whose workspace the integration command runs in, a waiver's reason, a follow-up's text (default: the failed check's output), and JSON output. Arguments after <code>--</code> are the linked run's run options with <code>link</code>, and the integration command with <code>check-command</code>. <code>order</code> takes every run's repository name, first to merge first.</td>
@@ -3967,7 +3902,7 @@ drafts and view choices live only in this TUI process. After restart, saved
 core conversations, registered runs and existing project input history remain;
 session drafts, scroll and filters do not.</p>
 <p><code>autocode chat</code> is the terminal client of the <a href="../task-run/">task-run interface</a>,
-beside the VS Code extension and the browser dashboard. It reads only
+beside the VS Code extension. It reads only
 <code>autocode --status</code>, <code>autocode runs --json</code> and <code>runs --all --json</code> (your chats, in this project and every registered one) and
 <code>autocode modes list --json</code> (a new run's mode), shows the conversation the view
 carries (<code>view.chat</code>), and acts
@@ -4291,7 +4226,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/74323cbce15a0a37e30a4cac1c66f20ad38f7eba/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/c4b9b980d4e12d8c135144171ce080014f00b93f/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
