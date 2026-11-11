@@ -431,7 +431,7 @@ class BriefObligationsTests(unittest.TestCase):
         ):
             with self.assertRaises(ValueError):
                 admit()
-        lifecycle.install_draft(state, draft, origin="glm_draft")
+        lifecycle.install_draft(state, draft, origin="planner_draft")
         with self.assertRaisesRegex(ValueError, "independent Plan Reviewer"):
             brief.commands(state)
 
@@ -449,7 +449,7 @@ class BriefObligationsTests(unittest.TestCase):
             lifecycle.install_draft(state, forged, origin="revise_plan")
         unreviewed = self.state()
         with self.assertRaisesRegex(ValueError, "cannot replace"):
-            lifecycle.install_draft(unreviewed, reviewed, origin="glm_draft")
+            lifecycle.install_draft(unreviewed, reviewed, origin="planner_draft")
 
     def test_new_genuine_source_allows_pending_draft_but_blocks_approval_until_review(self):
         state = self.state()
@@ -549,8 +549,8 @@ class BriefObligationsTests(unittest.TestCase):
 
     def planning_state(self, *, adaptive=False, v2=False):
         state = self.state(adaptive=adaptive, v2=v2)
-        lifecycle.install_draft(state, self.contract_body(initial=adaptive), origin="plan" if v2 else "glm_draft")
-        state.setdefault("planning", {"astra_calls": 0, "reports": {}, "final_token": None})
+        lifecycle.install_draft(state, self.contract_body(initial=adaptive), origin="plan" if v2 else "planner_draft")
+        state.setdefault("planning", {"plan_review_calls": 0, "reports": {}, "final_token": None})
         state["planning"]["reports"]["plan_review" if v2 else "review_plan"] = {"report": {"concerns": []}}
         return state
 
@@ -620,7 +620,7 @@ class BriefObligationsTests(unittest.TestCase):
 
     def test_adaptive_challenge_publishes_the_reviewed_plan_for_approval(self):
         state = self.state(adaptive=True)
-        lifecycle.install_draft(state, self.contract_body(initial=True), origin="glm_draft")
+        lifecycle.install_draft(state, self.contract_body(initial=True), origin="planner_draft")
         report = {
             "summary": "Reviewed",
             "concerns": [],
@@ -643,8 +643,8 @@ class BriefObligationsTests(unittest.TestCase):
         # #1630: a non-blocking review of a draft citing only part of the brief was rejected as invalid
         # Plan Reviewer output; report repair cannot change the Planner's contract, so the run paused.
         state = self.state(task="Fix the bug in todo.py. " + TASK, adaptive=True)
-        lifecycle.install_draft(state, self.contract_body(initial=True), origin="glm_draft")
-        state.setdefault("planning", {"astra_calls": 0, "reports": {}, "final_token": None})
+        lifecycle.install_draft(state, self.contract_body(initial=True), origin="planner_draft")
+        state.setdefault("planning", {"plan_review_calls": 0, "reports": {}, "final_token": None})
         draft = copy.deepcopy(state["goal_contract"])
         report = {
             "summary": "Reviewed",
@@ -732,7 +732,7 @@ class BriefObligationsTests(unittest.TestCase):
 
     def test_unrelated_task_reviewer_schema_and_prompt_omit_brief_fields(self):
         state = self.state(task="Build greeting")
-        lifecycle.install_draft(state, self.contract_body("Build greeting"), origin="glm_draft")
+        lifecycle.install_draft(state, self.contract_body("Build greeting"), origin="planner_draft")
         for stage in ("review_plan", "finalize_plan"):
             with self.subTest(stage=stage):
                 request = autoplanner.prepare(state, stage, self.root / "state.json", self.root)

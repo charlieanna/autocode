@@ -716,7 +716,7 @@ def grant_one_attempt(state: RunState, request: dict) -> None:
     # again; the failure history stays intact, so another failure counts on top of it.
     if status == "PAUSED_PLANNING_BUDGET":
         planning = state.setdefault("planning", {})
-        used = max(int(planning.get("review_call_limit", 2)), int(planning.get("astra_calls", 0)))
+        used = max(int(planning.get("review_call_limit", 2)), int(planning.get("plan_review_calls", 0)))
         # One review round: a challenge still owes its finalize.
         planning["review_call_limit"] = used + (2 if stage == "review_plan" else 1)
         if planning.get("review_call_limit_origin") is None:

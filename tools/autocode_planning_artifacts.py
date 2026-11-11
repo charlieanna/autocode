@@ -297,7 +297,7 @@ def _prepare_contract_edit(state: RunState, origin, label, summary, run_dir):
         prior_value = json.loads(path.read_text())
     else:
         prior_value = None
-    state.setdefault("planning", {"astra_calls": 0, "reports": {}, "final_token": None})["derived_graph"] = (
+    state.setdefault("planning", {"plan_review_calls": 0, "reports": {}, "final_token": None})["derived_graph"] = (
         graph.validate(contract["body"])
     )
     return prepare(

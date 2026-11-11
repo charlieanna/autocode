@@ -443,7 +443,7 @@ class CarryForwardTests(unittest.TestCase):
             }
         )
         self.state["planning"] = {
-            "astra_calls": 0,
+            "plan_review_calls": 0,
             "final_token": goals.token(self.state["goal_contract"]),
             "reports": {"finalize_plan": {"output": str(final)}},
         }

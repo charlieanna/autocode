@@ -166,7 +166,7 @@ class AuthorizedBoundaryRewordTests(unittest.TestCase):
         first = body()
         first["scope_exclusions"] = [old, third]
         with patch.object(assignment.store, "find", return_value=record):
-            lifecycle.install_draft(state, first, origin="glm_draft")
+            lifecycle.install_draft(state, first, origin="planner_draft")
         self.assertEqual([old, third], state["goal_contract"]["body"]["scope_exclusions"])
 
     def report(self, listed, rows):
@@ -223,7 +223,7 @@ class AuthorizedBoundaryRewordTests(unittest.TestCase):
         self.install_first_draft(state, record, old, third)
         report = self.report([corrected, third], [self.row(old, replacement=corrected)])
         with patch.object(assignment.store, "find", return_value=record):
-            expanded = self.planning_pass(state, "draft_plan", "glm_draft", report)
+            expanded = self.planning_pass(state, "draft_plan", "planner_draft", report)
             self.assertEqual([corrected, third], expanded["contract"]["scope_exclusions"])
             receipt = state[scope.CORRECTIONS_KEY][0]
             self.assertEqual((old, corrected), (receipt["item"], receipt["replacement"]))
@@ -253,7 +253,7 @@ class AuthorizedBoundaryRewordTests(unittest.TestCase):
                 rows = [self.row(old, basis=basis, answer_id=answer_id, replacement=corrected)]
                 report = self.report([corrected, third], rows)
                 with patch.object(assignment.store, "find", return_value=record):
-                    expanded = self.planning_pass(state, "draft_plan", "glm_draft", report)
+                    expanded = self.planning_pass(state, "draft_plan", "planner_draft", report)
                     self.assertIn(old, expanded["contract"]["scope_exclusions"])
                     self.assertEqual([old, third], scope.effective_exclusions(state))
                     self.assertEqual([old, third], self.packet(state)["scope_exclusions_required"])
@@ -271,7 +271,7 @@ class AuthorizedBoundaryRewordTests(unittest.TestCase):
                 ]
                 report = self.report([corrected, third], rows)
                 with patch.object(assignment.store, "find", return_value=record):
-                    expanded = self.planning_pass(state, "draft_plan", "glm_draft", report)
+                    expanded = self.planning_pass(state, "draft_plan", "planner_draft", report)
                     self.assertIn(old, expanded["contract"]["scope_exclusions"])
                     self.assertEqual([old, third], scope.effective_exclusions(state, report["contract"], rows))
                     self.assertEqual([old, third], self.packet(state)["scope_exclusions_required"])
@@ -303,7 +303,7 @@ class AuthorizedBoundaryRewordTests(unittest.TestCase):
         with patch.object(assignment.store, "find", return_value=record):
             first = body()
             first["scope_exclusions"] = [old, corrected, third]
-            lifecycle.install_draft(state, first, origin="glm_draft")
+            lifecycle.install_draft(state, first, origin="planner_draft")
             # one boundary, two accumulated instances of its text: both move together
             self.planning_pass(
                 state,

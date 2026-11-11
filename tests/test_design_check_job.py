@@ -190,7 +190,7 @@ class ApplyTests(unittest.TestCase):
                     "turns": turns,
                     "goal_contract": dict(contract),
                     "requirements_handoff": {"report": {"requirements": [{"id": "R2"}]}},
-                    "planning": {"astra_calls": 2, "reports": {"review_plan": {}}},
+                    "planning": {"plan_review_calls": 2, "reports": {"review_plan": {}}},
                     "current_task": {"id": "T9"},
                     "findings_ledger": [dict(nit), dict(blocker), dict(settled)],
                     "acceptance_criteria": [{"id": "AC1", "status": "verified"}],
@@ -219,7 +219,7 @@ class ApplyTests(unittest.TestCase):
         for key, history, kept in (
             ("goal_contract", "contract_history", contract),
             ("requirements_handoff", "requirements_history", {"report": {"requirements": [{"id": "R2"}]}}),
-            ("planning", "planning_history", {"astra_calls": 2, "reports": {"review_plan": {}}}),
+            ("planning", "planning_history", {"plan_review_calls": 2, "reports": {"review_plan": {}}}),
             ("current_task", "task_archive", {"id": "T9"}),
         ):
             self.assertNotIn(key, state)

@@ -119,7 +119,7 @@ class DashboardIntegrationTests(unittest.TestCase):
                 )
         table.assert_called_once_with({os.getpid()})
         launch.assert_not_called()
-        self.assertEqual(0, fixture.state["planning"]["astra_calls"])
+        self.assertEqual(0, fixture.state["planning"]["plan_review_calls"])
         self.assertNotIn("active_stage", fixture.state)
 
 

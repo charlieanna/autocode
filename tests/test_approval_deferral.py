@@ -31,7 +31,7 @@ def joint_run(run_dir):
         "run_dir": str(run_dir),
         "user_events": [],
         "goal_contract": contract,
-        "planning": {"astra_calls": 2, "reports": {}, "final_token": None},
+        "planning": {"plan_review_calls": 2, "reports": {}, "final_token": None},
     }
 
 
@@ -100,7 +100,10 @@ class DeferredApprovalRestarts(unittest.TestCase):
     def small_brief_review_spent(self):
         # A small clear brief pays one review total across cycles (#1564), and this one is spent.
         self.state["planning"].update(
-            astra_calls=2, review_depth_reduced=True, review_call_limit=2, review_call_limit_origin="runner_default"
+            plan_review_calls=2,
+            review_depth_reduced=True,
+            review_call_limit=2,
+            review_call_limit_origin="runner_default",
         )
 
     def test_a_restart_because_the_source_moved_renews_a_spent_small_brief_review(self):
@@ -112,7 +115,7 @@ class DeferredApprovalRestarts(unittest.TestCase):
             ask_for_approval(self.state, self.run_dir)
         self.assertEqual(("RUNNING", "review_plan"), (self.state["status"], self.state["next_stage"]))
         planning = self.state["planning"]
-        self.assertEqual((0, {"from": 2, "to": 0}), (planning["astra_calls"], planning["source_change_renewal"]))
+        self.assertEqual((0, {"from": 2, "to": 0}), (planning["plan_review_calls"], planning["source_change_renewal"]))
         self.assertEqual((2, "runner_default"), (planning["review_call_limit"], planning["review_call_limit_origin"]))
         self.assertTrue(self.state["planning_history"][-1]["source_change_restart"])
 
@@ -120,7 +123,7 @@ class DeferredApprovalRestarts(unittest.TestCase):
         self.small_brief_review_spent()
         ask_for_approval(self.state, self.run_dir)
         self.assertEqual(("RUNNING", "review_plan"), (self.state["status"], self.state["next_stage"]))
-        self.assertEqual(2, self.state["planning"]["astra_calls"])
+        self.assertEqual(2, self.state["planning"]["plan_review_calls"])
         self.assertNotIn("source_change_renewal", self.state["planning"])
 
     def test_source_moved_restarts_stay_bounded(self):

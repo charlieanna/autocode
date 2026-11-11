@@ -48,7 +48,7 @@ def inputs():
     state = {
         "goal_contract": {
             "body": body,
-            "origin": "glm_draft",
+            "origin": "planner_draft",
             "approval_status": "draft",
             "approval_event": None,
             "revision": 8,
@@ -205,7 +205,7 @@ class FeedbackAssumptionContextTests(unittest.TestCase):
             workspace="/absent-workspace",
             status="RUNNING",
             acceptance_criteria=[],
-            planning={"reports": {}, "astra_calls": 1, "final_token": None},
+            planning={"reports": {}, "plan_review_calls": 1, "final_token": None},
             settings={
                 "joint_planning": True,
                 "context_soft_tokens": 10000,

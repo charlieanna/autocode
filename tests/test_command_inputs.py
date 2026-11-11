@@ -92,7 +92,7 @@ class CommandInputTests(unittest.TestCase):
         return checkpoint(
             status="PAUSED_PLANNING_BUDGET",
             next_stage="review_plan",
-            planning={"astra_calls": 2, "review_call_limit": 2},
+            planning={"plan_review_calls": 2, "review_call_limit": 2},
             **changes,
         )
 
@@ -172,18 +172,18 @@ class CommandInputTests(unittest.TestCase):
             (2, inputs.MAX_INTEGER),
         ):
             state = self.planning_checkpoint()
-            state["planning"].update(review_call_limit=current, astra_calls=used)
+            state["planning"].update(review_call_limit=current, plan_review_calls=used)
             self.assertIsNone(inputs.project(state, need, None))
         for action in ("--resume-paused", "--planning-review-call-limit N --approve-goal -", "--max-seconds N"):
             self.assertIsNone(inputs.project(self.planning_checkpoint(), {**need, "action": action}, None))
         state = self.planning_checkpoint()
-        state["planning"].update(review_call_limit=4, astra_calls=6)
+        state["planning"].update(review_call_limit=4, plan_review_calls=6)
         self.assertEqual(7, inputs.project(state, need, None)[0]["minimum"])
 
     def test_planning_accounting_is_bound_to_recovery_freshness(self):
         state = self.planning_checkpoint()
         token = recovery.token(state)
-        for key in ("astra_calls", "review_call_limit"):
+        for key in ("plan_review_calls", "review_call_limit"):
             changed = copy.deepcopy(state)
             changed["planning"][key] += 1
             with self.assertRaisesRegex(ValueError, "saved pause changed"):

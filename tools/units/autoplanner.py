@@ -899,14 +899,14 @@ def apply_review_depth_policy(state: RunState):
     if planning.get("review_depth_reduced"):
         return
     archived = sum(
-        row.get("astra_calls", 0)
+        row.get("plan_review_calls", 0)
         for row in state.get("planning_history") or []
         if row.get("turn_event_id") == planning.get("turn_event_id")
     )
     archived = review_usage.archived_calls(state, archived)
     planning["review_depth_reduced"] = True
     planning["review_calls_before_policy"] = archived
-    planning["astra_calls"] = archived + planning.get("astra_calls", 0)
+    planning["plan_review_calls"] = archived + planning.get("plan_review_calls", 0)
     apply_reviewer_effort_tier(state)
 
 
@@ -991,7 +991,7 @@ def set_review_call_limit(state: RunState, limit):
         raise ValueError("Planning allowance requires a reconciled PAUSED_PLANNING_BUDGET checkpoint")
     previous = review_call_limit(state)
     if type(limit) is not int or (
-        limit != 0 and (limit < 2 or limit < previous or limit < state["planning"]["astra_calls"])
+        limit != 0 and (limit < 2 or limit < previous or limit < state["planning"]["plan_review_calls"])
     ):
         raise ValueError(
             "Planning review call limit must be 0 (unlimited) or an integer no smaller than the current limit and usage"
@@ -1011,7 +1011,7 @@ def set_review_call_limit(state: RunState, limit):
             "at": s.now(),
             "previous_limit": previous,
             "limit": limit,
-            "calls_used": state["planning"]["astra_calls"],
+            "calls_used": state["planning"]["plan_review_calls"],
             "stage": state["next_stage"],
             "contract_token": goals.token(state["goal_contract"]),
         }
@@ -1033,7 +1033,7 @@ def refund_unreported(state: RunState, planning):
             row.get("timed_out") or (type(row.get("exit_code")) is int and row["exit_code"] != 0)
         ):
             charges.remove(row["planning_review_charge"])
-            planning["astra_calls"] -= 1
+            planning["plan_review_calls"] -= 1
             row["planning_review_refunded"] = True
 
 
@@ -1052,14 +1052,14 @@ def charge(state: RunState, stage, record=None, workspace=None):
     limit = review_call_limit(state)
     if (
         limit
-        and planning["astra_calls"] >= limit
+        and planning["plan_review_calls"] >= limit
         and not planning.get("recovery_review_grants")
         and renew_for_revision(state, stage, limit)
     ):
         limit = review_call_limit(state)
         if record is not None:
             record["planning_revision_renewal"] = True
-    if limit and planning["astra_calls"] >= limit:
+    if limit and planning["plan_review_calls"] >= limit:
         if planning.get("recovery_review_grants"):
             try:
                 from .. import autocode_resolver_runtime as resolver
@@ -1071,7 +1071,7 @@ def charge(state: RunState, stage, record=None, workspace=None):
                 or not record.get("output")
                 or record.get("stage") != stage
                 or planning.get("recovery_review_calls_used", 0) >= resolver.MAX_PLANNING_RECOVERY_GRANTS
-                or planning["astra_calls"] >= limit + resolver.MAX_PLANNING_RECOVERY_GRANTS
+                or planning["plan_review_calls"] >= limit + resolver.MAX_PLANNING_RECOVERY_GRANTS
             ):
                 raise s.Paused("PAUSED_RESOLVER_OPERATIONAL", "Planning recovery admission is exhausted or unbound")
             grant.update(
@@ -1083,17 +1083,17 @@ def charge(state: RunState, stage, record=None, workspace=None):
             record["planning_recovery_grant"] = grant["id"]
             record["resolver_receipt_id"] = grant["id"]
             planning["recovery_review_calls_used"] = planning.get("recovery_review_calls_used", 0) + 1
-            planning["astra_calls"] += 1
+            planning["plan_review_calls"] += 1
             return
         raise s.Paused(
             "PAUSED_PLANNING_BUDGET",
-            f"{planning['astra_calls']}/{limit} plan-review calls used. "
+            f"{planning['plan_review_calls']}/{limit} plan-review calls used. "
             "AutoResolver could not authorize another safe operational call. "
             "Retained requirements and review evidence are unchanged; no approval is implied. "
             "Allow more reviews with --resume-paused --planning-review-call-limit N (more than the calls used), "
             "or give the Planner direction with --feedback TEXT.",
         )
-    planning["astra_calls"] += 1
+    planning["plan_review_calls"] += 1
     if record is not None:
         record["planning_review_charge"] = uuid.uuid4().hex
         planning.setdefault("review_charges", []).append(record["planning_review_charge"])
@@ -2035,5 +2035,5 @@ def after_revise(state: RunState):
         return "finalize_plan"
     planning = state["planning"]
     return adaptive.after_revise(
-        review_call_limit(state), planning["astra_calls"], (planning.get("adaptive") or {}).get("challenges", 0)
+        review_call_limit(state), planning["plan_review_calls"], (planning.get("adaptive") or {}).get("challenges", 0)
     )

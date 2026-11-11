@@ -1,8 +1,8 @@
 """A change outside a package run's package is a runner finding (#711).
 
 ``--package PATH`` (autocode_package_scope) is the Builder's write scope, and its handoff says so
-(``context``); no other stage is given the package. Before each Tester and Completion Reviewer dispatch (``sol``,
-``astra_checkpoint``, ``astra_review``; autocode_regression.before_review calls ``check``), whether
+(``context``); no other stage is given the package. Before each Tester and Completion Reviewer dispatch (``tester``,
+``review_checkpoint``, ``review_completion``; autocode_regression.before_review calls ``check``), whether
 or not the run owes a regression proof, the runner compares the candidate with the run's base as the
 regression proof reads it (autocode_verify.changed_files, with the approved plan's declared source
 paths). The Design Reviewer's dispatch is not checked. A change outside

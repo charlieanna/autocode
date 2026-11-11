@@ -220,14 +220,14 @@ class ContractTests(unittest.TestCase):
         value["end_to_end_flow"] = ["The CLI prints 'week  3.00h\\ntotal  3.00h\\' with the existing format."]
         state = self.state()
         with self.assertRaisesRegex(ValueError, "Criterion C1 has an unterminated exact-output literal") as refused:
-            lifecycle.install_draft(state, value, origin="glm_draft")
+            lifecycle.install_draft(state, value, origin="planner_draft")
         self.assertIn("End-to-end step 1 has an unterminated exact-output literal", str(refused.exception))
         self.assertNotIn("goal_contract", state)
         value["acceptance_criteria"][0]["criterion"] = value["acceptance_criteria"][0]["criterion"].replace(
             "19.75h\\'", "19.75h\\n'"
         )
         value["end_to_end_flow"][0] = value["end_to_end_flow"][0].replace("3.00h\\'", "3.00h\\n'")
-        lifecycle.install_draft(state, value, origin="glm_draft")
+        lifecycle.install_draft(state, value, origin="planner_draft")
         self.assertEqual(value["acceptance_criteria"], state["goal_contract"]["body"]["acceptance_criteria"])
 
     def test_a_closed_literal_can_include_an_escaped_quote_or_backslash(self):
@@ -235,7 +235,7 @@ class ContractTests(unittest.TestCase):
             with self.subTest(literal=literal):
                 value = self.draft()
                 value["acceptance_criteria"][0]["criterion"] = f"Render returns exactly {literal}."
-                lifecycle.install_draft(self.state(), value, origin="glm_draft")
+                lifecycle.install_draft(self.state(), value, origin="planner_draft")
 
 
 class TaskAuthorTests(unittest.TestCase):

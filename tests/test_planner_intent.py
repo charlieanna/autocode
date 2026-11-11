@@ -70,7 +70,7 @@ class PlannerIntentTests(unittest.TestCase):
 
     def test_late_reviewer_question_is_not_erased_by_revision_routing(self):
         current = state()
-        lifecycle.install_draft(current, body(), origin="glm_draft")
+        lifecycle.install_draft(current, body(), origin="planner_draft")
         current["planning"]["reports"]["review_plan"] = {"report": {"concerns": []}}
         draft = body(questions=True)
         value = {
@@ -311,7 +311,7 @@ class ConcernCoverageTests(unittest.TestCase):
         for resolved in (True, False):
             with self.subTest(placeholder_resolved=resolved):
                 current = state()
-                lifecycle.install_draft(current, body(), origin="glm_draft")
+                lifecycle.install_draft(current, body(), origin="planner_draft")
                 current["planning"]["reports"]["review_plan"] = {"report": {"concerns": [{"id": "C1"}]}}
                 final = body()
                 final["initial_task"] = {

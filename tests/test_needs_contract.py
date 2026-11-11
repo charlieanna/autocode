@@ -357,7 +357,7 @@ KIND_SHAPES = {
                 "error": "Check is not supported by an exact executed Validator event",
                 "original": {"stage": "tester"},
                 "attempts": 2,
-                "latest_rejected": {"iteration": 1, "output": "/run/sol_report_repair-02.json"},
+                "latest_rejected": {"iteration": 1, "output": "/run/tester_report_repair-02.json"},
             },
         },
     ],

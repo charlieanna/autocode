@@ -560,7 +560,7 @@ class ApplyTests(unittest.TestCase):
     def test_retry_grants_exactly_one_more_review_round_or_batch(self):
         for stage, used, expected in (("review_plan", 2, 4), ("finalize_plan", 2, 3)):
             state = self.investigated(
-                "PAUSED_PLANNING_BUDGET", stage=stage, planning={"review_call_limit": 2, "astra_calls": used}
+                "PAUSED_PLANNING_BUDGET", stage=stage, planning={"review_call_limit": 2, "plan_review_calls": used}
             )
             stuck.apply(state, report(), {}, state["workspace"])
             self.assertEqual((expected, "PLANNING"), (state["planning"]["review_call_limit"], state["phase"]), stage)
@@ -576,7 +576,7 @@ class ApplyTests(unittest.TestCase):
                 state = state_for(
                     next_stage="review_plan",
                     planning={
-                        "astra_calls": 2,
+                        "plan_review_calls": 2,
                         "review_call_limit": 2,
                         "review_depth_reduced": True,
                         "reports": {},
@@ -599,7 +599,7 @@ class ApplyTests(unittest.TestCase):
                 with self.assertRaises(planning.s.Paused) as paused:
                     planning.charge(state, "review_plan", {"stage": "review_plan", "output": "review-5"})
                 self.assertEqual("PAUSED_PLANNING_BUDGET", paused.exception.status)
-                self.assertEqual(4, state["planning"]["astra_calls"])
+                self.assertEqual(4, state["planning"]["plan_review_calls"])
                 self.assertEqual(settings, state["settings"])
 
     def test_granted_review_round_preserves_an_existing_explicit_origin(self):
@@ -608,7 +608,7 @@ class ApplyTests(unittest.TestCase):
         state = {
             "settings": {},
             "planning": {
-                "astra_calls": 2,
+                "plan_review_calls": 2,
                 "review_call_limit": 2,
                 "review_call_limit_origin": "user_explicit",
                 "review_depth_reduced": True,
@@ -619,14 +619,14 @@ class ApplyTests(unittest.TestCase):
         planning.new_cycle(state, new_turn=True)
         self.assertEqual(4, planning.review_call_limit(state))
         self.assertEqual("user_explicit", state["planning"]["review_call_limit_origin"])
-        self.assertEqual(2, state["planning"]["astra_calls"])
+        self.assertEqual(2, state["planning"]["plan_review_calls"])
 
     def test_core_review_grant_does_not_replace_the_configured_next_turn_allowance(self):
         from units import autoplanner as planning
 
         state = {
             "settings": {"planning_review_call_limit": 2, "planning_review_call_limit_origin": "config.toml"},
-            "planning": {"astra_calls": 2, "review_call_limit": 2, "review_depth_reduced": True, "reports": {}},
+            "planning": {"plan_review_calls": 2, "review_call_limit": 2, "review_depth_reduced": True, "reports": {}},
         }
         settings = copy.deepcopy(state["settings"])
         stuck.grant_one_attempt(state, {"status": "PAUSED_PLANNING_BUDGET", "stage": "review_plan"})
@@ -634,7 +634,7 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(4, planning.review_call_limit(state))
         planning.new_cycle(state, new_turn=True)
         self.assertEqual(2, planning.review_call_limit(state))
-        self.assertEqual(0, state["planning"]["astra_calls"])
+        self.assertEqual(0, state["planning"]["plan_review_calls"])
         self.assertEqual(settings, state["settings"])
 
     def test_exhausted_timeout_recovery_goes_to_the_investigator_which_grants_one_recovery(self):

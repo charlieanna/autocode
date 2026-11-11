@@ -125,7 +125,7 @@ class GateChatTests(unittest.TestCase):
 
     def test_plan_conversation_does_not_consume_another_full_plan_review_allowance(self):
         state = plan()
-        state["planning"] = {"astra_calls": 2, "review_call_limit": 2, "reports": {}}
+        state["planning"] = {"plan_review_calls": 2, "review_call_limit": 2, "reports": {}}
         self.chat.begin(state, "yes coplete")
         before = copy.deepcopy(state["planning"])
         planner.charge(state, "finalize_plan", {})

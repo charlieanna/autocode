@@ -69,7 +69,7 @@ How it ended (`outcome`), from the first of these that applies (`outcome_basis` 
   ran on another route (a person or the Builder's retry policy moved it) or ran nothing since.
   Validations judge the Builder's work, and a run saved by AutoCode before #612's stamp fix may hold a
   `passed` stamp the runner wrote on its stronger attempt in the handler that made it, at the PASS the review just sent
-  back (autopilot's astra_resolve), before that attempt ran, so its stamp is never taken;
+  back (autopilot's resolve), before that attempt ran, so its stamp is never taken;
 - the run's status now: complete is `passed`, running is `running`, anything else (a pause, a wait
   for a person, a stop) is `paused` (basis `run_status`).
 
@@ -441,7 +441,7 @@ def _outcome(state: RunState, escalation, later, judged, charged) -> tuple[str, 
     # assigns the next task while the last validation passed, whoever's work passed: it is the escalation's only while
     # its role ran nothing but its attempts since it. Validations judge the Builder's work, and a run saved by AutoCode
     # before #612's stamp fix may hold a `passed` stamp on its stronger attempt written in the handler that made it
-    # (autopilot's astra_resolve, at the PASS the review just sent back), before that attempt ran: the Builder's stamp
+    # (autopilot's resolve, at the PASS the review just sent back), before that attempt ran: the Builder's stamp
     # is never its outcome.
     if escalation["stamp"] == "passed" and escalation["only_mine"] and escalation["role"] != "builder":
         return "passed", "recorded", None, False

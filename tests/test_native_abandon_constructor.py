@@ -89,7 +89,7 @@ class NativeAbandonConstructorTests(unittest.TestCase):
             "sessions": {"planner": "controlled-session"},
             "total_seconds": 900.0,
             "planning": {
-                "astra_calls": 1,
+                "plan_review_calls": 1,
                 "review_call_limit": 2,
                 "reports": {},
                 "final_token": None,
@@ -709,7 +709,7 @@ class NativeAbandonConstructorTests(unittest.TestCase):
         self.assertFalse(Path(self.state["stages"][-1]["output"]).exists())
         cycle = deepcopy(self.state["planning"]["v2_cycle"])
         planning.charge(self.state, "plan_finalize")
-        self.assertEqual(2, self.state["planning"]["astra_calls"])
+        self.assertEqual(2, self.state["planning"]["plan_review_calls"])
         self.assertEqual(2, planning.review_call_limit(self.state))
         self.assertEqual(cycle, self.state["planning"]["v2_cycle"])
         self.assertNotIn("planning_review_refunded", self.state["stages"][-1])

@@ -5,7 +5,7 @@ autocode_route_permission and autocode_verifier_independence.
 
 The trigger is substance, not format. In an adaptive run the Plan Reviewer's first challenge
 with a blocking concern sends the draft back for revision; when a later challenge of the same
-planning cycle blocks the revised draft again, the Planner (the ``glm`` route) moves once onto a
+planning cycle blocks the revised draft again, the Planner (the ``planner`` route) moves once onto a
 stronger model for the next revision (units.autoplanner.after_challenge). Schema errors,
 silences and output caps never trigger it: the existing report repair, recovery and route
 handling answer those, and a stronger model would not.

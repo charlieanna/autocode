@@ -427,7 +427,8 @@ def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=
     if (
         joint
         and not questions
-        and origin in ("glm_draft", "revise_plan", "user_cli_edit", "resolver_recommendation", "plan", "plan_revise")
+        and origin
+        in ("planner_draft", "revise_plan", "user_cli_edit", "resolver_recommendation", "plan", "plan_revise")
     ):
         if origin == "plan":
             state.update({"status": "RUNNING", "phase": "PLANNING", "next_stage": "plan_review"})
@@ -832,7 +833,7 @@ def render(state: RunState, run_dir=None, *, details=True):
             for row in revision.get("declared_changes") or []
             if isinstance(row, dict) and (row.get("review_concerns") or row.get("change") == current_behavior.CHANGE)
         ]
-        if revision.get("origin") in ("glm_draft", "draft_plan", "plan"):
+        if revision.get("origin") in ("planner_draft", "draft_plan", "plan"):
             break
     if declared:
         lines += ["", "Declared contract changes:"]
@@ -893,7 +894,7 @@ def render(state: RunState, run_dir=None, *, details=True):
         # nothing printed here carries the value (#2958).
         lines.append(f"Resolver request ID: {public['request_id']}")
     if state.get("planning"):
-        total = state["planning"]["astra_calls"]
+        total = state["planning"]["plan_review_calls"]
         recovered = state["planning"].get("recovery_review_calls_used", 0)
         limit = state["planning"].get(
             "review_call_limit", state.get("settings", {}).get("planning_review_call_limit", 2)

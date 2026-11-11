@@ -357,7 +357,7 @@ def _bind_plan(state: RunState, value, origin, record):
     if "contract" not in value:
         return
     if (
-        origin == "glm_draft"
+        origin == "planner_draft"
         and value["contract"].get("open_blocking_questions")
         and (
             value["contract"].get("milestones")
@@ -372,7 +372,7 @@ def _bind_plan(state: RunState, value, origin, record):
     goals.check_requirement_trace(
         state, value, value["contract"], coverage=planning_unit.traces_coverage(value["contract"])
     )
-    if origin in ("glm_draft", "revise_plan"):
+    if origin in ("planner_draft", "revise_plan"):
         _check_code_refs(state, value.get("code_refs") or [])
     progressive_state.accept_proposal(state, value, origin=origin)
     body = value["contract"]
@@ -545,7 +545,7 @@ def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
         raise ValueError("Every planned milestone must declare depends_on (use [] for independent work)")
     if stage == "draft_plan":
         clarification.check_handoff_questions(state, value)
-        _bind_plan(state, value, "glm_draft", record)
+        _bind_plan(state, value, "planner_draft", record)
         planning_unit.record_uncited_sentences(state, value["contract"])
         if human.internal_questions(state) or value["contract"]["open_blocking_questions"]:
             state["discovery_summary"] = value["summary"]

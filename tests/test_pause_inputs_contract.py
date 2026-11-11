@@ -59,7 +59,7 @@ def paused(status, **more):
         "consecutive_timeout_recoveries": 3,
         "automatic_timeout_recoveries": [{"stage": "builder"}],
         "recovery_grants": [],
-        "planning": {"astra_calls": 2, "review_call_limit": 2},
+        "planning": {"plan_review_calls": 2, "review_call_limit": 2},
         "goal_contract": CONTRACT,
         "current_task": {"id": "T1", "milestone_id": "M1", "contract_hash": CONTRACT["hash"]},
         "milestone_progress": {KEY: {"seconds": 5500, "replans": 1}},

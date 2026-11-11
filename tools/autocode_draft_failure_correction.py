@@ -26,7 +26,7 @@ except ImportError:
 FIELD = "draft_failure_correction"
 COMPATIBILITY = "unapproved_bugfix_compatibility_inference"
 TARGETS = {"unapproved_model_inference": "important_failure_cases", COMPATIBILITY: "required_behaviors"}
-ORIGINS = {"glm_draft", "draft_plan", "revise_plan", "finalize_plan"}
+ORIGINS = {"planner_draft", "draft_plan", "revise_plan", "finalize_plan"}
 LISTS = ("required_behaviors", "scope_exclusions", "constraints", "permission_boundaries")
 SOURCES = (
     "task",
@@ -281,7 +281,7 @@ def _obligation_mismatches(before, after, replacements, interpretation_correctio
 
 
 def corrections(state: RunState, body, changes, origin, *, interpretation_corrections=(), criterion_corrections=None):
-    """Authority for exact glm_revise pairs only; every other change uses its existing guard."""
+    """Authority for exact revise_plan pairs only; every other change uses its existing guard."""
     if origin != "revise_plan":
         return {}
     report = ((state.get("planning") or {}).get("reports", {}).get("review_plan") or {}).get("report")

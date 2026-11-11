@@ -80,6 +80,14 @@ def retired_stage(state: RunState) -> str | None:
             "use the old names, which this runtime no longer runs. Its status and saved reports stay "
             "readable; start a new task to continue the work."
         )
+    # The last renaming step renamed the planning record's review counter; a run saved between the
+    # steps has job-named routes and the old counter, which this runtime no longer keeps.
+    if names.OLD_PLANNING_COUNTER in (state.get("planning") or {}):
+        return (
+            "This run was saved before AutoCode finished naming its records after their jobs: its plan "
+            f"review count is kept as {names.OLD_PLANNING_COUNTER}, which this runtime no longer reads. Its "
+            "status and saved reports stay readable; start a new task to continue the work."
+        )
     stage = str(state.get("next_stage") or "").removesuffix("_report_repair")
     if stage not in RETIRED_STAGES:
         return None

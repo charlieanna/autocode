@@ -993,9 +993,9 @@ class SealTests(unittest.TestCase):
         changed = copy.deepcopy(sealed)
         changed["source_trace"] = dict(changed["source_trace"], version=2)
         with self.assertRaisesRegex(ValueError, "cannot replace"):
-            trace.prepare(self.state, changed, "glm_draft")
+            trace.prepare(self.state, changed, "planner_draft")
         fresh = self.draft()
-        carried = trace.prepare(self.state, fresh, "glm_draft")
+        carried = trace.prepare(self.state, fresh, "planner_draft")
         self.assertEqual(sealed["source_trace"], carried["source_trace"])
 
     def test_a_review_without_source_trace_seals_the_strict_default(self):

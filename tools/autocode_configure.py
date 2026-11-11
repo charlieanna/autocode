@@ -565,10 +565,10 @@ def _configure_saved(
     settings.setdefault("limits", {}).setdefault("idle_timeout_seconds", 300)
     settings["limits"].setdefault("tool_timeout_seconds", 1800)
     if "completion" not in settings["roles"]:
-        astra_route = settings["roles"]["task_planner"]
+        task_planner_route = settings["roles"]["task_planner"]
         completion_engine = planning.engine_for(settings, "task_planner")
         settings["roles"]["completion"] = {
-            **astra_route,
+            **task_planner_route,
             "model": (
                 opencode.DEFAULT_MODELS["completion"]
                 if completion_engine == "opencode"

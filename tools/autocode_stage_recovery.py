@@ -209,7 +209,7 @@ def abandon_stage(state: RunState, run_dir, workspace, selected, *, launch=None,
     retry_stage = record.get("original_stage") or record["stage"].removesuffix("_report_repair")
     # Abandonment invalidated validation; a completion retry must obtain it again.
     # Builder and Validator abandonment re-dispatches the same role to inspect
-    # partial work and retry. Only completion (astra_review) routes to a fresh
+    # partial work and retry. Only completion (review_completion) routes to a fresh
     # review stage.
     next_stage = (
         workflow.review_stage(state)
@@ -1036,7 +1036,7 @@ def prepare_exhausted_execution_report_retry(state: RunState, run_dir, workspace
     if not isinstance(original, dict):
         return False
     stage = original.get("stage")
-    reroute_abandoned_sol = (
+    reroute_abandoned_tester = (
         stage == "tester"
         and state.get("next_stage") == "review_completion"
         and not state.get("validation")
@@ -1057,7 +1057,7 @@ def prepare_exhausted_execution_report_retry(state: RunState, run_dir, workspace
         # original input, so keep it instead of discarding the stage's work.
         return False
     if (
-        (stage != state.get("next_stage") and not reroute_abandoned_sol)
+        (stage != state.get("next_stage") and not reroute_abandoned_tester)
         or stage == "draft_plan"
         or planning.is_planning(state, stage)
         or not (
@@ -1097,7 +1097,7 @@ def prepare_exhausted_execution_report_retry(state: RunState, run_dir, workspace
         run_status.pause(state, "PAUSED_REPEATED_FAILURE", message, paused_at=records.now())
         records.write_json(run_dir / "state.json", state)
         raise support.Paused("PAUSED_REPEATED_FAILURE", message)
-    if reroute_abandoned_sol:
+    if reroute_abandoned_tester:
         state["next_stage"] = "tester"
     reason = (
         "Explicit fresh execution retry: the report repair cannot launch from its saved inputs"

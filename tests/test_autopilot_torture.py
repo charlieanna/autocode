@@ -280,7 +280,7 @@ class PlanningTests(TortureBase):
     def planning_state(self):
         self.state["settings"]["joint_planning"] = True
         self.state["settings"]["roles"]["plan_reviewer"] = {"model": "plan"}
-        self.state["planning"] = {"astra_calls": 0, "reports": {}, "final_token": None}
+        self.state["planning"] = {"plan_review_calls": 0, "reports": {}, "final_token": None}
         self.state["task"] = "Print Hello, NAME. Reject a name that is only whitespace, exit 2."
 
     def test_planner_cannot_drop_a_requirement_or_weaken_a_criterion(self):
@@ -322,7 +322,7 @@ class PlanningTests(TortureBase):
             {
                 k: self.state[k]
                 for k in self.state
-                if k == "goal_contract" and self.state["goal_contract"]["origin"] == "glm_draft"
+                if k == "goal_contract" and self.state["goal_contract"]["origin"] == "planner_draft"
             },
         )
         weakened = body()

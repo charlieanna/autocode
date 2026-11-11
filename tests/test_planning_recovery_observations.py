@@ -29,7 +29,7 @@ class RecoveryObservationsTests(unittest.TestCase):
             "acceptance_criteria": [],
         }
         lifecycle.migrate(self.state)
-        lifecycle.install_draft(self.state, body(), origin="glm_draft")
+        lifecycle.install_draft(self.state, body(), origin="planner_draft")
         self.events = self.archive / "plan-challenge-01.jsonl"
         self.events.write_text(
             json.dumps(

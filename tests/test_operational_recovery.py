@@ -28,7 +28,7 @@ class OperationalRecoveryTests(unittest.TestCase):
         s.atomic_json(discovery, {"summary": "accepted draft"})
         self.state["stages"] = [{"stage": "draft_plan", "output": str(discovery)}]
         self.state["planning"] = {
-            "astra_calls": 2,
+            "plan_review_calls": 2,
             "reports": {"draft_plan": {"output": str(discovery), "report": {"summary": "accepted draft"}}},
         }
         self.origins = [self.timeout(1), self.timeout(2)]
@@ -84,7 +84,7 @@ class OperationalRecoveryTests(unittest.TestCase):
             launch.assert_not_called()
         self.assertEqual(contract, self.state["goal_contract"])
         self.assertFalse(runner.goals.approved(self.state))
-        self.assertEqual(2, self.state["planning"]["astra_calls"])
+        self.assertEqual(2, self.state["planning"]["plan_review_calls"])
         self.assertEqual(2, planning.review_call_limit(self.state))
         receipt = self.state["stages"][-1]
         self.assertTrue(receipt["runner_owned"])
@@ -98,7 +98,7 @@ class OperationalRecoveryTests(unittest.TestCase):
         original = copy.deepcopy(self.state["planning"]["reports"])
         self.assertTrue(self.boundary())
         self.charge()
-        self.assertEqual(3, self.state["planning"]["astra_calls"])
+        self.assertEqual(3, self.state["planning"]["plan_review_calls"])
         self.assertEqual(1, self.state["planning"]["recovery_review_calls_used"])
         self.assertEqual(original, self.state["planning"]["reports"])
         self.assertFalse(runner.goals.approved(self.state))
@@ -125,7 +125,7 @@ class OperationalRecoveryTests(unittest.TestCase):
                 self.state = copy.deepcopy(original)
                 self.state["stages"][0].update(changes)
                 self.assertFalse(self.boundary())
-                self.assertEqual(2, self.state["planning"]["astra_calls"])
+                self.assertEqual(2, self.state["planning"]["plan_review_calls"])
 
     def test_provider_rate_limit_is_resolver_owned_without_switching_billing(self):
         self.state.update(status="PAUSED_RATE_LIMIT", next_stage="draft_plan")
@@ -178,7 +178,7 @@ class OperationalRecoveryTests(unittest.TestCase):
         self.assertTrue(self.boundary())
         final = self.charge("finalize_plan", 4)
         self.assertNotEqual(record["planning_recovery_grant"], final["planning_recovery_grant"])
-        self.assertEqual(4, self.state["planning"]["astra_calls"])
+        self.assertEqual(4, self.state["planning"]["plan_review_calls"])
         self.assertEqual(2, self.state["planning"]["recovery_review_calls_used"])
         with self.assertRaises(s.Paused) as caught:
             self.boundary()
@@ -190,12 +190,12 @@ class OperationalRecoveryTests(unittest.TestCase):
         self.state["active_stage"] = record
         s.atomic_json(self.run / "state.json", self.state)
         self.state = s.read(self.run / "state.json")
-        self.assertEqual(3, self.state["planning"]["astra_calls"])
+        self.assertEqual(3, self.state["planning"]["plan_review_calls"])
         self.assertTrue(self.state["planning"]["recovery_review_grants"][0]["consumed"])
         self.assertFalse(self.boundary())
         with self.assertRaises(s.Paused):
             self.charge()
-        self.assertEqual(3, self.state["planning"]["astra_calls"])
+        self.assertEqual(3, self.state["planning"]["plan_review_calls"])
 
     def test_grant_pin_mutations_fail_before_admission(self):
         self.boundary()
@@ -230,7 +230,7 @@ class OperationalRecoveryTests(unittest.TestCase):
                 with patch.object(runner, "run_role") as launch, self.assertRaises(s.Paused) as caught:
                     self.charge()
                 self.assertEqual("PAUSED_RESOLVER_OPERATIONAL", caught.exception.status)
-                self.assertEqual(2, self.state["planning"]["astra_calls"])
+                self.assertEqual(2, self.state["planning"]["plan_review_calls"])
                 launch.assert_not_called()
                 (self.root / "changed.py").unlink(missing_ok=True)
                 for path, content in originals.items():
@@ -313,9 +313,9 @@ class OperationalRecoveryTests(unittest.TestCase):
         self.assertEqual(before, self.state)
 
     def test_ordinary_allowance_and_hard_guard_are_not_extended(self):
-        self.state["planning"]["astra_calls"] = 1
+        self.state["planning"]["plan_review_calls"] = 1
         self.assertFalse(self.boundary())
-        self.state["planning"]["astra_calls"] = 2
+        self.state["planning"]["plan_review_calls"] = 2
         self.state["automatic_recoveries_since_resume"] = runner.MAX_AUTOMATIC_RECOVERIES
         with self.assertRaises(s.Paused) as caught:
             self.boundary()
@@ -333,14 +333,14 @@ class OperationalRecoveryTests(unittest.TestCase):
         count = len(self.state["stages"])
         self.assertFalse(self.boundary())
         # The silent attempts returned no review, so their calls come back before any reserve.
-        self.assertEqual(0, self.state["planning"]["astra_calls"])
+        self.assertEqual(0, self.state["planning"]["plan_review_calls"])
         self.assertTrue(all(origin["planning_review_refunded"] for origin in self.origins))
         self.assertNotIn("recovery_review_grants", self.state["planning"])
         self.assertEqual(count, len(self.state["stages"]), "no resolver receipt without a grant")
         record = self.charge()
         self.assertIn("planning_review_charge", record)
         self.assertNotIn("planning_recovery_grant", record)
-        self.assertEqual(1, self.state["planning"]["astra_calls"])
+        self.assertEqual(1, self.state["planning"]["plan_review_calls"])
         self.assertNotIn("recovery_review_grants", self.state["planning"])
 
     def test_refunded_timeout_cannot_also_fund_recovery(self):
@@ -361,7 +361,7 @@ class OperationalRecoveryTests(unittest.TestCase):
         with self.assertRaises(s.Paused) as caught:
             self.charge(number=5)
         self.assertEqual("PAUSED_PLANNING_BUDGET", caught.exception.status)
-        self.assertEqual(2, self.state["planning"]["astra_calls"])
+        self.assertEqual(2, self.state["planning"]["plan_review_calls"])
 
     def test_sealed_grant_keeps_its_records_and_still_fails_closed(self):
         # A grant sealed by the old order: reserved over calls that were still refundable.
@@ -471,7 +471,7 @@ class OperationalRecoveryTests(unittest.TestCase):
         self.assertNotIn("recovery_review_grants", self.state["planning"])
 
     def test_ordinary_timeout_context_also_avoids_repeated_exploration(self):
-        self.state["planning"]["astra_calls"] = 1
+        self.state["planning"]["plan_review_calls"] = 1
         self.state["recovery_context"] = {"stage": "review_plan", "timeout_kind": "idle"}
         self.assertFalse(self.boundary())
         prompt, _ = planning.context(self.state, "review_plan", self.run / "state.json")

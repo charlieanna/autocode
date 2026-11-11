@@ -4,7 +4,7 @@ autocode_compact_planning decides whether a bug-fix run plans on the compact pat
 Plan Reviewer, the person's approval) or the full one (the Planner's paid draft first). It writes the
 decision here, once per job, under ``state["workflow"]["stage_policy"]``; the status view shows a copy as
 ``stage_policy`` (view). The record names the path, every signal that kept the full path, the hashes the
-decision rests on, the one stage decision it makes (``astra_discovery`` omitted or included, with what
+decision rests on, the one stage decision it makes (``draft_plan`` omitted or included, with what
 covers an omission) and, after a review that could not approve the compact draft, the fallback. A client
 renders it and nothing more: the record grants no authority, and a run that never decided shows null.
 

@@ -16,9 +16,9 @@ Difficulty is read from facts the runner holds, never from a model's own rating 
 - ``vague_request``: Requirements judged the request vague. This is a model's judgment, so it may only
   raise the level, as every model signal here may; nothing in this module lowers one.
 
-Which stage reads which: the Planner's first draft (``astra_discovery``) has no draft yet, so only a
-vague request raises it. A revision (``glm_revise``) and the Plan Reviewer's challenge and final review
-(``astra_challenge``, ``astra_finalize``) read the draft's size and paths; a revision also reads a second
+Which stage reads which: the Planner's first draft (``draft_plan``) has no draft yet, so only a
+vague request raises it. A revision (``revise_plan``) and the Plan Reviewer's challenge and final review
+(``review_plan``, ``finalize_plan``) read the draft's size and paths; a revision also reads a second
 block. The level is raised only when it is the person's saved choice or the runner's default for the
 role; a level typed as a flag or given as an answer is exact, a route a climb moved or a fallback route
 on another model is left alone, and so is a model whose levels the run does not know.

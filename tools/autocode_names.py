@@ -42,6 +42,9 @@ STAGES = {
     "astra_diagnose": "diagnose",
 }
 
+# The planning record's count of Plan Reviewer calls, before it was named plan_review_calls.
+OLD_PLANNING_COUNTER = "astra_calls"
+
 # Every flag spelled with an old route name. ``--investigator-*`` already names the stuck
 # Investigator's route, and the Design Reviewer takes no flag of its own.
 OLD_FLAGS = (

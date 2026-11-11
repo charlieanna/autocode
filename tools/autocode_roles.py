@@ -1,7 +1,7 @@
 """The one list of job names a person sees on screen and in docs.
 
-Stage code names (`terra`, `sol`, `astra_checkpoint`, …) stay unchanged: saved runs
-and state keys depend on them. This module maps each stage to a *job*, and each job
+Stage names (`builder`, `tester`, `review_checkpoint`, …) name the job a stage does, from
+autocode_names; saved runs and state keys depend on them. This module maps each stage to a *job*, and each job
 to the screen name. Name the job being done, not the AI that happens to do it —
 when reviewer routing gives the Plan Reviewer the testing job, the screen says
 ``Tester``.
@@ -111,9 +111,9 @@ ROUTE_JOB = {
 
 # The configured slot each job of the standard pipeline runs on, preferred first: the first one a run
 # configures is the one its stages launch on (units/autoplanner._resolve_route). Without its own slot,
-# the Plan Reviewer and the Completion Reviewer run on ``astra``, and so does the Planner of a run that
+# the Plan Reviewer and the Completion Reviewer run on ``task_planner``, and so does the Planner of a run that
 # does not plan jointly. A client that shows a job's model reads it through route_for_job, never a
-# private table: one pointed the Plan Reviewer at the Resolver's ``astra`` slot (#3087).
+# private table: one pointed the Plan Reviewer at the Resolver's ``task_planner`` slot (#3087).
 PIPELINE = ("requirements", "planner", "plan_reviewer", "builder", "tester", "completion")
 JOB_ROUTES = {
     "requirements": ("requirements",),
@@ -141,7 +141,7 @@ def route_name(role: str, state: Mapping[str, Any]) -> str:
 
 
 # Reviewer-routing modes that hand independent validation to the Plan Reviewer
-# (autocode_workflow.MODE). Their astra_checkpoint stage runs the Tester's job.
+# (autocode_workflow.MODE). Their review_checkpoint stage runs the Tester's job.
 # Keep in sync with autocode_workflow.MODE — tested in tests/test_status_updates.py.
 VALIDATION_ROUTING_MODES = ("glm_first_v1",)
 

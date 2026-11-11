@@ -45,7 +45,7 @@ class OpenCodeRoutingTests(unittest.TestCase):
             "iteration": 12,
             "goal_contract": {"hash": "approved-contract", "approval_status": "approved"},
             "implementation": {"evidence_refs": ["saved-report.json"], "source_revision": "unchanged"},
-            "planning": {"astra_calls": 2},
+            "planning": {"plan_review_calls": 2},
             "milestone_progress": {"M1": {"accepted": True}},
             "stages": [{"engine": "codex", "role": "task_planner", "session_id": "old-astra"}],
             "sessions": {

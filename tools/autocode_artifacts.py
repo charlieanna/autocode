@@ -19,7 +19,7 @@ except ImportError:
     import autocode_support as support
 
 # One unique stem per stage code name: two stages may share a human role
-# (astra_review and astra_checkpoint are both the Completion Owner). The stems of the stages
+# (review_completion and review_checkpoint are both the Completion Owner). The stems of the stages
 # this runtime no longer runs (autocode_workflows.RETIRED_STAGES) stay, so the artifacts a saved
 # run wrote at them are still found and read.
 FILE_SLUGS = {

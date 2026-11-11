@@ -144,7 +144,7 @@ class DelegationReviewTests(ObligationCase):
         self.state["settings"]["joint_planning"] = False
         contract = body()
         contract["open_blocking_questions"] = list(questions)
-        lifecycle.install_draft(self.state, contract, origin="glm_draft")
+        lifecycle.install_draft(self.state, contract, origin="planner_draft")
 
     def test_4_bulk_delegation_refuses_protected_or_unclassified_categories(self):
         for category in ("cost", "quota", "permission", "external_side_effect", "requested_outcome", None):

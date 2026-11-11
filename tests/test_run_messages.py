@@ -354,5 +354,5 @@ class LiveConversationRoutingTests(unittest.TestCase):
         self.assertEqual(original, state["brief_feedback"][-1]["text"])
         self.assertEqual(event["reply_after"], state["brief_feedback"][-1]["reply_after"])
         self.assertTrue(event["forwarded"])
-        self.assertEqual(2, state["planning"]["astra_calls"])
+        self.assertEqual(2, state["planning"]["plan_review_calls"])
         queue.assert_not_called()

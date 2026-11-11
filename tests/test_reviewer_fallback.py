@@ -56,7 +56,7 @@ class Fixture(unittest.TestCase):
                 },
             },
             "planning": {
-                "astra_calls": 2,
+                "plan_review_calls": 2,
                 "review_call_limit": 2,
                 "reports": {"draft_plan": {"output": str(discovery), "report": {"summary": "draft"}}},
             },
@@ -108,7 +108,7 @@ class ReviewerFallbackTests(Fixture):
         accounting = copy.deepcopy(
             {key: self.state[key] for key in ("automatic_timeout_recoveries", "failure_history")}
         )
-        calls = self.state["planning"]["astra_calls"]
+        calls = self.state["planning"]["plan_review_calls"]
         grant = self.reserve()
         self.assertEqual(MIMO, grant["binding"]["selected_route"]["model"])
         self.assertEqual("max", grant["binding"]["selected_route"]["reasoning_effort"])
@@ -120,7 +120,7 @@ class ReviewerFallbackTests(Fixture):
         selected = fallback.admit(self.state, self.run, self.root)
         self.assertEqual("tester", selected["role"])
         self.assertTrue(grant["consumed"])
-        self.assertEqual(calls, self.state["planning"]["astra_calls"])
+        self.assertEqual(calls, self.state["planning"]["plan_review_calls"])
         self.assertEqual(accounting, {key: self.state[key] for key in accounting})
 
     def test_fallback_accepts_any_already_configured_independent_model(self):
@@ -220,7 +220,7 @@ class ReviewerFallbackTests(Fixture):
     def test_failed_fallback_is_exhausted_without_second_switch(self):
         grant = self.reserve()
         fallback.admit(self.state, self.run, self.root)
-        counts = (self.state["planning"]["astra_calls"], len(self.state["automatic_timeout_recoveries"]))
+        counts = (self.state["planning"]["plan_review_calls"], len(self.state["automatic_timeout_recoveries"]))
         fallback.record_failed(self.state, grant["id"], {"timed_out": True, "timeout_kind": "idle"})
         first = copy.deepcopy(grant)
         fallback.record_failed(self.state, grant["id"], {"different": "ignored after first record"})
@@ -228,7 +228,7 @@ class ReviewerFallbackTests(Fixture):
         self.assertIsNone(self.reserve())
         self.assertEqual(1, len(self.state["planning"]["reviewer_route_fallbacks"]))
         self.assertEqual(
-            counts, (self.state["planning"]["astra_calls"], len(self.state["automatic_timeout_recoveries"]))
+            counts, (self.state["planning"]["plan_review_calls"], len(self.state["automatic_timeout_recoveries"]))
         )
 
     def test_consumed_fallback_cannot_switch_again_at_finalize_in_same_cycle(self):
