@@ -38,6 +38,20 @@ except ImportError:
 
 STAGE = "requirements_gather"
 
+# The runner's own question when a chat names nothing to do yet ("hi"). It keeps the conversation
+# open for the person's next message; the chat shows Requirements' reply, not this wording.
+OUTCOME_QUESTION = "What would you like me to help you build, change, fix, or review in this project?"
+OUTCOME_PREFIX = "outcome-"
+
+
+def holds_chat_open(question) -> bool:
+    """Whether ``question`` is the runner's own requested-outcome question, not one Requirements asked."""
+    return (
+        isinstance(question, dict)
+        and str(question.get("id") or "").startswith(OUTCOME_PREFIX)
+        and question.get("question") == OUTCOME_QUESTION
+    )
+
 
 def enabled(state: RunState):
     return bool(

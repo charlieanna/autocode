@@ -64,7 +64,8 @@ list starts chats in your folder, as before.
 In the full flow, new sidebar chats enable joint planning and the core's `--spec-first` flow.
 The Requirements agent answers your first message, whatever it is, and talks
 with you until it understands what you want done. A greeting or an off-topic
-question gets a short answer and a question about what to build or change.
+question gets a short, natural reply, as in any chat, and the conversation stays
+open; Requirements starts working out what you want once you say what you want done.
 Answer in the same composer. Requirements reuses
 its provider session, retains prior replies and streams assistant text through
 the public status view; tool output and reasoning stay outside that stream.
