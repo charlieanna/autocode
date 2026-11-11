@@ -124,8 +124,10 @@ def _retain_history(root, tree, head, env, *, deadline):
     """Retain actual HEAD history as owned data, without sharing Git authority.
 
     Export only objects reachable from the snapshotted commit. No original
-    configuration, refs, hooks, alternates or replacement objects enter the
-    copy. The fixed native setup sequence still creates its own index/config;
+    configuration, hooks, alternates or replacement objects enter the copy,
+    and no original ref: each remote's default branch is carried only as its
+    fork point from HEAD, a commit already in that history (_fork_points).
+    The fixed native setup sequence still creates its own index/config;
     this trusted preparation step replaces only its synthetic history before
     the complete copy is sealed and any verification command can run.
     """
@@ -183,6 +185,63 @@ def _retain_history(root, tree, head, env, *, deadline):
         shutil.rmtree(tree / ".git" / name, ignore_errors=True)
     (tree / ".git/refs").mkdir()
     (tree / ".git/HEAD").write_text(head + "\n")
+    for name, target in _fork_points(root, head, environment, git, deadline=deadline).items():
+        path = tree / ".git" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(target + "\n")
+
+
+# A remote-tracking ref the copy may carry: refs/remotes/<remote>/<branch>, in plain path components.
+_REMOTE_REF = re.compile(r"refs/remotes/(?!\.)[\w.-]+(?:/(?!\.)[\w.-]+)+")
+DEFAULT_BRANCHES = ("main", "master")
+
+
+def _fork_points(root, head, environment, git, *, deadline):
+    """Each remote's default branch as the copy carries it: {ref: where it forked from HEAD} (#3160).
+
+    The copy holds no original refs, so a check that selects the change against the default branch
+    (`git merge-base origin/master HEAD`, `git diff origin/main...`) exited 128 in it while the clean
+    replay, a worktree of the same repository, ran it. For each remote, the branch its HEAD names, or
+    else main and master, is carried as the commit where it forked from HEAD (git merge-base): an
+    ancestor of HEAD, so its objects are already in the retained history and its name grants nothing.
+    A change selected against it is the same change. A branch that shares no history with HEAD, or
+    beyond a shallow boundary, is left out, as before.
+    """
+    command = [*git, "for-each-ref", "--format=%(refname)%00%(symref)", "refs/remotes"]
+    listing = subprocess.run(
+        command, cwd=root, env=environment, capture_output=True, timeout=_remaining(deadline, command)
+    )
+    if listing.returncode:
+        return {}
+    refs, symbolic = set(), {}
+    for line in listing.stdout.decode("utf-8", "replace").splitlines():
+        name, _, target = line.partition("\0")
+        if target:
+            symbolic[name] = target
+        else:
+            refs.add(name)
+    wanted = {}
+    for name in sorted(refs):
+        remote = name.split("/")[2] if _REMOTE_REF.fullmatch(name) else None
+        if remote and (
+            symbolic.get(f"refs/remotes/{remote}/HEAD") == name
+            or name in {f"refs/remotes/{remote}/{branch}" for branch in DEFAULT_BRANCHES}
+        ):
+            wanted[name] = remote
+    carried = {}
+    for name in wanted:
+        command = [*git, "merge-base", name, head]
+        found = subprocess.run(
+            command, cwd=root, env=environment, capture_output=True, timeout=_remaining(deadline, command)
+        )
+        fork = found.stdout.decode("ascii", "replace").strip()
+        if not found.returncode and re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", fork) and len(fork) == len(head):
+            carried[name] = fork
+    for remote in sorted(set(wanted.values())):
+        target = symbolic.get(f"refs/remotes/{remote}/HEAD")
+        if target in carried:
+            carried[f"refs/remotes/{remote}/HEAD"] = "ref: " + target
+    return carried
 
 
 GIT_SETUP_ARGUMENTS = (
