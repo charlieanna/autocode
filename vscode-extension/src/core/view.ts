@@ -333,6 +333,13 @@ export function readStatusPayload(raw: string): StatusView {
   return view as StatusView;
 }
 
+export interface RegistryAction {
+  id: string;
+  label: string;
+  /** The exact command array the registry named, with no placeholder left for a client. */
+  nextCommand: string[];
+}
+
 export interface RegistryRun {
   id: string;
   workspace: string;
@@ -347,6 +354,10 @@ export interface RegistryRun {
   /** When the run last wrote its checkpoint, as UTC ISO-8601 (`docs/registry-api.md`). */
   updatedAt?: string | null;
   diagnostic?: string | null;
+  /** Hidden from the default Runs list until archived chats are shown. */
+  archived?: boolean;
+  /** The cleanup commands the registry names for this chat. */
+  actions?: RegistryAction[];
 }
 
 export interface RegistryList {
@@ -378,10 +389,31 @@ export function readRegistryList(raw: string): RegistryList {
         title: firstString(row.title, nested.title),
         updatedAt: firstString(row.updated_at, nested.updated_at),
         diagnostic: nestedString(row.diagnostic, "message"),
+        archived: row.archived === true,
+        actions: registryActions(row.actions),
       };
     }),
     diagnostics: Array.isArray(parsed.diagnostics) ? parsed.diagnostics.map(String) : [],
   };
+}
+
+/** The named cleanup commands of one registry row; a malformed entry is left out. */
+function registryActions(value: unknown): RegistryAction[] {
+  if (!Array.isArray(value)) return [];
+  const result: RegistryAction[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const next = Array.isArray(row.next_command)
+      ? row.next_command.filter((word): word is string => typeof word === "string")
+      : [];
+    if (typeof row.id === "string" && row.id
+      && typeof row.label === "string" && row.label
+      && next.length) {
+      result.push({ id: row.id, label: row.label, nextCommand: next });
+    }
+  }
+  return result;
 }
 
 /** The first value that is a non-empty string. */

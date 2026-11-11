@@ -39,6 +39,12 @@ the run's task, at most 80 characters, or null; `updated_at` is when the checkpo
 written, in UTC as `YYYY-MM-DDTHH:MM:SSZ`, so a client can list the most recently used chats
 first.
 
+Archived chats are hidden from `list` unless it is called with `--include-archived`. Each
+run row also carries `archived` and `actions`: the cleanup commands the registry names for
+that chat, as `{id, label, next_command}`. `archive` or `unarchive` is named for a canonical
+non-active row; `delete` only for an available, non-active row. The arrays are exact, with
+no placeholder, and a client runs only the one it takes.
+
 Each listed run has an `availability` value. `available` includes that summary;
 `workspace_missing`, `workspace_invalid`, `checkpoint_missing`, `checkpoint_malformed`,
 `containment_invalid`, `checkpoint_unsupported`, `inaccessible`, and
@@ -121,6 +127,28 @@ deleted by hand, or one removed with its worktree by an older `clean-worktrees`.
 never deletes files, and refuses (`invalid_deleted_run`) while the run directory
 exists, so the entry of a run recreated meanwhile is kept. `autocode runs --all` names
 this command on the row of such a run.
+
+## registry archive and unarchive
+
+`autocode registry archive --workspace /path/to/project --run-dir /path/to/project/.autocode/runs/RUN [--json]`
+hides a chat from `registry list` without moving or deleting its run directory;
+`unarchive` shows it again. Both update every registry that indexes the run: the shared
+one and, when `AUTOCODE_HOME` is unset, the project's own. They refuse a non-canonical
+pointer or one outside `<workspace>/.autocode/runs` (`invalid_run`), and a run no registry
+indexes (`run_not_registered`). A live row names no cleanup action; archive is for chats
+that are no longer working.
+
+## registry delete
+
+`autocode registry delete --workspace /path/to/project --run-dir /path/to/project/.autocode/runs/RUN --yes [--json]`
+permanently removes one chat's run directory (its checkpoint, transcript, logs and
+evidence) and its registry entries. It requires `--yes`, and refuses a non-canonical or
+non-direct run (`invalid_run`), a run no registry indexes (`run_not_registered`), and a
+chat whose workspace writer lock or run lock is held (`run_busy`): stop the chat first.
+It never deletes the workspace, a task worktree or a branch; the result names
+`kept_branch` when the run recorded one. A run linked in a change set or coordination is
+not unlinked, so that set then names a missing run. An archived chat can be deleted too.
+Use `forget-deleted` for a pointer whose directory is already gone.
 
 ## registry import
 

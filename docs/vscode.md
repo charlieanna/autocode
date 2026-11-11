@@ -137,9 +137,18 @@ are disabled with an explanation. They become available again when the command
 finishes; inspecting a run started elsewhere does not disable a named comparison.
 
 **Run details** opens the detailed progress panel. The Runs list reads the local
-registry and retains unavailable pointers with their diagnostic. Both surfaces
-use the core's named commands, including the optional `view.chat.input` offer.
-Commands use argument arrays; issued tokens stay in the child environment.
+registry and the open project's chats, and retains unavailable pointers with their
+diagnostic. Both surfaces use the core's named commands, including the optional
+`view.chat.input` offer. Commands use argument arrays; issued tokens stay in the child
+environment.
+
+Use a chat's actions in History (the icons on its row) or right-click it for
+**Archive Chat**, **Unarchive Chat** or **Delete Chat**; the entries appear only when
+the registry names them. Archived chats stay out of Recent
+and the project lists until **Archived Chats** in the Runs title re-reads the list with
+them, when an **Archived** section lists them. Delete asks first and names the chat; it permanently removes that chat's transcript,
+logs and evidence (the run directory), never the code branch or task worktree, and refuses
+a chat that is still running. Archive is reversible; Delete is not.
 
 Above the conversation, a run header stays in view while you scroll, like Kilo
 Code's task header. It shows the pipeline (Requirements, Planner, Plan Reviewer,

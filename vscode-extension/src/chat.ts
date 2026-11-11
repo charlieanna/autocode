@@ -157,6 +157,21 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     this.activate(tab.key);
   }
 
+  /** Drop a deleted run's tab; a fresh chat replaces the only tab. */
+  forget(run: RunRef): void {
+    const key = runKey(run);
+    if (!this.tabs.some((tab) => tab.key === key)) return;
+    if (this.tabs.length === 1) {
+      this.tabs = [newTab("new")];
+      this.activeKey = "new";
+      this.hasExplicitSelection = false;
+      this.post(true);
+      void this.refresh();
+      return;
+    }
+    this.close(key);
+  }
+
   private activate(key: string): void {
     if (!this.tabs.some((tab) => tab.key === key)) return;
     this.sequence++;
