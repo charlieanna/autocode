@@ -10,6 +10,7 @@ try:
     from . import autocode_chat_activity as chat_activity
     from . import autocode_chat_log as chat_log
     from . import autocode_chat_progress as chat_progress
+    from . import autocode_checkout_wait as checkout_wait
     from . import autocode_cost as cost
     from . import autocode_escalation_view as escalation_view
     from . import autocode_failures as failures
@@ -22,6 +23,7 @@ except ImportError:
     import autocode_chat_activity as chat_activity
     import autocode_chat_log as chat_log
     import autocode_chat_progress as chat_progress
+    import autocode_checkout_wait as checkout_wait
     import autocode_cost as cost
     import autocode_escalation_view as escalation_view
     import autocode_failures as failures
@@ -354,6 +356,11 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
     public_view["chat"]["progress"] = chat_progress.project(
         state, public_view, finished=bool(active_finished), stopped=bool(next_action)
     )
+    # Ready to go on, but another run holds the folder its next step needs: say so, beside the headline.
+    public_view["checkout_wait"] = checkout_wait.project(state, public_view, workspace=workspace, run_dir=run_dir)
+    if public_view["checkout_wait"]:
+        lines = public_view["chat"]["progress"]
+        lines.insert(1 if lines else 0, public_view["checkout_wait"]["text"])
     if activity := chat_activity.project(
         state, public_view, run_dir, finished=bool(active_finished), stopped=bool(next_action)
     ):

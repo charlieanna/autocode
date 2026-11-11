@@ -419,15 +419,12 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
     def hold_checkout(current):
         """Take the checkout before the first stage that needs it: one run's agents at a time
         (autocode_checkout_lock). Requirements only reads it, so while another run holds it Requirements
-        still runs (checkout_lock.needed_by), and the run waits only when a stage that needs it is next."""
-        if holding[0]:
+        still runs (checkout_lock.needed_by), and the run waits only when a stage that needs it is next.
+        Nor does Requirements take a free checkout: holding it while it talks with the person kept another
+        chat in the same folder from planning for minutes (2026-11-11)."""
+        if holding[0] or not checkout_lock.needed_by(current):
             return
-        try:
-            checkout.enter_context(checkout_lock.exclusive(workspace, run_dir))
-        except checkout_lock.CheckoutBusy:
-            if checkout_lock.needed_by(current):
-                raise
-            return
+        checkout.enter_context(checkout_lock.exclusive(workspace, run_dir))
         holding[0] = True
         if (
             "base_commit" in current

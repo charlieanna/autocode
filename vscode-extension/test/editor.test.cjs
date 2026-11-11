@@ -2692,6 +2692,88 @@ test('requirements chat offers Continue when no step is running instead of think
   assert.ok(!launch.mock.calls[0].arguments[1].includes('--approve-goal'));
 });
 
+// Two chats in one folder (2026-11-11): after "Looks right. Prepare the plan." the card said "Next: Planner",
+// then fell back to a bare Continue because the other chat held the folder; Continue found it busy again.
+const folderWait = 'Planner is waiting for this folder: another chat is working in it, and two chats would change the same files at once. Nothing was changed.';
+function waitingForFolderView(wait = true) {
+  return { status: 'RUNNING', done: false, phase: 'DISCOVERING', next_stage: 'draft_plan', iteration: 1, needs: { kind: 'continue' },
+    liveness: { kind: 'unknown' }, controller: { kind: 'ready', checked: true, alive: false },
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --no-chat`,
+    checkout_wait: wait ? { run_dir: '/project/.autocode/runs/other-chat', since: null, text: folderWait } : null,
+    chat: { phase: 'requirements', context: 'ready', input: null,
+      messages: [{ id: 'u1', role: 'user', text: 'Greet by name' }, { id: 'u2', role: 'user', text: 'Looks right. Prepare the plan.' }],
+      progress: wait ? ['Next: Planner', folderWait] : ['Next: Planner'] } };
+}
+
+test('a run waiting for another chat to leave its folder keeps its progress card and offers no Continue', async (t) => {
+  const ui = await openChat(t, waitingForFolderView());
+  const app = () => ui.document.querySelector('#app').textContent;
+  assert.ok(app().includes('Next: Planner'), app());
+  assert.ok(app().includes(folderWait), 'the card says what the run waits for');
+  assert.equal([...ui.document.querySelectorAll('#app button')].filter((button) => button.textContent === 'Continue').length, 0,
+    'no button the person would press only to find the folder still busy');
+  assert.ok(!app().includes('AutoCode is waiting for you'));
+  assert.equal(host.notices.length, 0, 'a wait the client settles itself is not announced as waiting for the person');
+});
+
+test('once the other chat leaves the folder, the chat takes the named continue itself, once', async (t) => {
+  const ui = await openChat(t, waitingForFolderView());
+  const launch = t.mock.method(cli, 'stream', async () => { ui.setView(workingView()); return ok; });
+  await ui.poll();
+  assert.equal(launch.mock.callCount(), 0, 'nothing is taken while the folder is busy');
+  ui.setView(waitingForFolderView(false));
+  await ui.poll(); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'the run goes on as soon as the folder is free');
+  const [, args] = launch.mock.calls[0].arguments;
+  assert.ok(args.includes('--no-chat') && !args.includes('--approve-goal') && !args.some((arg) => arg.startsWith('--answer')),
+    'only the plain continue the view names');
+  await ui.poll(); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'taken once, not on every poll');
+});
+
+test('a Continue on a ready run that never waited for its folder is still the person\'s to press', async (t) => {
+  const ui = await openChat(t, waitingForFolderView(false));
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  await ui.poll(); await flush();
+  assert.equal(launch.mock.callCount(), 0, 'no wait was seen, so nothing is taken on a poll');
+  assert.ok([...ui.document.querySelectorAll('#app button')].some((button) => button.textContent === 'Continue'));
+});
+
+test('approving the understanding goes on through a ready boundary until the Planner is working', async (t) => {
+  // One continue can end at a ready boundary that needs only the next (a chat moving to its own worktree
+  // before planning, or a step that saved its phase and stopped). Taking just one left the person a bare Continue after "Looks right. Prepare the plan."
+  host.config.set('confirmPersonOnly', false);
+  t.after(() => host.config.delete('confirmPersonOnly'));
+  const confirmation = { title: 'Prepare a reviewed plan?', detail: 'Planning uses your selected models.', label: 'Prepare plan' };
+  const review = { status: 'WAITING_FOR_USER', done: false,
+    needs: { kind: 'answer', resolver_token: 'review:exact', questions: [
+      { id: 'requirements-review-current', question: 'Is this what you want?', options: [], proposed_default: 'plan' },
+    ] },
+    next_command: `autocode --answer requirements-review-current=ANSWER --resolver-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { phase: 'requirements', context: 'review', input: null, messages: [], review: {
+      question_id: 'requirements-review-current', answer: 'plan', label: 'Approve understanding and prepare plan', spend_confirmation: confirmation,
+    } } };
+  const ui = await openChat(t, review);
+  t.mock.method(host.vscode.window, 'showWarningMessage', async () => confirmation.label);
+  const ready = (phase) => ({ ...waitingForFolderView(false), phase });
+  const steps = [ready('DISCOVERING'), ready('PLANNING'), workingView()];
+  const launch = t.mock.method(cli, 'stream', async () => { ui.setView(steps.shift()); return ok; });
+  ui.document.querySelector('#take-action').click();
+  for (let i = 0; i < 20; i += 1) await flush();
+  const taken = launch.mock.calls.map((call) => call.arguments[1]);
+  assert.equal(taken.length, 3, 'the answer, then a continue for each ready boundary, then nothing while it works');
+  assert.ok(taken[0].includes('requirements-review-current=plan'));
+  assert.ok(taken.slice(1).every((args) => args.includes('--no-chat')));
+});
+
+test('a continue that moves nothing on is not repeated', async (t) => {
+  const ui = await openChat(t, waitingForFolderView(false));
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  [...ui.document.querySelectorAll('#app button')].find((button) => button.textContent === 'Continue').click();
+  for (let i = 0; i < 4; i += 1) await flush();
+  assert.equal(launch.mock.callCount(), 1, 'the same ready boundary after a continue is not taken again');
+});
+
 test('a reader scrolled up sees the running step change on the Latest button without being moved', async (t) => {
   const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
     liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,

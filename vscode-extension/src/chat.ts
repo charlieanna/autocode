@@ -9,7 +9,7 @@ import { randomBytes } from "node:crypto";
 import { RunController, type CheckpointComparison, type RunRef } from "./controller";
 import { requiresConfirmation } from "./core/next-command";
 import { chosenMode, type RunModes } from "./core/modes";
-import { RunStarting, type StatusView } from "./core/view";
+import { isWorking, RunStarting, waitsForFolder, type StatusView } from "./core/view";
 import { transitionNotice, waitsForPerson } from "./notify";
 import { runTotal, sessionTotal, totalText } from "./core/meter";
 import { applyEngine, engineOf, ENGINES, readSettings, type Engine } from "./settings";
@@ -26,6 +26,13 @@ import { confirmRaise, numericActionLabel, numericConfirmation, numericRecoveryE
 // the terminal chat's STREAM_POLL_SECONDS / STREAM_QUIET_POLLS.
 const STREAM_POLL_SECONDS = 0.25;
 const STREAM_QUIET_POLLS = 8;
+// At most this many named continues after one action of the person's; each must move the run on.
+const ADVANCE_LIMIT = 8;
+
+/** What a continue that made progress changes, as TaskRun.advance_until_input compares it. */
+function advanceIdentity(view: StatusView): string {
+  return JSON.stringify([view.status, view.next_stage ?? null, view.iteration ?? null, view.phase ?? null, view.run_dir ?? null]);
+}
 
 interface ChatMessage {
   type?: string;
@@ -543,7 +550,11 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
         try {
           const status = await this.controller.pollStatus(tab.run!);
           tab.startingLabel = "";
-          if (this.tabs.includes(tab)) this.announce(tab, status);
+          const before = tab.status;
+          if (this.tabs.includes(tab)) {
+            this.announce(tab, status);
+            void this.continueAfterWait(tab, before, status);
+          }
         } catch (error) {
           if (error instanceof RunStarting) {
             // Still starting: say what it is doing, not that the status could not be read.
@@ -753,9 +764,49 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     }
   }
 
+  /**
+   * Go on with the run after the person's own action, as the headless client does (TaskRun.advance_until_input):
+   * take the named continue while the run needs nothing else and each one moves it on. One continue can end at
+   * a ready boundary that only needs the next, such as moving to the chat's own worktree before planning;
+   * stopping after the first left the person a bare Continue to press. A run waiting for another chat to leave
+   * its folder (`checkout_wait`) is left to the poll, which continues it once the folder is free.
+   */
   private async advanceAfterInput(run: RunRef): Promise<void> {
-    const view = await this.controller.status(run);
-    if (!view.done && view.needs?.kind === "continue") await this.controller.take(view, run);
+    let view = await this.controller.status(run);
+    for (let taken = 0; taken < ADVANCE_LIMIT; taken += 1) {
+      if (view.done || view.needs?.kind !== "continue" || isWorking(view)) return;
+      // After the first, only a running run's ready boundary is gone on with; a stop is the person's to see.
+      if (taken > 0 && view.status !== "RUNNING") return;
+      const before = advanceIdentity(view);
+      await this.controller.take(view, run);
+      view = await this.controller.status(run);
+      if (advanceIdentity(view) === before) return;
+    }
+  }
+
+  /**
+   * The run waited for another chat to leave its folder and now no longer does: take its named continue,
+   * the one the person's own action had started. Without this the chat dropped its progress card for a
+   * bare Continue that the person had to press until the folder happened to be free (2026-11-11).
+   */
+  private async continueAfterWait(tab: ChatTab, before: StatusView | undefined, now: StatusView): Promise<void> {
+    if (!before || !waitsForFolder(before) || waitsForFolder(now) || !tab.run) return;
+    if (now.done || now.needs?.kind !== "continue" || isWorking(now) || this.busy.has(tab.key) || tab.starting) return;
+    const run = tab.run;
+    const key = tab.key;
+    this.busy.add(key);
+    tab.error = "";
+    this.post();
+    try {
+      await this.advanceAfterInput(run);
+    } catch (error) {
+      if (this.activeKey === key) tab.error = messageOf(error);
+      else void vscode.window.showErrorMessage(`AutoCode (${run.runDir}): ${messageOf(error)}`);
+    } finally {
+      this.busy.delete(key);
+      this.actions.changed();
+      void this.refresh();
+    }
   }
 
   /** Ask the working run to pause after its current step: the view's named pause, never a kill (#1598). */
@@ -1002,9 +1053,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
             this.active.status = view;
             this.active.pendingBrief = "";
           }
-          if (!view.done && view.needs?.kind === "continue") {
-            await this.controller.take(view, allocatedRun);
-          }
+          await this.advanceAfterInput(allocatedRun);
         } catch {
           // Status read failure handled on next poll
         }

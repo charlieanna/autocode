@@ -183,6 +183,7 @@ class RunViewTests(unittest.TestCase):
                 "job_report_recovery",
                 "report_repair",
                 "pause",
+                "checkout_wait",
                 "verification_obligation",
                 "evidence_report",
                 "acceptance_tests",
