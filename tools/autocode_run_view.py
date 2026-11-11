@@ -68,6 +68,7 @@ try:
     from . import autocode_plan_retention as plan_retention
     from . import autocode_planning_review_usage as review_usage
     from . import autocode_progressive_plan as progressive_rules
+    from . import autocode_project_notes_lifecycle as project_notes
     from . import autocode_python_test_roles as test_roles
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_history as recovery_history
@@ -131,6 +132,7 @@ except ImportError:
     import autocode_plan_retention as plan_retention
     import autocode_planning_review_usage as review_usage
     import autocode_progressive_plan as progressive_rules
+    import autocode_project_notes_lifecycle as project_notes
     import autocode_python_test_roles as test_roles
     import autocode_quota_route as quota_route
     import autocode_recovery_history as recovery_history
@@ -380,6 +382,10 @@ def view(
         # where the code departs from that plan without revising it, and the reports kept for the reviewers
         # (autocode_implementation_discrepancy, #3045). None when there is neither.
         "implementation_discrepancy": implementation_discrepancy.project(state, run_dir=run_dir, workspace=workspace),
+        # What earlier runs learned about this repository and this run was given as advisory context
+        # (notes), what this run's Investigator learned (learned), each with its receipt, and the list
+        # whose argument arrays retract or correct one (autocode_project_notes_lifecycle, #2943).
+        "project_notes": project_notes.view(state),
         # AutoResolver's one re-evaluation of corrective information sent to an operational request
         # (autocode_operational_information, #486): status pending, held, admitted, stale or superseded
         # (the run left the pause unevaluated); the decision, its reason and, when held, the exact next

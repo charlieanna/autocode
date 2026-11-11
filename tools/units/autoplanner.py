@@ -1388,6 +1388,12 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
         except ImportError:
             import autocode_project_memory_lifecycle as project_memory
         packet["project_memory"] = project_memory.context(state)
+    try:
+        from .. import autocode_project_notes_lifecycle as project_notes
+    except ImportError:
+        import autocode_project_notes_lifecycle as project_notes
+    if notes := project_notes.for_stage(state, stage):
+        packet["project_notes"] = notes  # what earlier runs learned about the repository (#2943)
     turn = requirement_cues.new_workflow_turn(state)
     if turn:
         packet["task"] = turn["say"]
@@ -1576,6 +1582,7 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
     design_rule = APPROVED_DESIGN_RULE if state.get("design_constraint") else ""
     design_rule += REVIEW_FINDINGS_RULE if findings else ""
     design_rule += compact_planning.fallback_rule(state)
+    design_rule += project_notes.RULE if packet.get("project_notes") else ""
     design_rule += task_authority.instruction(test_cases.current_diagnosis(state))
     if turn:
         design_rule += prompts.get("fragments/autoplanner/context-02.md")

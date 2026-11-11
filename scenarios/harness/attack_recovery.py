@@ -106,6 +106,7 @@ def install(fake, configuration: dict, trace) -> None:
                 "replace": text.replace(MISSING_REF, "README.md"),
             },
             "untestable": "",
+            "project_notes": [],
         }
         saved_report.write_text(json.dumps(report))
         mark(
