@@ -141,6 +141,22 @@ registry and retains unavailable pointers with their diagnostic. Both surfaces
 use the core's named commands, including the optional `view.chat.input` offer.
 Commands use argument arrays; issued tokens stay in the child environment.
 
+Above the conversation, a run header stays in view while you scroll, like Kilo
+Code's task header. It shows the pipeline (Requirements, Planner, Plan Reviewer,
+Builder, Tester, Completion Reviewer) with each job marked ✓ ran, ● working,
+› next, – skipped or · still to come; hover a job for its model, reasoning level
+and spend, or why it was skipped. Below it are where the run is in one sentence,
+how the spend splits between the Builder and checking, and how many things went
+wrong. **Show details** unfolds the same reading as the terminal chat's
+`/details`, `/why` and `/spend`: where the run is, each stage's model, level and
+cost, every recovery and what AutoCode did about it, where the money went and
+what the checking produced, the verification once the run finishes, the
+planning path and which stages ran or were skipped and why. The choice to keep
+details open is remembered. Everything in the header comes from the status view
+(`summary`, `explanation`, `pipeline`, `recoveries`, `run_metrics`,
+`verification`, `stage_policy`, `stage_decisions`); it shows no command or flag
+and takes no action.
+
 While a step works, the conversation shows the live agent log the status view
 names (`view.chat.log`): what each running agent thinks (`∴`), says (`»`) and
 does (`$`, `±`, `·`). Each agent's screen name heads its run of steps once, and

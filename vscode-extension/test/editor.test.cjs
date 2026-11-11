@@ -1344,6 +1344,86 @@ test('model details remember expansion across polling, draft edits and webview r
   }
 });
 
+function headerView(extra = {}) {
+  const step = (job, label, state, more = {}) => ({ job, label, state, model: null, reasoning_effort: null, spent_usd: null, reason: null, ...more });
+  return { ...chatView(), status: 'RUNNING', needs: { kind: 'continue' }, next_command: null,
+    summary: { state: 'working', label: 'Working', sentence: 'Builder working.' },
+    explanation: { what_happened: 'The run is RUNNING.', what_it_means: 'Work is in progress.', what_the_command_does: 'Use --status to follow progress.' },
+    pipeline: [
+      step('requirements', 'Requirements', 'ran', { model: 'claude-sonnet-5-5', reasoning_effort: 'medium', spent_usd: 0.08 }),
+      step('planner', 'Planner', 'ran'),
+      step('plan_reviewer', 'Plan Reviewer', 'skipped', { reason: 'approved at the first review' }),
+      step('builder', 'Builder', 'working', { model: 'opus<img src=x onerror=bad()>' }),
+      step('tester', 'Tester', 'pending'),
+      step('completion', 'Completion Reviewer', 'pending'),
+    ],
+    recoveries: [{ id: 'r1', at: '2026-11-02T05:33:44+00:00', headline: 'Builder sent back', problem: 'A test failed', action: 'It tried again.' }],
+    run_metrics: { schema: 1, spent_usd: 2.5, complete: true, by_job: [{ job: 'Builder', attempts: 1, spent_usd: 2.5, complete: true, share: 1 }],
+      tokens: {}, waste: {}, single_model: { builder_usd: 2.5, builder_share: 1, checking_usd: 0, produced: {} } },
+    ...extra };
+}
+
+test('the run header sits above the conversation with the pipeline, where the run is and its spend', async (t) => {
+  const ui = await openChat(t, headerView());
+  const header = ui.document.querySelector('#run-header');
+  assert.equal(header.hidden, false);
+  // Always visible: it is outside the scrolling thread, between the tabs and the conversation.
+  assert.equal(header.previousElementSibling.id, 'chat-tabs');
+  assert.equal(header.nextElementSibling.id, 'thread');
+  assert.deepEqual([...ui.document.querySelectorAll('#pipeline li')].map((li) => [li.className, li.textContent]), [
+    ['ran', '✓Requirements'], ['ran', '✓Planner'], ['skipped', '–Plan Reviewer'], ['working', '●Builder'],
+    ['pending', '·Tester'], ['pending', '·Completion Reviewer']]);
+  assert.equal(ui.document.querySelector('#pipeline li.working').getAttribute('aria-current'), 'step');
+  assert.equal(ui.document.querySelector('#pipeline li.skipped').title, 'Plan Reviewer · skipped: approved at the first review');
+  assert.equal(ui.document.querySelector('#header-label').textContent, 'Working');
+  assert.equal(ui.document.querySelector('#header-sentence').textContent, 'Builder working.');
+  assert.equal(ui.document.querySelector('#header-facts').textContent, 'Builder 100% · checking 0% · 1 thing went wrong, handled');
+  assert.equal(ui.document.querySelector('#header-details').hidden, true, 'details start folded');
+  assert.equal(ui.document.querySelector('#run-header img'), null);
+  assert.doesNotMatch(header.textContent, /RUNNING|--status/);
+});
+
+test('the run header unfolds its details and keeps them open across polling, tabs and webview recreation', async (t) => {
+  const ui = await openChat(t, headerView());
+  const toggle = ui.document.querySelector('#header-toggle');
+  assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+  toggle.click();
+  const details = ui.document.querySelector('#header-details');
+  assert.equal(details.hidden, false);
+  assert.equal(toggle.textContent, 'Hide details');
+  assert.equal(ui.webviewState.headerOpen, true);
+  assert.deepEqual([...details.querySelectorAll('.detail-section')].map((node) => node.dataset.section), ['where', 'pipeline', 'wrong', 'spend']);
+  const wrong = details.querySelector('[data-section="wrong"]');
+  assert.deepEqual([...wrong.querySelectorAll('.detail-line')].map((node) => [node.className, node.textContent]), [
+    ['detail-line', '05:33:44 Builder sent back'], ['detail-line sub', 'What went wrong: A test failed'], ['detail-line sub', 'Then: It tried again.']]);
+  assert.match(details.querySelector('[data-section="pipeline"]').textContent, /● Builder · opus<img src=x onerror=bad\(\)>/);
+  assert.equal(details.querySelector('img'), null, 'model text is shown as text, never as markup');
+  ui.type('Keep my draft while the header updates');
+  let envelope = null;
+  ui.window.addEventListener('message', (event) => { if (event.data && event.data.type === 'chat') envelope = event.data; });
+  const next = headerView({ summary: { state: 'needs_you', label: 'Needs you', sentence: 'Approve the plan.' } });
+  await ui.poll(next);
+  assert.equal(details.hidden, false, 'a new read keeps the details open');
+  assert.equal(ui.document.querySelector('#run-header').className, 'needs_you');
+  assert.equal(ui.document.querySelector('#header-label').textContent, 'Needs you');
+  assert.equal(ui.document.querySelector('#message').value, 'Keep my draft while the header updates');
+  const restored = new JSDOM(panelHtml(true), { runScripts: 'outside-only' });
+  restored.window.acquireVsCodeApi = () => ({ getState: () => ui.webviewState, setState() {}, postMessage() {} });
+  restored.window.eval(restored.window.document.querySelector('script').textContent);
+  restored.window.dispatchEvent(new restored.window.MessageEvent('message', { data: envelope }));
+  assert.equal(restored.window.document.querySelector('#run-header').hidden, false);
+  assert.equal(restored.window.document.querySelector('#header-details').hidden, false, 'the choice survives a recreated webview');
+  restored.window.close();
+  toggle.click();
+  assert.equal(details.hidden, true);
+  assert.equal(ui.webviewState.headerOpen, false);
+});
+
+test('a new chat with no run shows no run header', async (t) => {
+  const ui = await openChat(t, headerView(), false);
+  assert.equal(ui.document.querySelector('#run-header').hidden, true);
+});
+
 test('history replaces chat instead of splitting the sidebar and returning preserves the draft', async (t) => {
   const contexts = new Map();
   const views = require('../package.json').contributes.views.autocode;
