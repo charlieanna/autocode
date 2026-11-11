@@ -31,10 +31,34 @@ implementation, failed verification and rework, feedback, interruption, resume,
 human review, and completion. Test isolated fixtures first so failure cases do not
 damage user projects. Keep fake-provider results separate from live-model results.
 
-Then establish delivery quality through three bounded real-model cases: a small new
-application, a feature in an existing project, and a bug fix. Each case needs a
-concrete agreed scope before execution. Reuse existing projects when suitable;
-do not start arbitrary work just to populate this checklist.
+Then establish delivery quality through four bounded real-model cases: a small new
+application, a feature in an existing project, a bug fix, and a feature or bug fix in
+a mid-size real repository. Each case needs a concrete agreed scope before execution.
+Reuse existing projects when suitable; do not start arbitrary work just to populate
+this checklist.
+
+The first three run against small fixtures (a to-do CLI, a greeting CLI, an ISO-weeks
+bug), so they leave plan quality, repository context selection, milestone scheduling
+and the changed-code evidence gates at realistic scale untested (#2944). The fourth
+case covers that: an existing repository of about 100,000 lines with a long test
+suite, taken at a pinned commit (a catalog entry's `[seed]` table, see
+[Adding a scenario](scenarios/README.md#adding-a-scenario)), with a brief, an
+independent oracle and the same record and pass rule as the other three. It is the
+case most likely to expose the scale assumptions in affected-test selection,
+baselines and flakes (#2942) and to measure the latency targets (#2940) where
+grounding is not free. Like the others it runs live only when a reliability sweep is
+scheduled, bounded by explicit time limits, with `--i-authorize-live-model-spend`,
+uncapped under the testing policy and with each stage's provider and model recorded;
+its oracle controls and scripted (`--fake`) run are ordinary CI evidence that needs
+no spend.
+The case is `bugfix-realrepo-docutils-number-lines`: the whole Docutils repository
+(191,000 lines of Python, 94,000 of them the project with a suite of about 2,300
+cases) at the parent of upstream's fix for `:number-lines: 0` on "include". Its first
+scripted run found two scale defects no fixture reached: a crash at start on Python
+files that are not UTF-8 (fixed), and a test-role rule that leaves every Docutils test
+ambiguous and stops the run, recorded as the scenario's known failure
+([findings](docs/bugs/2026-11-11-real-repo-docutils-findings.md)). It has not yet run
+live.
 
 For each case record:
 
