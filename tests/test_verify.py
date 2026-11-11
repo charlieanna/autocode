@@ -1698,6 +1698,36 @@ class VerifyCase(unittest.TestCase):
         self.assertEqual(verify.FAIL, broken["verdict"], broken)
         self.assertFalse(regression.complete(state, broken["source_revision"]))
 
+    def test_installed_dependencies_the_project_does_not_ignore_are_no_changed_product_lines(self):
+        # #3164: an `npm install` in a project that does not ignore node_modules showed every installed
+        # file as a changed product line. 274,546 obligations made the Tester's handoff 68 MB and its
+        # report schema 32 MB, so the stage could not launch. Only the task's own change is inventoried.
+        import autocode_regression as regression
+
+        python = self.proof_python()
+        project = self.project()
+        project.write(REFERENCE)
+        project.write(
+            {
+                "node_modules/dep/index.js": "module.exports = function dep(n) {\n  return n + 1;\n};\n",
+                "web/node_modules/other/lib/main.js": "exports.value = 1;\n",
+            }
+        )
+        state = {
+            "goal_contract": {"body": {"task_kind": "bugfix"}},
+            "base_commit": project.base,
+            "settings": {"regression": {"python": python, "test_timeout": 30}},
+        }
+        proof = regression.prove(state, project.root, project.evidence)
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        evidence = proof["changed_code_evidence"]
+        self.assertEqual(["greet.py"], sorted({row["path"] for row in evidence["obligations"]}), evidence)
+        self.assertEqual(
+            {"files": 2, "directories": ["node_modules", "web/node_modules"]},
+            {key: proof["changed_code_inputs"]["installed_dependencies"][key] for key in ("files", "directories")},
+        )
+        self.assertTrue(regression.complete(state, proof["source_revision"]))
+
     def test_proof_framework_detection_survives_absent_or_unknown_explicit_command(self):
         import autocode_regression as regression
 
