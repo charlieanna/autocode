@@ -33,6 +33,7 @@ try:
     from . import autocode_action_recovery as action_recovery
     from . import autocode_action_resolver as action_resolver
     from . import autocode_action_scope as action_scope
+    from . import autocode_action_stage_model as action_stage_model
     from . import autocode_conversation_ingress as conversation_ingress
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_goals as goals
@@ -59,6 +60,7 @@ except ImportError:
     import autocode_action_recovery as action_recovery
     import autocode_action_resolver as action_resolver
     import autocode_action_scope as action_scope
+    import autocode_action_stage_model as action_stage_model
     import autocode_conversation_ingress as conversation_ingress
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
@@ -302,6 +304,7 @@ STEPS = (
     read_shown_tokens,  # the shown command's token selector resolves from this run, before any step reads it
     action_recovery.reconcile_checkpoint,  # metadata-only ownership inspection, before configuration/decisions
     honor_stops,  # an applied or pending stop, and a bound retry mixed with other actions
+    action_stage_model.apply,  # --stage-model: one stage's route on a started run, between stages; no launch
     action_decisions.preflight,  # invalid approval cannot reconcile or migrate a stopped attempt
     action_edits.apply,  # a standalone edit: design revision, dependency, report recovery, repair handoff
     action_recovery.gate_failures,  # a classification or job failure, and its exact retry

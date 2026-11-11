@@ -37,6 +37,9 @@ export interface StageView {
   label: string;
   optionsStop: string | null;
   stages: Stage[];
+  /** A started run's list (`stages list --run-dir`): false while a stage works, with the reason. */
+  changeable: boolean;
+  reason: string | null;
 }
 
 const text = (value: unknown): string => (typeof value === "string" ? value : "");
@@ -84,7 +87,10 @@ export function readStages(raw: string): StageView {
       reset: words((value.reset as Record<string, unknown> | null | undefined)?.next_command),
     });
   }
-  return { backend: text(parsed.backend), label: text(parsed.label) || text(parsed.backend), optionsStop: textOrNull(parsed.options_stop), stages };
+  return {
+    backend: text(parsed.backend), label: text(parsed.label) || text(parsed.backend), optionsStop: textOrNull(parsed.options_stop), stages,
+    changeable: parsed.changeable !== false, reason: textOrNull(parsed.reason),
+  };
 }
 
 /** The stage's own set command with a listed model and one of its levels, or an error saying why not. */
@@ -104,6 +110,18 @@ export function currentRoute(stage: Stage): string {
   if (stage.chosen?.model) return `${stage.chosen.model} at ${stage.chosen.effort ?? "its own default level"} (your choice)`;
   if (stage.default.model && !stage.default.offered) return "chosen from your accounts when a chat starts";
   return `${stage.default.model ?? "its default"} at ${stage.default.effort ?? "its own default level"} (default)`;
+}
+
+/** What a started chat's stage runs now: its own route, never the new-chat choice. */
+export function runRoute(stage: Stage): string {
+  const route = stage.chosen ?? stage.default;
+  return `${route.model ?? "not reported"} at ${route.effort ?? "its own default level"} (this chat)`;
+}
+
+/** The read-only list a chat's status view names for its own stages, or null when it names none. */
+export function runListCommand(value: unknown): string[] | null {
+  const argv = words(value);
+  return argv && argv[0] === "stages" && argv[1] === "list" && argv.includes("--run-dir") ? argv : null;
 }
 
 /** `--backend KEY` when the person chose the engine or provider new chats run on; otherwise the core picks it as a new run would. */

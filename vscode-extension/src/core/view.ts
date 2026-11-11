@@ -204,6 +204,8 @@ export interface StatusView {
   cost?: BudgetCost | null;
   provider?: string | null;
   routes?: Record<string, ModelRoute> | null;
+  /** Whether this started run's stage models can change now, and the read-only list whose `set` arrays change one. */
+  stage_models?: { changeable: boolean; reason: string | null; next_command: string[] } | null;
   evidence?: { outcome?: string; acceptance?: { id: string; criterion: string; status: string }[] } | null;
   recovery?: Recovery | null;
   liveness?: { kind?: string } | null;

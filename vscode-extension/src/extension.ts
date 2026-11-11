@@ -14,7 +14,7 @@ import { RunPanel } from "./panel";
 import { RunsProvider, type RunItem } from "./runsView";
 import { ChatView } from "./chat";
 import { ConnectionsPanel } from "./connections";
-import { StagesPanel } from "./stages";
+import { runStages, StagesPanel } from "./stages";
 import { readSettings, spendTarget } from "./settings";
 
 type RunTarget = RunRef | RunItem;
@@ -104,7 +104,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("autocode.connections", () => connections.show().catch((error) => {
       void vscode.window.showErrorMessage(`AutoCode Connections: ${messageOf(error)}`);
     })),
-    vscode.commands.registerCommand("autocode.stages", () => stagePanel.show().catch((error) => {
+    // With a chat's run (its status view's own list and folder), the panel shows that chat's stages.
+    vscode.commands.registerCommand("autocode.stages", (target?: unknown) => stagePanel.show(runStages(target)).catch((error) => {
       void vscode.window.showErrorMessage(`AutoCode Stage Models: ${messageOf(error)}`);
     })),
     vscode.window.registerWebviewViewProvider("autocode.chat", chat, { webviewOptions: { retainContextWhenHidden: true } }),

@@ -63,6 +63,8 @@ export interface PanelState {
   task: string | null;
   usage: string | null;
   telemetry: Telemetry | null;
+  /** Whether this chat's own stage models can change now (`view.stage_models`), never its command. */
+  stageModels?: { changeable: boolean; reason: string | null } | null;
   pause: string | null;
   needKind: string | null;
   needSummary: string | null;
@@ -454,6 +456,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     task: view.task ?? null,
     usage: usageLine(view),
     telemetry: telemetry(view),
+    stageModels: view.stage_models ? { changeable: view.stage_models.changeable === true, reason: view.stage_models.reason ?? null } : null,
     pause: pauseLabel(view),
     needKind: need?.kind ?? null,
     needSummary: view.done ? null : needsSummary(view, working),
@@ -1868,7 +1871,7 @@ function renderChat(data) {
     }
   }
   renderMeter(data);
-  renderTelemetry(data.state && data.state.telemetry);
+  renderTelemetry(data.state && data.state.telemetry, data.state && data.state.stageModels);
   updateComposer();
   chatBehavior.resize();
   if (!same) {
@@ -1894,9 +1897,9 @@ function updateLatestCue(state) {
   if (latest.textContent !== text) latest.textContent = text;
 }
 
-function renderTelemetry(info) {
+function renderTelemetry(info, stageModels) {
   const host = document.getElementById('model-info');
-  const signature = JSON.stringify(info);
+  const signature = JSON.stringify([info, stageModels]);
   if (host.dataset.content === signature) return;
   host.dataset.content = signature;
   host.textContent = '';
@@ -1925,7 +1928,17 @@ function renderTelemetry(info) {
     host.appendChild(section);
   }
   // A run keeps the routes it started with; Stage models changes reach new chats only (docs/task-run.md#stage-choices-for-clients).
-  if (configured.length) modelSection('configured-models', "This chat's models", 'Fixed when this chat started; a change in Stage models applies to new chats. Several stages can share a model; an assignment does not mean it has run.', configured);
+  if (configured.length) modelSection('configured-models', "This chat's models", stageModels ? 'Kept from when this chat started until you change one here; Stage models applies to new chats. Several stages can share a model; an assignment does not mean it has run.' : 'Fixed when this chat started; a change in Stage models applies to new chats. Several stages can share a model; an assignment does not mean it has run.', configured);
+  if (configured.length && stageModels) {
+    // Only the core's own offer: the extension asks for the list the status view names.
+    const change = el('button', 'link', "Change this chat's models");
+    change.type = 'button'; change.id = 'change-stage-models';
+    change.disabled = !stageModels.changeable;
+    change.addEventListener('click', () => vscode.postMessage({ type: 'stage_models' }));
+    const section = document.getElementById('configured-models');
+    section.insertBefore(change, section.children[2] || null);
+    if (!stageModels.changeable && stageModels.reason) section.insertBefore(el('div', 'model-note', stageModels.reason), change.nextSibling);
+  }
   if (info && info.stagesUsed.length) modelSection('used-models', 'Models used', 'Recorded attempts, including retries and earlier model variants.', info.stagesUsed);
   else {
     host.appendChild(el('span', 'model-placeholder', info ? 'No model attempts reported yet.' : 'A new chat runs the models in Stage models; they are listed here when a run starts.'));

@@ -143,8 +143,10 @@ def origin(settings, role, route, *, assignments=(), escalations=(), retries=())
     settings = settings or {}
     model = route.get("model")
     effort = route.get("reasoning_effort")
-    if any(row.get("role") == role and row.get("to") == model for row in _rows(assignments)):
-        return "quota_assigned"
+    moved = [row for row in _rows(assignments) if row.get("role") == role and row.get("to") == model]
+    if moved:
+        # A model the person chose for this run between stages (autocode_run_stage_models) is their choice.
+        return USER_EXPLICIT if moved[-1].get("via") == "stage_models" else "quota_assigned"
     if (
         role == "builder"
         and model

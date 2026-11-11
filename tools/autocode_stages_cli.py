@@ -16,18 +16,21 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 try:
     from . import autocode_connected_engine as connected_engine
     from . import autocode_project_config as project_config
     from . import autocode_providers as providers
     from . import autocode_route_fit as route_fit
+    from . import autocode_run_stage_models as run_stage_models
     from . import autocode_stage_choices as stage_choices
 except ImportError:
     import autocode_connected_engine as connected_engine
     import autocode_project_config as project_config
     import autocode_providers as providers
     import autocode_route_fit as route_fit
+    import autocode_run_stage_models as run_stage_models
     import autocode_stage_choices as stage_choices
 
 # The job names a person may type for a stage, beside the route names the view uses.
@@ -59,6 +62,10 @@ def parser():
         help="Claude Code (claude), Codex (codex), OpenCode (opencode) or Kilo (kilocode); default: new runs'",
     )
     result.add_argument("--workspace", default=".", help="The project whose engine setting counts (default: here)")
+    result.add_argument(
+        "--run-dir",
+        help="list: the stages of this started run instead, with the models it runs now; it never changes them",
+    )
     result.add_argument("--json", action="store_true", help="Print the stage view clients read")
     return result
 
@@ -214,6 +221,8 @@ def _stage(name):
 def cli(argv=None) -> int:
     args = parser().parse_args(argv)
     stage = _stage(args.stage)
+    if args.run_dir is not None:
+        return _run(args)
     try:
         backend = args.backend or current_backend(args.workspace)
         if args.action == "choose":
@@ -238,4 +247,35 @@ def cli(argv=None) -> int:
         print(f"autocode stages: {error}", file=sys.stderr)
         return 2
     print(json.dumps(current) if args.json else text(current))
+    return 0
+
+
+def _run(args) -> int:
+    """``list --run-dir RUN``: the run's own stages (autocode_run_stage_models.view); read-only."""
+    if args.action != "list" or args.backend:
+        print(
+            "autocode stages --run-dir only lists a run's stages; change one with the `set` command it names",
+            file=sys.stderr,
+        )
+        return 2
+    run_dir = Path(args.run_dir)
+    try:
+        state = json.loads((run_dir / "state.json").read_text(encoding="utf-8"))
+        if not isinstance(state, dict):
+            raise ValueError("its state.json is not a saved run")
+        workspace = state.get("workspace") or args.workspace
+        current = run_stage_models.view(state, run_dir, workspace)
+    except (OSError, ValueError) as error:
+        print(f"autocode stages: {args.run_dir} cannot be read: {error}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(current))
+        return 0
+    lines = [f"Stages of this run on {current['label']}:"]
+    lines += [
+        f"  {row['label']}: {row['chosen']['model']} at {row['chosen']['effort'] or 'its own default level'}"
+        for row in current["stages"]
+    ]
+    lines.append(current["reason"] or "Change one with: autocode --run-dir RUN --stage-model STAGE MODEL EFFORT")
+    print("\n".join(lines))
     return 0

@@ -78,6 +78,7 @@ try:
     from . import autocode_risk_disclosure as risk_disclosure
     from . import autocode_role_transport as role_transport
     from . import autocode_route_ladder as route_ladder
+    from . import autocode_run_stage_models as run_stage_models
     from . import autocode_stage_decisions as stage_decisions
     from . import autocode_stage_policy as stage_policy
     from . import autocode_stop_explanations as stop_explanations
@@ -136,6 +137,7 @@ except ImportError:
     import autocode_role_transport as role_transport
     import autocode_route_ladder as route_ladder
     import autocode_run_metrics
+    import autocode_run_stage_models as run_stage_models
     import autocode_stage_decisions as stage_decisions
     import autocode_stage_policy as stage_policy
     import autocode_stop_explanations as stop_explanations
@@ -356,6 +358,9 @@ def view(
         # tool's name); None when every role runs on Codex (#717).
         "provider": quota_route.provider(state),
         "route_assignments": quota_route.assignments(state),
+        # Whether a person may change this started run's stage models now, why not, and the read-only
+        # list whose `set` arrays change one between stages (autocode_run_stage_models); None before routes.
+        "stage_models": run_stage_models.offer(state, run_dir=run_dir),
         # AutoResolver's one re-evaluation of corrective information sent to an operational request
         # (autocode_operational_information, #486): status pending, held, admitted, stale or superseded
         # (the run left the pause unevaluated); the decision, its reason and, when held, the exact next
