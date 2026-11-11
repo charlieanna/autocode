@@ -2876,7 +2876,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/42755a3d27f35a5b8856cef06074a6e061451e2b/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/b96cd198c4b26fd4e27dec63dab0fc0ceaf7cf76/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3337,7 +3337,12 @@ display events from the running attempt's own provider event file, oldest first:
 <code>{kind, text, status}</code> with <code>kind</code> one of <code>command</code>, <code>edit</code> or <code>tool</code>, <code>status</code>
 one of <code>running</code>, <code>done</code> or <code>failed</code>, and, for an <code>edit</code>, the <code>paths</code> it names
 (relative to the project when they are inside it, at most 8). <code>text</code> is one
-bounded line: a command's first line, the files changed, or the tool called.
+bounded line: a command's first line, the files changed, or the tool called,
+in plain words for the tools agents use to look around (<code>Read src/a.py</code>,
+<code>Searched tools for “context_packet”</code>, <code>Looked for files matching *.ts</code>). A
+<code>tool</code> event also has <code>summary</code>, a short phrase that groups repeats of it
+(<code>Read files</code>, <code>Searched code</code>, or <code>Used &lt;tool&gt;</code> for any other tool), so a
+client can show four searches as one line.
 Model prose, reasoning and tool output are never copied, and only the tail of a
 file inside the run directory is read. <code>done</code> and <code>failed</code> describe the tool
 call, not the work: a command that exited 0 is not a passed check, an edit is
@@ -3363,8 +3368,13 @@ entries beyond the newest and update a growing one in place. <code>kind</code> i
 <code>activity</code>, reasoning and message prose are copied: collapsed to one line,
 credential-shaped text redacted, and bounded to 400 characters: a finished
 thought or message keeps its first words and ends with <code>…</code> where it was cut, and
-one still streaming keeps its newest words behind a leading <code>…</code> and ends with
-<code>[partial]</code>. Tool
+one still streaming keeps its newest words behind a leading <code>…</code>, starting at a
+sentence where they hold one, and ends with <code>[partial]</code>. A numbered or bulleted
+list keeps its items apart with <code>;</code>. A finished thought that shares most of its
+words with the thought before it is left out, so a model restating its plan before
+each tool call shows once. Beside the log, <code>now</code> has one entry <code>{agent, text}</code> for
+each agent in it, saying what that agent is doing from its newest entry
+(<code>searching the code</code>, <code>reading files</code>, <code>thinking</code>, <code>running a command</code>). Tool
 output is never copied. The Orchestrator runs no model, so its newest dispatch since the person's
 last turn appears as one <code>message</code> entry from agent <code>Orchestrator</code> with the
 runner's own summary, such as which tasks it builds in parallel or that one
@@ -4067,7 +4077,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/42755a3d27f35a5b8856cef06074a6e061451e2b/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/b96cd198c4b26fd4e27dec63dab0fc0ceaf7cf76/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -4828,7 +4838,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/42755a3d27f35a5b8856cef06074a6e061451e2b/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/b96cd198c4b26fd4e27dec63dab0fc0ceaf7cf76/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -4885,7 +4895,13 @@ compared with), <code>cap_usd</code> (the saved <code>--max-cost-usd</code>, or 
 (stages on a model without a rate, or with no token counts recorded; not counted), <code>complete</code> and <code>prices_as_of</code>. Each stage counts
 once. A null amount is unknown, never zero: <code>estimated_usd</code> and <code>reported_usd</code> are null when no stage
 has that basis, and <code>spent_usd</code> is null when no stage is known at all; while <code>complete</code> is false,
-<code>spent_usd</code> is a floor. <code>usage.cost_usd</code> keeps the frozen comparison rates its reports are bound to,
+<code>spent_usd</code> is a floor. <code>running_usd</code> is what the running stage has spent so far, which none of
+those amounts counts until the stage finishes: its provider's reported price when every request so
+far carries one (a zero is not a price), otherwise its tokens so far at the same dated table; null
+when no stage runs or the running stage cannot be priced. It is not part of <code>spent_usd</code> or the cap
+check. A client showing spend so far adds it to <code>spent_usd</code> and to the running stage's row, as a
+floor, so a run on its first stage does not read as nothing spent while its tokens climb.
+<code>usage.cost_usd</code> keeps the frozen comparison rates its reports are bound to,
 so its <code>estimated</code> can differ from <code>cost.estimated_usd</code>.</p>
 <p><code>cost.breakdown</code> groups that same finished-stage ledger in three alternative ways:
 <code>by_stage</code>, <code>by_process_outcome</code> (<code>completed</code>, <code>failed</code>, <code>interrupted</code>, <code>unknown</code>) and

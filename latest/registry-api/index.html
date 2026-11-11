@@ -1559,6 +1559,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#registry-archive-and-unarchive" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        registry archive and unarchive
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#registry-delete" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        registry delete
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#registry-import" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1891,6 +1913,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#registry-archive-and-unarchive" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        registry archive and unarchive
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#registry-delete" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        registry delete
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#registry-import" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1922,7 +1966,7 @@
 
 
 <h1 id="registry-apis">Registry APIs<a class="headerlink" href="#registry-apis" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/42755a3d27f35a5b8856cef06074a6e061451e2b/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/b96cd198c4b26fd4e27dec63dab0fc0ceaf7cf76/README.md">← Back to README</a></p>
 <p>Autocode automatically records every real new run and ordinary resumed run before a
 provider can start. The registry is a small per-user pointer index, not a copy of
 <code>state.json</code>, logs, prompts, credentials, or provider configuration. It is stored at
@@ -1953,6 +1997,11 @@ a valid referenced checkpoint, under the run's <code>diagnostic</code> object. <
 the run's task, at most 80 characters, or null; <code>updated_at</code> is when the checkpoint was last
 written, in UTC as <code>YYYY-MM-DDTHH:MM:SSZ</code>, so a client can list the most recently used chats
 first.</p>
+<p>Archived chats are hidden from <code>list</code> unless it is called with <code>--include-archived</code>. Each
+run row also carries <code>archived</code> and <code>actions</code>: the cleanup commands the registry names for
+that chat, as <code>{id, label, next_command}</code>. <code>archive</code> or <code>unarchive</code> is named for a canonical
+non-active row; <code>delete</code> only for an available, non-active row. The arrays are exact, with
+no placeholder, and a client runs only the one it takes.</p>
 <p>Each listed run has an <code>availability</code> value. <code>available</code> includes that summary;
 <code>workspace_missing</code>, <code>workspace_invalid</code>, <code>checkpoint_missing</code>, <code>checkpoint_malformed</code>,
 <code>containment_invalid</code>, <code>checkpoint_unsupported</code>, <code>inaccessible</code>, and
@@ -2020,6 +2069,24 @@ deleted by hand, or one removed with its worktree by an older <code>clean-worktr
 never deletes files, and refuses (<code>invalid_deleted_run</code>) while the run directory
 exists, so the entry of a run recreated meanwhile is kept. <code>autocode runs --all</code> names
 this command on the row of such a run.</p>
+<h2 id="registry-archive-and-unarchive">registry archive and unarchive<a class="headerlink" href="#registry-archive-and-unarchive" title="Permanent link">&para;</a></h2>
+<p><code>autocode registry archive --workspace /path/to/project --run-dir /path/to/project/.autocode/runs/RUN [--json]</code>
+hides a chat from <code>registry list</code> without moving or deleting its run directory;
+<code>unarchive</code> shows it again. Both update every registry that indexes the run: the shared
+one and, when <code>AUTOCODE_HOME</code> is unset, the project's own. They refuse a non-canonical
+pointer or one outside <code>&lt;workspace&gt;/.autocode/runs</code> (<code>invalid_run</code>), and a run no registry
+indexes (<code>run_not_registered</code>). A live row names no cleanup action; archive is for chats
+that are no longer working.</p>
+<h2 id="registry-delete">registry delete<a class="headerlink" href="#registry-delete" title="Permanent link">&para;</a></h2>
+<p><code>autocode registry delete --workspace /path/to/project --run-dir /path/to/project/.autocode/runs/RUN --yes [--json]</code>
+permanently removes one chat's run directory (its checkpoint, transcript, logs and
+evidence) and its registry entries. It requires <code>--yes</code>, and refuses a non-canonical or
+non-direct run (<code>invalid_run</code>), a run no registry indexes (<code>run_not_registered</code>), and a
+chat whose workspace writer lock or run lock is held (<code>run_busy</code>): stop the chat first.
+It never deletes the workspace, a task worktree or a branch; the result names
+<code>kept_branch</code> when the run recorded one. A run linked in a change set or coordination is
+not unlinked, so that set then names a missing run. An archived chat can be deleted too.
+Use <code>forget-deleted</code> for a pointer whose directory is already gone.</p>
 <h2 id="registry-import">registry import<a class="headerlink" href="#registry-import" title="Permanent link">&para;</a></h2>
 <p><code>registry import</code> discovers and registers existing runs. It requires an
 explicit selected directory, resolves that root canonically, and searches the root at
