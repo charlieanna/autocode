@@ -2196,6 +2196,85 @@ class VerifyCase(unittest.TestCase):
         self.assertEqual(1, narrowed["checks"]["suite_base_definition_on_candidate"]["exit_code"], narrowed)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
+    def test_python_suite_cannot_hide_a_node_failure_by_narrowing_its_data_selector(self):
+        # #2966: a named Python test that runs `npm test` reports only its child's exit
+        # status, so its identity passes on both sides while the candidate narrows the
+        # Node runner's data selector to hide a broken existing Node test.
+        python = self.proof_python()
+        project = self.project(
+            {
+                "tests/__init__.py": "",
+                "tests/test_node.py": (
+                    "import subprocess, unittest\n"
+                    "class Node(unittest.TestCase):\n"
+                    " def test_child(self):\n"
+                    "  self.assertEqual(0, subprocess.run(['npm', 'test', '--silent']).returncode)\n"
+                ),
+                "package.json": json.dumps({"scripts": {"test": "node runner.js"}}),
+                "runner.js": (
+                    'const names = JSON.parse(require("node:fs").readFileSync("cases.json", "utf8"));\n'
+                    'require("node:child_process").execSync("node --test " + names.join(" "), {stdio: "inherit"});\n'
+                ),
+                "cases.json": '["test/existing.test.js"]\n',
+                "app.js": "exports.value = 42;\n",
+                "test/existing.test.js": (
+                    'const {test} = require("node:test");\n'
+                    'const assert = require("node:assert/strict");\n'
+                    'const app = require("../app.js");\n'
+                    'test("existing", () => assert.equal(app.value, 42));\n'
+                ),
+            }
+        )
+        suite = f"{shlex.quote(python)} -m unittest -v tests.test_node"
+        framework = verify.Framework("unittest", suite, python=python)
+        baseline = verify.baseline(
+            project.root, project.base, project.evidence, framework=framework, suite_command=suite, timeout=30
+        )
+        self.assertEqual(0, baseline["receipt"]["exit_code"], baseline)
+
+        def check(files):
+            project.write(files)
+            return verify.verify(
+                project.root,
+                project.base,
+                project.evidence,
+                framework=framework,
+                suite_command=suite,
+                regression_command=suite,
+                base_suite=baseline,
+                preserve_only=True,
+                timeout=30,
+            )
+
+        edited_test = (project.root / "tests/test_node.py").read_text() + "# candidate tests\n"
+        narrowed = check(
+            {
+                "app.js": "exports.value = 0;\n",
+                "cases.json": '["test/feature.test.js"]\n',
+                "test/feature.test.js": 'require("node:test").test("feature", () => {});\n',
+                "tests/test_node.py": edited_test,
+            }
+        )
+        self.assertEqual(0, narrowed["checks"]["suite_on_candidate"]["exit_code"], narrowed)
+        self.assertEqual(verify.FAIL, narrowed["verdict"], narrowed)
+        self.assertEqual(1, narrowed["checks"]["suite_base_definition_on_candidate"]["exit_code"], narrowed)
+        self.assertTrue(any("base suite definition" in reason for reason in narrowed["failures"]), narrowed)
+        # Broadening the selector over unbroken code keeps the original selection passing.
+        broadened = check(
+            {
+                "app.js": "exports.value = 42;\n",
+                "cases.json": '["test/existing.test.js", "test/feature.test.js"]\n',
+            }
+        )
+        self.assertEqual(0, broadened["checks"]["suite_base_definition_on_candidate"]["exit_code"], broadened)
+        self.assertNotEqual(verify.FAIL, broadened["verdict"], broadened)
+        # Named results already cover a change confined to tests and product code: no extra run.
+        tests_only = check({"cases.json": '["test/existing.test.js"]\n'})
+        self.assertEqual({"test/feature.test.js", "tests/test_node.py"}, set(tests_only["changes"]), tests_only)
+        self.assertNotIn("suite_base_definition_on_candidate", tests_only["checks"], tests_only)
+        self.assertEqual(verify.PASS, tests_only["verdict"], tests_only)
+
+    @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_t1_edited_runner_file_cannot_hide_a_break_from_the_suite(self):
         seed, candidate = self._runner_suite_fixture()
         project, base_suite, result = self.node_verify(seed, candidate)
@@ -4045,6 +4124,59 @@ class IncompleteEvidenceRegressionTests(unittest.TestCase):
         self.assertEqual([], fail, (fail, unverified))
         self.assertTrue(any("already fail on base" in note for note in notes), notes)
         self.assertTrue(any("incomplete" in reason for reason in unverified))
+
+
+class RetainedRunnerJudgmentTests(unittest.TestCase):
+    """#2966: candidate tests over the base's runner inputs keep every test base passed."""
+
+    BASE = {"receipt": {"exit_code": 0, "results": {"passed": ["t_old"], "failed": [], "complete": True}}}
+
+    @staticmethod
+    def judge(run, *, boundary="", base=BASE, definition=True):
+        import autocode_verify_judgment as judgment
+
+        fail, unverified = [], []
+        retained = {"run": run, "boundary": boundary} if definition else None
+        judgment.judge_retained_runner(retained, base, fail, unverified)
+        return fail, unverified
+
+    @staticmethod
+    def receipt(*, exit_code=0, passed=(), failed=(), complete=True, timed_out=False, results=True):
+        return {
+            "exit_code": exit_code,
+            "timed_out": timed_out,
+            "results": {"passed": list(passed), "failed": list(failed), "complete": complete} if results else None,
+        }
+
+    def test_a_base_passing_test_must_pass_over_the_base_runner_inputs(self):
+        fail, unverified = self.judge(self.receipt(exit_code=1, failed=["t_old"]))
+        self.assertEqual([], unverified)
+        self.assertEqual(1, len(fail))
+        self.assertIn("t_old", fail[0])
+        fail, _ = self.judge(self.receipt(passed=["t_new"]))
+        self.assertTrue(fail and "did not pass" in fail[0] and "t_old" in fail[0], fail)
+
+    def test_a_test_only_the_candidate_has_may_need_the_candidate_runner_inputs(self):
+        self.assertEqual(([], []), self.judge(self.receipt(exit_code=1, passed=["t_old"], failed=["t_new"])))
+        # No retained runner input changed, so nothing ran and nothing is judged.
+        self.assertEqual(([], []), self.judge(None))
+        self.assertEqual(([], []), self.judge(None, definition=False))
+
+    def test_missing_evidence_is_unverified_never_pass(self):
+        cases = {
+            "boundary": ({"run": None}, {"boundary": "a computed path"}),
+            "timed out": ({"run": self.receipt(passed=["t_old"], timed_out=True)}, {}),
+            "unstartable": ({"run": self.receipt(exit_code=127, results=False)}, {}),
+            "no results": ({"run": self.receipt(results=False)}, {}),
+            "no base results": ({"run": self.receipt(passed=["t_old"])}, {"base": {"receipt": {"results": None}}}),
+            "incomplete": ({"run": self.receipt(passed=[], complete=False)}, {}),
+            "silent nonzero exit": ({"run": self.receipt(exit_code=2, passed=["t_old"])}, {}),
+        }
+        for name, (args, options) in cases.items():
+            with self.subTest(name):
+                fail, unverified = self.judge(args["run"], **options)
+                self.assertEqual([], fail)
+                self.assertEqual(1, len(unverified), unverified)
 
 
 class GoResultTests(unittest.TestCase):

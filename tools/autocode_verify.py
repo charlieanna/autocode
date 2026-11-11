@@ -2140,6 +2140,7 @@ def _run_suite_base_definition(
     generated_record=None,
     generated_unrecorded=False,
     ignored_inputs=None,
+    keep_tests=False,
 ):
     """Execute the base suite definition over the candidate's product code (#587).
 
@@ -2149,7 +2150,9 @@ def _run_suite_base_definition(
     candidate's, definition files stay the base's, a deleted definition file stays, and a
     candidate-added definition file never enters. Returns {"run", "boundary"}: the receipt
     when the definition ran, or why the boundary could not be established (never a PASS).
+    ``keep_tests`` (#2966) keeps the candidate's tests too, and runs only when a retained runner input changed.
     """
+    junit = framework is not None and framework.name == "junit"
     try:
         found = _base_suite_definition(
             workspace,
@@ -2157,26 +2160,27 @@ def _run_suite_base_definition(
             suite_command,
             base_patch=base_patch,
             changes=changes,
-            junit=framework is not None and framework.name == "junit",
+            junit=junit,
             roles=getattr(framework, "test_roles", None),
         )
     except (OSError, RuntimeError, ValueError) as error:
         return {"run": None, "boundary": f"the effective base could not be read ({error})"}
+    definition, patched, roles = found.paths, found.patched, getattr(framework, "test_roles", None)
+    test = roles.is_test if roles else is_test_path
+    reviewed = definition_inputs.reviewed_changes(workspace, changes, patched)
+
+    def retained(path):  # held at the base, as tests are unless keep_tests
+        family = junit and junit_first.family(suite_command)
+        return path in definition or _definition_file(path) or (junit and junit_first.definition_file(path, family))
+
+    if keep_tests and not any(retained(path) and not test(path) for path in reviewed):
+        return {"run": None, "boundary": ""}
     if found.boundary:
         return {"run": None, "boundary": found.boundary}
-    definition, patched = found.paths, found.patched
-    roles = getattr(framework, "test_roles", None)
     overlay = {
         path: status
-        for path, status in definition_inputs.reviewed_changes(workspace, changes, patched).items()
-        if path not in definition
-        and not _definition_file(path)
-        and not (roles.is_test(path) if roles else is_test_path(path))
-        and not (
-            framework is not None
-            and framework.name == "junit"
-            and junit_first.definition_file(path, junit_first.family(suite_command))
-        )
+        for path, status in reviewed.items()
+        if (keep_tests and test(path)) or not (retained(path) or test(path))
     }
     try:
         definition_inputs.check_parents(overlay, definition)
@@ -2410,23 +2414,26 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
     # suite command is read inside its `cd PKG && `, as per_test_results reads it.
     suite_go = _go_test(package_scope.split(framework, commands["suite"] or "")[1])
     allow_absent_go = bool(no_go_project and comparable and comparable.get("base") == base and suite_go)
-    # The base's own suite definition, executed over the candidate's product code,
-    # decides preservation for an exit-code-only script-driven suite (#587). The
-    # trigger is evidential: passing base, completed exit-0 candidate suite,
-    # no per-test results, and no already-established regression failure.
-    # The definition planner skips the extra run only when its retained
-    # inputs did not change. Opaque commands need the proof regardless
-    # of their language; a custom Python command can hide edited tests.
-    base_definition = None
-    if (
+    # The base's own suite definition, executed over the candidate's product code, decides
+    # preservation for an exit-code-only script-driven suite (#587). The trigger is evidential:
+    # passing base, completed exit-0 candidate suite, no per-test results, and no already-established
+    # regression failure. The definition planner skips the extra run only when its retained inputs did
+    # not change. Opaque commands need the proof regardless of their language; a custom Python command
+    # can hide edited tests. Named results miss a child suite a test launches, so a typed suite runs its
+    # candidate tests over the base's runner inputs (#2966).
+    base_definition, untyped = None, on_candidate.get("results") is None
+    exit_zero = (
         comparable is not None
-        and comparable.get("health") == "passing"
-        and not fail
         and not allow_empty_base
         and command_receipt.completed(on_candidate)
         and not on_candidate["timed_out"]
         and on_candidate["exit_code"] == 0
-        and on_candidate.get("results") is None
+    )
+    if (
+        exit_zero
+        and (comparable or {}).get("health") == "passing"
+        and not fail
+        and (untyped or framework is None or framework.name != "junit")
     ):
         base_definition = _run_suite_base_definition(
             framework,
@@ -2442,16 +2449,9 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
             generated_record=generated_record,
             generated_unrecorded=generated_unrecorded,
             ignored_inputs=ignored_inputs,
+            keep_tests=not untyped,
         )
-    elif (
-        comparable is not None
-        and comparable.get("health") != "passing"
-        and not allow_empty_base
-        and command_receipt.completed(on_candidate)
-        and not on_candidate["timed_out"]
-        and on_candidate["exit_code"] == 0
-        and on_candidate.get("results") is None
-    ):
+    elif exit_zero and untyped and (comparable or {}).get("health") != "passing":
         # G1 (#652): a base suite that is not green cannot anchor preservation.
         # Its own definition fails, so a candidate that narrows the script to
         # hide a broken function shows exit 0 with nothing contradicted. A
@@ -2539,12 +2539,13 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
         allow_empty_base=allow_empty_base,
         allow_absent_go=allow_absent_go,
         allow_absent_junit=no_junit_project and comparable is not None and comparable.get("base") == base,
-        base_definition=base_definition,
+        base_definition=base_definition if untyped else None,
         empty_root=empty_root,
         kept_tests=proof.get("pass_to_pass") or (),
         untested=bool(base) and _untested_base(workspace, base),
         repaired=first_suite.repaired_evidence(proof, existing_failures, comparable, checks, on_candidate),
     )
+    judgment.judge_retained_runner(None if untyped else base_definition, comparable, fail, unverified)
     # make_tree copies ignored test files into both trees, so a guard could rest on a test base never held.
     hidden = [
         path
