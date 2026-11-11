@@ -51,6 +51,7 @@ except ImportError:
 
 
 REQUIRED_ROLES = ("task_planner", "builder", "tester", "completion", "planner", "plan_reviewer")
+OPTIONAL_ROLES = ("requirements",)
 PLACEHOLDERS = {
     "model",
     "effort",
@@ -89,7 +90,7 @@ class CommandProvider:
         self.DEFAULT_LIGHT_EFFORTS = {
             role: spec["light_effort"] for role, spec in config["roles"].items() if "light_effort" in spec
         }
-        if "planner" in self.DEFAULT_MODELS:
+        if "planner" in self.DEFAULT_MODELS and "requirements" not in self.DEFAULT_MODELS:
             self.DEFAULT_MODELS["requirements"] = self.DEFAULT_MODELS["planner"]
             self.DEFAULT_REASONING_EFFORTS["requirements"] = self.DEFAULT_REASONING_EFFORTS["planner"]
         # The models the config lists, or None when it lists them with models_command or not at all.
@@ -520,7 +521,7 @@ def _validate(name: str, config: dict) -> None:
     if missing:
         raise ValueError("provider config is missing roles: " + ", ".join(missing))
     for role, spec in roles.items():
-        if role not in REQUIRED_ROLES:
+        if role not in REQUIRED_ROLES and role not in OPTIONAL_ROLES:
             raise ValueError(f"unknown provider role {role!r}")
         if not isinstance(spec, dict):
             raise ValueError(f"role {role} must be a table with model and effort")

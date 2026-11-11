@@ -35,6 +35,16 @@ glm = { model = "demo", effort = "medium" }
 plan_reviewer = { model = "demo", effort = "high" }
 """
 
+NEW_ROLES = """
+[roles]
+task_planner = { model = "m-plan", effort = "high" }
+builder = { model = "demo", effort = "medium" }
+tester = { model = "demo", effort = "high" }
+completion = { model = "demo", effort = "medium" }
+planner = { model = "m-plan", effort = "medium" }
+plan_reviewer = { model = "m-pr", effort = "high" }
+"""
+
 
 class CommandProviderTests(unittest.TestCase):
     def setUp(self):
@@ -80,6 +90,49 @@ class CommandProviderTests(unittest.TestCase):
         write_config(self.home, "both", 'name = "both"\ncommand = ["tool", "{report}"]\n' + both)
         with self.assertRaisesRegex(ValueError, "names the planner route twice"):
             command.load("both")
+
+    def test_ac1_provider_requirements_row_sets_its_own_model_and_effort(self):
+        # #3093: a provider TOML's [roles] table may name `requirements`; its row wins over planner.
+        write_config(
+            self.home,
+            "reqrow",
+            'name = "reqrow"\ncommand = ["tool", "{report}"]\n'
+            + NEW_ROLES
+            + 'requirements = { model = "m-req", effort = "low" }\n',
+        )
+        provider = command.load("reqrow")
+        self.assertEqual("m-req", provider.DEFAULT_MODELS["requirements"])
+        self.assertEqual("low", provider.DEFAULT_REASONING_EFFORTS["requirements"])
+
+    def test_ac2_provider_without_requirements_row_inherits_planner(self):
+        write_config(self.home, "noreq", 'name = "noreq"\ncommand = ["tool", "{report}"]\n' + NEW_ROLES)
+        provider = command.load("noreq")
+        self.assertEqual("m-plan", provider.DEFAULT_MODELS["requirements"])
+        self.assertEqual("medium", provider.DEFAULT_REASONING_EFFORTS["requirements"])
+
+    def test_ac3_provider_unknown_role_is_still_refused(self):
+        write_config(
+            self.home,
+            "bogus",
+            'name = "bogus"\ncommand = ["tool", "{report}"]\n'
+            + NEW_ROLES
+            + 'bogus = { model = "m-x", effort = "low" }\n',
+        )
+        with self.assertRaisesRegex(ValueError, "unknown provider role 'bogus'"):
+            command.load("bogus")
+
+    def test_ac5_provider_requirements_light_effort_registers_like_other_roles(self):
+        roles = (
+            NEW_ROLES.replace(
+                'planner = { model = "m-plan", effort = "medium" }',
+                'planner = { model = "m-plan", effort = "medium", light_effort = "tiny" }',
+            )
+            + 'requirements = { model = "m-req", effort = "low", light_effort = "minimal" }\n'
+        )
+        write_config(self.home, "lightreq", 'name = "lightreq"\ncommand = ["tool", "{report}"]\n' + roles)
+        provider = command.load("lightreq")
+        self.assertEqual("minimal", provider.DEFAULT_LIGHT_EFFORTS["requirements"])
+        self.assertEqual("tiny", provider.DEFAULT_LIGHT_EFFORTS["planner"])
 
     def test_builder_retry_names_a_stronger_served_model_and_a_different_checker(self):
         head = 'command = ["tool", "{report}"]\nmodels = ["demo", "big", "other"]\n' + ROLES + "[builder_retry]\n"

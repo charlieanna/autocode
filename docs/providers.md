@@ -647,6 +647,8 @@ applies independently of this effort choice.
 `[roles]` names the routes `task_planner`, `builder`, `tester`, `completion`, `planner` and
 `plan_reviewer`. A config written before the rename may still say `astra`, `glm`, `terra` or `sol`
 for `task_planner`, `planner`, `builder` or `tester`; it keeps working, but one route spelled both ways is refused.
+`requirements` is an optional role that gives the Requirements stage its own model and
+effort. When it is absent, the Requirements defaults keep inheriting the `planner` row.
 `[roles]` must keep each verifier on a different model family from what it checks
 (Planner/Plan Reviewer, Builder/Validator, Builder/Completion Owner); a run whose
 roles break that pauses with `PAUSED_CROSS_MODEL` before any agent is launched.
