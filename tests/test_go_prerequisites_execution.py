@@ -209,7 +209,8 @@ def lazy_citations(report):
         if (row.get("path") == "app.go" and row.get("sha256") == digest and row.get("line") == 2
                 and row.get("status") == "reason_required" and not row.get("mutation_outcomes") and proof.get("path")):
             report.setdefault("changed_code_exceptions", []).append({
-                "gap_id": row["gap_id"], "decision": "accept", "reason_kind": "instrumentation_unavailable",
+                "gap_id": row["gap_id"], "source_line": row.get("source_line", ""),
+                "decision": "accept", "reason_kind": "instrumentation_unavailable",
                 "reason": "The runner has no Go mutation support. The exact TestAC1 calls Value and compares its result with the pinned indirect.One value 1; returning the original 0 fails that native test. This reason covers only this exact scripted return line.",
                 "evidence_refs": [proof["path"], "app.go"],
             })
