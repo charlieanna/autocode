@@ -192,7 +192,7 @@ def imported_names(source: str, package: str = "") -> set[str]:
 
 def tools_module(path: str) -> str | None:
     """tools/units/autoreview.py -> units.autoreview; None for anything else."""
-    if not path.startswith("tools/") or not path.endswith(".py") or path.startswith("tools/dashboard/"):
+    if not path.startswith("tools/") or not path.endswith(".py"):
         return None
     module = path[len("tools/") : -len(".py")].replace("/", ".")
     return module.removesuffix(".__init__")
@@ -225,7 +225,7 @@ def select_tests(changed: list[str], sources: dict[str, str]) -> dict[str, str]:
             for test in sources:
                 if helper in imports[test] or Path(path).name in sources[test]:
                     selected.setdefault(test, REQUIRED + path)
-        elif path.startswith(("tools/", "tests/")) and not path.startswith("tools/dashboard/"):
+        elif path.startswith(("tools/", "tests/")):
             for test, source in sources.items():
                 if Path(path).name in source:
                     selected.setdefault(test, f"mentions {path}")

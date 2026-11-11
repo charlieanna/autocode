@@ -16,15 +16,6 @@ class AccessTransportConsumerTests(unittest.TestCase):
 
 
 class DynamicDependenciesTests(unittest.TestCase):
-    def test_project_inventory_keeps_the_race_and_browser_consumers_when_slow(self):
-        expected = {"tests.test_dashboard_project_snapshot", "tests.test_catalogue_t12"}
-        selected = run_suite.select_tests(
-            ["tools/dashboard/dashboard_project_controls.py"],
-            dict.fromkeys((*expected, "tests.test_unrelated"), ""),
-        )
-        kept, _ = run_suite.drop_slow(selected, dict.fromkeys(expected, "slow"))
-        self.assertEqual(expected, set(kept))
-
     def test_named_action_transport_keeps_its_public_consumers_when_slow(self):
         consumers = {"tests.test_pause_status_cli", "tests.test_checkpoint_reconciliation", "tests.test_worker_flow"}
         for source in ("tools/autocode_pause_command.py", "tools/autocode_run_view.py"):
@@ -1096,9 +1087,6 @@ class DynamicDependenciesTests(unittest.TestCase):
 
     def test_native_javascript_resources_select_their_real_consumers_even_when_slow(self):
         for path, expected in (
-            ("tools/dashboard/tests/test_shell_a11y_ui.js", {"tests.test_catalogue_t12"}),
-            ("tools/dashboard/tests/test_m3_lifecycle_browser_ui.js", {"tests.test_catalogue_t12"}),
-            ("tools/dashboard/tests/browser_readiness.js", {"tests.test_catalogue_t12"}),
             ("tools/autocode_capture_bootstrap.cjs", {"tests.test_native_capture_ipc", "tests.test_native_capture"}),
             ("tools/autocode_native_capture_linux.cjs", {"tests.test_native_capture_ipc", "tests.test_native_capture"}),
             ("tools/autocode_kilo_image_delivery.mjs", {"tests.test_kilo_image_delivery", "tests.test_native_image"}),

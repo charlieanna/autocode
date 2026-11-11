@@ -41,8 +41,8 @@ Cross-task coordination uses [TaskRun](docs/task-run.md), not private runner
 calls or another run's `state.json`. Run state remains a dict:
 [autocode_run_state.py](tools/autocode_run_state.py) names its keys and readers;
 add any necessary new key there with its writer and consumers. Status-view
-fields are additive. The dashboard and macOS app are clients of that interface:
-add what they need to the core first, and never import the dashboard from it.
+fields are additive. The VS Code extension, the terminal chat and the channel
+bridge are clients of that interface: add what they need to the core first.
 
 ### Stages and jobs
 
@@ -144,17 +144,9 @@ The suite runner discovers `tests/test_*.py`, applies the documented exclusions
 in `tests/suite_exclusions.json`, and fails on a failed test or stale exclusion.
 [CI](.github/workflows/tests.yml) runs `--changed --all-fast` on PRs, retaining
 changed slow modules and all fast modules; master runs the full Python suite.
-The scenario harness and dashboard gates run separately. The main suite runs
+The scenario harness runs separately. The main suite runs
 on Ubuntu, with a separate native macOS tool-containment job.
 The macOS job does not establish support for supervised task-stage providers.
-
-For dashboard bug fixes, select the affected checks (need localhost sockets;
-browser tests also need their pinned browser tooling). The available Python
-gate is:
-
-```sh
-.venv/bin/python -m unittest discover -s tools/dashboard/tests -p 'test_*.py'
-```
 
 Check the selected test's environment requirements. Native containment and
 opt-in [provider conformance](docs/provider-conformance.md) checks require the

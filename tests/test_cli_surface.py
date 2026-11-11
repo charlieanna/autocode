@@ -73,7 +73,7 @@ class CliSurfaceTests(unittest.TestCase):
         self.assertEqual(3, args.max_iterations)
 
     def test_unified_entry_points_show_their_actual_help_without_actions(self):
-        for name in ("issue", "arena", "dashboard", "unattended", "forget"):
+        for name in ("issue", "arena", "unattended", "forget"):
             with self.subTest(command=name):
                 code, out, err = self.invoke(name, "--help")
                 self.assertEqual(0, code, err)
@@ -104,7 +104,7 @@ class CliSurfaceTests(unittest.TestCase):
             self.assertNotIn(internal, err)
 
     def test_sysargv_entry_restores_arguments_after_help_or_failure(self):
-        original = ["autocode", "dashboard", "--help"]
+        original = ["autocode", "unattended", "--help"]
         for error in (None, ValueError("failure"), SystemExit(0)):
             with self.subTest(error=type(error).__name__):
                 observed = []
@@ -117,15 +117,15 @@ class CliSurfaceTests(unittest.TestCase):
 
                 with (
                     patch.object(sys, "argv", original),
-                    patch.object(commands.importlib, "import_module", return_value=SimpleNamespace(main=entry)),
+                    patch.object(commands.importlib, "import_module", return_value=SimpleNamespace(cli=entry)),
                 ):
                     if error is None:
-                        self.assertEqual(0, commands.dispatch(["dashboard", "--port", "9876"]))
+                        self.assertEqual(0, commands.dispatch(["unattended", "--analyze", "--run-dir", "r"]))
                     else:
                         with self.assertRaises(type(error)):
-                            commands.dispatch(["dashboard", "--port", "9876"])
+                            commands.dispatch(["unattended", "--analyze", "--run-dir", "r"])
                     self.assertIs(original, sys.argv)
-                self.assertEqual([["autocode dashboard", "--port", "9876"]], observed)
+                self.assertEqual([["autocode unattended", "--analyze", "--run-dir", "r"]], observed)
 
     def test_option_values_and_delimited_task_text_are_not_subcommands(self):
         for argv in (["--workspace", "arena"], ["--", "issue"], ["Build the dashboard"]):
@@ -135,7 +135,7 @@ class CliSurfaceTests(unittest.TestCase):
         self.assertEqual("issue", parser.parse_args(["--", "issue"]).task)
 
     def test_new_routes_remain_operator_only_for_unattended_callers(self):
-        for name in ("issue", "arena", "dashboard", "unattended", "forget"):
+        for name in ("issue", "arena", "unattended", "forget"):
             with self.subTest(command=name), patch.object(unattended.subprocess, "Popen") as launch:
                 code, _, err = self.invoke("unattended", name, "--help")
                 self.assertEqual(2, code)

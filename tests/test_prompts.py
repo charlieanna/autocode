@@ -95,8 +95,6 @@ class PromptResourceTests(unittest.TestCase):
         tools = Path(prompts.__file__).parent
         references = set()
         for path in tools.rglob("*.py"):
-            if "dashboard" in path.parts:
-                continue
             tree = ast.parse(path.read_text())
             for node in ast.walk(tree):
                 if (

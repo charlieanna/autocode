@@ -117,4 +117,4 @@ The owner commits pause effects, feedback invalidation and applied receipt IDs i
 
 Applied receipts include `applied_at`; explicit continuation adds `resumed_at` to previously applied receipts. Status exposes these durable timestamps. Submission retries omit these owner-only fields and continue to return the original acceptance receipt.
 
-See also: [Dashboard](dashboard.md) · [Workflow](workflow.md) · [Registry API](registry-api.md)
+See also: [Workflow](workflow.md) · [Registry API](registry-api.md)

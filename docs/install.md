@@ -291,7 +291,7 @@ source <(autocode completion zsh)    # after compinit; or save it as _autocode i
 autocode completion fish | source    # or save it as ~/.config/fish/completions/autocode.fish
 ```
 
-`capture`, `registry`, `intervention` and `dashboard` complete only `--help`. A saved
+`capture`, `registry` and `intervention` complete only `--help`. A saved
 script lists the options of the version that wrote it, so write it again after upgrading.
 
 ### Releasing
@@ -359,7 +359,7 @@ and limits.
 ## Default provider
 
 New runs use OpenCode unless you choose otherwise. `--provider <name>` picks the
-tool for one run. To change the default for every new run and for the dashboard,
+tool for one run. To change the default for every new run,
 set `AUTOCODE_PROVIDER=kilocode` or add this to `~/.config/autocode/config.toml`:
 
 ```toml
@@ -380,7 +380,5 @@ A saved run keeps the provider it started with, and `--engine codex` runs still
 use Codex. `autocode doctor` then checks the default provider instead of OpenCode.
 `AUTOCODE_PROVIDER=codex` does not select the Codex engine: it names a provider config
 `codex.toml`, and doctor reports it missing. Use `--engine codex` for Codex.
-`autocode dashboard --provider <name>` overrides the default for the dashboard; its
-model pickers list that tool's models.
 
 See also: [CLI](cli.md) · [Providers](providers.md) · [Models](models.md)

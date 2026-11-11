@@ -88,7 +88,7 @@ class InventoryTests(unittest.TestCase):
         self.assertEqual(list(completion.SHELLS), list(found["completion"].words))
         self.assertEqual(found["completion"].options, found["completion"].words["zsh"])
         # No parser to read: --help.
-        for name in ("dashboard", "capture"):
+        for name in ("capture",):
             self.assertEqual(completion.Command((completion.HELP,), {}), found[name])
 
     def test_each_subcommand_reads_the_parser_it_exposes(self):
@@ -181,7 +181,7 @@ class BashTests(unittest.TestCase):
             (("output", "read", ""), []),
             (("completion", ""), list(completion.SHELLS)),
             (("completion", "zsh", "--"), ["--help"]),
-            (("dashboard", "--"), ["--help"]),
+            (("capture", "--"), ["--help"]),
             (("resume", "--run"), ["--run-dir"]),
             (("unattended", "--ana"), ["--analyze"]),
             (("--brief-file", "bri"), ["brief.md"]),

@@ -473,5 +473,4 @@ Promotion rules:
    declare dependable complex-project delivery based on fake fixtures alone.
 
 See also: [testing guide](testing.md), [workflow](workflow.md),
-[execution and recovery](execution.md), [providers](providers.md),
-[dashboard verification](dashboard.md#dashboard-verification), and [scenarios](../scenarios/README.md).
+[execution and recovery](execution.md), [providers](providers.md) and [scenarios](../scenarios/README.md).
