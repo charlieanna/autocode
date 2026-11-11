@@ -163,8 +163,10 @@ the existing participant gates still govern continuation.
   that same repository ([Parallel tasks and components](task-lanes.md)). It
   cannot drive two existing sibling repositories.
 - **A parent folder is not a multi-repository workspace.** If you start AutoCode
-  in a plain folder that holds several repositories, it creates a new, empty
-  project under that folder instead of working in them. If the parent is itself a
+  in a plain folder that holds several repositories, it works in a new, empty
+  private project instead of in them. The terminal chat adds such a folder as a
+  source folder for discovery; VS Code warns before a chat starts there, naming
+  the checkouts, so you can open the one to change instead. If the parent is itself a
   Git repository with the services as nested repositories or submodules, changes
   inside them appear to the parent only as a gitlink, so its diffs and test
   checks do not see them. Treat both as unsupported.

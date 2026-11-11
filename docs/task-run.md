@@ -3019,7 +3019,10 @@ list: `folder`, `branch` (the folder's current branch), `default` (a place id), 
 `branches`, the local branches most recently committed first, each with `name`, `start_args` and
 `unavailable` (why it is not offered, with `start_args` null): a branch checked out in a worktree,
 the folder's own included, or one another chat will plan on. A folder that is not the top of a Git
-checkout with a commit lists only `folder`, which works there as every chat there does. A client
+checkout with a commit lists only `folder`, which works there as every chat there does. When that
+folder is outside Git but holds Git checkouts among its children or grandchildren, a chat there works
+in a new, empty private project, so `folder` has a `warning` naming those checkouts and saying to
+start the chat in the one to change (#2066). A client
 shows the places, preselects `default`, passes the chosen place's (or branch's) `start_args`
 unchanged in place of its own placement flag, and, when that place has a `warning`, shows it and
 starts only once the person confirms. It reads the list again just before the start.
