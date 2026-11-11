@@ -35,10 +35,12 @@ export function runStages(value: unknown): RunStages | undefined {
 export interface StagePick { stage: Stage; model: string; effort: string }
 
 /**
- * The chat box's Models picker: a stage, then a model the core offers it, then one of that model's
- * levels, from the list the core gave (`stages list --json`). A model the list marks unavailable is
- * not offered; the caller fills only the stage's own named command with the pick, so the core checks
- * it again. `now` says what the stage runs in this chat and `current` which model and level that is.
+ * The chat box's Models picker: a stage, then one of the models the core offers it at one of that
+ * model's levels, from the list the core gave (`stages list --json`). Model and level are one
+ * searchable list ("sonnet · high"), with what the stage runs now first, so a change is two picks.
+ * A model the list marks unavailable is not offered; the caller fills only the stage's own named
+ * command with the pick, so the core checks it again. `now` says what the stage runs in this chat
+ * and `current` which model and level that is.
  */
 export async function pickStageModel(view: StageView, now: (stage: Stage) => string,
   current: (stage: Stage) => StageRoute | null, scope: string): Promise<StagePick | undefined> {
@@ -53,22 +55,22 @@ export async function pickStageModel(view: StageView, now: (stage: Stage) => str
   if (!stagePick) return undefined;
   const stage = stagePick.stage;
   const route = current(stage);
-  const modelPick = await vscode.window.showQuickPick(
-    stage.options.filter((option) => !option.unavailable).map((option) => ({
-      label: option.model, model: option.model,
-      description: [option.model === route?.model ? "current" : "", option.family ?? ""].filter(Boolean).join(" · ") || undefined,
-    })),
-    { placeHolder: `${stage.label} model ${scope} (now ${now(stage)})`, matchOnDescription: true });
-  if (!modelPick) return undefined;
-  const option = stage.options.find((row) => row.model === modelPick.model);
-  const levels = option?.effortChoices ?? [];
-  if (!levels.length) return undefined;
-  const keep = modelPick.model === route?.model ? route?.effort : null;
-  const effortPick = levels.length === 1 ? { level: levels[0]! } : await vscode.window.showQuickPick(
-    levels.map((level) => ({ label: level, level, description: level === keep ? "current" : undefined })),
-    { placeHolder: `${stage.label} reasoning level on ${modelPick.model}` });
-  if (!effortPick) return undefined;
-  return { stage, model: modelPick.model, effort: effortPick.level };
+  const items = routeItems(stage, route);
+  if (!items.length) return undefined;
+  const pick = await vscode.window.showQuickPick(items,
+    { placeHolder: `${stage.label} model and level ${scope} (now ${now(stage)}); type to filter`, matchOnDescription: true });
+  return pick ? { stage, model: pick.model, effort: pick.effort } : undefined;
+}
+
+/** Every model the stage may run at each of its levels, what it runs now first. */
+export function routeItems(stage: Stage, route: StageRoute | null): { label: string; description?: string; model: string; effort: string }[] {
+  const items = stage.options.filter((option) => !option.unavailable).flatMap((option) => option.effortChoices.map((effort) => {
+    const running = option.model === route?.model && (effort === route?.effort || (!route?.effort && option.effortChoices.length === 1));
+    return { label: `${option.model} · ${effort}`, model: option.model, effort, running,
+      description: [running ? "current" : "", option.family ?? ""].filter(Boolean).join(" · ") || undefined };
+  }));
+  items.sort((a, b) => Number(b.running) - Number(a.running));
+  return items.map(({ running: _running, ...item }) => item);
 }
 
 export class StagesPanel implements vscode.Disposable {

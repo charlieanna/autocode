@@ -323,9 +323,11 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     const tab = this.active;
     const busy = tab.starting || this.busy.has(tab.key);
     void this.view?.webview.postMessage({
-      type: "chat", runKey: tab.key, busy, waitingForStart: tab.starting && !tab.launching, pausing: this.pausing.has(tab.key),
+      type: "chat", runKey: tab.key, busy, pausing: this.pausing.has(tab.key),
       error: tab.error || tab.readError, pendingBrief: tab.pendingBrief,
       startingLabel: tab.status ? "" : tab.startingLabel,
+      // A dialog or picker that holds a chat's start, named in the chat until it is answered.
+      waitingOn: tab.run ? "" : tab.confirming,
       selectedRun: tab.run ?? null, persistSelection,
       tabs: this.tabs.map((row) => ({
         key: row.key, name: tabName(row), busy: row.starting || this.busy.has(row.key), run: row.run ?? null,
@@ -870,61 +872,86 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
    * it starts in, after the person confirms a place that warns. An AutoCode without the list works in the
    * folder, as every chat did before it. Undefined when the person declined.
    */
-  private async placement(tab: ChatTab, workspace: string): Promise<string[] | undefined> {
-    let list: WorktreeList;
-    try {
-      list = await readPlaces(workspace);
-    } catch (error) {
-      if (tab.places) throw new Error(`Where this chat works: ${messageOf(error)}`);
+  private async placement(tab: ChatTab, read: { list: WorktreeList } | { error: unknown }): Promise<string[] | undefined> {
+    if ("error" in read) {
+      if (tab.places) throw new Error(`Where this chat works: ${messageOf(read.error)}`);
       return [...LEGACY_PLACEMENT];
     }
+    const list = read.list;
     tab.places = list;
     const { place, args } = chosenPlacement(list, tab.placeChoice);
     if (place.warning) {
-      const proceed = await vscode.window.showWarningMessage(
+      const warning = place.warning;
+      const proceed = await this.dialog(tab, "Start this chat in your folder? Answer the dialog that opened.", () => vscode.window.showWarningMessage(
         "Start this chat in your folder?",
-        { modal: true, detail: place.warning },
+        { modal: true, detail: warning },
         "Start in this folder",
-      );
+      ));
       if (proceed !== "Start in this folder") return undefined;
     }
     return args;
+  }
+
+  /**
+   * Wait on a dialog or picker that holds a chat's start, saying in the chat which one is open and
+   * what to do (`title`): one that opens out of sight must not leave the chat looking stuck.
+   */
+  private async dialog<T>(tab: ChatTab, title: string, open: () => Thenable<T> | Promise<T>): Promise<T> {
+    if (!title) return open();
+    tab.confirming = title;
+    this.post();
+    try {
+      return await open();
+    } finally {
+      tab.confirming = "";
+      this.post();
+    }
   }
 
   private async start(tab: ChatTab, text: string): Promise<void> {
     if (tab.starting) return;
     tab.starting = true;
     tab.error = "";
+    // Until the run exists the chat says what it is doing, and names any dialog that holds the
+    // start, so a first message never reads as a setup step the person has to find.
+    tab.startingLabel = "starting your chat";
     this.post();
     const launchSequence = this.sequence;
     const freshKey = tab.key;
     let allocatedRun: RunRef | undefined;
     let allocatedKey = "";
     try {
-      const workspace = await this.actions.pickWorkspace();
+      const workspace = await this.dialog(tab, (vscode.workspace.workspaceFolders?.length ?? 0) > 1
+        ? "Choose the folder this chat runs in from the list that opened." : "", () => this.actions.pickWorkspace());
       if (!workspace || this.sequence !== launchSequence) return;
-      // Read the list again so the flags come from the CLI that starts the run.
-      await this.loadModes();
+      // The modes (so the flags come from the CLI that starts the run), this chat's own model picks
+      // and where it works are read again here, at once: each is a CLI call, and in turn they made a
+      // first message wait several seconds before anything started.
+      const picks = tab.stages?.chat?.startArgs.length ? tab.stages.chat.list : undefined;
+      const [, fresh, places] = await Promise.all([
+        this.loadModes(),
+        picks ? readChatStages(picks, workspace).catch((error: unknown) => {
+          throw new Error(`This chat's models: ${messageOf(error)}`);
+        }) : undefined,
+        readPlaces(workspace).then((list) => ({ list }), (error: unknown) => ({ error })),
+      ]);
       if (this.sequence !== launchSequence) return;
-      const mode = this.modes ? chosenMode(this.modes, this.modeChoice) : undefined;
-      if (mode?.spendConfirmation !== "planning") {
-        const confirmed = await this.actions.confirmStart();
-        if (!confirmed || this.sequence !== launchSequence) return;
-      }
       // This chat's own picks, checked again where it starts: a saved choice made since can clash.
       let stageArgs: string[] = [];
-      if (tab.stages?.chat?.startArgs.length) {
-        const fresh = await readChatStages(tab.stages.chat.list, workspace).catch((error: unknown) => {
-          throw new Error(`This chat's models: ${messageOf(error)}`);
-        });
+      if (fresh) {
         tab.stages = fresh;
         stageArgs = fresh.chat?.startArgs ?? [];
-        if (this.sequence !== launchSequence) return;
       }
-      // Where it works, read again in the folder it starts in: a branch another chat took meanwhile is refused here.
-      const placement = await this.placement(tab, workspace);
+      const mode = this.modes ? chosenMode(this.modes, this.modeChoice) : undefined;
+      if (mode?.spendConfirmation !== "planning") {
+        const confirmed = await this.dialog(tab, "Start a live AutoCode run? Answer the dialog that opened.", () => this.actions.confirmStart());
+        if (!confirmed || this.sequence !== launchSequence) return;
+      }
+      // Where it works, read in the folder it starts in: a branch another chat took meanwhile is refused here.
+      const placement = await this.placement(tab, places);
       if (!placement || this.sequence !== launchSequence) return;
       tab.launching = true;
+      tab.startingLabel = "";
       this.post();
       await this.controller.start(workspace, text, (run) => {
         allocatedRun = run;
@@ -1000,6 +1027,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     } finally {
       tab.starting = false;
       tab.launching = false;
+      tab.confirming = "";
+      if (!tab.status) tab.startingLabel = "";
       if (allocatedKey) this.busy.delete(allocatedKey);
       this.actions.changed();
       if (this.sequence === launchSequence) {
