@@ -27,6 +27,13 @@ except ImportError:
     import autocode_verification_schedule as schedule
 
 
+# Read by autocode_proof_recognition: on a suite whose results were never parsed, this refusal says
+# only that the exit-code fallback could not bound the base definition, not that a test failed.
+BASE_DEFINITION_UNKNOWN = (
+    "The base suite definition could not be established ({}); preservation of existing behavior is unproven"
+)
+
+
 def judge_regression(
     on_candidate,
     on_base,
@@ -389,11 +396,7 @@ def judge_suite(
         boundary = (base_definition or {}).get("boundary") or ""
         definition_run = (base_definition or {}).get("run")
         if boundary:
-            unverified.append(
-                "The base suite definition could not be established ("
-                + boundary
-                + "); preservation of existing behavior is unproven"
-            )
+            unverified.append(BASE_DEFINITION_UNKNOWN.format(boundary))
         elif definition_run is not None:
             if definition_run["timed_out"]:
                 unverified.append(

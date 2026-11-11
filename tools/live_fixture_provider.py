@@ -310,6 +310,18 @@ def _write_files() -> list[str]:
     return ["greet.py", "test_greet.py", "README.md"]
 
 
+def _quote_changed_lines(data, rows):
+    """Each decision with its gap's source_line from the handoff, as a Tester quotes the line it decides (#2977)."""
+    texts = {}
+    evidence = ((data.get("regression_proof") or {}).get("changed_code_evidence") or {}).get("obligations") or []
+    for row in evidence if isinstance(evidence, list) else []:
+        for gap in [row, *(row.get("gaps") or [])] if isinstance(row, dict) else []:
+            for key in ("gap_id", "handle"):
+                if isinstance(gap, dict) and isinstance(gap.get(key), str):
+                    texts[gap[key]] = gap.get("source_line", "")
+    return [{**row, "source_line": texts.get(row.get("gap_id"), "")} for row in rows]
+
+
 def _changed_code_reasons(data):
     """Independent judgments for this one handwritten, actually tested fixture.
 
@@ -745,7 +757,7 @@ def main() -> int:
         report.setdefault("failure_id", "offline-fixture-failure")
     saved = _saved_report(data) if repairing else {}
     if stage in ("tester", "review_checkpoint") and "changed_code_exceptions" in properties:
-        report["changed_code_exceptions"] = _changed_code_reasons(data)
+        report["changed_code_exceptions"] = _quote_changed_lines(data, _changed_code_reasons(data))
     handoff = (data.get("requirements_handoff") or {}).get("report") or {}
     if "requirement_trace" in report and any(row.get("id") == "R5" for row in handoff.get("requirements", [])):
         report["requirement_trace"].extend(_trace(("R5", "Python standard library only")))

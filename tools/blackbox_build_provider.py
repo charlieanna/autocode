@@ -27,6 +27,18 @@ class HelloTests(unittest.TestCase):
 """
 
 
+def quote_changed_lines(data, rows):
+    """Each decision with its gap's source_line from the handoff, as a Tester quotes the line it decides (#2977)."""
+    texts = {}
+    evidence = ((data.get("regression_proof") or {}).get("changed_code_evidence") or {}).get("obligations") or []
+    for row in evidence if isinstance(evidence, list) else []:
+        for gap in [row, *(row.get("gaps") or [])] if isinstance(row, dict) else []:
+            for key in ("gap_id", "handle"):
+                if isinstance(gap, dict) and isinstance(gap.get(key), str):
+                    texts[gap[key]] = gap.get("source_line", "")
+    return [{**row, "source_line": texts.get(row.get("gap_id"), "")} for row in rows]
+
+
 def scripted_changed_code_reasons(spec, data):
     """The fixture Tester's reasons for its own scripted lines that have no mutation site.
 
@@ -654,7 +666,7 @@ def main():
     if data["stage"] == "tester":
         schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
         if "changed_code_exceptions" in schema.get("properties", {}):
-            result["changed_code_exceptions"] = scripted_changed_code_reasons(spec, data)
+            result["changed_code_exceptions"] = quote_changed_lines(data, scripted_changed_code_reasons(spec, data))
             if spec.get("changed_code_citation_repair") and result["changed_code_exceptions"]:
                 # Deliberately invalid nested proof citation; only the enclosing proof is admitted.
                 result["changed_code_exceptions"][0]["evidence_refs"] = [
