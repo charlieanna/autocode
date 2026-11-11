@@ -8,8 +8,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_recovery_history as recovery_history
     from . import autocode_roles as roles
 except ImportError:
+    import autocode_recovery_history as recovery_history
     import autocode_roles as roles
 
 
@@ -47,6 +49,7 @@ def project(state: RunState, public, *, finished=False, stopped=False) -> list[s
     turns = state.get("turns") or []
     since = turns[-1].get("at") if turns else None
     attempts = []
+    newest = None
     for record in state.get("stages") or []:
         if not isinstance(record, dict) or not record.get("finished_at"):
             continue
@@ -66,6 +69,13 @@ def project(state: RunState, public, *, finished=False, stopped=False) -> list[s
             else "finished"
         )
         attempts.append(f"{roles.screen_name(stage, state)} attempt {result}")
+        newest = record
     if attempts:
         lines.append("Recent steps: " + " · ".join(attempts[-3:]))
+    # Say why the newest answer was not accepted while the stage tries again, in plain words.
+    why = recovery_history.explain(newest.get("rejection_reason")) if newest and newest.get("rejected") else None
+    if why:
+        lines.append(
+            f"Why the last {roles.screen_name(newest.get('stage') or '', state)} answer was not accepted: {why}"
+        )
     return lines

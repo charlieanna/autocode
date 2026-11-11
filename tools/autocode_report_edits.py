@@ -167,6 +167,36 @@ def _parent(root, path):
     return current, path[-1]
 
 
+def _plain_text(parent, key, op, path, text):
+    """The text itself, when an edit replaces a text field with text that is not JSON.
+
+    value_json is JSON, so new text needs its own quotes (``"\\"new summary\\""``). Models often
+    send the bare text instead: a 2026-11-11 Requirements repair removed seven requirements
+    correctly and lost the whole attempt, and another two minutes, to a bare-text summary. The
+    field already holds text, so the text can only mean itself; the complete report still passes
+    every check. Anything else that is not JSON (text for a list or number, a broken quoted
+    string, an added field whose type is unknown) stays refused, with the fix in the message.
+    """
+    if (
+        op == "replace"
+        and not text.lstrip().startswith('"')
+        and (
+            isinstance(parent, dict)
+            and isinstance(key, str)
+            and isinstance(parent.get(key), str)
+            or isinstance(parent, list)
+            and type(key) is int
+            and 0 <= key < len(parent)
+            and isinstance(parent[key], str)
+        )
+    ):
+        return text
+    raise ValueError(
+        f"Report edit {op} {json.dumps(path)} has value_json that is not JSON: value_json is one JSON value, "
+        'so text needs its own quotes ("\\"new text\\""), and remove uses "null"'
+    )
+
+
 def apply(base, edits):
     """Apply disjoint edits against original indices, removing array items last."""
     result = copy.deepcopy(base)
@@ -174,14 +204,15 @@ def apply(base, edits):
     removals = {}
     for edit in edits:
         path, op = edit["path"], edit["op"]
+        undecoded = None
         if "value_json" in edit and "value" not in edit:
             encoded = edit["value_json"]
             if not isinstance(encoded, str) or len(encoded.encode("utf-8")) > MAX_EDIT_VALUE_BYTES:
                 raise ValueError("Report edit value_json must be a bounded JSON string")
             try:
                 value = json.loads(encoded)
-            except (json.JSONDecodeError, TypeError) as exc:
-                raise ValueError("Report edit value_json must contain one valid JSON value") from exc
+            except (json.JSONDecodeError, TypeError):
+                value, undecoded = None, encoded
         elif "value" in edit and "value_json" not in edit:
             # Reports already saved with the previous wire schema keep working.
             value = edit["value"]
@@ -193,6 +224,8 @@ def apply(base, edits):
             raise ValueError("Report edit paths overlap")
         seen.append(path)
         parent, key = _parent(result, path)
+        if undecoded is not None:
+            value = _plain_text(parent, key, op, path, undecoded)
         if isinstance(parent, dict) and isinstance(key, str):
             exists = key in parent
             if (op == "add" and exists) or (op in ("remove", "replace") and not exists):

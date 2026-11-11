@@ -71,7 +71,7 @@ test("a retry is struggling and says why the last attempt failed", () => {
   ]);
   const [row] = stages(shown, NOW);
   assert.deepEqual([row!.state, row!.attempts, row!.seconds], ["retrying", 2, 270]);
-  assert.equal(struggling(shown, NOW), "Builder · attempt 2 · 4m30s · last one answer rejected");
+  assert.equal(struggling(shown, NOW), "Builder · attempt 2 · 4m30s · last answer rejected");
 });
 
 test("a report repair is the repaired stage's next attempt, and its cost is added", () => {
@@ -81,7 +81,7 @@ test("a report repair is the repaired stage's next attempt, and its cost is adde
   });
   const shown = view([rejected, attempt("resolver", "Resolver"), repairing]);
   assert.deepEqual(stages(shown, NOW).map((row) => row.job), ["Tester", "Resolver"]);
-  assert.equal(struggling(shown, NOW), "Tester · attempt 2 · 1m00s · last one answer rejected");
+  assert.equal(struggling(shown, NOW), "Tester · attempt 2 · 1m00s · last answer rejected");
   const repaired = { ...repairing, active: false, duration_seconds: 18 };
   const costs = [{ stage: "sol", spent_usd: 0.25 }, { stage: "sol_report_repair", spent_usd: 0.1 }];
   const tester = stages(view([rejected, attempt("resolver", "Resolver"), repaired], { byStage: costs }), NOW)[0]!;

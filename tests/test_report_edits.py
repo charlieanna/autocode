@@ -327,6 +327,43 @@ class ReportEditsTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "value_json"):
                     edits.apply({"field": 1}, [{"op": "replace", "path": ["field"], "value_json": raw}])
 
+    def test_bare_text_replacing_a_text_field_is_that_text(self):
+        # The 2026-11-11 Requirements repair: correct removals, then a summary sent as bare text,
+        # not JSON. The whole attempt was refused and a third one launched to resend the same edits.
+        base = {
+            "summary": "old summary",
+            "requirements": [{"id": "R1", "source_quote": "pick a UI issue"}, {"id": "R2", "source_quote": "x"}],
+            "notes": ["first"],
+        }
+        result = edits.apply(
+            base,
+            [
+                {"op": "remove", "path": ["requirements", 1], "value_json": "null"},
+                {"op": "replace", "path": ["summary"], "value_json": "The user delegated the pick: {see R1}."},
+                {"op": "replace", "path": ["notes", 0], "value_json": "plain note"},
+            ],
+        )
+        self.assertEqual("The user delegated the pick: {see R1}.", result["summary"])
+        self.assertEqual(["plain note"], result["notes"])
+        self.assertEqual(["R1"], [row["id"] for row in result["requirements"]])
+        self.assertEqual("old summary", base["summary"])
+
+    def test_text_that_is_not_json_stays_refused_where_its_meaning_is_unclear(self):
+        base = {"summary": "old", "count": 1, "items": ["a"], "rows": [{"id": "R1"}]}
+        for op, path in (
+            ("replace", ["count"]),  # a number, not text
+            ("replace", ["items"]),  # a list, not text
+            ("replace", ["rows", 0]),  # an object, not text
+            ("add", ["absent"]),  # no field to say what type is meant
+            ("remove", ["summary"]),  # remove takes "null"
+        ):
+            with self.subTest(op=op, path=path):
+                with self.assertRaisesRegex(ValueError, "not JSON.*own quotes") as caught:
+                    edits.apply(base, [{"op": op, "path": path, "value_json": "bare words"}])
+                self.assertIn(json.dumps(path), str(caught.exception))
+        with self.assertRaisesRegex(ValueError, "not JSON"):  # a broken quoted string: where does it end?
+            edits.apply(base, [{"op": "replace", "path": ["summary"], "value_json": '"unterminated'}])
+
     def test_apply_keeps_saved_raw_value_edit_format_compatible(self):
         self.assertEqual(
             {"field": {"kept": [1]}},

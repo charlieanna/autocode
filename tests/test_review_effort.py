@@ -176,7 +176,7 @@ class LaunchTests(unittest.TestCase):
         level, choice = review_effort.launch(state, "draft_plan", "planner", True, route)
         self.assertEqual(("low", "format_repair", True), (level, choice["reason"], choice["lowered"]))
         self.assertEqual(
-            "Running at low, below your high: this repair only fixes the report's format.",
+            "Running at low, below your high: this attempt only corrects the last answer, it does not redo the work.",
             review_effort.note(choice),
         )
 
