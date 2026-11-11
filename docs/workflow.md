@@ -850,13 +850,36 @@ its root suite cannot run. When the Tester's tests, or a proof's changed tests, 
 sit inside one directory below the root that has its own manifest (`package.json`,
 `go.mod`, `Cargo.toml`, `pyproject.toml`, `setup.py`, `setup.cfg` or `Gemfile`) and
 a suite detected there runs them, they run with that suite from that directory, as
-if the run had named it with `--package`. The innermost such directory wins. The
-regression proof does this only when every changed code file is inside that
-directory; a code change elsewhere keeps the root's suite. When that suite's
-runner chooses tests by kind (pytest, unittest, Node, Go, Jest, Vitest, Mocha or
-RSpec) and runs none of the changed tests, the proof is unverified and names the
-tests and the suite that cannot run them; it never reports that they pass on the
-original code, which it did not observe (#2889). A Node package in a
+if the run had named it with `--package`. The innermost such directory wins.
+When no such directory runs them and the root suite's runner chooses tests by
+kind (pytest, unittest, Node, Go, Jest, Vitest, Mocha or RSpec) and runs none of
+the changed tests, the proof is unverified and names the tests and the suite that
+cannot run them; it never reports that they pass on the original code, which it
+did not observe (#2889).
+
+The proof runs one suite, but a change can reach more than one project. Every
+other project whose code the change touches and whose tests the proof's suite
+cannot run (the root, or the innermost directory with its own manifest) runs its
+own detected suite twice, on the original code and with the change. A test that
+passed and no longer passes, or a suite that passed and now fails, fails the
+proof; a suite that already fails on the original code without per-test results,
+or a run that does not finish, leaves it unverified. So a fix proven with
+`backend/`'s RSpec suite still runs the root's Node suite over the frontend code
+it changed, and a fix proven with the root's suite still runs `backend/`'s suite
+over the backend code it changed. The proof's notes name each such suite, and its
+checks keep both receipts as `companion_suite_on_base:DIR` and
+`companion_suite_on_candidate:DIR` (`.` for the root). A run with `--package`,
+`--test-root`, `--test-command` or `--regression-command` keeps to the suite it
+names.
+
+A plan is checked for this when it is drafted and when it is approved. If the
+test files its milestones name (a Python test module, a Go test, an RSpec spec or
+a JavaScript or TypeScript `.test`/`.spec` file) include some the proof's suite
+would never run, because they are of another kind than the suite runs and are not
+all inside one directory whose own suite runs them, the draft is refused with the
+files and the suite named, and the Planner moves the tests before any Builder
+runs. Helpers and fixtures in a test directory are not judged, and neither is a
+run whose commands the person chose. A Node package in a
 Python repository (this repository's `vscode-extension/`) is the case it was
 added for: its tests were handed to the root's pytest, which cannot run them, and
 the run paused for a `--test-command`.
