@@ -165,6 +165,18 @@ def stopped(public) -> str:
     return text
 
 
+def tester_disagreement(public) -> str:
+    """The Tester's stop before building is a question about the plan: say what it found and what to send.
+
+    It was shown as a failed step that pointed at a saved reason the chat never showed, so the person was
+    offered plan feedback with nothing to say it about (live run, 2026-11-11)."""
+    recovery = public.get("recovery") or {}
+    found = said(acceptance_tests_job.finding(recovery.get("saved_reason")))
+    head = "Before building, the Tester found that the approved plan and today’s code disagree"
+    text = f"{head}: {found}" if found else f"{head}; the run’s details show where."
+    return text + " Tell me how the plan should change; the Tester then runs again on the revised plan."
+
+
 def notice(public):
     """Explain the next human step without exposing the diagnostic dashboard."""
     status = public.get("status") or ""
@@ -189,6 +201,10 @@ def notice(public):
     if status == "PAUSED_INTERVENTION_PENDING":
         # The run stopped to apply a pause, feedback or stop someone asked for; not a failure either.
         return "Paused to apply your request. Your work so far is saved; continue when you’re ready."
+    if status == acceptance_tests_job.PAUSE and acceptance_tests_job.finding(
+        (public.get("recovery") or {}).get("saved_reason")
+    ):
+        return tester_disagreement(public)
     if status.startswith("PAUSED"):
         return stopped(public)
     if status == "RUNNING":

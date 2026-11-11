@@ -176,6 +176,36 @@ class ChatViewTests(unittest.TestCase):
         self.assertIn("The step failed.", failed["chat"]["notice"])
         self.assertIn("continue to try this step again", failed["chat"]["notice"])
 
+    def test_the_testers_disagreement_says_what_it_found_and_asks_how_the_plan_should_change(self):
+        # Live run, 2026-11-11: the chat said "Tester stopped before starting another step. Inspect the saved
+        # reason" and offered plan feedback, but never said which case disagreed or why.
+        import autocode_acceptance_tests_job as job
+
+        state = {"status": "RUNNING", "next_stage": "write_acceptance_tests"}
+        job._pause(state, ["AC2 already works: count_chars('') returns 0 today"])
+        view = run_view.view(state, workspace=Path("/ws"), run_dir=Path("/run"))
+        text = view["chat"]["notice"]
+        self.assertEqual(
+            "Before building, the Tester found that the approved plan and today’s code disagree: "
+            "AC2 already works: count_chars('') returns 0 today. Tell me how the plan should change; "
+            "the Tester then runs again on the revised plan.",
+            text,
+        )
+        self.assertEqual("feedback", view["chat"]["input"]["kind"])
+        # A finding that names machinery is not repeated; the question still stands.
+        flagged = {"status": "RUNNING", "next_stage": "write_acceptance_tests"}
+        job._pause(flagged, ["AC2 cannot be tested: it needs `--live`"])
+        text = run_view.view(flagged, workspace=Path("/ws"), run_dir=Path("/run"))["chat"]["notice"]
+        self.assertTrue(text.startswith("Before building, the Tester found that the approved plan"), text)
+        self.assertNotIn("--live", text)
+
+    def test_the_testers_other_stops_say_what_happened_instead_of_pointing_at_a_reason(self):
+        reason = "The runner could not establish the approved pre-build proof: guard AG1 does not pass."
+        state = {"status": "PAUSED_ACCEPTANCE_TESTS", "next_stage": "write_acceptance_tests", "stop_reason": reason}
+        view = run_view.view(state, workspace=Path("/ws"), run_dir=Path("/run"))
+        self.assertIn("the Tester's tests did not behave on today's code", view["recovery"]["what_happened"])
+        self.assertNotIn("stopped before starting another step", view["chat"]["notice"])
+
     def test_a_stop_with_no_recorded_reason_says_so_and_offers_to_continue(self):
         view = run_view.view(
             {"status": "PAUSED_FUTURE_REASON", "next_stage": "builder"}, workspace=Path("/ws"), run_dir=Path("/run")
