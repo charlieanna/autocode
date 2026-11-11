@@ -2012,7 +2012,7 @@
 
 
 <h1 id="vs-code-extension">VS Code extension<a class="headerlink" href="#vs-code-extension" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/408760c403850ef865166f75369195bb9f939ef6/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/69d6dd465508ae2db6faba37279050dc9a6e5cb5/README.md">← Back to README</a></p>
 <p>Chat with AutoCode in the sidebar (issue #884). The extension starts the CLI,
 reads <code>--status</code> and <code>registry list --json</code>, and takes the actions the public
 <a href="../task-run/">task-run interface</a> names. It imports no runner internals and never
@@ -2090,7 +2090,7 @@ Markdown and code blocks for assistant replies. A fixed composer grows with your
 draft. New output follows the bottom until you scroll up or select text;
 <strong>Latest messages</strong> returns to the bottom. These composer and scrolling components
 are adapted from Kilo Code's open-source UI; the exact revision and attribution
-are in <a href="https://github.com/charlieanna/autocode/blob/408760c403850ef865166f75369195bb9f939ef6/vscode-extension/THIRD_PARTY_NOTICES.md">THIRD_PARTY_NOTICES.md</a>.</p>
+are in <a href="https://github.com/charlieanna/autocode/blob/69d6dd465508ae2db6faba37279050dc9a6e5cb5/vscode-extension/THIRD_PARTY_NOTICES.md">THIRD_PARTY_NOTICES.md</a>.</p>
 <p><strong>Models &amp; usage</strong> stays above the composer and starts expanded. <strong>Configured
 models</strong> lists every saved role assignment with its full model ID, provider and
 reasoning <strong>Variant</strong> (such as medium or high), even before that role runs.
@@ -2108,15 +2108,12 @@ accounting beside the configured cap. Partial totals say <strong>at least</stron
 unpriced stages; unknown amounts stay unknown. The expanded breakdown keeps the
 historical comparison estimate separately. These figures describe recorded usage,
 not an invoice or a guarantee that the next step fits within the cap.</p>
-<p><strong>Stages</strong> sits above Models &amp; usage once a run has launched one. Each stage
-takes a row for how it went (✓ done, ● working, ↻ retrying, ✗ failed), its time,
-cost and attempt number, and a second row for its model, reasoning level and
-tokens (<code>+</code> when some are not reported yet). The newest four show; <strong>N earlier</strong>
-lists the rest. A report repair counts as the repaired stage's next attempt. When
-the working stage is retrying after a failed attempt, the working card shows a
-warning with which attempt it is, how long it has run and why the last one
-failed. A stage that runs again after succeeding, such as a second plan-review
-round, shows <strong>2 runs</strong> and no warning. The toolbar
+<p>Each stage's model and usage is a row of the run header's stage table (below).
+A report repair counts as the repaired stage's next attempt. When the working
+stage is retrying after a failed attempt, its row shows ↻ and the working card
+shows a warning with which attempt it is, how long it has run and why the last
+one failed. A stage that runs again after succeeding, such as a second
+plan-review round, counts its runs and shows no warning. The toolbar
 shows the run's cost against its cap and its tokens; with two or more chats open
 it adds a total for all of them, which leaves out what a restored run carried
 over and ends in <code>+</code> while any chat has not been read yet. These figures are the
@@ -2170,18 +2167,25 @@ them, when an <strong>Archived</strong> section lists them. Delete asks first an
 logs and evidence (the run directory), never the code branch or task worktree, and refuses
 a chat that is still running. Archive is reversible; Delete is not.</p>
 <p>Above the conversation, a run header stays in view while you scroll, like Kilo
-Code's task header. It shows the pipeline (Requirements, Planner, Plan Reviewer,
-Builder, Tester, Completion Reviewer) with each job marked ✓ ran, ● working,
-› next, – skipped or · still to come; hover a job for its model, reasoning level,
-time, tokens and spend, or why it was skipped. Below it are where the run is in
-one sentence, then the working stage (or the one that runs next) on its own
-line: its model and level, how long it has run, its tokens and spend so far, and
-what it is doing now (<code>reading files</code>, <code>running a command</code>). The facts line says
-how the spend splits between the Builder and checking, the run's working time
-and how many things went wrong (the toolbar keeps the run's spend and tokens). <strong>Show details</strong> unfolds the same
+Code's task header. It says where the run is in one sentence, then shows every
+stage in one aligned table: Requirements, Planner, Plan Reviewer, Builder, Tester
+and Completion Reviewer, plus any other job the run launched (a model preflight,
+an Investigator) where it ran. Each row has the stage's mark (✓ ran, ● working,
+↻ retrying, › next, – skipped, · still to come), its name with a ×N badge when it
+launched more than once (amber when an attempt failed; hover for the count in
+words), its model without the provider prefix and reasoning level, and the time,
+tokens and cost of its own attempts (<code>+</code> while some are not reported yet). The
+working stage's row is highlighted. A <strong>Total</strong> row gives the run's working time,
+tokens and accounted spend. Hover a row for its whole route, or why it was
+skipped. Where the sidebar is too narrow for a model column, the model sits under
+the stage's name (or beside a stage that has not run yet), and below 340 pixels
+the tokens column gives way to time and cost. Under the table, a line says what
+the working stage is doing now (<code>reading files</code>, <code>running a command</code>), then where
+the chat works, then how the spend splits between the Builder and checking and
+how many things went wrong. <strong>Show details</strong> unfolds the same
 reading as the terminal chat's <code>/details</code>, <code>/why</code> and <code>/spend</code>: where the run
-is; each stage's model, level, time, tokens, cost and runs, with the working
-stage's latest message; every recovery and what AutoCode did about it; where the
+is; each stage's whole route and attempts (<code>4 attempts, 3 failed</code>, and why the
+last failed), with what the working stage is doing and its latest message; every recovery and what AutoCode did about it; where the
 money went and what the checking produced; <strong>Cost and usage</strong> (the accounted
 total and why it may be a floor, the running stage's spend, the price-table and
 provider-reported figures, the cap, tokens by kind, time by kind of work, total
@@ -2262,7 +2266,7 @@ conversation.</p>
 Requirements follow-up has passed a real Kilo/token-plan greeting conversation;
 full build/test/completion qualification remains outstanding. The earlier full
 task attempt stopped on a MiMo network failure before building.
-See the <a href="https://github.com/charlieanna/autocode/blob/408760c403850ef865166f75369195bb9f939ef6/docs/bugs/2026-10-16-vscode-chat-qualification.md">qualification record</a>.
+See the <a href="https://github.com/charlieanna/autocode/blob/69d6dd465508ae2db6faba37279050dc9a6e5cb5/docs/bugs/2026-10-16-vscode-chat-qualification.md">qualification record</a>.
 The jsdom tests alone establish neither editor-host nor live-provider compatibility.</p>
 <h2 id="settings">Settings<a class="headerlink" href="#settings" title="Permanent link">&para;</a></h2>
 <table>
