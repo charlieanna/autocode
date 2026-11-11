@@ -9,7 +9,7 @@ import { randomBytes } from "node:crypto";
 import { RunController, type CheckpointComparison, type RunRef } from "./controller";
 import { requiresConfirmation } from "./core/next-command";
 import { chosenMode, type RunModes } from "./core/modes";
-import type { StatusView } from "./core/view";
+import { RunStarting, type StatusView } from "./core/view";
 import { transitionNotice, waitsForPerson } from "./notify";
 import { runTotal, sessionTotal, totalText } from "./core/meter";
 import { applyEngine, engineOf, ENGINES, readSettings, type Engine } from "./settings";
@@ -62,12 +62,14 @@ interface ChatTab {
   pendingBrief: string;
   starting: boolean;
   launching: boolean;
+  /** What a run's start is doing before its first status view, in the core's words (#3079). */
+  startingLabel: string;
   /** Compare results this tab already holds, by checkpoint id. */
   readonly comparisons: Map<string, CheckpointComparison>;
 }
 
 function newTab(key: string, run?: RunRef): ChatTab {
-  return { key, run, error: "", readError: "", pendingBrief: "", starting: false, launching: false, comparisons: new Map() };
+  return { key, run, error: "", readError: "", pendingBrief: "", starting: false, launching: false, startingLabel: "", comparisons: new Map() };
 }
 
 function tabName(tab: ChatTab): string {
@@ -262,6 +264,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     void this.view?.webview.postMessage({
       type: "chat", runKey: tab.key, busy, waitingForStart: tab.starting && !tab.launching, pausing: this.pausing.has(tab.key),
       error: tab.error || tab.readError, pendingBrief: tab.pendingBrief,
+      startingLabel: tab.status ? "" : tab.startingLabel,
       selectedRun: tab.run ?? null, persistSelection,
       tabs: this.tabs.map((row) => ({
         key: row.key, name: tabName(row), busy: row.starting || this.busy.has(row.key), run: row.run ?? null,
@@ -296,9 +299,14 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       await Promise.all([...this.tabs].filter((tab) => tab.run).map(async (tab) => {
         try {
           const status = await this.controller.pollStatus(tab.run!);
+          tab.startingLabel = "";
           if (this.tabs.includes(tab)) this.announce(tab, status);
         } catch (error) {
-          if (sequence === this.sequence && !tab.starting) tab.readError = messageOf(error);
+          if (error instanceof RunStarting) {
+            // Still starting: say what it is doing, not that the status could not be read.
+            tab.startingLabel = error.label;
+            tab.readError = "";
+          } else if (sequence === this.sequence && !tab.starting) tab.readError = messageOf(error);
         }
       }));
     } finally {
