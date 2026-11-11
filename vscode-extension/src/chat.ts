@@ -306,6 +306,13 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
             // Still starting: say what it is doing, not that the status could not be read.
             tab.startingLabel = error.label;
             tab.readError = "";
+          } else if (tab.launching && !tab.status) {
+            // This window's own start command is still running and has not saved the run yet. A read
+            // before the core reserves the directory, or a core older than its launch note (#3079),
+            // answers "--run-dir ... has no state.json": the run is starting, not unreadable. A start
+            // that fails says so itself when its command returns (start()).
+            tab.startingLabel ||= "starting the run";
+            tab.readError = "";
           } else if (sequence === this.sequence && !tab.starting) tab.readError = messageOf(error);
         }
       }));
