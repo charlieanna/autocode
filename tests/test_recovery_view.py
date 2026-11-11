@@ -171,6 +171,25 @@ class RecoveryViewTests(unittest.TestCase):
         )
         self.assertEqual("your_decision", run_view.view(person)["pause_category"])
 
+    def test_a_run_this_runtime_cannot_continue_is_a_stopped_chat_that_offers_a_new_one(self):
+        # Ankur, 2026-11-11: a chat saved under the old route names read "No action the client can
+        # take", since its next_command only explains the stop (--explain), which no client may take.
+        cases = {
+            "old route names": {"settings": {"roles": {"astra": {"model": "m"}, "terra": {"model": "m"}}}},
+            "retired stage": {"next_stage": "investigate_bug"},
+        }
+        for name, fields in cases.items():
+            with self.subTest(name):
+                view = run_view.view(self.state("PAUSED_STALE_VALIDATION", **fields))
+                self.assertTrue(view["needs"]["new_run_required"])
+                card = view["recovery"]
+                self.assertEqual(("stopped", "This chat can't continue"), (card["category"], card["title"]))
+                self.assertEqual(view["needs"]["reason"], card["what_happened"])
+                self.assertIn("start a new task", card["what_happened"])
+                self.assertEqual(["inspect", "new_conversation"], [row["kind"] for row in card["actions"]])
+        # A component run's immutable caller binding keeps its own fresh-run card.
+        self.assertNotEqual("stopped", self.card(self.state("PAUSED_COMPONENT_PLAN"))["category"])
+
     def test_every_declared_stop_and_future_status_has_three_parts_and_a_next_step(self):
         # Coverage grows automatically with the runtime's status vocabulary.
         statuses = {"PAUSED_FUTURE_UNKNOWN", "RESOLVER_PENDING"}
