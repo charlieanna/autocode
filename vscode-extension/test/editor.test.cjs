@@ -3011,6 +3011,32 @@ test('chat shows the running step\'s activity and the live diff the view names (
   assert.ok(!text().includes('+print(1)'), 'a diff of an ended step is not left on screen');
 });
 
+test('the live diff the view names is offered while the Builder streams its log', async (t) => {
+  const working = ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--working'];
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    code_checkpoints: { rows: [], working: { id: 'working', label: 'Show what the Builder has changed so far', next_command: working } },
+    chat: { phase: null, context: 'live-step', input: null, messages: [], progress: ['Builder working · task M1'],
+      now: [{ agent: 'Builder', text: 'editing greet.py' }],
+      log: [{ id: 'log-1', agent: 'Builder', kind: 'edit', text: 'edited greet.py', summary: 'edit', status: 'running' }] } };
+  const ui = await openChat(t, value);
+  const text = () => ui.document.querySelector('#app').textContent;
+  assert.ok(text().includes('Builder'), 'the log renders');
+  const show = ui.document.querySelector('#working-diff');
+  assert.ok(show, "the running Builder's changes are offered while its log streams");
+  const calls = [];
+  t.mock.method(cli, 'invoke', async (_settings, argv) => {
+    calls.push(argv);
+    return { ...ok, stdout: JSON.stringify({ since: 'start', changed_files: ['greet.py'],
+      patch: '--- checkpoint/greet.py\n+++ current/greet.py\n+print(1)\n', truncated: false }) };
+  });
+  show.click();
+  await flush();
+  assert.deepEqual(calls, [working], 'only the named argv runs');
+  assert.ok(text().includes('1 file(s) changed since the run started'));
+  assert.ok(text().includes('+print(1)'), 'the diff shows under the log');
+});
+
 test('chat shows the live agent log (chat.log) with agent names and thinking', async (t) => {
   const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
     liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
