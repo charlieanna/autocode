@@ -548,7 +548,9 @@ def _changed_code_lines(proof, repairs):
                     reason += "; reviewer record: " + str(reviewer.get("output") or "not recorded")
             cells = (
                 row.get("gap_id"),
-                f"{row.get('path')}:{row.get('line')} ({row.get('sha256')})",
+                f"{row.get('path')}:{row.get('line')} ({row.get('sha256')})"
+                # The line itself, beside the reason that must justify it (#2977).
+                + (f": {row['source_line']}" if isinstance(row.get("source_line"), str) else ""),
                 row.get("status"),
                 observations,
                 row.get("fallback"),
