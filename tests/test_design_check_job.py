@@ -7,12 +7,15 @@ import unittest
 from pathlib import Path
 
 import autocode_design_check_job as check_job
+import autocode_goals as goals
 import autocode_jobs as jobs
 import autocode_run_view as run_view
 import autocode_util as util
 import autocode_workflows as workflows
 import autopilot
 from units import autoplanner, autoreview
+
+from tests.test_chat_client import ScriptedChat
 
 DESIGN = "docs/design/rate-limiter.md"
 
@@ -182,6 +185,31 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(("RUNNING", "PLANNING"), (shown["status"], shown["phase"]))
         self.assertIsNone(shown["stop_reason"])
         self.assertNotIn("rate-limiter.blockers.json", json.dumps(shown))
+
+    def test_a_decision_typed_at_the_conflict_stop_is_sent_as_feedback(self):
+        # Live run, 2026-11-11: the stop says "--feedback records the decision", but the view offered no
+        # reply and the core refused one, so the chat read a typed decision at "Continue? [y/N]" as a no
+        # and left the chat.
+        decision = "Keep allow() returning a bool for 1.x; I will drop the raise from the design."
+        with tempfile.TemporaryDirectory() as root:
+            state = state_for(workspace_with_design(root))
+            autoreview.apply_job(check_job.STAGE, state, report([CONFLICT], constraints=()), {"output": "o"}, root)
+            run = Path(root) / ".autocode/runs/r1"
+            shown = run_view.view(state, workspace=Path(root), run_dir=run)
+            client = ScriptedChat(shown, {"status": "TASK_COMPLETE"}, replies=[decision])
+            client.converse()
+            self.assertEqual([["--feedback", decision]], client.taken)
+            self.assertIn("Continue? [y/N], or type what to change", client.text())
+            self.assertNotIn("Left as it is", client.text())
+            # The core takes the decision: Requirements reads it, and its report brings the design back
+            # to the check.
+            goals.feedback(state, decision)
+            self.assertEqual(("RUNNING", "requirements_gather"), (state["status"], state["next_stage"]))
+            self.assertEqual(decision, state["user_events"][-1]["text"])
+            workflows.from_requirements(
+                state, {"intended_outcome": "Build the rate limiter", "job": "build", "design_document": DESIGN}
+            )
+            self.assertEqual(check_job.STAGE, state["next_stage"])
 
     def test_a_re_run_that_still_conflicts_keeps_the_instruction_and_its_file(self):
         with tempfile.TemporaryDirectory() as root:
