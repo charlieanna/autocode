@@ -55,6 +55,7 @@ try:
     from . import autocode_agent_env as agent_env
     from . import autocode_command_receipt as command_receipt
     from . import autocode_command_supervision as command_supervision
+    from . import autocode_dependency_dirs as dependency_dirs
     from . import autocode_diff_coverage as diff_coverage
     from . import autocode_first_suite as first_suite
     from . import autocode_go_test_prerequisites as go_prerequisites
@@ -97,6 +98,7 @@ except ImportError:
     import autocode_agent_env as agent_env
     import autocode_command_receipt as command_receipt
     import autocode_command_supervision as command_supervision
+    import autocode_dependency_dirs as dependency_dirs
     import autocode_diff_coverage as diff_coverage
     import autocode_first_suite as first_suite
     import autocode_go_test_prerequisites as go_prerequisites
@@ -186,7 +188,7 @@ CODE_SUFFIXES = frozenset(
         ".zig",
     }
 )
-DEPENDENCY_DIRS = ("node_modules", ".venv", "venv")
+DEPENDENCY_DIRS = dependency_dirs.NAMES
 COLLECTION_ERROR = python_tests.COLLECTION_ERROR
 UNITTEST_HEADER = python_tests.UNITTEST_HEADER
 UNITTEST_STATUS = python_tests.UNITTEST_STATUS
@@ -2905,12 +2907,13 @@ def verify(
 
 
 def product_files(changes, *, roles=None, source_files=None) -> list[tuple[str, str]]:
-    """The changed product code (not tests, not deletions) diff coverage and mutants read: (path, status)."""
+    """The changed product code (not tests, deletions or installed dependencies, #3164) diff coverage and mutants read."""
     return [
         (path, status)
         for path, status in changes.items()
         if status != "deleted"
         and is_code_path(path)
+        and not dependency_dirs.installed(path)
         and (
             path in source_files
             if source_files is not None

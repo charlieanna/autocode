@@ -59,6 +59,18 @@ class ChangedCodeEvidenceTests(unittest.TestCase):
         self.assertIn("app.py:4", result["reason"])
         self.assertEqual("reason_required", result["obligations"][1]["status"])
 
+    def test_the_reason_names_a_bounded_number_of_gaps_and_counts_the_rest(self):
+        # #3164: the reason is copied into the Builder's next action and every review handoff; listing
+        # 274,546 lines made it 16 MB. Every gap stays in obligations.
+        lines = list(range(1, evidence.LISTED_LINES + 6))
+        result = assess(inventory=[{"path": "app.py", "sha256": FILE_HASH, "lines": lines}])
+        self.assertEqual(len(lines), sum(row["status"] == "reason_required" for row in result["obligations"]))
+        self.assertIn(f"app.py:{evidence.LISTED_LINES},", result["reason"])
+        self.assertNotIn(f"app.py:{evidence.LISTED_LINES + 1}", result["reason"])
+        self.assertTrue(result["reason"].endswith(", and 5 more in obligations"), result["reason"])
+        exact = assess(inventory=[{"path": "app.py", "sha256": FILE_HASH, "lines": lines[: evidence.LISTED_LINES]}])
+        self.assertTrue(exact["reason"].endswith(f"app.py:{evidence.LISTED_LINES}"), exact["reason"])
+
     def test_missing_coverage_uses_only_demonstrated_line_specific_mutation_fallback(self):
         result = assess({"collected": False, "note": "no project coverage tool"}, mutations())
         self.assertEqual("PASS", result["status"])

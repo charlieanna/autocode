@@ -183,6 +183,11 @@ def _exception(exceptions, obligation, source_revision, proof_context):
     }
 
 
+# The reason names this many gaps; every one stays in obligations. It is copied into the Builder's next
+# action and every review handoff, where a list of 274,546 lines was 16 MB of one prompt (#3164).
+LISTED_LINES = 40
+
+
 def assess(inventory, coverage, mutation, *, source_revision, proof_context, exceptions=()):
     """Return deterministic PASS/UNVERIFIED, per-line obligations and chosen fallbacks.
 
@@ -259,8 +264,9 @@ def assess(inventory, coverage, mutation, *, source_revision, proof_context, exc
             else "No changed executable product lines.",
         }
     else:
+        listed = ", ".join(f"{row['path']}:{row['line']}" for row in gaps[:LISTED_LINES])
+        more = f", and {len(gaps) - LISTED_LINES} more in obligations" if len(gaps) > LISTED_LINES else ""
         result["reason"] = (
-            "Changed product lines still need behavioral evidence or an independently checked reason: "
-            + ", ".join(f"{row['path']}:{row['line']}" for row in gaps)
+            "Changed product lines still need behavioral evidence or an independently checked reason: " + listed + more
         )
     return result

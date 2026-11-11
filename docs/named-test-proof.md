@@ -378,7 +378,11 @@ Tester can record that specific reason against the current offered gap ID and
 pin its source/test/check evidence. Each obligation also carries a short handle
 (`L1`, `L2`, … in inventory order), which the offer accepts beside the full ID and
 the runner maps to the same exact line, so a model never retypes 64-hex IDs. An unavailable tool alone is not a blanket
-exception. Empty survivor lists and the old six-site sample never prove that
+exception. Installed dependencies (a file under any `node_modules`, `.venv` or `venv`
+directory) are third-party code, not changed product lines, even in a project that does
+not ignore them: the runner leaves them out of the inventory and records their count and
+directories as `changed_code_inputs.installed_dependencies` (#3164). The gate's reason
+names the first 40 open lines and counts the rest; every line stays in `obligations`. Empty survivor lists and the old six-site sample never prove that
 all changed lines were tested.
 
 A PASS that omits an offered Tester decision for a line with no mutation
