@@ -1463,6 +1463,12 @@ while its source, settings and scope still hold: AutoCode takes that one scoped
 retry itself and, if the incident repeats again, ends the run with a recorded
 outcome (`recovery.category` `stopped`, `recovery.outcome` with its reason and
 evidence, #2485), so the card shows a finished, failed run and no retry.
+A run this runtime cannot continue (saved at a retired stage or under the old route
+names, `needs.new_run_required` with `needs.action` `fresh_run`) is also a
+`stopped` card, titled "This chat can't continue", whose `what_happened` is
+`needs.reason` and whose actions are `inspect` and `new_conversation`. Its
+`next_command` only explains the stop (`--explain`), which is not an action a
+client takes for the person.
 The view and `--retry-failed-stage` apply one shared admission rule
 (`autocode_recovery_limits.scoped_retry_refusal`), so the view never offers a
 retry the CLI refuses on saved state. A client runs

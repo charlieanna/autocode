@@ -526,6 +526,23 @@ def project(state: RunState, need=None):
             )
         )
         return result
+    if need.get("new_run_required") and need.get("action") == "fresh_run" and status != "PAUSED_COMPONENT_PLAN":
+        # A run this runtime cannot continue (autocode_workflows.retired_stage: saved at a retired stage
+        # or under the old route names). Its next_command only explains the stop, which is not an action
+        # a client can take for the person, so the card says the chat has ended and offers a new one.
+        result.update(
+            title="This chat can't continue",
+            category="stopped",
+            what_happened=need.get("reason") or need.get("recovery_hint") or result["what_happened"],
+        )
+        actions.append(
+            _action(
+                "new_conversation",
+                "Start a new conversation",
+                "Keep this chat's saved work readable and start the task again in a new chat in the same project.",
+            )
+        )
+        return result
     if status == "PAUSED_COMPONENT_PLAN":
         if need.get("new_run_required"):
             result["title"] = "Caller binding needs a fresh run"

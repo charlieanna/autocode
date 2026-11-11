@@ -1042,6 +1042,29 @@ test('the Runs list puts the most recently active chats on top under Recent', as
   }
 });
 
+test('a finished chat shows the check icon, not the working sync icon', async () => {
+  const listed = [
+    { id: 'done', workspace: '/alpha', runDir: '/alpha/.autocode/runs/done', availability: 'available',
+      status: 'TASK_COMPLETE', title: 'Done chat', updatedAt: '2026-11-11T11:00:00Z' },
+    { id: 'running', workspace: '/alpha', runDir: '/alpha/.autocode/runs/running', availability: 'available',
+      status: 'RUNNING', title: 'Running chat', updatedAt: '2026-11-11T11:05:00Z' },
+    { id: 'paused', workspace: '/alpha', runDir: '/alpha/.autocode/runs/paused', availability: 'available',
+      status: 'PAUSED_REQUESTED', title: 'Paused chat', updatedAt: '2026-11-11T11:03:00Z' },
+  ];
+  const provider = new RunsProvider({ list: async () => ({ runs: listed, diagnostics: [] }) });
+  try {
+    await provider.refresh();
+    const [recent] = provider.getChildren();
+    const rows = provider.getChildren(recent);
+    const icon = (id) => rows.find((row) => row.run.id === id)?.iconPath?.id;
+    assert.equal(icon('done'), 'check', 'TASK_COMPLETE is a finished chat');
+    assert.equal(icon('running'), 'sync');
+    assert.equal(icon('paused'), 'report');
+  } finally {
+    provider.dispose();
+  }
+});
+
 test('registry rows carry the archived flag and only named cleanup actions', () => {
   const { readRegistryList } = host.load('core/view.js');
   const list = readRegistryList(JSON.stringify({ runs: [{
@@ -1411,7 +1434,9 @@ test('composer model, variant and usage update on polling without losing the dra
   assert.equal(field.selectionStart, 5);
   assert.equal(details.open, false);
   ui.chat.show(); await flush();
-  assert.match(ui.document.querySelector('#model-info').textContent, /A new chat runs the models listed under This chat's models; they are listed here once it starts/);
+  assert.match(ui.document.querySelector('#model-info').textContent, /Nothing has run yet\. A new chat runs the models in Stage models\./,
+    'without a per-chat list the new chat names where its models come from');
+  assert.equal(ui.document.querySelector('#models-picker').hidden, true, 'no list, no Models chip');
   assert.match(ui.document.querySelector('#usage-summary').textContent, /Tokens not reported/);
 });
 
@@ -1719,6 +1744,107 @@ test('a new chat shows the stages it will run and changes one for itself alone b
     'the picks are checked again where the chat starts');
   assert.deepEqual(start.mock.calls[0].arguments[4], ['--builder-model', 'sonnet', '--builder-reasoning-effort', 'medium']);
   assert.equal(section.hidden, true, 'a started chat lists its own models in Models & usage');
+});
+
+/** Answer the Models chip's three steps: the stage, the model and the level, by label; record what was offered. */
+function pickInOrder(t, labels) {
+  const offered = [];
+  const picker = t.mock.method(host.vscode.window, 'showQuickPick', async (items, options) => {
+    offered.push({ labels: items.map((item) => item.label), placeHolder: options.placeHolder, items });
+    return items.find((item) => item.label === labels[offered.length - 1]);
+  });
+  return { offered, picker };
+}
+
+test('the chat box Models chip changes a new chat\'s model, not only its level, for that chat alone', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  const calls = [];
+  const ui = await openChat(t, null, false, { stages: (argv) => { calls.push(argv); return chatStageView(argv); } });
+  ui.chat.show(); await flush(); await flush();
+  const chip = ui.document.getElementById('models-picker');
+  assert.equal(chip.hidden, false, 'the chat box offers the models before the first message');
+  assert.equal(chip.disabled, false);
+  assert.equal(ui.document.getElementById('models-name').textContent, 'Models');
+  const rules = [...ui.document.styleSheets].flatMap((sheet) => [...sheet.cssRules]);
+  for (const selector of ['.chat-model select', '.chat-model select.level']) {
+    assert.equal(rules.find((rule) => rule.selectorText === selector).style.width, 'auto',
+      `${selector} must not take the form-wide width: 100%, which hid the model dropdown behind the level`);
+  }
+  assert.equal(ui.document.querySelector('#model-info').textContent,
+    "Nothing has run yet. Choose this chat's models with Models under the message box.");
+  assert.equal(ui.document.querySelector('#usage-breakdown').textContent, 'Tokens and cost are shown here once the chat starts.');
+  const { offered } = pickInOrder(t, ['Builder', 'sonnet', 'high']);
+  chip.click(); await flush(); await flush(); await flush();
+  assert.deepEqual(JSON.parse(JSON.stringify(ui.sent.at(-1))), { type: 'models' }, 'the webview names no command');
+  assert.deepEqual(offered[0].labels, ['Builder', 'Tester']);
+  assert.equal(offered[0].items[0].description, 'haiku at medium (default)');
+  assert.deepEqual(offered[1].labels, ['haiku', 'sonnet'], 'a model the core marks unavailable is not offered');
+  assert.equal(offered[1].items[0].description, 'current · claude');
+  assert.deepEqual(offered[2].labels, ['low', 'medium', 'high']);
+  assert.deepEqual(calls.at(-1), ['stages', 'list', '--json', '--backend', 'claude', '--chat-stage', 'builder', 'sonnet', 'high'],
+    'only the stage\'s own chat_set, filled with the pick');
+  assert.ok(calls.every((argv) => argv[1] === 'list'), 'nothing is saved to Stage models');
+  assert.equal(ui.document.getElementById('models-name').textContent, 'Models · 1 changed');
+  assert.equal(ui.document.querySelector('#chat-models [data-stage="builder"] .now').textContent, 'sonnet at high (this chat)');
+  const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
+  ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
+  assert.deepEqual(start.mock.calls[0].arguments[4], ['--builder-model', 'sonnet', '--builder-reasoning-effort', 'high']);
+});
+
+test('the chat box Models picker cancelled at any step changes nothing', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  const calls = [];
+  const ui = await openChat(t, null, false, { stages: (argv) => { calls.push(argv); return chatStageView(argv); } });
+  ui.chat.show(); await flush(); await flush();
+  const before = calls.length;
+  pickInOrder(t, ['Tester', 'sonnet']);
+  ui.document.getElementById('models-picker').click(); await flush(); await flush(); await flush();
+  assert.equal(calls.length, before, 'a cancelled level sends nothing');
+  assert.equal(ui.document.getElementById('models-name').textContent, 'Models');
+});
+
+/** A started chat's own list (`stages list --run-dir RUN --json`): its `set` is the run's `--stage-model`. */
+function runStageView(changeable = true) {
+  const option = (model, unavailable = null) => ({ model, levels: ['low', 'high'], family: null, context: null, account: null,
+    effort_choices: ['low', 'high'], unavailable });
+  const stage = (id, label, chosen, options) => ({ id, label, does: `${label} does its job.`, advice: '',
+    default: { model: 'gpt-5.6-terra', effort: 'low', offered: true }, chosen, options,
+    set: { next_command: ['--run-dir', run.runDir, '--workspace', run.workspace, '--stage-model', id, 'MODEL', 'EFFORT'] }, reset: null });
+  return { ...ok, stdout: JSON.stringify({ version: 1, backend: 'codex', label: 'Codex', options_stop: null, changeable,
+    reason: changeable ? null : 'A stage is working.', run_dir: run.runDir, stages: [
+      stage('builder', 'Builder', { model: 'gpt-5.6-terra', effort: 'high' }, [option('gpt-5.6-terra'), option('gpt-6-sol'), option('gpt-6', 'the Tester runs gpt-6')]),
+    ] }) };
+}
+
+test('a started chat changes a stage\'s model from the chat box between stages, through the list its view names', async (t) => {
+  const list = ['stages', 'list', '--run-dir', run.runDir, '--json'];
+  const routes = { builder: { job: 'Builder', model: 'gpt-5.6-terra', reasoning_effort: 'high', engine: 'codex' } };
+  const initial = { ...chatView(), routes, stage_models: { changeable: true, reason: null, next_command: list } };
+  const calls = [];
+  const sets = [];
+  // One stand-in for the CLI, set before the chat opens: the run's list and its `--stage-model` change.
+  t.mock.method(cli, 'invoke', async (settings, argv) => {
+    if (argv.includes('--stage-model')) { sets.push({ argv, cwd: settings.cwd }); return { ...ok, stdout: 'saved\n' }; }
+    calls.push({ argv, cwd: settings.cwd });
+    return argv[0] === 'stages' ? runStageView() : { ...ok, stdout: JSON.stringify({ version: 1, stages: [] }) };
+  });
+  const ui = await openChat(t, initial, run);
+  const chip = ui.document.getElementById('models-picker');
+  assert.equal(chip.hidden, false, 'a started chat offers its own models in the chat box');
+  assert.equal(chip.disabled, false);
+  const { offered } = pickInOrder(t, ['Builder', 'gpt-6-sol', 'low']);
+  chip.click(); await flush(); await flush(); await flush(); await flush();
+  assert.deepEqual(calls.at(-1), { argv: list, cwd: run.workspace }, 'the list the status view names, in the chat\'s folder');
+  assert.equal(offered[0].items[0].description, 'gpt-5.6-terra at high (this chat)');
+  assert.deepEqual(offered[1].labels, ['gpt-5.6-terra', 'gpt-6-sol']);
+  assert.deepEqual(sets, [{ argv: ['--run-dir', run.runDir, '--workspace', run.workspace, '--stage-model', 'builder', 'gpt-6-sol', 'low'], cwd: run.workspace }]);
+  assert.ok(host.notices.some((notice) => /Builder on gpt-6-sol at low from its next stage/.test(notice.message)));
+  const working = 'A stage is working. Pause the chat, or wait until it asks you something, to change its models.';
+  await ui.poll({ ...initial, stage_models: { changeable: false, reason: working, next_command: list } });
+  assert.equal(chip.disabled, true, 'only between stages');
+  assert.equal(chip.title, working, 'the core says why not');
+  await ui.poll({ ...initial, stage_models: null });
+  assert.equal(chip.hidden, true, 'an older core offers nothing to change');
 });
 
 /** `autocode worktrees list --json`: a new branch by default, two existing branches (one taken), and the folder with its warning. */
@@ -2568,6 +2694,27 @@ for (const surface of ['chat', 'Run details']) {
     if (surface === 'chat') assert.equal(ui.chat.run, undefined);
     else assert.equal(execute.mock.calls.at(-1).arguments[0], 'autocode.startRun');
     assert.equal(launch.mock.callCount(), 0, 'opening a fresh chat must launch no provider');
+  });
+
+  test(`a chat the core cannot continue ends in ${surface} with a new conversation, not a client gap`, async (t) => {
+    // Ankur, 2026-11-11: a chat saved under the old route names showed "No action the client can take",
+    // since its next_command only explains the stop (--explain). The core now marks it stopped.
+    const reason = 'This run was saved before AutoCode named its stages after their jobs. Its status and saved reports stay readable; start a new task to continue the work.';
+    const view = {
+      status: 'PAUSED_STALE_VALIDATION', done: false,
+      needs: { kind: 'resume', reason, recovery_hint: reason, new_run_required: true, edit_required: false, action: 'fresh_run', feedback_action: null },
+      next_command: `autocode --run-dir ${run.runDir} --workspace ${run.workspace} --explain`,
+      recovery: { category: 'stopped', title: "This chat can't continue", what_happened: reason,
+        retained: '0 finished attempt(s) remain in the history.',
+        actions: [{ kind: 'inspect', label: 'Inspect saved work' },
+          { kind: 'new_conversation', label: 'Start a new conversation' }] },
+    };
+    const ui = surface === 'chat' ? await openChat(t, view) : await openPanel(t, view);
+    const text = ui.document.querySelector('#app').textContent;
+    assert.ok(text.includes("This chat can't continue"));
+    assert.ok(text.includes('start a new task'));
+    assert.ok(!text.includes('No action the client can take'));
+    assert.ok(ui.document.querySelector('#start-new-conversation'));
   });
 
   test(`${surface} applies polling interval changes without reload and disposes the listener`, async (t) => {

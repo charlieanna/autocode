@@ -2,7 +2,7 @@
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
 import { invoke, tail } from "./core/cli";
-import { backendArgs, currentRoute, fillSet, readStages, runListCommand, runRoute, type StageView } from "./core/stages";
+import { backendArgs, currentRoute, fillSet, readStages, runListCommand, runRoute, type Stage, type StageRoute, type StageView } from "./core/stages";
 import { readSettings, routeKeyOf, type Settings } from "./settings";
 
 /**
@@ -28,6 +28,46 @@ export function runStages(value: unknown): RunStages | undefined {
   const row = value as Record<string, unknown>;
   const list = runListCommand(row.list);
   return list && typeof row.cwd === "string" && row.cwd ? { list, cwd: row.cwd } : undefined;
+}
+
+/** A stage, a model its list offers and one of that model's levels, as the person picked them. */
+export interface StagePick { stage: Stage; model: string; effort: string }
+
+/**
+ * The chat box's Models picker: a stage, then a model the core offers it, then one of that model's
+ * levels, from the list the core gave (`stages list --json`). A model the list marks unavailable is
+ * not offered; the caller fills only the stage's own named command with the pick, so the core checks
+ * it again. `now` says what the stage runs in this chat and `current` which model and level that is.
+ */
+export async function pickStageModel(view: StageView, now: (stage: Stage) => string,
+  current: (stage: Stage) => StageRoute | null, scope: string): Promise<StagePick | undefined> {
+  const stages = view.stages.filter((stage) => stage.options.some((option) => !option.unavailable));
+  if (!stages.length) {
+    void vscode.window.showInformationMessage(view.optionsStop ? `Models cannot be listed: ${view.optionsStop}` : "No stage offers another model.");
+    return undefined;
+  }
+  const stagePick = await vscode.window.showQuickPick(
+    stages.map((stage) => ({ label: stage.label, description: now(stage), detail: stage.does, stage })),
+    { placeHolder: `Choose a stage to change ${scope}`, matchOnDescription: true });
+  if (!stagePick) return undefined;
+  const stage = stagePick.stage;
+  const route = current(stage);
+  const modelPick = await vscode.window.showQuickPick(
+    stage.options.filter((option) => !option.unavailable).map((option) => ({
+      label: option.model, model: option.model,
+      description: [option.model === route?.model ? "current" : "", option.family ?? ""].filter(Boolean).join(" · ") || undefined,
+    })),
+    { placeHolder: `${stage.label} model ${scope} (now ${now(stage)})`, matchOnDescription: true });
+  if (!modelPick) return undefined;
+  const option = stage.options.find((row) => row.model === modelPick.model);
+  const levels = option?.effortChoices ?? [];
+  if (!levels.length) return undefined;
+  const keep = modelPick.model === route?.model ? route?.effort : null;
+  const effortPick = levels.length === 1 ? { level: levels[0]! } : await vscode.window.showQuickPick(
+    levels.map((level) => ({ label: level, level, description: level === keep ? "current" : undefined })),
+    { placeHolder: `${stage.label} reasoning level on ${modelPick.model}` });
+  if (!effortPick) return undefined;
+  return { stage, model: modelPick.model, effort: effortPick.level };
 }
 
 export class StagesPanel implements vscode.Disposable {

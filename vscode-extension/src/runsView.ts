@@ -218,7 +218,9 @@ function iconFor(run: RegistryRun): vscode.ThemeIcon {
   if (run.archived) return new vscode.ThemeIcon("archive");
   if (run.availability !== "available") return new vscode.ThemeIcon("dash");
   const status = (run.status ?? "").toUpperCase();
-  if (status === "COMPLETE" || status === "COMPLETED") return new vscode.ThemeIcon("check", new vscode.ThemeColor("charts.green"));
+  if (status === "COMPLETE" || status === "COMPLETED" || status === "TASK_COMPLETE") {
+    return new vscode.ThemeIcon("check", new vscode.ThemeColor("charts.green"));
+  }
   if (status.startsWith("PAUSED") || status.startsWith("AWAITING")) {
     return new vscode.ThemeIcon("report", new vscode.ThemeColor("charts.orange"));
   }
