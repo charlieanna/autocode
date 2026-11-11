@@ -1,7 +1,7 @@
 /** Connection metadata and named actions come from the public AutoCode CLI. */
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
-import { invoke, tail } from "./core/cli";
+import { invoke, tail, STATUS_TIMEOUT_MS } from "./core/cli";
 import { partitionOptions, readSettings, routeKeyOf, sanitizeRoutes } from "./settings";
 
 interface ConnectionAction { id: string; label: string; next_command: string[] }
@@ -39,7 +39,9 @@ export class ConnectionsPanel implements vscode.Disposable {
   }
 
   private async refresh(): Promise<void> {
-    const result = await invoke(readSettings(), ["connections", "list", "--json"]);
+    // Bounded like a status poll: a wedged read must fail and say so. Without a limit the
+    // busy flag this panel holds would never clear and every button would stay disabled.
+    const result = await invoke(readSettings(), ["connections", "list", "--json"], {}, STATUS_TIMEOUT_MS);
     if (result.code !== 0) throw new Error(tail(result));
     const data = JSON.parse(result.stdout);
     if (data.version !== 1 || !Array.isArray(data.connections)) throw new Error("Update AutoCode to use Connections.");
@@ -71,7 +73,7 @@ export class ConnectionsPanel implements vscode.Disposable {
         vscode.window.createTerminal({ name: `AutoCode: ${row.label} setup`, shellPath: settings.command,
           shellArgs: [...settings.prefix, ...action.next_command], env: settings.env }).show();
       } else if (action.id === "check") {
-        const result = await invoke(settings, action.next_command);
+        const result = await invoke(settings, action.next_command, {}, STATUS_TIMEOUT_MS);
         if (result.code !== 0) throw new Error(tail(result));
         const checked = JSON.parse(result.stdout) as Connection;
         if (checked.id !== row.id) throw new Error("Connection check returned a different backend.");

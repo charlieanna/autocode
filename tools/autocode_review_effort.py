@@ -130,7 +130,8 @@ def launch(state: RunState, stage, route_role, report_only, route: dict) -> tupl
     (autocode_repair_effort, #2868); the first Requirements pass asks its blocking questions from a
     small prompt at the floor level (autocode_requirements_triage, #2940); a hard plan's Planner and
     Plan Reviewer run one level above their saved level (autocode_plan_difficulty, owner decision
-    2026-11-09). ``decision`` is None when no rule considered the launch.
+    2026-11-09). A saved level a route answer moved to its new model's nearest level is said too
+    (autocode_route_fit.answer_choice, #3120). ``decision`` is None when no rule considered the launch.
 
     Triage is a first-dispatch rule only: a repair of the triage pass's report keeps the repair
     bound and its reason, because the runner launches a repair under the original stage name and
@@ -140,14 +141,22 @@ def launch(state: RunState, stage, route_role, report_only, route: dict) -> tupl
     if report_only:
         decision = repair_effort.decide(state, configured, model=route.get("model"))
     elif triage_decision := requirements_triage.effort_decision(state, stage, configured):
-        return triage_decision["level"], triage_decision
+        decision = triage_decision
     else:
         # A hard plan's Planner and Plan Reviewer run one level up (autocode_plan_difficulty); a raise
         # wins over a small task's lowered review, so a small plan touching sensitive files is not cut.
         raised = plan_difficulty.decide(state, stage, route_role, report_only, configured, model=route.get("model"))
         lowered = decide(state, stage, route_role, report_only, configured, model=route.get("model"))
         decision = raised if raised and (raised.get("raised") or not lowered) else lowered
-    return effort(decision, configured), decision
+    level = effort(decision, configured)
+    # A route answer moved the saved level to the nearest one its model offers (#3120): say so, beside
+    # whichever rule set this launch's level, or as the choice itself when none did.
+    moved = route_fit.answer_choice(state.get("settings") or {}, route_role, route.get("model"), configured)
+    if moved and decision:
+        decision = {**decision, "route_answer_fit": moved}
+    elif moved:
+        decision = moved
+    return level, decision
 
 
 def effort(decision: dict | None, configured):
@@ -159,6 +168,9 @@ def note(decision) -> str | None:
     """One sentence for the live log when a launch runs below or above the person's level; None otherwise."""
     if isinstance(decision, dict) and decision.get("raised"):
         return plan_difficulty.note(decision)
+    if isinstance(decision, dict) and decision.get("reason") == route_fit.ROUTE_ANSWER_FIT:
+        text = decision.get("text")
+        return f"Running at {decision.get('level')}: {text}." if isinstance(text, str) else None
     if not isinstance(decision, dict) or not decision.get("lowered"):
         return None
     level, ceiling = decision.get("level"), decision.get("ceiling")
