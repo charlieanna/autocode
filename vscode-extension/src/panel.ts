@@ -372,7 +372,7 @@ export class RunPanel {
         return;
       }
       if (numeric || planning || (requiresConfirmation(view.needs ?? null) && confirmPersonOnly())) {
-        const button = numeric ? numericActionLabel(state) : planning?.label ?? "Take it anyway";
+        const button = numeric ? numericActionLabel(state) : planning?.label ?? "Continue";
         const proceed = await vscode.window.showWarningMessage(
           numeric ?? planning?.title ?? `AutoCode stopped this run for a person to decide (${view.needs?.kind}). Taking its named action applies your answer to that decision.`,
           { modal: true, detail: numeric ? numericRecoveryEffect(state) : planning?.detail ?? needsSummary(view) },
@@ -1466,8 +1466,8 @@ function render(state) {
       cardContent.appendChild(el('h2', null, 'No action the client can take'));
       const box = el('div', 'gap');
       box.appendChild(el('div', null,
-        'AutoCode named no action this client is allowed to take. That is a gap in the CLI or the '
-        + 'status view (#1012), not something the extension should work around.'));
+        'AutoCode named no action this client is allowed to take. That is a gap in AutoCode itself, '
+        + 'not something the extension should work around.'));
       box.appendChild(el('pre', null, state.gap));
       cardContent.appendChild(box);
     } else if (!state.done && state.needKind === 'continue' && state.working) {
@@ -1734,8 +1734,8 @@ function render(state) {
     app.appendChild(el('h2', null, 'No action the client can take'));
     const box = el('div', 'gap');
     box.appendChild(el('div', null,
-      'AutoCode named no action this client is allowed to take. That is a gap in the CLI or the '
-      + 'status view (#1012), not something the extension should work around.'));
+      'AutoCode named no action this client is allowed to take. That is a gap in AutoCode itself, '
+      + 'not something the extension should work around.'));
     box.appendChild(el('pre', null, state.gap));
     app.appendChild(box);
   } else if (!state.done && !state.stopped) {
@@ -2116,7 +2116,7 @@ function renderTabs(data) {
 
 function renderChat(data) {
   const thread = document.getElementById('thread');
-  document.getElementById('engine-name').textContent = data.engine || 'opencode';
+  document.getElementById('engine-name').textContent = data.engine || 'OpenCode';
   // The core's run mode for this chat; only a chat that has not started offers one.
   document.getElementById('mode-picker').hidden = !data.mode;
   document.getElementById('mode-name').textContent = data.mode || '';
