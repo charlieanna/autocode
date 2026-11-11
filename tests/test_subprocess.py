@@ -1,5 +1,6 @@
 """Full command-line flow with real processes and an explicitly fake provider."""
 
+import atexit
 import json
 import os
 import shutil
@@ -51,6 +52,33 @@ def keep_timeout_streams(error, retained_root=None):
         error.add_note(f"--- {name} before the timeout ({heading}) ---\n{text[-TIMEOUT_STREAM_TAIL:]}")
 
 
+TOOLS = Path(__file__).resolve().parents[1] / "tools"
+_compiled_tools = None
+
+
+def compiled_tools():
+    """A bytecode cache of tools/, compiled once per test process, outside the checkout (#2997).
+
+    The fixture's children run with PYTHONDONTWRITEBYTECODE, so nothing is written into
+    the checkout or the fixture workspace, and without a cache every CLI child compiled
+    the roughly 560 AutoCode modules it imports from source: about six times the CPU of
+    loading them, before it printed a line. On an oversubscribed host that repeated work
+    pushed a single CLI call past the 240-second deadline, wherever the run happened to be.
+    Children read this cache through PYTHONPYCACHEPREFIX and still write nothing.
+    """
+    global _compiled_tools
+    if _compiled_tools is None:
+        cache = Path(tempfile.mkdtemp(prefix="autocode-test-pycache-")).resolve()
+        atexit.register(shutil.rmtree, cache, True)
+        subprocess.run(
+            [sys.executable, "-X", f"pycache_prefix={cache}", "-m", "compileall", "-q", "-j", "0", str(TOOLS)],
+            check=True,
+            stdout=subprocess.DEVNULL,
+        )
+        _compiled_tools = cache
+    return _compiled_tools
+
+
 class SubprocessFlow(unittest.TestCase):
     new_run_engine_args = ("--engine", "codex")
 
@@ -98,6 +126,7 @@ class SubprocessFlow(unittest.TestCase):
             **os.environ,
             "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
             "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONPYCACHEPREFIX": str(compiled_tools()),
             "AUTOCODE_HOME": str(self.root / "registry-home"),
             "XDG_CONFIG_HOME": str(config_home),
             "CODEX_HOME": str(codex_home),
