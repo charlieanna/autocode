@@ -216,6 +216,13 @@ def _reconcile_proof_finding(state: RunState, workspace):
             and (row.get("scope") or {}).get("milestone_id") == current_milestone
             and infrastructure.disk_collection_failure(state, row, revision)
         )
+        # A pre-existing suite test that failed once, then passed every rerun and this proof (#2942).
+        for row in proof_findings.open_rows(state):
+            if row["id"] not in settle_same_revision_ids and (
+                flake := proof_findings.flake_settled(row, revision, state.get("regression_proof") or {})
+            ):
+                settle_same_revision_ids.append(row["id"])
+                settle_evidence[row["id"]] = flake
         # A refusal only because the old collector missed a passing unittest suite (#3037): settled
         # with the superseded receipts named beside the fresh one, never by a report's claim.
         for row in proof_findings.open_rows(state):

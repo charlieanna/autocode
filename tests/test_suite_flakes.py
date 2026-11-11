@@ -7,13 +7,20 @@ import textwrap
 import unittest
 from pathlib import Path
 
+import autocode_completion_result as completion_result
+import autocode_proof_findings as proof_findings
 import autocode_regression as regression
 import autocode_suite_flakes as flakes
 import autocode_verify as verify
 import autocode_verify_judgment as judgment
+import scenario_references as references
+import task_scenarios as scenarios
+
+from tests.test_verify import Project
 
 CASES = [{"id": "C1", "text": "answer is 2", "test_name": "test_c1_answers_two"}]
 FLAKY = "tests.test_flaky.FlakyTests.test_sometimes"
+CLOCK = "test_clock.TestClock.test_tick"
 
 
 def receipt(passed=(), failed=(), complete=True, exit_code=0):
@@ -210,3 +217,83 @@ class ProofRunTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FlakeFindingTests(unittest.TestCase):
+    """The runner's proof finding on a source whose only failure was a suite test that then passed (#2942)."""
+
+    FAILURE = proof_findings.REGRESSED + ": " + FLAKY
+
+    def proof(self, candidate=("fail", "pass", "pass"), failures=None, unverified=(), test=FLAKY):
+        return {
+            "verdict": "FAIL",
+            "failures": [self.FAILURE] if failures is None else failures,
+            "unverified": list(unverified),
+            "suite_flakes": {"tests": [{"test": test, "candidate": list(candidate), "verdict": "regression"}]},
+        }
+
+    def test_only_a_lone_suite_regression_whose_every_rerun_passed_counts(self):
+        self.assertEqual([FLAKY], proof_findings.passed_again(self.proof()))
+        for proof in (
+            self.proof(candidate=("fail", "pass", "fail")),
+            self.proof(candidate=("fail", "pass", "missing")),
+            self.proof(candidate=("fail",)),
+            self.proof(failures=[self.FAILURE, "The regression tests fail on the candidate: t.A.test_new"]),
+            self.proof(failures=["The regression tests fail on the candidate: " + FLAKY]),
+            self.proof(unverified=["The base suite was incomplete"]),
+            self.proof(test="t.A.test_other"),
+            {**self.proof(), "suite_flakes": None},
+        ):
+            self.assertEqual([], proof_findings.passed_again(proof), proof)
+
+    def test_the_real_proofs_settle_the_finding_once_the_same_source_passes(self):
+        mark = Path(tempfile.mkdtemp(prefix="clock-")) / "flaked"
+        self.addCleanup(lambda: mark.unlink(missing_ok=True) or mark.parent.rmdir())
+        clock = (
+            "import os\nimport unittest\n\nfrom greet import main\n\n\n"
+            "class TestClock(unittest.TestCase):\n"
+            "    def test_tick(self):\n"
+            f"        if main(['   ']) == 2 and not os.path.exists({str(mark)!r}):\n"
+            f"            open({str(mark)!r}, 'w').close()\n"
+            "            self.fail('timing flake')\n"
+        )
+        project = Project({**scenarios.BUGFIX_SEED, "test_clock.py": clock})
+        self.addCleanup(project.close)
+        project.write({name: references.BUGFIX_REFERENCE[name] for name in ("greet.py", "test_greet.py")})
+        run_dir = project.root / ".autocode" / "runs" / "20261111-flake-run"
+        run_dir.mkdir(parents=True)
+        case = {
+            "id": "T1",
+            "criterion": "Given a blank name; when greet.py runs; then it prints usage and exits 2",
+            "verification_method": "test: test_blank_name_rejected",
+        }
+        state = {
+            "version": 3,
+            "base_commit": project.base,
+            "workspace": str(project.root),
+            "settings": {},
+            "iteration": 1,
+            "stages": [],
+            "history": [],
+            "goal_contract": {
+                "body": {"task_kind": "bugfix", "acceptance_criteria": [case], "milestones": [{"id": "M1"}]}
+            },
+        }
+        first = regression.prove(state, project.root, run_dir)
+        self.assertEqual([self.FAILURE.replace(FLAKY, CLOCK)], first["failures"], first)
+        completion_result._reconcile_proof_finding(state, project.root)
+        [row] = proof_findings.open_rows(state)
+        revision = first["source_revision"]
+        self.assertEqual([CLOCK], row["flaky_revisions"][revision]["tests"])
+        second = regression.prove(state, project.root, run_dir)
+        self.assertEqual(("PASS", revision), (second["verdict"], second["source_revision"]), second)
+        completion_result._reconcile_proof_finding(state, project.root)
+        self.assertEqual([], proof_findings.open_rows(state))
+        self.assertEqual("resolved", row["status"])
+        self.assertIn("Settled as a flaky test, not a regression: " + CLOCK, row["resolution_evidence"])
+        self.assertIn(first["path"], row["resolution_evidence"])
+        self.assertIsNone(
+            completion_result._send_back_unproven(
+                state, {"revision": revision}, {"stage": "review_completion"}, regression.complete
+            )
+        )

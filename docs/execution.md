@@ -539,13 +539,17 @@ kept as `suite_flakes` in the proof's `verification.json` and in the run's
 regression proof; a quarantine also adds a note and a review reason that the
 judging stages read. None of this is a question for the person.
 
-A test that failed in one proof and passed when the same source was proved
-again is not quarantined: it was not seen failing on the original code. The
-runner's blocking finding for that source stays open, and a Completion
-Reviewer that asks to complete is sent back once with that reason, so the
-Builder makes the change or the test reliable. A second request for the same
-source goes to the Investigator. The run never stops at the completion gate
-for it.
+A test that failed in one proof is not quarantined when it was not seen
+failing on the original code, so that proof fails and opens the runner's
+blocking finding for that source. The finding is settled as a flaky test when
+that proof's only failure was suite tests the recheck saw fail once and then
+pass on every rerun, and the runner's later proof of the same, unchanged source
+passes. These are tests the change does not touch, so the Builder could not fix
+them. The settlement names both proofs' receipts. Otherwise the finding stays
+open, and a Completion Reviewer that asks to complete is sent back once with
+that reason, so the Builder makes the change or the test reliable. A second
+request for the same source goes to the Investigator. The run never stops at
+the completion gate for it.
 
 When the project already has a coverage tool (`coverage.py`, `go test
 -coverprofile`, `c8`, or Vitest's coverage package), the proving-test command
