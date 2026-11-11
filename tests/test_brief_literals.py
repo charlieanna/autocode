@@ -101,6 +101,61 @@ class MissingTests(unittest.TestCase):
         self.assertIn("`todos.json`", message)
 
 
+class DisagreementTests(unittest.TestCase):
+    """A worked example renders a cited template as written (#2941)."""
+
+    LIST = "ID TEXT [open|done]"
+
+    def wrong(self, examples, cited=(LIST,), known=()):
+        return [example for example, _ in literals.disagreements(list(cited), examples, known)]
+
+    def test_the_live_example_is_refused_and_the_brief_rendering_kept(self):
+        # 2026-10-01: the brief's `ID TEXT [open|done]` was written as `1 buy milk open`.
+        self.assertEqual([("1 buy milk open", self.LIST)], literals.disagreements([self.LIST], ["1 buy milk open"]))
+        self.assertEqual([], self.wrong(["1 buy milk [open]", "2 walk dog [done]", self.LIST]))
+
+    def test_changed_brackets_separators_casing_and_field_order_are_refused(self):
+        examples = ["1 buy milk (open)", "1 buy milk [Open]", "1 buy milk OPEN", "[open] 1 buy milk"]
+        self.assertEqual(examples, self.wrong(examples))
+        self.assertEqual(["5 Dollars"], self.wrong(["5 Dollars", "5 dollars"], cited=["AMOUNT dollars"]))
+
+    def test_the_brief_commands_beside_the_format_are_their_own_literals(self):
+        known = literals.literals([TODO_BRIEF])
+        commands = ["todo.py add water plants done", "todo.py complete 1", "todo.py list"]
+        self.assertEqual([], self.wrong(commands, known=known))
+        self.assertEqual(["todo.py add water plants done"], self.wrong(commands))
+
+    def test_an_example_without_the_format_markers_is_not_a_reordering(self):
+        self.assertEqual([], self.wrong(["done 1 buy milk"]))
+        self.assertEqual([], self.wrong(["open 1 buy milk"], cited=["ID TEXT open|done"]))
+
+    def test_fields_the_template_spaces_apart_stay_spaced(self):
+        flag = ["--project NAME"]
+        self.assertEqual([], self.wrong(["--project-file x", "--by-project", "--project=x"], cited=flag))
+        self.assertEqual(["--Project x"], self.wrong(["--Project x"], cited=flag))
+        self.assertEqual(["Todo.py complete 1"], self.wrong(["Todo.py complete 1"], cited=["todo.py complete ID"]))
+
+    def test_a_fixed_part_matches_only_a_whole_word(self):
+        self.assertEqual([], self.wrong(["2 water plants undone"]))
+        self.assertEqual(
+            ["open 1 buy milk"], self.wrong(["opener 1 buy", "open 1 buy milk"], cited=["[open|done] ID TEXT"])
+        )
+
+    def test_a_template_with_nothing_fixed_is_left_to_the_plan_reviewer(self):
+        self.assertEqual([], self.wrong(["1 buy milk"], cited=["ID: TEXT"]))
+        self.assertEqual([], self.wrong(["1 buy milk"], cited=["todo.py list"]))
+
+    def test_bounds_keep_the_comparison_short(self):
+        self.assertEqual([], self.wrong(["1 a b c open"], cited=["ID A B C [open|done]"]))
+        self.assertEqual(["1 a b open"], self.wrong(["1 a b open"], cited=["ID A B [open|done]"]))
+        long = "1 " + "x" * (literals.MAX_EXAMPLE - 7) + " open"
+        self.assertEqual([long], self.wrong([long]))
+        self.assertEqual([], self.wrong([long + "!"]))
+        self.assertEqual(["[open] 1 x a b"], self.wrong(["[open] 1 x a b"], cited=["ID x A B [open|done]"]))
+        self.assertEqual([], self.wrong(["[open] 1 x a y b"], cited=["ID x A y B [open|done]"]))
+        self.assertEqual(["1 X a y b open"], self.wrong(["1 X a y b open"], cited=["ID x A y B [open|done]"]))
+
+
 class PlannerDraftTests(unittest.TestCase):
     """Through goals.check_requirement_trace, which the runner calls on every planner draft."""
 
@@ -157,6 +212,10 @@ class PlannerPromptTests(unittest.TestCase):
                 self.assertIn("BRIEF LITERALS", text)
                 for literal in literals.literals([TODO_BRIEF]):
                     self.assertIn(f"`{literal}`", text.split("BRIEF LITERALS", 1)[1].split("\n", 1)[0])
+
+    def test_the_rule_says_worked_examples_keep_the_format(self):
+        text = self.prompt("draft_plan").split("BRIEF LITERALS", 1)[1].split("\n", 1)[0]
+        self.assertIn("keeps its brackets, separators, field order and casing exactly", text)
 
     def test_a_stage_whose_draft_is_not_checked_gets_no_list(self):
         self.assertNotIn("BRIEF LITERALS", self.prompt("requirements_gather"))
