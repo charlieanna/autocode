@@ -108,14 +108,23 @@ class ResolverRetryRouteCLI(unittest.TestCase):
 
         self.assertEqual(0, call("abandon", "--abandon-stage", attempt).returncode)
         # A change the held packet cannot take as a route assignment names no retry the run would refuse.
-        effort_only = driver.call("effort-only", "--resume-paused", "--resolver-reasoning-effort", "medium")
-        self.assertEqual(2, effort_only.returncode)
+        # The driver raises on argparse's usage error, carrying the CLI's refusal; a host whose CLI first
+        # notes a capability drop on stderr hands the refusal back as the call's own stderr instead.
+        before_refusal = (driver.run_dir / "state.json").read_bytes()
+        try:
+            refused = driver.call("effort-only", "--resume-paused", "--resolver-reasoning-effort", "medium")
+        except DriveError as error:
+            refusal = str(error)
+        else:
+            self.assertEqual(2, refused.returncode)
+            refusal = refused.stderr
         self.assertIn(
             "A held Resolver's model changes only with its scoped retry, which cannot be given now "
             "(Scoped recovery retry requires its no-progress hold); nothing was saved",
-            effort_only.stderr,
+            refusal,
         )
-        self.assertNotIn("requires --resume-paused --retry-failed-stage", effort_only.stderr)
+        self.assertNotIn("requires --resume-paused --retry-failed-stage", refusal)
+        self.assertEqual(before_refusal, (driver.run_dir / "state.json").read_bytes())
         call("reroute", "--resume-paused", "--resolver-model", NAMED, "--resolver-reasoning-effort", "medium")
         calls = [json.loads(line) for line in (root / "resolver-calls.jsonl").read_text().splitlines()]
         self.assertEqual([(REFUSED, True), (NAMED, False)], [(row["model"], row["refused"]) for row in calls])
