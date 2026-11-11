@@ -5982,3 +5982,40 @@ test('Enter in the bound-raise field raises through its named command when the n
   const args = launch.mock.calls[0].arguments[1];
   assert.equal(args[args.indexOf('--max-cost-usd') + 1], '5');
 });
+
+// The tab strip works from the keyboard: a roving tabindex, arrows (and Home/End) that select
+// the same chat a click selects, and a close that is a real button, which the host presses.
+test('chat tabs are keyboard-reachable: arrows select and the close is a button', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  ui.chat.show(beta);
+  await flush();
+  const tabs = () => [...ui.document.querySelectorAll('.chat-tab')];
+  const active = () => ui.document.querySelector('.chat-tab.active');
+  assert.equal(tabs().length, 2);
+  assert.equal(tabs()[1].tabIndex, 0, 'the selected tab holds the strip\'s place in the tab order');
+  assert.equal(tabs()[0].tabIndex, -1, 'the other tabs are reached with the arrow keys, not Tab');
+  const keyOf = (ref) => ref.workspace + '\n' + ref.runDir;
+  const selects = () => ui.sent.filter((message) => message.type === 'select_tab');
+
+  tabs()[1].focus();
+  tabs()[1].dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+  await flush();
+  assert.equal(selects().length, 1, 'the arrow selects exactly the chat a click would');
+  assert.equal(selects()[0].tabKey, keyOf(alpha));
+  assert.equal(ui.document.querySelectorAll('.chat-tab')[0].className, 'chat-tab active');
+  assert.equal(ui.document.activeElement, active(), 'a selection that rebuilds the strip keeps focus on it');
+
+  active().dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+  await flush();
+  assert.equal(selects()[1].tabKey, keyOf(beta), 'End selects the last chat');
+
+  const close = ui.document.querySelectorAll('.chat-tab')[1].querySelector('.close');
+  assert.equal(close.tagName, 'BUTTON', 'the close is a button, so the host can press it');
+  assert.equal(close.type, 'button');
+  assert.ok(close.getAttribute('aria-label').startsWith('Close chat '), 'the close names its chat');
+  close.click();
+  await flush();
+  assert.ok(ui.sent.some((message) => message.type === 'close_tab' && message.tabKey === keyOf(beta)),
+    'closing acts on that chat only');
+});
