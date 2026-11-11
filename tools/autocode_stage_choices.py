@@ -527,8 +527,9 @@ def chat_view(backend, picks, list_command, workspace=None, *, file=None, resolv
     for role in picks:
         if role not in ORDER:
             raise ValueError(f"{role} is not a stage; the stages are {', '.join(ORDER)}")
-    file, saved, fallback, options, stop = _read(backend, workspace, file, resolve, discover)
-    effective = _check(backend, picks, saved, fallback, options, stop)
+    found = _read(backend, workspace, file, resolve, discover)
+    effective = _check(backend, picks, *found[1:])
+    file, saved, fallback, options, stop = found
     current = _build(backend, file, saved, fallback, options, stop, effective)
     order = [role for role in ORDER if role in picks]
 

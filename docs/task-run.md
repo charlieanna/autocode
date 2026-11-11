@@ -512,7 +512,12 @@ display events from the running attempt's own provider event file, oldest first:
 `{kind, text, status}` with `kind` one of `command`, `edit` or `tool`, `status`
 one of `running`, `done` or `failed`, and, for an `edit`, the `paths` it names
 (relative to the project when they are inside it, at most 8). `text` is one
-bounded line: a command's first line, the files changed, or the tool called.
+bounded line: a command's first line, the files changed, or the tool called,
+in plain words for the tools agents use to look around (`Read src/a.py`,
+`Searched tools for “context_packet”`, `Looked for files matching *.ts`). A
+`tool` event also has `summary`, a short phrase that groups repeats of it
+(`Read files`, `Searched code`, or `Used <tool>` for any other tool), so a
+client can show four searches as one line.
 Model prose, reasoning and tool output are never copied, and only the tail of a
 file inside the run directory is read. `done` and `failed` describe the tool
 call, not the work: a command that exited 0 is not a passed check, an edit is
@@ -540,8 +545,13 @@ entries beyond the newest and update a growing one in place. `kind` is
 `activity`, reasoning and message prose are copied: collapsed to one line,
 credential-shaped text redacted, and bounded to 400 characters: a finished
 thought or message keeps its first words and ends with `…` where it was cut, and
-one still streaming keeps its newest words behind a leading `…` and ends with
-`[partial]`. Tool
+one still streaming keeps its newest words behind a leading `…`, starting at a
+sentence where they hold one, and ends with `[partial]`. A numbered or bulleted
+list keeps its items apart with `;`. A finished thought that shares most of its
+words with the thought before it is left out, so a model restating its plan before
+each tool call shows once. Beside the log, `now` has one entry `{agent, text}` for
+each agent in it, saying what that agent is doing from its newest entry
+(`searching the code`, `reading files`, `thinking`, `running a command`). Tool
 output is never copied. The Orchestrator runs no model, so its newest dispatch since the person's
 last turn appears as one `message` entry from agent `Orchestrator` with the
 runner's own summary, such as which tasks it builds in parallel or that one
@@ -1890,7 +1900,13 @@ compared with), `cap_usd` (the saved `--max-cost-usd`, or null for no cap), `unp
 (stages on a model without a rate, or with no token counts recorded; not counted), `complete` and `prices_as_of`. Each stage counts
 once. A null amount is unknown, never zero: `estimated_usd` and `reported_usd` are null when no stage
 has that basis, and `spent_usd` is null when no stage is known at all; while `complete` is false,
-`spent_usd` is a floor. `usage.cost_usd` keeps the frozen comparison rates its reports are bound to,
+`spent_usd` is a floor. `running_usd` is what the running stage has spent so far, which none of
+those amounts counts until the stage finishes: its provider's reported price when every request so
+far carries one (a zero is not a price), otherwise its tokens so far at the same dated table; null
+when no stage runs or the running stage cannot be priced. It is not part of `spent_usd` or the cap
+check. A client showing spend so far adds it to `spent_usd` and to the running stage's row, as a
+floor, so a run on its first stage does not read as nothing spent while its tokens climb.
+`usage.cost_usd` keeps the frozen comparison rates its reports are bound to,
 so its `estimated` can differ from `cost.estimated_usd`.
 
 `cost.breakdown` groups that same finished-stage ledger in three alternative ways:

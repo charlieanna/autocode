@@ -25,7 +25,7 @@ import {
   ClientGap,
   type OpenDecision,
 } from "./core/next-command";
-import { readChangesetSummary, readRegistryList, readStatusPayload, approvalToken, planForApproval, type ChangesetSummary, type CheckpointAction, type IntegerCommandInput, type RegistryList, type StatusView } from "./core/view";
+import { readChangesetSummary, readRegistryList, readStatusPayload, approvalToken, planForApproval, type ChangesetSummary, type CheckpointAction, type IntegerCommandInput, type RegistryAction, type RegistryList, type StatusView } from "./core/view";
 import { FULL_START_ARGS, readRunModes, type RunModes } from "./core/modes";
 import { readSettings, type Settings } from "./settings";
 
@@ -113,11 +113,31 @@ export class RunController {
     }
   }
 
-  /** The per-user run pointers. Read-only: it starts nothing and changes nothing. */
-  async list(): Promise<RegistryList> {
-    const result = await invoke(this.settings, ["registry", "list", "--json"]);
+  /** The run pointers and the open project's chats. Read-only: it starts nothing. */
+  async list(includeArchived = false): Promise<RegistryList> {
+    const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const result = await invoke(
+      folder ? { ...this.settings, cwd: folder } : this.settings,
+      ["registry", "list", "--json", ...(includeArchived ? ["--include-archived"] : [])],
+    );
     if (result.code !== 0) throw new Error(tail(result));
     return readRegistryList(result.stdout);
+  }
+
+  /** Run one named History cleanup action; anything outside the exact grammar is a client gap. */
+  async registryAction(run: RunRef, action: RegistryAction): Promise<void> {
+    const expected =
+      action.id === "archive" || action.id === "unarchive"
+        ? ["registry", action.id, "--workspace", run.workspace, "--run-dir", run.runDir]
+        : action.id === "delete"
+          ? ["registry", "delete", "--workspace", run.workspace, "--run-dir", run.runDir, "--yes"]
+          : null;
+    if (!expected) throw new ClientGap(`Unsupported registry action ${action.id}`);
+    if (JSON.stringify(action.nextCommand) !== JSON.stringify(expected)) {
+      throw new ClientGap("Unsupported registry action from AutoCode");
+    }
+    const result = await invoke(this.settings, expected);
+    if (result.code !== 0) throw new Error(tail(result));
   }
 
   /** The run modes the core offers for a new chat. Read-only: it starts nothing. */

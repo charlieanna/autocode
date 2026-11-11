@@ -349,6 +349,64 @@ class ReadTests(unittest.TestCase):
         self.assertLessEqual(len(second), log.PROSE_LIMIT)
         self.assertTrue(second.startswith("old old ") and second.endswith(" old…"), second)
 
+    def test_a_list_keeps_its_items_apart_on_one_line(self):
+        text = "Key files:\n1. `stage_context.py` - the packet\n2. `handoff.py` - dedup\n- `verify.py`\nRead them."
+        self.assertEqual(
+            "Key files: 1. `stage_context.py` - the packet; 2. `handoff.py` - dedup; - `verify.py`; Read them.",
+            log._prose(text),
+        )
+        self.assertEqual("Ran 2 tests. 3 passed", log._prose("Ran 2 tests.\n3 passed"), "a number is not an item")
+
+    def test_a_thought_that_restates_the_one_before_it_shows_once(self):
+        first = (
+            "Let me look at the key files: stage context, review presentation, handoff dedup. Let me read these files."
+        )
+        again = "Let me look at the key files: review presentation, stage context, handoff dedup. Let me read them carefully."
+        other = "The packet already carries the evidence, so the review prompt must drop the duplicate summary."
+        write(
+            self.events,
+            [
+                codex("item.completed", "r1", type="reasoning", text=first),
+                codex("item.completed", "m1", type="agent_message", text="Reading the key files."),
+                codex("item.completed", "r2", type="reasoning", text=again),
+                codex("item.completed", "r3", type="reasoning", text=other),
+                codex("item.completed", "r4", type="reasoning", text="Short."),
+                codex("item.completed", "r5", type="reasoning", text="Short."),
+            ],
+        )
+        self.assertEqual(
+            [
+                ("thinking", first),
+                ("message", "Reading the key files."),
+                ("thinking", other),
+                ("thinking", "Short."),
+                ("thinking", "Short."),
+            ],
+            self.entries(),
+            "the first of two near-identical thoughts keeps its place; a short one is never compared",
+        )
+
+    def test_now_says_what_each_agent_is_doing_from_its_newest_entry(self):
+        entries = [
+            {"id": "orchestrator:1", "agent": "Orchestrator", "kind": "message", "text": "Building M1"},
+            {"id": "effort:1", "agent": "Tester", "kind": "message", "text": "one level below"},
+            {"id": "a", "agent": "Requirements", "kind": "thinking", "text": "…"},
+            {"id": "b", "agent": "Builder · task M1", "kind": "command", "text": "pytest", "status": "running"},
+            {"id": "c", "agent": "Requirements", "kind": "tool", "text": "Searched tools", "summary": "Searched code"},
+            {"id": "d", "agent": "Builder · task M2", "kind": "tool", "text": "lsp a.py", "summary": "Used lsp"},
+            {"id": "e", "agent": "Tester", "kind": "message", "text": "Checking"},
+        ]
+        self.assertEqual(
+            [
+                {"agent": "Builder · task M1", "text": "running a command"},
+                {"agent": "Requirements", "text": "searching the code"},
+                {"agent": "Builder · task M2", "text": "using lsp"},
+                {"agent": "Tester", "text": "writing"},
+            ],
+            log.now(entries),
+        )
+        self.assertEqual([], log.now([]))
+
     def test_a_finished_thought_keeps_its_first_words_and_ends_where_it_was_cut(self):
         # A thought's start is what reads once it is complete; the newest words matter only while it
         # streams. The cut was marked "[earlier text omitted]" at the front, which read as part of
@@ -369,6 +427,9 @@ class ReadTests(unittest.TestCase):
         self.assertIn(" " + shown[1:].removesuffix(" [partial]"), text, "a whole word follows the cut")
         self.assertLessEqual(len(shown), log.PROSE_LIMIT)
         self.assertEqual("Short. [partial]", log._prose("Short.", streaming=True))
+        # Where the kept words hold a sentence, the thought starts there rather than mid-sentence.
+        text = "older context " * 50 + "end of the key files. Let me read these files."
+        self.assertEqual("…Let me read these files. [partial]", log._prose(text, streaming=True))
         self.assertEqual("", log._prose("", streaming=True), "nothing to show is not partial")
 
     def test_an_unfinished_first_token_is_activity_not_a_finished_word(self):
@@ -632,6 +693,7 @@ class StatusViewTests(unittest.TestCase):
             chat["activity"],
             "chat.activity still never copies reasoning",
         )
+        self.assertEqual([{"agent": "Builder", "text": "running a command"}], chat["now"])
 
     def test_supervised_hashed_kilo_progress_waits_for_the_thinking_view(self):
         import autocode_chat_panel as panel

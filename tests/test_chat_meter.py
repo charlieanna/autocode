@@ -294,6 +294,22 @@ class TotalTests(unittest.TestCase):
         self.assertEqual("$0.42 · 184k+ tokens", meter.total_text(meter.run_total(partial)))
         self.assertIsNone(meter.run_total({}))
 
+    def test_the_running_stages_spend_so_far_is_in_its_row_and_the_total(self):
+        # Ankur, 2026-11-11: "$0+ · 1.9M+ tokens" while Requirements ran, since nothing had finished.
+        running = attempt("requirements_gather", "Requirements", active=True, duration_seconds=None)
+        shown = view(running, spent=0.0, complete=False)
+        shown["cost"]["running_usd"] = 0.103
+        self.assertEqual("$0.103+ · 184k+ tokens", meter.total_text(meter.run_total(shown)))
+        self.assertEqual(0.103, meter.stages(shown, NOW)[0]["spent_usd"])
+        # A second round adds the running attempt to the stage's finished spend.
+        again = view(attempt("review_plan", "Plan Reviewer"), by_stage=[{"stage": "review_plan", "spent_usd": 0.2}])
+        again["usage"]["accounting"]["attempts"].append(
+            attempt("review_plan", "Plan Reviewer", active=True, duration_seconds=None)
+        )
+        again["cost"].update(running_usd=0.05, spent_usd=0.2)
+        self.assertAlmostEqual(0.25, meter.stages(again, NOW)[0]["spent_usd"])
+        self.assertAlmostEqual(0.25, meter.run_total(again)["spent_usd"])
+
     def test_the_session_adds_chats_without_counting_a_restored_steps_spend_twice(self):
         first = meter.run_total(view(spent=1.0))
         restored = meter.run_total(view(spent=1.5, inherited=1.0))

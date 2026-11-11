@@ -1042,6 +1042,72 @@ test('the Runs list puts the most recently active chats on top under Recent', as
   }
 });
 
+test('registry rows carry the archived flag and only named cleanup actions', () => {
+  const { readRegistryList } = host.load('core/view.js');
+  const list = readRegistryList(JSON.stringify({ runs: [{
+    id: 'r1', workspace: '/ws', run_dir: '/ws/.autocode/runs/r1', task_id: null,
+    availability: 'available', archived: true, diagnostic: { status: 'TASK_COMPLETE' },
+    actions: [
+      { id: 'unarchive', label: 'Unarchive',
+        next_command: ['registry', 'unarchive', '--workspace', '/ws', '--run-dir', '/ws/.autocode/runs/r1'] },
+      { id: 'broken', label: 'Broken', next_command: 'not-an-array' },
+    ],
+  }], diagnostics: [] }));
+  assert.equal(list.runs[0].archived, true);
+  assert.equal(list.runs[0].status, 'TASK_COMPLETE');
+  assert.deepEqual(list.runs[0].actions, [{
+    id: 'unarchive', label: 'Unarchive',
+    nextCommand: ['registry', 'unarchive', '--workspace', '/ws', '--run-dir', '/ws/.autocode/runs/r1'],
+  }]);
+});
+
+test('archived chats are marked and shown only when the list asks for them', async () => {
+  const calls = [];
+  const listed = [{
+    id: 'archived', workspace: '/alpha', runDir: '/alpha/.autocode/runs/archived',
+    availability: 'available', status: 'TASK_COMPLETE', title: 'Old finished chat',
+    updatedAt: '2026-10-01T10:00:00Z', archived: true,
+    actions: [{ id: 'unarchive', label: 'Unarchive',
+      nextCommand: ['registry', 'unarchive', '--workspace', '/alpha', '--run-dir', '/alpha/.autocode/runs/archived'] }],
+  }];
+  const provider = new RunsProvider({ list: async (includeArchived) => {
+    calls.push(includeArchived);
+    return { runs: listed, diagnostics: [] };
+  } });
+  try {
+    await provider.refresh();
+    assert.deepEqual(calls, [false]);
+    const [archivedGroup, project] = provider.getChildren();
+    assert.equal(archivedGroup.label, 'Archived');
+    assert.equal(provider.getTreeItem(archivedGroup).collapsibleState, 2, 'archived chats are visible');
+    assert.notEqual(project.label, 'Recent', 'an archived chat is never in Recent');
+    const [row] = provider.getChildren(archivedGroup);
+    assert.equal(row.contextValue, 'autocode.runArchived');
+    assert.ok(row.description.includes('archived'));
+    await provider.setShowArchived(true);
+    assert.deepEqual(calls, [false, true]);
+  } finally {
+    provider.dispose();
+  }
+});
+
+test('a registry cleanup action runs only the exact command the row named', async (t) => {
+  const launch = t.mock.method(cli, 'invoke', async () => ok);
+  const controller = new RunController(host.log);
+  const archive = ['registry', 'archive', '--workspace', run.workspace, '--run-dir', run.runDir];
+  await controller.registryAction(run, { id: 'archive', label: 'Archive', nextCommand: archive });
+  assert.deepEqual(launch.mock.calls[0].arguments[1], archive);
+  const remove = ['registry', 'delete', '--workspace', run.workspace, '--run-dir', run.runDir, '--yes'];
+  await controller.registryAction(run, { id: 'delete', label: 'Delete', nextCommand: remove });
+  assert.deepEqual(launch.mock.calls[1].arguments[1], remove);
+  await assert.rejects(
+    () => controller.registryAction(run, { id: 'archive', label: 'Archive',
+      nextCommand: ['registry', 'archive', '--workspace', '/elsewhere', '--run-dir', run.runDir] }),
+    /Unsupported registry action from AutoCode/,
+  );
+  assert.equal(launch.mock.callCount(), 2, 'a command outside the grammar runs nothing');
+});
+
 function chatView(base = approvalView(), kind = 'feedback', context = 'chat-1') {
   return { ...base, chat: {
     context,
@@ -2131,12 +2197,14 @@ test('the live agent log names an agent once and folds its reasoning to one line
   const folded = log().querySelector('.activity-row.thinking details.thought');
   assert.ok(folded, 'reasoning is a foldable line');
   assert.equal(folded.open, false, 'reasoning starts folded');
-  const summary = folded.querySelector('summary');
-  assert.equal(summary.textContent, '…in actual code, maybe just the top of server.py and app.py to see routes.');
-  assert.equal(summary.title, 'Still arriving', 'the streaming marker becomes a tooltip');
+  assert.equal(folded.querySelector('summary').textContent, 'Thinking…', 'a thought still arriving says so in words');
+  const words = folded.querySelector('.fold-line');
+  assert.equal(words.textContent, '…in actual code, maybe just the top of server.py and app.py to see routes.');
+  assert.equal(words.title, 'Still arriving', 'the streaming marker becomes a tooltip');
   assert.ok(!log().textContent.includes('[partial]'), 'the core marker is not shown as part of the thought');
-  assert.equal(log().querySelectorAll('details.thought')[1].querySelector('summary').title, '',
-    'a finished thought has no streaming tooltip');
+  const finished = log().querySelectorAll('details.thought')[1];
+  assert.equal(finished.querySelector('summary').textContent, 'Thought');
+  assert.equal(finished.querySelector('.fold-line').title, '', 'a finished thought has no streaming tooltip');
   // An unfolded thought stays unfolded when the next read redraws the log.
   folded.open = true;
   folded.dispatchEvent(new ui.window.Event('toggle'));
@@ -2145,6 +2213,57 @@ test('the live agent log names an agent once and folds its reasoning to one line
   await ui.poll(next);
   const redrawn = [...log().querySelectorAll('details.thought')];
   assert.deepEqual(redrawn.map((node) => node.open), [true, false], 'only the thought a person opened stays open');
+});
+
+test('the live agent log shows one stage header, folds reasoning and counts repeated tool calls', async (t) => {
+  // Ankur's report, 2026-11-11: "Requirements working" above a "Requirements" header, two raw
+  // thoughts in full, and "· grep tools" four times with nothing about what was searched.
+  const searched = (id, where, what) => ({ id, agent: 'Requirements', kind: 'tool', status: 'done',
+    text: `Searched ${where} for “${what}”`, summary: 'Searched code' });
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    progress: { headline: 'Requirements working' },
+    chat: { phase: null, context: 'live-step', input: null, messages: [], progress: ['Requirements working'],
+      log: [
+        { id: 'r1', agent: 'Requirements', kind: 'thinking', text: 'Let me read these files.' },
+        { id: 'm1', agent: 'Requirements', kind: 'message', text: 'Let me now read the key files.' },
+        searched('g1', 'tools', 'def context_packet'),
+        searched('g2', 'tools', 'def prepare'),
+        { id: 'r2', agent: 'Requirements', kind: 'thinking', text: 'The packet carries the evidence. [partial]' },
+        { id: 'r3', agent: 'Requirements', kind: 'thinking', text: 'So the review can drop it.' },
+        { id: 'x1', agent: 'Requirements', kind: 'tool', status: 'failed', text: 'lsp a.py', summary: 'Used lsp' },
+      ],
+      now: [{ agent: 'Requirements', text: 'searching the code' }] } };
+  const ui = await openChat(t, value);
+  const log = () => ui.document.querySelector('#app .live-log');
+  const lines = [...ui.document.querySelectorAll('#app .line')].map((node) => node.textContent);
+  assert.ok(!lines.includes('Requirements working'), 'the run headline is not repeated above the log');
+  assert.deepEqual([...log().querySelectorAll('.log-agent')].map((node) => node.textContent),
+    ['Requirements · searching the code'], 'one header, saying what the stage does now');
+  const rows = [...log().querySelectorAll('.activity-row')];
+  assert.deepEqual(rows.map((row) => row.dataset.kind), ['thinking', 'message', 'tool', 'thinking', 'tool']);
+  const tools = log().querySelector('details.tool-group');
+  assert.equal(tools.querySelector('summary').textContent, 'Searched code ×2', 'repeats are one counted line');
+  assert.equal(tools.open, false);
+  assert.deepEqual([...tools.querySelectorAll('.fold-line')].map((node) => node.textContent),
+    ['Searched tools for “def context_packet”', 'Searched tools for “def prepare”'], 'each search is kept behind it');
+  const thoughts = [...log().querySelectorAll('details.thought')];
+  assert.deepEqual(thoughts.map((node) => node.querySelector('summary').textContent), ['Thought', 'Thinking… ×2'],
+    'consecutive thoughts fold into one line that says it is still thinking');
+  assert.ok(thoughts.every((node) => !node.open), 'reasoning starts folded');
+  assert.equal(rows[4].className.includes('failed'), true);
+  assert.equal(rows[4].textContent, '✗lsp a.py', 'one tool call is shown as it is');
+  assert.deepEqual(rows.map((row) => row.querySelector('.activity-mark').title),
+    ['Reasoning', 'Said', 'Used a tool', 'Reasoning', 'Failed'], 'each mark says what it stands for');
+  // A tool group a person opened stays open when the next read redraws the log.
+  tools.open = true;
+  tools.dispatchEvent(new ui.window.Event('toggle'));
+  const next = structuredClone(value);
+  next.chat.log.push(searched('g3', 'docs', 'evidence'), searched('g4', 'docs', 'report'));
+  await ui.poll(next);
+  const grown = [...log().querySelectorAll('details.tool-group')];
+  assert.deepEqual(grown.map((node) => [node.querySelector('summary').textContent, node.open]),
+    [['Searched code ×2', true], ['Searched code ×2', false]], 'searches after another tool start their own line');
 });
 
 test('the live agent log keeps entries by id across reads as the view moves on', async (t) => {
@@ -3242,6 +3361,59 @@ test('Command palette run commands show "Select a run first." when no run is sel
 
   await host.commands.get('autocode.takeAction')();
   assert.equal(messages.at(-1), 'Select a run first.');
+});
+
+test('History archive, unarchive and delete take the row’s named action, and delete asks first', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
+  const performed = [];
+  t.mock.method(RunController.prototype, 'registryAction', async (target, action) => {
+    performed.push({ target, action });
+  });
+  let confirm = true;
+  const warnings = [];
+  t.mock.method(host.vscode.window, 'showWarningMessage', async (message, options, choice) => {
+    warnings.push({ message, options, choice });
+    return confirm ? choice : undefined;
+  });
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+
+  const base = { id: 'chat-1', workspace: run.workspace, runDir: run.runDir, taskId: null,
+    availability: 'available', status: 'TASK_COMPLETE', title: 'Greeting chat' };
+  const archiveAction = { id: 'archive', label: 'Archive',
+    nextCommand: ['registry', 'archive', '--workspace', run.workspace, '--run-dir', run.runDir] };
+  const unarchiveAction = { id: 'unarchive', label: 'Unarchive',
+    nextCommand: ['registry', 'unarchive', '--workspace', run.workspace, '--run-dir', run.runDir] };
+  const deleteAction = { id: 'delete', label: 'Delete',
+    nextCommand: ['registry', 'delete', '--workspace', run.workspace, '--run-dir', run.runDir, '--yes'] };
+
+  await host.commands.get('autocode.archiveRun')(new RunItem({ ...base, actions: [archiveAction] }));
+  assert.deepEqual(performed[0], { target: { workspace: run.workspace, runDir: run.runDir }, action: archiveAction });
+
+  await host.commands.get('autocode.unarchiveRun')(new RunItem({ ...base, archived: true, actions: [unarchiveAction] }));
+  assert.deepEqual(performed[1], { target: { workspace: run.workspace, runDir: run.runDir }, action: unarchiveAction });
+
+  await host.commands.get('autocode.deleteRun')(new RunItem({ ...base, actions: [deleteAction] }));
+  assert.match(warnings[0].message, /Delete the chat "Greeting chat"\?/);
+  assert.match(warnings[0].options.detail, /permanently removes/);
+  assert.deepEqual(performed[2], { target: { workspace: run.workspace, runDir: run.runDir }, action: deleteAction });
+
+  confirm = false;
+  await host.commands.get('autocode.deleteRun')(new RunItem({ ...base, actions: [deleteAction] }));
+  assert.equal(performed.length, 3, 'a cancelled delete runs nothing');
+});
+
+test('a deleted chat’s tab closes and leaves the other chats', async (t) => {
+  const ui = await openChat(t, chatView());
+  const other = { ...run, runDir: '/ws/.autocode/runs/other' };
+  ui.chat.show(other);
+  await flush();
+  assert.equal(ui.document.querySelectorAll('#chat-tabs > *').length, 2);
+  ui.chat.forget(run);
+  await flush();
+  assert.equal(ui.document.querySelectorAll('#chat-tabs > *').length, 1);
 });
 
 test('autocode.watchRun toggles watching off/on, switches watched runs, and updates status bar immediately (#1543)', async (t) => {

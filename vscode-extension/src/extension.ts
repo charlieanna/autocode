@@ -11,7 +11,7 @@ import * as vscode from "vscode";
 import { statusLine } from "./statusBar";
 import { RunController, type RunRef } from "./controller";
 import { RunPanel } from "./panel";
-import { RunsProvider, type RunItem } from "./runsView";
+import { RunItem, RunsProvider } from "./runsView";
 import { ChatView } from "./chat";
 import { ConnectionsPanel } from "./connections";
 import { runStages, StagesPanel } from "./stages";
@@ -89,6 +89,35 @@ export function activate(context: vscode.ExtensionContext): void {
     },
   });
 
+  /** A History row's named cleanup action; the core refuses a live chat. */
+  const cleanup = async (target: unknown, actionId: "archive" | "unarchive" | "delete"): Promise<void> => {
+    const item = target instanceof RunItem ? target : undefined;
+    if (!item) return void vscode.window.showInformationMessage("Select a chat in the Runs list first.");
+    const action = (item.run.actions ?? []).find((candidate) => candidate.id === actionId);
+    if (!action) return void vscode.window.showInformationMessage("AutoCode did not offer that action for this chat.");
+    const run = { workspace: item.run.workspace, runDir: item.run.runDir };
+    if (actionId === "delete") {
+      const name = item.run.title || item.run.runDir.split("/").filter(Boolean).pop() || "this chat";
+      const proceed = await vscode.window.showWarningMessage(
+        `Delete the chat "${name}"?`,
+        {
+          modal: true,
+          detail: `This permanently removes the chat's transcript, logs and evidence from ${item.run.runDir}. `
+            + "The code branch and task worktree are kept. This cannot be undone.",
+        },
+        "Delete",
+      );
+      if (proceed !== "Delete") return;
+    }
+    try {
+      await controller.registryAction(run, action);
+      if (actionId === "delete") chat.forget(run);
+      await refresh();
+    } catch (error) {
+      void vscode.window.showErrorMessage(`AutoCode: ${messageOf(error)}`);
+    }
+  };
+
   context.subscriptions.push(
     log,
     runs,
@@ -164,6 +193,13 @@ export function activate(context: vscode.ExtensionContext): void {
         void vscode.window.showErrorMessage(`AutoCode: ${messageOf(error)}`);
       }
       await refresh();
+    }),
+
+    vscode.commands.registerCommand("autocode.archiveRun", (target?: unknown) => cleanup(target, "archive")),
+    vscode.commands.registerCommand("autocode.unarchiveRun", (target?: unknown) => cleanup(target, "unarchive")),
+    vscode.commands.registerCommand("autocode.deleteRun", (target?: unknown) => cleanup(target, "delete")),
+    vscode.commands.registerCommand("autocode.toggleArchived", async () => {
+      await runs.setShowArchived(!runs.showArchived);
     }),
 
     vscode.commands.registerCommand("autocode.watchRun", (run?: RunTarget) => {

@@ -137,9 +137,18 @@ are disabled with an explanation. They become available again when the command
 finishes; inspecting a run started elsewhere does not disable a named comparison.
 
 **Run details** opens the detailed progress panel. The Runs list reads the local
-registry and retains unavailable pointers with their diagnostic. Both surfaces
-use the core's named commands, including the optional `view.chat.input` offer.
-Commands use argument arrays; issued tokens stay in the child environment.
+registry and the open project's chats, and retains unavailable pointers with their
+diagnostic. Both surfaces use the core's named commands, including the optional
+`view.chat.input` offer. Commands use argument arrays; issued tokens stay in the child
+environment.
+
+Use a chat's actions in History (the icons on its row) or right-click it for
+**Archive Chat**, **Unarchive Chat** or **Delete Chat**; the entries appear only when
+the registry names them. Archived chats stay out of Recent
+and the project lists until **Archived Chats** in the Runs title re-reads the list with
+them, when an **Archived** section lists them. Delete asks first and names the chat; it permanently removes that chat's transcript,
+logs and evidence (the run directory), never the code branch or task worktree, and refuses
+a chat that is still running. Archive is reversible; Delete is not.
 
 Above the conversation, a run header stays in view while you scroll, like Kilo
 Code's task header. It shows the pipeline (Requirements, Planner, Plan Reviewer,
@@ -159,8 +168,13 @@ and takes no action.
 
 While a step works, the conversation shows the live agent log the status view
 names (`view.chat.log`): what each running agent thinks (`∴`), says (`»`) and
-does (`$`, `±`, `·`). Each agent's screen name heads its run of steps once, and
-each thought folds to one line that a click unfolds. Like the terminal chat's `/live`,
+does (`$`, `±`, `·`); each mark names itself on hover. Each agent's screen name
+heads its run of steps once, followed by what it is doing now from `view.chat.now`
+("Requirements · searching the code"), and the run's headline is not repeated
+above it. A run of thoughts folds to one "Thought" line ("Thinking…" while one
+still arrives) that a click unfolds. Tool calls are in plain words ("Searched tools
+for “context_packet”"), and a run of them with the same `summary` is one counted
+line ("Searched code ×4") that a click unfolds to each call. Like the terminal chat's `/live`,
 those entries are display only — a thought is not a report and a command shown
 is not a passed check. Where an older core offers only `chat.activity`, the
 conversation shows those tool marks instead.

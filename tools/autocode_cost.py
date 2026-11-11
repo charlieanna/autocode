@@ -2,7 +2,11 @@
 
   spend(state)    known spend of the finished stages, by basis, at the dated price table
   cap(settings)   the saved `settings.limits.max_cost_usd`, or None for no cap
-  view(state)     the status view's `cost` field
+  view(state, accounting)
+                  the status view's `cost` field; with the run's usage accounting, also what the
+                  running stage has spent so far (`running_usd`)
+  running(accounting)
+                  the running attempt's spend so far, from its live usage, at the dated price table
   spent(state)    the known spend the cap is compared with
   exceeded(state) whether the known spend has reached the cap: the stage-boundary check
   crossing(state, model, record)
@@ -20,6 +24,12 @@ Unpriced is never zero: `spent_usd` is then a floor (`complete` is false), or nu
 all is known. It is also a floor while parallel Builders still run, since their spend reaches the
 run only when their batch is accounted. The cap compares the known spend, so an unpriced stage
 cannot trip it; `unpriced_stages` and the cost line say so.
+
+The running stage is in none of these until it finishes, so a run on its first stage would show
+nothing spent while its tokens climb. `running_usd` is that stage's spend so far, read from the live
+usage the status view already has (`usage.accounting`): what its provider reported, or else its
+tokens so far at the dated table. It is kept apart from `spent_usd`, which the cap compares with, and
+is null when nothing runs or the running stage cannot be priced.
 
 Pure over saved state, with no event-file reads, so the build loop can call it at every boundary.
 Uses the usage ledger, dated prices and pure breakdown projection; never reads provider logs.
@@ -47,6 +57,7 @@ FIELDS = (
     "reported_usd",
     "inherited_usd",
     "spent_usd",
+    "running_usd",
     "cap_usd",
     "unpriced_stages",
     "complete",
@@ -99,8 +110,12 @@ def carried(state: RunState):
     return record if any(record.values()) else None
 
 
-def view(state: RunState):
-    """The status view's `cost` field. Never raises on a damaged state."""
+def view(state: RunState, accounting=None):
+    """The status view's `cost` field. Never raises on a damaged state.
+
+    `accounting` is the run's usage accounting (autocode_usage.accounting), which reads the running
+    stage's event file; without it `running_usd` is null, so the build loop's boundary checks stay
+    pure over saved state."""
     state = state if isinstance(state, dict) else {}
     rows = usage.stage_rows(state, estimator=prices.estimate)
     known = spend(state)
@@ -115,6 +130,7 @@ def view(state: RunState):
         "reported_usd": known["reported_usd"],
         "inherited_usd": known["inherited_usd"],
         "spent_usd": None if unpriced and nothing_known else round(float(known["known_usd"]), 6),
+        "running_usd": running(accounting) if state.get("active_stage") else None,
         "cap_usd": cap(state.get("settings")),
         "unpriced_stages": unpriced,
         "complete": unpriced == 0
@@ -124,6 +140,38 @@ def view(state: RunState):
         "prices_as_of": as_of,
         "breakdown": {**breakdown.summary(rows, state), "price_bases": price_bases(rows)},
     }
+
+
+def _known(quantity):
+    """The known part of an accounting quantity (autocode_usage._quantity), or a bare count."""
+    value = quantity.get("known") if isinstance(quantity, dict) else quantity
+    return value if type(value) in (int, float) and math.isfinite(value) and value >= 0 else None
+
+
+def running(accounting):
+    """USD the running attempt has spent so far, or None when none runs or its spend cannot be priced.
+
+    An attempt whose every request so far carries a provider-reported price uses that sum; otherwise
+    its tokens so far are priced at the dated table, as a finished stage would be. A zero is not a
+    price: a subscription or token-plan provider reports 0 for work that was not free. The amount
+    grows until the stage finishes, when the stage's own row in `spent_usd` replaces it.
+    """
+    attempts = accounting.get("attempts") if isinstance(accounting, dict) else None
+    amounts = []
+    for row in attempts if isinstance(attempts, list) else ():
+        if not isinstance(row, dict) or not row.get("active") or row.get("runner_owned"):
+            continue
+        reported = row.get("attributed_reported_usd")
+        reported = reported if isinstance(reported, dict) else {}
+        tokens = row.get("attributed_tokens") if isinstance(row.get("attributed_tokens"), dict) else row.get("tokens")
+        tokens = {key: _known(value) for key, value in (tokens if isinstance(tokens, dict) else {}).items()}
+        if reported.get("unknown_items") == 0 and _known(reported):
+            amounts.append(_known(reported))
+        elif (priced := prices.estimate(row.get("model"), tokens)) is not None:
+            amounts.append(priced)
+        else:
+            return None
+    return round(sum(amounts), 6) if amounts else None
 
 
 def price_bases(rows):

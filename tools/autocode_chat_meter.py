@@ -3,10 +3,11 @@ public status view's own attempt and cost records, never a route choice or a spe
 
 Every figure shown is a value the core wrote: an attempt's route, start, duration, outcome and
 attributed tokens (``usage.accounting.attempts``), a stage's accounted spend
-(``cost.breakdown.by_stage``), the run's accounted total (``cost.spent_usd``) and the tries the
-core still allows a failing stage (``progress.retry``). The only arithmetic is adding attempt
-tokens and durations together (one stage's for its row, every stage's for the run's working time),
-and adding separate chats' run totals for the session line; those are distinct ledgers, so nothing
+(``cost.breakdown.by_stage``), the running stage's spend so far (``cost.running_usd``), the run's
+accounted total (``cost.spent_usd``) and the tries the core still allows a failing stage
+(``progress.retry``). The only arithmetic is adding attempt tokens and durations together (one
+stage's for its row, every stage's for the run's working time), adding the running stage's spend
+to its row and to the run's, and adding separate chats' run totals for the session line; those are distinct ledgers, so nothing
 is counted twice, and a total built from an incomplete part says so.
 """
 
@@ -130,9 +131,10 @@ def stages(view: dict | None, now: datetime | None = None) -> list[dict]:
     """
     view = _mapping(view)
     attempts = _rows(_mapping(_mapping(view.get("usage")).get("accounting")).get("attempts"))
-    spend = {
-        row.get("stage"): row for row in _rows(_mapping(_mapping(view.get("cost")).get("breakdown")).get("by_stage"))
-    }
+    cost = _mapping(view.get("cost"))
+    spend = {row.get("stage"): row for row in _rows(_mapping(cost.get("breakdown")).get("by_stage"))}
+    # The running stage is in no finished-stage row yet; its spend so far is the core's `running_usd`.
+    running = cost.get("running_usd") if _number(cost.get("running_usd")) else None
     grouped: dict[str, list[dict]] = {}
     for row in attempts:
         # A report repair (``tester_report_repair``) is another attempt at the stage it repairs.
@@ -166,6 +168,8 @@ def stages(view: dict | None, now: datetime | None = None) -> list[dict]:
             value = _mapping(spend.get(name)).get("spent_usd")
             if isinstance(value, int | float) and _number(value):
                 costs.append(float(value))
+        if newest.get("active") and running is not None:
+            costs.append(float(running))
         # A stage on a later attempt says why the one before it did not succeed.
         previous = _why(rows[-2]) if retry else ""
         result.append(
@@ -269,6 +273,9 @@ def run_total(view: dict | None) -> dict | None:
     accounting = _mapping(_mapping(view.get("usage")).get("accounting"))
     used = _mapping(accounting.get("tokens"))
     spent = cost.get("spent_usd") if _number(cost.get("spent_usd")) else None
+    if _number(cost.get("running_usd")):
+        # What the running stage has spent so far; the total stays a floor until it finishes.
+        spent = (spent or 0) + cost["running_usd"]
     inherited = cost.get("inherited_usd") if _number(cost.get("inherited_usd")) else 0
     counted = {side: _known(used.get(f"{side}_tokens")) for side in ("input", "output")}
     if spent is None and not any(amount for amount, _ in counted.values()):
