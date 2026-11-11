@@ -44,6 +44,7 @@ DECISION_FLAGS = (
     "--close-reason",
     "--resolver-response",
     "--chat",
+    "--stage-model",  # changes a started run's route between stages; the person's choice
     # Policy the operator owns: they approve the plan, delegate its questions or lift
     # containment or the reviewed-source check by policy instead of by a person.
     "--skip-requirements",  # answers Requirements questions with their proposed defaults
