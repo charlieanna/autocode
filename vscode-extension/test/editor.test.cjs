@@ -1788,7 +1788,7 @@ test('a new chat shows the stages it will run and changes one for itself alone b
   assert.equal(section.hidden, true, 'a started chat lists its own models in Models & usage');
 });
 
-/** Answer the Models chip's three steps: the stage, the model and the level, by label; record what was offered. */
+/** Answer the Models chip's two steps: the stage, then the model and level ("model · level"), by label; record what was offered. */
 function pickInOrder(t, labels) {
   const offered = [];
   const picker = t.mock.method(host.vscode.window, 'showQuickPick', async (items, options) => {
@@ -1815,14 +1815,16 @@ test('the chat box Models chip changes a new chat\'s model, not only its level, 
   assert.equal(ui.document.querySelector('#model-info').textContent,
     "Nothing has run yet. Choose this chat's models with Models under the message box.");
   assert.equal(ui.document.querySelector('#usage-breakdown').textContent, 'Tokens and cost are shown here once the chat starts.');
-  const { offered } = pickInOrder(t, ['Builder', 'sonnet', 'high']);
+  const { offered } = pickInOrder(t, ['Builder', 'sonnet · high']);
   chip.click(); await flush(); await flush(); await flush();
   assert.deepEqual(JSON.parse(JSON.stringify(ui.sent.at(-1))), { type: 'models' }, 'the webview names no command');
   assert.deepEqual(offered[0].labels, ['Builder', 'Tester']);
   assert.equal(offered[0].items[0].description, 'haiku at medium (default)');
-  assert.deepEqual(offered[1].labels, ['haiku', 'sonnet'], 'a model the core marks unavailable is not offered');
+  assert.equal(offered.length, 2, 'a stage, then its model and level in one list');
+  assert.deepEqual(offered[1].labels, ['haiku · medium', 'haiku · low', 'haiku · high', 'sonnet · low', 'sonnet · medium', 'sonnet · high'],
+    'what the stage runs now first; a model the core marks unavailable is not offered');
   assert.equal(offered[1].items[0].description, 'current · claude');
-  assert.deepEqual(offered[2].labels, ['low', 'medium', 'high']);
+  assert.equal(offered[1].items[1].description, 'claude');
   assert.deepEqual(calls.at(-1), ['stages', 'list', '--json', '--backend', 'claude', '--chat-stage', 'builder', 'sonnet', 'high'],
     'only the stage\'s own chat_set, filled with the pick');
   assert.ok(calls.every((argv) => argv[1] === 'list'), 'nothing is saved to Stage models');
@@ -1839,9 +1841,9 @@ test('the chat box Models picker cancelled at any step changes nothing', async (
   const ui = await openChat(t, null, false, { stages: (argv) => { calls.push(argv); return chatStageView(argv); } });
   ui.chat.show(); await flush(); await flush();
   const before = calls.length;
-  pickInOrder(t, ['Tester', 'sonnet']);
+  pickInOrder(t, ['Tester']);
   ui.document.getElementById('models-picker').click(); await flush(); await flush(); await flush();
-  assert.equal(calls.length, before, 'a cancelled level sends nothing');
+  assert.equal(calls.length, before, 'a cancelled model and level sends nothing');
   assert.equal(ui.document.getElementById('models-name').textContent, 'Models');
 });
 
@@ -1874,11 +1876,12 @@ test('a started chat changes a stage\'s model from the chat box between stages, 
   const chip = ui.document.getElementById('models-picker');
   assert.equal(chip.hidden, false, 'a started chat offers its own models in the chat box');
   assert.equal(chip.disabled, false);
-  const { offered } = pickInOrder(t, ['Builder', 'gpt-6-sol', 'low']);
+  const { offered } = pickInOrder(t, ['Builder', 'gpt-6-sol · low']);
   chip.click(); await flush(); await flush(); await flush(); await flush();
   assert.deepEqual(calls.at(-1), { argv: list, cwd: run.workspace }, 'the list the status view names, in the chat\'s folder');
   assert.equal(offered[0].items[0].description, 'gpt-5.6-terra at high (this chat)');
-  assert.deepEqual(offered[1].labels, ['gpt-5.6-terra', 'gpt-6-sol']);
+  assert.deepEqual(offered[1].labels, ['gpt-5.6-terra · high', 'gpt-5.6-terra · low', 'gpt-6-sol · low', 'gpt-6-sol · high']);
+  assert.equal(offered[1].items[0].description, 'current');
   assert.deepEqual(sets, [{ argv: ['--run-dir', run.runDir, '--workspace', run.workspace, '--stage-model', 'builder', 'gpt-6-sol', 'low'], cwd: run.workspace }]);
   assert.ok(host.notices.some((notice) => /Builder on gpt-6-sol at low from its next stage/.test(notice.message)));
   const working = 'A stage is working. Pause the chat, or wait until it asks you something, to change its models.';
@@ -1970,6 +1973,54 @@ test('a chat in the folder itself starts only once the person confirms the warni
   ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
   assert.equal(start.mock.callCount(), 1);
   assert.deepEqual(start.mock.calls[0].arguments[5], ['--in-place']);
+});
+
+test('a chat in the folder itself names the open warning in the chat, never a setup step', async (t) => {
+  const ui = await openChat(t, null, false, { worktrees: () => worktreeList() });
+  ui.chat.show(); await flush(); await flush();
+  const folder = ui.document.querySelector('#chat-place input[value="folder"]');
+  folder.checked = true; folder.dispatchEvent(new ui.window.Event('change')); await flush();
+  t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
+  let answer;
+  t.mock.method(host.vscode.window, 'showWarningMessage', () => new Promise((resolve) => { answer = resolve; }));
+  ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
+  const app = () => ui.document.querySelector('#app').textContent;
+  assert.ok(app().includes('Start this chat in your folder? Answer the dialog that opened.'), app());
+  assert.ok(!app().includes('Complete setup'));
+  answer(undefined); await flush(); await flush(); await flush();
+  assert.ok(!app().includes('Answer the dialog'), 'a declined warning is no longer named');
+});
+
+test('a first message reads the modes, its model picks and where it works at once, saying it is starting', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  const pending = [];
+  const later = (argv, answer) => new Promise((resolve) => { pending.push({ argv, done: () => resolve(answer()) }); });
+  let reading = false;
+  const ui = await openChat(t, null, false, {
+    stages: (argv) => (reading ? later(argv, () => chatStageView(argv)) : chatStageView(argv)),
+    worktrees: (argv) => later(argv, () => worktreeList()),
+  });
+  ui.chat.show(); await flush(); await flush();
+  // A pick for this chat alone, so its start checks the picks again.
+  const builder = ui.document.querySelector('#chat-models [data-stage="builder"] select.model');
+  builder.value = 'sonnet'; builder.dispatchEvent(new ui.window.Event('change')); await flush(); await flush(); await flush();
+  pending.splice(0).forEach((row) => row.done()); await flush(); await flush();
+  reading = true;
+  let modesDone;
+  controller.modes.mock.mockImplementation(() => new Promise((resolve) => { modesDone = () => resolve({ modes: [] }); }));
+  const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
+  ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
+  assert.equal(typeof modesDone, 'function', 'the modes are being read');
+  assert.deepEqual(pending.map((row) => row.argv[0]).sort(), ['stages', 'worktrees'],
+    'the picks and the places are read while the modes are, not one after another');
+  const app = () => ui.document.querySelector('#app').textContent;
+  assert.ok(app().includes('Starting your chat…'), app());
+  assert.ok(!app().includes('Complete setup'), 'nothing for the person to set up');
+  assert.equal(start.mock.callCount(), 0);
+  modesDone(); pending.splice(0).forEach((row) => row.done()); await flush(); await flush(); await flush(); await flush();
+  assert.equal(start.mock.callCount(), 1);
+  assert.deepEqual(start.mock.calls[0].arguments[4], ['--builder-model', 'sonnet', '--builder-reasoning-effort', 'medium']);
+  assert.deepEqual(start.mock.calls[0].arguments[5], ['--build-in-worktree']);
 });
 
 test('a chat started with an AutoCode that cannot list places works in the folder, as before', async (t) => {
@@ -2279,14 +2330,17 @@ for (const policy of ['start', undefined]) test(`pre-launch ${policy || 'legacy'
   ui.type('hi'); ui.submit(); await flush(); await flush();
   assert.equal(confirmations, 1);
   assert.equal(start.mock.callCount(), 0);
-  assert.ok(ui.document.querySelector('#app').textContent.includes('Waiting to start'));
-  assert.ok(!ui.document.querySelector('#app').textContent.includes('Thinking…'));
+  const app = ui.document.querySelector('#app').textContent;
+  assert.ok(app.includes('Start a live AutoCode run? Answer the dialog that opened.'), app);
+  assert.ok(!app.includes('Complete setup'), 'a start waits on the dialog it names, not on a setup step');
+  assert.ok(!app.includes('Thinking…'));
   ui.submit(); await flush();
   assert.equal(confirmations, 1, 'duplicate sends cannot open another prompt');
   finish(false); await flush(); await flush();
   assert.equal(start.mock.callCount(), 0);
   assert.equal(ui.document.querySelector('#message').value, 'hi');
   assert.equal(ui.document.querySelector('#send-message').disabled, false);
+  assert.ok(!ui.document.querySelector('#app').textContent.includes('Answer the dialog'), 'an answered dialog is no longer named');
 });
 
 test('the core prepare-plan match includes normalized approvals and excludes corrections', () => {
