@@ -309,13 +309,11 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
             "pause_status"
         )
         if cause == "PAUSED_REPEATED_FAILURE":
-            published_status = state["status"]
-            state["status"] = cause
+            # Hand the inspected cause to the checks instead of publishing it over the real status:
+            # a check that declines or raises then leaves the request and its status as they were (#3020).
             specific_recovery = runner.prepare_abandoned_completion_revalidation(
-                state, run_dir, workspace
-            ) or runner.prepare_timeout_archived_completion(state, run_dir, workspace)
-            if not specific_recovery:
-                state["status"] = published_status
+                state, run_dir, workspace, origin=cause
+            ) or runner.prepare_timeout_archived_completion(state, run_dir, workspace, origin=cause)
     # A source-only stale repair is already a recognized recovery. Do not let
     # an answered operational request hide it or publish the same request again.
     if (

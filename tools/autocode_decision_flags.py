@@ -14,6 +14,7 @@ DECISION_FLAGS = (
     # Answers, approvals, feedback and pause recovery.
     "--answer",
     "--feedback",
+    "--report-discrepancy",
     "--follow-up",
     "--delegate",
     "--delegate-all",

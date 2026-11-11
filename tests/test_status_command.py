@@ -151,5 +151,126 @@ class ConsistentSampleTests(unittest.TestCase):
         self.assertEqual(f"stage-{command.SAMPLE_RETRIES}", view["next_stage"])
 
 
+def supervision():
+    return {
+        "schema": 1,
+        "nonce": "a" * 32,
+        "receipt": "/run/attempt-supervision.json",
+        "owner": {"pid": 101, "birth_identity": 123.25},
+        "keeper": {"pid": 102, "birth_identity": 124.25},
+        "provider": {"pid": 103, "birth_identity": 125.25},
+        "started_at": "2026-11-09T12:00:00Z",
+    }
+
+
+def observed(saved, *, owner=True, keeper=False, provider=False, phase="stopped", cause="provider_stopped", error=None):
+    """``autocode_supervision.observe`` for one attempt: each role's fresh liveness and its authenticated receipt."""
+    return {
+        "owner": {"checked": True, "alive": owner},
+        "keeper": {"checked": True, "alive": keeper},
+        "provider": {"checked": True, "alive": provider},
+        "receipt": {
+            **saved,
+            "phase": phase,
+            "cause": cause,
+            "cleanup_error": error,
+            "observed_at": "2026-11-09T12:09:20Z",
+            "processes": [dict(saved["provider"])],
+        },
+    }
+
+
+class FinalizingHandoffTests(unittest.TestCase):
+    """#3031: a Builder whose provider stopped normally, with a finished report, while its birth-bound
+    controller is alive and saving it, is being finalized, not abandoned. Status must not call it
+    unsupervised or send the Resolver; a genuinely lost controller or keeper still must."""
+
+    CONTROLLER_RUNNING = {
+        "kind": "running",
+        "reason": "Birth-bound controller is alive",
+        "checked": True,
+        "alive": True,
+    }
+    CONTROLLER_GONE = {
+        "kind": "unknown",
+        "reason": "Saved owner has not finished returning",
+        "checked": True,
+        "alive": False,
+    }
+
+    def render(self, *, controller, finished=True, liveness=None, workers=None):
+        import autocode as runner
+        import autocode_status_command as command
+
+        saved = supervision()
+        state = {
+            **state_at("builder"),
+            "active_stage": {
+                "stage": "builder",
+                "iteration": 1,
+                "output": "iterations/builder-04.jsonl",
+                "started_at": "2026-11-09T12:00:00Z",
+                "supervision": saved,
+            },
+        }
+        args = SimpleNamespace(inspect_evidence=False, run_dir="fixture", engine=None, explain=False)
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp).resolve() / "run"
+            run.mkdir()
+            (run / "state.json").write_text(json.dumps(state))
+            with (
+                patch.object(command.controller_owner, "inspect", return_value={**controller, "receipt": None}),
+                patch.object(
+                    runner.processes, "recorded_worker_state", return_value=workers or {"checked": True, "alive": False}
+                ),
+                patch.object(runner.supervision, "observe", return_value=liveness or observed(saved)),
+                patch.object(runner, "stage_completed", return_value=finished),
+                patch.object(runner.milestones, "summary", return_value={"accepted_milestones": []}),
+                patch.object(runner.dependency, "export", return_value={}),
+                patch.object(runner, "intervention_metadata", return_value={}),
+                patch.object(runner.resolver_human, "projection", return_value={}),
+                redirect_stdout(output),
+                redirect_stderr(io.StringIO()),
+            ):
+                command.render(runner, state, args, run.parent, run)
+        return json.loads(output.getvalue())
+
+    def assert_abandoned(self, payload):
+        self.assertTrue(payload["stale"])
+        self.assertIn("The Resolver must settle the interrupted attempt 001/builder-04", payload["next_action"])
+        self.assertEqual("stopped", payload["view"]["summary"]["state"])
+        self.assertIn("nothing supervises its retained attempt", payload["view"]["summary"]["sentence"])
+
+    def test_a_finished_stage_its_live_controller_is_saving_is_not_unsupervised(self):
+        payload = self.render(controller=self.CONTROLLER_RUNNING)
+        self.assertEqual("stopped", payload["view"]["liveness"]["kind"])  # the payload the issue reported
+        self.assertTrue(payload["active_stage_finished"])
+        self.assertFalse(payload["stale"])
+        self.assertIsNone(payload["next_action"])
+        self.assertEqual("working", payload["view"]["summary"]["state"])
+        self.assertNotIn("nothing supervises", payload["view"]["summary"]["sentence"])
+
+    def test_a_finished_stage_whose_controller_is_gone_is_still_abandoned(self):
+        self.assert_abandoned(self.render(controller=self.CONTROLLER_GONE))
+
+    def test_incomplete_output_with_a_stopped_keeper_is_still_abandoned(self):
+        # Unchecked recorded workers leave only the supervision receipt to judge the attempt by.
+        for workers in ({"checked": True, "alive": False}, {"checked": False, "alive": None}):
+            with self.subTest(workers=workers):
+                self.assert_abandoned(self.render(controller=self.CONTROLLER_RUNNING, finished=False, workers=workers))
+
+    def test_a_lost_supervision_owner_or_abnormal_cleanup_is_still_abandoned(self):
+        saved = supervision()
+        for name, liveness in (
+            ("owner lost", observed(saved, owner=False)),
+            ("cleanup error", observed(saved, error="provider group survived SIGKILL")),
+            ("keeper failure", observed(saved, cause="keeper_failure")),
+            ("interrupted", observed(saved, cause="owner_lost")),
+        ):
+            with self.subTest(name):
+                self.assert_abandoned(self.render(controller=self.CONTROLLER_RUNNING, liveness=liveness))
+
+
 if __name__ == "__main__":
     unittest.main()

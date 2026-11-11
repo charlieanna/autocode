@@ -13,7 +13,7 @@ import { isWorking, RunStarting, waitsForFolder, type StatusView } from "./core/
 import { transitionNotice, waitsForPerson } from "./notify";
 import { runTotal, sessionTotal, totalText } from "./core/meter";
 import { applyEngine, engineOf, ENGINES, readSettings, type Engine } from "./settings";
-import { invoke, tail } from "./core/cli";
+import { invoke, tail, STAGES_TIMEOUT_MS } from "./core/cli";
 import { chatRoute, chatSource, fillChatSet, fillSet, readStages, runListCommand, runRoute, type StageView } from "./core/stages";
 import { StageListCache } from "./core/stage-cache";
 import { inFolder, newChatCall, pickStageModel } from "./stages";
@@ -352,7 +352,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       })),
       session: this.sessionCost(),
       activeKey: this.activeKey,
-      engine: engineOf(readSettings()),
+      // The chip names the engine the way its own picker does ("Codex", not "codex").
+      engine: ENGINE_LABELS[engineOf(readSettings()) as Engine] ?? engineOf(readSettings()),
       // Only a chat that has not started chooses a mode; a run keeps the flow it started with.
       mode: !tab.run && this.modes ? chosenMode(this.modes, this.modeChoice)?.label ?? null : null,
       state: tab.run && tab.status
@@ -1147,12 +1148,6 @@ function chatPlaceFor(tab: ChatTab) {
     })),
   };
 }
-
-/**
- * A stage list lists the backend's models: seconds on OpenCode, but a wedged CLI must not leave
- * This chat's models greyed out for good. After this the read fails, says so, and can be tried again.
- */
-const STAGES_TIMEOUT_MS = 60_000;
 
 /** A new chat's stage list: `command` (one the list named) or the plain list, in `cwd` or the window's folder. */
 async function readChatStages(command: string[] | undefined, cwd?: string): Promise<StageView> {

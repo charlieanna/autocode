@@ -67,6 +67,7 @@ try:
     from . import autocode_changed_code_trigger as changed_code_trigger
     from . import autocode_component_plan as component_plan
     from . import autocode_diff_coverage as diff_coverage
+    from . import autocode_focused_suite as focused_suite
     from . import autocode_follow_up as follow_up
     from . import autocode_follow_up_proof as follow_up_proof
     from . import autocode_goals as goals
@@ -94,6 +95,7 @@ except ImportError:
     import autocode_changed_code_trigger as changed_code_trigger
     import autocode_component_plan as component_plan
     import autocode_diff_coverage as diff_coverage
+    import autocode_focused_suite as focused_suite
     import autocode_follow_up as follow_up
     import autocode_follow_up_proof as follow_up_proof
     import autocode_goals as goals
@@ -140,6 +142,7 @@ SUMMARY_KEYS = (
     "mutation_check",
     "follow_up_baseline",
     "changed_code_inputs",
+    "suite_fallback",
     "changed_code_evidence",
     "changed_code_receipts",
 )
@@ -376,7 +379,14 @@ def _baseline(
     base_patch=None,
     progress=None,
     inputs=None,
+    settled_timeout=False,
 ):
+    """The suite's result on the original code, reused while its binding holds.
+
+    A timed-out result is not reused, so a later proof tries the suite again, except with
+    ``settled_timeout``: the caller then has a focused suite to fall back to (autocode_focused_suite),
+    and the same suite timing out again under the same binding would only spend the time once more.
+    """
     cached = state.get("regression_baseline") or {}
     patch = str(base_patch) if base_patch else None
     binding = {
@@ -404,6 +414,19 @@ def _baseline(
                 return result
         except (OSError, ValueError, TypeError, KeyError):
             pass
+    timeouts = dict(cached.get("settled_timeouts") or {})
+    settled = (
+        timeouts.get(util.digest(binding)) if settled_timeout and binding["runtime"].get("reuse_supported") else None
+    )
+    if settled:
+        try:
+            result = util.read(settled["path"])
+            # A timeout is never completed evidence (command_receipt.completed), so it cannot pass
+            # schedule.intact; its pinned record decides only that the fallback runs instead.
+            if util.file_hash(settled["path"]) == settled.get("sha256") and focused_suite.timed_out(result):
+                return result
+        except (OSError, ValueError, TypeError, KeyError):
+            pass
     directory = Path(run_dir) / "regression" / ("baseline-" + uuid.uuid4().hex)
     if progress:
         progress(
@@ -424,7 +447,10 @@ def _baseline(
     )
     path = directory / "baseline.json"
     util.atomic_json(path, result)
+    if focused_suite.timed_out(result):
+        timeouts[util.digest(binding)] = {"path": str(path), "sha256": util.file_hash(path)}
     state["regression_baseline"] = {
+        **({"settled_timeouts": timeouts} if timeouts else {}),
         "base": base,
         "command": suite,
         "path": str(path),
@@ -613,6 +639,7 @@ def _proving(
     base_patch = reviewed_patch(state, workspace)
     operator = operator_patch.pinned(state)
     refused: str | dict = ""
+    proving = framework  # the framework the proof runs: the detected one, or its focused fallback below
     if base and operator:
         if base_patch:
             refused = (
@@ -657,6 +684,15 @@ def _proving(
     else:
         dependencies = proof_dependencies(state, workspace)
         suite = options.get("test_command") or (framework.suite if framework else None)
+        changes = verify.changed_files(workspace, base, source_paths=source_scope.paths(state))
+        roles = role_inventory.from_git(workspace, base, verify.is_test_path, changes=changes)
+        # A detected whole suite that cannot finish on the original code falls back to the tests nearest
+        # the change, chosen here and recorded, never asked of a person; an explicit command is kept.
+        focus = (
+            focused_suite.choose(framework, role_inventory.entries(workspace, base), changes, roles)
+            if suite and not options.get("test_command")
+            else None
+        )
         base_suite = (
             _baseline(
                 state,
@@ -669,18 +705,33 @@ def _proving(
                 base_patch,
                 progress,
                 inputs,
+                settled_timeout=focus is not None,
             )
             if suite
             else None
         )
+        proving, fallback = framework, None
+        if focus and focused_suite.timed_out(base_suite):
+            fallback = focused_suite.record(focus, base_suite, suite_timeout(state))
+            proving, suite = focused_suite.framework_for(framework, focus["command"]), focus["command"]
+            base_suite = _baseline(
+                state,
+                workspace,
+                run_dir,
+                base,
+                proving,
+                suite,
+                dependencies["dependencies_from"],
+                base_patch,
+                progress,
+                inputs,
+            )
         number = len(state.get("regression_proofs", [])) + 1
         # The physical canonical path: measurement pins reads through this root without symlink
         # traversal, and a run directory reached through one (/tmp or /var on macOS) would fail
         # its own authenticity check (autocode_changed_code_measurement.pinned).
         out = Path(run_dir).resolve() / "regression" / f"proof-{number:02d}-{uuid.uuid4().hex}"
         progress("Comparing regression tests and checking the full candidate suite", command=suite, output=out)
-        changes = verify.changed_files(workspace, base, source_paths=source_scope.paths(state))
-        roles = role_inventory.from_git(workspace, base, verify.is_test_path, changes=changes)
         coverage = preserve_only(state, all_due=all_due)
         if coverage and goals.task_kind(state) == "bugfix":
             # Member preservation coverage authorizes tests alone. A product
@@ -710,7 +761,7 @@ def _proving(
             workspace,
             base,
             out,
-            framework=framework,
+            framework=proving,
             roles=roles,
             suite_command=options.get("test_command"),
             regression_command=regression_command,
@@ -740,6 +791,10 @@ def _proving(
             proof["notes"] = [*(proof.get("notes") or []), pending_tests.NOTE + ", ".join(ahead)]
         if operator:
             proof["review_reasons"] = [*(proof.get("review_reasons") or []), operator_patch.review_reason(operator)]
+        if fallback:
+            proof["suite_fallback"] = fallback
+            proof["notes"] = [*(proof.get("notes") or []), fallback["reason"]]
+            proof["review_reasons"] = [*(proof.get("review_reasons") or []), focused_suite.review_reason(fallback)]
         if (coverage or (test_only and not result.get("source_files"))) and any(
             case.get("kind") != "preserve" for case in due
         ):
@@ -785,7 +840,7 @@ def _proving(
                 workspace,
                 out,
                 result,
-                framework,
+                proving,
                 verify=verify,
                 dependencies=dependencies["dependencies_from"],
                 inputs=inputs,
@@ -832,7 +887,7 @@ def _proving(
         changed_code.collect(
             proof,
             result,
-            framework,
+            proving,
             workspace,
             out,
             kept[-1],

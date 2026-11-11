@@ -1839,6 +1839,65 @@ class DesignManifestTests(unittest.TestCase):
                 finally:
                     path.write_bytes(original)
 
+    def design_refusal(self, missing):
+        return f"{completion.REFUSED}. Design coverage needs fresh independent evidence for: {', '.join(missing)}."
+
+    def test_completion_refusal_checks_retained_captures_once_per_call(self):
+        """#3017: the refusal named its missing cases by authenticating the retained captures twice."""
+        state, previous = self.retained_results_state()
+        before = copy.deepcopy(state)
+        with (
+            patch.object(coverage.visual, "verify", wraps=coverage.visual.verify) as verify,
+            patch.object(coverage.source_scope, "snapshot", wraps=coverage.source_scope.snapshot) as snapshot,
+        ):
+            for _ in range(2):
+                verify.reset_mock()
+                snapshot.reset_mock()
+                self.assertEqual(self.design_refusal(["greet.disabled"]), completion.rejection(state))
+                self.assertEqual(1, snapshot.call_count, "each refusal takes one fresh source snapshot")
+                self.assertEqual(len(previous["design_results"]), verify.call_count)
+        self.assertEqual(before, state)
+        self.assertEqual(coverage.Readiness(False, ("greet.disabled",)), coverage.readiness(state))
+
+    def test_completion_refusal_rechecks_changed_and_restored_evidence(self):
+        cases = None
+        for change in ("source", "capture", "comparison"):
+            with self.subTest(change=change):
+                state, previous = self.retained_results_state()
+                cases = [case["id"] for case in state["settings"]["design_manifest"]["body"]["cases"]]
+                self.assertEqual(self.design_refusal(["greet.disabled"]), completion.rejection(state))
+                row = previous["design_results"][0]
+                path = {
+                    "source": self.workspace / "greet.py",
+                    "capture": self.workspace / row["capture_ref"],
+                    "comparison": Path(row["comparison_ref"]),
+                }[change]
+                original = path.read_bytes()
+                try:
+                    path.write_bytes(original + b"\nchanged after refusal\n")
+                    kept = (
+                        set()
+                        if change in ("source", "comparison")
+                        else {r["id"] for r in previous["design_results"][1:]}
+                    )
+                    self.assertEqual(
+                        self.design_refusal([case for case in cases if case not in kept]), completion.rejection(state)
+                    )
+                finally:
+                    path.write_bytes(original)
+                self.assertEqual(
+                    self.design_refusal(["greet.disabled"]),
+                    completion.rejection(state),
+                    "restored bytes authenticate again on the next refusal",
+                )
+        self.assertEqual(3, len(cases))
+
+    def test_completion_refusal_falls_back_when_readiness_stops_before_gaps(self):
+        state, _ = self.retained_results_state()
+        with patch.object(coverage, "report_refs", side_effect=ValueError("unbound report")):
+            self.assertEqual(coverage.Readiness(False, None), coverage.readiness(state))
+            self.assertEqual(self.design_refusal(["greet.disabled"]), completion.rejection(state))
+
 
 class PlanningPartitionContextTests(unittest.TestCase):
     """Complete raw input is retained once, without changing native authority."""

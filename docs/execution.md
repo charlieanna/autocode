@@ -452,8 +452,23 @@ same Tester obligation resumes. Reuse requires unchanged source, command,
 task and contract, purpose, execution environment, interpreter, runtime and
 dependencies, plus intact original output and complete nonzero collected test
 results. It does not turn a Builder receipt into independent proof. Approved
-canonical commands, protected checks and a fresh Tester's obligations still
-execute; unsupported test inventories are not guessed. Public evidence records
+canonical commands and a fresh Tester's obligations still execute; unsupported
+test inventories are not guessed.
+
+The protected-test pair (the original suite on the candidate, and with the
+original tests overlaid) is bound to the same Tester obligation (#3040). A
+report-only repair of that Tester execution, such as dropping one citation, does
+not launch the pair again when each half has a completed, authenticated receipt
+for the exact same execution identity, Tester events, protected binding and
+command, overlay and approved `supersedes` list, compared afresh before reuse.
+The original half's nonzero exit is reusable only when the current approved
+`supersedes` list excuses exactly its failures, and the gate interprets the
+receipt again under that list. Any other failing, interrupted, timed-out,
+unowned or altered run, a later Tester, a changed contract, source, binding,
+`supersedes` list or environment, and an unsupported runtime execute fresh.
+The repair writes its own protected receipt; the reused rows carry their
+scheduling decision and count once in `scheduling.reused_count` and
+`avoided_seconds`. Public evidence records
 the scheduling decision and preserves the original receipt, output hashes and
 execution interval. Those artifacts remain pinned by the Completion gate.
 

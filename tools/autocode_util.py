@@ -96,13 +96,24 @@ def source_commit() -> str | None:
     other repository (a venv under a user project) must report None, never that
     project's HEAD (#339). Moved from autocode_subcommands so the bottom-layer
     util can stamp run states (#980) without importing upward.
+
+    The probe only observes: optional locks stay off whatever the caller's
+    environment says, so a status read never refreshes and rewrites the
+    checkout's index. Run from a sealed verification copy, that rewrite made
+    every later capture refuse ``.git/index`` (#3039).
     """
     import subprocess as _sp
+
+    env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
 
     def git(*args):
         try:
             return _sp.run(
-                ["git", "-C", str(Path(__file__).resolve().parent), *args], capture_output=True, text=True, timeout=10
+                ["git", "-C", str(Path(__file__).resolve().parent), *args],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                env=env,
             )
         except (OSError, _sp.TimeoutExpired):
             return None

@@ -8,6 +8,7 @@ path applies capacity recovery.
 import json
 import sys
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -21,21 +22,26 @@ import autocode_support as s
 
 from . import test_assignment_scenarios, test_goals, test_truncated_review_recovery
 
+# Written out independently of RECOVERY_CHAIN, so a dropped, added or moved row fails here (#3035).
 CHAIN_ORDER = (
     "job_failure",
     "network",
     "startup",
+    "route",
     "truncated_review",
     "capacity",
     "timeout",
     "external_directory_denial",
+    "no_progress",
 )
 
-# Where each row's recoverer lives: three in their own modules, four on the runner.
+# Where each row's recoverer lives: five in their own modules, four on the runner.
 MODULE_ROWS = {
     "job_failure": (recovery_dispatch.job_failure, "recover"),
     "network": (recovery_dispatch.network_retry, "recover"),
     "startup": (recovery_dispatch.provider_recovery, "recover_startup"),
+    "route": (recovery_dispatch.route_recovery, "recover"),
+    "no_progress": (recovery_dispatch.resolver_recovery, "recover_no_progress"),
 }
 
 RUNTIME_ROWS = {
@@ -48,13 +54,20 @@ RUNTIME_ROWS = {
 
 class ChainOrderTests(unittest.TestCase):
     def chain(self, calls, fired):
+        """Run the chain with every row's recoverer recorded; only ``fired`` recovers."""
+
         def note(row):
             return lambda *args: calls.append(row) or row == fired
 
         runtime = SimpleNamespace(**{name: note(row) for row, name in RUNTIME_ROWS.items()})
-        patches = [patch.object(module, name, side_effect=note(row)) for row, (module, name) in MODULE_ROWS.items()]
-        with patches[0], patches[1], patches[2]:
+        with ExitStack() as stack:
+            for row, (module, name) in MODULE_ROWS.items():
+                stack.enter_context(patch.object(module, name, side_effect=note(row)))
             return recovery_dispatch.recover(runtime, {}, Path("/run"), Path("/work"), s.Paused("PAUSED_TEST", "x"))
+
+    def test_every_row_is_recorded(self):
+        self.assertEqual(set(CHAIN_ORDER), set(MODULE_ROWS) | set(RUNTIME_ROWS))
+        self.assertEqual(len(CHAIN_ORDER), len(MODULE_ROWS) + len(RUNTIME_ROWS))
 
     def test_the_chain_is_the_live_loop_order(self):
         calls = []
@@ -62,9 +75,11 @@ class ChainOrderTests(unittest.TestCase):
         self.assertEqual(list(CHAIN_ORDER), calls)
 
     def test_the_first_recovery_that_fires_wins(self):
-        calls = []
-        self.assertEqual("capacity", self.chain(calls, fired="capacity"))
-        self.assertEqual(list(CHAIN_ORDER[:5]), calls)
+        for index, row in enumerate(CHAIN_ORDER):
+            with self.subTest(row=row):
+                calls = []
+                self.assertEqual(row, self.chain(calls, fired=row))
+                self.assertEqual(list(CHAIN_ORDER[: index + 1]), calls)
 
 
 class SerialDispatchCapacityTests(unittest.TestCase):

@@ -53,6 +53,7 @@ try:
     from . import autocode_escalation_view as escalation_view
     from . import autocode_finding_rescope as finding_rescope
     from . import autocode_goals as goals
+    from . import autocode_implementation_discrepancy as implementation_discrepancy
     from . import autocode_liveness as liveness_policy
     from . import autocode_member_stop as member_stop
     from . import autocode_operational_information as operational_information
@@ -61,6 +62,7 @@ try:
     from . import autocode_pause_authority as pause_authority
     from . import autocode_pause_category as pause_category
     from . import autocode_pause_command as pause_command
+    from . import autocode_person_text as person_text
     from . import autocode_plan_file as plan_file
     from . import autocode_plan_file_origin as plan_file_origin
     from . import autocode_plan_retention as plan_retention
@@ -114,6 +116,7 @@ except ImportError:
     import autocode_escalation_view as escalation_view
     import autocode_finding_rescope as finding_rescope
     import autocode_goals as goals
+    import autocode_implementation_discrepancy as implementation_discrepancy
     import autocode_liveness as liveness_policy
     import autocode_member_stop as member_stop
     import autocode_operational_information as operational_information
@@ -122,6 +125,7 @@ except ImportError:
     import autocode_pause_authority as pause_authority
     import autocode_pause_category as pause_category
     import autocode_pause_command as pause_command
+    import autocode_person_text as person_text
     import autocode_plan_file as plan_file
     import autocode_plan_file_origin as plan_file_origin
     import autocode_plan_retention as plan_retention
@@ -372,6 +376,10 @@ def view(
         # Whether a person may change this started run's stage models now, why not, and the read-only
         # list whose `set` arrays change one between stages (autocode_run_stage_models); None before routes.
         "stage_models": run_stage_models.offer(state, run_dir=run_dir),
+        # At a pause the person requested while the approved plan is being built: the named action that reports
+        # where the code departs from that plan without revising it, and the reports kept for the reviewers
+        # (autocode_implementation_discrepancy, #3045). None when there is neither.
+        "implementation_discrepancy": implementation_discrepancy.project(state, run_dir=run_dir, workspace=workspace),
         # AutoResolver's one re-evaluation of corrective information sent to an operational request
         # (autocode_operational_information, #486): status pending, held, admitted, stale or superseded
         # (the run left the pause unevaluated); the decision, its reason and, when held, the exact next
@@ -1044,6 +1052,18 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
     }
 
 
+def _person_facing(need: dict) -> dict:
+    """``need`` with a person-only Resolver request's question text free of CLI machinery (#3145).
+
+    The request AutoResolver saves carries operator advice (flags, a token's environment variable,
+    `autocode resume`) after its sentence for the person; the saved request and ``stop_reason`` keep
+    it for the terminal. A client shows these questions to a person and takes only the actions the
+    view names, so the view's questions keep the person's sentences only."""
+    if need.get("resolver_scope") in ("blocker", "operational_exhaustion"):
+        need["questions"] = [person_text.question(row) for row in need.get("questions") or []]
+    return need
+
+
 def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
     """What must happen next for the run to progress, or None when it is complete.
 
@@ -1242,11 +1262,13 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                 }
             ]
         if proposal_questions:
-            return {
-                "kind": "answer",
-                "questions": [{field: q.get(field) for field in QUESTION_FIELDS} for q in proposal_questions],
-                "resolver_scope": proposal.get("scope"),
-            }
+            return _person_facing(
+                {
+                    "kind": "answer",
+                    "questions": [{field: q.get(field) for field in QUESTION_FIELDS} for q in proposal_questions],
+                    "resolver_scope": proposal.get("scope"),
+                }
+            )
     questions = state.get("pending_questions") or []
     reviews = [question for question in questions if question.get("review_criteria")]
     if reviews:
@@ -1332,7 +1354,7 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                     retry := recovery_limits.scoped_retry(state)
                 ):
                     answer["retry_action"] = retry
-        return answer
+        return _person_facing(answer)
     if status == "AWAITING_GOAL_APPROVAL":
         # The approval token is saved when the CLI displays the plan; until then, relaunch to display it.
         return (

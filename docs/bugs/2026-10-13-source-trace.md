@@ -78,4 +78,7 @@ sample in the brief) is still the Plan Reviewer's check, as #676's
 base-revision note and the existing brief-example receipt already cover for
 that shape. Checking every worked example against the brief still depends
 partly on a model; this change makes the handoff machine-checkable where the
-rule is exact.
+rule is exact. Since #2941 a worked example that renders a cited template
+with different brackets, separators, field order or casing is refused too
+(`autocode_brief_literals.disagreements`); templates with no fixed word or
+alternation to recognize an example by stay with the Plan Reviewer.
