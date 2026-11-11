@@ -119,13 +119,13 @@ class TransportAcceptanceCLITests(unittest.TestCase):
         # per-role tools deliberately have immutable identities and cannot accept.
         self.start_options = ()
         options = list(self.options)
-        for role, model in (
-            ("task_planner", "zai-coding-plan/glm-5.3"),
-            ("tester", "zai-coding-plan/glm-5.3"),
-            ("completion", "zai-coding-plan/glm-5.3"),
-            ("builder", "xiaomi-token-plan-sgp/mimo-v2.6-pro"),
+        for flag, model in (
+            ("--task-planner-model", "zai-coding-plan/glm-5.3"),
+            ("--tester-model", "zai-coding-plan/glm-5.3"),
+            ("--completion-model", "zai-coding-plan/glm-5.3"),
+            ("--builder-model", "xiaomi-token-plan-sgp/mimo-v2.6-pro"),
         ):
-            options[options.index(f"--{role}-model") + 1] = model
+            options[options.index(flag) + 1] = model
         self.options = tuple(options)
         run = self.start()
         attached = taskrun.TaskRun(self.workspace, run.run_dir, options=self.options, env=self.env, timeout=300)
