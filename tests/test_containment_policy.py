@@ -156,7 +156,7 @@ class ContainmentPolicyTests(unittest.TestCase):
             "backend_version": "bubblewrap 0.9.0",
             "stage": "builder",
             "iteration": 1,
-            "started_at": "terra-1",
+            "started_at": "builder-1",
         }
         self.assertEqual(expected, named([plan, builder, waived]))
         self.assertEqual(expected, named([plan, builder], active=waived))
@@ -167,7 +167,7 @@ class ContainmentPolicyTests(unittest.TestCase):
                 "backend_version": "macOS 15.3",
                 "stage": "tester",
                 "iteration": 2,
-                "started_at": "sol-2",
+                "started_at": "tester-2",
             },
             named([plan, builder], active=running),
         )

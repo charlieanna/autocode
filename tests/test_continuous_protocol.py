@@ -32,7 +32,6 @@ from providers import opencode
 
 from tests import test_goals as goal_fixtures
 from tests import test_planning as planning_fixtures
-from tools.dashboard import conversation_transport, planner_dispatch
 
 
 def conversation():
@@ -215,84 +214,6 @@ class PortableSchemaTests(unittest.TestCase):
     def test_documented_schema_matches_packaged_production_schema(self):
         documentation = Path(__file__).resolve().parents[1] / contract.SCHEMA_RELPATH
         self.assertEqual(json.loads(documentation.read_text()), contract.load_contract_schema())
-
-
-class PlannerBoundaryTests(unittest.TestCase):
-    def test_structured_result_requires_exact_turn_revision_route_and_freshness(self):
-        route = routes.MANDATED_ROUTES["planner"]
-        value = structured()
-        self.assertEqual(
-            value,
-            planner_dispatch.validate_structured_result(
-                value, requirements_revision=1, logical_turn_id="turn-1", route=route
-            ),
-        )
-        variants = [
-            ({"requirements_revision": 2}, "source_revision"),
-            ({"logical_turn_id": "turn-2"}, "source_revision"),
-            ({"model": "unrelated-model"}, "attribution"),
-            ({"state": "stale"}, "freshness"),
-        ]
-        for changed, key in variants:
-            candidate = deepcopy(value)
-            candidate[key].update(changed)
-            with self.subTest(changed=changed), self.assertRaises(ValueError):
-                planner_dispatch.validate_structured_result(
-                    candidate, requirements_revision=1, logical_turn_id="turn-1", route=route
-                )
-
-    def test_provider_adapter_is_tool_free_and_requires_a_terminal_result(self):
-        captured = []
-        observed = []
-        payload = structured()
-        started = {"type": "step_start", "sessionID": "session-1", "part": {"id": "start", "type": "step-start"}}
-        text_event = {
-            "type": "text",
-            "sessionID": "session-1",
-            "part": {"id": "draft", "type": "text", "text": json.dumps(payload)},
-        }
-        finished = {
-            "type": "step_finish",
-            "sessionID": "session-1",
-            "part": {"id": "finish", "type": "step-finish", "reason": "stop"},
-        }
-
-        def capture(command, env, cwd, prompt, **kwargs):
-            captured.append((command, env, prompt))
-            return 0, "\n".join(json.dumps(row) for row in (started, text_event, finished))
-
-        with (
-            tempfile.TemporaryDirectory() as directory,
-            patch.object(conversation_transport.opencode_transport, "check_subscription_routes"),
-            patch.object(conversation_transport, "_capture", side_effect=capture),
-        ):
-            reply = planner_dispatch.opencode_planner_provider(
-                conversation()["messages"],
-                routes.MANDATED_ROUTES["planner"],
-                Path(directory),
-                logical_turn_id="turn-1",
-                requirements_revision=1,
-                dispatch_observer=lambda *row: observed.append(row),
-            )
-        self.assertEqual(payload, json.loads(reply))
-        command, env, prompt = captured[0]
-        self.assertIn("--pure", command)
-        self.assertEqual({"*": "deny"}, json.loads(env["OPENCODE_PERMISSION"]))
-        self.assertIn("requirements_revision 1", prompt)
-        self.assertIn("provider_events", [row[0] for row in observed])
-        with (
-            tempfile.TemporaryDirectory() as directory,
-            patch.object(conversation_transport.opencode_transport, "check_subscription_routes"),
-            patch.object(conversation_transport, "_capture", return_value=(0, json.dumps(text_event))),
-        ):
-            with self.assertRaisesRegex(conversation_transport.ConversationProviderError, "did not finish"):
-                planner_dispatch.opencode_planner_provider(
-                    conversation()["messages"],
-                    routes.MANDATED_ROUTES["planner"],
-                    Path(directory),
-                    logical_turn_id="turn-1",
-                    requirements_revision=1,
-                )
 
 
 class ProfileTests(unittest.TestCase):

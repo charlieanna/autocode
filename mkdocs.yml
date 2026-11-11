@@ -63,8 +63,6 @@ nav:
       - Interventions: interventions.md
       - GitHub issues: issues.md
       - Channel bridge: channels.md
-      - Dashboard: dashboard.md
-      - macOS app: macos-app.md
   - Proof and evidence:
       - Completion and evidence: execution.md
       - Named test proof: named-test-proof.md

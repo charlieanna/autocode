@@ -50,7 +50,6 @@ OPERATOR_SUBCOMMANDS = (
     "review",
     "issue",
     "arena",
-    "dashboard",
     "unattended",
     "forget",
 )

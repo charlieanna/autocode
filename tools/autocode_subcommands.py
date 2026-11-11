@@ -40,7 +40,6 @@ SUBCOMMANDS = {
     "changeset": "autocode_changeset",
     "coordinate": "autocode_coordinate",
     "arena": "autocode_arena",
-    "dashboard": "dashboard.agent_console",
     "unattended": "autocode_unattended",
     "checkpoint": "autocode_checkpoint_cli",
     "replay": "autocode_replay_cli",
@@ -69,11 +68,10 @@ SUBCOMMANDS = {
     "completion": "autocode_shell_completion",
 }
 # A few existing entry points consume sys.argv rather than an argv parameter.
-ENTRY_FUNCTIONS = {"issue": "main", "arena": "main", "dashboard": "main"}
-SYS_ARGV_COMMANDS = frozenset({"dashboard", "unattended"})
-# No parser() to read: the dashboard reads sys.argv itself; unattended passes run arguments through to
-# the main parser.
-WITHOUT_PARSER = frozenset({"dashboard", "unattended"})
+ENTRY_FUNCTIONS = {"issue": "main", "arena": "main"}
+SYS_ARGV_COMMANDS = frozenset({"unattended"})
+# No parser() to read: unattended passes run arguments through to the main parser.
+WITHOUT_PARSER = frozenset({"unattended"})
 DISTRIBUTION = "autocode-supervisor"
 
 try:

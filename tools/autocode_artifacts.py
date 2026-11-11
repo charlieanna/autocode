@@ -1,10 +1,10 @@
 """Naming and reservation of per-stage artifacts under a run's iterations/ tree.
 
-Stage code names stay in state, prompts and code; artifact file stems use
-readable unique slugs (terra-01.jsonl becomes builder-01.jsonl). A launch
-reserves its stem only when neither the new slug nor the legacy code-name stem
-holds artifacts, so a resume across the naming change cannot overlook an
-uncertain prior attempt.
+Artifact file stems use readable unique slugs (the Builder's are builder-01.jsonl,
+once terra-01.jsonl). A launch reserves its stem only when neither the slug nor
+the stem under the stage's old code name (autocode_names.old_stage) holds
+artifacts, so a resume across the naming change cannot overlook an uncertain
+prior attempt.
 """
 
 from __future__ import annotations
@@ -12,8 +12,10 @@ from __future__ import annotations
 from pathlib import Path
 
 try:
+    from . import autocode_names as names
     from . import autocode_support as support
 except ImportError:
+    import autocode_names as names
     import autocode_support as support
 
 # One unique stem per stage code name: two stages may share a human role
@@ -65,7 +67,7 @@ def stage_base(run_dir, iteration, stage, attempt) -> Path:
 def reserve(run_dir, iteration, stage, attempt) -> Path:
     """Return this attempt's artifact base, or pause when new or legacy artifacts already exist."""
     base = stage_base(run_dir, iteration, stage, attempt)
-    legacy = base.parent / f"{stage}-{attempt:02d}"
+    legacy = base.parent / f"{names.old_stage(stage)}-{attempt:02d}"
     for name in {base.name, legacy.name}:
         for suffix in RESERVED_SUFFIXES:
             if (base.parent / (name + suffix)).exists():

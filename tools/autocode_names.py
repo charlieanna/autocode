@@ -77,6 +77,14 @@ def stage(name: str) -> str:
     return STAGES.get(name, name)
 
 
+def old_stage(name: str) -> str:
+    """The code name a stage (or its report repair) had before the rename; any other name is returned as it is."""
+    repair = str(name).endswith("_report_repair")
+    base = str(name).removesuffix("_report_repair")
+    old = next((old for old, new in STAGES.items() if new == base), base)
+    return old + ("_report_repair" if repair else "")
+
+
 def flag(old: str) -> str:
     """The new spelling of an old flag (``--terra-model`` -> ``--builder-model``); any other as it is."""
     if old not in OLD_FLAGS:

@@ -154,4 +154,4 @@ such as a non-Git workspace conservatively use that same `registry_error` exit a
 the pass. Any earlier acknowledged imports remain durable and it is safe to retry. Import
 never starts or resumes providers and does not modify imported task files.
 
-See also: [Dashboard](dashboard.md) · [Interventions](interventions.md)
+See also: [Interventions](interventions.md)

@@ -347,7 +347,8 @@ class PausedSourceEditTests(unittest.TestCase):
 
         self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
         self.assertIn(
-            f"Discarded stale sol report repair from source {old[:12]}; the workspace is now at {new[:12]}", self.stdout
+            f"Discarded stale tester report repair from source {old[:12]}; the workspace is now at {new[:12]}",
+            self.stdout,
         )
         self.assertEqual([("tester", False)], [(call["stage"], call["report_only"]) for call in calls])
         self.assertNotIn("pending_report_repair", self.state)
