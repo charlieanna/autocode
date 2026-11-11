@@ -255,3 +255,18 @@ test('a CLI call that never exits times out instead of hanging the caller foreve
   );
   assert.ok(Date.now() - started < 5000, 'the timeout bound is what ends the call, not the sleep');
 });
+
+test('the registry and mode listings pass a timeout so a wedged CLI cannot freeze the sidebar', async (t) => {
+  const controller = new RunController(host.log);
+  const launch = t.mock.method(cli, 'invoke', async (_settings, args) => ({
+    code: 0, stdout: args[0] === 'registry' ? '{"runs": [], "diagnostics": []}'
+      : '{"schema_version": 1, "default": "full", "modes": []}',
+    stderr: '', rejected: false,
+  }));
+  await controller.list();
+  await controller.modes();
+  assert.equal(launch.mock.callCount(), 2);
+  for (const call of launch.mock.calls) {
+    assert.equal(call.arguments[3], 30000, 'a poll read is bounded like --status');
+  }
+});

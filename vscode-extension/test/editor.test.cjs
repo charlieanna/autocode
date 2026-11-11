@@ -2357,6 +2357,55 @@ test('a second refresh joins the running poll cycle instead of returning before 
   assert.equal(joined, true);
 });
 
+test('a reply that starts streaming after a finished-only thread is shown while it grows', async (t) => {
+  const base = { status: 'RUNNING', done: false, needs: { kind: 'continue' }, chat: {
+    phase: 'requirements', context: 'turn-one', input: null,
+    messages: [{ id: 'u1', role: 'user', text: 'A book app' }],
+  } };
+  const ui = await openChat(t, base);
+  // The assistant row arrives already streaming on a later read. The finished set
+  // is unchanged, so only the live extract changed: the in-place path must still
+  // show the provisional row, which it never rendered before.
+  const next = structuredClone(base);
+  next.chat.messages.push({ id: 'live', role: 'assistant', text: 'Who will', streaming: true });
+  await ui.poll(next);
+  const live = ui.document.querySelector('#messages .message.streaming');
+  assert.ok(live, 'a newly started reply shows as provisional at once');
+  assert.equal(live.querySelector('.message-content').textContent, 'Who will');
+  const grown = structuredClone(next);
+  grown.chat.messages[1].text = 'Who will use it?';
+  await ui.poll(grown);
+  assert.equal(ui.document.querySelector('#messages .message.streaming .message-content').textContent, 'Who will use it?');
+});
+
+test('one chat\'s slow status read does not hold back another chat\'s display', async (t) => {
+  const own = new RunController(host.log);
+  const slowRun = { workspace: '/ws', runDir: '/ws/.autocode/runs/slow' };
+  const base = { status: 'RUNNING', done: false, needs: { kind: 'continue' }, chat: {
+    phase: 'requirements', context: 'turn-one', input: null,
+    messages: [{ id: 'u1', role: 'user', text: 'A book app' }, { id: 'a1', role: 'assistant', text: 'first answer' }],
+  } };
+  const ui = await openChat(t, base, run, { controller: own });
+  ui.chat.show(slowRun);
+  await flush();
+  ui.chat.show(run);
+  await flush();
+  let releaseSlow;
+  t.mock.method(own, 'pollStatus', (target) => {
+    if (target.runDir === slowRun.runDir) return new Promise((resolve) => { releaseSlow = () => resolve(structuredClone(base)); });
+    return Promise.resolve({ status: 'RUNNING', done: false, needs: { kind: 'continue' }, chat: {
+      phase: 'requirements', context: 'turn-one', input: null,
+      messages: [{ id: 'u1', role: 'user', text: 'A book app' }, { id: 'a1', role: 'assistant', text: 'fresh answer' }],
+    } });
+  });
+  t.mock.timers.tick(5000);
+  await flush();
+  assert.ok(ui.document.querySelector('#messages').textContent.includes('fresh answer'),
+    'the chat whose read landed is shown while another chat\'s read is still out');
+  releaseSlow();
+  await flush();
+});
+
 test('requirements chat offers Continue when no step is running instead of thinking forever', async (t) => {
   const value = { status: 'RUNNING', done: false, phase: 'DISCOVERING', needs: { kind: 'continue' },
     liveness: { kind: 'unknown' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`, chat: {
@@ -3903,6 +3952,42 @@ test('delayed status resolution does not re-show unwatched run or replace newly 
   await flush();
   assert.equal(statusVisible, true);
   assert.ok(mockStatus.text.includes('Other running'), 'late resolution must not replace newer watched run');
+});
+
+test('a failed status read keeps the status bar up saying so instead of hiding it', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  let statusVisible = false;
+  let statusText = '';
+  const mockStatus = {
+    show() { statusVisible = true; },
+    hide() { statusVisible = false; },
+    dispose() {},
+    get text() { return statusText; },
+    set text(val) { statusText = val; },
+    command: undefined,
+    tooltip: undefined,
+  };
+  t.mock.method(host.vscode.window, 'createStatusBarItem', () => mockStatus);
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
+  let failing = true;
+  t.mock.method(RunController.prototype, 'status', async () => {
+    if (failing) throw new Error('autocode timed out after 30000ms');
+    return { status: 'RUNNING', done: false, needs: { kind: 'continue' }, progress: { headline: 'Builder working' } };
+  });
+
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+
+  await host.commands.get('autocode.openRun')(run);
+  await flush();
+  assert.equal(statusVisible, true, 'the bar stays up while the run\'s status cannot be read');
+  assert.match(statusText, /status unavailable/);
+  failing = false;
+  t.mock.timers.tick(5000);
+  await flush();
+  assert.equal(statusVisible, true);
+  assert.ok(statusText.includes('Builder working'), 'the bar shows the run again as soon as a read succeeds');
 });
 
 test('Run details guards against concurrent clicks during status and modal confirmation (#1542)', async (t) => {

@@ -31,8 +31,8 @@ export function buildArgv(options: CliOptions, args: string[]): { file: string; 
 }
 
 /** Run one CLI call and collect its output. */
-export function invoke(options: CliOptions, args: string[], env: Record<string, string> = {}): Promise<CliResult> {
-  return stream(options, args, env);
+export function invoke(options: CliOptions, args: string[], env: Record<string, string> = {}, timeoutMs?: number): Promise<CliResult> {
+  return stream(options, args, env, undefined, EXIT_GRACE_MS, timeoutMs);
 }
 
 /**

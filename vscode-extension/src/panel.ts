@@ -2009,7 +2009,12 @@ function renderChat(data) {
   const liveKey = JSON.stringify(liveRows.map((row) => [row.id, row.text]));
   const priorLive = messages.dataset.live ?? '';
   const priorFinished = messages.dataset.finished ?? '';
-  if (priorFinished !== finishedKey || (liveKey && !priorLive) || (!liveKey && priorLive)) {
+  // A live row that appears (or the last one that finishes) has no in-place node
+  // either way: JSON.stringify of an empty list is the truthy '[]', so emptiness
+  // must be compared as a count, not as truthiness.
+  const hadLive = priorLive !== '' && priorLive !== '[]';
+  const hasLive = liveRows.length > 0;
+  if (priorFinished !== finishedKey || hasLive !== hadLive) {
     messages.dataset.finished = finishedKey;
     messages.dataset.live = liveKey;
     messages.dataset.content = finishedKey + liveKey;
