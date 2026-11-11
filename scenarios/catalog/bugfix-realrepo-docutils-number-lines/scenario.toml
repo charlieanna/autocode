@@ -1,0 +1,23 @@
+title = "Fix :number-lines: 0 on the include directive in Docutils, a 94,000-line real repository"
+category = "bugfix"
+# RELIABILITY.md's fourth bounded case (#2944): a bug fix in a mid-size real repository. The seed is
+# Docutils (docutils/ of the official GitHub mirror: 771 files, about 94,000 lines of Python, a suite of
+# several thousand unittest cases) at the parent of upstream commit 26bfb7fe, which fixed this bug (Sphinx
+# issue #14261). The cause is one falsy test in misc.py's Include directive; body.py's "code" directive
+# has the same option and already handles 0, so a fix there alone looks right and changes nothing. The
+# reference is upstream's own fix with a new regression test; the hidden tests check 0, no value and
+# another start for both directives through the public publish_doctree.
+# The upstream files in reference/ and broken/ keep Docutils' own style and are excluded from ruff.
+
+[seed]
+git = "https://github.com/docutils/docutils.git"
+commit = "54f4d615a7608d6b0bee7dec43a5be1543d4e456"
+path = "docutils"
+
+[run]
+timeout_minutes = 120
+
+[fake]
+check = "python3 test/alltests.py"
+# Exits 0 while the seed's bug is present; the runner checks the scripted reproduction.
+probe = 'python3 -c "import sys; from docutils.core import publish_doctree as p; t = p(\".. include:: test/test_parsers/test_rst/test_directives/include1.rst\n   :literal:\n   :number-lines: 0\n\").astext(); sys.exit(0 if t.split()[0] == \"1\" else 1)"'

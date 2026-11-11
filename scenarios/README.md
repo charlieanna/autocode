@@ -1027,6 +1027,12 @@ catalog/<id>/
                     never part of the project
   brief.md          the request, exactly as a user would type it (plain text, no headings)
   seed/             the starting project, committed before the run (omit for an empty repo)
+  [seed]            in scenario.toml, instead of seed/: a real repository at a pinned commit,
+                    git = "https://...", commit = "<full 40-character hash>", optional path = "subdir"
+                    (the directory that is the project). The harness fetches that exact commit once into
+                    .scenario-runs/seed-cache/ (or $AUTOCODE_SCENARIO_SEED_CACHE) and uses its files
+                    wherever seed/ is used; none of the repository's history reaches the run. A source
+                    that cannot be fetched skips the scenario like a missing toolchain (harness/pinned_seed.py).
   oracle.py         def check(project, scenario, run=None) -> list[Check]
                     optional def diagnosis(project, run) -> dict (see "Diagnosis"; never in check())
   reference/        files that, laid over the seed, make a correct solution

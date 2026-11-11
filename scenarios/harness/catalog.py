@@ -4,6 +4,7 @@
                          and optional [[turn]] follow-up messages
     <id>/brief.md        the request given to AutoCode, verbatim
     <id>/seed/           starting project, committed before the run (optional)
+    [seed] in scenario.toml  instead of seed/: a real repository at a pinned commit (harness/pinned_seed.py)
     <id>/oracle.py       check(project, scenario[, run]) -> list[Check], and optionally
                          diagnosis(project, run) -> dict, scored apart from the run verdict
     <id>/reference/      overlay that makes a correct solution (optional)
@@ -21,6 +22,8 @@ import shutil
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from . import pinned_seed
 
 CATALOG = Path(__file__).resolve().parent.parent / "catalog"
 # The kind of engineering job. The first eight change or create code; the next
@@ -59,6 +62,7 @@ KEYS = {
     "components",
     "setup",
     "conformance",
+    "seed",
 }
 RUN_KEYS = {"max_steps", "timeout_minutes", "expected", "known_failure", "requires_stages"}
 FAKE_KEYS = {
@@ -152,9 +156,16 @@ class Scenario:
     conformance: dict = field(default_factory=dict)
     # [setup] npm: install the catalog's pinned lock before execution, never from a test command.
     npm_setup: bool = False
+    # [seed]: a real repository at a pinned commit stands in for seed/ (#2944).
+    seed_source: pinned_seed.PinnedSeed | None = None
 
     @property
     def seed(self) -> Path:
+        """The starting project: seed/, or the pinned repository's files (fetched once, then cached).
+        Raises pinned_seed.SeedUnavailable when the pinned source cannot be fetched; ``missing_tools``
+        reports that first wherever a scenario may be skipped."""
+        if self.seed_source is not None:
+            return pinned_seed.tree(self.seed_source)
         return self.dir / "seed"
 
     @property
@@ -168,7 +179,13 @@ class Scenario:
         return sorted(path for path in root.iterdir() if path.is_dir()) if root.is_dir() else []
 
     def missing_tools(self) -> list[str]:
-        return [tool for tool in self.requires if shutil.which(tool) is None]
+        missing = [tool for tool in self.requires if shutil.which(tool) is None]
+        if self.seed_source is not None:
+            try:
+                pinned_seed.tree(self.seed_source)
+            except pinned_seed.SeedUnavailable as error:
+                missing.append(f"its pinned seed ({error})")
+        return missing
 
     def oracle(self):
         return self._oracle_module().check
@@ -310,6 +327,13 @@ def load(scenario_id: str) -> Scenario:
     ):
         raise ValueError(f"{scenario_id}: no turn's message may begin another's or the brief")
     conformance = _conformance(scenario_id, meta)
+    pinned = None
+    if "seed" in meta:
+        pinned = pinned_seed.parse(scenario_id, meta["seed"])
+        if (root / "seed").exists():
+            raise ValueError(f"{scenario_id}: a [seed] repository and a seed/ directory cannot both be specified")
+        if setup.get("npm"):
+            raise ValueError(f"{scenario_id}: [setup] npm needs a seed/ directory's pinned manifests, not a [seed]")
     return Scenario(
         id=scenario_id,
         dir=root,
@@ -340,6 +364,7 @@ def load(scenario_id: str) -> Scenario:
         components_architecture=architecture,
         conformance=conformance,
         npm_setup=setup.get("npm", False),
+        seed_source=pinned,
     )
 
 
