@@ -120,7 +120,8 @@ class LaunchTests(FakeClaude, unittest.TestCase):
         for argv, mode in ((builder, "acceptEdits"), (judge, "acceptEdits"), (planner, "default")):
             self.assertEqual(mode, self.after(argv, "--permission-mode"))
             self.assertEqual(claude.TOOLS, self.after(argv, "--tools"))
-            self.assertEqual(list(claude.DENY_GIT), argv[-len(claude.DENY_GIT) :])
+            denials = [*claude.DENY_GIT, *claude.DENY_PUBLISH]
+            self.assertEqual(denials, argv[-len(denials) :])
             self.assertEqual("medium", self.after(argv, "--effort"))
             self.assertEqual("claude-haiku-4-5-20251001", autocode_usage._model({"command": argv}))
             self.assertNotIn("--resume", argv)
@@ -134,8 +135,8 @@ class LaunchTests(FakeClaude, unittest.TestCase):
         self.assertEqual(list(claude.WRITE_ALLOWED), allowed(builder))
         self.assertEqual(list(claude.WRITE_ALLOWED), allowed(judge))  # judges keep Edit/Write, as qualified
         self.assertEqual(list(claude.READ_ALLOWED), allowed(planner))
-        self.assertEqual(list(claude.DENY_GIT), denied(builder))
-        self.assertEqual([*claude.READ_DISALLOWED, *claude.DENY_GIT], denied(planner))
+        self.assertEqual([*claude.DENY_GIT, *claude.DENY_PUBLISH], denied(builder))
+        self.assertEqual([*claude.READ_DISALLOWED, *claude.DENY_GIT, *claude.DENY_PUBLISH], denied(planner))
         resumed, _, _ = self.launch(allow_write=False, planning=True, session="s1")
         self.assertEqual("s1", self.after(resumed, "--resumed"))
         self.assertEqual("s1", self.after(resumed, "--resume"))

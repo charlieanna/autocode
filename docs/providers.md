@@ -211,7 +211,11 @@ cannot detect writes outside the workspace, ignored files, or
 transient changes between snapshots, and is unavailable when the transport omits
 snapshots. Use an OS sandbox when filesystem prevention is required.
 The built-in OpenCode adapter does not enable `--auto` or override user-level
-permission rules with blanket allows.
+permission rules with blanket allows. It only adds denials: on every OpenCode and Kilo
+stage, after your own bash rules, `git push` and the `gh` commands that label, comment
+on, edit, open, close, review or merge issues and pull requests, or create releases,
+labels or repositories (`autocode_publish_guard`). A stage reads an issue but never
+publishes; every stage's prompt says so too.
 A denied required operation is reported back as a blocker.
 See OpenCode's [permission documentation](https://opencode.ai/docs/permissions/).
 
@@ -539,7 +543,7 @@ left out) are kept beside the log as `<stage>.claude.jsonl`.
   (`--setting-sources project`). Edit and Write are pre-approved unless the stage's sandbox is
   read-only (planning stages); judging stages keep them, and the after-stage snapshot catches a
   judge's source edit. `git commit`, `push`, `checkout`, `reset`, `stash`, `branch`, `rebase` and
-  `merge` are denied.
+  `merge` are denied, and so are the `gh` commands that change GitHub (`autocode_publish_guard`).
 - **Login.** Before every stage of a joint-planning run, after `--accept-transport-change`, and in
   doctor, `claude auth status --json` runs in the agents' environment and must report a first-party
   Claude subscription login (`claude.ai` or `oauth_token`). An API key (`ANTHROPIC_API_KEY`,

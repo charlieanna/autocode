@@ -13,10 +13,12 @@ try:
     from .. import autocode_changed_code_review as changed_code_review
     from .. import autocode_native_locators as native_locators
     from .. import autocode_prompts as prompts
+    from .. import autocode_publish_guard as publish_guard
 except ImportError:
     import autocode_changed_code_review as changed_code_review
     import autocode_native_locators as native_locators
     import autocode_prompts as prompts
+    import autocode_publish_guard as publish_guard
 
 
 import copy
@@ -526,7 +528,13 @@ def launch(
         policy = {"*": policy}
     if not isinstance(policy, dict):
         raise ValueError("OpenCode agent permissions must be an action or an object")
-    definition = {**prior, **overrides["agent"][agent], "permission": {**policy, **permissions}}
+    merged = {**policy, **permissions}
+    # No stage changes GitHub or pushes, whatever shell the agent has (autocode_publish_guard); an agent with no
+    # bash rule of its own keeps its wider one for every other command.
+    shell = merged.get("bash", merged.get("*"))
+    if shell != "deny":
+        merged["bash"] = publish_guard.bash_permission(shell)
+    definition = {**prior, **overrides["agent"][agent], "permission": merged}
     plugins = inherited.get("plugin", [])
     if not isinstance(plugins, list):
         raise ValueError("OpenCode inline plugin configuration must be an array")

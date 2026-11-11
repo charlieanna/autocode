@@ -35,12 +35,14 @@ try:
     from .. import autocode_changed_code_review as changed_code_review
     from .. import autocode_prompts as prompts
     from .. import autocode_provider_env as provider_env
+    from .. import autocode_publish_guard as publish_guard
     from .. import autocode_tool_handoff as tool_handoff
 except ImportError:
     import autocode_agent_env as agent_env
     import autocode_changed_code_review as changed_code_review
     import autocode_prompts as prompts
     import autocode_provider_env as provider_env
+    import autocode_publish_guard as publish_guard
     import autocode_tool_handoff as tool_handoff
 
 import hashlib
@@ -95,6 +97,8 @@ DENY_GIT = (
     "Bash(git rebase:*)",
     "Bash(git merge:*)",
 )
+# No stage changes GitHub or pushes (autocode_publish_guard); git push is already above.
+DENY_PUBLISH = tuple(rule for rule in publish_guard.claude_rules() if rule not in DENY_GIT)
 BASE_FLAGS = (
     "--output-format",
     "stream-json",
@@ -146,6 +150,7 @@ POLICY = {
     "read_allowed": READ_ALLOWED,
     "read_disallowed": READ_DISALLOWED,
     "deny_git": DENY_GIT,
+    "deny_publish": DENY_PUBLISH,
     "removed_env": REMOVED_ENV,
     "set_env": SET_ENV,
 }
@@ -451,6 +456,7 @@ def launch(
         "--disallowedTools",
         *(() if writes else READ_DISALLOWED),
         *DENY_GIT,
+        *DENY_PUBLISH,
     ]
     return argv, child, {"provider": NAME, "sandbox": sandbox, "report": str(report or "")}
 

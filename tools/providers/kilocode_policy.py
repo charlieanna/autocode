@@ -15,8 +15,10 @@ from concurrent.futures import ThreadPoolExecutor
 from . import kilocode_probe
 
 try:
+    from .. import autocode_publish_guard as publish_guard
     from .. import autocode_tool_containment as containment
 except ImportError:
+    import autocode_publish_guard as publish_guard
     import autocode_tool_containment as containment
 
 READ_TOOLS = ("read", "glob", "grep", "list")
@@ -126,6 +128,9 @@ def restrict(
         else READ_TOOLS
     )
     policy = intersect(original.get("permission"), permitted)
+    if "bash" in policy:
+        # No stage changes GitHub or pushes, whatever the operator's shell allows (autocode_publish_guard).
+        policy["bash"] = publish_guard.bash_permission(policy["bash"])
     if write_stage:
         # Kilo's action-only permissions reject pattern objects (and can discard
         # the entire inline config). Collapse only an unconditional rule; a

@@ -24,6 +24,7 @@ import autocode_format_correction as format_correction
 import autocode_milestones as milestones
 import autocode_opencode as oc
 import autocode_planning as planning
+import autocode_publish_guard as publish_guard
 import autocode_run_view as run_view
 import autocode_source_log as source_log
 import autocode_support as support
@@ -671,7 +672,8 @@ class OpenCodeTests(unittest.TestCase):
         plain = permission()
         self.assertEqual(("allow", "deny", "deny"), (plain["read"], plain["bash"], plain["edit"]))
         uncontained = permission(planning_shell=True)  # the person accepted uncontained tools (#413)
-        self.assertEqual(("allow", "allow", "deny"), (uncontained["read"], uncontained["bash"], uncontained["edit"]))
+        self.assertEqual(("allow", "deny"), (uncontained["read"], uncontained["edit"]))
+        self.assertEqual(publish_guard.bash_permission("allow"), uncontained["bash"])
         self.assertEqual("deny", uncontained["*"])
         self.assertEqual("deny", uncontained["external_directory"])
         captured = {}
@@ -709,7 +711,10 @@ class OpenCodeTests(unittest.TestCase):
                 role = json.loads(env["OPENCODE_CONFIG_CONTENT"])["agent"]["autocode_tester"]
                 expected = {"*": "deny"} if isinstance(policy, str) else policy
                 for key, value in expected.items():
-                    if key != "edit":
+                    if key == "bash" and value != "deny":
+                        # The operator's rules come first; every stage's publishing denials follow them.
+                        self.assertEqual(publish_guard.bash_permission(value), role["permission"][key])
+                    elif key != "edit":
                         self.assertEqual(value, role["permission"][key])
                 self.assertEqual("deny", role["permission"]["edit"])
                 self.assertEqual(0.2, role["temperature"])
