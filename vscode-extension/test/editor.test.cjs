@@ -1546,11 +1546,21 @@ test('the run header sits above the conversation with the pipeline, where the ru
   // Always visible: it is outside the scrolling thread, between the tabs and the conversation.
   assert.equal(header.previousElementSibling.id, 'chat-tabs');
   assert.equal(header.nextElementSibling.id, 'thread');
-  assert.deepEqual([...ui.document.querySelectorAll('#pipeline li')].map((li) => [li.className, li.textContent]), [
-    ['ran', '✓Requirements'], ['ran', '✓Planner'], ['skipped', '–Plan Reviewer'], ['working', '●Builder'],
-    ['pending', '·Tester'], ['pending', '·Completion Reviewer']]);
-  assert.equal(ui.document.querySelector('#pipeline li.working').getAttribute('aria-current'), 'step');
-  assert.equal(ui.document.querySelector('#pipeline li.skipped').title, 'Plan Reviewer · skipped: approved at the first review');
+  // One aligned row per stage: its mark, name, model and level, time, tokens and cost.
+  const cells = (row) => [...row.querySelectorAll('td')].filter((cell) => !cell.classList.contains('later'))
+    .map((cell) => (cell.classList.contains('name') ? cell.firstChild.textContent : cell.textContent));
+  assert.deepEqual([...ui.document.querySelectorAll('#pipeline tbody tr')].map((row) => [row.className, ...cells(row)]), [
+    ['ran', '✓', 'Requirements', 'claude-sonnet-5-5 medium', '', '', '$0.08'],
+    ['ran', '✓', 'Planner', ''],
+    ['skipped', '–', 'Plan Reviewer', 'skipped'],
+    ['working', '●', 'Builder', 'opus<img src=x onerror=bad()>'],
+    ['pending', '·', 'Tester', ''], ['pending', '·', 'Completion Reviewer', '']]);
+  assert.deepEqual([...ui.document.querySelectorAll('#pipeline thead th')].map((cell) => cell.textContent), ['State', 'Stage', 'Model', 'Time', 'Tokens', 'Cost']);
+  assert.equal(ui.document.querySelector('#pipeline tr.working').getAttribute('aria-current'), 'step');
+  assert.equal(ui.document.querySelector('#pipeline tr.skipped').title, 'Plan Reviewer · skipped: approved at the first review');
+  // A stage with no figures yet (still to come, or skipped) keeps its model where a narrow sidebar shows it.
+  assert.equal(ui.document.querySelector('#pipeline tr.skipped td.later').colSpan, 3);
+  assert.equal(ui.document.querySelector('#pipeline tfoot').textContent, '', 'no total before the run has worked or spent');
   assert.equal(ui.document.querySelector('#header-label').textContent, 'Working');
   assert.equal(ui.document.querySelector('#header-sentence').textContent, 'Builder working.');
   assert.equal(ui.document.querySelector('#header-facts').textContent, 'Builder 100% · checking 0% · 1 thing went wrong, handled');
@@ -1572,7 +1582,7 @@ test('the run header unfolds its details and keeps them open across polling, tab
   const wrong = details.querySelector('[data-section="wrong"]');
   assert.deepEqual([...wrong.querySelectorAll('.detail-line')].map((node) => [node.className, node.textContent]), [
     ['detail-line', '05:33:44 Builder sent back'], ['detail-line sub', 'What went wrong: A test failed'], ['detail-line sub', 'Then: It tried again.']]);
-  assert.match(details.querySelector('[data-section="pipeline"]').textContent, /● Builder · opus<img src=x onerror=bad\(\)>/);
+  assert.match(details.querySelector('[data-section="pipeline"]').textContent, /● Builder: opus<img src=x onerror=bad\(\)>/);
   assert.equal(details.querySelector('img'), null, 'model text is shown as text, never as markup');
   ui.type('Keep my draft while the header updates');
   let envelope = null;
@@ -1606,9 +1616,14 @@ test('the run header shows the working stage and what it does, and its details t
         attributed_tokens: { input_tokens: { value: null, known: 9000, complete: false }, output_tokens: { value: null, known: 400, complete: false } } }] } },
     chat: { ...chatView().chat, now: [{ agent: 'Requirements', text: 'reading the issue list' }] },
   }));
-  // Visible without opening anything: the working stage's model, level, time, tokens, spend and doing.
-  assert.match(ui.document.querySelector('#header-stage').textContent,
-    /^Requirements working · claude-sonnet-5-5 · medium · 1m1\ds · 9\.4k\+ tokens · \$0\.04 · reading the issue list$/);
+  // Visible without opening anything: the working stage's row, highlighted, and what it is doing under the table.
+  const row = ui.document.querySelector('#pipeline tr.working');
+  assert.deepEqual([...row.querySelectorAll('td.model, td.num')].map((cell) => cell.textContent).slice(0, 1), ['claude-sonnet-5-5 medium']);
+  assert.match(row.querySelector('td.time').textContent, /^1m1\ds$/);
+  assert.deepEqual([row.querySelector('td.tokens').textContent, row.querySelector('td.cost').textContent], ['9.4k+', '$0.04']);
+  assert.equal(row.querySelector('td.name .sub').textContent, 'claude-sonnet-5-5 medium', 'a narrow sidebar shows the model under the name');
+  assert.deepEqual([...ui.document.querySelectorAll('#pipeline tfoot td')].map((cell) => cell.textContent), ['', 'Total', '', '', '9.4k+', '$0.04+']);
+  assert.equal(ui.document.querySelector('#header-stage').textContent, 'Requirements: reading the issue list');
   ui.document.querySelector('#header-toggle').click();
   const details = ui.document.querySelector('#header-details');
   assert.deepEqual([...details.querySelectorAll('.detail-section')].map((node) => node.dataset.section), ['where', 'pipeline', 'wrong', 'spend', 'usage']);
@@ -3459,6 +3474,41 @@ test('a saved step shows what that step itself changed', async (t) => {
   assert.ok(!text.includes('differ from this checkpoint'), 'a step view is not a compare');
 });
 
+test('a raise confirmation names the open dialog in the chat while it pends', async (t) => {
+  host.config.set('confirmPersonOnly', false);
+  const ownController = new RunController(host.log);
+  const ui = await openChat(t, heldCostView('cost:current'), run, { controller: ownController });
+  const field = ui.document.querySelector('[data-question="raise:max_cost_usd"]');
+  field.value = '5'; field.dispatchEvent(new ui.window.Event('input'));
+  let release;
+  t.mock.method(host.vscode.window, 'showWarningMessage', () => new Promise((resolve) => { release = resolve; }));
+  ui.document.querySelector('#raise-bound').click();
+  await flush();
+  const hint = () => ui.document.querySelector('#send-hint').textContent;
+  assert.ok(hint().includes('answer the dialog that opened'), `the chat names the open dialog: ${hint()}`);
+  assert.ok(hint().includes('Set the cost cap to $5'), `the hint is the dialog's own question: ${hint()}`);
+  release(undefined);
+  await flush(); await flush();
+  assert.ok(!hint().includes('answer the dialog that opened'), `the hint reverts once the dialog is answered: ${hint()}`);
+});
+
+test('a restore confirmation names the open dialog in the chat while it pends', async (t) => {
+  const ui = await openChat(t, checkpointView());
+  t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({
+    version: 1, checkpoint_id: 'cp-1', expected_token: 'tok-1', changed_files: ['app.txt'], patch: '', truncated: false,
+  }) }));
+  let release;
+  t.mock.method(host.vscode.window, 'showWarningMessage', () => new Promise((resolve) => { release = resolve; }));
+  ui.document.querySelector('[data-checkpoint-action="restore"]').click();
+  await flush(); await flush();
+  const hint = () => ui.document.querySelector('#send-hint').textContent;
+  assert.ok(hint().includes('answer the dialog that opened'), `the chat names the open dialog: ${hint()}`);
+  assert.ok(hint().includes('Restore'), `the hint is the dialog's own question: ${hint()}`);
+  release(undefined);
+  await flush(); await flush();
+  assert.ok(!hint().includes('answer the dialog that opened'), `the hint reverts once the dialog is answered: ${hint()}`);
+});
+
 for (const outcome of ['success', 'failure']) {
   test(`saved-code actions explain a pending chat command and recover after ${outcome}`, async (t) => {
     const ui = await openChat(t, checkpointView());
@@ -5235,26 +5285,26 @@ function meteredView(extra = {}) {
   };
 }
 
-test('the chat lists the newest stages with time, cost, model and tokens, and expands to all (#2610 parity)', async (t) => {
+test('the run header lists every stage the run launched in one aligned table, with time, tokens, cost and model (#2610 parity)', async (t) => {
+  // Ankur, 2026-11-11: a second Stages box above the composer repeated the header in two-line rows
+  // with whole provider ids; each stage is now one row of the header's table, and that box is gone.
   const ui = await openChat(t, meteredView());
-  const section = ui.document.getElementById('stages');
-  assert.equal(section.hidden, false);
-  const rows = [...ui.document.querySelectorAll('#stage-rows .stage')];
-  assert.deepEqual(rows.map((row) => row.dataset.stage), ['astra_discovery', 'astra_challenge', 'terra', 'sol'], 'the newest four');
-  const builder = rows[2];
-  assert.equal(builder.querySelector('.mark').textContent, '✓');
-  assert.equal(builder.querySelector('.head').textContent, 'Builder · 30s · $0.31');
-  assert.equal(builder.querySelector('.detail').textContent, 'claude-haiku-4-5 medium · 1.2k tokens');
-  const tester = rows[3];
-  assert.ok(tester.classList.contains('retrying'));
+  assert.equal(ui.document.getElementById('stages'), null, 'no second Stages box above the composer');
+  const rows = [...ui.document.querySelectorAll('#pipeline tbody tr')];
+  assert.deepEqual(rows.map((row) => row.dataset.job), ['Requirements', 'Planner', 'Plan Reviewer', 'Builder', 'Tester']);
+  const builder = rows[3];
+  assert.equal(builder.className, 'ran');
+  assert.deepEqual([...builder.querySelectorAll('td')].map((cell) => cell.textContent),
+    ['✓', 'Builderclaude-haiku-4-5 medium', 'claude-haiku-4-5 medium', '30s', '1.2k', '$0.31']);
+  const tester = rows[4];
+  assert.equal(tester.className, 'working retrying');
   assert.equal(tester.querySelector('.mark').textContent, '↻');
-  assert.equal(tester.querySelector('.head').textContent, 'Tester · 42s · $0.20 · attempt 2');
-  assert.match(tester.querySelector('.detail').textContent, /answer rejected/);
-  const more = ui.document.getElementById('stages-more');
-  assert.equal(more.textContent, '1 earlier');
-  more.click();
-  assert.equal(ui.document.querySelectorAll('#stage-rows .stage').length, 5);
-  assert.equal(more.textContent, 'Show fewer');
+  const badge = tester.querySelector('.runs');
+  assert.deepEqual([badge.textContent, badge.className, badge.title], ['×2', 'runs failed', '2 attempts, 1 failed']);
+  assert.deepEqual([...tester.querySelectorAll('td.num')].map((cell) => cell.textContent), ['42s', '2.4k', '$0.20']);
+  assert.match(tester.title, /last one answer rejected/);
+  assert.equal(rows[0].querySelector('.runs'), null, 'a stage that launched once has no count');
+  assert.deepEqual([...ui.document.querySelectorAll('#pipeline tfoot td.num')].map((cell) => cell.textContent), ['', '651k', '$1.21']);
 });
 
 test('a stage on a later attempt shows a struggling warning in the working card', async (t) => {
@@ -5316,7 +5366,7 @@ test('a new chat welcomes with one short line and no example list', async (t) =>
   assert.equal(welcome.querySelector('button'), null, 'no example requests to click');
   assert.equal(welcome.querySelector('.kinds'), null, 'every task takes one path, so there is no job picker');
   assert.equal(ui.document.getElementById('message').value, '');
-  assert.equal(ui.document.getElementById('stages').hidden, true);
+  assert.equal(ui.document.getElementById('run-header').hidden, true);
   assert.equal(ui.document.getElementById('run-cost').textContent, '');
 });
 

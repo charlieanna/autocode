@@ -2059,7 +2059,8 @@ workers). `line` is the one line a person reads, for example
 its wording may change, so programs read the fields beside it:
 
 - `headline`: `Complete`, `Waiting for you`, `Paused`, `Waiting for another run`,
-  `<job> working`, `<job> finished` (its report is saved but not applied yet),
+  `<job> working` (`Tester writing tests first` while the Tester writes the approved
+  tests before the Builder starts), `<job> finished` (its report is saved but not applied yet),
   `<job> finished · Next: <job>` when the run already knows the job after that
   finished one (#1711), `Next: <job>`, `<job> stopped without saving a report` (the
   recorded workers are

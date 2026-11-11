@@ -182,19 +182,6 @@ export function stages(view: unknown, now = Date.now()): StageRow[] {
   });
 }
 
-/** A stage as two lines: what it is and how it went, then the model it ran on and what it used. */
-export function stageLines(row: StageRow): { head: string; detail: string } {
-  const head = [row.job];
-  if (row.seconds !== null) head.push(duration(row.seconds));
-  if (row.spentUsd !== null && (row.spentUsd || row.route)) head.push(money(row.spentUsd));
-  // A stage that ran again after succeeding (a second plan-review round) is not a retry.
-  if (row.attempts > 1) head.push(row.failedAttempts ? `attempt ${row.attempts}` : `${row.attempts} runs`);
-  const detail = row.route ? [row.route] : [];
-  if (row.tokens) detail.push(`${tokens(row.tokens)}${row.tokensComplete ? "" : "+"} tokens`);
-  if (row.why && row.state !== "done") detail.push(row.why);
-  return { head: head.join(" · "), detail: detail.join(" · ") };
-}
-
 /**
  * The working stage retrying after a failed attempt: which attempt, how long, and why the last one
  * failed. A stage running again after a success (another review round) is not struggling.

@@ -14,12 +14,18 @@ from unittest.mock import patch
 import autocode_captured_process as captured_process
 import autocode_output_cap as output_cap
 import autocode_provider_launch as launch
+import autocode_publish_guard as publish_guard
 import autocode_tool_containment as containment
 import autocode_toolchain as toolchain
 from providers import kilocode, kilocode_probe
 from providers import kilocode_policy as policy
 
 from tests import test_kilo_progress as progress_tests
+
+
+def publish_denials():
+    """The shell rules every stage ends with: each publishing command, denied."""
+    return [(pattern, "deny") for command in publish_guard.COMMANDS for pattern in (command, command + " *")]
 
 
 class KiloPolicyTests(unittest.TestCase):
@@ -79,7 +85,9 @@ class KiloPolicyTests(unittest.TestCase):
         self.assertEqual(original["prompt"], agent["prompt"])
         self.assertEqual("fixture/model", agent["model"])
         self.assertEqual({"*": "allow", "protected*": "deny"}, agent["permission"]["edit"])
-        self.assertEqual({"*": "allow", "danger*": "deny"}, agent["permission"]["bash"])
+        self.assertEqual(
+            [("*", "allow"), ("danger*", "deny"), *publish_denials()], list(agent["permission"]["bash"].items())
+        )
         self.assertEqual("deny", agent["permission"]["*"])
         for tool in ("task", "question", "plan_enter", "plan_exit", "unknown_mcp"):
             self.assertNotIn(tool, agent["permission"])
@@ -117,7 +125,8 @@ class KiloPolicyTests(unittest.TestCase):
             ran, env = policy.restrict(argv, child, Path.cwd(), role="tester", portable_shell=True)
         (agent,) = json.loads(env["KILO_CONFIG_CONTENT"])["agent"].values()
         allowed = {tool for tool, rule in agent["permission"].items() if rule == {"*": "allow"}}
-        self.assertEqual({*policy.READ_TOOLS, "bash"}, allowed)
+        self.assertEqual(set(policy.READ_TOOLS), allowed)
+        self.assertEqual([("*", "allow"), *publish_denials()], list(agent["permission"]["bash"].items()))
         self.assertEqual("deny", agent["permission"]["*"])
         self.assertNotIn("edit", allowed)
         with self.assertRaisesRegex(ValueError, "cannot accompany"):
@@ -358,10 +367,10 @@ class KiloContainmentPolicyTests(unittest.TestCase):
             [args[1:] for args in non_tool],
         )
         definition = json.loads(child["KILO_CONFIG_CONTENT"])["agent"][argv[-1]]
-        self.assertEqual(
-            [("*", "allow"), ("git *", "deny"), ("git status*", "allow"), ("rm *", "deny")],
-            list(definition["permission"]["bash"].items()),
-        )
+        bash = list(definition["permission"]["bash"].items())
+        # The operator's rules in their order, then the publishing commands no stage runs (autocode_publish_guard).
+        self.assertEqual([("*", "allow"), ("git *", "deny"), ("git status*", "allow"), ("rm *", "deny")], bash[:4])
+        self.assertEqual(publish_denials(), bash[4:])
         self.assertEqual(self.original["prompt"], definition["prompt"])
         self.assertEqual(12, definition["steps"])
         self.assertEqual("openai/gpt-6.1-sol", definition["model"])

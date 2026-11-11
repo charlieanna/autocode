@@ -5,15 +5,18 @@ import importlib
 import io
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import autocode_efficiency as efficiency
 import autocode_phase_timing as phase_timing
+import autocode_publish_guard as publish_guard
 import autocode_regression as regression
 import autocode_support as support
 import autocode_unit_request as unit_request
+from units.model_request import ModelRequest
 
 from .test_efficiency import attempt
 
@@ -103,8 +106,10 @@ class PhaseTimingTests(unittest.TestCase):
         for error in (None, support.Paused("PAUSED_REQUEST", "refused")):
             with self.subTest(refused=error is not None):
                 state = {"next_stage": "resolve", "iteration": 1}
-                prepare = Mock(return_value={"prompt": "request"})
-                guidance = Mock(return_value={"prompt": "guided"}, side_effect=error)
+                request = ModelRequest("task_planner", "resolver", "request", {}, {}, False)
+                guided = replace(request, prompt="guided")
+                prepare = Mock(return_value=request)
+                guidance = Mock(return_value=guided, side_effect=error)
                 with patch.object(unit_request.stuck, "with_guidance", guidance):
                     if error:
                         with self.assertRaises(support.Paused):
@@ -125,9 +130,10 @@ class PhaseTimingTests(unittest.TestCase):
                             select_unit=lambda _: SimpleNamespace(prepare=prepare),
                             retry_authorization="grant",
                         )
-                        self.assertEqual({"prompt": "guided"}, result)
+                        # The guided request, told it publishes nothing (autocode_publish_guard).
+                        self.assertEqual(replace(guided, prompt=publish_guard.with_rule("guided")), result)
                 prepare.assert_called_once_with(state, "resolve", "state", "schemas", retry_authorization="grant")
-                guidance.assert_called_once_with(state, "resolve", {"prompt": "request"})
+                guidance.assert_called_once_with(state, "resolve", request)
                 row = state["efficiency_observations"][0]
                 self.assertEqual("request_assembly", row["provenance"]["phase"])
                 self.assertEqual("refused" if error else "completed", row["provenance"]["outcome"])

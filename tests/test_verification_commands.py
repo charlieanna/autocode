@@ -6,7 +6,9 @@ import sys
 import unittest
 from pathlib import Path
 
+import autocode_go_tests as go_tests
 import autocode_regression as regression
+import autocode_verification_commands as command_policy
 import autocode_verify as verify
 from autocode_python_tests import parse, verbose_unittest
 
@@ -98,3 +100,49 @@ class ExplicitUnittestProofTests(unittest.TestCase):
         self.assertIn("tests.test_app.Existing.test_existing", "\n".join(broken_existing["failures"]))
         self.assertEqual(1, broken_existing["checks"]["suite_on_candidate"]["exit_code"])
         self.assertFalse(regression.complete(state, broken_existing["source_revision"]))
+
+
+class NarrowedGoCommandTests(unittest.TestCase):
+    """#3091: a narrowed Go run keeps its approved suite command's env prefix."""
+
+    SUITE = "env GOTOOLCHAIN=go1.27.2 GOPROXY=off go test ./..."
+    FILES = ["pkg/a/a_test.go", "pkg/b/b_test.go"]
+    NARROWED = "env GOTOOLCHAIN=go1.27.2 GOPROXY=off go test ./pkg/a ./pkg/b"
+    INSTRUMENTED = "env GOTOOLCHAIN=go1.27.2 GOPROXY=off go test -json ./pkg/a ./pkg/b"
+
+    def test_c1_narrowed_go_command_keeps_env_prefix(self):
+        self.assertEqual(("env", "GOTOOLCHAIN=go1.27.2", "GOPROXY=off"), go_tests.parse(self.SUITE).prefix)
+        framework = command_policy.command_framework(self.SUITE)
+        self.assertIsNotNone(framework)
+        self.assertEqual(self.NARROWED, framework.targeted(self.FILES))
+        self.assertEqual(self.INSTRUMENTED, go_tests.parse(self.NARROWED).instrument())
+        self.assertEqual(
+            self.NARROWED,
+            command_policy.configured_targeted({"regression": {"test_command": self.SUITE}}, self.FILES),
+        )
+        commands = command_policy.select_commands(framework, self.FILES)
+        self.assertEqual(self.NARROWED, commands["regression"])
+        self.assertEqual(self.INSTRUMENTED, go_tests.parse(commands["regression"]).instrument())
+
+    def test_c4_non_go_and_unprefixed_go_targeting_unchanged(self):
+        cases = [
+            ("go test ./...", ["pkg/a/a_test.go"], "go test ./pkg/a"),
+            (
+                "env MODE=proof '/venv with spaces/bin/python' -m unittest discover --quiet -s tests",
+                ["tests/test_new.py"],
+                "env MODE=proof '/venv with spaces/bin/python' -m unittest -v tests/test_new.py",
+            ),
+            ("python3 -m unittest tests.test_a", ["tests/test_new.py"], "python3 -m unittest -v tests/test_new.py"),
+            ("python3 -m pytest -q tests/test_a.py", ["tests/test_new.py"], "python3 -m pytest -q tests/test_new.py"),
+            (
+                "env MODE=proof python3 -m pytest -q tests/test_a.py",
+                ["tests/test_new.py"],
+                "env MODE=proof python3 -m pytest -q tests/test_new.py",
+            ),
+            ("node --test tests/a.test.js", ["tests/b.test.js"], "node --test tests/b.test.js"),
+        ]
+        for command, files, expected in cases:
+            with self.subTest(command=command):
+                self.assertEqual(
+                    expected, command_policy.configured_targeted({"regression": {"test_command": command}}, files)
+                )

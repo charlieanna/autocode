@@ -32,6 +32,7 @@ try:
     from . import autocode_opencode_snapshots as native_snapshots
     from . import autocode_output_cap as output_cap
     from . import autocode_process as processes
+    from . import autocode_publish_guard as publish_guard
     from . import autocode_supervision as supervision
     from . import autocode_tool_containment as containment
     from . import autocode_util as util
@@ -45,6 +46,7 @@ except ImportError:
     import autocode_opencode_snapshots as native_snapshots
     import autocode_output_cap as output_cap
     import autocode_process as processes
+    import autocode_publish_guard as publish_guard
     import autocode_supervision as supervision
     import autocode_tool_containment as containment
     import autocode_util as util
@@ -717,7 +719,11 @@ class KiloRoleIsolation:
                     "description": "AutoCode readonly " + role,
                     "mode": "primary",
                     "model": model,
-                    "permission": {"*": "deny", "bash": "allow", "external_directory": "deny"},
+                    "permission": {
+                        "*": "deny",
+                        "bash": publish_guard.bash_permission("allow"),
+                        "external_directory": "deny",
+                    },
                 },
                 **{name: {"disable": True} for name in ("title", "summary", "compaction")},
             },
