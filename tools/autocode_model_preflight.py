@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -190,12 +191,18 @@ def _classify(events_path: Path, *, withheld_env=()) -> tuple[str | None, str]:
     return status, message or status
 
 
-def bare(argv: list, env: dict) -> tuple[list, dict]:
+def bare(argv: list, env: dict, *, home: str | os.PathLike | None = None) -> tuple[list, dict]:
     """Run an OpenCode-family probe as ``PROBE_AGENT``: no tools, every permission denied, a one-line system prompt.
+
+    ``home``, an empty folder outside the project, replaces the launch's ``--dir``: OpenCode and Kilo add the
+    project's AGENTS.md to every request from that folder, and the probe needs none of it. AutoCode's own
+    42 KB AGENTS.md made each probe about 10,300 input tokens instead of about 600 (a live run, 2026-11-11).
 
     A launch that names no agent through an inline configuration (another tool) is left as it is."""
     if "--agent" not in argv[:-1]:
         return argv, env
+    if home is not None and "--dir" in argv[:-1]:
+        argv[argv.index("--dir") + 1] = str(home)
     for variable in CONFIG_VARIABLES:
         if variable not in env:
             continue
@@ -243,6 +250,7 @@ def probe(
     started = time.monotonic()
     launch_env = dict(os.environ)
     withheld_env = agent_env.withheld(launch_env)
+    home = tempfile.TemporaryDirectory(prefix="autocode-probe-")
     try:
         result = transport.execute(
             adapter=adapter,
@@ -259,7 +267,7 @@ def probe(
             supervised=True,
             checkpoint=checkpoint,
             deadline=deadline,
-            prepare=bare,
+            prepare=lambda argv, env: bare(argv, env, home=home.name),
             role=role,
         )
     except (processes.ProcessError, OSError) as error:
@@ -268,6 +276,8 @@ def probe(
             f"Model access preflight could not verify provider ownership for {model}: {error}. "
             f"Probe evidence: {directory}",
         ) from error
+    finally:
+        home.cleanup()
     events_path = directory / "events.jsonl"
     status: str | None
     if result.get("timed_out"):
