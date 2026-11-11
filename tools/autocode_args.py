@@ -574,6 +574,12 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         "--answer", action="append", default=[], metavar="QUESTION_ID=TEXT", help="Answer an open question (repeatable)"
     )
     parser.add_argument(
+        "--stage-model",
+        nargs=3,
+        metavar=("STAGE", "MODEL", "EFFORT"),
+        help="Change the model and reasoning level one stage runs in this saved run, between stages",
+    )
+    parser.add_argument(
         "--feedback",
         metavar="TEXT",
         help="Send brief feedback to the Requirements Gatherer; never approves implementation",
@@ -648,6 +654,7 @@ def user_actions(args) -> dict[str, bool]:
         "--reject-review": bool(args.reject_review),
         "--reconcile-review": bool(args.reconcile_review),
         "--feedback": args.feedback is not None,
+        "--stage-model": getattr(args, "stage_model", None) is not None,
         "--follow-up": args.follow_up is not None,
         "--accept-completion": bool(args.accept_completion),
         "--abandon-stage": args.abandon_stage is not None,

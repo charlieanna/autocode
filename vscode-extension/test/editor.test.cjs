@@ -11,7 +11,7 @@ const { ChatView } = host.load('chat.js');
 const { RunItem, RunsProvider } = host.load('runsView.js');
 const { activate, pickWorkspace, NO_FOLDER } = host.load('extension.js');
 const { ConnectionsPanel, connectionsHtml } = host.load('connections.js');
-const { StagesPanel, stagesHtml } = host.load('stages.js');
+const { StagesPanel, stagesHtml, runStages } = host.load('stages.js');
 const { readStages, currentRoute } = host.load('core/stages.js');
 const { engineOf, routeKeyOf, spendTarget, sanitizeRoutes, readSettings, applyEngine } = host.load('settings.js');
 let controller = new RunController(host.log);
@@ -505,6 +505,53 @@ test('stage models shows the core\'s refusal and lists without a backend when no
   panel.webview.receive({ type: 'set', stage: 'terra', model: 'sonnet', effort: 'low' }); await flush();
   assert.ok(panel.webview.messages.at(-1).error.includes('the Tester runs sonnet'));
   assert.equal(panel.webview.messages.at(-1).busy, false);
+});
+
+test('a chat\'s own stage models list and change that run in its folder, and refuse while a stage works', async (t) => {
+  const runList = ['stages', 'list', '--run-dir', '/work/shop/.autocode/runs/r', '--json'];
+  const set = ['--run-dir', '/work/shop/.autocode/runs/r', '--workspace', '/work/shop', '--stage-model', 'terra', 'MODEL', 'EFFORT'];
+  const calls = [];
+  let current = { model: 'haiku', effort: 'medium' };
+  let changeable = true;
+  t.mock.method(cli, 'invoke', async (settings, argv) => {
+    calls.push([settings.cwd, argv]);
+    if (argv[0] === '--run-dir') {
+      current = { model: argv.at(-2), effort: argv.at(-1) };
+      return { ...ok, stdout: 'The Builder now runs sonnet at high in this run (was haiku). Saved; no agent launched.\n' };
+    }
+    const view = stageView(current);
+    view.stages[0].set.next_command = set; view.stages[0].reset = null;
+    return { ...ok, stdout: JSON.stringify({ ...view, run_dir: '/work/shop/.autocode/runs/r', changeable,
+      reason: changeable ? null : 'A stage is working.' }) };
+  });
+  assert.equal(runStages({ list: ['stages', 'set', 'terra'], cwd: '/work' }), undefined, 'only a run\'s read-only list');
+  assert.equal(runStages({ list: runList }), undefined, 'and only with the run\'s folder');
+  const stages = new StagesPanel();
+  t.after(() => stages.dispose());
+  await stages.show(runStages({ list: runList, cwd: '/work/shop' }));
+  const panel = host.panels.at(-1);
+  assert.equal(panel.title, "AutoCode: This Chat's Models");
+  assert.deepEqual(calls, [['/work/shop', runList]]);
+  const shown = panel.webview.messages.at(-1);
+  assert.equal(shown.scope, 'run');
+  assert.equal(shown.view.stages[0].now, 'haiku at medium (this chat)');
+  panel.webview.receive({ type: 'set', stage: 'terra', model: 'sonnet', effort: 'high' }); await flush();
+  assert.deepEqual(calls.slice(-2), [
+    ['/work/shop', ['--run-dir', '/work/shop/.autocode/runs/r', '--workspace', '/work/shop', '--stage-model', 'terra', 'sonnet', 'high']],
+    ['/work/shop', runList],
+  ], 'the run\'s own set array, then its list again');
+  const saved = panel.webview.messages.at(-1);
+  assert.equal(saved.note, 'This chat runs the Builder on sonnet at high from its next launch.');
+  assert.equal(saved.view.stages[0].now, 'sonnet at high (this chat)');
+  changeable = false;
+  panel.webview.receive({ type: 'refresh' }); await flush();
+  const before = calls.length;
+  panel.webview.receive({ type: 'set', stage: 'terra', model: 'haiku', effort: 'low' }); await flush();
+  assert.ok(calls.slice(before).every(([, argv]) => argv[0] === 'stages'), 'nothing is changed while a stage works');
+  assert.equal(panel.webview.messages.at(-1).error, 'A stage is working.');
+  await stages.show();
+  assert.equal(panel.title, 'AutoCode Stage Models', 'the same panel goes back to new chats\' stage models');
+  assert.equal(panel.webview.messages.at(-1).scope, 'new');
 });
 
 test('stage models renders core text safely, one model and level dropdown per stage, and sends only the choice', () => {
@@ -1322,6 +1369,27 @@ test('all configured jobs render before use and polling keeps historical models 
   assert.equal(ui.document.querySelector('#configured-models script'), null);
   assert.equal(disclosure.open, false);
   assert.equal(ui.document.querySelector('#message').value, 'Keep my draft while all models update');
+});
+
+test('a started chat offers to change its own models only between stages, through the list its view names', async (t) => {
+  const list = ['stages', 'list', '--run-dir', run.runDir, '--json'];
+  const routes = { builder: { job: 'Builder', model: 'gpt-5.6-terra', reasoning_effort: 'medium', engine: 'codex' } };
+  const initial = { ...chatView(), routes, stage_models: { changeable: true, reason: null, next_command: list } };
+  const ui = await openChat(t, initial);
+  const change = ui.document.querySelector('#configured-models #change-stage-models');
+  assert.ok(change, 'the chat offers the change beside its own models');
+  assert.equal(change.disabled, false);
+  assert.match(ui.document.querySelector('#configured-models .model-note').textContent, /until you change one here/);
+  const opened = t.mock.method(host.vscode.commands, 'executeCommand', async () => {});
+  change.click(); await flush();
+  assert.deepEqual(JSON.parse(JSON.stringify(ui.sent.at(-1))), { type: 'stage_models' }, 'the webview names no command');
+  assert.deepEqual(JSON.parse(JSON.stringify(opened.mock.calls.at(-1).arguments)), ['autocode.stages', { list, cwd: run.workspace }]);
+  const working = 'A stage is working. Pause the chat, or wait until it asks you something, to change its models.';
+  await ui.poll({ ...initial, stage_models: { changeable: false, reason: working, next_command: list } });
+  assert.equal(ui.document.querySelector('#change-stage-models').disabled, true);
+  assert.ok(ui.document.querySelector('#configured-models').textContent.includes(working), 'the core says why not');
+  await ui.poll({ ...initial, stage_models: null });
+  assert.equal(ui.document.querySelector('#change-stage-models'), null, 'an older core offers nothing to change');
 });
 
 test('model details remember expansion across polling, draft edits and webview recreation', async (t) => {

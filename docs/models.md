@@ -222,6 +222,29 @@ selection picks for it (below). `autocode stages set STAGE --model MODEL --effor
 A saved level differs from a typed one in one way: for the three review stages it is a ceiling
 ([reasoning effort](#reasoning-effort)). Every other stage runs at the level you saved.
 
+### Changing a started run's models
+
+A task already running keeps its routes, so `autocode stages` reaches only new tasks. To change
+what one stage runs in a started run (owner request 2026-11-10), change it between stages:
+
+```sh
+autocode stages list --run-dir RUN          # the model and level each stage of RUN runs now
+autocode --run-dir RUN --stage-model builder gpt-6-astra high
+```
+
+`stages list --run-dir` shows the run's own route for each stage, the models its backend offers,
+and, as in the new-task list, marks a model the stage's checker or producer already runs as not
+available. `--stage-model STAGE MODEL EFFORT` saves one stage's route on the run; `EFFORT` is a
+level the model takes, or `default` for its own. It is refused while a stage is working (the run
+is `RUNNING` or a stage attempt is open: pause it, or wait until it asks you something), and for
+anything a launch would refuse: a model in another engine's format or not listed, a level the
+model does not declare, or a checker sharing its producer's model. An accepted change is recorded
+under the status view's `route_assignments` with `via: stage_models`, the route's `origin` becomes
+`user_explicit`, and the stage's session is dropped, so its next launch runs the new model fresh.
+The level you name is exact, like a typed flag. It answers nothing and launches nothing; the run
+stays where it was. The status view's `stage_models` says whether a change can be saved now
+([Stage choices for clients](task-run.md#stage-choices-for-clients)).
+
 ## Choosing models automatically
 
 New CLI and `TaskRun.start` runs choose models automatically from the selected tool's

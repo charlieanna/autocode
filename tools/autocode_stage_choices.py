@@ -342,15 +342,7 @@ def view(backend, workspace=None, *, file=None, resolve=None, discover=None) -> 
     effective = _effective(saved, fallback, options)
     stages = []
     for role, _job, does, advice in STAGES:
-        others = {other: model for other, model in effective.items() if other != role}
-        rows = [
-            {
-                **option,
-                "effort_choices": effort_choices(option),
-                "unavailable": unavailable(role, option["model"], others, backend=backend),
-            }
-            for option in options
-        ]
+        rows = _rows(role, options, effective, backend)
         default = dict(fallback[role])
         offered = next((row for row in rows if row["model"] == default["model"]), None)
         if offered is not None and default["effort"] and offered["levels_listed"]:
@@ -379,6 +371,63 @@ def view(backend, workspace=None, *, file=None, resolve=None, discover=None) -> 
         "options_stop": stop,
         "stages": stages,
     }
+
+
+def run_view(backend, routes, set_command, workspace=None, *, resolve=None, discover=None) -> dict:
+    """The same stage list for one started run: ``routes`` (``{role: {"model", "effort"}}``) is what it runs.
+
+    A started run keeps its own routes (autocode_run_stage_models changes them), so each stage's
+    ``chosen`` and ``default`` are the run's current route, an option is ``unavailable`` against the
+    run's other routes, and ``set.next_command`` is ``set_command(role)``, with the same ``MODEL`` and
+    ``EFFORT`` placeholders. There is nothing to reset and no file: ``reset`` and ``file`` are null.
+    """
+    try:
+        options, stop = offers(backend, workspace, resolve=resolve, discover=discover), None
+    except (RuntimeError, ValueError, OSError) as error:
+        options, stop = [], str(error)
+    effective = {role: route["model"] for role, route in routes.items()}
+    stages = []
+    for role, _job, does, advice in STAGES:
+        if role not in routes:
+            continue  # a run saved before this stage had its own route
+        rows = _rows(role, options, effective, backend)
+        current = {"model": routes[role]["model"], "effort": routes[role].get("effort")}
+        stages.append(
+            {
+                "id": role,
+                "label": LABELS[role],
+                "does": does,
+                "advice": advice,
+                "flag": f"--{role.replace('_', '-')}-model",
+                "effort_flag": f"--{role.replace('_', '-')}-reasoning-effort",
+                "default": {**current, "offered": any(row["model"] == current["model"] for row in rows)},
+                "chosen": current,
+                "options": rows,
+                "set": {"next_command": list(set_command(role))},
+                "reset": None,
+            }
+        )
+    return {
+        "version": 1,
+        "backend": backend,
+        "label": BACKEND_LABELS.get(backend, backend),
+        "file": None,
+        "options_stop": stop,
+        "stages": stages,
+    }
+
+
+def _rows(role, options, effective, backend) -> list[dict]:
+    """``options`` for ``role``: each with the levels a person may pick and why it may not run, if so."""
+    others = {other: model for other, model in effective.items() if other != role}
+    return [
+        {
+            **option,
+            "effort_choices": effort_choices(option),
+            "unavailable": unavailable(role, option["model"], others, backend=backend),
+        }
+        for option in options
+    ]
 
 
 def _read(backend, workspace, file, resolve, discover):

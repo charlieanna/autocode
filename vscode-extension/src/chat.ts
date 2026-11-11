@@ -343,6 +343,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
 
   private async receive(message: ChatMessage): Promise<void> {
     if (message.type === "connections") { await vscode.commands.executeCommand("autocode.connections"); return; }
+    if (message.type === "stage_models") { await this.stageModels(); return; }
     if (message.type === "history") {
       await vscode.commands.executeCommand("setContext", "autocode.showHistory", true);
       await vscode.commands.executeCommand("autocode.runs.focus");
@@ -466,6 +467,14 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   }
 
   /** Ask the working run to pause after its current step: the view's named pause, never a kill (#1598). */
+  /** Open this chat's own stage models: the list its latest status view names, run in its folder. */
+  private async stageModels(): Promise<void> {
+    const tab = this.active;
+    const list = tab.status?.stage_models?.next_command;
+    if (!tab.run || !list) return;
+    await vscode.commands.executeCommand("autocode.stages", { list, cwd: tab.run.workspace });
+  }
+
   private async pause(message: ChatMessage): Promise<void> {
     const tab = this.active;
     const run = tab.run;

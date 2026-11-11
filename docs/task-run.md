@@ -2162,8 +2162,9 @@ The top-level `provider` names the provider those OpenCode-engine routes launch 
 or a configured tool's name); it is null when every role runs on Codex. `route_assignments` lists, oldest first, every model a person named for a
 role after its quota ran out or its provider's content filter refused it: `kind` (always `route_assignment`), `role`, `job`,
 `from`, `to`, `engine`, `stage`, `attempt_id`, `events`, `pause_status`, `at`,
-`actor`, `via` (`answer` or `resume_flag`) and, when `via` is `answer`, the
-`request_id` it answered. It is empty for runs that never stopped on quota or a refusal.
+`actor`, `via` (`answer`, `resume_flag`, or `stage_models` for a model the person changed between stages with
+`--stage-model`) and, when `via` is `answer`, the `request_id` it answered. It is empty for runs that never
+stopped on quota or a refusal and whose models the person never changed.
 
 <a id="operational-information"></a>
 For a diagnosed criterion contradiction, an answer need may include
@@ -2948,6 +2949,18 @@ that option's `effort_choices`, and refuses anything else. `reset.next_command` 
 is saved) forgets the stage's choice. Both print the updated view, and a refused choice exits 2 with
 the reason on stderr and saves nothing. The view launches no model and reads no credential. A new
 task reads the choices when it starts; a running task keeps its own.
+
+A started run keeps its own routes, and the status view's `stage_models` says how a person changes
+them ([Changing a started run's models](models.md#changing-a-started-runs-models)): `changeable`
+(true only between stages: the run is not `RUNNING` and no stage attempt or runner check is open),
+`reason` (why not, in words a client shows, or null) and `next_command`, the read-only
+`stages list --run-dir RUN --json` argument array. Null before the run has routes. That list is the
+same version-1 view with the run's current route as each stage's `chosen` and `default`, `options`
+marked `unavailable` against the run's other routes, `reset` and `file` null, and `run_dir`,
+`changeable` and `reason` added. Its `set.next_command` is `--run-dir RUN --workspace WS
+--stage-model ROLE MODEL EFFORT`, filled the same way; it prints a sentence rather than the view, so
+a client reads the list again afterwards. A refused change exits 2 with the reason on stderr and
+saves nothing.
 
 ## Run modes for clients
 
