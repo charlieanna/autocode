@@ -757,6 +757,89 @@ class NestedPackage(unittest.TestCase):
         self.assertEqual(WEB, package_scope.enclosing(project.root, [f"./{WEB}/test/a.test.cjs"], detect).directory)
 
 
+# A polyglot repository like the one in #2889: a Node suite at the root (one script test under
+# frontend/) and a Rails-style backend/ with its own Gemfile and RSpec specs. The plan's proving test
+# is an RSpec file under backend/, which the root's Node suite can never run.
+POLYGLOT = {
+    "package.json": '{"name": "site", "scripts": {"test": "node --test frontend/scripts/routing.test.mjs"}}\n',
+    "frontend/scripts/routing.mjs": "export const route = () => '/staging';\n",
+    "frontend/scripts/routing.test.mjs": "import test from 'node:test';\nimport assert from 'node:assert';\n"
+    "import { route } from './routing.mjs';\ntest('routes', () => assert.ok(route().startsWith('/')));\n",
+    "backend/Gemfile": "source 'https://rubygems.org'\ngem 'rspec'\n",
+    "backend/app/grader.rb": "class Grader\n  def grade\n    :failed\n  end\nend\n",
+    "backend/spec/requests/existing_spec.rb": "RSpec.describe 'existing' do\n  it('runs') { expect(1).to eq(1) }\nend\n",
+}
+POLYGLOT_SPEC = "backend/spec/requests/grader_spec.rb"
+
+
+class PolyglotSuite(unittest.TestCase):
+    """A proving test the detected suite cannot hold is a selection problem, never 'passes on base' (#2889)."""
+
+    def project(self):
+        project = Project(POLYGLOT)
+        self.addCleanup(project.close)
+        return project
+
+    def test_the_backend_directory_holding_the_gemfile_supplies_the_rspec_runner(self):
+        project = self.project()
+        detect = lambda directory: verify.detect_framework(directory, python=sys.executable)  # noqa: E731
+        root = detect(project.root)
+        self.assertEqual("node", root.name)
+        self.assertIsNone(root.targeted([POLYGLOT_SPEC]), "the root's Node suite cannot run an RSpec file")
+        found = package_scope.for_tests(project.root, root, [POLYGLOT_SPEC], detect)
+        self.assertEqual(("backend", "rspec"), (found.directory, found.name))
+        self.assertEqual(
+            "cd backend && bundle exec rspec spec/requests/grader_spec.rb", found.targeted([POLYGLOT_SPEC])
+        )
+
+    @unittest.skipUnless(shutil.which("node"), "Node runs the root suite")
+    def test_a_suite_that_cannot_run_the_proving_tests_reports_that_instead_of_passing_on_base(self):
+        project = self.project()
+        project.write(
+            {
+                POLYGLOT_SPEC: "require_relative '../../app/grader'\nRSpec.describe Grader do\n"
+                "  it('passes a correct answer') { expect(Grader.new.grade).to eq(:passed) }\nend\n",
+                "backend/app/grader.rb": "class Grader\n  def grade\n    :passed\n  end\nend\n",
+                # Code outside backend/ keeps the root's Node suite (autocode_package_scope.for_tests).
+                "frontend/scripts/routing.mjs": "export const route = () => '/staging/';\n",
+            }
+        )
+        state = bugfix_state(project, package=None)
+        state["goal_contract"]["body"]["acceptance_criteria"] = [
+            {"id": "C1", "criterion": "A correct answer passes", "verification_method": "test: passes a correct answer"}
+        ]
+        with tempfile.TemporaryDirectory() as run_dir:
+            proof = regression.prove(state, project.root, Path(run_dir))
+        self.assertEqual("node", proof["framework"]["name"], proof)
+        self.assertEqual(verify.UNVERIFIED, proof["verdict"], proof)
+        self.assertNotIn(
+            "The new tests pass on the unfixed base code, so they do not reproduce the bug", proof["failures"]
+        )
+        self.assertEqual(
+            [
+                "The proving tests are not in the suite that ran, so it cannot show whether they fail on the "
+                f"original code: {POLYGLOT_SPEC} (the node suite `npm test --silent` cannot run them)"
+            ],
+            proof["unverified"],
+        )
+        self.assertNotIn("regression_on_base", proof["checks"], "a suite that cannot hold the tests proves nothing")
+
+    @unittest.skipUnless(shutil.which("node"), "Node runs the root suite")
+    def test_a_trusted_command_the_detected_runner_does_not_describe_still_decides_the_flip(self):
+        project = self.project()
+        project.write(
+            {POLYGLOT_SPEC: "RSpec.describe 'x' do\n  it('y') { }\nend\n", "backend/app/grader.rb": "# fixed\n"}
+        )
+        state = bugfix_state(project, package=None)
+        state["settings"]["regression"]["test_command"] = "cd backend && true"  # no runner AutoCode recognizes
+        with tempfile.TemporaryDirectory() as run_dir:
+            proof = regression.prove(state, project.root, Path(run_dir))
+        self.assertEqual(("node", "explicit"), (proof["framework"]["name"], proof["commands"]["suite_source"]), proof)
+        self.assertIn(
+            "The new tests pass on the unfixed base code, so they do not reproduce the bug", proof["failures"]
+        )
+
+
 class PackageRequired(unittest.TestCase):
     def setUp(self):
         self.project = Project(MONOREPO)
