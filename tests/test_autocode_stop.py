@@ -489,8 +489,8 @@ class StopOperationTests(StopFixture):
             "every saved conversation-history entry survives the applied stop",
         )
         log = self.stage_log(run)
-        releases = [line for line in log if line.startswith("released terra")]
-        dones = [line for line in log if line.startswith("done terra")]
+        releases = [line for line in log if line.startswith("released builder")]
+        dones = [line for line in log if line.startswith("done builder")]
         self.assertTrue(
             releases and dones and float(dones[0].split()[-1]) >= float(releases[0].split()[-1]),
             f"the in-flight worker was not killed: it delivered after the stop was submitted: {log}",
@@ -499,7 +499,7 @@ class StopOperationTests(StopFixture):
             (self.project / "greet.py").exists(), "the finished step's partial work is preserved in the project"
         )
         stages = [record.get("stage") for record in state.get("stages", [])]
-        self.assertIn("builder", stages, "the terra result was saved")
+        self.assertIn("builder", stages, "the Builder result was saved")
         self.assertNotIn("tester", stages, "the stopped run never reached the next stage")
         self.assertNotIn("tester", self.started_stages(run), f"no worker for a later stage was launched: {log}")
         before = len(log)
@@ -536,7 +536,7 @@ class StopOperationTests(StopFixture):
         self.assertIsNone(pause_receipt.get("resumed_at"), "the pause receipt is resumable, not terminal")
         self.assertEqual([], self.applied_stop_receipts(paused_state), "a pause is not a stop")
         finished_at = float(
-            next(line for line in self.stage_log(twin_run) if line.startswith("done terra")).split()[-1]
+            next(line for line in self.stage_log(twin_run) if line.startswith("done builder")).split()[-1]
         )
         resumed_twin = self.cli_in(paused_project, twin_run, "--no-chat", "--resume-paused", timeout=300)
         resumed_state = self.state(paused_project, twin_run)
