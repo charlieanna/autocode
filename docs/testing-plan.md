@@ -124,7 +124,7 @@ bounded; "production ready" or "handle scale" is not an acceptance test.
 2. **Prove the oracle.** Run the reference implementation and defect controls.
    Include a no-op implementation, an incorrect boundary result, a weakened test,
    and forged success evidence. Preserve results outside candidate control.
-3. **Exercise planning.** Start with the real CLI or dashboard, not pre-approved
+3. **Exercise planning.** Start with the real CLI or VS Code client, not pre-approved
    state. Answer only actual question IDs. Check that answers are retained, known
    answers are not repeatedly requested under unchanged requirements, and open
    blockers cannot disappear without a recorded resolution.
@@ -140,7 +140,7 @@ bounded; "production ready" or "handle scale" is not an acceptance test.
 7. **Validate independently.** Run the protected oracle against the actual final
    candidate revision, not an earlier worktree or only the Builder's tests. Verify
    every required criterion, full flow, unresolved findings, and human review.
-8. **Check completion and restart.** Saved status, CLI, and dashboard must agree.
+8. **Check completion and restart.** Saved status, CLI, and VS Code client must agree.
    An unchanged completed run must not rebuild. Changed source/evidence must
    invalidate completion rather than reuse stale acceptance.
 9. **Close the case.** Record elapsed/active time, reported usage including unknowns,
@@ -198,9 +198,8 @@ catalogue map (`audits/autopilot-test-catalogue/coverage-map.json` at tag `archi
 | Scheduling and workspaces | `test_dispatch`, `test_orchestrator`, `test_task_workspaces`, `test_tasks`, `test_carryforward` | Measured concurrency, conflicts, selective retry, and final combined acceptance at T08-T11 |
 | Review and completion | `test_findings`, `test_findings_controller`, `test_runtime_reports`, `test_final_workflow`, `test_resolver_unit`, `test_resolver_runtime` | Protected product oracles, false-completion controls, and actual adapter forwarding |
 | Checkpoints and recovery | `test_process`, `test_activity_runtime`, `test_execution_checkpoints`, `test_report_repair`, `test_milestone_checkpoints` | Deterministic process-level crash windows, including repair-internal boundaries; do not equate manually seeded checkpoints with full crash exploration |
-| Interventions | `test_interventions`, `test_intervention_ordering` | End-to-end CLI/dashboard races with accepted receipts and restart |
+| Interventions | `test_interventions`, `test_intervention_ordering` | End-to-end CLI races with accepted receipts and restart |
 | Providers and role routes | `test_command_provider`, `test_provider_registry`, `test_opencode`, `test_opencode_routing`, `test_all_role_models`; WIP `test_cross_model` | End-to-end launch identities across defaults, overrides, escalation, and resume; allowed model-tier combinations as well as negative cases |
-| Dashboard | `tools/dashboard/tests/test_*.py`, `test_*.js`, browser fixtures | Count node/DOM-stub checks separately from real browser tests; desktop/mobile, keyboard, stale-state, and human-review acceptance |
 | Product fixtures | `tools/run_build_blackbox_audit.py`, `tools/build_product_fixtures.py` | Reuse approved fixtures for defect controls; fake success is not live-model delivery |
 | Live delivery | WIP `tools/live_trial.py`, `live_profiles.py`, `live_scenarios.py` | Harness/scorer fixes, versioned profiles, supported scenario adapters, then bounded authorized trials |
 
@@ -286,37 +285,13 @@ full source discovery form is `python -m unittest discover -s tools -t . -p
 approved offline command for the current checkout**; classify every discovered
 suite before restoring it to routine use.
 
-### Dashboard and installation
-
-With Node and the relevant browser/loopback prerequisites available:
-
-```sh
-fixture_python -m unittest discover -s tools/dashboard/tests -p 'test_*.py'
-(
-  for test_file in tools/dashboard/tests/test_*.js; do
-    PATH="$REPO/.venv/bin:$PATH" node "$test_file" || exit 1
-  done
-)
-```
-
-Record each JS program's exit status and require all selected programs to run;
-a loop that stops early is not a passing aggregate suite. Missing browser binaries
-are `BLOCKED_ENV`, not an accepted UI result. Run the real-browser lifecycle and
-accessibility cases as well as node-only tests, with fixture servers that cannot
-launch live agents. Check the supported browser's console and network failures.
-
-The real-browser suites are
-[`test_m3_lifecycle_browser_ui.js`](../tools/dashboard/tests/test_m3_lifecycle_browser_ui.js)
-and [`test_shell_a11y_ui.js`](../tools/dashboard/tests/test_shell_a11y_ui.js).
-They require `agent-browser`, Python fixture servers, and localhost access, and
-write evidence. Verify those prerequisites before selecting them; node/DOM-stub
-results must not be substituted for these rendered-browser checks.
+### Installation
 
 Build a wheel in an isolated build environment and install it into a fresh virtual
 environment. From a directory outside the source checkout, exercise every script
 declared in `pyproject.toml`, then rerun the applicable fake-provider workflows
 with `AUTOCODE_TEST_CLI` pointing to that installed `autocode`. Verify packaged
-schemas, dashboard assets, provider configs, and module imports. Record source and
+schemas, provider configs, and module imports. Record source and
 installed results separately; an editable install is not a wheel-install test.
 
 ### Live trials
@@ -388,7 +363,7 @@ every model and frontend:
 | Built-in Claude Code provider (`--engine claude`) | The offline conformance fake with every fault rejected, the CLI fault cases (`tests/test_claude_provider_cli.py`), then live conformance and the RELIABILITY.md cases on `claude-tiers`. Its permissions are Claude Code's own flags plus workspace snapshots, not a kernel sandbox; cost is Claude's reported list price. |
 | Other registered tools | Verify adapter/config support first; qualify the same representative cases. Do not assume identical sandbox/usage semantics. |
 | Model assignments | Pin actual IDs/efforts; test valid defaults, explicit overrides, escalation, resume, and rejected pairings against the current independence policy |
-| Frontends | Full CLI coverage; dashboard T01/T06/T10 journeys; macOS host launch, reconnect, and quit behavior on a fixture run |
+| Frontends | Full CLI coverage; VS Code client T01/T06/T10 journeys on a fixture run |
 | Platforms | Supported macOS and Linux; Python 3.11 and the current development version; WSL only if claimed, not native Windows by assumption |
 | Optional task lanes/Figma | Separate opt-in qualification. Lanes retain independent branches and do not auto-merge; design handoffs and human visual acceptance retain their own gates. |
 
