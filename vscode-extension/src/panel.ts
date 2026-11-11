@@ -281,6 +281,9 @@ export class RunPanel {
       const question = key === "approval" ? "Approve every plan of the change set together?" : "Run the change set's integration check now?";
       const button = key === "approval" ? "Approve all" : "Run the check";
       if ((await vscode.window.showWarningMessage(question, { modal: true }, button)) !== button) return;
+      // A joint check runs a while: say it is working before it starts, like the take and
+      // raise paths, or the card keeps its buttons looking clickable while they are not.
+      this.post({ ...stateFor(view, this.run, this.controller, true), changeset: await this.changesetCard(view) });
       await this.controller.takeChangeset(view, this.run, key, token);
     } catch (error) {
       void vscode.window.showErrorMessage(`AutoCode: ${messageOf(error)}`);
