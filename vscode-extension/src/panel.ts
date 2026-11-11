@@ -806,6 +806,8 @@ const METER_STYLES = `
   #header-sentence { min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   #header-facts { opacity: .75; margin-top: 2px; }
   #header-facts:empty { display: none; }
+  #header-stage { margin-top: 2px; overflow-wrap: anywhere; }
+  #header-stage:empty { display: none; }
   #header-place { opacity: .8; margin-top: 2px; overflow-wrap: anywhere; }
   #header-place:empty { display: none; }
   #header-toggle { margin-top: 2px; }
@@ -816,6 +818,7 @@ const METER_STYLES = `
   .detail-summary { opacity: .85; }
   .detail-line { overflow-wrap: anywhere; padding: 1px 0; }
   .detail-line.sub { padding-left: 12px; opacity: .8; }
+  .detail-line.sub2 { padding-left: 24px; }
 `;
 
 /**
@@ -903,7 +906,7 @@ export function panelHtml(chat = false): string {
 </style>
 </head>
 <body>
-${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools"><span id="run-cost" role="status" aria-label="Run cost"></span>${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel, true)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="chat-tabs" role="tablist" aria-label="Open chats"></div><section id="run-header" aria-label="Run overview" hidden><ol id="pipeline" aria-label="Pipeline"></ol><div id="header-now"><span id="header-label"></span><span id="header-sentence"></span></div><div id="header-place"></div><div id="header-facts"></div><button type="button" id="header-toggle" class="link" aria-expanded="false" aria-controls="header-details">Show details</button><div id="header-details" hidden></div></section><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
+${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools"><span id="run-cost" role="status" aria-label="Run cost"></span>${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel, true)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="chat-tabs" role="tablist" aria-label="Open chats"></div><section id="run-header" aria-label="Run overview" hidden><ol id="pipeline" aria-label="Pipeline"></ol><div id="header-now"><span id="header-label"></span><span id="header-sentence"></span></div><div id="header-stage"></div><div id="header-place"></div><div id="header-facts"></div><button type="button" id="header-toggle" class="link" aria-expanded="false" aria-controls="header-details">Show details</button><div id="header-details" hidden></div></section><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
 <div id="app" class="muted">${chat ? "Describe what you want to build, fix, review, or discuss." : "Loading…"}</div>
 ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messages</button>
 <details id="chat-place" aria-label="Where this chat works" hidden><summary><span class="stages-title">Where this chat works</span> <span id="chat-place-summary"></span></summary><div id="chat-place-body"></div></details>
@@ -1199,6 +1202,7 @@ function renderHeader(data) {
   });
   document.getElementById('header-label').textContent = header.label;
   document.getElementById('header-sentence').textContent = header.sentence;
+  document.getElementById('header-stage').textContent = header.current || '';
   const place = document.getElementById('header-place');
   place.textContent = header.place;
   place.title = (header.sections.find((section) => section.id === 'worktree') || { lines: [] }).lines.join('\\n');
@@ -1218,8 +1222,9 @@ function renderHeader(data) {
     if (section.summary) head.appendChild(el('span', 'detail-summary', section.summary));
     box.appendChild(head);
     section.lines.forEach((line) => {
-      const sub = line.startsWith('  ');
-      box.appendChild(el('div', 'detail-line' + (sub ? ' sub' : ''), sub ? line.slice(2) : line));
+      // Two spaces belong to the line above; four to that line's own sub-line.
+      const depth = line.startsWith('    ') ? 2 : line.startsWith('  ') ? 1 : 0;
+      box.appendChild(el('div', 'detail-line' + (depth ? ' sub' : '') + (depth === 2 ? ' sub2' : ''), line.slice(depth * 2)));
     });
     details.appendChild(box);
   });
