@@ -172,6 +172,7 @@ class RunViewTests(unittest.TestCase):
                 "provider",
                 "route_assignments",
                 "stage_models",
+                "implementation_discrepancy",
                 "worktree",
                 "liveness",
                 "information_review",

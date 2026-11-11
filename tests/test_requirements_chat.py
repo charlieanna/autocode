@@ -11,7 +11,9 @@ from unittest import mock
 import autocode_chat_history as history
 import autocode_chat_view as view
 import autocode_model_preflight as preflight
+import autocode_prompts as prompts
 import autocode_requirements_chat as chat
+import autocode_requirements_prompt as requirements_prompt
 import autocode_requirements_review as review
 import autocode_role_transport as transport
 import autocode_source_log as source_log
@@ -20,6 +22,15 @@ import autocode_workflows as workflows
 
 
 class RequirementsChatTests(unittest.TestCase):
+    def test_a_garbled_message_is_quoted_back_with_no_guess_about_how_it_arrived(self):
+        """#3074: Requirements told the person "sum" got lost before the text reached it, a guess
+        about AutoCode's own input path. It quotes the saved text and asks for the goal instead."""
+        for schema in ({"properties": {"assistant_reply": {}}}, {"properties": {}}):
+            rendered = " ".join(requirements_prompt.render(prompts.get("requirements-gather.md"), schema).split())
+            with self.subTest(conversational=bool(schema["properties"])):
+                self.assertIn("quote it exactly as saved and ask the user to confirm what they want", rendered)
+                self.assertIn("Never state or guess a cause in how it was typed, sent or received", rendered)
+
     def test_malformed_active_or_repair_stage_has_no_streamed_reply(self):
         for active in (None, "builder", ["requirements_gather"], True, 42):
             for repair in (False, True):
