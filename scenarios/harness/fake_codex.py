@@ -1495,6 +1495,7 @@ assert {SCOPED_NOTE!r} not in Path('lessons.py').read_text()
             "replace": json.dumps({**json.loads(text), "status": "PASS"}),
         },
         "untestable": "",
+        "project_notes": [],
         "failure_class": "execution",
         "failure_id": failure["failure_id"],
     }
@@ -1559,6 +1560,7 @@ assert p.returncode == 2 and p.stderr.startswith('stock.py: ') and 'invalid choi
             "replace": json.dumps({**json.loads(text), "status": "PASS"}),
         },
         "untestable": "",
+        "project_notes": [],
         "failure_class": "execution",
         "failure_id": failure["failure_id"],
     }

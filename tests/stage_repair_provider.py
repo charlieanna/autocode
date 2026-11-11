@@ -103,6 +103,7 @@ def investigator_report(source):
         # scratch contract copies an archived file under its unchanged basename.
         "probe": probe_command("run/" + source.parent.name + "-" + source.name),
         "counterexample": with_decisions(source, "run/" + source.parent.name + "-" + source.name),
+        "project_notes": [],
         "untestable": "",
     }
 

@@ -319,6 +319,7 @@ if stage == "investigate_stuck":
         "probe": "",
         "counterexample": {"file": "", "find": "", "replace": ""},
         "untestable": "",
+        "project_notes": [],
     }
     if failure := data.get("builder_failure"):
         # A Builder-failure classification must cite the pinned failure and its evidence.
