@@ -1,9 +1,13 @@
 """A run's spend against its money cap (#721): the pure projection. End to end: tests/test_cost_cap.py."""
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
 import autocode_cost as cost
 import autocode_prices as prices
+import autocode_run_view as run_view
 import autocode_usage as usage
 
 TOKENS = {"input_tokens": 1000, "output_tokens": 200}
@@ -83,6 +87,68 @@ class RequestCostCompletenessTests(unittest.TestCase):
         self.assertIsNone(view["spent_usd"])
         self.assertFalse(view["complete"])
         self.assertEqual(1, view["unpriced_stages"])
+
+
+MIMO = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
+
+
+def step_finish(index, cost_usd=0, fresh=800, read=22400, output=112, reasoning=151):
+    """A Kilo request finish as a live Requirements stage on a token plan writes it: cost 0."""
+    part = {
+        "id": f"prt_{index}",
+        "sessionID": "ses_live",
+        "messageID": f"msg_{index}",
+        "type": "step-finish",
+        "cost": cost_usd,
+        "tokens": {"input": fresh, "output": output, "reasoning": reasoning, "cache": {"read": read, "write": 0}},
+    }
+    return {"type": "step_finish", "sessionID": "ses_live", "part": part}
+
+
+class RunningStageSpendTests(unittest.TestCase):
+    """While the first stage runs, nothing has finished, but its tokens have a price (Ankur, 2026-11-11:
+    the VS Code header showed "$0+ · 1.9M+ tokens" during Requirements on Kilo with MiMo)."""
+
+    def running(self, model=MIMO, rows=(), **fields):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        events = Path(folder.name) / "requirements-gather-01.jsonl"
+        events.write_text("".join(json.dumps(row) + "\n" for row in rows))
+        active = {
+            "stage": "requirements_gather",
+            "engine": "opencode",
+            "output_mode": "opencode_events",
+            "events": str(events),
+            "launch_route": {"engine": "opencode", "model": model, "reasoning_effort": "medium"},
+            "started_at": "2026-11-11T01:24:28+00:00",
+        }
+        return {"status": "RUNNING", "settings": {"limits": {}}, "stages": [], "active_stage": active, **fields}
+
+    def test_a_running_stage_on_a_zero_reporting_plan_is_priced_from_its_tokens_so_far(self):
+        state = self.running(rows=[step_finish(index) for index in range(3)])
+        shown = run_view.view(state)["cost"]
+        tokens = {"input_tokens": 3 * 23200, "cached_input_tokens": 3 * 22400, "output_tokens": 3 * 263}
+        expected = round(prices.estimate(MIMO, tokens), 6)
+        self.assertGreater(expected, 0)
+        self.assertEqual(expected, shown["running_usd"])
+        # Nothing has finished: the money-cap ledger stays the finished stages' alone, and a floor.
+        self.assertEqual(0.0, shown["spent_usd"])
+        self.assertFalse(shown["complete"])
+        self.assertEqual(0, cost.spent(state))
+        # Without the live accounting (the build loop's boundary checks) nothing reads the event file.
+        self.assertIsNone(cost.view(state)["running_usd"])
+
+    def test_a_running_stage_whose_provider_prices_every_request_uses_those_prices(self):
+        state = self.running(rows=[step_finish(0, cost_usd=0.25), step_finish(1, cost_usd=0.5)])
+        self.assertEqual(0.75, run_view.view(state)["cost"]["running_usd"])
+
+    def test_an_unpriced_running_stage_or_none_running_is_unknown_not_zero(self):
+        unpriced = self.running(model="mystery/model", rows=[step_finish(0)])
+        self.assertIsNone(run_view.view(unpriced)["cost"]["running_usd"])
+        finished = run_view.view(run(stage()))["cost"]
+        self.assertIsNone(finished["running_usd"])
+        self.assertIsNone(cost.running({"attempts": [{"active": False, "model": MIMO}]}))
+        self.assertIsNone(cost.running("damaged"))
 
 
 class CostProjectionTests(unittest.TestCase):

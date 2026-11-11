@@ -1900,7 +1900,13 @@ compared with), `cap_usd` (the saved `--max-cost-usd`, or null for no cap), `unp
 (stages on a model without a rate, or with no token counts recorded; not counted), `complete` and `prices_as_of`. Each stage counts
 once. A null amount is unknown, never zero: `estimated_usd` and `reported_usd` are null when no stage
 has that basis, and `spent_usd` is null when no stage is known at all; while `complete` is false,
-`spent_usd` is a floor. `usage.cost_usd` keeps the frozen comparison rates its reports are bound to,
+`spent_usd` is a floor. `running_usd` is what the running stage has spent so far, which none of
+those amounts counts until the stage finishes: its provider's reported price when every request so
+far carries one (a zero is not a price), otherwise its tokens so far at the same dated table; null
+when no stage runs or the running stage cannot be priced. It is not part of `spent_usd` or the cap
+check. A client showing spend so far adds it to `spent_usd` and to the running stage's row, as a
+floor, so a run on its first stage does not read as nothing spent while its tokens climb.
+`usage.cost_usd` keeps the frozen comparison rates its reports are bound to,
 so its `estimated` can differ from `cost.estimated_usd`.
 
 `cost.breakdown` groups that same finished-stage ledger in three alternative ways:
