@@ -227,6 +227,8 @@ export interface StatusView {
     activity?: ChatActivity[];
     /** Live agent log: reasoning and messages beside those tool marks (docs/task-run.md). */
     log?: ChatLogEntry[];
+    /** Beside the log: what each working agent is doing now ("searching the code"). Display only. */
+    now?: { agent: string; text: string }[];
     review?: { question_id: string; answer: string; label: string; summary?: string;
       spend_confirmation?: { title: string; detail: string; label: string; match?: "trim_lower" } } | null;
     context: string;
@@ -240,6 +242,8 @@ export interface ChatActivity {
   text: string;
   status: "running" | "done" | "failed";
   paths?: string[];
+  /** For a tool: a phrase that groups repeats of it ("Searched code"). */
+  summary?: string;
 }
 
 /** One `chat.log` entry: what a running agent thinks, says or does. Display only. */
@@ -250,6 +254,7 @@ export interface ChatLogEntry {
   text: string;
   status?: "running" | "done" | "failed";
   paths?: string[];
+  summary?: string;
 }
 
 /** One other run of this run's change set, as `view.scope.linked` lists it. */

@@ -873,9 +873,17 @@ export function panelHtml(chat = false): string {
   .live-log .log-agent { margin-top: 6px; font-family: var(--vscode-font-family); font-size: .76rem; font-weight: 600; opacity: .8; }
   .live-log .log-agent:first-child { margin-top: 0; }
   .live-log .activity-row > :last-child { min-width: 0; }
-  .live-log .thought summary { list-style: none; cursor: pointer; }
-  .live-log .thought summary::-webkit-details-marker { display: none; }
-  .live-log .thought:not([open]) summary { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .live-log .log-now { font-weight: 400; opacity: .85; }
+  .live-log details summary { list-style: none; cursor: pointer; }
+  .live-log details summary::-webkit-details-marker { display: none; }
+  .live-log details summary::after { content: ' ▸'; opacity: .6; }
+  .live-log details[open] summary::after { content: ' ▾'; }
+  .live-log details .count { opacity: .75; }
+  .live-log .fold-line { margin: 2px 0 2px 2px; padding-left: 6px; border-left: 2px solid var(--vscode-panel-border); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .live-log .fold-line.failed { color: var(--vscode-errorForeground); }
+  /* Prose and the words that name a group read in the UI font; commands and paths stay monospace. */
+  .live-log .activity-row[data-kind="message"], .live-log .activity-row[data-kind="thinking"], .live-log details summary { font-family: var(--vscode-font-family); }
+  .live-log .thought .fold-line { font-style: normal; }
   pre { white-space: pre-wrap; word-break: break-all; font-size: .76rem; background: var(--vscode-textCodeBlock-background);
         padding: 8px; border-radius: 4px; }
   .gap, .notice { border-left: 3px solid var(--vscode-inputValidation-warningBorder, #cc8800);
@@ -929,7 +937,7 @@ let workingCompare = null;
 const ACTIVITY_MARKS = { command: '$', edit: '±', tool: '·', thinking: '∴', message: '»' };
 // The live agent log kept by entry id across reads (the terminal chat's LiveLog).
 const liveLog = new Map();
-// Thoughts a person unfolded; every other thought shows as one line, as the terminal folds them.
+// Folded log lines a person opened (a run of thoughts or of like tool calls), by their first entry's id.
 const openThoughts = new Set();
 let checkpointResult = null;
 const tabScroll = Object.create(null);
@@ -955,6 +963,67 @@ function stateRow(item) {
   return row;
 }
 
+/** The live log as display groups: a run of thoughts is one folded "Thinking" line, and a run of
+ * tool calls with the same core-written summary ("Searched code") is one line that counts them. */
+function logGroups(rows) {
+  const groups = [];
+  rows.forEach((row) => {
+    const last = groups[groups.length - 1];
+    const key = row.kind === 'thinking' ? 'thinking' : row.kind === 'tool' && row.summary ? 'tool:' + row.summary : null;
+    if (last && key && last.key === key && last.agent === row.agent) last.rows.push(row);
+    else groups.push({ key, agent: row.agent, kind: row.kind, rows: [row] });
+  });
+  return groups;
+}
+
+const MARK_NAMES = { command: 'Ran a command', edit: 'Changed files', tool: 'Used a tool', thinking: 'Reasoning', message: 'Said' };
+
+function logMark(kind, failed) {
+  const mark = el('span', 'activity-mark', failed ? '✗' : (ACTIVITY_MARKS[kind] || '·'));
+  mark.title = failed ? 'Failed' : (MARK_NAMES[kind] || '');
+  mark.setAttribute('aria-label', mark.title);
+  return mark;
+}
+
+/** One display group of the live log as a line; a folded group opens on a click and stays open. */
+function logLine(group) {
+  const rows = group.rows;
+  const failed = rows.some((row) => row.status === 'failed');
+  const running = rows[rows.length - 1].status === 'running';
+  const line = el('div', 'activity-row ' + (failed ? 'failed' : running ? 'running' : rows[rows.length - 1].status)
+    + (group.kind === 'thinking' ? ' thinking' : ''));
+  line.dataset.kind = group.kind;
+  line.appendChild(logMark(group.kind, failed));
+  const folded = group.kind === 'thinking' || rows.length > 1;
+  if (!folded) {
+    line.appendChild(el('span', null, rows[0].text));
+    return line;
+  }
+  const streaming = (text) => text.endsWith(' [partial]');
+  const fold = el('details', group.kind === 'thinking' ? 'thought' : 'tool-group');
+  const label = group.kind === 'thinking'
+    ? (rows.some((row) => streaming(row.text)) ? 'Thinking…' : 'Thought')
+    : rows[0].summary;
+  const summary = el('summary', null, label);
+  if (rows.length > 1) summary.appendChild(el('span', 'count', ' ×' + rows.length));
+  summary.title = group.kind === 'thinking' ? 'Show what it was thinking' : 'Show each one';
+  fold.appendChild(summary);
+  rows.forEach((row) => {
+    // The core's streaming marker is shown as a tooltip, not as part of the thought.
+    const item = el('div', 'fold-line', streaming(row.text) ? row.text.slice(0, -' [partial]'.length) : row.text);
+    if (streaming(row.text)) item.title = 'Still arriving';
+    if (row.status === 'failed') item.classList.add('failed');
+    fold.appendChild(item);
+  });
+  const id = rows[0].id;
+  fold.open = openThoughts.has(id);
+  fold.addEventListener('toggle', () => {
+    if (fold.open) openThoughts.add(id); else openThoughts.delete(id);
+  });
+  line.appendChild(fold);
+  return line;
+}
+
 function renderChatProgress(container, state) {
   if (state.meter && state.meter.struggling) {
     const warn = el('div', 'struggling', '⚠ ' + state.meter.struggling);
@@ -964,52 +1033,49 @@ function renderChatProgress(container, state) {
   }
   const lines = state.chat && Array.isArray(state.chat.progress)
     ? state.chat.progress.filter((line) => typeof line === 'string' && line) : [];
-  (lines.length ? lines : ['Thinking…']).forEach((line) => container.appendChild(el('div', 'line', line)));
   // Live agent log (chat.log): what each running agent thinks, says and does. Kept by id
   // across reads like the terminal chat's LiveLog, since the view holds only the newest.
   const logRows = state.chat && Array.isArray(state.chat.log) ? state.chat.log : [];
   for (const row of logRows) {
     if (!row || typeof row.id !== 'string' || typeof row.text !== 'string' || typeof row.agent !== 'string') continue;
     if (!(row.kind in ACTIVITY_MARKS)) continue;
-    liveLog.set(row.id, { id: row.id, agent: row.agent, kind: row.kind, text: row.text, status: row.status || '' });
+    liveLog.set(row.id, { id: row.id, agent: row.agent, kind: row.kind, text: row.text, status: row.status || '',
+      summary: typeof row.summary === 'string' ? row.summary : '' });
   }
   while (liveLog.size > 500) {
     const oldest = liveLog.keys().next().value;
     liveLog.delete(oldest);
     openThoughts.delete(oldest);
   }
-  const live = [...liveLog.values()].slice(-8);
-  if (live.length) {
+  const groups = logGroups([...liveLog.values()].slice(-60)).slice(-10);
+  // The log's own agent header says which stage works and what it does now, so the card does not
+  // repeat the run's headline ("Requirements working") above it.
+  const shown = groups.length ? lines.filter((line) => line !== state.headline) : lines;
+  (shown.length || groups.length ? shown : ['Thinking…']).forEach((line) => container.appendChild(el('div', 'line', line)));
+  if (groups.length) {
     // Supersedes the bare activity list: the log already carries those tool marks.
     const list = el('div', 'activity live-log');
     list.setAttribute('aria-label', 'Agent log');
-    // One header per run of steps from the same agent, not its name on every line.
-    let agent = null;
-    live.forEach((row) => {
-      if (row.agent !== agent) {
-        agent = row.agent;
-        list.appendChild(el('div', 'log-agent', agent));
+    const now = Object.create(null);
+    (state.chat && Array.isArray(state.chat.now) ? state.chat.now : []).forEach((row) => {
+      if (row && typeof row.agent === 'string' && typeof row.text === 'string') now[row.agent] = row.text;
+    });
+    // One header per run of steps from the same agent; its newest one says what it does now.
+    const lastHeader = Object.create(null);
+    let previous = null;
+    groups.forEach((group, index) => {
+      if (group.agent !== previous) lastHeader[group.agent] = index;
+      previous = group.agent;
+    });
+    previous = null;
+    groups.forEach((group, index) => {
+      if (group.agent !== previous) {
+        previous = group.agent;
+        const head = el('div', 'log-agent', group.agent);
+        if (lastHeader[group.agent] === index && now[group.agent]) head.appendChild(el('span', 'log-now', ' · ' + now[group.agent]));
+        list.appendChild(head);
       }
-      const mark = row.status === 'failed' ? '✗' : (ACTIVITY_MARKS[row.kind] || '·');
-      const line = el('div', 'activity-row ' + (row.status || '') + (row.kind === 'thinking' ? ' thinking' : ''));
-      line.appendChild(el('span', 'activity-mark', mark));
-      if (row.kind === 'thinking') {
-        // Reasoning folds to one line; a click unfolds it. The core's streaming marker is
-        // shown as a tooltip, not as part of the thought.
-        const streaming = row.text.endsWith(' [partial]');
-        const thought = el('details', 'thought');
-        const summary = el('summary', null, streaming ? row.text.slice(0, -' [partial]'.length) : row.text);
-        if (streaming) summary.title = 'Still arriving';
-        thought.appendChild(summary);
-        thought.open = openThoughts.has(row.id);
-        thought.addEventListener('toggle', () => {
-          if (thought.open) openThoughts.add(row.id); else openThoughts.delete(row.id);
-        });
-        line.appendChild(thought);
-      } else {
-        line.appendChild(el('span', null, row.text));
-      }
-      list.appendChild(line);
+      list.appendChild(logLine(group));
     });
     container.appendChild(list);
     return;
@@ -1216,7 +1282,7 @@ function render(state) {
     state.status, state.needKind, state.pause, state.gap, state.canApprove, state.token,
     state.taking, state.working, state.plan, state.criteria, state.decisions, state.decisionContext,
     state.actionLabel, state.actionEffect, state.stopped, state.unreadable,
-    state.chat && [state.chat.phase, state.chat.notice, state.chat.progress, state.chat.activity, state.chat.log, state.chat.review, state.chat.input && state.chat.input.kind],
+    state.chat && [state.chat.phase, state.chat.notice, state.chat.progress, state.chat.activity, state.chat.log, state.chat.now, state.chat.review, state.chat.input && state.chat.input.kind],
     state.workingDiff, state.boundRaise, state.done, state.finish,
     state.meter && state.meter.struggling, state.checkpoints,
   ] : state;

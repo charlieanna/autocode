@@ -2131,12 +2131,14 @@ test('the live agent log names an agent once and folds its reasoning to one line
   const folded = log().querySelector('.activity-row.thinking details.thought');
   assert.ok(folded, 'reasoning is a foldable line');
   assert.equal(folded.open, false, 'reasoning starts folded');
-  const summary = folded.querySelector('summary');
-  assert.equal(summary.textContent, '…in actual code, maybe just the top of server.py and app.py to see routes.');
-  assert.equal(summary.title, 'Still arriving', 'the streaming marker becomes a tooltip');
+  assert.equal(folded.querySelector('summary').textContent, 'Thinking…', 'a thought still arriving says so in words');
+  const words = folded.querySelector('.fold-line');
+  assert.equal(words.textContent, '…in actual code, maybe just the top of server.py and app.py to see routes.');
+  assert.equal(words.title, 'Still arriving', 'the streaming marker becomes a tooltip');
   assert.ok(!log().textContent.includes('[partial]'), 'the core marker is not shown as part of the thought');
-  assert.equal(log().querySelectorAll('details.thought')[1].querySelector('summary').title, '',
-    'a finished thought has no streaming tooltip');
+  const finished = log().querySelectorAll('details.thought')[1];
+  assert.equal(finished.querySelector('summary').textContent, 'Thought');
+  assert.equal(finished.querySelector('.fold-line').title, '', 'a finished thought has no streaming tooltip');
   // An unfolded thought stays unfolded when the next read redraws the log.
   folded.open = true;
   folded.dispatchEvent(new ui.window.Event('toggle'));
@@ -2145,6 +2147,57 @@ test('the live agent log names an agent once and folds its reasoning to one line
   await ui.poll(next);
   const redrawn = [...log().querySelectorAll('details.thought')];
   assert.deepEqual(redrawn.map((node) => node.open), [true, false], 'only the thought a person opened stays open');
+});
+
+test('the live agent log shows one stage header, folds reasoning and counts repeated tool calls', async (t) => {
+  // Ankur's report, 2026-11-11: "Requirements working" above a "Requirements" header, two raw
+  // thoughts in full, and "· grep tools" four times with nothing about what was searched.
+  const searched = (id, where, what) => ({ id, agent: 'Requirements', kind: 'tool', status: 'done',
+    text: `Searched ${where} for “${what}”`, summary: 'Searched code' });
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    progress: { headline: 'Requirements working' },
+    chat: { phase: null, context: 'live-step', input: null, messages: [], progress: ['Requirements working'],
+      log: [
+        { id: 'r1', agent: 'Requirements', kind: 'thinking', text: 'Let me read these files.' },
+        { id: 'm1', agent: 'Requirements', kind: 'message', text: 'Let me now read the key files.' },
+        searched('g1', 'tools', 'def context_packet'),
+        searched('g2', 'tools', 'def prepare'),
+        { id: 'r2', agent: 'Requirements', kind: 'thinking', text: 'The packet carries the evidence. [partial]' },
+        { id: 'r3', agent: 'Requirements', kind: 'thinking', text: 'So the review can drop it.' },
+        { id: 'x1', agent: 'Requirements', kind: 'tool', status: 'failed', text: 'lsp a.py', summary: 'Used lsp' },
+      ],
+      now: [{ agent: 'Requirements', text: 'searching the code' }] } };
+  const ui = await openChat(t, value);
+  const log = () => ui.document.querySelector('#app .live-log');
+  const lines = [...ui.document.querySelectorAll('#app .line')].map((node) => node.textContent);
+  assert.ok(!lines.includes('Requirements working'), 'the run headline is not repeated above the log');
+  assert.deepEqual([...log().querySelectorAll('.log-agent')].map((node) => node.textContent),
+    ['Requirements · searching the code'], 'one header, saying what the stage does now');
+  const rows = [...log().querySelectorAll('.activity-row')];
+  assert.deepEqual(rows.map((row) => row.dataset.kind), ['thinking', 'message', 'tool', 'thinking', 'tool']);
+  const tools = log().querySelector('details.tool-group');
+  assert.equal(tools.querySelector('summary').textContent, 'Searched code ×2', 'repeats are one counted line');
+  assert.equal(tools.open, false);
+  assert.deepEqual([...tools.querySelectorAll('.fold-line')].map((node) => node.textContent),
+    ['Searched tools for “def context_packet”', 'Searched tools for “def prepare”'], 'each search is kept behind it');
+  const thoughts = [...log().querySelectorAll('details.thought')];
+  assert.deepEqual(thoughts.map((node) => node.querySelector('summary').textContent), ['Thought', 'Thinking… ×2'],
+    'consecutive thoughts fold into one line that says it is still thinking');
+  assert.ok(thoughts.every((node) => !node.open), 'reasoning starts folded');
+  assert.equal(rows[4].className.includes('failed'), true);
+  assert.equal(rows[4].textContent, '✗lsp a.py', 'one tool call is shown as it is');
+  assert.deepEqual(rows.map((row) => row.querySelector('.activity-mark').title),
+    ['Reasoning', 'Said', 'Used a tool', 'Reasoning', 'Failed'], 'each mark says what it stands for');
+  // A tool group a person opened stays open when the next read redraws the log.
+  tools.open = true;
+  tools.dispatchEvent(new ui.window.Event('toggle'));
+  const next = structuredClone(value);
+  next.chat.log.push(searched('g3', 'docs', 'evidence'), searched('g4', 'docs', 'report'));
+  await ui.poll(next);
+  const grown = [...log().querySelectorAll('details.tool-group')];
+  assert.deepEqual(grown.map((node) => [node.querySelector('summary').textContent, node.open]),
+    [['Searched code ×2', true], ['Searched code ×2', false]], 'searches after another tool start their own line');
 });
 
 test('the live agent log keeps entries by id across reads as the view moves on', async (t) => {

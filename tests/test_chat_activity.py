@@ -58,7 +58,7 @@ class ReadTests(unittest.TestCase):
                     "paths": ["app/greet.py", "app/README.md"],
                     "status": "done",
                 },
-                {"kind": "tool", "text": "docs.search", "status": "running"},
+                {"kind": "tool", "text": "docs.search", "summary": "Used docs.search", "status": "running"},
             ],
             activity.read(self.events, "/work"),
             "prose and reasoning are never copied; a repeated item is one event with its latest state",
@@ -92,10 +92,51 @@ class ReadTests(unittest.TestCase):
                 ("command", "npm test", "done"),
                 ("edit", "edited src/a.ts", "done"),
                 ("edit", "added src/b.ts", "running"),
-                ("tool", "read src/a.ts", "done"),
-                ("tool", "grep TODO", "failed"),
+                ("tool", "Read src/a.ts", "done"),
+                ("tool", "Searched for “TODO”", "failed"),
             ],
             [(row["kind"], row["text"], row["status"]) for row in activity.read(self.events, "/work")],
+        )
+
+    def test_looking_around_is_said_in_plain_words_with_a_phrase_that_groups_repeats(self):
+        def part(identifier, tool, **given):
+            return {
+                "type": "tool_use",
+                "part": {"id": identifier, "tool": tool, "state": {"status": "completed", "input": given}},
+            }
+
+        write(
+            self.events,
+            [
+                part("p1", "grep", pattern="context_packet", path="/work/tools"),
+                part("p2", "glob", pattern="**/*.ts", path="src"),
+                part("p3", "list", path="/work/docs"),
+                part("p4", "webfetch", url="https://example.com/a"),
+                part("p5", "websearch", query="vitest workers"),
+                part("p6", "todowrite", todos=[]),
+                part("p7", "task", description="find the callers"),
+                part("p8", "lsp_hover", path="/work/a.py"),
+                # Claude Code's built-in tools, as the Claude provider writes them.
+                codex("item.completed", "c1", type="tool_call", name="Grep", arguments={"pattern": "def prepare"}),
+                codex("item.completed", "c2", type="tool_call", name="Read", arguments='{"file_path": "/work/x.py"}'),
+                codex("item.completed", "c3", type="web_search", query="psutil wheels"),
+            ],
+        )
+        self.assertEqual(
+            [
+                ("Searched tools for “context_packet”", "Searched code"),
+                ("Looked for files matching **/*.ts in src", "Listed files"),
+                ("Listed docs", "Listed files"),
+                ("Fetched https://example.com/a", "Fetched web pages"),
+                ("Searched the web for “vitest workers”", "Searched the web"),
+                ("Updated its to-do list", "Updated its to-do list"),
+                ("Asked a helper agent to find the callers", "Used helper agents"),
+                ("lsp_hover a.py", "Used lsp_hover"),
+                ("Searched for “def prepare”", "Searched code"),
+                ("Read x.py", "Read files"),
+                ("Searched the web for “psutil wheels”", "Searched the web"),
+            ],
+            [(row["text"], row["summary"]) for row in activity.read(self.events, "/work")],
         )
 
     def test_only_the_newest_events_are_kept_and_unreadable_rows_are_skipped(self):

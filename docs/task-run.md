@@ -512,7 +512,12 @@ display events from the running attempt's own provider event file, oldest first:
 `{kind, text, status}` with `kind` one of `command`, `edit` or `tool`, `status`
 one of `running`, `done` or `failed`, and, for an `edit`, the `paths` it names
 (relative to the project when they are inside it, at most 8). `text` is one
-bounded line: a command's first line, the files changed, or the tool called.
+bounded line: a command's first line, the files changed, or the tool called,
+in plain words for the tools agents use to look around (`Read src/a.py`,
+`Searched tools for “context_packet”`, `Looked for files matching *.ts`). A
+`tool` event also has `summary`, a short phrase that groups repeats of it
+(`Read files`, `Searched code`, or `Used <tool>` for any other tool), so a
+client can show four searches as one line.
 Model prose, reasoning and tool output are never copied, and only the tail of a
 file inside the run directory is read. `done` and `failed` describe the tool
 call, not the work: a command that exited 0 is not a passed check, an edit is
@@ -540,8 +545,13 @@ entries beyond the newest and update a growing one in place. `kind` is
 `activity`, reasoning and message prose are copied: collapsed to one line,
 credential-shaped text redacted, and bounded to 400 characters: a finished
 thought or message keeps its first words and ends with `…` where it was cut, and
-one still streaming keeps its newest words behind a leading `…` and ends with
-`[partial]`. Tool
+one still streaming keeps its newest words behind a leading `…`, starting at a
+sentence where they hold one, and ends with `[partial]`. A numbered or bulleted
+list keeps its items apart with `;`. A finished thought that shares most of its
+words with the thought before it is left out, so a model restating its plan before
+each tool call shows once. Beside the log, `now` has one entry `{agent, text}` for
+each agent in it, saying what that agent is doing from its newest entry
+(`searching the code`, `reading files`, `thinking`, `running a command`). Tool
 output is never copied. The Orchestrator runs no model, so its newest dispatch since the person's
 last turn appears as one `message` entry from agent `Orchestrator` with the
 runner's own summary, such as which tasks it builds in parallel or that one
