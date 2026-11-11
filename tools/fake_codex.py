@@ -13,6 +13,7 @@ from pathlib import Path
 from goal_fixtures import (
     body,
     greeting_changed_code_reasons,
+    quote_changed_lines,
     scripted_files_changed_code_reasons,
     scripted_files_changed_code_rejections,
     seed_greeting_workspace,
@@ -947,7 +948,7 @@ if stage in ("tester", "review_checkpoint") and "changed_code_exceptions" in val
             )
         }.values()
     )  # one reason per gap: the gate refuses a duplicate gap_id
-    validation_report["changed_code_exceptions"] = reasons[:cap]
+    validation_report["changed_code_exceptions"] = quote_changed_lines(data, reasons[:cap])
 if "--output-schema" in sys.argv:
     if "workspace_scope" in schema.get("properties", {}):
         result.setdefault("workspace_scope", {"spans_repositories": False, "external_parts": []})

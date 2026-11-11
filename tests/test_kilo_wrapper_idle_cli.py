@@ -132,7 +132,7 @@ class KiloWrapperIdleCliTests(unittest.TestCase):
                 for key in ("idle_timeout_seconds", "tool_timeout_seconds", "stage_timeout_seconds", "max_seconds")
             ),
         )
-        self.assertEqual("fixture/astra", envelope["settings"]["roles"]["task_planner"]["model"])
+        self.assertEqual("fixture/task_planner", envelope["settings"]["roles"]["task_planner"]["model"])
         attempts = [row for row in view["usage"]["accounting"]["attempts"] if not row["runner_owned"]]
         attempt = attempts[0]
         self.assertTrue(all(row["timed_out"] for row in attempts), attempts)

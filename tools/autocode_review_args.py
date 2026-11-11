@@ -47,11 +47,14 @@ def validate(args, parser):
         or args.reconcile_review
         or args.delegate_all
         or args.reject_assumption
+        or getattr(args, "report_discrepancy", None) is not None
     ):
         parser.error(
-            "--review-token requires --approve-review, --reject-review, --reconcile-review, --delegate-all "
-            "or --reject-assumption"
+            "--review-token requires --approve-review, --reject-review, --reconcile-review, --delegate-all, "
+            "--reject-assumption or --report-discrepancy"
         )
+    if getattr(args, "report_discrepancy", None) is not None and not args.review_token:
+        parser.error("--report-discrepancy requires --review-token with the approved plan's token")
     if args.reconcile_review and not args.review_token:
         parser.error("--reconcile-review requires --review-token")
     if args.reject_review and (not args.review_token or not (args.review_note or "").strip()):

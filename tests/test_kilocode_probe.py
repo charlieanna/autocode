@@ -84,6 +84,45 @@ class KiloProbeTests(unittest.TestCase):
         self.assertEqual(("failed", 1), (rows[0]["outcome"], rows[0]["exit_code"]))
         self.assertNotIn("private", str(rows))
 
+    def test_an_answer_cut_off_before_its_end_is_retried_and_never_returned(self):
+        # #3078: a listing that exits 0 with its output cut off is not an answer; the retry shares the budget.
+        words = ["kilo", "models", "--verbose"]
+        cut = subprocess.CompletedProcess(words, 0, "cut", "")
+        whole = subprocess.CompletedProcess(words, 0, "whole", "")
+        for answers, expected in (([cut, whole], whole), ([cut, cut], None)):
+            with self.subTest(answers=[answer.stdout for answer in answers]):
+                self.clock, calls = 0.0, []
+
+                def run(seconds, answers=answers, calls=calls):
+                    calls.append(seconds)
+                    self.clock += 50
+                    return answers[len(calls) - 1]
+
+                with probe.capture() as rows:
+                    if expected is None:
+                        with self.assertRaises(probe.KiloProbeIncomplete) as caught:
+                            probe.probe(words, run, complete=lambda stdout: stdout == "whole")
+                        self.assertIn("cut off before its end in each of 2 attempt(s)", str(caught.exception))
+                        self.assertIn("no model request was launched", str(caught.exception))
+                    else:
+                        self.assertIs(expected, probe.probe(words, run, complete=lambda stdout: stdout == "whole"))
+                self.assertEqual([60, 70], calls)
+                self.assertEqual("incomplete", rows[0]["outcome"])
+                self.assertEqual("incomplete_answer_retry", rows[1]["reason"])
+                self.assertEqual("completed" if expected else "incomplete", rows[1]["outcome"])
+
+    def test_a_cut_off_answer_after_the_budget_is_spent_is_not_retried(self):
+        words = ["kilo", "models", "--verbose"]
+
+        def run(seconds):
+            self.clock += 130
+            return subprocess.CompletedProcess(words, 0, "cut", "")
+
+        with probe.capture() as rows, self.assertRaises(probe.KiloProbeIncomplete) as caught:
+            probe.probe(words, run, complete=lambda stdout: False)
+        self.assertEqual(1, len(rows))
+        self.assertIn("1 attempt(s)", str(caught.exception))
+
     def test_model_calls_and_tool_execution_are_rejected_before_dispatch(self):
         for command in (["kilo", "run"], ["kilo", "debug", "agent", "code", "--tool", "bash"]):
             with self.subTest(command=command):

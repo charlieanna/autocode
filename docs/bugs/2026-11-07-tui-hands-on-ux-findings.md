@@ -19,8 +19,9 @@ the probe showed the harness typed the commands **without** the slash
 (`screen.type(cmd)` with `cmd="plan"`), so the TUI correctly treated the bare
 word as the follow-up reply the gate prompt announces ("Any text starts a new
 task in this chat"). No boundary race was demonstrated; the deliberate
-type-ahead discard (`ChatTUI.ask` → `_discard_typeahead`) stands as designed and
-tested. Kept here as a record because the retraction matters: verify the probe
+type-ahead discard (`ChatTUI.ask` → `_discard_typeahead`) stood as designed and
+tested. (#3074 later showed that discard silently dropped words typed between polls;
+`_take_typeahead` now keeps that text in the draft or behind a notice.) Kept here as a record because the retraction matters: verify the probe
 before the finding.
 
 ## 2. Any stray text at the completion gate starts a new task (Medium, open)

@@ -48,6 +48,9 @@ export const EXIT_GRACE_MS = 2000;
 /** A status poll must not hang the conversation: after this, the read fails and the next tick can try again. */
 export const STATUS_TIMEOUT_MS = 30_000;
 
+/** A stage list lists the backend's models: seconds on OpenCode. After this the read fails and says so. */
+export const STAGES_TIMEOUT_MS = 60_000;
+
 export function stream(
   options: CliOptions,
   args: string[],

@@ -13,7 +13,7 @@ except ImportError:
 
 import copy
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -202,18 +202,37 @@ def reusable_results(state: RunState):
     return list(rows.values())
 
 
-def ready(state: RunState):
+class Readiness(NamedTuple):
+    """One fresh readiness check and the case ids it found not passing.
+
+    ``gaps`` is what ``gaps(state)`` returned during this same check, or None when the check
+    stopped before reaching it. A refusal formats its message from these facts instead of
+    authenticating the retained captures a second time (#3017); nothing is kept between calls.
+    """
+
+    ready: bool
+    gaps: tuple[str, ...] | None
+
+
+def readiness(state: RunState) -> Readiness:
     if not visual.reference_hash(state.get("settings", {})):
-        return True
+        return Readiness(True, None)
     try:
         record = (state.get("settings") or {}).get("design_manifest")
         if record and manifest.delivery_blockers(record):
-            return False
+            return Readiness(False, None)
         refs = report_refs(state, state.get("validation") or {})
         pins = (state.get("validation") or {}).get("evidence_hashes") or {}
-        return not gaps(state) and all(pins.get(path) == util.file_hash(path) for path in refs)
+        missing = tuple(gaps(state))
+        if missing:
+            return Readiness(False, missing)
+        return Readiness(all(pins.get(path) == util.file_hash(path) for path in refs), missing)
     except (ValueError, OSError, KeyError, TypeError):
-        return False
+        return Readiness(False, None)
+
+
+def ready(state: RunState):
+    return readiness(state).ready
 
 
 def projection(state: RunState):

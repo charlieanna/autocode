@@ -122,15 +122,19 @@ def recover_legacy_report_repair(state: RunState, run_dir, workspace):
     return True
 
 
+def _route_stop(record):
+    """The status a provider stopped this attempt with on its model (quota or a content-filter refusal),
+    not on the work, else None."""
+    try:
+        status = support.failure_status(record["events"], record=record) if record.get("events") else None
+    except (OSError, ValueError, TypeError):
+        return None
+    return status if status in quota_route.STATUSES else None
+
+
 def _stopped_on_route(record):
     """The provider stopped this attempt on its model (quota or a content-filter refusal), not on the work."""
-    try:
-        return (
-            bool(record.get("events"))
-            and support.failure_status(record["events"], record=record) in quota_route.STATUSES
-        )
-    except (OSError, ValueError, TypeError):
-        return False
+    return _route_stop(record) is not None
 
 
 def abandon_stage(state: RunState, run_dir, workspace, selected, *, launch=None, actor="user_cli"):
@@ -161,7 +165,13 @@ def abandon_stage(state: RunState, run_dir, workspace, selected, *, launch=None,
         changed_files=support.changed_paths(before, after),
         abandoned=True,
     )
+    route_stop = _route_stop(record)
+    if route_stop:
+        # Kept on the archived attempt: a recovery retry it ran under is not spent by it when the
+        # provider returned no response (autocode_resolver_recovery._returned_nothing, #3159).
+        record["route_stop"] = route_stop
     resolver_human.supersede_operational(state, f"{operator} abandoned the selected uncertain attempt")
+    resolver_human.withdraw_queued_operational(state, record.get("original_stage") or record["stage"])
     originals = records.archive_rejected_stage(
         state, run_dir, record, f"{operator} abandoned uncertain response; workspace edits retained"
     )
@@ -172,7 +182,7 @@ def abandon_stage(state: RunState, run_dir, workspace, selected, *, launch=None,
     # A quota stop or a content-filter refusal says nothing about how the model coped with the
     # work: the person names the next model (autocode_quota_route, #184), and nothing changes the
     # route on its own (a higher effort on the refusing model would be refused again).
-    if not _stopped_on_route(record):
+    if not route_stop:
         escalation.advance(
             state,
             record.get("route_role", record["role"]),

@@ -951,6 +951,15 @@ def assign(
     return copy.deepcopy(record)
 
 
+def changed_role(state: RunState, previous: dict, selected: dict, *, failure_status):
+    """The role whose model these resume flags change while it is stopped on quota or a refusal, or None.
+
+    ``record_resume_change`` records such a change as the role's route assignment; a workflow job's
+    model is named by its answer instead, so it is never one of these."""
+    changed = _changed_role(state, previous, selected, failure_status)
+    return changed[0]["role"] if changed and not changed[0].get("workflow_job") else None
+
+
 def _changed_role(state: RunState, previous: dict, selected: dict, failure_status):
     """(attempt, model before, model after) when the flags change the stopped role's model."""
     attempt = stopped_attempt({**state, "settings": previous}, failure_status=failure_status)
@@ -1084,8 +1093,58 @@ def record_resume_change(
         "pause_status": attempt.get("pause_status", QUOTA_STATUS),
         "events": attempt.get("events"),
     }
+    provenance = _flag_provenance(previous, selected, role)
+    if provenance:
+        record["settings_change"] = provenance
     state.setdefault("user_events", []).append(record)
     return [copy.deepcopy(record)]
+
+
+# What a --<role>-model flag (and its --<role>-reasoning-effort) saves beside the model: the effort,
+# and that the route and its effort are now the person's own choice (#3159).
+_FLAG_ORIGINS = ("route_origins", "effort_origins")
+
+
+def _flag_provenance(previous: dict, selected: dict, role: str) -> dict:
+    """What else the resume flags changed on ``role`` beside its model, so ``unassigned`` can undo it."""
+    change = {}
+    before = ((previous.get("roles") or {}).get(role) or {}).get("reasoning_effort")
+    after = ((selected.get("roles") or {}).get(role) or {}).get("reasoning_effort")
+    if before != after:
+        change["reasoning_effort"] = {"from": before, "to": after}
+    for section in _FLAG_ORIGINS:
+        old, new = previous.get(section) or {}, selected.get(section) or {}
+        if old.get(role) != new.get(role):
+            change[section] = {
+                "from": old.get(role),
+                "to": new.get(role),
+                "present": role in old,
+                "section_present": section in previous,
+            }
+    return change
+
+
+def _undo_flag_provenance(settings: dict, route: dict, event: dict) -> None:
+    """Undo what ``_flag_provenance`` recorded for ``event``, where it is still as the flags left it."""
+    change = event.get("settings_change") or {}
+    role = event.get("role")
+    effort = change.get("reasoning_effort")
+    if effort and route.get("reasoning_effort") == effort["to"]:
+        if effort["from"] is None:
+            route.pop("reasoning_effort", None)
+        else:
+            route["reasoning_effort"] = effort["from"]
+    for section in _FLAG_ORIGINS:
+        origin = change.get(section)
+        values = settings.get(section)
+        if not origin or not isinstance(values, dict) or values.get(role) != origin["to"]:
+            continue
+        if origin["present"]:
+            values[role] = origin["from"]
+        else:
+            values.pop(role, None)
+        if not values and not origin["section_present"]:
+            settings.pop(section, None)
 
 
 def routes(state: RunState) -> dict:
@@ -1117,6 +1176,8 @@ def unassigned(state: RunState, settings: dict) -> dict:
         route = (settings.get("roles") or {}).get(event.get("role"))
         if isinstance(route, dict) and event.get("from") and route.get("model") == event.get("to"):
             route["model"] = event["from"]
+            # A --<role>-model flag also saved its effort and origins; they are the same assignment (#3159).
+            _undo_flag_provenance(settings, route, event)
         if event.get("role") == "stuck_investigator" and "investigator_pin_after" in event:
             investigation = settings.get("stuck_investigation") or {}
             if investigation.get("route") == event["investigator_pin_after"]:

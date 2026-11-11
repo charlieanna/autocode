@@ -8,6 +8,7 @@ which is how the type-ahead, paste, echo and `/` menu bugs fixed in #1639 were f
 import os
 import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -24,6 +25,7 @@ class ClosingScreenTests(unittest.TestCase):
     def test_leaving_approval_keeps_exit_notice_without_reprinting_the_plan(self):
         script = """
 import sys
+import tempfile
 sys.path.insert(0, 'tools')
 from autocode_chat_tui import ChatTUI
 with ChatTUI() as ui:
@@ -53,6 +55,7 @@ class LiveDefaultScreenTests(unittest.TestCase):
     def test_narrow_keyboard_navigation_keeps_hints_and_focus_through_resize(self):
         script = """
 import sys
+import tempfile
 sys.path.insert(0, 'tools')
 from autocode_chat_tui import ChatTUI
 with ChatTUI() as ui:
@@ -86,6 +89,7 @@ with ChatTUI() as ui:
     def test_repeated_enter_while_working_keeps_one_notice_and_the_draft(self):
         script = """
 import sys
+import tempfile
 sys.path.insert(0, 'tools')
 from autocode_chat_tui import ChatTUI
 with ChatTUI() as ui:
@@ -114,6 +118,7 @@ with ChatTUI() as ui:
     def test_planning_shows_its_stage_without_premature_completion_counters(self):
         script = """
 import sys
+import tempfile
 sys.path.insert(0, 'tools')
 from autocode_chat_tui import ChatTUI, PROGRESS_PREFIX
 with ChatTUI() as ui:
@@ -147,6 +152,7 @@ with ChatTUI() as ui:
     def test_stage_names_stay_visible_in_the_unified_timeline_and_waiting_status(self):
         script = """
 import sys
+import tempfile
 sys.path.insert(0, 'tools')
 from autocode_chat_tui import ChatTUI
 with ChatTUI() as ui:
@@ -218,6 +224,7 @@ with ChatTUI() as ui:
     def test_tool_input_fragments_do_not_crowd_out_readable_progress(self):
         script = """
 import sys
+import tempfile
 sys.path.insert(0, 'tools')
 from autocode_chat_tui import ChatTUI
 rows = [{'id': 'reply', 'agent': 'Plan Reviewer', 'kind': 'message',
@@ -271,6 +278,7 @@ with ChatTUI() as ui:
     def test_live_prose_is_readable_in_the_terminal(self):
         script = """
 import sys
+import tempfile
 sys.path.insert(0, 'tools')
 from autocode_chat_log import prose_event
 from autocode_chat_tui import ChatTUI
@@ -317,6 +325,7 @@ with ChatTUI() as ui:
         # Real curses rendering of a public view; no provider or task is launched.
         script = """
 import sys
+import tempfile
 sys.path.insert(0, 'tools')
 from autocode_chat_tui import ChatTUI
 with ChatTUI() as ui:
@@ -352,10 +361,74 @@ with ChatTUI() as ui:
         )
 
 
+class InputFidelityScreenTests(unittest.TestCase):
+    """#3074: what the person types is what the run receives, whenever the keys arrive."""
+
+    SCRIPT = """
+import select, sys, time
+from pathlib import Path
+sys.path.insert(0, 'tools')
+from autocode_chat_tui import ChatTUI
+gap, answer = Path(sys.argv[1]), Path(sys.argv[2])
+working = {'workspace': '/project', 'run_dir': '/project/run', 'status': 'RUNNING',
+           'liveness': {'kind': 'supervised'}, 'chat': {'context': 'turn-1'},
+           'progress': {'stage': 'Requirements', 'headline': 'Requirements working'}}
+with ChatTUI() as ui:
+    ui.observe(working)
+    while not gap.exists():  # the composer takes keys while the working marker animates
+        ui.wait(0.1)
+    # The client is busy between polls (a status read, a reply still being written): keys typed
+    # now wait in the terminal until the question's box opens.
+    ui.say('AutoCode: GAP-OPEN still writing the reply')
+    select.select([sys.stdin], [], [], 30)
+    time.sleep(0.3)
+    ui.observe({**working, 'status': 'WAITING_FOR_USER', 'chat': {'context': 'turn-2'}})
+    ui.say('AutoCode: ' + sys.argv[3])
+    answer.write_text(ui.ask(sys.argv[4]), encoding='utf-8')
+"""
+
+    def run_gap(self, prompt: str, question: str, before: str, during: str):
+        folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        gap, answer = folder / "gap", folder / "answer"
+        argv = [sys.executable, "-c", self.SCRIPT, str(gap), str(answer), question, prompt]
+        screen = TerminalScreen(argv, cwd=ROOT, env=os.environ, cols=120, rows=30, tmux=require_tmux(self))
+        self.addCleanup(screen.close)
+        screen.wait_for("Requirements working")
+        screen.type(before)
+        screen.wait_for(lambda shown: composer_text(shown) == before.strip(), what="the draft typed while working")
+        gap.touch()
+        screen.wait_for("GAP-OPEN", what="the client busy between polls")
+        screen.type(during)
+        screen.wait_for(question, what="the question")
+        return screen, answer
+
+    def test_keys_typed_between_polls_reach_the_next_question(self):
+        typed = "write a solution for the two sum problem in python"
+        screen, answer = self.run_gap("You: ", "QUESTION-SHOWN which problem?", "write a solution for the two ", "sum ")
+        screen.type("problem in python")
+        screen.keys("Enter")
+        self.assertEqual(0, screen.exit_status())
+        self.assertEqual(typed, answer.read_text(encoding="utf-8"))
+
+    def test_keys_typed_between_polls_never_answer_an_approval_and_are_kept_with_a_notice(self):
+        screen, answer = self.run_gap("Approve this plan? [y/N]: ", "QUESTION-SHOWN plan ready", "y", "es please")
+        shown = screen.wait_for(
+            lambda shown: "Earlier draft kept" in shown and composer_text(shown) == "",
+            what="the kept-draft notice over an empty approval box",
+        )
+        self.assertIn("press Up", shown)
+        screen.keys("Up")
+        screen.wait_for(lambda shown: composer_text(shown) == "yes please", what="the whole typed text recovered")
+        screen.keys("C-u", "Enter")
+        self.assertEqual(0, screen.exit_status())
+        self.assertEqual("", answer.read_text(encoding="utf-8"))
+
+
 class MouseHistoryScreenTests(unittest.TestCase):
     def test_approval_prompt_does_not_move_the_plan_under_the_reader(self):
         script = """
 import sys
+import tempfile
 sys.path.insert(0, 'tools')
 from autocode_chat_tui import ChatTUI
 with ChatTUI() as ui:
@@ -385,6 +458,7 @@ with ChatTUI() as ui:
     def test_incomplete_mouse_packet_cannot_stall_the_status_loop(self):
         script = """
 import sys
+import tempfile
 sys.path.insert(0, 'tools')
 from autocode_chat_tui import ChatTUI
 with ChatTUI() as ui:
@@ -415,6 +489,7 @@ with ChatTUI() as ui:
     def test_wheel_and_page_keys_reach_start_and_keep_position_during_updates(self):
         script = """
 import sys
+import tempfile
 sys.path.insert(0, 'tools')
 from autocode_chat_tui import ChatTUI
 with ChatTUI() as ui:

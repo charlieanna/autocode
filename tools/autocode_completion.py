@@ -59,7 +59,8 @@ def rejection(state: RunState) -> str:
             return "Git delivery requires the approved scoped commit and fresh verification of its exact revision."
     except (OSError, ValueError, KeyError) as error:
         return "Git delivery required: " + str(error)
-    if not design_coverage.ready(state):
+    design = design_coverage.readiness(state)
+    if not design.ready:
         record = (state.get("settings") or {}).get("design_manifest") or {}
         try:
             inventory_blockers = design_coverage.manifest.delivery_blockers(record) if record else []
@@ -69,7 +70,8 @@ def rejection(state: RunState) -> str:
             return f"{REFUSED}. Figma inventory still has unavailable required fonts/assets: " + "; ".join(
                 inventory_blockers
             )
-        missing = ", ".join(design_coverage.gaps(state)) or "changed or unbound design evidence"
+        found = design.gaps if design.gaps is not None else design_coverage.gaps(state)
+        missing = ", ".join(found) or "changed or unbound design evidence"
         return f"{REFUSED}. Design coverage needs fresh independent evidence for: {missing}."
     validation = state.get("validation") or {}
     results = {row["id"]: row for row in validation.get("criterion_results", [])}
