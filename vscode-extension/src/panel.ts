@@ -781,11 +781,7 @@ const METER_STYLES = `
   .chat-tab .dot.needs { color: var(--vscode-editorWarning-foreground, #cc8800); }
   .chat-tab .dot.finished { color: var(--vscode-charts-green, #3a7d3a); }
   .welcome { padding: 4px 2px; font-size: .88rem; }
-  .welcome p { margin: 4px 0 10px; opacity: .85; }
-  .welcome .try { opacity: .75; font-size: .8rem; margin-bottom: 4px; }
-  .welcome button.example { display: block; width: 100%; text-align: left; margin: 4px 0; background: var(--vscode-input-background);
-                            color: var(--vscode-foreground); border: 1px solid var(--vscode-panel-border); border-radius: 4px; }
-  .welcome button.example:hover { border-color: var(--vscode-focusBorder); }
+  .welcome p { margin: 4px 0; opacity: .75; }
   .finish .result { font-weight: 600; margin-bottom: 6px; }
   .finish .facts { display: grid; grid-template-columns: max-content 1fr; gap: 3px 10px; font-size: .84rem; margin-bottom: 8px; }
   .finish .facts span:nth-child(odd) { opacity: .7; }
@@ -821,19 +817,12 @@ const METER_STYLES = `
   .detail-line.sub { padding-left: 12px; opacity: .8; }
 `;
 
-/** What a new chat says AutoCode does: every change takes one path (#3010); a question is answered directly. */
-export const WELCOME_TEXT = [
-  "Describe what you want. AutoCode agrees the requirements with you, plans the change for your approval, " +
-    "builds it, and tests it independently before it calls it done.",
-  "A question about this code is answered without changing anything.",
-];
-
-/** Example requests the welcome offers; clicking one only fills the message box. */
-export const WELCOME_EXAMPLES = [
-  "Fix the failing test in tests/test_api.py",
-  "Add a --json option to the export command",
-  "Why does sign-in time out on slow networks?",
-];
+/**
+ * A new chat's one welcome line. It was two paragraphs and three example requests on every new chat,
+ * which a person who has used AutoCode once reads as noise (owner request 2026-11-11); the message box
+ * already says what to type.
+ */
+export const WELCOME_TEXT = "Describe a change, or ask about this code. Changes are planned for your approval, then built and tested.";
 
 const ICONS = {
   plus: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>`,
@@ -936,7 +925,6 @@ const app = document.getElementById('app');
 const chatMode = ${chat};
 const RAISE_LABEL = ${JSON.stringify(RAISE_LABEL)};
 const WELCOME_TEXT = ${JSON.stringify(WELCOME_TEXT)};
-const WELCOME_EXAMPLES = ${JSON.stringify(WELCOME_EXAMPLES)};
 const STAGE_ROWS = 4;
 const STAGE_MARKS = { done: '✓', working: '●', retrying: '↻', failed: '✗' };
 let stagesExpanded = false;
@@ -1177,23 +1165,11 @@ function formatDuration(seconds) {
   return Math.floor(whole / 3600) + 'h' + String(Math.floor((whole % 3600) / 60)).padStart(2, '0') + 'm';
 }
 
-/** A new chat's welcome: what AutoCode does, and example requests that only fill the message box. */
+/** A new chat's welcome: one line on what AutoCode does. */
 function renderWelcome() {
   const box = el('div', 'welcome');
   box.id = 'welcome';
-  WELCOME_TEXT.forEach((line) => box.appendChild(el('p', null, line)));
-  box.appendChild(el('div', 'try', 'Try asking:'));
-  WELCOME_EXAMPLES.forEach((example) => {
-    const button = el('button', 'example', example);
-    button.type = 'button';
-    button.addEventListener('click', () => {
-      const field = document.getElementById('message');
-      field.value = example;
-      field.focus();
-      saveDraft(); updateComposer(); chatBehavior.resize();
-    });
-    box.appendChild(button);
-  });
+  box.appendChild(el('p', null, WELCOME_TEXT));
   app.appendChild(box);
 }
 
@@ -2048,7 +2024,7 @@ function renderChat(data) {
   const welcoming = !data.state && !data.busy && !data.selectedRun && !data.pendingBrief && !data.error;
   if (data.state) render(data.state);
   else if (welcoming && document.getElementById('welcome')) {
-    // Already showing: rebuilding on every read would drop a click on an example mid-press.
+    // Already showing: nothing in it changes between reads.
   } else {
     app.textContent = '';
     renderedState = '';
