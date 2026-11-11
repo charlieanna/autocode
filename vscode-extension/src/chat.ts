@@ -227,6 +227,10 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     const index = this.tabs.findIndex((tab) => tab.key === key);
     if (index < 0 || this.tabs.length === 1) return;
     this.tabs.splice(index, 1);
+    // A tab closed mid-reply would otherwise keep the streaming pace for every chat: nothing
+    // tracks its extract again to quiet it, so the short interval would never end.
+    this.streamText.delete(key);
+    this.streamQuiet.delete(key);
     if (this.activeKey === key) {
       const neighbor = this.tabs[Math.min(index, this.tabs.length - 1)] ?? this.tabs[0]!;
       this.activate(neighbor.key);

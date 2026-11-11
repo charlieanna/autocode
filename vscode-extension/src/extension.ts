@@ -119,7 +119,13 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     try {
       await controller.registryAction(run, action);
-      if (actionId === "delete") chat.forget(run);
+      if (actionId === "delete") {
+        chat.forget(run);
+        // The chat no longer exists: the status line and the command target must stop naming it.
+        if (sameRun(active, run)) active = undefined;
+        if (sameRun(watched, run)) watched = undefined;
+        await updateStatus();
+      }
       await refresh();
     } catch (error) {
       void vscode.window.showErrorMessage(`AutoCode: ${messageOf(error)}`);
