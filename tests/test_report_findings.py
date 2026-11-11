@@ -320,18 +320,18 @@ class UnretainedDispositionTests(unittest.TestCase):
         message = refusal("tester", ["F-1"], record)
         self.assertTrue(
             message.startswith(
-                "A report-only repair cannot close findings: sol finding_dispositions row F-1 changed its evidence. "
+                "A report-only repair cannot close findings: tester finding_dispositions row F-1 changed its evidence. "
             ),
             message,
         )
         self.assertIn("byte-for-byte copy, evidence included", message)
         self.assertIn(
-            "A report-only repair cannot close findings: sol finding_dispositions row F-1 changed its "
-            "evidence; sol finding_dispositions row F-2 is not in the original review. ",
+            "A report-only repair cannot close findings: tester finding_dispositions row F-1 changed its "
+            "evidence; tester finding_dispositions row F-2 is not in the original review. ",
             refusal("tester", ["F-1", "F-2", "F-1"], record),
         )
         self.assertIn(
-            "astra finding_dispositions row F-1 is not an exact row of the original completed review",
+            "task_planner finding_dispositions row F-1 is not an exact row of the original completed review",
             refusal("task_planner", ["F-1"], record),
         )
         self.assertIn("row F-2 is not an exact row", refusal("tester", ["F-2"], {}))
@@ -365,7 +365,7 @@ class UnretainedDispositionTests(unittest.TestCase):
                 with self.assertRaises(ValueError) as caught:
                     findings.record_validation(state, copy.deepcopy(repaired), record)
                 self.assertIn(
-                    f"report-only repair cannot close findings: sol finding_dispositions row {fid} {why}",
+                    f"report-only repair cannot close findings: tester finding_dispositions row {fid} {why}",
                     str(caught.exception),
                 )
                 self.assertEqual([fid], [row["id"] for row in findings.open_entries(state)])
