@@ -156,6 +156,12 @@ browsers, live providers or scenarios that need the Docker socket (including
 real local-Compose mode). The checkout is writable so normal test artifacts can
 be produced; review them under `.scenario-runs/` as with a native Linux run.
 
+Tests that import AutoCode as the installed `autocode_cli` package work as in a
+development checkout's `pip install -e .` (#2955). The image holds no copy of
+AutoCode: an import hook in its venv maps the package to `/workspace/tools`, the
+mounted checkout, so every interpreter of that venv imports the candidate you
+are testing, uncommitted changes included. Nothing is installed at run time.
+
 Direct in-process tests in a Linux root shell holding `CAP_SYS_ADMIN` or
 `CAP_SYS_PTRACE` are still refused: they do not pass through CLI startup, which
 now automatically drops these capabilities. For such a test process, use the

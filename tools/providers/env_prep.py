@@ -22,6 +22,9 @@ follow-up turn on 2026-10-20. Reuse is keyed by the exact command, working
 directory, the environment, the executable's resolved file identity and the
 tool's own login and settings files, so a new tool install, a changed setting, a
 new login or another folder runs the check again; a failed check is never kept.
+A caller that can tell a whole answer from a cut-off one passes ``complete``: an
+answer it cannot read to the end is not a successful check, so it is neither kept
+nor answered again (#3078), and ``fresh`` runs the check even when an answer is kept.
 
 Since 2026-11-07 (Ankur, after a new chat's "hi" spent seconds repeating them) the
 answers are kept for the project, ``PROJECT/.autocode/preflight-reuse``, so a new
@@ -63,6 +66,10 @@ SESSION_VARIABLES = frozenset(
 _reuse: Path | None = None
 
 
+class KeptCheck(subprocess.CompletedProcess):
+    """A preflight answered from a kept check rather than a new run of the command."""
+
+
 def snapshot_environment(env: Mapping[str, str] | None = None) -> dict[str, str]:
     """The effective environment: a copy of ``env``, or one snapshot of ``os.environ``.
 
@@ -102,22 +109,24 @@ def resolve_executable(name: str, env: Mapping[str, str], *, cwd=None, allow_def
     return shutil.which(name, path=path or os.curdir)
 
 
-def preflight_run(command, env: Mapping[str, str], *, require_executable=False, **kwargs):
+def preflight_run(command, env: Mapping[str, str], *, require_executable=False, complete=None, fresh=False, **kwargs):
     """Run a preflight subprocess (version, roster, auth summary) with the explicit environment.
 
     Explicit-environment callers require executable admission before spawn;
     this avoids execvp's default system PATH when the mapping omits PATH. The
     ambient API retains its existing behavior. The caller owns timeouts and
-    failure interpretation; no retry is added here.
+    failure interpretation; no retry is added here. ``complete(stdout)``, when given,
+    decides whether an answer is whole enough to keep or to answer again; ``fresh``
+    skips a kept answer (and keeps the new one as usual).
     """
     if require_executable and not resolve_executable(command[0], env, cwd=kwargs.get("cwd")):
         raise FileNotFoundError(f"{command[0]!r} cannot be found in the explicit environment")
     key = _reuse_key(command, env, kwargs)
-    kept = _recall(key, command)
+    kept = None if fresh else _recall(key, command, complete)
     if kept is not None:
         return kept
     result = subprocess.run(command, env=dict(env), **kwargs)
-    if key and result.returncode == 0:
+    if key and result.returncode == 0 and (complete is None or complete(result.stdout)):
         _keep(key, result)
     return result
 
@@ -186,13 +195,14 @@ def _reuse_key(command, env: Mapping[str, str], kwargs) -> str | None:
     return hashlib.sha256(json.dumps(identity, default=str).encode()).hexdigest()
 
 
-def _recall(key, command):
+def _recall(key, command, complete=None):
     if key is None or _reuse is None:
         return None
     try:
         kept = json.loads((_reuse / f"{key}.json").read_text(encoding="utf-8"))
-        if 0 <= time.time() - kept["at"] < REUSE_SECONDS:
-            return subprocess.CompletedProcess(command, 0, kept["stdout"], kept["stderr"])
+        # An answer kept before its caller checked for a cut-off one (#3078) is not answered again.
+        if 0 <= time.time() - kept["at"] < REUSE_SECONDS and (complete is None or complete(kept["stdout"])):
+            return KeptCheck(command, 0, kept["stdout"], kept["stderr"])
     except (OSError, ValueError, KeyError, TypeError):
         pass
     return None

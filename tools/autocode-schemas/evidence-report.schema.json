@@ -511,6 +511,9 @@
                     "type": "integer",
                     "minimum": 1
                   },
+                  "source_line": {
+                    "type": "string"
+                  },
                   "status": {
                     "type": "string",
                     "enum": [

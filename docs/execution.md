@@ -467,8 +467,23 @@ same Tester obligation resumes. Reuse requires unchanged source, command,
 task and contract, purpose, execution environment, interpreter, runtime and
 dependencies, plus intact original output and complete nonzero collected test
 results. It does not turn a Builder receipt into independent proof. Approved
-canonical commands, protected checks and a fresh Tester's obligations still
-execute; unsupported test inventories are not guessed. Public evidence records
+canonical commands and a fresh Tester's obligations still execute; unsupported
+test inventories are not guessed.
+
+The protected-test pair (the original suite on the candidate, and with the
+original tests overlaid) is bound to the same Tester obligation (#3040). A
+report-only repair of that Tester execution, such as dropping one citation, does
+not launch the pair again when each half has a completed, authenticated receipt
+for the exact same execution identity, Tester events, protected binding and
+command, overlay and approved `supersedes` list, compared afresh before reuse.
+The original half's nonzero exit is reusable only when the current approved
+`supersedes` list excuses exactly its failures, and the gate interprets the
+receipt again under that list. Any other failing, interrupted, timed-out,
+unowned or altered run, a later Tester, a changed contract, source, binding,
+`supersedes` list or environment, and an unsupported runtime execute fresh.
+The repair writes its own protected receipt; the reused rows carry their
+scheduling decision and count once in `scheduling.reused_count` and
+`avoided_seconds`. Public evidence records
 the scheduling decision and preserves the original receipt, output hashes and
 execution interval. Those artifacts remain pinned by the Completion gate.
 
@@ -505,8 +520,16 @@ runs once more in that scratch tree to record line coverage
 (`tools/autocode_diff_coverage.py`). That run cannot change the verdict.
 `--status` shows it as `evidence.diff_coverage`: the changed product hunks no
 proving test executed (`uncovered`), and the changed files the report never
-measured (`unmeasured`, never counted as covered). Nothing is installed into the
-project; a project without a tool gets a note and no extra test run.
+measured (`unmeasured`, never counted as covered). `measured_lines` keeps the
+report's executed and missing lines for the changed lines only; the full report
+stays at `report_path`, so a large repository's coverage never reaches a stage
+prompt (#3121). Nothing is installed into the project; a project without a tool
+gets a note and no extra test run.
+
+A stage prompt over 2 MiB is never launched. The runner pauses `PAUSED_PROMPT_SIZE`
+before writing the prompt, admitting the stage or charging anything, and names the
+handoff field that holds most of it (`tools/autocode_prompt_bound.py`). Such a
+prompt is a defect in what AutoCode handed the stage, not in the task.
 
 ### Mutation check of named proof
 

@@ -114,10 +114,15 @@ def report_for(stage, data, common, config, run_check, requirements):
             },
         }
     else:
+        verdict = (data.get("validation") or {}).get("verdict")
+        if verdict is None and stage == "resolve":
+            # Setting a Resolver attempt aside archives the validation (#3159); the next Resolver still
+            # decides the failed review it was queued for.
+            verdict = "FAIL"
         recheck = (validation_only and not any(row["stage"] == "resolve" for row in previous)) or (
-            stage == "review_completion" and data["validation"]["verdict"] == "PASS" and bool(stranded)
+            stage == "review_completion" and verdict == "PASS" and bool(stranded)
         )
-        failed = data["validation"]["verdict"] == "FAIL" or recheck
+        failed = verdict == "FAIL" or recheck
         result = {
             **common,
             "status": "REWORK" if failed else "COMPLETE",

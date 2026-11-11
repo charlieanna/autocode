@@ -12,8 +12,17 @@ answers); fenced code blocks and leading documentary file:line labels are left o
 paths, output strings and file-scope constraints are still literals. The contract keeps a literal when it quotes it verbatim
 anywhere, or, for a template (one with a placeholder such as ID or TEXT, an ALL-CAPS word of letters,
 or an alternation such as open|done), when an acceptance criterion fills it in (`1 buy milk [open]`).
-Whitespace differences never count. Whether every example then agrees with the literal is the Plan
-Reviewer's check (units/autoplanner.BRIEF_TRACE_RULE). Imports nothing from AutoCode.
+Whitespace differences never count.
+
+Keeping a template somewhere is not enough when another worked example renders it differently: the live
+case quoted nothing wrong, it wrote `1 buy milk open`. ``disagreements`` compares each worked example (an
+inline code span of a criterion) with the templates its criterion cites (#2941; autocode_source_trace runs
+it on every citing criterion). An example that keeps a template's fields in its order, or every one of its
+format markers in another order, renders that template; when the template itself does not match it, its
+brackets, separators, field order or casing changed, and the draft goes back to the planner. Only a template
+with a fixed word or an alternation to recognize an example by is compared, an example that is a brief
+literal itself or a filled-in other one is not, and semantic agreement stays the Plan Reviewer's check
+(units/autoplanner.BRIEF_TRACE_RULE). Imports nothing from AutoCode beyond prompts and source metadata.
 """
 
 from __future__ import annotations
@@ -26,6 +35,7 @@ except ImportError:
     import autocode_source_metadata as source_metadata
 
 
+import itertools
 import re
 
 FENCE = re.compile(r"```.*?(```|$)", re.S)
@@ -67,6 +77,98 @@ def template(literal: str) -> re.Pattern | None:
             parts.append(r"\s+" if kind == "space" else re.escape(token))
         variable = variable or kind in ("alternation", "placeholder")
     return re.compile("".join(parts)) if variable else None
+
+
+# A rendering is recognized by its fixed parts; placeholders alone would match any example. Templates past these
+# sizes are left to the Plan Reviewer so a long example cannot make the comparison backtrack for long.
+MAX_PLACEHOLDERS = 3
+MAX_REORDERED_FIELDS = 5
+MAX_EXAMPLE = 200
+# Fields the template separates by a space stay separated by one: `--project NAME` is not rendered by
+# `--project-file x`.
+_SEPARATOR = r"\W*"
+_SPACED = r"\W*\s\W*"
+
+
+def _fields(literal: str):
+    """``literal``'s fields in order (a placeholder, an alternation's values or a fixed word), its format
+    markers (the characters other than letters, digits and spaces between them) and, for each gap between
+    two fields, whether the template puts a space in it."""
+    fields: list[tuple[str, tuple[str, ...] | str]] = []
+    markers: list[str] = []
+    spaced: list[bool] = []
+    word, space = "", False
+    for match in TOKEN.finditer(literal + " "):  # the trailing space ends a final word
+        kind, token = match.lastgroup, match.group()
+        if kind == "other" and token.isalnum():
+            word += token
+            continue
+        pending: list[tuple[str, tuple[str, ...] | str]] = [("word", word)] if word else []
+        word = ""
+        if kind == "alternation":
+            pending.append(("alternation", tuple(token.split("|"))))
+        elif kind == "placeholder":
+            pending.append(("placeholder", ()))
+        elif kind == "other":
+            markers.append(token)
+        for field in pending:
+            if fields:
+                spaced.append(space)
+            fields.append(field)
+            space = False
+        space = space or kind == "space"
+    return fields, markers, spaced
+
+
+def _relaxed(fields, spaced) -> re.Pattern:
+    """A pattern for ``fields`` in this order with any casing and any separators, spaced where ``spaced`` says."""
+    parts = []
+    for kind, value in fields:
+        if kind == "placeholder":
+            parts.append(r"\S(?:.*?\S)?")
+        else:
+            options = value if kind == "alternation" else (value,)
+            parts.append(r"(?<![^\W_])(?:" + "|".join(re.escape(option) for option in options) + r")(?![^\W_])")
+    pattern = parts[0]
+    for gap, part in zip(spaced, parts[1:], strict=True):
+        pattern += (_SPACED if gap else _SEPARATOR) + part
+    return re.compile(_SEPARATOR + pattern + _SEPARATOR, re.I)
+
+
+def _anchored(fields) -> bool:
+    """Whether a template has a fixed word or an alternation to recognize its renderings by."""
+    return any(kind != "placeholder" for kind, _ in fields)
+
+
+def disagreements(cited, examples, known=()) -> list[tuple[str, str]]:
+    """The ``(example, literal)`` pairs where a worked example renders a ``cited`` template other than as written.
+
+    ``known`` are every literal of the sources: an example equal to one, or filling in another template, is that
+    literal's rendering (a command beside an output format), not this one's."""
+    known = {*known, *cited}
+    others = [template(literal) for literal in known if _anchored(_fields(literal)[0])]
+    found = []
+    for literal in cited:
+        fields, markers, spaced = _fields(literal)
+        strict = template(literal)
+        if strict is None or not _anchored(fields):
+            continue
+        if sum(kind == "placeholder" for kind, _ in fields) > MAX_PLACEHOLDERS:
+            continue
+        in_order = _relaxed(fields, spaced)
+        reordered = []
+        if markers and len(fields) <= MAX_REORDERED_FIELDS:
+            orders = dict.fromkeys(itertools.permutations(fields))
+            reordered = [_relaxed(order, [True] * (len(order) - 1)) for order in orders]
+        for example in examples:
+            if len(example) > MAX_EXAMPLE or example in known or strict.search(example):
+                continue
+            if any(pattern and pattern.fullmatch(example) for pattern in others):
+                continue
+            moved = all(marker in example for marker in markers) and any(p.fullmatch(example) for p in reordered)
+            if in_order.fullmatch(example) or moved:
+                found.append((example, literal))
+    return found
 
 
 def _strings(value):

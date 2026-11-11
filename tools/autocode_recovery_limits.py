@@ -31,7 +31,7 @@ INFORM_ADVICE = (
 )
 ABANDON_THEN_RESUME = (
     "Set the uncertain attempt aside with --abandon-stage {attempt}, then autocode resume. "
-    "Resuming without setting it aside will hold; do not replay the failed attempt automatically."
+    "Resuming without setting the uncertain attempt aside will hold; do not replay the failed attempt automatically."
 )
 # A published AutoResolver request a person must answer (a blocker, or exhausted operational
 # recovery) takes this response and refuses --answer, which is for requirements questions. The

@@ -449,6 +449,10 @@ TABLE: dict[str, tuple[str, str]] = {
         "A progressive transition is pending.",
         "--resume-paused continues the transition.",
     ),
+    "PAUSED_PROMPT_SIZE": (
+        "A stage's prompt was over AutoCode's size bound, so it was not launched; nothing was spent on it.",
+        "--resume-paused rebuilds the handoff and checks it again.",
+    ),
     "PAUSED_USAGE_UNKNOWN": (
         "Usage is unknown for an attempt; it is not counted as zero.",
         "--resume-paused continues; usage stays unknown until reported.",
@@ -514,6 +518,22 @@ STORE_CAUSES: tuple[tuple[str, tuple[str, str]], ...] = (
 
 # PAUSED_PROCESS_CLEANUP reasons that are the host's admission refusal, not a child process (the reason
 # autocode_supervision raises before any provider starts; autocode doctor's session row names the same fix).
+# PAUSED_SOURCE_UNAVAILABLE reasons that are source discovery under the shared configured roots
+# (autocode_catalog_context.DiscoveryIncomplete), not Git access to the workspace (#3073).
+SOURCE_CAUSES = (
+    (
+        "Source discovery is incomplete",
+        (
+            "Discovery under the configured source roots, which every chat on this computer shares, could not "
+            "see every checkout, so no stage started and no source evidence was accepted. Repository access and "
+            "ownership are not the cause.",
+            "Run the command the stop reason names in a terminal, not in the chat (typed there it is a new "
+            "request), then --resume-paused re-checks the sources.",
+        ),
+    ),
+)
+
+
 HOST_CAUSES = (
     (
         "refuses CAP_SYS_PTRACE or CAP_SYS_ADMIN",
@@ -610,6 +630,11 @@ def explain(status: str, *, stop_reason: str = "", needs=None, held_cause: str =
         for phrase, (host_means, host_does) in HOST_CAUSES:
             if phrase in (stop_reason or ""):
                 means, does = host_means, host_does.format(recovery=recovery)
+                break
+    if status == "PAUSED_SOURCE_UNAVAILABLE":
+        for phrase, (source_means, source_does) in SOURCE_CAUSES:
+            if phrase in (stop_reason or ""):
+                means, does = source_means, source_does
                 break
     if status == "PAUSED_TOOL_CONTAINMENT":
         # Every other cause keeps the table's text.

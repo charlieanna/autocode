@@ -121,6 +121,9 @@ def evidence_pins(result):
     protected = (result or {}).get("protected_tests") or {}
     for name in ("candidate", "original"):
         pins.update(command_receipt.pins(protected.get(name)))
+        receipt = (protected.get(name) or {}).get("scheduling") or {}
+        if receipt.get("receipt") and receipt.get("receipt_sha256"):
+            pins[receipt["receipt"]] = receipt["receipt_sha256"]
     pins.update(brief_evidence.evidence_pins((result or {}).get("brief_acceptance")))
     pins.update(risk_evidence.evidence_pins((result or {}).get("risk_acceptance")))
     return pins
@@ -150,6 +153,59 @@ def executable_checks(checks, approved_state=None, required_commands=None, progr
         for repeat in range(2, count + 1)
     ]
     return checks, prescribed
+
+
+def _protected_check(run_dir, obligation, measured, timeout, label, execute, *, policy, accepted_failure):
+    """Schedule one half of the protected-test pair under the original Tester obligation (#3040).
+
+    The identity binds the complete measured execution context (source, runtime, interpreter,
+    dependencies, environment, ignored inputs), the original Tester execution, the protected
+    binding and command, the overlay (candidate or original) and the approved supersedes policy.
+    Only a completed, authenticated receipt of that exact identity is reused, after a fresh
+    comparison; anything else executes. The original run's nonzero exit is reusable only when the
+    current approved supersedes policy excuses exactly its failures; the gate reinterprets it anyway.
+    """
+    command = policy["command"]
+    eligible = bool(schedule.collection_kind(command))
+
+    def identity(*, refresh=False):
+        return {
+            "execution": measured(command, eligible, refresh=refresh),
+            "obligation": obligation,
+            "protected_tests": {**policy, "overlay": label},
+            "timeout": timeout,
+            "purpose": "protected_tests",
+        }
+
+    binding = identity()
+    supported = eligible and binding["execution"].get("reuse_supported", False)
+
+    def reusable(receipt, *, root=None):
+        if not set(command_receipt.OWNERSHIP_FIELDS) <= set(receipt):
+            return False  # an unowned command never stands in for the protected pair
+        if schedule.reusable(receipt, root=root):
+            return True
+        return bool(
+            label == "original"
+            and accepted_failure(receipt)
+            and schedule.complete_results(receipt)
+            and schedule.intact(receipt, root=root)
+        )
+
+    return schedule.run(
+        Path(run_dir) / "check-replay" / "obligations",
+        binding,
+        execute,
+        reuse_allowed=supported,
+        reason="no_current_receipt"
+        if supported
+        else "execution_identity_not_cacheable"
+        if eligible
+        else "command_has_no_supported_inventory",
+        owned_preparation=True,
+        current_identity=lambda: identity(refresh=True),
+        reusable_result=reusable,
+    )
 
 
 def _failed_check(row):
@@ -245,14 +301,11 @@ def replay(
     stem = Path(record.get("output") or "validation").stem
     out = Path(run_dir) / "check-replay" / f"{stem}-{uuid.uuid4().hex}"
     out.mkdir(parents=True, exist_ok=False)
-    protected = protected_oracles.replay(
-        cast("RunState", approved_state or {}), workspace, out, scratch_run, timeout=timeout
-    )
-    checks, prescribed = executable_checks(checks, approved_state, required_commands, progressive_context)
-    test_quality.require_behavioral_tests(workspace, [check["command"] for check in checks])
     state = approved_state or {}
     # The original provider execution, not its repaired JSON formatting, owns
-    # this obligation. A later Validator or any final/protected check is new work.
+    # this obligation. A later Validator or any final check is new work; the
+    # protected-test pair is bound to it too, so a report-only repair of the
+    # same Tester execution does not launch the pair again (#3040).
     events = Path(record.get("events") or "")
     obligation = (
         {
@@ -274,10 +327,34 @@ def replay(
         )
         else None
     )
+    contexts: dict[Any, Any] = {}
+
+    def measured(command, eligible, *, refresh=False):
+        # Shell syntax affects interpreter binding even when argv[0]
+        # matches (for example a multiline -c script and a plain CLI).
+        runtime = (command, eligible)
+        if refresh or runtime not in contexts:
+            contexts[runtime] = execution_identity(workspace, command=command, full=eligible)
+        execution = contexts[runtime]
+        if util.file_hash(events) != obligation["events_sha256"]:
+            raise ValueError("Validator execution evidence changed during clean replay")
+        if record.get("source_revision") and execution["source_revision"] != record["source_revision"]:
+            raise ValueError("The source changed since this Validator obligation; fresh validation is required")
+        return execution
+
+    protected = protected_oracles.replay(
+        cast("RunState", state),
+        workspace,
+        out,
+        scratch_run,
+        timeout=timeout,
+        run_check=partial(_protected_check, run_dir, obligation, measured, timeout) if obligation else None,
+    )
+    checks, prescribed = executable_checks(checks, approved_state, required_commands, progressive_context)
+    test_quality.require_behavioral_tests(workspace, [check["command"] for check in checks])
     rows: list[Any] = []
     failed: list[Any] = []
     seen: dict[Any, Any] = {}
-    contexts: dict[Any, Any] = {}
     on_base: dict[str, Any] = {}
     for check in checks:
         command = check["command"]
@@ -285,22 +362,10 @@ def replay(
         if key not in seen:
             if obligation:
                 eligible = command not in prescribed and bool(schedule.collection_kind(command))
-                # Shell syntax affects interpreter binding even when argv[0]
-                # matches (for example a multiline -c script and a plain CLI).
-                runtime = (command, eligible)
 
                 def identity(*, refresh=False):
-                    if refresh or runtime not in contexts:
-                        contexts[runtime] = execution_identity(workspace, command=command, full=eligible)
-                    execution = contexts[runtime]
-                    if util.file_hash(events) != obligation["events_sha256"]:
-                        raise ValueError("Validator execution evidence changed during clean replay")
-                    if record.get("source_revision") and execution["source_revision"] != record["source_revision"]:
-                        raise ValueError(
-                            "The source changed since this Validator obligation; fresh validation is required"
-                        )
                     return {
-                        "execution": execution,
+                        "execution": measured(command, eligible, refresh=refresh),
                         "obligation": obligation,
                         "command": command,
                         "repetition": check.get("repetition", 1),
@@ -413,7 +478,12 @@ def replay(
             "brief_acceptance": True,
             "risk_acceptance": True,
         }
-    decisions = [row for row in seen.values() if row.get("scheduling")]
+    # Each decision is counted once: the protected pair's rows are their own obligations (#3040).
+    decisions = [row for row in seen.values() if row.get("scheduling")] + [
+        row
+        for row in ((protected or {}).get(name) for name in ("candidate", "original"))
+        if (row or {}).get("scheduling")
+    ]
     result["scheduling"] = {
         "executed_count": sum(row["scheduling"]["action"] == "execute" for row in decisions),
         "reused_count": sum(row["scheduling"]["action"] == "reuse" for row in decisions),

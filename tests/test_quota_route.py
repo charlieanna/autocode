@@ -283,6 +283,48 @@ class QuotaRouteTests(unittest.TestCase):
         self.assertEqual("medium", unknown["settings"]["roles"]["tester"]["reasoning_effort"], "no listing: unchanged")
         self.assertNotIn("effort", record)
 
+    def test_assign_moves_a_persons_saved_level_the_offered_model_lacks_and_says_why(self):
+        """#3120: Requirements saved medium for MiMo; the answer naming the offered GLM 5.3 was refused."""
+        glm, levels = "zai-coding-plan/glm-5.3", ["low", "high", "max"]
+        for origin in ("stage_choice", "user_explicit"):
+            with self.subTest(origin=origin):
+                state = self.state()
+                settings = state["settings"]
+                settings["roles"]["tester"]["reasoning_effort"] = "medium"
+                settings["effort_origins"] = {"tester": origin}
+                settings["declared_variants"] = {glm: levels}
+                previous = settings["roles"]["tester"]["model"]
+                record = quota_route.assign(state, "tester", glm, at="t", via="answer")
+                self.assertEqual(
+                    ("high", origin),
+                    (settings["roles"]["tester"]["reasoning_effort"], settings["effort_origins"]["tester"]),
+                )
+                self.assertEqual(
+                    {
+                        "from": "medium",
+                        "to": "high",
+                        "reason": f"your medium was saved for {previous}; {glm} does not offer it, "
+                        "so AutoCode chose high, the nearest level it offers",
+                    },
+                    record["effort"],
+                )
+                self.assertEqual(
+                    {"from": "medium", "to": "high", "reason": "route_answer", "model": glm},
+                    settings["effort_fits"]["tester"],
+                )
+
+    def test_a_level_named_with_the_answer_or_for_the_same_model_is_still_the_persons(self):
+        glm, levels = "zai-coding-plan/glm-5.3", ["low", "high", "max"]
+        named = self.state()
+        named["settings"]["declared_variants"] = {glm: levels}
+        with self.assertRaisesRegex(ValueError, "does not declare reasoning variant 'medium'"):
+            quota_route.assign(named, "tester", glm, at="t", via="answer", effort="medium")
+        same = self.state()
+        same["settings"]["roles"]["tester"].update(model=glm, reasoning_effort="medium")
+        same["settings"].update(effort_origins={"tester": "stage_choice"}, declared_variants={glm: levels})
+        with self.assertRaisesRegex(ValueError, "does not declare reasoning variant 'medium'"):
+            quota_route.assign(same, "tester", glm, at="t", via="answer")
+
     def test_assign_applies_the_model_drops_the_session_and_records_the_change(self):
         state = self.state()
         attempt = self.stopped(state)
@@ -342,6 +384,48 @@ class QuotaRouteTests(unittest.TestCase):
         self.assertEqual(bound, resolver_recovery._binding(state, "rev"))
         state["settings"]["roles"]["tester"]["model"] = "gpt-6-nova"  # not named at a quota stop
         self.assertNotEqual(bound, resolver_recovery._binding(state, "rev"))
+
+    def test_a_model_flag_keeps_a_recovery_packet_binding_with_its_effort_and_origins(self):
+        # --tester-model and --tester-reasoning-effort at the stop also save the effort and that both are
+        # the person's choice; the packet binding takes all of it as the one route assignment (#3159).
+        state = self.state()
+        bound = resolver_recovery._binding(state, "rev")
+        previous = state["settings"]
+        changed = json.loads(json.dumps(previous))
+        changed["roles"]["tester"].update(model="gpt-6-luna", reasoning_effort="medium")
+        changed["route_origins"] = {"tester": "user_explicit"}
+        changed["effort_origins"] = {"tester": "user_explicit"}
+        [record] = quota_route.record_resume_change(
+            state, previous, changed, failure_status=support.failure_status, at="t"
+        )
+        self.assertEqual(
+            {
+                "reasoning_effort": {"from": None, "to": "medium"},
+                "route_origins": {"from": None, "to": "user_explicit", "present": False, "section_present": False},
+                "effort_origins": {"from": None, "to": "user_explicit", "present": False, "section_present": False},
+            },
+            record["settings_change"],
+        )
+        state["settings"] = changed
+        self.assertEqual(bound, resolver_recovery._binding(state, "rev"))
+        # Another role's origin, or an effort the flags did not set, is still a change the binding sees.
+        state["settings"]["route_origins"]["builder"] = "user_explicit"
+        self.assertNotEqual(bound, resolver_recovery._binding(state, "rev"))
+        del state["settings"]["route_origins"]["builder"]
+        state["settings"]["roles"]["tester"]["reasoning_effort"] = "high"
+        self.assertNotEqual(bound, resolver_recovery._binding(state, "rev"))
+        # An origin that was already saved is put back to its saved value, keeping its section.
+        state = self.state()
+        state["settings"].update(route_origins={"tester": "runner_default"}, effort_origins={"builder": "x"})
+        bound = resolver_recovery._binding(state, "rev")
+        changed = json.loads(json.dumps(state["settings"]))
+        changed["roles"]["tester"]["model"] = "gpt-6-luna"
+        changed["route_origins"]["tester"] = changed["effort_origins"]["tester"] = "user_explicit"
+        quota_route.record_resume_change(
+            state, state["settings"], changed, failure_status=support.failure_status, at="t"
+        )
+        state["settings"] = changed
+        self.assertEqual(bound, resolver_recovery._binding(state, "rev"))
 
     def test_resume_change_is_recorded_only_for_the_quota_stopped_role(self):
         state = self.state()
