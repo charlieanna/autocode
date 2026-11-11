@@ -92,10 +92,6 @@ BACKGROUND_KEYS = (
     "timedOutAfterMs",
 )
 FILE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
-# The inputs of another tool call kept on its item, bounded, so the live log can say what a Read, Grep
-# or Glob looked at (autocode_chat_activity). Display only: no evidence reader uses them.
-DISPLAY_INPUT = ("pattern", "query", "file_path", "path", "url", "glob")
-DISPLAY_INPUT_CHARS = 200
 USAGE_LIMIT_ERRORS = ("usage_limit_reached", "model_requires_usage_credits")
 AUTH_ERRORS = (
     "authentication_failed",
@@ -550,14 +546,7 @@ class Translator:
         else:
             label = str(name or "tool")
             self._tools[tool_id] = {"id": identifier, "type": "tool_call", "name": label}
-            shown = {
-                key: value[:DISPLAY_INPUT_CHARS]
-                for key in DISPLAY_INPUT
-                if isinstance(value := arguments.get(key), str) and value.strip()
-            }
-            if shown:
-                self._tools[tool_id]["input"] = shown
-            item = {**self._tools[tool_id], "status": "in_progress"}
+            item = {"id": identifier, "type": "tool_call", "name": label, "status": "in_progress"}
         return [{"type": "item.started", "item": item}]
 
     def _on_user(self, row: dict) -> list[dict]:
@@ -605,11 +594,7 @@ class Translator:
             if isinstance(meta, dict) and meta.get("persistedOutputPath"):
                 item["output_truncated"] = True
             return [{"type": "item.completed", "item": item}]
-        detail = (
-            {"changes": tool["changes"]}
-            if tool["type"] == "file_change"
-            else {key: tool[key] for key in ("name", "input") if key in tool}
-        )
+        detail = {"changes": tool["changes"]} if tool["type"] == "file_change" else {"name": tool["name"]}
         outcome = {"status": "failed" if block.get("is_error") is True else "completed"}
         return [{"type": "item.completed", "item": {"id": tool["id"], "type": tool["type"], **detail, **outcome}}]
 

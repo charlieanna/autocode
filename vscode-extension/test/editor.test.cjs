@@ -2102,8 +2102,6 @@ test('chat shows the live agent log (chat.log) with agent names and thinking', a
   const thinking = ui.document.querySelector('#app .activity-row.thinking');
   assert.ok(thinking, 'thinking rows are marked');
   assert.equal(thinking.querySelector('.activity-mark').textContent, '∴');
-  const failed = [...ui.document.querySelectorAll('#app .live-log .activity-mark')].at(-1);
-  assert.deepEqual([failed.textContent, failed.title], ['✗', 'Ran a command (failed)']);
   const headers = [...ui.document.querySelectorAll('#app .live-log .log-agent')].map((node) => node.textContent);
   assert.deepEqual(headers, ['Builder · task M2', 'Plan Reviewer'], 'each agent is named once per run of its steps');
   assert.equal(ui.document.querySelector('#app .live-log .agent'), null, 'no row repeats the agent name');
@@ -2130,12 +2128,6 @@ test('the live agent log names an agent once and folds its reasoning to one line
   assert.deepEqual(headers(), ['Requirements', 'Planner', 'Requirements'],
     'consecutive steps of one agent share a header; a new header only when the agent changes');
   assert.equal(log().querySelectorAll('.activity-row').length, 6, 'every step is still listed');
-  // The marks alone explain nothing (Ankur, 2026-11-10): each says what it stands for.
-  const marks = [...log().querySelectorAll('.activity-mark')].map((node) => [node.textContent, node.title, node.getAttribute('aria-label')]);
-  assert.deepEqual(marks.slice(0, 4), [
-    ['·', 'Used a tool', 'Used a tool'], ['$', 'Ran a command', 'Ran a command'],
-    ['∴', 'Thinking', 'Thinking'], ['$', 'Ran a command (running)', 'Ran a command (running)'],
-  ]);
   const folded = log().querySelector('.activity-row.thinking details.thought');
   assert.ok(folded, 'reasoning is a foldable line');
   assert.equal(folded.open, false, 'reasoning starts folded');

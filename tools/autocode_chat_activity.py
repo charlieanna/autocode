@@ -29,9 +29,7 @@ TEXT_LIMIT = 160
 PATH_LIMIT = 8
 EDIT_TOOLS = ("edit", "write", "patch", "multiedit", "apply_patch", "applypatch")
 SHELL_TOOLS = ("bash", "shell")
-SEARCH_KEYS = ("pattern", "query")  # what a search looks for
-PLACE_KEYS = ("filePath", "file_path", "path", "url")  # where a read or search looks
-FILTER_KEYS = ("include", "glob")  # which files a search keeps
+TARGET_KEYS = ("filePath", "file_path", "path", "pattern", "query", "url")  # what a read or search names
 FILE_VERBS = {"add": "added", "update": "edited", "delete": "deleted"}
 # Codex item types other than commands and file changes that are a tool call, with how they are named.
 TOOL_ITEMS = {
@@ -64,28 +62,6 @@ def _outcome(status, exit_code=None) -> str:
     return "done"
 
 
-def _tool_text(name, given, workspace) -> str:
-    """A read or search as what it looked for and where: ``grep "TODO" in src (*.ts)``.
-
-    A search that named only a place used to show as ``grep tools``, which says neither what was
-    searched nor that ``tools`` is a folder. Only these named inputs are shown, never tool output.
-    """
-    given = given if isinstance(given, dict) else {}
-
-    def first(keys):
-        return next((given[key] for key in keys if isinstance(given.get(key), str) and given[key].strip()), "")
-
-    search, place, kept = first(SEARCH_KEYS), first(PLACE_KEYS), first(FILTER_KEYS)
-    text = str(name)
-    if search:
-        text += f' "{_line(search, 80)}"'
-    if place:
-        text += (" in " if search else " ") + _relative(place, workspace)
-    if kept:
-        text += f" ({_line(kept, 40)})"
-    return _line(text)
-
-
 def _edit(paths: list[str], verbs: list[str]) -> dict:
     shown = paths[:PATH_LIMIT]
     named = ", ".join(f"{verb} {path}" for verb, path in zip(verbs, shown, strict=False))
@@ -111,19 +87,8 @@ def item_event(row: dict, workspace) -> tuple[str, dict] | None:
         verbs = [FILE_VERBS.get(str(c.get("kind")), "edited") for c in changes]
         return str(item["id"]), {**_edit(paths, verbs), "status": state}
     if kind in TOOL_ITEMS:
-        name = item.get("name") or item.get("tool")
-        if not name:
-            return str(item["id"]), {
-                "kind": "tool",
-                "text": _line(item.get("query") or TOOL_ITEMS[kind]),
-                "status": state,
-            }
-        # The Claude provider keeps a built-in tool's named inputs (claude_stream.DISPLAY_INPUT) for this line.
-        return str(item["id"]), {
-            "kind": "tool",
-            "text": _tool_text(name, item.get("input"), workspace),
-            "status": state,
-        }
+        name = item.get("name") or item.get("tool") or item.get("query")
+        return str(item["id"]), {"kind": "tool", "text": _line(name or TOOL_ITEMS[kind]), "status": state}
     return None
 
 
@@ -147,7 +112,9 @@ def part_event(row: dict, workspace) -> tuple[str, dict] | None:
             }
     if not tool:
         return None
-    return part["id"], {"kind": "tool", "text": _tool_text(part.get("tool"), given, workspace), "status": outcome}
+    target = next((given[key] for key in TARGET_KEYS if isinstance(given.get(key), str) and given[key]), "")
+    text = _line(f"{part.get('tool')} {_relative(target, workspace)}" if target else part.get("tool"))
+    return part["id"], {"kind": "tool", "text": text, "status": outcome}
 
 
 def rows(path: Path) -> list[dict]:

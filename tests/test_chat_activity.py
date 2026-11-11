@@ -10,7 +10,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import autocode_chat_activity as activity
-from providers import claude_stream
 
 from tests.test_liveness import inspection, metadata
 
@@ -85,10 +84,6 @@ class ReadTests(unittest.TestCase):
                 part("p3", "write", "running", filePath="/work/src/b.ts"),
                 part("p4", "read", "completed", filePath="/work/src/a.ts", offset=0),
                 part("p5", "grep", "error", pattern="TODO"),
-                # Ankur's live Requirements log (2026-11-10) showed this search as "grep tools".
-                part("p6", "grep", "completed", pattern="check_replay", path="/work/tools", include="*.py"),
-                part("p7", "glob", "completed", pattern="**/*.ts", path="/work/src"),
-                part("p8", "list", "completed", path="/work/tools"),
                 {"type": "text", "sessionID": "s", "part": {"id": "t1", "type": "text", "text": "prose"}},
             ],
         )
@@ -98,45 +93,10 @@ class ReadTests(unittest.TestCase):
                 ("edit", "edited src/a.ts", "done"),
                 ("edit", "added src/b.ts", "running"),
                 ("tool", "read src/a.ts", "done"),
-                ("tool", 'grep "TODO"', "failed"),
-                ("tool", 'grep "check_replay" in tools (*.py)', "done"),
-                ("tool", 'glob "**/*.ts" in src', "done"),
-                ("tool", "list tools", "done"),
+                ("tool", "grep TODO", "failed"),
             ],
             [(row["kind"], row["text"], row["status"]) for row in activity.read(self.events, "/work")],
         )
-
-    def test_claude_reads_and_searches_name_what_they_looked_at(self):
-        """A Claude Code Grep or Read showed as its bare tool name; its named inputs now reach the line."""
-
-        def call(tool_id, name, arguments, *, failed=False):
-            use = {
-                "id": f"m_{tool_id}",
-                "content": [{"type": "tool_use", "id": tool_id, "name": name, "input": arguments}],
-            }
-            done = {"type": "tool_result", "tool_use_id": tool_id, "content": "matches", "is_error": failed}
-            return [{"type": "assistant", "message": use}, {"type": "user", "message": {"content": [done]}}]
-
-        translator = claude_stream.Translator(clock=lambda: 0.0)
-        rows = []
-        for row in [
-            *call("t1", "Grep", {"pattern": "check_replay", "path": "/work/tools", "glob": "*.py", "-n": True}),
-            *call("t2", "Read", {"file_path": "/work/tools/autocode_context.py", "offset": 10}),
-            *call("t3", "Glob", {"pattern": "**/*.md"}, failed=True),
-            *call("t4", "TodoWrite", {"todos": [{"content": "secret plan"}]}),
-        ]:
-            rows += translator.feed(row)
-        write(self.events, rows)
-        self.assertEqual(
-            [
-                ("tool", 'Grep "check_replay" in tools (*.py)', "done"),
-                ("tool", "Read tools/autocode_context.py", "done"),
-                ("tool", 'Glob "**/*.md"', "failed"),
-                ("tool", "TodoWrite", "done"),
-            ],
-            [(row["kind"], row["text"], row["status"]) for row in activity.read(self.events, "/work")],
-        )
-        self.assertNotIn("secret plan", self.events.read_text(), "only the named display inputs are kept")
 
     def test_only_the_newest_events_are_kept_and_unreadable_rows_are_skipped(self):
         rows = [
