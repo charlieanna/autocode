@@ -2652,6 +2652,10 @@ def verify(
     configured = node_tests.parse(suite_command)
     if configured and not (framework is not None and framework.name == "junit"):
         framework = Framework("node", suite_command, invocation=configured)
+    go_suite = go_tests.parse(suite_command) if suite_command else None
+    if go_suite and not go_suite.compile_only and (framework is None or framework.name == "go"):
+        # Keep the explicit suite's env prefix in every derived command (#3091).
+        framework = Framework("go", suite_command, invocation=go_suite)
     before = source_snapshot.snapshot(workspace, paths=source_paths)["revision"]
     changes = changed_files(workspace, base, source_paths=source_paths)
     changes = {path: changes[path] for path in changes if path not in withheld}
