@@ -2412,14 +2412,13 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
     # suite command is read inside its `cd PKG && `, as per_test_results reads it.
     suite_go = _go_test(package_scope.split(framework, commands["suite"] or "")[1])
     allow_absent_go = bool(no_go_project and comparable and comparable.get("base") == base and suite_go)
-    # The base's own suite definition, executed over the candidate's product code,
-    # decides preservation for an exit-code-only script-driven suite (#587). The
-    # trigger is evidential: passing base, completed exit-0 candidate suite,
-    # no per-test results, and no already-established regression failure.
-    # The definition planner skips the extra run only when its retained
-    # inputs did not change. Opaque commands need the proof regardless
-    # of their language; a custom Python command can hide edited tests.
-    # Named results miss a child suite a test launches: typed, runner inputs stay the base's (#2966).
+    # The base's own suite definition, executed over the candidate's product code, decides
+    # preservation for an exit-code-only script-driven suite (#587). The trigger is evidential:
+    # passing base, completed exit-0 candidate suite, no per-test results, and no already-established
+    # regression failure. The definition planner skips the extra run only when its retained inputs did
+    # not change. Opaque commands need the proof regardless of their language; a custom Python command
+    # can hide edited tests. Named results miss a child suite a test launches, so a typed suite runs its
+    # candidate tests over the base's runner inputs (#2966).
     base_definition, untyped = None, on_candidate.get("results") is None
     exit_zero = (
         comparable is not None
