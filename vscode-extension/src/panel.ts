@@ -1277,7 +1277,7 @@ function render(state) {
   const chatSlice = chatMode ? [
     state.status, state.needKind, state.pause, state.gap, state.canApprove, state.token,
     state.taking, state.working, state.plan, state.criteria, state.decisions, state.decisionContext,
-    state.actionLabel, state.actionEffect, state.stopped, state.unreadable,
+    state.actionLabel, state.actionEffect, state.stopped, state.unreadable, state.confirming,
     state.chat && [state.chat.phase, state.chat.notice, state.chat.progress, state.chat.activity, state.chat.log, state.chat.now, state.chat.review, state.chat.input && state.chat.input.kind],
     state.workingDiff, state.boundRaise, state.done, state.finish,
     state.meter && state.meter.struggling, state.checkpoints,
@@ -1330,7 +1330,9 @@ function render(state) {
         approve.addEventListener('click', () => vscode.postMessage({ type: 'take',
           answers: { [review.question_id]: review.answer }, token: null,
           runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
-        strip.appendChild(el('span', 'action-prompt', 'AutoCode is waiting for you'));
+        strip.appendChild(el('span', 'action-prompt', state.confirming
+          ? state.confirming + ' — answer the dialog that opened'
+          : 'AutoCode is waiting for you'));
         strip.appendChild(approve);
       } else if (state.needKind === 'continue' && state.working) {
         renderChatProgress(cardContent, state);
@@ -1445,7 +1447,9 @@ function render(state) {
         vscode.postMessage({ type: 'take', answers: { ...answers }, token: state.token || null,
           runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext });
       });
-      strip.appendChild(el('span', 'action-prompt', 'AutoCode is waiting for you'));
+      strip.appendChild(el('span', 'action-prompt', state.confirming
+        ? state.confirming + ' — answer the dialog that opened'
+        : 'AutoCode is waiting for you'));
       strip.appendChild(take);
       const again = el('button', 'secondary', 'Refresh');
       again.addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
@@ -1889,7 +1893,7 @@ function updateComposer() {
   document.getElementById('send-hint').textContent = !chatEnvelope.selectedRun ? 'Message AutoCode'
     : unreadable ? 'Waiting for the status to read again. You can keep a draft here.'
     : pausing ? 'AutoCode pauses once this step is saved. You can keep a draft here.'
-    : input ? label
+    : input ? (chatEnvelope.busy ? 'AutoCode is working on your last message. Keep your draft here and send it after.' : label)
     : (chatEnvelope.busy || (chatEnvelope.state && chatEnvelope.state.working)) ? 'AutoCode is working. You can keep a draft here.'
     : (chatEnvelope.state && chatEnvelope.state.done) ? 'This run is finished. Start a new chat with +.'
     : 'Use the action above, or start a new chat.';
@@ -1964,7 +1968,18 @@ function renderChat(data) {
     if (chatEnvelope) tabScroll[chatEnvelope.runKey] = thread.scrollTop;
     saveDraft();
     const saved = vscode.getState() || {};
-    document.getElementById('message').value = (saved.drafts || {})[data.runKey] || '';
+    const incoming = (saved.drafts || {})[data.runKey] || '';
+    const field = document.getElementById('message');
+    // A re-key of a chat that never started must not eat an unsent brief: the host
+    // replaces the fresh-chat tab while the person is typing in it.
+    const leavingUnstarted = chatEnvelope && !chatEnvelope.selectedRun;
+    if (leavingUnstarted && field.value.trim() && !incoming) {
+      const drafts = saved.drafts || {};
+      drafts[data.runKey] = field.value;
+      vscode.setState({ ...saved, drafts });
+    } else {
+      field.value = incoming;
+    }
     current = null; renderedState = ''; answers = Object.create(null);
     checkpointCompare = Object.create(null); checkpointResult = null; workingCompare = null;
     liveLog.clear();

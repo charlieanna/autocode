@@ -377,11 +377,16 @@ test('toolbar buttons are icons with accessible names and unchanged ids', async 
 test('a narrow sidebar hides the keyboard hint and lets the composer row wrap so Send stays reachable', async (t) => {
   const ui = await openChat(t, chatView());
   const rules = [...ui.document.styleSheets].flatMap((sheet) => [...sheet.cssRules]);
-  const narrow = rules.find((rule) => rule.conditionText === '(max-width: 240px)');
+  const narrow = rules.find((rule) => rule.conditionText === '(max-width: 480px)');
   assert.ok(narrow, 'chat styles need a narrow-composer rule');
   const nested = [...narrow.cssRules];
   assert.equal(nested.find((rule) => rule.selectorText === '.keyboard-hint').style.display, 'none');
   assert.equal(nested.find((rule) => rule.selectorText === '#composer .actions').style.getPropertyValue('flex-wrap'), 'wrap');
+  const chipLabel = rules.find((rule) => rule.selectorText === '#composer .chip span');
+  assert.ok(chipLabel, 'chip labels need an ellipsis rule');
+  assert.equal(chipLabel.style.getPropertyValue('text-overflow'), 'ellipsis');
+  const engineLabel = rules.find((rule) => rule.selectorText === '#engine-picker span');
+  assert.ok(engineLabel, 'the engine chip label needs a width cap so a long provider id cannot push Send out of the sidebar');
 });
 
 test('engine chip shows the engine new chats will use and opens the picker', async (t) => {
@@ -2303,6 +2308,54 @@ for (const surface of ['chat', 'details']) test(`${surface}: spend is confirmed 
   const [, args] = launch.mock.calls[0].arguments;
   assert.ok(args.includes('requirements-review-current=plan'));
   assert.ok(!args.includes('--approve-goal'), 'planning spend never approves a build');
+});
+
+test('a pending spend confirmation says in the chat that a dialog is open', async (t) => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const confirmation = { title: 'Prepare a reviewed plan?', detail: 'Planning uses your selected models and saved limits.', label: 'Prepare plan' };
+  const value = { status: 'WAITING_FOR_USER', done: false,
+    needs: { kind: 'answer', resolver_token: 'review:exact', questions: [
+      { id: 'requirements-review-current', question: 'Is this what you want?', options: [], proposed_default: 'plan' },
+    ] },
+    next_command: `autocode --answer requirements-review-current=ANSWER --resolver-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { phase: 'requirements', context: 'review', input: null, messages: [], review: {
+      question_id: 'requirements-review-current', answer: 'plan', label: 'Approve understanding and prepare plan', spend_confirmation: confirmation,
+    } },
+  };
+  const ui = await openChat(t, value);
+  t.mock.method(host.vscode.window, 'showWarningMessage', () => gate);
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  ui.document.querySelector('#take-action').click(); await flush(); await flush();
+  // #app, not body: the webview's own script source also contains the notice's words.
+  assert.ok(ui.document.getElementById('app').textContent.includes('Prepare a reviewed plan? — answer the dialog that opened'),
+    'the chat names the dialog while it waits');
+  assert.equal(launch.mock.callCount(), 0, 'nothing runs until the dialog is answered');
+  release(confirmation.label); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1);
+  assert.ok(!ui.document.getElementById('app').textContent.includes('answer the dialog that opened'), 'the notice leaves with the dialog');
+});
+
+test('a send dropped for a stale chat key keeps the draft and says so', async (t) => {
+  const ui = await openChat(t, chatView());
+  ui.type('Do the thing');
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  await ui.chat.receive({ type: 'send', text: 'Do the thing', runKey: 'new-stale' });
+  await flush();
+  assert.ok(ui.document.getElementById('chat-error').textContent.includes('send it again'),
+    'a dropped send is reported, never silent');
+  assert.equal(ui.document.getElementById('message').value, 'Do the thing', 'the typed message stays in the composer');
+  assert.equal(launch.mock.callCount(), 0);
+});
+
+test('a fresh chat the host re-keyed keeps the typed brief', async (t) => {
+  const ui = await openChat(t, null, false);
+  ui.type('Fix the bug in tools/x.py');
+  ui.window.dispatchEvent(new ui.window.MessageEvent('message', { data: { type: 'chat', runKey: 'new-second', busy: false,
+    tabs: [{ key: 'new-second', name: 'New chat', run: null }], activeKey: 'new-second', state: null } }));
+  await flush();
+  assert.equal(ui.document.getElementById('message').value, 'Fix the bug in tools/x.py',
+    'a host re-key of a chat that never started must not wipe an unsent brief');
 });
 
 test('an AutoCode that lists no run modes offers no picker and starts the full flow', async (t) => {

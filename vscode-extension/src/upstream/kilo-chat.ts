@@ -113,6 +113,11 @@ export const chatStyles = /* css */ `
   .chat-toolbar svg { width: 16px; height: 16px; fill: none; stroke: currentColor;
     stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
   #composer .chip { width: auto; gap: 4px; padding: 0 8px; font-size: .7rem; color: var(--vscode-descriptionForeground); }
+  /* A long provider id must not push Send out of the sidebar: cap every chip label
+     (the chip's picker shows the full name) so the controls keep room to hold Send. */
+  #composer .chip span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #engine-picker span { max-width: 128px; }
+  #mode-picker span, #models-picker span { max-width: 88px; }
   #composer .chip svg { width: 13px; height: 13px; fill: none; stroke: currentColor;
     stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
   .keyboard-hint { font-size: .7rem; color: var(--vscode-descriptionForeground); white-space: nowrap; }
@@ -131,11 +136,9 @@ export const chatStyles = /* css */ `
      the shortcut description available to assistive technology at every width. */
   @media (max-width: 480px) {
     .keyboard-hint { display: none; }
-  }
-  /* Very narrow views may also need the controls to wrap. */
-  @media (max-width: 240px) {
+    /* The default 300px sidebar holds the chips only with the capped labels above;
+       wrap rather than push Send out of view. */
     #composer .actions { flex-wrap: wrap; }
-    .keyboard-hint { display: none; }
   }
 `;
 
