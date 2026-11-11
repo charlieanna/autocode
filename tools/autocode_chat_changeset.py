@@ -83,6 +83,11 @@ def text(summary: dict, render_plan: Callable[[dict], str]) -> str:
             "The integration check failed. Reopen the run that diverged (autocode changeset reopen) or "
             "waive it with a reason (autocode changeset waive)."
         )
+    elif verification and not verification.get("waiting_on") and not verification.get("check"):
+        lines.append(
+            "Every run is complete, but nothing has checked them together. Name the set's check "
+            "(autocode changeset check-command) or waive it with a reason (autocode changeset waive)."
+        )
     elif verification.get("waiting_on") and not approval.get("next_command"):
         lines.append(
             "Checked together once every run is complete; waiting on: " + ", ".join(verification["waiting_on"])
