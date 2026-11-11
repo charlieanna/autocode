@@ -6095,3 +6095,37 @@ test('chat tabs are keyboard-reachable: arrows select and the close is a button'
   assert.ok(ui.sent.some((message) => message.type === 'close_tab' && message.tabKey === keyOf(beta)),
     'closing acts on that chat only');
 });
+// A rendered diff can be thousands of lines: it is bounded and scrolls inside the thread,
+// in both the Builder's working diff and a saved-code comparison.
+test('a long rendered diff is bounded and scrolls instead of stretching the thread', async (t) => {
+  const long = '--- greet.py\n+++ greet.py\n' + Array.from({ length: 500 }, (_, i) => '+line ' + i).join('\n');
+  const html = panelHtml(true);
+  assert.ok(/pre\.diff\s*\{[^}]*max-height/.test(html), 'the stylesheet bounds a rendered diff');
+
+  const working = ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--working'];
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    code_checkpoints: { rows: [], working: { id: 'working', label: 'Show what the Builder has changed so far', next_command: working } },
+    chat: { phase: null, context: 'live-step', input: null, messages: [], progress: ['Builder working'], activity: [] } };
+  const ui = await openChat(t, value);
+  t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({ since: 'start',
+    changed_files: ['greet.py'], patch: long, truncated: false }) }));
+  ui.document.querySelector('#working-diff').click();
+  await flush();
+  const live = ui.document.querySelector('#app pre.diff');
+  assert.ok(live, 'the working diff is marked as a diff');
+  assert.ok(live.textContent.includes('+line 499'), 'the whole patch stays reachable by scrolling');
+
+});
+
+test('a long saved-code comparison is bounded and scrolls like the working diff', async (t) => {
+  const long = '--- app.txt\n+++ app.txt\n' + Array.from({ length: 500 }, (_, i) => '+line ' + i).join('\n');
+  const saved = await openChat(t, checkpointView());
+  t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({ checkpoint_id: 'cp-1',
+    changed_files: ['app.txt'], patch: long, truncated: false }) }));
+  saved.document.querySelector('[data-checkpoint-action="compare"]').click();
+  await flush();
+  const compared = saved.document.querySelector('#app pre.diff');
+  assert.ok(compared, 'a saved-code comparison is marked as a diff');
+  assert.ok(compared.textContent.includes('+line 499'));
+});

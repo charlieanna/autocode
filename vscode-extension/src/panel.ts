@@ -921,6 +921,8 @@ export function panelHtml(chat = false): string {
   .live-log .thought .fold-line { font-style: normal; }
   pre { white-space: pre-wrap; word-break: break-all; font-size: .76rem; background: var(--vscode-textCodeBlock-background);
         padding: 8px; border-radius: 4px; }
+  /* A saved-code or working diff can be thousands of lines: it scrolls inside the thread, never stretches it. */
+  pre.diff { max-height: 40vh; overflow: auto; }
   .gap, .notice { border-left: 3px solid var(--vscode-inputValidation-warningBorder, #cc8800);
                   background: var(--vscode-inputValidation-warningBackground, rgba(204,136,0,.12));
                   padding: 8px 10px; margin: 12px 0; font-size: .84rem; }
@@ -1147,7 +1149,7 @@ function renderChatProgress(container, state) {
     const files = (comparison.changed_files || []).length;
     const since = comparison.since === 'start' ? 'the run started' : 'the last saved step';
     container.appendChild(el('div', 'why', files + ' file(s) changed since ' + since + (comparison.truncated ? ' · diff truncated' : '')));
-    const patch = el('pre');
+    const patch = el('pre', 'diff');
     patch.textContent = comparison.patch || 'The Builder has not changed any files yet.';
     container.appendChild(patch);
   }
@@ -1585,7 +1587,7 @@ function render(state) {
           box.appendChild(el('div', 'why', step
             ? files + ' file(s) changed in this step' + (comparison.truncated ? ' · diff truncated' : '')
             : files + ' file(s) differ from this checkpoint' + (comparison.truncated ? ' · diff truncated' : '')));
-          const patch = el('pre');
+          const patch = el('pre', 'diff');
           patch.textContent = comparison.patch || (step ? 'This step changed no files.' : 'The files match this checkpoint.');
           box.appendChild(patch);
         }
