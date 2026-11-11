@@ -28,6 +28,7 @@ try:
     from . import autocode_goals as goals
     from . import autocode_plan_chat as plan_chat
     from . import autocode_project_memory_lifecycle as project_memory
+    from . import autocode_requirements_answer as requirements_answer
     from . import autocode_requirements_chat as requirements_chat
     from . import autocode_requirements_observations as requirements_observations
     from . import autocode_requirements_review as requirements_review
@@ -41,6 +42,7 @@ except ImportError:
     import autocode_goals as goals
     import autocode_plan_chat as plan_chat
     import autocode_project_memory_lifecycle as project_memory
+    import autocode_requirements_answer as requirements_answer
     import autocode_requirements_chat as requirements_chat
     import autocode_requirements_observations as requirements_observations
     import autocode_requirements_review as requirements_review
@@ -77,7 +79,7 @@ def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue
 
 def _accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue) -> None:
     """Install ``value`` as the requirements handoff; ``queue`` is resolver_human.queue for the spec-first stop."""
-    if requirements_review.enabled(state) and not_yet_a_goal(value):
+    if requirements_review.enabled(state) and (not_yet_a_goal(value) or no_goal_first_answer(state, value)):
         value["open_questions"] = [outcome_question(state)]
     questions = value["open_questions"]
     # Requirements keeps behaviors and acceptance tests empty while it is still clarifying (its prompt says
@@ -188,6 +190,30 @@ def not_yet_a_goal(value: dict) -> bool:
     return bool(str(value.get("assistant_reply") or "").strip()) and not (
         str(value.get("intended_outcome") or "").strip()
         or any(value.get(key) for key in ("requirements", "required_behaviors", "acceptance_tests", "open_questions"))
+    )
+
+
+def no_goal_first_answer(state: RunState, value: dict) -> bool:
+    """A small turn's first usable answer is the turn's reply, not an incomplete build handoff.
+
+    A greeting or small talk names no software goal, so a first answer that carries a reply, names
+    no job and none of requirements, required_behaviors or acceptance_tests is the conversational
+    no-goal path: the reply is delivered and the runner asks its requested-outcome question
+    (``outcome_question``), installing no goal contract. Keyed to the turn's saved message naming no
+    software goal (requirements_answer.names_no_goal), to requirements_review.job resolving to none
+    and to no existing goal contract; the answer must also ask nothing of its own, so its questions
+    are never replaced. Every other answer keeps the strict completeness check and the existing
+    repair path exactly as before: a turn that states a software goal keeps the strict report
+    contract, because a task whose report silently loses required_behaviors is the
+    corrupted-criteria failure mode.
+    """
+    return (
+        not state.get("goal_contract")
+        and not value.get("open_questions")
+        and requirements_review.job(state, value) is None
+        and requirements_answer.names_no_goal(state.get("task") or "")
+        and bool(str(value.get("assistant_reply") or "").strip())
+        and not any(value.get(key) for key in ("requirements", "required_behaviors", "acceptance_tests"))
     )
 
 
