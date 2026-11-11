@@ -2196,6 +2196,80 @@ class VerifyCase(unittest.TestCase):
         self.assertEqual(1, narrowed["checks"]["suite_base_definition_on_candidate"]["exit_code"], narrowed)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
+    def test_python_suite_cannot_hide_a_node_failure_by_narrowing_its_data_selector(self):
+        # #2966: a named Python test that runs `npm test` reports only its child's exit
+        # status, so its identity passes on both sides while the candidate narrows the
+        # Node runner's data selector to hide a broken existing Node test.
+        python = self.proof_python()
+        project = self.project(
+            {
+                "tests/__init__.py": "",
+                "tests/test_node.py": (
+                    "import subprocess, unittest\n"
+                    "class Node(unittest.TestCase):\n"
+                    " def test_child(self):\n"
+                    "  self.assertEqual(0, subprocess.run(['npm', 'test', '--silent']).returncode)\n"
+                ),
+                "package.json": json.dumps({"scripts": {"test": "node runner.js"}}),
+                "runner.js": (
+                    'const names = JSON.parse(require("node:fs").readFileSync("cases.json", "utf8"));\n'
+                    'require("node:child_process").execSync("node --test " + names.join(" "), {stdio: "inherit"});\n'
+                ),
+                "cases.json": '["test/existing.test.js"]\n',
+                "app.js": "exports.value = 42;\n",
+                "test/existing.test.js": (
+                    'const {test} = require("node:test");\n'
+                    'const assert = require("node:assert/strict");\n'
+                    'const app = require("../app.js");\n'
+                    'test("existing", () => assert.equal(app.value, 42));\n'
+                ),
+            }
+        )
+        suite = f"{shlex.quote(python)} -m unittest -v tests.test_node"
+        framework = verify.Framework("unittest", suite, python=python)
+        baseline = verify.baseline(
+            project.root, project.base, project.evidence, framework=framework, suite_command=suite, timeout=30
+        )
+        self.assertEqual(0, baseline["receipt"]["exit_code"], baseline)
+
+        def check(files):
+            project.write(files)
+            return verify.verify(
+                project.root,
+                project.base,
+                project.evidence,
+                framework=framework,
+                suite_command=suite,
+                regression_command=suite,
+                base_suite=baseline,
+                preserve_only=True,
+                timeout=30,
+            )
+
+        edited_test = (project.root / "tests/test_node.py").read_text() + "# candidate tests\n"
+        narrowed = check(
+            {
+                "app.js": "exports.value = 0;\n",
+                "cases.json": '["test/feature.test.js"]\n',
+                "test/feature.test.js": 'require("node:test").test("feature", () => {});\n',
+                "tests/test_node.py": edited_test,
+            }
+        )
+        self.assertEqual(0, narrowed["checks"]["suite_on_candidate"]["exit_code"], narrowed)
+        self.assertEqual(verify.FAIL, narrowed["verdict"], narrowed)
+        self.assertEqual(1, narrowed["checks"]["suite_base_definition_on_candidate"]["exit_code"], narrowed)
+        self.assertTrue(any("base suite definition" in reason for reason in narrowed["failures"]), narrowed)
+        # Broadening the selector over unbroken code keeps the original selection passing.
+        broadened = check(
+            {
+                "app.js": "exports.value = 42;\n",
+                "cases.json": '["test/existing.test.js", "test/feature.test.js"]\n',
+            }
+        )
+        self.assertEqual(0, broadened["checks"]["suite_base_definition_on_candidate"]["exit_code"], broadened)
+        self.assertNotEqual(verify.FAIL, broadened["verdict"], broadened)
+
+    @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_t1_edited_runner_file_cannot_hide_a_break_from_the_suite(self):
         seed, candidate = self._runner_suite_fixture()
         project, base_suite, result = self.node_verify(seed, candidate)

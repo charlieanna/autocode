@@ -75,3 +75,20 @@ checks package selection and field merging. The catalog scenario
 both package maps while retaining unrelated deployment scripts. Its oracle
 checks the original guards, public APIs, named regression cases and real module
 resolution; its broken controls include wrong behavior and vacuous tests.
+
+## A named test that launches another suite (#2966)
+
+Per-test receipts name only the tests the reporting framework sees. A named
+Python test that runs `npm test` reports its child's exit status, so a
+candidate could break existing Node behavior and narrow the runner's data
+selector (a `cases.json` the runner reads) while the named test kept passing on
+both sides. When a typed suite passes on the candidate and a retained runner
+input changed (a manifest, a runner configuration, or a file the suite
+command's closure reaches that is not a test), the proof now also runs the
+candidate's tests over the base's runner inputs and the candidate's product
+code. A test that passed on base must pass there too, or the proof FAILs; a run
+that cannot show this, or a boundary that cannot be established, is
+UNVERIFIED. Tests only the candidate has may fail there, since they can need
+the candidate's runner inputs. A change confined to tests and product code
+needs no extra run. `tests.test_verify` covers the narrowed and the broadened
+selector.
