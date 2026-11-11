@@ -1740,7 +1740,7 @@ class RepairTests(unittest.TestCase):
             "stage": "tester_report_repair",
             "role": "tester",
             "iteration": 5,
-            "output": str(self.run / "iterations/005/sol_report_repair-01.json"),
+            "output": str(self.run / "iterations/005/tester_report_repair-01.json"),
             "abandoned": True,
         }
         self.state["stages"].append(abandoned)

@@ -484,7 +484,7 @@ class AcceptanceRecoveryFixture(AcceptanceFixture):
         self.state["contract_history"].append(copy.deepcopy(self.approved))
         self.state["goal_contract"] = contract
         self.old_planning = {
-            "astra_calls": 3,
+            "plan_review_calls": 3,
             "review_depth_reduced": True,
             "review_calls_before_policy": 1,
             "review_call_limit": 3,
@@ -532,7 +532,7 @@ class AcceptanceRecoveryTests(AcceptanceRecoveryFixture, unittest.TestCase):
     def test_user_edits_new_authority_source_changes_and_new_charges_forbid_recovery(self):
         controls = [
             lambda s: s["user_events"].append({"kind": "planning_budget_change", "limit": 2}),
-            lambda s: s["planning"].update(astra_calls=4),
+            lambda s: s["planning"].update(plan_review_calls=4),
             lambda s: s["planning"].update(review_call_limit=2, review_call_limit_origin="user_explicit"),
             lambda s: s["goal_contract"].update(origin="user_cli_edit"),
             lambda s: s["goal_contract"]["body"].update(permission_boundaries=["new permission"]),
@@ -593,7 +593,7 @@ class RetainedReviewAllowanceTests(unittest.TestCase):
         for origin in ("runner_default", "user_explicit"):
             with self.subTest(origin=origin):
                 prior = {
-                    "astra_calls": 3,
+                    "plan_review_calls": 3,
                     "review_depth_reduced": True,
                     "review_calls_before_policy": 1,
                     "review_call_limit": 3,
@@ -606,7 +606,7 @@ class RetainedReviewAllowanceTests(unittest.TestCase):
                 self.assertEqual(
                     (3, 3, origin),
                     (
-                        state["planning"]["astra_calls"],
+                        state["planning"]["plan_review_calls"],
                         state["planning"]["review_call_limit"],
                         state["planning"]["review_call_limit_origin"],
                     ),
@@ -614,13 +614,13 @@ class RetainedReviewAllowanceTests(unittest.TestCase):
                 fresh = {"planning": copy.deepcopy(prior), "settings": {}}
                 planning_cycle.new_cycle(fresh, new_turn=True)
                 if origin == "runner_default":
-                    self.assertEqual(0, fresh["planning"]["astra_calls"])
+                    self.assertEqual(0, fresh["planning"]["plan_review_calls"])
                     self.assertNotIn("review_call_limit", fresh["planning"])
                 else:
                     self.assertEqual(
                         (3, 3, origin),
                         (
-                            fresh["planning"]["astra_calls"],
+                            fresh["planning"]["plan_review_calls"],
                             fresh["planning"]["review_call_limit"],
                             fresh["planning"]["review_call_limit_origin"],
                         ),

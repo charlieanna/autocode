@@ -135,7 +135,7 @@ def stages(view: dict | None, now: datetime | None = None) -> list[dict]:
     }
     grouped: dict[str, list[dict]] = {}
     for row in attempts:
-        # A report repair (``sol_report_repair``) is another attempt at the stage it repairs.
+        # A report repair (``tester_report_repair``) is another attempt at the stage it repairs.
         stage = row.get("original_stage") or row.get("stage")
         if isinstance(stage, str) and stage:
             grouped.setdefault(stage, []).append(row)

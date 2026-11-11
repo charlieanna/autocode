@@ -32,7 +32,7 @@ def state(task="Build a greeting CLI"):
 class RevisionGuardTests(unittest.TestCase):
     def test_revision_cannot_drop_a_behavior_or_exclusion_or_widen_permissions(self):
         current = state("Print Hello, NAME. Don't touch auth.")
-        lifecycle.install_draft(current, body(), origin="glm_draft")
+        lifecycle.install_draft(current, body(), origin="planner_draft")
         dropped = body()
         dropped["required_behaviors"] = ["Print a greeting"]
         with self.assertRaisesRegex(ValueError, "without a user-backed"):
@@ -52,7 +52,7 @@ class RevisionGuardTests(unittest.TestCase):
     def test_a_declared_change_may_wrap_the_item_it_names(self):
         # Live feedback revision (tiny-greeting, 2026-10-02): the item was `required_behaviors: "<text>"`.
         current = state("Print Hello, NAME.")
-        lifecycle.install_draft(current, body(), origin="glm_draft")
+        lifecycle.install_draft(current, body(), origin="planner_draft")
         feedback = {"kind": "brief_feedback", "id": "feedback-1", "actor": "user_cli", "text": "Add --shout."}
         current["user_events"].append(feedback)
         current["brief_feedback"] = [feedback]
@@ -81,7 +81,7 @@ class RevisionGuardTests(unittest.TestCase):
 
     def test_a_reference_to_two_items_is_not_guessed(self):
         current = state("Print Hello, NAME.")
-        lifecycle.install_draft(current, body(), origin="glm_draft")
+        lifecycle.install_draft(current, body(), origin="planner_draft")
         import autocode_contract_revision as revision
 
         previous = {**current["goal_contract"]["body"], "acceptance_criteria": [{"id": "C1"}, {"id": "C2"}]}
@@ -93,7 +93,7 @@ class RevisionGuardTests(unittest.TestCase):
         current = state()
         original = body()
         original["acceptance_criteria"][0]["criterion"] = "Print Hello, NAME for a nonempty name"
-        lifecycle.install_draft(current, original, origin="glm_draft")
+        lifecycle.install_draft(current, original, origin="planner_draft")
         current["answers"]["Q1"] = {"id": "Q1", "text": "Add --shout."}
         change = {
             "item": "C1: 'Print Hello, NAME for a nonempty name'",
@@ -143,7 +143,7 @@ class RevisionGuardTests(unittest.TestCase):
             criterion="Output is NAME\\tCOUNT", verification_method="Run it and compare with a real\\ttab"
         )
         current = state()
-        lifecycle.install_draft(current, first, origin="glm_draft")
+        lifecycle.install_draft(current, first, origin="planner_draft")
         return current
 
     def test_writing_an_escape_as_its_character_is_not_a_change_of_protected_text(self):
@@ -184,13 +184,13 @@ class RevisionGuardTests(unittest.TestCase):
 
     def test_user_edit_and_backed_reword_are_allowed(self):
         current = state()
-        lifecycle.install_draft(current, body(), origin="glm_draft")
+        lifecycle.install_draft(current, body(), origin="planner_draft")
         edited = body()
         edited["required_behaviors"] = ["Print a greeting"]
         lifecycle.install_draft(current, edited, origin="user_cli_edit")
         self.assertEqual(["Print a greeting"], current["goal_contract"]["body"]["required_behaviors"])
         current = state()
-        lifecycle.install_draft(current, body(), origin="glm_draft")
+        lifecycle.install_draft(current, body(), origin="planner_draft")
         reworded = body()
         reworded["required_behaviors"] = ["Print Hello, NAME"]
         with self.assertRaisesRegex(ValueError, "saved user answer"):
@@ -229,7 +229,7 @@ class RevisionGuardTests(unittest.TestCase):
     def test_plan_review_changes_plan_without_rewriting_protected_requirements(self):
         current = state()
         original = body()
-        lifecycle.install_draft(current, original, origin="glm_draft")
+        lifecycle.install_draft(current, original, origin="planner_draft")
         revised = copy.deepcopy(original)
         revised["technical_approach"] = ["Use a smaller parser and run its tests"]
         lifecycle.install_draft(current, revised, origin="revise_plan", changes=[])

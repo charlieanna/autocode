@@ -207,7 +207,7 @@ class InvestigationPassTests(EpisodeCase):
 
     def test_glm_revise_pass_keeps_the_contract_and_review_concerns(self):
         self.state["workspace"] = "/absent-workspace"
-        lifecycle.install_draft(self.state, body(), origin="glm_draft")
+        lifecycle.install_draft(self.state, body(), origin="planner_draft")
         concerns = [
             {
                 "id": "P1",
@@ -240,7 +240,7 @@ class InvestigationPassTests(EpisodeCase):
 
     def test_final_reviewer_question_labelled_discoverable_reaches_the_user_as_a_decision(self):
         self.state["workspace"] = "/absent-workspace"
-        lifecycle.install_draft(self.state, body(), origin="glm_draft")
+        lifecycle.install_draft(self.state, body(), origin="planner_draft")
         self.state["planning"]["reports"]["review_plan"] = {"report": {"concerns": []}}
         final = {
             **body(),
@@ -285,7 +285,7 @@ class EpisodeBudgetTests(EpisodeCase):
         self.assertEqual(episode["id"], self.state["clarification_episode"]["id"])
 
     def test_non_delegated_answer_starts_a_new_episode_with_one_new_pass(self):
-        lifecycle.install_draft(self.state, body(questions=True), origin="glm_draft")
+        lifecycle.install_draft(self.state, body(questions=True), origin="planner_draft")
         lifecycle.human.evaluate(self.state)  # the runner's writer boundary publishes the clarification
         first = goals.clarification_episode(self.state)
         first["investigation_used"] = True
@@ -296,7 +296,7 @@ class EpisodeBudgetTests(EpisodeCase):
         self.assertTrue(self.state["answers"]["Q1"]["starts_episode"])
 
     def test_delegation_resumes_without_replenishing_the_pass(self):
-        lifecycle.install_draft(self.state, body(questions=True), origin="glm_draft")
+        lifecycle.install_draft(self.state, body(questions=True), origin="planner_draft")
         lifecycle.human.evaluate(self.state)  # the runner's writer boundary publishes the clarification
         episode = goals.clarification_episode(self.state)
         episode["investigation_used"] = True
@@ -306,7 +306,7 @@ class EpisodeBudgetTests(EpisodeCase):
         self.assertNotIn("starts_episode", self.state["answers"]["Q1"])
 
     def test_feedback_and_edited_goal_start_new_episodes(self):
-        lifecycle.install_draft(self.state, body(questions=True), origin="glm_draft")
+        lifecycle.install_draft(self.state, body(questions=True), origin="planner_draft")
         lifecycle.human.evaluate(self.state)  # the runner's writer boundary publishes the clarification
         first = goals.clarification_episode(self.state)["id"]
         goals.feedback(self.state, "Also support a web page")
@@ -478,7 +478,7 @@ class QuestionDraftTraceTests(EpisodeCase):
 
     def bind(self, trace, contract):
         report = discovery(contract, requirement_trace=trace)
-        autopilot._bind_plan(self.state, report, "glm_draft", {"output": "draft.json"})
+        autopilot._bind_plan(self.state, report, "planner_draft", {"output": "draft.json"})
 
     def pending(self, *ids):
         return [{"requirement_id": rid, "disposition": "covered", "evidence": "pending Q1"} for rid in ids]

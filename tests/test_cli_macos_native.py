@@ -74,7 +74,7 @@ class CliMacOsNativeTests(unittest.TestCase):
             "stages": [],
             "history": [],
             "sessions": {"planner": "controlled-session"},
-            "planning": {"astra_calls": 1, "review_call_limit": 2},
+            "planning": {"plan_review_calls": 1, "review_call_limit": 2},
             "settings": {
                 "joint_planning": True,
                 "planning_flow": "v2",

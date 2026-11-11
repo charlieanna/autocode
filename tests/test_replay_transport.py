@@ -191,8 +191,8 @@ class OwnedTransportTests(unittest.TestCase):
             "status": "RUNNING",
             "next_stage": "review_plan",
             "workflow": {"kind": "build", "clarity": "clear", "brief_size": "small"},
-            "planning": {"astra_calls": 0, "reports": {}},
-            "planning_history": [{"astra_calls": 1}],
+            "planning": {"plan_review_calls": 0, "reports": {}},
+            "planning_history": [{"plan_review_calls": 1}],
         }
         args = SimpleNamespace(replay_recording=tape.manifest_path, replay_checks="fresh")
         state["settings"] = transport.configure(args, state)
@@ -203,10 +203,10 @@ class OwnedTransportTests(unittest.TestCase):
         self.assertEqual(tape.document["launch"]["settings"]["roles"], state["settings"]["roles"])
         self.assertTrue(state["planning"]["review_depth_reduced"])
         self.assertEqual(1, state["planning"]["review_calls_before_policy"])
-        self.assertEqual(1, state["planning"]["astra_calls"])
+        self.assertEqual(1, state["planning"]["plan_review_calls"])
         self.recorded_facade(tape).check_models(state["settings"]["roles"], self.workspace)
         planning.charge(state, "review_plan")
-        self.assertEqual(2, state["planning"]["astra_calls"])
+        self.assertEqual(2, state["planning"]["plan_review_calls"])
         with self.assertRaises(util.Paused) as raised:
             planning.charge(state, "review_plan")
         self.assertEqual("PAUSED_PLANNING_BUDGET", raised.exception.status)

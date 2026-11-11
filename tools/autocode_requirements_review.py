@@ -1,7 +1,7 @@
 """Spec-first runs (#1200): the user confirms what Requirements understood before any plan exists.
 
 Opt-in per new run (``--spec-first``, saved as ``settings.spec_first``). On the default flow a
-complete handoff goes straight to astra_discovery, and a run with no open question never shows
+complete handoff goes straight to draft_plan, and a run with no open question never shows
 the user its requirements until goal approval. With the setting, every accepted handoff stops the
 run with one runner-written question beside the handoff's own open questions: answer ``plan`` to
 start planning, or say what to change and Requirements runs again with that answer in its

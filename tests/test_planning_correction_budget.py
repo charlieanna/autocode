@@ -134,7 +134,9 @@ class CorrectiveBudgetTests(unittest.TestCase):
                 state = fixture(repaired=repaired)
                 before = copy.deepcopy(state)
                 self.assertTrue(budgets.recover(state, kind=budgets.PLANNING_KIND, now=NOW))
-                self.assertEqual((2, 4), (state["planning"]["astra_calls"], state["planning"]["review_call_limit"]))
+                self.assertEqual(
+                    (2, 4), (state["planning"]["plan_review_calls"], state["planning"]["review_call_limit"])
+                )
                 for key in ("stages", "history", "failure_history", "settings", "planning_history"):
                     self.assertEqual(before[key], state[key], key)
                 self.assertEqual(
@@ -147,7 +149,7 @@ class CorrectiveBudgetTests(unittest.TestCase):
                 autoplanner.charge(state, "review_plan", attempt("review_plan", "new-challenge"))
                 state["next_stage"] = "finalize_plan"
                 autoplanner.charge(state, "finalize_plan", attempt("finalize_plan", "new-final"))
-                self.assertEqual(4, state["planning"]["astra_calls"])
+                self.assertEqual(4, state["planning"]["plan_review_calls"])
                 self.assertFalse(goals.approved(state))
 
     def test_internal_restart_without_external_input_keeps_its_spent_total(self):
@@ -439,9 +441,9 @@ class CorrectiveBudgetTests(unittest.TestCase):
             state = {"settings": settings}
             cycle.new_cycle(state)
             self.assertEqual(not settings, state["planning"].get("review_call_limit_origin") == "runner_default")
-        state = {"settings": {}, "planning": {"astra_calls": 2, "reports": {}, "review_depth_reduced": True}}
+        state = {"settings": {}, "planning": {"plan_review_calls": 2, "reports": {}, "review_depth_reduced": True}}
         cycle.new_cycle(state)
-        self.assertEqual(2, state["planning"]["astra_calls"])
+        self.assertEqual(2, state["planning"]["plan_review_calls"])
         self.assertNotIn("review_call_limit_origin", state["planning"])
 
     def test_runtime_keeps_source_and_repaired_output_checks_before_committing(self):

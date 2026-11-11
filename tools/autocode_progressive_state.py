@@ -78,7 +78,7 @@ def ordinary_initial_draft(state: RunState) -> bool:
     contract = state.get("goal_contract") or {}
     if (
         view(state)
-        or contract.get("origin") != "glm_draft"
+        or contract.get("origin") != "planner_draft"
         or contract.get("revision") != 1
         or contract.get("approval_status") != "draft"
         or not contract.get("task_id")
@@ -586,7 +586,7 @@ def prepare_seal(state: RunState, contract_token):
             "initial:" + candidate["plan_hash"],
             pool,
             approved_work=[work],
-            seed_reviews=planning.get("astra_calls", 0),
+            seed_reviews=planning.get("plan_review_calls", 0),
             seed_seconds=used,
             recovery_grants=recovery,
         )

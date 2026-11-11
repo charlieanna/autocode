@@ -244,7 +244,7 @@ class StageRepairCLI(unittest.TestCase):
                         "trace": trace,
                         "stages": retained,
                         "investigations": state.get("stuck_investigations", []),
-                        "review_calls_used": state["planning"]["astra_calls"],
+                        "review_calls_used": state["planning"]["plan_review_calls"],
                         "review_call_limit": autoplanner.review_call_limit(state),
                         "report_repair_history": state.get("report_repair_history", []),
                     },
@@ -677,7 +677,7 @@ class StageRepairCLI(unittest.TestCase):
             state.get("stop_reason"),
         )
         self.assertIn("2/2 plan-review calls used", state["stop_reason"])
-        self.assertEqual(2, state["planning"]["astra_calls"])
+        self.assertEqual(2, state["planning"]["plan_review_calls"])
 
         fixture.launch(["--run-dir", str(run), "--planning-review-call-limit", "3"], 0)
         fixture.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
@@ -686,7 +686,7 @@ class StageRepairCLI(unittest.TestCase):
         trace = [json.loads(line) for line in (fixture.root / "stage-repair-trace.jsonl").read_text().splitlines()]
         self.assert_approval_boundary(fixture, state, view, trace)
         self.assertEqual([False, False], [row["repair"] for row in trace if row["stage"] == "finalize_plan"])
-        self.assertEqual(3, state["planning"]["astra_calls"])
+        self.assertEqual(3, state["planning"]["plan_review_calls"])
 
     def test_investigator_repairs_archive_name_and_event_citation_then_runs_scratch(self):
         fixture = self.fixture_for("investigator")
@@ -724,7 +724,7 @@ class StageRepairCLI(unittest.TestCase):
             self.assertEqual(0, diagnosis["probe_result"]["exit_code"])
             self.assertIn("diagnosed missing concern decisions", diagnosis["probe_result"]["tail"])
             self.assertEqual(repair["probe"], diagnosis["probe"])
-        self.assertEqual(3, state["planning"]["astra_calls"])
+        self.assertEqual(3, state["planning"]["plan_review_calls"])
         self.assertEqual(3, autoplanner.review_call_limit(state))
 
 

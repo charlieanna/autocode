@@ -80,7 +80,7 @@ def drop_unverified_extras(report: dict, workspace) -> list[dict]:
 def tidy_tester_citations(record: dict, report, workspace, settings) -> None:
     """Apply ``drop_unverified_extras`` to a Tester report before it is sealed, noting the drops on ``record``.
 
-    Only for the Tester (``sol``), its report repair included, and only in a run without design or
+    Only for the Tester (``tester``), its report repair included, and only in a run without design or
     visual evidence: those verify more than checks and receipts, so they keep the full refusal.
     """
     settings = settings or {}

@@ -30,7 +30,7 @@ except ImportError:
 REQUIRED = "required"
 EXHAUSTED = "exhausted"
 
-# The general decision rule in autocode_support.ASTRA_DECISIONS that a pending replan overrides,
+# The general decision rule in autocode_support.REVIEW_DECISIONS that a pending replan overrides,
 # and what the Completion Owner reads in its place while the replan is required or spent.
 GENERAL_VALIDATE_RULE = prompts.get("fragments/milestone-replan/general-validate-rule.md")
 REPLAN_VALIDATE_RULE = prompts.get("fragments/milestone-replan/replan-validate-rule.md")

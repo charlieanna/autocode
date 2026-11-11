@@ -26,7 +26,7 @@ def role_name(stage, state: RunState | None = None):
     """Screen name for a stage code name: 'builder' -> 'Builder'.
 
     Report repair stays the same job. Pass ``state`` so a stage that does more than
-    one job can name the job being done (reviewer routing's astra_checkpoint is
+    one job can name the job being done (reviewer routing's review_checkpoint is
     Tester, not the Plan Reviewer's plan job).
     """
     return roles.screen_name(stage, state)

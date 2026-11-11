@@ -21,7 +21,7 @@ except ImportError:
 import json
 import re
 
-PLANNER_ORIGINS = {"glm_draft", "revise_plan", "finalize_plan", "draft_plan"}
+PLANNER_ORIGINS = {"planner_draft", "revise_plan", "finalize_plan", "draft_plan"}
 RECEIPT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,

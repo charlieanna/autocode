@@ -332,7 +332,7 @@ def decide(runner, state: RunState, run_dir, workspace, cause):
             limit = runner.planning.review_call_limit(probe)
             if (
                 limit
-                and planning.get("astra_calls", 0) >= limit
+                and planning.get("plan_review_calls", 0) >= limit
                 and not runner.resolver_runtime.operational_boundary(runner, probe, run_dir, workspace, persist=False)
             ):
                 return (

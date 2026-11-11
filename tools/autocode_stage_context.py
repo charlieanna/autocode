@@ -329,7 +329,7 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
                 base["task"] = brief_obligations.handoff_task(base["task"], base["source_inventory"])
                 citation_rule = source_trace.rule(records)
         if stage in ("plan_task", "review_completion"):
-            instruction += support.ASTRA_DECISIONS
+            instruction += support.REVIEW_DECISIONS
     # No previous transcripts or history array is forwarded; exact goals are never truncated.
     milestone_policy = support.MILESTONE_POLICY
     if checkpoints.enabled(state):

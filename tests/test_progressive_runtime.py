@@ -258,7 +258,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         self.approve()
         self.assertEqual("builder", self.state["next_stage"])
         self.assertEqual("S1", self.state["current_task"]["slice_id"])
-        self.assertEqual(2, self.state["planning"]["astra_calls"])
+        self.assertEqual(2, self.state["planning"]["plan_review_calls"])
         active = progressive.require_active(self.state)
         self.assertEqual("S1", active["definition"]["id"])
         self.assertTrue((self.run_dir / active["artifact"]["path"]).is_file())

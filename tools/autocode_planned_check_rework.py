@@ -13,7 +13,7 @@ the Builder with the failing check, its output and the rule to make it pass as w
 would change the approved plan, which is the person's to approve. Any other failure, such as a step that
 expects a command to fail, keeps the existing route. It is bounded:
 
-- only a refusal of a reviewer stage's report (``sol``, ``astra_checkpoint``) by a plain
+- only a refusal of a reviewer stage's report (``tester``, ``review_checkpoint``) by a plain
   ``PlannedCheckFailure`` that names its command, whose output reports a name of that command missing
   (autocode_proof_seam.missing_names); an original-gate failure has its own route
   (autocode_superseded_correction);

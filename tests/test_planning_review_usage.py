@@ -9,19 +9,19 @@ from units import autoplanner
 
 
 def inherited(*, activated=False, limit=3, origin="runner_default"):
-    first = {"astra_calls": 1, "review_charges": ["review-A"], "turn_event_id": "turn-1"}
-    last = {"astra_calls": 1, "review_charges": ["review-B"], "turn_event_id": "turn-1"}
+    first = {"plan_review_calls": 1, "review_charges": ["review-A"], "turn_event_id": "turn-1"}
+    last = {"plan_review_calls": 1, "review_charges": ["review-B"], "turn_event_id": "turn-1"}
     planning = {
-        "astra_calls": 1,
+        "plan_review_calls": 1,
         "review_charges": ["review-B"],
         "turn_event_id": "turn-1",
-        "inherited_review": {"cycle": 1, "astra_calls": 1, "reports": ["review_plan", "revise_plan"]},
+        "inherited_review": {"cycle": 1, "plan_review_calls": 1, "reports": ["review_plan", "revise_plan"]},
         "review_call_limit": limit,
         "review_call_limit_origin": origin,
         "reports": {},
     }
     if activated:
-        planning.update(astra_calls=3, review_depth_reduced=True, review_calls_before_policy=2)
+        planning.update(plan_review_calls=3, review_depth_reduced=True, review_calls_before_policy=2)
     return {
         "status": "PAUSED_PLANNING_BUDGET" if activated else "RUNNING",
         "next_stage": "finalize_plan",
@@ -43,7 +43,7 @@ class InheritedReviewUsageTests(unittest.TestCase):
         state = inherited()
         history = copy.deepcopy(state["planning_history"])
         autoplanner.apply_review_depth_policy(state)
-        self.assertEqual(2, state["planning"]["astra_calls"])
+        self.assertEqual(2, state["planning"]["plan_review_calls"])
         self.assertEqual(1, state["planning"]["review_calls_before_policy"])
         self.assertEqual(history, state["planning_history"])
 
@@ -64,7 +64,7 @@ class InheritedReviewUsageTests(unittest.TestCase):
                 before = copy.deepcopy(state)
                 self.assertTrue(usage.can_resume(state))
                 self.assertTrue(usage.reconcile(state, at="now"))
-                self.assertEqual(2, state["planning"]["astra_calls"])
+                self.assertEqual(2, state["planning"]["plan_review_calls"])
                 self.assertEqual(1, state["planning"]["review_calls_before_policy"])
                 self.assertEqual(before["planning_history"], state["planning_history"])
                 self.assertEqual(before["stages"], state["stages"])
@@ -91,7 +91,7 @@ class InheritedReviewUsageTests(unittest.TestCase):
         state = inherited(activated=True)
         usage.reconcile(state, at="now")
         state["planning"]["review_charges"].append("review-C")
-        state["planning"]["astra_calls"] += 1
+        state["planning"]["plan_review_calls"] += 1
         state["stages"].append({"stage": "finalize_plan", "planning_review_charge": "review-C", "exit_code": 0})
         self.assertEqual(3, usage.effective_calls(state))
         self.assertFalse(usage.can_resume(state))
@@ -127,7 +127,7 @@ class InheritedReviewUsageTests(unittest.TestCase):
                 elif case == "missing_turn":
                     planning.pop("turn_event_id")
                 elif case == "different_carried_count":
-                    planning["inherited_review"]["astra_calls"] = 2
+                    planning["inherited_review"]["plan_review_calls"] = 2
                 elif case == "missing_charge":
                     planning["review_charges"] = []
                 elif case == "duplicate_receipt":
@@ -141,9 +141,9 @@ class InheritedReviewUsageTests(unittest.TestCase):
                 elif case == "refunded":
                     state["stages"][1]["planning_review_refunded"] = True
                 elif case == "untracked_history":
-                    state["planning_history"][0]["astra_calls"] += 1
+                    state["planning_history"][0]["plan_review_calls"] += 1
                 elif case == "untracked_current":
-                    planning["astra_calls"] += 1
+                    planning["plan_review_calls"] += 1
                 elif case == "unknown_activation":
                     planning["review_calls_before_policy"] = 1
                 elif case == "busy":
@@ -157,9 +157,9 @@ class InheritedReviewUsageTests(unittest.TestCase):
 
     def test_an_earlier_turn_does_not_join_the_current_turn_total(self):
         state = inherited()
-        state["planning_history"].append({"astra_calls": 99, "turn_event_id": "earlier"})
+        state["planning_history"].append({"plan_review_calls": 99, "turn_event_id": "earlier"})
         autoplanner.apply_review_depth_policy(state)
-        self.assertEqual(2, state["planning"]["astra_calls"])
+        self.assertEqual(2, state["planning"]["plan_review_calls"])
 
     def test_malformed_legacy_planning_cannot_offer_a_correction(self):
         for saved in ([], "legacy", 3):

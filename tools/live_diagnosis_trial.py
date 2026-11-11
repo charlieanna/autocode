@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Live-model validation trial for the astra_diagnose operational-recovery route.
+"""Live-model validation trial for the diagnose operational-recovery route.
 
 This is the deferred "live validation" step from issue #61's AutoResolver
 recovery plan: at least one real model diagnosis, on a genuine failure, with
@@ -14,7 +14,7 @@ with a regression test proving the seed fails and the reference fix passes),
 drives it through the real ``autocode`` CLI with a real model profile, and:
 
 1. Lets the Builder make a genuine first attempt. If that attempt's report is
-   accepted, astra_diagnose is never reached -- this is recorded as
+   accepted, diagnose is never reached -- this is recorded as
    ``NOT_EXERCISED``, per the plan's own allowance ("if it never reaches
    AutoResolver, record NOT_EXERCISED... rather than counting it as resolver
    success or forcing a model to fail"). The trial does not manufacture a
@@ -31,7 +31,7 @@ drives it through the real ``autocode`` CLI with a real model profile, and:
    second failure would prove nothing about the diagnosis itself). What the
    trial actually puts under live test is the diagnosis call and the
    verified retry, both genuine.
-3. Runs ``--resume-paused --diagnose-failed-stage`` for real: astra_diagnose
+3. Runs ``--resume-paused --diagnose-failed-stage`` for real: diagnose
    receives the real rejected report and error, and a real model returns a
    diagnosis and a bounded retry-or-escalate recommendation.
 4. On "retry": resumes normally, so the real Builder gets a real second
@@ -66,10 +66,10 @@ Note on ``--profile fixture``: the scripted fixture provider is written for
 the LIVE-01..LIVE-05 task-type scenarios, not this trial's celsius task, and
 its scripted planning responses do not reproduce a genuine terra (Builder)
 rejection for this task. Running it here is expected to print
-``astra_diagnose: NOT_EXERCISED`` -- that proves the driving, escalation and
+``diagnose: NOT_EXERCISED`` -- that proves the driving, escalation and
 reporting code runs cleanly end to end and correctly declines to
 misattribute a non-target pause, not that the fixture organically reaches
-astra_diagnose. The admission -> astra_diagnose -> retry mechanic itself is
+diagnose. The admission -> diagnose -> retry mechanic itself is
 already proven offline, through the real CLI, by
 tools/test_resolver_runtime.py's OperationalDiagnosisTests. Only a live
 profile puts a real model in front of the actual report-rejection evidence.
@@ -277,12 +277,12 @@ def drive_to_first_verdict(project: Path, root: Path, profile: dict, budget: Tri
         raise TrialError("first invocation did not create a run directory")
     bundle.log("run_dir", path=str(run_dir))
 
-    def terra_report_repair_identity(state: RunState) -> dict | None:
-        """The one condition this trial's astra_diagnose route accepts: a
+    def builder_report_repair_identity(state: RunState) -> dict | None:
+        """The one condition this trial's diagnose route accepts: a
         report-repair-eligible identity whose original stage is terra. A
         PAUSED_REPEATED_FAILURE or rejected row from any other stage (e.g. a
         planning-stage rejection) is real, but is not this trial's target and
-        must not be misreported as astra_diagnose's trigger.
+        must not be misreported as diagnose's trigger.
         """
         pending = state.get("pending_report_repair") or {}
         original = pending.get("original")
@@ -301,7 +301,7 @@ def drive_to_first_verdict(project: Path, root: Path, profile: dict, budget: Tri
             {k: state.get(k) for k in ("status", "phase", "next_stage", "displayed_goal", "pending_questions")},
         )
 
-        if terra_report_repair_identity(state):
+        if builder_report_repair_identity(state):
             return {"state": state, "steps": steps, "run_dir": run_dir, "outcome": "rejected"}
         if status in ("TASK_COMPLETE", "COMPLETE"):
             return {"state": state, "steps": steps, "run_dir": run_dir, "outcome": "complete"}
@@ -366,7 +366,7 @@ def escalate_to_repeat_threshold(run_dir: Path, bundle: Bundle) -> None:
 def diagnose_and_retry(
     project: Path, root: Path, profile: dict, run_dir: Path, budget: TrialBudget, bundle: Bundle
 ) -> dict:
-    """The two genuine live-model steps: admit + run astra_diagnose, then,
+    """The two genuine live-model steps: admit + run diagnose, then,
     on an accepted retry, let the real Builder and Reviewer finish for real.
 
     ``budget`` is the SAME invocation count and deadline drive_to_first_verdict was
@@ -390,19 +390,19 @@ def diagnose_and_retry(
     request = state.get("diagnosis_request") or {}
     previous_rows = len(state.get("stages", []))
 
-    # The real model call: run the admitted astra_diagnose stage.
+    # The real model call: run the admitted diagnose stage.
     invoke_cli([])
     state = base.load_state(run_dir)
     new_rows = state.get("stages", [])[previous_rows:]
     diagnosis_record = next((row for row in reversed(new_rows) if row.get("stage") == "diagnose"), None)
     if diagnosis_record is None:
-        raise TrialError("astra_diagnose did not produce a recorded stage after the model call")
+        raise TrialError("diagnose did not produce a recorded stage after the model call")
     try:
         diagnosis_value = json.loads(Path(diagnosis_record["output"]).read_text())
     except (KeyError, OSError, ValueError) as error:
-        raise TrialError("astra_diagnose result is missing or unreadable") from error
+        raise TrialError("diagnose result is missing or unreadable") from error
     if not isinstance(diagnosis_value, dict) or not isinstance(diagnosis_value.get("recommendation"), dict):
-        raise TrialError("astra_diagnose result has no recommendation object")
+        raise TrialError("diagnose result has no recommendation object")
     recommendation = diagnosis_value.get("recommendation", {})
     bundle.log("diagnosis_received", diagnosis=diagnosis_value.get("diagnosis"), recommendation=recommendation)
 
@@ -710,14 +710,14 @@ def main(argv: list[str] | None = None) -> int:
         if first["outcome"] == "complete":
             verdict = judge_final_verdict(project, first["run_dir"], frozen_test_path, budget.deadline)
             payload.update(
-                astra_diagnose="NOT_EXERCISED",
+                diagnose="NOT_EXERCISED",
                 reason="runner completed without a target rejection",
                 final_verdict=verdict,
             )
             payload["code_verdict"] = verdict_result(verdict)
         elif first["outcome"] not in ("rejected",):
             payload.update(
-                astra_diagnose="NOT_EXERCISED",
+                diagnose="NOT_EXERCISED",
                 reason=f"drive stopped at {first['outcome']!r} before any Builder rejection",
             )
         else:
@@ -760,7 +760,7 @@ def main(argv: list[str] | None = None) -> int:
         report_path = bundle.dir / "diagnosis-comparison.json"
         report_path.write_text(json.dumps(payload, indent=2, default=str))
         status = base.scenarios.FAIL if result == "FAIL" else "RECORDED"
-        summary = f"astra_diagnose={payload.get('diagnose', 'NOT_EXERCISED')} result={result}"
+        summary = f"diagnose={payload.get('diagnose', 'NOT_EXERCISED')} result={result}"
         try:
             bundle.finish(status, summary)
         except AssertionError:
@@ -768,7 +768,7 @@ def main(argv: list[str] | None = None) -> int:
             if result != "FAIL":
                 raise
         print(f"result: {result}")
-        print(f"astra_diagnose: {payload.get('diagnose', 'NOT_EXERCISED')}")
+        print(f"diagnose: {payload.get('diagnose', 'NOT_EXERCISED')}")
         print(f"evidence: {bundle.dir}")
         print(f"read {report_path} against the report-rejection evidence for human scoring")
         return 1 if result == "FAIL" else 3

@@ -528,7 +528,7 @@ STABLE = {
     "builder": prompts.get("builder.md"),
     "tester": prompts.get("validator.md"),
 }
-ASTRA_DECISIONS = prompts.get("fragments/support/astra-decisions.md")
+REVIEW_DECISIONS = prompts.get("fragments/support/astra-decisions.md")
 MILESTONE_POLICY = prompts.get("fragments/support/milestone-policy.md")
 COMMON = prompts.get("fragments/support/common.md")
 

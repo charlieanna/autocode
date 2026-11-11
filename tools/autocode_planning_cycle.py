@@ -97,7 +97,7 @@ def review_limit(state: RunState, planning) -> int:
 def remaining_reviews(state: RunState, planning):
     """Review calls left in this cycle; None when the allowance is unlimited."""
     limit = review_limit(state, planning)
-    return None if limit == 0 else max(0, limit - planning.get("astra_calls", 0))
+    return None if limit == 0 else max(0, limit - planning.get("plan_review_calls", 0))
 
 
 def _inherit_review(state: RunState, archived):
@@ -105,7 +105,7 @@ def _inherit_review(state: RunState, archived):
     planning["reports"] = {
         stage: copy.deepcopy(archived["reports"][stage]) for stage in INHERITED_REPORTS if stage in archived["reports"]
     }
-    planning["astra_calls"] = archived.get("astra_calls", 0)
+    planning["plan_review_calls"] = archived.get("plan_review_calls", 0)
     if archived.get("review_charges"):
         planning["review_charges"] = list(archived["review_charges"])
     for key in INHERITED_KEYS:
@@ -113,7 +113,7 @@ def _inherit_review(state: RunState, archived):
             planning[key] = copy.deepcopy(archived[key])
     planning["inherited_review"] = {
         "cycle": len(state.get("planning_history") or []) - 1,
-        "astra_calls": planning["astra_calls"],
+        "plan_review_calls": planning["plan_review_calls"],
         "reports": sorted(planning["reports"]),
     }
     explicit = planning.get("review_call_limit_origin") == "user_explicit" or bool(
@@ -137,7 +137,7 @@ def new_cycle(state: RunState, *, new_turn=False):
     archived = state.get("planning")
     if archived:
         state.setdefault("planning_history", []).append(copy.deepcopy(archived))
-    state["planning"] = {"astra_calls": 0, "reports": {}, "final_token": None}
+    state["planning"] = {"plan_review_calls": 0, "reports": {}, "final_token": None}
     settings = state.get("settings") or {}
     if (
         not archived
@@ -162,7 +162,7 @@ def new_cycle(state: RunState, *, new_turn=False):
         # revision restarts the record, not the counter.
         state["planning"]["review_depth_reduced"] = True
         state["planning"]["review_calls_before_policy"] = archived.get("review_calls_before_policy", 0)
-        state["planning"]["astra_calls"] = archived.get("astra_calls", 0)
+        state["planning"]["plan_review_calls"] = archived.get("plan_review_calls", 0)
         renewals = archived.get("internal_answer_renewals", 0)
         state["planning"]["internal_answer_renewals"] = renewals
         if archived.get("revision_review_renewals"):  # once per run (#1815), as the internal-answer renewal
@@ -170,13 +170,13 @@ def new_cycle(state: RunState, *, new_turn=False):
         if archived.get("source_change_restart"):
             # The carried charges reviewed source that changed; the re-check of the same plan starts afresh.
             state["planning"].update(
-                astra_calls=0, source_change_renewal={"from": archived.get("astra_calls", 0), "to": 0}
+                plan_review_calls=0, source_change_renewal={"from": archived.get("plan_review_calls", 0), "to": 0}
             )
         elif archived.get("internal_answer_restart") and not renewals:
             # AutoCode settled the reviewer's technical question itself and planning restarted, so the
             # redrafted plan needs a review the carried total had already spent: a live run dead-ended at
             # 2/2 with nobody to ask. One fresh allowance per run; a second internal restart still stops.
-            state["planning"].update(astra_calls=0, internal_answer_renewals=1)
+            state["planning"].update(plan_review_calls=0, internal_answer_renewals=1)
         if archived.get("review_call_limit_origin") in ("user_explicit", "runner_default"):
             # Carry the saved bound with the same-turn charges it limits. A
             # runner-default renewal is no new allowance on this restart; a new
@@ -186,7 +186,7 @@ def new_cycle(state: RunState, *, new_turn=False):
                 review_call_limit_origin=archived["review_call_limit_origin"],
             )
     if new_turn and archived and explicit:
-        state["planning"].update(astra_calls=archived.get("astra_calls", 0))
+        state["planning"].update(plan_review_calls=archived.get("plan_review_calls", 0))
         if "review_call_limit" in archived:
             state["planning"].update(
                 review_call_limit=archived["review_call_limit"], review_call_limit_origin="user_explicit"

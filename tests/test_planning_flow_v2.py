@@ -169,7 +169,7 @@ class V2FlowTests(unittest.TestCase):
         self.assertEqual("requirements", planning.entry_stage(state))
         self.assertEqual("plan_revise", planning.next_after(state, "plan_review"))
         state["planning"] = {
-            "astra_calls": 0,
+            "plan_review_calls": 0,
             "reports": {
                 "plan_review": {
                     "report": {
@@ -220,7 +220,7 @@ class V2FlowTests(unittest.TestCase):
 
     def test_v2_review_budget_stays_at_two_calls(self):
         state = self.state()
-        state["planning"] = {"astra_calls": 0, "reports": {}, "final_token": None}
+        state["planning"] = {"plan_review_calls": 0, "reports": {}, "final_token": None}
         planning.charge(state, "plan_review")
         planning.charge(state, "plan_finalize")
         with self.assertRaisesRegex(planning.s.Paused, "2/2 plan-review calls used"):
@@ -328,7 +328,7 @@ class V2FlowTests(unittest.TestCase):
         human.evaluate(state)
         lifecycle.present(state)
         self.assertEqual("AWAITING_GOAL_APPROVAL", state["status"])
-        self.assertEqual(2, state["planning"]["astra_calls"])
+        self.assertEqual(2, state["planning"]["plan_review_calls"])
 
     def test_v2_first_cycle_requires_review_and_finalization_with_two_call_limit(self):
         state = self._cycle_state()
@@ -342,10 +342,10 @@ class V2FlowTests(unittest.TestCase):
 
     def test_v2_existing_empty_cycle_keeps_zero_usage_without_duplicate_archival(self):
         state = self.state()
-        state["planning"] = {"astra_calls": 0, "reports": {}, "final_token": None}
+        state["planning"] = {"plan_review_calls": 0, "reports": {}, "final_token": None}
         self._cycle_requirements(state)
         self._cycle_plan(state)
-        self.assertEqual(0, state["planning"]["astra_calls"])
+        self.assertEqual(0, state["planning"]["plan_review_calls"])
         self.assertEqual(2, planning.review_call_limit(state))
         self.assertEqual([], state.get("planning_history", []))
         planning.charge(state, "plan_review")
@@ -655,7 +655,7 @@ class V2PlanningCycleTests(unittest.TestCase):
         self.admit(state)
         self.assertEqual("runner_default", state["planning"]["review_call_limit_origin"])
         self.assertEqual(
-            (0, None, []), tuple(state["planning"][key] for key in ("astra_calls", "final_token", "inputs"))
+            (0, None, []), tuple(state["planning"][key] for key in ("plan_review_calls", "final_token", "inputs"))
         )
         self.assertEqual(["requirements"], list(state["planning"]["reports"]))
         self.assertNotIn("planning_history", state)
@@ -666,7 +666,7 @@ class V2PlanningCycleTests(unittest.TestCase):
         self.reviewed_cycle(state)
         spent = copy.deepcopy(state["planning"])
         attempts, runtime = copy.deepcopy(state["stages"]), state["active_seconds"]
-        self.assertEqual(2, spent["astra_calls"])
+        self.assertEqual(2, spent["plan_review_calls"])
 
         goals.feedback(state, "Print the greeting on its own line")
         self.assertEqual(spent, state["planning"], "Feedback alone renews nothing")
@@ -677,7 +677,7 @@ class V2PlanningCycleTests(unittest.TestCase):
         self.assertEqual(attempts, state["stages"])
         self.assertEqual(runtime, state["active_seconds"])
         fresh = state["planning"]
-        self.assertEqual((0, None), (fresh["astra_calls"], fresh["final_token"]))
+        self.assertEqual((0, None), (fresh["plan_review_calls"], fresh["final_token"]))
         self.assertEqual(["feedback:" + state["brief_feedback"][-1]["id"]], fresh["inputs"])
         self.assertEqual(["requirements"], list(fresh["reports"]))
         self.assertEqual(2, planning.review_call_limit(state))
@@ -691,7 +691,7 @@ class V2PlanningCycleTests(unittest.TestCase):
         self.review(state, "plan_finalize", "final-2.json", exit_code=0)
         with self.assertRaisesRegex(planning.s.Paused, "2/2 plan-review calls used"):
             self.review(state, "plan_finalize", "refused-2.json")
-        self.assertEqual(2, state["planning_history"][-1]["astra_calls"])
+        self.assertEqual(2, state["planning_history"][-1]["plan_review_calls"])
 
     def test_the_same_handoff_or_no_new_input_keeps_the_cycle_and_its_charges(self):
         state = self.state()
@@ -711,7 +711,7 @@ class V2PlanningCycleTests(unittest.TestCase):
                 self.admit(state, summary=summary)
                 self.assertEqual(unchanged, before == state["requirements_artifact_token"])
                 self.assertNotIn("planning_history", state)
-                self.assertEqual(2, state["planning"]["astra_calls"])
+                self.assertEqual(2, state["planning"]["plan_review_calls"])
                 self.assertEqual(spent["review_charges"], state["planning"]["review_charges"])
                 self.assertEqual([], state["planning"]["inputs"])
         state["next_stage"] = "plan_review"
@@ -733,8 +733,10 @@ class V2PlanningCycleTests(unittest.TestCase):
         goals.feedback(state, "Print the greeting on its own line")
         self.admit(state, summary="Requirements with the greeting on its own line")
 
-        self.assertEqual(0, state["planning"]["astra_calls"], "The old cycle's charges must not refuse the new review")
-        self.assertEqual([2], [cycle["astra_calls"] for cycle in state.get("planning_history", [])])
+        self.assertEqual(
+            0, state["planning"]["plan_review_calls"], "The old cycle's charges must not refuse the new review"
+        )
+        self.assertEqual([2], [cycle["plan_review_calls"] for cycle in state.get("planning_history", [])])
         self.assertEqual(["feedback:" + state["brief_feedback"][-1]["id"]], state["planning"]["inputs"])
         autopilot.apply_planning(state, "plan", {"contract": plan_body(), "summary": "Plan"}, {"output": "plan-2.json"})
         self.assertEqual("plan_review", state["next_stage"])
@@ -747,10 +749,10 @@ class V2PlanningCycleTests(unittest.TestCase):
         state["answers"]["Q1"] = {"kind": "answer", "text": "Before the upgrade"}
         self.admit(state, summary="Admitted after the upgrade")
         self.assertNotIn("planning_history", state)
-        self.assertEqual((2, ["answer:Q1"]), (state["planning"]["astra_calls"], state["planning"]["inputs"]))
+        self.assertEqual((2, ["answer:Q1"]), (state["planning"]["plan_review_calls"], state["planning"]["inputs"]))
         state["answers"]["Q2"] = {"kind": "answer", "text": "After the upgrade"}
         self.admit(state, summary="Requirements after a new answer")
-        self.assertEqual(2, state["planning_history"][-1]["astra_calls"])
+        self.assertEqual(2, state["planning_history"][-1]["plan_review_calls"])
         self.assertEqual(
-            (0, ["answer:Q1", "answer:Q2"]), (state["planning"]["astra_calls"], state["planning"]["inputs"])
+            (0, ["answer:Q1", "answer:Q2"]), (state["planning"]["plan_review_calls"], state["planning"]["inputs"])
         )

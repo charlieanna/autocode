@@ -46,7 +46,7 @@ def reviewed():
         "goal_contract": contract,
         "displayed_goal": selected,
         "displayed_handoff": "none",
-        "planning": {"final_token": selected, "astra_calls": 2, "reports": {}},
+        "planning": {"final_token": selected, "plan_review_calls": 2, "reports": {}},
         "answers": {},
         "user_events": [],
         "brief_feedback": [],
@@ -132,7 +132,7 @@ class AcceptanceHoldMessageTests(unittest.TestCase):
         self.assertTrue(state["brief_feedback"])
         self.assertEqual("RUNNING", state["status"])
         self.assertEqual("requirements_gather", state["next_stage"])
-        self.assertEqual(2, state["planning"]["astra_calls"])
+        self.assertEqual(2, state["planning"]["plan_review_calls"])
 
     def test_changed_or_unapproved_contract_cannot_borrow_the_held_approval(self):
         import autocode_plan_chat as chat

@@ -472,7 +472,7 @@ def planning_fixture():
     }
     template = state["stages"][0]
     state["stages"] = []
-    state["planning"] = {"astra_calls": 2, "reports": {}, "final_token": None}
+    state["planning"] = {"plan_review_calls": 2, "reports": {}, "final_token": None}
     for name, report in reports.items():
         row = copy.deepcopy(template)
         row.update(stage=name, output=name + "/report.json", changed_files=[], source_revision="source")
@@ -629,7 +629,7 @@ class PlanningBudgetRecoveryTests(unittest.TestCase):
     def test_usage_and_existing_protection_gates_still_apply(self):
         for usage in (None, True, "2", 0, 1, 3, 4):
             state = planning_fixture()
-            state["planning"]["astra_calls"] = usage
+            state["planning"]["plan_review_calls"] = usage
             self.denied(state)
         state = planning_fixture()
         state["stages"][0]["metrics"]["provider_tokens"]["input_tokens"] = None
@@ -678,7 +678,7 @@ class PlanningBudgetRecoveryTests(unittest.TestCase):
         state["stages"].append(row)
         self.assertTrue(recover(state, kind="iteration_ceiling", now=NOW))
         self.assertEqual(first, json.dumps(state["resolver"]["budget_extensions"][0]))
-        self.assertEqual(2, state["planning"]["astra_calls"])
+        self.assertEqual(2, state["planning"]["plan_review_calls"])
 
 
 if __name__ == "__main__":

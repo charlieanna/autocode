@@ -21,6 +21,8 @@ NAME = "state.json"
 LEGACY = {
     **{new: old for old, new in names.ROUTES.items() if old in names.RETIRED_ROUTES},
     **{new: old for old, new in names.STAGES.items()},
+    # The origin of a plan the Planner drafted (autopilot), renamed with the identifiers.
+    "planner_draft": "glm_draft",
 }
 # Where a saved state names a route or a stage: string values under these keys anywhere in it, and the
 # keys of these tables.

@@ -16,6 +16,7 @@ class LegacyNamesTests(unittest.TestCase):
             "sessions": {"task_planner": "s1", "tester": "s2"},
             "planning": {"reports": {"review_plan": {"report": {}}, "revise_plan": {}}},
             "goal": {"origin": "finalize_plan"},
+            "goal_contract": {"origin": "planner_draft"},
             "stages": [
                 {"stage": "draft_plan_report_repair", "role": "planner", "route_role": "task_planner"},
                 {"stage": "builder", "role": "builder"},
@@ -32,6 +33,7 @@ class LegacyNamesTests(unittest.TestCase):
         self.assertEqual({"astra": "s1", "sol": "s2"}, state["sessions"])
         self.assertEqual({"astra_challenge", "glm_revise"}, set(state["planning"]["reports"]))
         self.assertEqual("astra_finalize", state["goal"]["origin"])
+        self.assertEqual("glm_draft", state["goal_contract"]["origin"])
         self.assertEqual(
             [
                 ("astra_discovery_report_repair", "glm", "astra"),

@@ -332,7 +332,7 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
         and state.get("status") == "PAUSED_PLANNING_BUDGET"
         and last_decision.get("kind") == "planning_budget_change"
         and last_decision.get("limit") == planning.review_call_limit(state)
-        and last_decision.get("calls_used") == cast(dict, state.get("planning", {})).get("astra_calls")
+        and last_decision.get("calls_used") == cast(dict, state.get("planning", {})).get("plan_review_calls")
     )
     marker: dict = state.get("_authorized_bound_change", {})
     current_request = resolver_human.current(state)

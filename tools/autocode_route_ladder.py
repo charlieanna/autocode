@@ -46,7 +46,7 @@ except ImportError:
 # escalates by), strongest last. Only the Resolver climbs GPT-6 Astra: it is
 # too expensive for any other role (user 2026-09-28). The Resolver stages run
 # on their own "resolver" route, which starts as a copy of the "task_planner" route;
-# the per-task Planner (astra_plan) stays on "task_planner" and climbs nothing (#1345).
+# the per-task Planner (plan_task) stays on "task_planner" and climbs nothing (#1345).
 # A role whose route matches no rung (the default GLM Builder, a GLM Validator
 # or Completion Owner, the Plan Reviewer) has no effort ladder; the Builder's
 # stronger attempt is the strong rung from its retry policy instead.

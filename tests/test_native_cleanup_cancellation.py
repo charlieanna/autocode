@@ -106,7 +106,7 @@ class NativeHeldCancellationTests(unittest.TestCase):
             "sessions": {"planner": "controlled-session"},
             "total_seconds": 900.0,
             "planning": {
-                "astra_calls": 1,
+                "plan_review_calls": 1,
                 "review_call_limit": 2,
                 "reports": {},
                 "final_token": None,

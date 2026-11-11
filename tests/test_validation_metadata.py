@@ -657,7 +657,7 @@ class ValidationMetadataTests(unittest.TestCase):
 
     def test_repair_derivation_uses_original_attempt_receipt(self):
         receipt, _ = self.receipt()
-        output = self.run / "sol_report_repair.json"
+        output = self.run / "tester_report_repair.json"
         output.write_text(
             json.dumps(
                 {

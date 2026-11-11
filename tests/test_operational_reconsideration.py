@@ -63,12 +63,12 @@ class ReconsiderationTests(unittest.TestCase):
         self.assertEqual([], self.state["pending_questions"])
         for key in ("settings", "goal_contract", "answers", "user_events", "active_seconds", "no_progress_batches"):
             self.assertEqual(original.get(key), self.state.get(key))
-        self.assertEqual(2, self.state["planning"]["astra_calls"])
+        self.assertEqual(2, self.state["planning"]["plan_review_calls"])
         self.assertEqual(1, len(self.state["planning"]["recovery_review_grants"]))
         self.assertEqual(self.state, s.read(self.run / "state.json"))
         self.assert_unchanged()
         self.charge()
-        self.assertEqual(3, self.state["planning"]["astra_calls"])
+        self.assertEqual(3, self.state["planning"]["plan_review_calls"])
         self.assertEqual(1, self.state["planning"]["recovery_review_calls_used"])
         self.assertTrue(self.state["planning"]["recovery_review_grants"][0]["consumed"])
 
@@ -171,7 +171,7 @@ class ReconsiderationCLITests(unittest.TestCase):
         discovery.update(stage="draft_plan_report_repair", original_stage="draft_plan", report_only=True)
         autocode_configure.configure_codex_joint(self.state["settings"], SimpleNamespace(), planning=planning)
         self.state["planning"] = {
-            "astra_calls": 2,
+            "plan_review_calls": 2,
             "reports": {
                 "draft_plan": {"output": discovery["output"], "report": {"summary": "accepted repaired discovery"}}
             },
@@ -194,7 +194,7 @@ class ReconsiderationCLITests(unittest.TestCase):
         self.launch(["--run-dir", str(self.run), "--no-chat", "--unit", "autocode"], 0)
         _, state = self.saved()
         self.assertEqual("RUNNING", state["status"])
-        self.assertEqual(2, state["planning"]["astra_calls"])
+        self.assertEqual(2, state["planning"]["plan_review_calls"])
         self.assertEqual(1, len(state["planning"]["recovery_review_grants"]))
         self.assertNotIn(human.PUBLIC, state)
 

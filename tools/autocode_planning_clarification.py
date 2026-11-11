@@ -207,7 +207,7 @@ def apply_obligations(state: RunState, stage, value, *, check_code_refs):
     """Rule E8 (issue #62): rejected assumptions become runner-owned obligations.
 
     A remediation obligation is discharged only by a Plan Reviewer decision on
-    astra_challenge or astra_finalize, bound to the hash of the exact remediation
+    review_plan or finalize_plan, bound to the hash of the exact remediation
     record it judged; a repaired record resets it to pending review. A human
     decision obligation, or any obligation still open at final review, goes back
     to the user as a question under its own id. Agent output alone never

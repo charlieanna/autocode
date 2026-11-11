@@ -181,7 +181,7 @@ class TechnicalDraftTests(unittest.TestCase):
         current = state()
         draft = body()
         draft["open_blocking_questions"] = [question(), question("Q2", category="behavior")]
-        lifecycle.install_draft(current, draft, origin="glm_draft")
+        lifecycle.install_draft(current, draft, origin="planner_draft")
         lifecycle.human.evaluate(current)
         self.assertEqual("WAITING_FOR_USER", current["status"])
         self.assertEqual(["Q2"], [q["id"] for q in current["pending_questions"]])
@@ -191,14 +191,14 @@ class TechnicalDraftTests(unittest.TestCase):
         current = state()
         draft = body()
         draft["open_blocking_questions"] = [question()]
-        lifecycle.install_draft(current, draft, origin="glm_draft", queue_human=False)
+        lifecycle.install_draft(current, draft, origin="planner_draft", queue_human=False)
         self.assertEqual({}, current["answers"])
 
     def test_internal_answers_do_not_authorize_protected_behavior_changes(self):
         current = state()
         draft = body()
         draft["open_blocking_questions"] = [question()]
-        lifecycle.install_draft(current, draft, origin="glm_draft")
+        lifecycle.install_draft(current, draft, origin="planner_draft")
         changed = copy.deepcopy(current["goal_contract"]["body"])
         changed["required_behaviors"] = []
         changes = [
@@ -235,7 +235,7 @@ class TechnicalDraftTests(unittest.TestCase):
         changed = body()
         changed["permission_boundaries"] = ["Allow network writes"]
         with self.assertRaisesRegex(ValueError, "user-backed"):
-            lifecycle.install_draft(current, changed, origin="glm_draft")
+            lifecycle.install_draft(current, changed, origin="planner_draft")
 
 
 class TechnicalPlanningTests(EpisodeCase):
@@ -377,7 +377,7 @@ class TechnicalPlanningTests(EpisodeCase):
         self.redraft_after_internal_answer()
         record = self.state["planning"]
         self.assertEqual(1, len(self.state["planning_history"]))
-        self.assertEqual(1, record["astra_calls"], "the first review's charge is carried, not renewed")
+        self.assertEqual(1, record["plan_review_calls"], "the first review's charge is carried, not renewed")
         self.assertEqual({"review_plan", "revise_plan", "draft_plan"}, set(record["reports"]))
         self.assertEqual("finalize_plan", self.state["next_stage"], "one call left: the final review decides")
         self.assertEqual("none", lifecycle.human.evaluate(self.state))

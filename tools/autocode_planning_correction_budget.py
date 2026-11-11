@@ -41,7 +41,7 @@ def _default(state: RunState, planning):
     for item in [planning, *(state.get("planning_history") or [])]:
         if not isinstance(item, dict):
             return False
-        if (item.get("astra_calls", 0) or "review_call_limit" in item or "review_call_limit_origin" in item) and (
+        if (item.get("plan_review_calls", 0) or "review_call_limit" in item or "review_call_limit_origin" in item) and (
             type(item.get("review_call_limit")) is not int
             or item["review_call_limit"] != 2
             or item.get("review_call_limit_origin") != "runner_default"
@@ -170,7 +170,7 @@ def _evidence(state: RunState, planning, stages, clock, *, fingerprint):
         or (state.get("settings") or {}).get("adaptive_planning") is not True
         or state.get("status") not in ("RUNNING", "PAUSED_PLANNING_BUDGET")
         or planning.get("review_depth_reduced") is not True
-        or planning.get("astra_calls") != 2
+        or planning.get("plan_review_calls") != 2
         or planning.get("final_token")
         or planning.get("recovery_review_grants")
         or planning.get("recovery_review_calls_used", 0)

@@ -425,7 +425,7 @@ def recover(state: RunState, *, kind, now) -> bool:
     if kind == PLANNING_KIND:
         if not isinstance(planning, dict):
             return False
-        used = planning.get("astra_calls")
+        used = planning.get("plan_review_calls")
         if type(used) is not int or used != 2:
             return False
     if kind == "milestone_max_seconds":

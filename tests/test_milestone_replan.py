@@ -115,12 +115,12 @@ class ReplanConstraintTests(unittest.TestCase):
             self.assertIsNone(replan.validate_rule(row, limits))
 
     def test_the_overridden_rule_is_the_one_the_completion_owner_reads(self):
-        # If ASTRA_DECISIONS is reworded, the stage context would silently keep the conflicting rule.
-        self.assertEqual(1, support.ASTRA_DECISIONS.count(replan.GENERAL_VALIDATE_RULE))
-        rewritten = support.ASTRA_DECISIONS.replace(replan.GENERAL_VALIDATE_RULE, replan.REPLAN_VALIDATE_RULE)
+        # If REVIEW_DECISIONS is reworded, the stage context would silently keep the conflicting rule.
+        self.assertEqual(1, support.REVIEW_DECISIONS.count(replan.GENERAL_VALIDATE_RULE))
+        rewritten = support.REVIEW_DECISIONS.replace(replan.GENERAL_VALIDATE_RULE, replan.REPLAN_VALIDATE_RULE)
         self.assertNotIn("with CONTINUE when existing work only needs Validator revalidation", rewritten)
         self.assertIn("that task is a REWORK, never a CONTINUE", rewritten)
-        rewritten = support.ASTRA_DECISIONS.replace(replan.GENERAL_VALIDATE_RULE, replan.SPENT_VALIDATE_RULE)
+        rewritten = support.REVIEW_DECISIONS.replace(replan.GENERAL_VALIDATE_RULE, replan.SPENT_VALIDATE_RULE)
         self.assertIn("except on any milestone\nnamed in MILESTONE REPLANS SPENT below", rewritten)
 
 

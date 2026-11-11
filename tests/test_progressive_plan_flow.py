@@ -114,7 +114,7 @@ class AcceptProposalTests(unittest.TestCase):
 
     def test_installs_generated_disclosure_and_records_the_candidate(self):
         value = report()
-        progressive_state.accept_proposal(self.state, value, origin="glm_draft")
+        progressive_state.accept_proposal(self.state, value, origin="planner_draft")
         body = value["contract"]
         generated = rules.disclosure(proposal(), ["C1"])
         self.assertEqual(
@@ -132,19 +132,19 @@ class AcceptProposalTests(unittest.TestCase):
         body = goal_fixtures.body()
         body["constraints"] = ["Progressive delegation: unlimited"]
         with self.assertRaisesRegex(ValueError, "without a progressive_proposal"):
-            progressive_state.accept_proposal(self.state, {"contract": body}, origin="glm_draft")
+            progressive_state.accept_proposal(self.state, {"contract": body}, origin="planner_draft")
 
     def test_rejects_mismatched_hand_written_disclosure(self):
         body = goal_fixtures.body()
         body["technical_approach"] = ["Progressive slice: S9 (forged): nothing"]
         with self.assertRaisesRegex(ValueError, "does not generate"):
-            progressive_state.accept_proposal(self.state, report(body), origin="glm_draft")
+            progressive_state.accept_proposal(self.state, report(body), origin="planner_draft")
 
     def test_rejects_a_prose_check(self):
         value = report()
         value["progressive_proposal"]["slices"][0]["checks"] = [check(method="the validator reads the diff")]
         with self.assertRaisesRegex(ValueError, "extracts no executable command"):
-            progressive_state.accept_proposal(self.state, value, origin="glm_draft")
+            progressive_state.accept_proposal(self.state, value, origin="planner_draft")
 
     def test_rejects_a_new_check_that_names_git_status_but_reads_a_saved_one(self):
         # The quoted script is one operand, so the operand checks let it through; clean replay refuses every
@@ -153,7 +153,7 @@ class AcceptProposalTests(unittest.TestCase):
         value = report()
         value["progressive_proposal"]["slices"][1]["checks"][0]["method"] = method
         with self.assertRaisesRegex(ValueError, r"^check K2 method `sh -c .*` names git status\. Never name"):
-            progressive_state.accept_proposal(self.state, value, origin="glm_draft")
+            progressive_state.accept_proposal(self.state, value, origin="planner_draft")
         self.assertNotIn("progressive", self.state)
         self.assertEqual([method], rules.check_commands(check("K2", method)))
 
@@ -167,17 +167,17 @@ class AcceptProposalTests(unittest.TestCase):
         )
         support.validate_schema(value, autoplanner.SCHEMAS["draft_plan"])
         with self.assertRaisesRegex(ValueError, "slice S3 is future work"):
-            progressive_state.accept_proposal(self.state, copy.deepcopy(value), origin="glm_draft")
+            progressive_state.accept_proposal(self.state, copy.deepcopy(value), origin="planner_draft")
         value["progressive_proposal"]["slices"][2]["tentative"] = True
         with self.assertRaisesRegex(ValueError, "requires one whole-product milestone"):
-            progressive_state.accept_proposal(self.state, copy.deepcopy(value), origin="glm_draft")
+            progressive_state.accept_proposal(self.state, copy.deepcopy(value), origin="planner_draft")
         value["contract"]["milestones"] = value["contract"]["milestones"][:1]
-        progressive_state.accept_proposal(self.state, value, origin="glm_draft")
+        progressive_state.accept_proposal(self.state, value, origin="planner_draft")
         rules.check_disclosure(value["contract"], value["progressive_proposal"], ["C1"])
 
     def test_without_a_proposal_the_ordinary_path_stays_untouched(self):
         value = report(with_proposal=False)
-        progressive_state.accept_proposal(self.state, value, origin="glm_draft")
+        progressive_state.accept_proposal(self.state, value, origin="planner_draft")
         self.assertNotIn("progressive", self.state)
         self.assertEqual(["Python standard library only"], value["contract"]["constraints"])
 
@@ -193,15 +193,15 @@ class AcceptProposalTests(unittest.TestCase):
         value = report(with_proposal=False)
         value["progressive_proposal"] = placeholder
         self.assertFalse(rules.declares(placeholder))
-        progressive_state.accept_proposal(self.state, value, origin="glm_draft")
+        progressive_state.accept_proposal(self.state, value, origin="planner_draft")
         self.assertNotIn("progressive", self.state)
         broken = {**placeholder, "version": 2, "needed_because": "a real attempt", "slices": [slice_row()]}
         value["progressive_proposal"] = broken
         with self.assertRaisesRegex(ValueError, "version must be 1"):
-            progressive_state.accept_proposal(self.state, value, origin="glm_draft")
+            progressive_state.accept_proposal(self.state, value, origin="planner_draft")
 
     def test_rebind_without_a_proposal_clears_the_candidate(self):
-        progressive_state.accept_proposal(self.state, report(), origin="glm_draft")
+        progressive_state.accept_proposal(self.state, report(), origin="planner_draft")
         self.assertIn("candidate", self.state["progressive"])
         progressive_state.accept_proposal(self.state, report(with_proposal=False), origin="revise_plan")
         self.assertNotIn("candidate", self.state["progressive"])
@@ -221,7 +221,7 @@ class SealTests(unittest.TestCase):
             "settings": {},
         }
         self.value = report()
-        progressive_state.accept_proposal(self.state, self.value, origin="glm_draft")
+        progressive_state.accept_proposal(self.state, self.value, origin="planner_draft")
 
     def with_contract(self):
         self.state["goal_contract"] = {"body": copy.deepcopy(self.value["contract"])}
@@ -235,7 +235,7 @@ class SealTests(unittest.TestCase):
 
     def test_failed_seal_does_not_reset_spent_planning_usage(self):
         self.with_contract()
-        self.state["planning"] = {"astra_calls": 2}
+        self.state["planning"] = {"plan_review_calls": 2}
         self.state["active_seconds"] = 350
         before = copy.deepcopy(self.state)
         with self.assertRaisesRegex(ValueError, "planning report lacks an accepted read-only witness"):
@@ -284,8 +284,8 @@ class ApprovalIntegrationTests(unittest.TestCase):
 
     def approve(self, value):
         lifecycle.migrate(self.state)
-        progressive_state.accept_proposal(self.state, value, origin="glm_draft")
-        lifecycle.install_draft(self.state, value["contract"], origin="glm_draft", record={})
+        progressive_state.accept_proposal(self.state, value, origin="planner_draft")
+        lifecycle.install_draft(self.state, value["contract"], origin="planner_draft", record={})
         human.evaluate(self.state)
         lifecycle.present(self.state)
         selected = goals.token(self.state["goal_contract"])
@@ -306,8 +306,8 @@ class ApprovalIntegrationTests(unittest.TestCase):
 
     def test_tampered_candidate_does_not_partially_approve(self):
         value = report()
-        progressive_state.accept_proposal(self.state, value, origin="glm_draft")
-        lifecycle.install_draft(self.state, value["contract"], origin="glm_draft", record={})
+        progressive_state.accept_proposal(self.state, value, origin="planner_draft")
+        lifecycle.install_draft(self.state, value["contract"], origin="planner_draft", record={})
         human.evaluate(self.state)
         lifecycle.present(self.state)
         self.state["progressive"]["candidate"]["plan_hash"] = "tampered"
@@ -333,8 +333,8 @@ class ApprovalIntegrationTests(unittest.TestCase):
     def test_a_stale_token_never_seals(self):
         lifecycle.migrate(self.state)
         value = report()
-        progressive_state.accept_proposal(self.state, value, origin="glm_draft")
-        lifecycle.install_draft(self.state, value["contract"], origin="glm_draft", record={})
+        progressive_state.accept_proposal(self.state, value, origin="planner_draft")
+        lifecycle.install_draft(self.state, value["contract"], origin="planner_draft", record={})
         human.evaluate(self.state)
         lifecycle.present(self.state)
         stale = "r0:stale"

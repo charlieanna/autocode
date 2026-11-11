@@ -55,7 +55,7 @@ class RiskRuntimeTests(RiskFixture, unittest.TestCase):
         )
         draft["milestones"][0]["acceptance_criteria"] = ["AC-queue", "AC-outbox"]
         state["goal_contract"] = {"body": draft, "revision": 1, "hash": "fixture-contract"}
-        state["planning"] = {"reports": {}, "astra_calls": 0, "final_token": None}
+        state["planning"] = {"reports": {}, "plan_review_calls": 0, "final_token": None}
         return state
 
     def request(self, state, stage):

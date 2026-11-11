@@ -61,7 +61,7 @@ class PreviewCase(unittest.TestCase):
         contract["accepted_assumptions"].append(
             {"text": "CLI invocation is sufficient", "basis": "agent_proposed", "answer_id": ""}
         )
-        lifecycle.install_draft(self.state, contract, origin="glm_draft")
+        lifecycle.install_draft(self.state, contract, origin="planner_draft")
         # The clarification stop exists once the runner's writer boundary publishes it.
         self.assertEqual("RESOLVER_PENDING", self.state["status"])
         lifecycle.human.evaluate(self.state)
@@ -111,7 +111,7 @@ class PlanPreviewTests(PreviewCase):
         goals.reject_assumption(self.state, "A2", goals.token(self.state["goal_contract"]))
         contract = body()
         contract["open_blocking_questions"] = [question("Q3")]
-        lifecycle.install_draft(self.state, contract, origin="glm_draft")
+        lifecycle.install_draft(self.state, contract, origin="planner_draft")
         lifecycle.human.evaluate(self.state)
         text = self.preview()
         self.assertNotIn("[Q1]", text)

@@ -108,7 +108,7 @@ class NativeRepairFixture(unittest.TestCase):
                 "roles": {"plan_reviewer": dict(ROUTE), "planner": dict(ROUTE, model="controlled/planner")},
                 "limits": {},
             },
-            "planning": {"astra_calls": 2, "review_call_limit": 2},
+            "planning": {"plan_review_calls": 2, "review_call_limit": 2},
         }
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
@@ -174,7 +174,7 @@ class RejectionQueuesTheBoundedRepair(NativeRepairFixture):
         # The original bytes stay in place and in history; the review allowance is untouched.
         self.assertEqual('{"decision": "controlled"', Path(record["output"]).read_text())
         self.assertEqual([record["output"]], [row["output"] for row in self.state["stages"]])
-        self.assertEqual({"astra_calls": 2, "review_call_limit": 2}, self.state["planning"])
+        self.assertEqual({"plan_review_calls": 2, "review_call_limit": 2}, self.state["planning"])
         self.assertEqual(self.state, self.disk())  # saved through the native parent sink
 
     def test_launch_without_its_closing_report_file_keeps_the_original_pause(self):
@@ -392,7 +392,7 @@ class RepairRunsUnderTheNativeOwner(NativeRepairFixture):
         self.assertEqual("accepted", self.state["report_repair_history"][-1]["result"])
         self.assertEqual(record["output"], self.state["stages"][-1]["output"])
         self.assertEqual("plan_revise", self.state["next_stage"])
-        self.assertEqual({"astra_calls": 2, "review_call_limit": 2}, self.state["planning"])
+        self.assertEqual({"plan_review_calls": 2, "review_call_limit": 2}, self.state["planning"])
         self.assertEqual(self.state, self.disk())
         self.factory.prepare_parent_commit.assert_not_called()  # no planning publication claimed
         self.assertFalse(self.calls.sink.blocked)
@@ -440,7 +440,7 @@ class RepairRunsUnderTheNativeOwner(NativeRepairFixture):
             self.view.execute_report_repair(self.state, self.run, self.root)
         self.assertEqual("PAUSED_REPORT_REPAIR_LIMIT", exhausted.exception.status)
         launch.assert_not_called()
-        self.assertEqual({"astra_calls": 2, "review_call_limit": 2}, self.state["planning"])
+        self.assertEqual({"plan_review_calls": 2, "review_call_limit": 2}, self.state["planning"])
 
     def plain_resume(self):
         """A plain `autocode resume`: admitted before setup, then the ordinary resume step."""

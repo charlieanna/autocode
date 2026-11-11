@@ -36,7 +36,7 @@ class RequirementsObservationSeal(TypedDict, total=False):
     it through requirements_observations. Accepted report repair seals on its
     retained repair record, bound to the original pending marker and core repair
     history; original execution artifacts remain the data source. Only initial
-    astra_discovery reads it.
+    draft_plan reads it.
     Legacy/replay/recovered records are not upgraded. Sealed paths are relative
     to the owned run's context directory and are omitted from replay projections.
     """
