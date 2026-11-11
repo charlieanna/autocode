@@ -1144,6 +1144,39 @@ test('a registry cleanup action runs only the exact command the row named', asyn
   assert.equal(launch.mock.callCount(), 2, 'a command outside the grammar runs nothing');
 });
 
+test('deleting the chat the status line follows stops the status line', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  let statusVisible = false;
+  const mockStatus = {
+    show() { statusVisible = true; }, hide() { statusVisible = false; }, dispose() {},
+    text: '', tooltip: '', command: undefined,
+  };
+  t.mock.method(host.vscode.window, 'createStatusBarItem', () => mockStatus);
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
+  t.mock.method(RunController.prototype, 'status', async () => ({
+    status: 'RUNNING', done: false, needs: { kind: 'continue' }, progress: { headline: 'Builder working' } }));
+  const acted = t.mock.method(RunController.prototype, 'registryAction', async () => {});
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+
+  await host.commands.get('autocode.openRun')(run);
+  await flush();
+  assert.equal(statusVisible, true, 'the status line follows the opened chat');
+
+  const row = new RunItem({
+    id: 'r1', workspace: run.workspace, runDir: run.runDir, taskId: null,
+    availability: 'available', status: 'RUNNING',
+    actions: [{ id: 'delete', label: 'Delete',
+      nextCommand: ['registry', 'delete', '--workspace', run.workspace, '--run-dir', run.runDir, '--yes'] }],
+  }, run.workspace);
+  t.mock.method(host.vscode.window, 'showWarningMessage', async () => 'Delete');
+  await host.commands.get('autocode.deleteRun')(row);
+  await flush();
+  assert.equal(acted.mock.callCount(), 1, 'the named delete action ran');
+  assert.equal(statusVisible, false, 'the status line stops following a chat that no longer exists');
+});
+
 function chatView(base = approvalView(), kind = 'feedback', context = 'chat-1') {
   return { ...base, chat: {
     context,
@@ -2638,6 +2671,32 @@ test('status polls speed up while a reply is streaming and slow down once it is 
   assert.equal(reads(), quiet, 'an unchanged extract no longer forces the short pace');
   t.mock.timers.tick(5000); await flush();
   assert.equal(reads(), quiet + 1, 'the ordinary poll interval is back');
+});
+
+test('closing a chat that was mid-reply returns every poll to the ordinary interval', async (t) => {
+  const growing = (text) => ({ status: 'RUNNING', done: false, needs: { kind: 'continue' }, chat: {
+    phase: 'requirements', context: 'turn-one', input: null,
+    messages: [{ id: 'u1', role: 'user', text: 'A book app' }, { id: 'live', role: 'assistant', text, streaming: true }],
+  } });
+  const other = { workspace: '/ws', runDir: '/ws/.autocode/runs/other' };
+  const views = new Map([
+    [run.runDir, growing('Who')],
+    [other.runDir, { status: 'RUNNING', done: false, needs: { kind: 'continue' } }],
+  ]);
+  const ui = await openChat(t, growing('Who'), run, { statusFor: (target) => views.get(target.runDir) });
+  ui.chat.show(other);
+  await flush();
+  // The streaming chat's tab is closed while its reply still grows.
+  [...ui.document.querySelectorAll('.chat-tab .close')][0].click();
+  await flush();
+  const reads = () => controller.status.mock.callCount();
+  t.mock.timers.tick(250); await flush();
+  t.mock.timers.tick(250); await flush();
+  const settled = reads();
+  t.mock.timers.tick(250); await flush();
+  assert.equal(reads(), settled, 'a closed chat must not hold every poll at the streaming pace');
+  t.mock.timers.tick(5000); await flush();
+  assert.equal(reads(), settled + 1, 'the ordinary interval still polls the chat that is open');
 });
 
 test('a second refresh joins the running poll cycle instead of returning before it lands', async (t) => {
