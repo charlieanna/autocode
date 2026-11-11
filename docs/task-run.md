@@ -2389,7 +2389,11 @@ A `resolver_scope` of `operational_exhaustion` or `blocker` means Resolver
 stopped the run because it could not continue safely (for example, the
 run time limit was reached). That question is for a person who has looked at
 the run; a caller must not answer it with a proposed default. Its `action` is
-the response command. A `blocker` is often a decision about the approved
+the response command. Its `questions` hold only the sentences meant for that
+person: the operator advice AutoResolver saves with the request (flags, a
+token's environment variable, `autocode resume`) stays in the saved request and
+`stop_reason`, and an option's "with `--flag`" clause is dropped, so a client
+can show the question as written (#3145). A `blocker` is often a decision about the approved
 contract (a criterion Resolver proved contradictory): the response is retained
 as information and never edits the contract, so after it the run holds and
 `needs.reason` names the path that applies such a decision, `--edit-goal

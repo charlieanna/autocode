@@ -1,7 +1,7 @@
 /** Each stage's model and reasoning level for new chats: one dropdown per stage, from the public AutoCode CLI. */
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
-import { invoke, tail } from "./core/cli";
+import { invoke, tail, STAGES_TIMEOUT_MS } from "./core/cli";
 import { backendArgs, currentRoute, fillSet, readStages, runListCommand, runRoute, type Stage, type StageRoute, type StageView } from "./core/stages";
 import { listKey, type StageListCache } from "./core/stage-cache";
 import { readSettings, routeKeyOf, type Settings } from "./settings";
@@ -110,9 +110,11 @@ export class StagesPanel implements vscode.Disposable {
 
   private async refresh(): Promise<void> {
     const call = newChatCall();
+    // Bounded like every other stage read: this panel holds a busy flag across it, and a wedged
+    // list would leave every button on it disabled until the window reloaded.
     const result = this.target
-      ? await invoke({ ...readSettings(), cwd: this.target.cwd }, this.target.list)
-      : await invoke(call.settings, call.argv);
+      ? await invoke({ ...readSettings(), cwd: this.target.cwd }, this.target.list, {}, STAGES_TIMEOUT_MS)
+      : await invoke(call.settings, call.argv, {}, STAGES_TIMEOUT_MS);
     if (result.code !== 0) throw new Error(tail(result));
     this.view = readStages(result.stdout);
     if (!this.target) this.lists?.put(call.key, result.stdout);
@@ -135,7 +137,7 @@ export class StagesPanel implements vscode.Disposable {
       if (!argv) return;
       const target = this.target;
       if (target && !this.view?.changeable) throw new Error(this.view?.reason ?? "This chat's models cannot change now.");
-      const result = await invoke(target ? { ...readSettings(), cwd: target.cwd } : inFolder(readSettings()), argv);
+      const result = await invoke(target ? { ...readSettings(), cwd: target.cwd } : inFolder(readSettings()), argv, {}, STAGES_TIMEOUT_MS);
       if (result.code !== 0) throw new Error(tail(result));
       // A run's change prints a sentence, not the view: read the run's list again.
       if (target) await this.refresh();
