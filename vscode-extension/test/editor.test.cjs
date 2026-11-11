@@ -16,7 +16,7 @@ const { RunController } = host.load('controller.js');
 const { RunPanel, panelHtml, stateFor } = host.load('panel.js');
 const { ChatView } = host.load('chat.js');
 const { RunItem, RunsProvider } = host.load('runsView.js');
-const { activate, pickWorkspace, NO_FOLDER } = host.load('extension.js');
+const { activate, pickWorkspace, NO_FOLDER, confirmSpend } = host.load('extension.js');
 const { ConnectionsPanel, connectionsHtml } = host.load('connections.js');
 const { StagesPanel, stagesHtml, runStages } = host.load('stages.js');
 const { readStages, currentRoute } = host.load('core/stages.js');
@@ -399,7 +399,7 @@ test('a narrow sidebar hides the keyboard hint and lets the composer row wrap so
 test('engine chip shows the engine new chats will use and opens the picker', async (t) => {
   host.config.set('extraOptions', ['--engine', 'codex', '--max-cost-usd', '3']);
   const ui = await openChat(t, chatView());
-  assert.equal(ui.document.getElementById('engine-name').textContent, 'codex');
+  assert.equal(ui.document.getElementById('engine-name').textContent, 'Codex');
   const picker = t.mock.method(host.vscode.window, 'showQuickPick', async (items) => items.find((item) => item.engine === 'codex'));
   ui.document.getElementById('engine-picker').click();
   await flush();
@@ -4605,7 +4605,7 @@ test('Run details guards against concurrent clicks during status and modal confi
   const modalCalled = [];
   t.mock.method(host.vscode.window, 'showWarningMessage', () => {
     modalCalled.push(Date.now());
-    return new Promise((resolve) => { resolveModal = () => resolve('Take it anyway'); });
+    return new Promise((resolve) => { resolveModal = () => resolve('Continue'); });
   });
 
   // First click: begins status check
@@ -4656,7 +4656,7 @@ test('Run details releases in-flight taking guard on cancellation or error (#154
   assert.equal(launch.mock.callCount(), 0, 'cancelled modal does not launch command');
 
   // Second attempt: user confirms modal -> taking guard was released, so click succeeds
-  modalResponse = 'Take it anyway';
+  modalResponse = 'Continue';
   panelUi.take().click();
   await flush();
   await flush();
@@ -4736,7 +4736,7 @@ test('picking an engine or configuring a registered provider immediately updates
   host.config.set('provider', '');
   host.config.set('extraOptions', []);
   const ui = await openChat(t, chatView());
-  assert.equal(ui.document.getElementById('engine-name').textContent, 'opencode');
+  assert.equal(ui.document.getElementById('engine-name').textContent, 'OpenCode');
 
   // Registered provider with no --engine displays the provider in #engine-name and QuickPick
   host.config.set('provider', 'kilo_glm_mimo_gpt');
@@ -4755,7 +4755,7 @@ test('picking an engine or configuring a registered provider immediately updates
   await flush();
 
   // Engine chip is immediately updated to codex without waiting for poll
-  assert.equal(ui.document.getElementById('engine-name').textContent, 'codex');
+  assert.equal(ui.document.getElementById('engine-name').textContent, 'Codex');
   assert.equal(host.config.get('extraOptions').includes('--engine'), true);
 
   // Subsequent click names Codex as current
@@ -4846,7 +4846,7 @@ test('Claude through Connections and Engine picker updates engine chip and setti
 
   // Chat view reflects claude engine
   const ui = await openChat(t, chatView());
-  assert.equal(ui.document.getElementById('engine-name').textContent, 'claude');
+  assert.equal(ui.document.getElementById('engine-name').textContent, 'Claude Code');
 
   // Picker names Claude Code as current
   let placeholder = '';
@@ -6145,4 +6145,16 @@ test('a long saved-code comparison is bounded and scrolls like the working diff'
   const compared = saved.document.querySelector('#app pre.diff');
   assert.ok(compared, 'a saved-code comparison is marked as a diff');
   assert.ok(compared.textContent.includes('+line 499'));
+});
+// The spend confirmation reads as a sentence whether the provider is named or the default (#1541 follow-up).
+test('the spend confirmation says "its default provider" instead of quoting the phrase', async (t) => {
+  const shown = [];
+  t.mock.method(host.vscode.window, 'showWarningMessage', async (title) => { shown.push(title); return 'Start it'; });
+  host.config.set('provider', '');
+  assert.equal(await confirmSpend(), true);
+  assert.ok(shown[0].includes('through its default provider?'), shown[0]);
+  assert.ok(!shown[0].includes('"its'), shown[0]);
+  host.config.set('provider', 'kilocode');
+  assert.equal(await confirmSpend(), true);
+  assert.ok(shown[1].includes('through provider "kilocode"?'), shown[1]);
 });
