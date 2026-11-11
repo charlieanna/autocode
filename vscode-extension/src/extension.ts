@@ -261,10 +261,12 @@ export async function pickWorkspace(): Promise<string | undefined> {
  * Modes that can plan immediately confirm spend at launch. Full chat defers
  * this decision to the core-named Requirements review before planning (#1612).
  */
-async function confirmSpend(): Promise<boolean> {
+export async function confirmSpend(): Promise<boolean> {
   const provider = spendTarget(readSettings());
+  // A named provider reads as one; the unnamed default needs its own words, not quotes around a phrase.
+  const through = provider === "its default" ? "its default provider" : `provider "${provider}"`;
   const choice = await vscode.window.showWarningMessage(
-    `Start a live AutoCode run through provider "${provider}"? It spends your model allowance and can run for a long time.`,
+    `Start a live AutoCode run through ${through}? It spends your model allowance and can run for a long time.`,
     { modal: true },
     "Start it",
   );

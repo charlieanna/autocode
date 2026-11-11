@@ -33,6 +33,7 @@ from pathlib import Path
 try:
     from . import autocode_coordination_context as coordination_context
     from . import autocode_design_manifest as design_manifest
+    from . import autocode_implementation_discrepancy as implementation_discrepancy
     from . import autocode_milestone_replan as replan
     from . import autocode_package_writes as package_writes
     from . import autocode_protected_oracles as protected_oracles
@@ -46,6 +47,7 @@ try:
 except ImportError:
     import autocode_coordination_context as coordination_context
     import autocode_design_manifest as design_manifest
+    import autocode_implementation_discrepancy as implementation_discrepancy
     import autocode_milestone_replan as replan
     import autocode_package_writes as package_writes
     import autocode_protected_oracles as protected_oracles
@@ -193,6 +195,10 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
             implementation=impl, validation=validation, unresolved_findings=state.get("unresolved_findings", [])
         )
     if stage in ("tester", "review_checkpoint", "review_completion"):
+        # A person's report that the code departs from the approved plan: an allegation to check (#3045).
+        reported = implementation_discrepancy.context(state, stage)
+        if reported:
+            base["implementation_discrepancies"] = reported
         attached_source = review_source.context(state, current)
         if attached_source:
             base["review_source"] = attached_source

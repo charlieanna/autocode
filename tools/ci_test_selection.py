@@ -209,6 +209,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tests/opencode_fixture_cli.py", ("tests.test_quota_worker",)),
     ("tools/prompts/fragments/stage-context/context-packet-04.md", ("tests.test_capture_event_contract",)),
     ("tools/prompts/fragments/stage-context/builder-source.md", ("tests.test_review_source",)),
+    (
+        "tools/prompts/fragments/stage-context/implementation-discrepancy.md",
+        ("tests.test_implementation_discrepancy",),
+    ),
     ("tools/autocode_test_examples.py", ("tests.test_builder_source_examples_cli",)),
     (
         "tools/prompts/fragments/test-examples/",
@@ -350,6 +354,8 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("scenarios/harness/clarifying_requirements_provider.py", ("tests.test_requirements_review",)),
     ("tools/autocode_requirements_handoff.py", ("tests.test_requirements_citation_cli",)),
     ("scripts/homebrew_formula.py", ("tests.test_homebrew_formula",)),
+    ("scripts/run_linux_fake.py", ("tests.test_linux_fake_container",)),
+    ("scripts/linux-fake.Dockerfile", ("tests.test_linux_fake_container",)),
     ("scripts/update-vscode-extension.sh", ("tests.test_update_vscode_extension",)),
     ("scripts/publish-vscode-extension.sh", ("tests.test_publish_vscode_extension",)),
     (".github/workflows/publish-vscode-extension.yml", ("tests.test_publish_vscode_extension",)),

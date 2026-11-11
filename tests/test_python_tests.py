@@ -310,3 +310,178 @@ class UnittestResultParserTests(unittest.TestCase):
             self.assertIsNotNone(python_which)
             self.assertEqual(Path(sys.executable).resolve(), Path(python_which).resolve())
             self.assertIsNone(shutil.which("python3", path=env["PATH"]))
+
+
+# An installed editable finder, as setuptools writes one for ``package-dir``
+# mappings: appended to sys.meta_path, so it answers only after PathFinder fails.
+EDITABLE_FINDER = """
+import importlib.util
+import sys
+from importlib.machinery import PathFinder
+
+MAPPING = {mapping!r}
+
+
+class EditableFinder:
+    @classmethod
+    def find_spec(cls, fullname, path=None, target=None):
+        if fullname in MAPPING:
+            root = MAPPING[fullname]
+            return importlib.util.spec_from_file_location(
+                fullname, root + "/__init__.py", submodule_search_locations=[root]
+            )
+        parent = fullname.rpartition(".")[0]
+        if parent in MAPPING:
+            return PathFinder.find_spec(fullname, path=[MAPPING[parent]])
+        return None
+
+
+sys.meta_path.append(EditableFinder)
+"""
+
+STATUS_TEST = """import unittest
+from pathlib import Path
+
+from shop.status import running
+
+
+class Status(unittest.TestCase):
+    def test_running(self):
+        self.assertEqual("RUNNING", running({{}})["status"])
+
+    def test_imported_from_this_tree(self):
+        import shop.status
+
+        self.assertTrue(Path(shop.status.__file__).resolve().is_relative_to(Path({tree!r}).resolve()))
+"""
+
+
+def status_module(value):
+    return f"def running(state):\n    state['status'] = {value!r}\n    return state\n"
+
+
+class MappedPackageImportTests(unittest.TestCase):
+    """A scratch tree's mapped package must not import from the editable checkout (#2988)."""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        tempdir = mock.patch.object(tempfile, "tempdir", str(self.root / "tmp"))
+        (self.root / "tmp").mkdir()
+        tempdir.start()
+        self.addCleanup(tempdir.stop)
+
+    def project(self, name, layout, status="RUNNING"):
+        """A checkout whose package ``shop`` lives in ``layout`` (tools, src/shop or shop)."""
+        tree = self.root / name
+        package = tree / layout
+        package.mkdir(parents=True)
+        (package / "__init__.py").write_text("")
+        (package / "status.py").write_text(status_module(status))
+        (tree / "tests").mkdir()
+        (tree / "tests" / "__init__.py").write_text("")
+        (tree / "tests" / "test_status.py").write_text(STATUS_TEST.format(tree=str(tree)))
+        if layout == "tools":
+            (tree / "pyproject.toml").write_text('[tool.setuptools]\npackage-dir = {shop = "tools"}\n')
+        return tree
+
+    def editable_install(self, checkout, layout):
+        """An inherited path entry whose startup hook installs the checkout's editable finder."""
+        site = self.root / f"site-{checkout.name}"
+        site.mkdir()
+        (site / "sitecustomize.py").write_text(EDITABLE_FINDER.format(mapping={"shop": str(checkout / layout)}))
+        return {"PYTHONPATH": str(site)}
+
+    def suite(self, tree, inherited):
+        log = self.root / f"{tree.name}-{len(list(self.root.glob('*.log')))}.log"
+        receipt = verify.run_command(f"{sys.executable} -m unittest tests.test_status -v", tree, log, env=inherited)
+        return receipt["exit_code"], Path(receipt["output"]).read_text()
+
+    def test_mapped_package_imports_scratch_bytes_and_a_broken_candidate_fails(self):
+        original = self.project("checkout", "tools")
+        inherited = self.editable_install(original, "tools")
+        base = self.project("base", "tools")
+        candidate = self.project("candidate", "tools")
+        for tree in (base, candidate):
+            code, output = self.suite(tree, inherited)
+            self.assertEqual(0, code, output)
+        (candidate / "tools" / "status.py").write_text(status_module("BROKEN"))
+        code, output = self.suite(candidate, inherited)
+        self.assertNotEqual(0, code, output)
+        self.assertIn("'BROKEN'", output)
+        self.assertEqual(status_module("RUNNING"), (original / "tools" / "status.py").read_text())
+        self.assertEqual({"__init__.py", "status.py"}, {p.name for p in (candidate / "tools").iterdir()})
+
+    def test_root_and_src_layouts_import_scratch_bytes(self):
+        for layout in ("shop", "src/shop"):
+            with self.subTest(layout=layout):
+                slug = layout.replace("/", "-")
+                original = self.project(f"checkout-{slug}", layout)
+                inherited = self.editable_install(original, layout)
+                candidate = self.project(f"candidate-{slug}", layout, status="BROKEN")
+                code, output = self.suite(candidate, inherited)
+                self.assertNotEqual(0, code, output)
+                self.assertIn("'BROKEN'", output)
+                self.assertNotIn("test_imported_from_this_tree ... FAIL", output)
+
+    def test_package_dirs_reads_pyproject_tables_and_setup_cfg(self):
+        tree = self.root / "declared"
+        tree.mkdir()
+        (tree / "pyproject.toml").write_text('[tool.setuptools.package-dir]\nshop = "tools"\n"" = "lib"\n')
+        self.assertEqual({"shop": "tools", "": "lib"}, test_environment.package_dirs(tree))
+        (tree / "pyproject.toml").write_text("[project]\nname = 'shop'\n")
+        (tree / "setup.cfg").write_text("[options]\npackage_dir =\n    = lib\n    shop = tools\n")
+        self.assertEqual({"": "lib", "shop": "tools"}, test_environment.package_dirs(tree))
+        (tree / "pyproject.toml").write_text("not toml [")
+        (tree / "setup.cfg").write_text("not an ini")
+        self.assertEqual({}, test_environment.package_dirs(tree))
+
+    def test_scratch_import_roots_bind_only_mappings_the_tree_cannot_satisfy(self):
+        tree = self.root / "mapped"
+        for directory in ("tools", "lib", "same", "src/inner", "tools/sub"):
+            (tree / directory).mkdir(parents=True)
+        (self.root / "outside").mkdir()
+        (tree / "pyproject.toml").write_text(
+            "[tool.setuptools.package-dir]\n"
+            '"" = "lib"\nshop = "tools"\nsame = "same"\ninner = "src/inner"\n'
+            '"shop.sub" = "tools/sub"\nescape = "../outside"\nmissing = "gone"\n'
+        )
+        shims = self.root / "shims"
+        roots = test_environment.scratch_import_roots(tree, root=shims)
+        self.assertEqual(str(tree.resolve() / "lib"), roots[0])
+        shim = Path(roots[1])
+        self.assertEqual(2, len(roots))
+        self.assertEqual(["shop"], sorted(p.name for p in shim.iterdir()))
+        self.assertEqual(str((tree / "tools").resolve()), os.readlink(shim / "shop"))
+        self.assertEqual(roots, test_environment.scratch_import_roots(tree, root=shims))
+        (shim / "shop").unlink()
+        (shim / "shop").symlink_to(self.root / "outside")
+        self.assertEqual(roots, test_environment.scratch_import_roots(tree, root=shims))
+        self.assertEqual(str((tree / "tools").resolve()), os.readlink(shim / "shop"))
+
+        path = verify.test_environment(tree, {})["PYTHONPATH"].split(os.pathsep)
+        self.assertEqual([str(tree / "src"), str(tree), str(tree.resolve() / "lib")], path[:3])
+        self.assertEqual(str((tree / "tools").resolve()), os.readlink(Path(path[3], "shop")))
+
+    def test_an_unbindable_mapped_package_refuses_the_environment(self):
+        tree = self.project("refused", "tools")
+        shims = self.root / "shims"
+        shims.mkdir()
+        roots = test_environment.scratch_import_roots(tree, root=shims)
+        link = Path(roots[0]) / "shop"
+        link.unlink()
+        link.mkdir()
+        with self.assertRaisesRegex(ValueError, "Cannot bind mapped packages"):
+            test_environment.scratch_import_roots(tree, root=shims)
+        self.assertEqual([], test_environment.scratch_import_roots(self.project("plain", "shop"), root=shims))
+
+    def test_runtime_identity_does_not_hash_the_workspace_through_its_shim(self):
+        tree = self.project("identity", "tools")
+        outside = self.root / "deps"
+        outside.mkdir()
+        shim = Path(test_environment.scratch_import_roots(tree)[0]).resolve()
+        paths = [tree.resolve() / "tools", shim, outside.resolve()]
+        self.assertEqual({outside.resolve()}, test_environment.external_roots(paths, tree))
+        plain = self.project("identity-plain", "shop")
+        self.assertEqual({shim, outside.resolve()}, test_environment.external_roots(paths[1:], plain))

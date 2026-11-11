@@ -9,13 +9,17 @@ warning, and the doctor's runner check.
 """
 
 import json
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import autocode_doctor as doctor
 import autocode_run_records as records
 import autocode_util as util
+import autocode_verification_copy as copies
 
 
 def commit_source_returning(value):
@@ -129,6 +133,81 @@ def fake_runner():
             return FakeRunner()
 
     return FakeRunner()
+
+
+class SourceCommitObservationTests(unittest.TestCase):
+    """#3039: the provenance probe only reads; it never rewrites the checkout's index.
+
+    A ``git status`` that finds stale stat data refreshes the index unless optional
+    locks are off. Run from an authenticated verification copy, that rewrite made
+    every later capture refuse with ``Verification input changed: .git/index``.
+    """
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.home = Path(temporary.name).resolve()
+        self.root = self.home / "autocode"
+        (self.root / "tools").mkdir(parents=True)
+        (self.root / "pyproject.toml").write_text('[project]\nname = "autocode-supervisor"\nversion = "0.0.1"\n')
+        (self.root / "tools/autocode_util.py").write_text("# marker\n")
+        (self.root / "tools/other.py").write_text("# other\n")
+        self.git_env = {
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "HOME": str(self.home),
+        }
+        self.git("init", "-q")
+        self.git("config", "maintenance.auto", "false")
+        self.git("config", "gc.auto", "0")
+        self.git("add", "-A")
+        self.git(
+            "-c", "user.name=T", "-c", "user.email=t@localhost", "-c", "commit.gpgsign=false", "commit", "-qm", "c"
+        )
+        self.head = self.git("rev-parse", "--short", "HEAD").strip()
+        self.run_dir = self.root / ".autocode/runs/fixture"
+        self.run_dir.mkdir(parents=True)
+
+    def git(self, *args, root=None):
+        env = {**os.environ, **self.git_env}
+        return subprocess.run(
+            ["git", *args], cwd=root or self.root, env=env, check=True, capture_output=True, text=True, timeout=30
+        ).stdout
+
+    def probe(self, checkout):
+        # The caller asks for optional locks; the reader must still not take them.
+        with (
+            mock.patch.dict(os.environ, {**self.git_env, "GIT_OPTIONAL_LOCKS": "1"}),
+            mock.patch.object(util, "__file__", str(checkout / "tools/autocode_util.py")),
+        ):
+            return util.source_commit()
+
+    @staticmethod
+    def make_stat_stale(checkout, name):
+        path = checkout / name
+        stat = path.stat()
+        os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns - 3_600_000_000_000))
+
+    def test_a_probe_in_a_verification_copy_leaves_its_sealed_index_valid(self):
+        allocation = copies.allocate(self.root, self.run_dir)
+        tree = Path(allocation["tree"])
+        self.make_stat_stale(tree, "tools/autocode_util.py")
+        copies.execution(allocation["manifest"], allocation["sha256"], self.root)
+        index = (tree / ".git/index").read_bytes()
+
+        self.assertEqual(self.head, self.probe(tree))
+
+        copies.execution(allocation["manifest"], allocation["sha256"], self.root)
+        self.assertEqual(index, (tree / ".git/index").read_bytes())
+
+    def test_a_modified_checkout_is_reported_without_rewriting_its_index(self):
+        (self.root / "tools/autocode_util.py").write_text("# changed marker\n")
+        self.make_stat_stale(self.root, "tools/other.py")
+        index = (self.root / ".git/index").read_bytes()
+
+        self.assertEqual(self.head + "+modified", self.probe(self.root))
+
+        self.assertEqual(index, (self.root / ".git/index").read_bytes())
 
 
 if __name__ == "__main__":

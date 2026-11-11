@@ -685,13 +685,26 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
         # A held Resolver route changes only beside an explicitly scoped retry.
         # Validate against this locked invocation's old settings before saving
         # any selected settings, so a rejected retry cannot strand the packet.
+        # A model named for a Resolver attempt its provider stopped on quota or a
+        # content filter is not that: it is the route assignment the stop asks for,
+        # recorded below, and the packet's binding undoes it (#3159).
         if (
             not refusal
             and state.get("next_stage") == "resolve"
             and resolver_recovery.recovery_limits.held_request(state, "resolve").get("novelty_hold")
             and (args.resolver_model or args.resolver_reasoning_effort)
+            and quota_route.changed_role(state, state["settings"], settings, failure_status=support.failure_status)
+            != "resolver"
         ):
-            if not (args.resume_paused and args.retry_failed_stage):
+            unavailable = resolver_recovery.recovery_limits.scoped_retry_refusal(state, resolver_human.current(state))
+            if unavailable:
+                # Never name a retry this state refuses (#3159): the two refusals would each require the other.
+                refusal = (
+                    "A held Resolver's model changes only with its scoped retry, which cannot be given now ("
+                    + unavailable
+                    + "); nothing was saved"
+                )
+            elif not (args.resume_paused and args.retry_failed_stage):
                 refusal = (
                     "A held Resolver model change requires --resume-paused --retry-failed-stage; nothing was saved"
                 )

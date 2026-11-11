@@ -195,7 +195,7 @@ read-only `investigate_stuck` stage (`tools/autocode_stuck_job.py`) instead of s
 | Pause | After the Investigator |
 | --- | --- |
 | `PAUSED_REPEATED_FAILURE`, `PAUSED_INVALID_OUTPUT` | retry runs the stage once more; its failure history stays, so the same failure again extends the run of identical failures and a different one starts a new run (a spent report repair is archived). A Resolver repair's Builder retry continues from the in-scope work the rejected attempt kept, and is the one attempt recovery novelty admits for it ([Evidence-bound repair](execution.md#evidence-bound-repair)) |
-| `PAUSED_PLANNING_BUDGET` | retry grants one more review round (two calls from the challenge, one from the final review) |
+| `PAUSED_PLANNING_BUDGET` | retry grants one more review round (two calls from the challenge, one from the final review). A total you chose in this run with `--planning-review-call-limit` is never investigated or raised: the pause comes straight back to you (#3094) |
 | `PAUSED_NO_PROGRESS` | retry allows one more implementation batch |
 | `PAUSED_COMPLETION_REVIEW` | retry asks the Completion Reviewer once more |
 | `PAUSED_TIMEOUT_RECOVERY` | retry allows one more automatic recovery, as `--grant-recovery 1` would; the queued diagnosis itself is not held by the spent recovery budget |
@@ -460,7 +460,15 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.
   ref of a run whose directory is gone, after a day's grace. Each
   suite run may take as long as the run's tool-call limit, at least 900 seconds
   and with no limit when the run turned that limit off;
-  `settings.regression.test_timeout` overrides it. The new or changed tests
+  `settings.regression.test_timeout` overrides it. When the detected whole
+  suite does not finish on the original code within that limit, the proof
+  does not stop to ask for a longer limit or a narrower command: it runs
+  instead with the original tests nearest the change (changed tests the base
+  already holds, and base tests named after a changed file, such as
+  `test_calc.py` for `calc.py`), and records the decision, the timed-out command and
+  the reason as the proof's `suite_fallback`, a note and a review reason. A later
+  proof of the same run goes straight to those tests. An explicit
+  `--test-command` is never replaced. The new or changed tests
   must fail on the original code and pass on the current code, and every test
   that passed on base must still pass (not fail, be skipped or disappear). A
   repair that changes no test is proved by the tests the project already had:
