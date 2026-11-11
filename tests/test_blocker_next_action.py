@@ -10,6 +10,7 @@ the CLI path with real processes and the fake provider, no sleeps.
 import copy
 import json
 import shlex
+import subprocess
 import unittest
 
 import autocode as runner
@@ -488,6 +489,14 @@ class BlockerNextActionCLITests(unittest.TestCase):
     def status(self):
         return json.loads(self.launch(["--run-dir", str(self.run), "--status"], 0).stdout)["view"]
 
+    def client(self, args):
+        """``autocode ARGS`` exactly as a client runs a named argument array, with no added options."""
+        result = subprocess.run(
+            [*self.entry, *args], cwd=self.root, env=self.env, capture_output=True, text=True, timeout=240
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        return result
+
     def test_the_view_the_refusal_and_the_hold_all_name_the_way_forward(self):
         view = self.blocker_checkpoint()
         need = view["needs"]
@@ -583,6 +592,39 @@ class BlockerNextActionCLITests(unittest.TestCase):
         self.assertIsNone((revised.get("chat") or {}).get("input"), "the taken decision closes the offer")
         self.launch(["--run-dir", str(self.run), "--approve-goal", old_token, "--no-chat"], 2)
         self.launch(["--run-dir", str(self.run), "--feedback", "one correction per decision", "--no-chat"], 2)
+
+    def test_a_stage_model_change_keeps_the_blocker_question_and_its_reply(self):
+        # The #3145 "alongside" dead end: changing a stage's model while the Resolver's question
+        # was pending made the saved request stale, and the next save rebuilt it from the bare
+        # request without its diagnosis. The Resolver then deferred it to another investigation:
+        # the question and the chat's "Send recovery reply" disappeared. The request is restaged
+        # with its own evidence, so the same question is asked again and the reply is accepted.
+        before = self.blocker_checkpoint()
+        self.assertEqual("resolver_response", before["chat"]["input"]["kind"])
+        listed = json.loads(self.client(before["stage_models"]["next_command"]).stdout)
+        named = next(stage for stage in listed["stages"] if stage["id"] == "builder")["set"]["next_command"]
+        fill = {"MODEL": "gpt-6-astra", "EFFORT": "high"}
+        self.client([fill.get(word, word) for word in named])
+        after = self.status()
+        self.assertEqual("gpt-6-astra", after["routes"]["builder"]["model"])
+        need = after["needs"]
+        self.assertEqual(
+            ("WAITING_FOR_USER", "answer", "blocker"), (after["status"], need["kind"], need["resolver_scope"])
+        )
+        self.assertEqual(
+            [question["question"] for question in before["needs"]["questions"]],
+            [question["question"] for question in need["questions"]],
+        )
+        reply = after["chat"]["input"]
+        self.assertEqual(("resolver_response", "Send recovery reply"), (reply["kind"], reply["label"]))
+        self.assertIn(need["resolver_request_id"], reply["next_command"])
+        probe = self.root / "launches.jsonl"
+        self.env["AUTOCODE_REGISTRY_LAUNCH_PROBE"] = str(probe)
+        words = shlex.split(reply["next_command"])[1:]
+        self.launch([("Approved: correct AC1" if word == "MESSAGE" else word) for word in words] + ["--no-chat"], 0)
+        self.assertFalse(probe.exists(), "the reply launches no provider")
+        held = self.status()
+        self.assertEqual(("PAUSED_RESOLVER", "resume"), (held["status"], held["needs"]["kind"]))
 
     def test_the_advised_edit_goal_is_accepted_at_the_answered_blocker(self):
         # The stop reason names --edit-goal; the CLI used to refuse it here (#2434). It stays
