@@ -65,17 +65,18 @@ def _read(run_dir: Path, value: str) -> dict | None:
         fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
     except OSError:
         return None
+    handed = False  # once os.fdopen owns the descriptor, its handle closes it
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_PROOF_BYTES:
             return None
         with os.fdopen(fd, "rb") as handle:
-            fd = None
+            handed = True
             value = json.loads(handle.read(MAX_PROOF_BYTES + 1))
     except (OSError, ValueError):
         return None
     finally:
-        if fd is not None:
+        if not handed:
             os.close(fd)
     return value if isinstance(value, dict) else None
 
