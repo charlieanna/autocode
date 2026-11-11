@@ -228,6 +228,12 @@ a run instead; a `provider/model` id such as `openai/gpt-6-sol` runs it through 
 Codex run. Guidance goes into the retried stage's prompt: for planning, every planning stage until the
 plan is presented; otherwise that stage until it completes.
 
+The Investigator may also name up to three facts about the repository that the next task would
+otherwise pay to discover again (`project_notes`: a reproduce command, a flaky test, a build quirk).
+They are kept in the project's `.autocode/project-notes.json` only when its probe showed the diagnosed
+cause, with that observation as their receipt, and a later task's Requirements and Planner get them as
+advisory context ([Project notes](project-notes.md)).
+
 A retry is checked, not trusted. The Investigator states the diagnosed cause as a
 plain-English `example` ("Given the Planner's report cited `docs/bugs/cent-drift.json (see
 note)`; when the runner validated `code_refs`; then it rejected the path as missing") and,
@@ -846,7 +852,11 @@ sit inside one directory below the root that has its own manifest (`package.json
 a suite detected there runs them, they run with that suite from that directory, as
 if the run had named it with `--package`. The innermost such directory wins. The
 regression proof does this only when every changed code file is inside that
-directory; a code change elsewhere keeps the root's suite. A Node package in a
+directory; a code change elsewhere keeps the root's suite. When that suite's
+runner chooses tests by kind (pytest, unittest, Node, Go, Jest, Vitest, Mocha or
+RSpec) and runs none of the changed tests, the proof is unverified and names the
+tests and the suite that cannot run them; it never reports that they pass on the
+original code, which it did not observe (#2889). A Node package in a
 Python repository (this repository's `vscode-extension/`) is the case it was
 added for: its tests were handed to the root's pytest, which cannot run them, and
 the run paused for a `--test-command`.

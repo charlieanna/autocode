@@ -129,6 +129,7 @@ def main():
             example=diagnosis,
             probe=probe,
             counterexample=counterexample,
+            project_notes=[],
             untestable="" if probe else "An empty source diff cannot distinguish the cause.",
             failure_class="execution" if choice == "stale" else choice,
             failure_id="stale-incident" if choice == "stale" else failure["failure_id"],

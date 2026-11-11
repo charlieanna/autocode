@@ -75,6 +75,7 @@ try:
     from . import autocode_model_identity as model_identity
     from . import autocode_planning_advice as recovery_binding
     from . import autocode_progressive_state as progressive
+    from . import autocode_project_notes_lifecycle as project_notes
     from . import autocode_recovery_accounting as recovery_accounting
     from . import autocode_roles as roles
     from . import autocode_run_status as run_status
@@ -88,6 +89,7 @@ except ImportError:
     import autocode_model_identity as model_identity
     import autocode_planning_advice as recovery_binding
     import autocode_progressive_state as progressive
+    import autocode_project_notes_lifecycle as project_notes
     import autocode_recovery_accounting as recovery_accounting
     import autocode_roles as roles
     import autocode_run_status as run_status
@@ -165,6 +167,9 @@ SCHEMA = {
         "recommendation": {"type": "string", "enum": ["retry", "pause"]},
         "user_question": TEXT,
         "evidence_refs": TEXTS,
+        # Facts about the repository the next task would otherwise pay to discover again (#2943). Not
+        # required; kept only when this report's probe shows its cause (autocode_project_notes_lifecycle).
+        "project_notes": project_notes.REPORT_SCHEMA,
     },
 }
 
@@ -193,7 +198,12 @@ def schema(state: RunState):
 EVIDENCE_RULES = prompts.get("fragments/stuck-job/evidence-rules.md")
 REPAIR_RULES = prompts.get("fragments/stuck-job/repair-rules.md") + EVIDENCE_RULES
 
-PROMPT = prompts.get("stuck-investigation-02.md") + EVIDENCE_RULES + prompts.get("stuck-investigation.md")
+PROMPT = (
+    prompts.get("stuck-investigation-02.md")
+    + project_notes.INVESTIGATOR_RULE
+    + EVIDENCE_RULES
+    + prompts.get("stuck-investigation.md")
+)
 
 
 def now() -> str:
@@ -471,6 +481,8 @@ def packet(state: RunState, state_path, inventory: dict | None = None, engine: s
         "current_task": state.get("current_task"),
         "saved_answers": state.get("answers", {}),
         **({"builder_failure": request["failure_evidence"]} if request.get("mode") == "builder_failure" else {}),
+        # What earlier runs learned about this repository; advisory, never authority (#2943).
+        **({"project_notes": notes} if (notes := project_notes.context(state)) else {}),
     }
 
 
@@ -647,6 +659,9 @@ def apply(
         output=record.get("output"),
         finished_at=now(),
     )
+    noted = project_notes.proposals(value, shown, entry, run_dir=run_dir)
+    if noted:
+        entry["project_notes"] = noted
     if request.get("mode") == "builder_failure":
         entry.update(outcome="classified", failure_class=value["failure_class"], failure_id=value["failure_id"])
         if value["recommendation"] == "pause" or value["cause"] == "needs_user":

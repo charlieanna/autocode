@@ -100,6 +100,12 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
         except ImportError:
             import autocode_project_memory_lifecycle as project_memory
         base["project_memory"] = project_memory.context(state)
+    try:
+        from . import autocode_project_notes_lifecycle as project_notes
+    except ImportError:
+        import autocode_project_notes_lifecycle as project_notes
+    if notes := project_notes.for_stage(state, stage):
+        base["project_notes"] = notes  # what earlier runs learned about the repository (#2943)
     current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=support.snapshot)
     base.update(
         workspace=state["workspace"],
@@ -336,6 +342,8 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
                 citation_rule = source_trace.rule(records)
         if stage in ("plan_task", "review_completion"):
             instruction += support.REVIEW_DECISIONS
+    if base.get("project_notes"):
+        instruction += project_notes.RULE
     # No previous transcripts or history array is forwarded; exact goals are never truncated.
     milestone_policy = support.MILESTONE_POLICY
     if checkpoints.enabled(state):
