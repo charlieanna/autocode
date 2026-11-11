@@ -42,6 +42,10 @@ NOT_APPLIED = "Stored during an open correction; not applied to the current cand
 # finish caught between the worker exiting and its report landing, so a chat log waits for a second
 # reading that says the same before writing it as history (#2608).
 STOP_CLAIM = "stopped without saving a report"
+# The stage in which the Tester writes the approved tests before the Builder starts
+# (autocode_acceptance_tests_job.STAGE; kept literal so this module imports nothing from AutoCode).
+# "Tester working" there read as a Tester checking finished work while no task was done yet.
+TESTS_FIRST_STAGE = "write_acceptance_tests"
 
 
 def claims_a_stop(headline) -> bool:
@@ -115,7 +119,8 @@ def progress(
         # the Tester is already queued (#1711).
         headline = f"{stage} finished · Next: {following}" if following else f"{stage} finished"
     elif stage and state.get("active_stage"):
-        headline = f"{stage} working"
+        writing_first = _mapping(state.get("active_stage")).get("stage") == TESTS_FIRST_STAGE
+        headline = f"{stage} writing tests first" if writing_first else f"{stage} working"
     elif _unchosen(state):
         # A new run's first save holds the default next stage until the run chooses its first one,
         # a moment later; naming it put "Next: Planner" ahead of Requirements in the chat's log.

@@ -281,6 +281,18 @@ class TaskAndHeadlineTests(unittest.TestCase):
         self.assertEqual("Builder finished", view["headline"])
         self.assertNotIn("working", [item["state"] for item in view["tasks"]["items"]])
 
+    def test_a_tester_writing_tests_before_the_builder_says_so(self):
+        """2026-11-11 live run: "Tester working · 0 of 1 task done" while the Tester wrote the approved
+        tests before any Builder ran read as a Tester checking finished work that never came."""
+        writing = state(active_stage={"stage": "write_acceptance_tests"})
+        view = project(writing, stage="Tester")
+        self.assertEqual("Tester writing tests first", view["headline"])
+        self.assertTrue(view["line"].startswith("Tester writing tests first · 0 of 3 tasks done"))
+        self.assertEqual("Tester", view["stage"])
+        checking = project(state(active_stage={"stage": "tester"}), stage="Tester")
+        self.assertEqual("Tester working", checking["headline"])
+        self.assertEqual("Tester finished", project(writing, stage="Tester", finished=True)["headline"])
+
     def test_a_finished_stage_names_the_job_that_comes_next(self):
         # A finished Builder must not keep the headline across a Builder→Tester handoff (#1711).
         view = project(state(), finished=True, following="Tester")
