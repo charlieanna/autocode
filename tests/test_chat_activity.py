@@ -139,6 +139,15 @@ class ReadTests(unittest.TestCase):
             [(row["text"], row["summary"]) for row in activity.read(self.events, "/work")],
         )
 
+    def test_a_web_search_without_a_description_uses_the_tool_fallback(self):
+        write(self.events, [codex("item.completed", "c1", type="web_search", query="psutil wheels")])
+        with patch.object(activity, "_describe", return_value=None):
+            [event] = activity.read(self.events, "/work")
+        self.assertEqual(
+            ("tool", "psutil wheels", "Used psutil wheels"),
+            (event["kind"], event["text"], event["summary"]),
+        )
+
     def test_only_the_newest_events_are_kept_and_unreadable_rows_are_skipped(self):
         rows = [
             codex("item.completed", f"i{n}", type="command_execution", command=f"cmd {n}", exit_code=0)

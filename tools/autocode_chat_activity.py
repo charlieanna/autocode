@@ -150,7 +150,8 @@ def item_event(row: dict, workspace) -> tuple[str, dict] | None:
         return str(item["id"]), {**_edit(paths, verbs), "status": state}
     if kind == "web_search":
         found = _describe("websearch", {"query": item.get("query")}, workspace)
-        return str(item["id"]), {"kind": "tool", "text": found[0], "summary": found[1], "status": state}
+        if found is not None:
+            return str(item["id"]), {"kind": "tool", "text": found[0], "summary": found[1], "status": state}
     if kind in TOOL_ITEMS:
         name = item.get("name") or item.get("tool") or item.get("query")
         if kind in ("tool_call", "function_call") and isinstance(name, str):
