@@ -94,6 +94,49 @@ class FitTests(unittest.TestCase):
         self.assertEqual(("fitted", "high"), (fitted.reason, fitted.effort))
 
 
+class RouteAnswerTests(unittest.TestCase):
+    """A route answer to a model the person's saved level was not named for moves that level (#3120)."""
+
+    def test_a_rerouted_persons_level_moves_to_the_nearest_declared_variant(self):
+        for origin in (route_fit.STAGE_CHOICE, route_fit.USER_EXPLICIT):
+            settings = settings_for("requirements", effort="medium", origin=origin)
+            fitted = route_fit.fit(settings, "requirements", rerouted=True)
+            self.assertEqual(
+                ("fitted", "high", "medium", False),
+                (fitted.reason, fitted.effort, fitted.from_effort, fitted.explicit),
+            )
+            with self.assertRaises(route_fit.EffortUnsupported, msg="without the reroute it is still refused"):
+                route_fit.fit(settings, "requirements")
+
+    def test_the_move_is_recorded_with_its_model_and_named_once_at_the_matching_launch(self):
+        settings = settings_for("requirements", effort="medium", origin=route_fit.STAGE_CHOICE)
+        fitted = route_fit.fit(settings, "requirements", rerouted=True)
+        route_fit.record(settings, "requirements", fitted, cause=route_fit.ROUTE_ANSWER)
+        glm = "zai-coding-plan/glm-5.3"
+        self.assertEqual(
+            {"from": "medium", "to": "high", "reason": "route_answer", "model": glm},
+            settings["effort_fits"]["requirements"],
+        )
+        self.assertEqual(
+            {
+                "level": "high",
+                "saved": "medium",
+                "model": glm,
+                "reason": "route_answer_fit",
+                "text": f"{glm} does not offer medium, so this stage runs at high, the nearest level it offers",
+            },
+            route_fit.answer_choice(settings, "requirements", glm, "high"),
+        )
+        self.assertIsNone(route_fit.answer_choice(settings, "requirements", "other/model", "high"), "another model")
+        self.assertIsNone(route_fit.answer_choice(settings, "requirements", glm, "low"), "another level")
+        self.assertIsNone(route_fit.answer_choice(settings, "builder", glm, "high"), "another role")
+        route_fit.record(settings, "requirements", fitted)
+        self.assertNotIn("model", settings["effort_fits"]["requirements"], "a launch fit names no model")
+        self.assertIsNone(route_fit.answer_choice(settings, "requirements", glm, "high"), "not a route answer's")
+        settings["effort_fits"]["requirements"] = {"reason": "route_answer", "model": glm, "to": "high"}
+        self.assertIsNone(route_fit.answer_choice(settings, "requirements", glm, "high"), "no saved level")
+
+
 class LaunchTests(unittest.TestCase):
     def test_a_fitted_move_is_recorded_at_the_one_launch_boundary(self):
         settings = settings_for(effort="medium")
