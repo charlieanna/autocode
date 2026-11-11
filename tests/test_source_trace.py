@@ -680,10 +680,28 @@ class SentenceIdTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, r"without quoting it verbatim \(no such sentence id\)"):
             trace.check_citations(draft, self.records)
 
-    def test_two_ids_for_one_sentence_are_the_duplicate_citation_they_resolve_to(self):
+    def test_two_names_for_one_sentence_merge_into_one_citation(self):
+        # #3119: an id and the sentence's text, or one id twice, are one citation, not a refused repeat.
+        for quotes in (["task:0#2", self.SECOND], [self.SECOND, "task:0#2"], ["task:0#2", "task:0#2"]):
+            with self.subTest(quotes=quotes):
+                self.assertEqual([self.SECOND], self.resolved(*quotes))
+        self.assertEqual([self.SECOND, self.FIRST], self.resolved("task:0#2", "task:0#1", self.SECOND))
         draft = body([criterion("C1", "A criterion", ["task:0#2", self.SECOND])])
         trace.resolve_sentence_ids(draft, self.records)
-        with self.assertRaisesRegex(ValueError, "twice"):
+        trace.check_citations(draft, self.records)
+
+    def test_only_well_formed_repeats_merge(self):
+        extra = {"source_id": "task:0", "quote": self.SECOND, "note": "x"}
+        draft = body([criterion("C1", "A criterion", ["task:0#2"])])
+        draft["acceptance_criteria"][0]["sources"].append(extra)
+        trace.resolve_sentence_ids(draft, self.records)
+        self.assertEqual(2, len(draft["acceptance_criteria"][0]["sources"]))
+        with self.assertRaisesRegex(ValueError, "hold only source_id and quote"):
+            trace.check_citations(draft, self.records)
+
+    def test_an_unresolved_repeat_is_still_refused(self):
+        draft = body([criterion("C1", "A criterion", [self.SECOND, self.SECOND])])
+        with self.assertRaisesRegex(ValueError, "twice with one quote"):
             trace.check_citations(draft, self.records)
 
 
