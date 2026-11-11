@@ -78,7 +78,7 @@ _BLOCK_BOUNDARY = re.compile(r"\r?\n[ \t]*\r?\n|(?<=\n)(?=[ \t]*(?:[-*+]|\d+[.)]
 _LIST_MARKER = re.compile(r"(?:[-*+]|\d+[.)])")
 
 
-def _without_label_headings(text):
+def _without_label_headings(text, *, checklist=False):
     out = []
     for line in str(text or "").splitlines():
         match = _HEADING.match(line)
@@ -86,9 +86,15 @@ def _without_label_headings(text):
             words = [word.strip(".,;:!?()\"'").lower() for word in match.group(1).split()]
             if all(word in _CUE_WORDS or word in _LABEL_WORDS for word in words if word):
                 continue
-            # Keep the heading's source text as-is (#3054): a citation must resolve
-            # to a verbatim substring of the task, and `## Why` is what the task holds.
-            line = line.rstrip()
+            if checklist:
+                # The coverage checklist shows a substantive heading as a clean sentence: its text with a
+                # final period, so it never fuses with the next sentence (autocode_requirement_quotes.ground
+                # maps a quote of it back to the source's own characters).
+                line = match.group(1).rstrip(" .") + "."
+            else:
+                # Keep the heading's source text as-is (#3054): a citation must resolve
+                # to a verbatim substring of the task, and `## Why` is what the task holds.
+                line = line.rstrip()
         out.append(line)
     return "\n".join(out)
 
@@ -102,8 +108,11 @@ def _outside_fences(text):
     return [*pieces, text[start:]]
 
 
-def sentences(text):
-    """Every sentence in text, cued or not; heading labels and fenced blocks are left out."""
+def sentences(text, *, checklist=False):
+    """Every sentence in text, cued or not; heading labels and fenced blocks are left out.
+
+    ``checklist`` renders a substantive heading as the coverage checklist shows it (``cue_sentences``);
+    otherwise it stays the source's own text, as a citation needs it."""
     # A program workstream's brief quotes the whole parent plan as a fenced JSON block; a live skeleton's
     # Requirements were rejected three times for not quoting other workstreams' notes from it (2026-10-06).
     # A block also ends the sentence before it: joined to the text after it, that sentence appeared nowhere
@@ -112,14 +121,14 @@ def sentences(text):
         part
         for piece in _outside_fences(str(text or ""))
         for block in _BLOCK_BOUNDARY.split(piece)
-        for part in re.split(r"(?<=[.!?])\s+", _without_label_headings(block).strip())
+        for part in re.split(r"(?<=[.!?])\s+", _without_label_headings(block, checklist=checklist).strip())
     ]
     return [part.strip() for part in parts if part.strip() and not _LIST_MARKER.fullmatch(part.strip())]
 
 
 def cue_sentences(text):
     """Sentences carrying a requirement cue; heading labels and fenced blocks are never obligations."""
-    return [part for part in sentences(text) if CUE.search(part)]
+    return [part for part in sentences(text, checklist=True) if CUE.search(part)]
 
 
 def _task_sources(state: RunState):
