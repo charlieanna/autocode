@@ -343,6 +343,14 @@ starts, AutoCode checks the picks again and the run starts with them; once it ha
 started they are listed under Models & usage like any started chat's models
 ([Changing a new chat's models](models.md#changing-a-new-chats-models)).
 
+The **Models** chip under the message box does the same from the chat box: choose
+a stage, then one of the models AutoCode offers it, then a level. On a new chat it
+changes that chat's pick (the chip counts the stages changed); on a started chat it
+changes that chat's own stage from its next launch, through the list the chat's
+status names, and is greyed out with the reason while a stage is working. A model
+the stage may not run beside the others is not offered, and AutoCode checks the
+pick again either way. An AutoCode without per-chat models shows no chip.
+
 ### No Kilo or OpenCode installed
 
 The **AutoCode · Direct connection** card is always available in Connections.

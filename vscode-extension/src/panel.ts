@@ -749,9 +749,10 @@ const METER_STYLES = `
   .chat-model .now { opacity: .75; overflow-wrap: anywhere; }
   .chat-model.picked .now { opacity: 1; color: var(--vscode-textLink-foreground); }
   .chat-model .pick { display: flex; gap: 4px; margin-top: 2px; }
-  .chat-model select { min-width: 0; flex: 1 1 auto; max-width: 100%; background: var(--vscode-dropdown-background);
+  /* Not the form-wide width: 100%, which left the level the whole row and squeezed the model dropdown to nothing. */
+  .chat-model select { min-width: 0; flex: 1 1 0; width: auto; margin-top: 0; max-width: 100%; background: var(--vscode-dropdown-background);
                        color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border); font-size: .72rem; }
-  .chat-model select.level { flex: 0 0 auto; }
+  .chat-model select.level { flex: 0 0 auto; width: auto; }
   #chat-models .chat-models-error { color: var(--vscode-errorForeground); margin: 2px 0; }
   #stages-head { display: flex; justify-content: space-between; align-items: baseline; }
   .stages-title { font-weight: 600; text-transform: uppercase; letter-spacing: .05em; opacity: .75; font-size: .7rem; }
@@ -827,6 +828,7 @@ const ICONS = {
   panel: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2" /><path d="M15 4.5v15" /></svg>`,
   plug: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3.5v4M15 3.5v4M6.5 7.5h11v3.5a5.5 5.5 0 0 1-11 0V7.5zM12 16.5v4" /></svg>`,
   route: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2.25" /><circle cx="18" cy="18" r="2.25" /><path d="M8.25 6H14a3.5 3.5 0 0 1 0 7h-4a3.5 3.5 0 0 0 0 7h5.75" /></svg>`,
+  chip: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5" /><path d="M10 3.5v3.5M14 3.5v3.5M10 17v3.5M14 17v3.5M3.5 10H7M3.5 14H7M17 10h3.5M17 14h3.5" /></svg>`,
   tune: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M19 7h1M4 17h1M11 17h9" /><circle cx="16" cy="7" r="2.25" /><circle cx="8" cy="17" r="2.25" /></svg>`,
 };
 
@@ -912,7 +914,7 @@ ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messag
 <label for="message" id="send-hint">Message AutoCode</label>
 <textarea id="message" aria-label="Message AutoCode" aria-describedby="keyboard-hint" placeholder="Ask AutoCode to work on this project…"></textarea>
 <div id="chat-error" role="alert"></div>
-<div class="actions"><button type="button" id="engine-picker" class="chip" title="Engine for new chats" aria-label="Engine for new chats">${ICONS.tune}<span id="engine-name">opencode</span></button><button type="button" id="mode-picker" class="chip" title="Run mode for new chats" aria-label="Run mode for new chats" hidden>${ICONS.route}<span id="mode-name"></span></button><span id="keyboard-hint" class="keyboard-hint">Enter to send · Shift+Enter for newline</span>
+<div class="actions"><button type="button" id="engine-picker" class="chip" title="Engine for new chats" aria-label="Engine for new chats">${ICONS.tune}<span id="engine-name">opencode</span></button><button type="button" id="mode-picker" class="chip" title="Run mode for new chats" aria-label="Run mode for new chats" hidden>${ICONS.route}<span id="mode-name"></span></button><button type="button" id="models-picker" class="chip" title="This chat's models" aria-label="This chat's models" hidden>${ICONS.chip}<span id="models-name">Models</span></button><span id="keyboard-hint" class="keyboard-hint">Enter to send · Shift+Enter for newline</span>
 <button type="button" id="pause-run" hidden>Pause</button><button type="submit" id="send-message" disabled>Send</button></div></form>` : ""}
 <script>
 const vscode = acquireVsCodeApi();
@@ -1954,6 +1956,12 @@ function renderChat(data) {
   // The core's run mode for this chat; only a chat that has not started offers one.
   document.getElementById('mode-picker').hidden = !data.mode;
   document.getElementById('mode-name').textContent = data.mode || '';
+  // This chat's models, from the core's own list: hidden where it offers no change (an older AutoCode).
+  const models = document.getElementById('models-picker');
+  models.hidden = !data.models;
+  models.disabled = !data.models || data.models.disabled;
+  document.getElementById('models-name').textContent = data.models ? data.models.label : 'Models';
+  models.title = data.models ? data.models.title : '';
   const detailsBtn = document.getElementById('details');
   if (detailsBtn) detailsBtn.disabled = !data.selectedRun;
   renderTabs(data);
@@ -2039,7 +2047,7 @@ function renderChat(data) {
   renderHeader(data);
   renderChatModels(data);
   renderMeter(data);
-  renderTelemetry(data.state && data.state.telemetry, data.state && data.state.stageModels);
+  renderTelemetry(data.state && data.state.telemetry, data.state && data.state.stageModels, !data.selectedRun && Boolean(data.models));
   updateComposer();
   chatBehavior.resize();
   if (!same) {
@@ -2138,9 +2146,9 @@ function updateLatestCue(state) {
   if (latest.textContent !== text) latest.textContent = text;
 }
 
-function renderTelemetry(info, stageModels) {
+function renderTelemetry(info, stageModels, pickable) {
   const host = document.getElementById('model-info');
-  const signature = JSON.stringify([info, stageModels]);
+  const signature = JSON.stringify([info, stageModels, pickable]);
   if (host.dataset.content === signature) return;
   host.dataset.content = signature;
   host.textContent = '';
@@ -2182,12 +2190,15 @@ function renderTelemetry(info, stageModels) {
   }
   if (info && info.stagesUsed.length) modelSection('used-models', 'Models used', 'Recorded attempts, including retries and earlier model variants.', info.stagesUsed);
   else {
-    host.appendChild(el('span', 'model-placeholder', info ? 'No model attempts reported yet.' : "A new chat runs the models listed under This chat's models; they are listed here once it starts."));
+    // Before a run reports anything, say where its models are chosen now, not where they will be listed.
+    host.appendChild(el('span', 'model-placeholder', info ? 'No model attempts reported yet.'
+      : pickable ? "Nothing has run yet. Choose this chat's models with Models under the message box."
+      : 'Nothing has run yet. A new chat runs the models in Stage models.'));
   }
   document.getElementById('usage-summary').textContent = info ? info.tokens + ' · ' + info.cost : 'Tokens not reported · Cost not reported';
   const details = document.getElementById('usage-breakdown');
   details.textContent = '';
-  if (!info) { details.textContent = 'Usage will appear as AutoCode reports it.'; return; }
+  if (!info) { details.textContent = 'Tokens and cost are shown here once the chat starts.'; return; }
   details.appendChild(el('div', 'model-caption', 'Usage for this run'));
   info.details.forEach((item) => {
     const row = el('div', 'telemetry-row');
@@ -2248,6 +2259,7 @@ if (chatMode) {
     if (chatEnvelope && chatEnvelope.runKey) vscode.postMessage({ type: 'pause', runKey: chatEnvelope.runKey });
   });
   document.getElementById('engine-picker').addEventListener('click', () => vscode.postMessage({ type: 'engine' }));
+  document.getElementById('models-picker').addEventListener('click', () => vscode.postMessage({ type: 'models' }));
   document.getElementById('mode-picker').addEventListener('click', () => vscode.postMessage({ type: 'mode' }));
 }
 
