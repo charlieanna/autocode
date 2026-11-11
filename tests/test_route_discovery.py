@@ -128,6 +128,44 @@ class KiloStartChecksTests(unittest.TestCase):
         self.assertEqual(["Z.AI Coding Plan"], [account["name"] for account in found["accounts"]])
         self.assertEqual(["auth list", "models", "models --verbose"], sorted(calls))
 
+    def test_a_cut_off_verbose_listing_is_not_kept_for_the_next_check(self):
+        # #3078: an answer that ends inside a model's metadata is not a successful check, so the next
+        # read runs it again instead of trusting the shorter listing for an hour.
+        from providers import env_prep, kilocode
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            bin_dir, run_dir = root / "bin", root / "run"
+            bin_dir.mkdir()
+            run_dir.mkdir()
+            tool = bin_dir / "kilo"
+            tool.write_text(
+                CUT_KILO.replace("{bin}", str(bin_dir)).replace(
+                    "VERBOSE", "printf '%s\\n' zai-coding-plan/glm-5.3 '{\"variants\": {\"low\": {},'"
+                )
+            )
+            tool.chmod(0o755)
+            path = f"{bin_dir}{os.pathsep}/usr/bin{os.pathsep}/bin"
+            with mock.patch.dict(os.environ, {"PATH": path, "XDG_CONFIG_HOME": str(root / "config")}):
+                provider = kilocode.load("kilocode")
+                with env_prep.reuse_checks(run_dir):
+                    for _ in range(2):
+                        found = discovery.discover(provider, root)
+            calls = (bin_dir / "calls").read_text().splitlines()
+        self.assertEqual(["zai-coding-plan/glm-5.3"], [candidate["model"] for candidate in found["candidates"]])
+        self.assertEqual(["auth list", "models", "models --verbose", "models --verbose"], sorted(calls))
+
+
+CUT_KILO = """#!/bin/sh
+echo "$*" >> "{bin}/calls"
+case "$*" in
+  "auth list") echo "●  Z.AI Coding Plan api" ;;
+  "models") echo zai-coding-plan/glm-5.3 ;;
+  "models --verbose") VERBOSE ;;
+  *) echo "unexpected kilo $*" >&2; exit 1 ;;
+esac
+"""
+
 
 class KiloDiscoveryTests(unittest.TestCase):
     def setUp(self):
