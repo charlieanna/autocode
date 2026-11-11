@@ -17,6 +17,8 @@ import contextlib
 import hashlib
 import json
 import os
+import re
+import shutil
 import time
 from pathlib import Path
 from typing import Any
@@ -132,8 +134,8 @@ def _read_registry(path: Path) -> dict[str, Any]:
 
 
 @contextlib.contextmanager
-def _locked_registry() -> Any:
-    root = storage_root()
+def _locked_registry_at(root: Path) -> Any:
+    root = Path(root)
     try:
         root.mkdir(parents=True, exist_ok=True)
         handle = (root / "registry.lock").open("a+")
@@ -153,11 +155,127 @@ def _locked_registry() -> Any:
                 time.sleep(0.05)
         # Unlock only a lock this handle took: Windows refuses to unlock one it never held.
         try:
-            yield registry_path()
+            yield root / "registry.json"
         finally:
             util.unlock_file(handle)
     finally:
         handle.close()
+
+
+@contextlib.contextmanager
+def _locked_registry() -> Any:
+    with _locked_registry_at(storage_root()) as path:
+        yield path
+
+
+ACTIVE_STATUS = re.compile(r"^(RUNNING|BUILDING|WORKING|DISPATCHING|EXECUTING)", re.I)
+
+
+def _pointer(workspace: str | Path, run_dir: str | Path) -> tuple[Path, Path]:
+    """The canonical direct run a person named; never a link or a directory outside the store."""
+    workspace, run_dir = Path(workspace), Path(run_dir)
+    if not workspace.is_absolute() or not run_dir.is_absolute():
+        raise RegistryError("invalid_run", "Use the canonical absolute workspace and run directories")
+    try:
+        canonical_workspace = workspace.resolve()
+        canonical_run = run_dir.resolve()
+    except (OSError, RuntimeError) as error:
+        raise RegistryError("invalid_run", f"Run pointers cannot be resolved: {error}") from error
+    if str(canonical_workspace) != str(workspace) or str(canonical_run) != str(run_dir):
+        raise RegistryError("invalid_run", "Use the canonical workspace and run directories")
+    if run_dir.parent != workspace / ".autocode" / "runs":
+        raise RegistryError("invalid_run", "The run must be a direct child of the workspace .autocode/runs")
+    return workspace, run_dir
+
+
+def _registry_roots(workspace: Path) -> list[Path]:
+    """The shared registry and, without an explicit home, the project's own (#2279)."""
+    roots = [storage_root()]
+    project = project_storage(workspace)
+    if project is not None:
+        roots.append(Path(project).resolve())
+    unique: list[Path] = []
+    for root in sorted(roots, key=str):
+        if root not in unique:
+            unique.append(root)
+    return unique
+
+
+def _matching_keys(document: dict[str, Any], workspace: Path, run_dir: Path) -> list[str]:
+    return [
+        key
+        for key, value in document["runs"].items()
+        if isinstance(value, dict) and value.get("workspace") == str(workspace) and value.get("run_dir") == str(run_dir)
+    ]
+
+
+def _update_run_records(workspace: Path, run_dir: Path, mutate) -> list[str]:
+    """Apply one change to every registry that indexes this run; both are updated, never one side."""
+    updated: list[str] = []
+    for root in _registry_roots(workspace):
+        path = root / "registry.json"
+        if not path.is_file():
+            continue
+        with _locked_registry_at(root) as locked_path:
+            document = _read_registry(locked_path)
+            keys = _matching_keys(document, workspace, run_dir)
+            if not keys:
+                continue
+            mutate(document, keys)
+            try:
+                util.atomic_json(locked_path, document)
+            except OSError as error:
+                raise RegistryError("write_failed", f"Registry update failed: {error}") from error
+            updated.extend(keys)
+    return updated
+
+
+def _run_actions(record: dict[str, Any], availability: str, diagnostic: Any) -> list[dict[str, Any]]:
+    """The named cleanup actions for one row; an active chat offers none.
+
+    A stale pointer can be archived (it disappears from the list) but not deleted:
+    deleting files is only offered where the canonical run directory is available.
+    """
+    workspace, run_dir = record.get("workspace"), record.get("run_dir")
+    if availability in ("malformed_record", "inaccessible"):
+        return []
+    if not isinstance(workspace, str) or not isinstance(run_dir, str):
+        return []
+    status = diagnostic.get("status") if isinstance(diagnostic, dict) else None
+    if isinstance(status, str) and ACTIVE_STATUS.match(status):
+        return []
+    archived = record.get("archived") is True
+    actions = [
+        {
+            "id": "unarchive" if archived else "archive",
+            "label": "Unarchive" if archived else "Archive",
+            "next_command": [
+                "registry",
+                "unarchive" if archived else "archive",
+                "--workspace",
+                workspace,
+                "--run-dir",
+                run_dir,
+            ],
+        }
+    ]
+    if availability == "available":
+        actions.append(
+            {
+                "id": "delete",
+                "label": "Delete",
+                "next_command": [
+                    "registry",
+                    "delete",
+                    "--workspace",
+                    workspace,
+                    "--run-dir",
+                    run_dir,
+                    "--yes",
+                ],
+            }
+        )
+    return actions
 
 
 def _validate_registration(workspace: Path, run_dir: Path, state: RunState) -> tuple[Path, Path]:
@@ -451,16 +569,16 @@ def location() -> dict[str, Any]:
     }
 
 
-def listing(also: Path | None = None) -> dict[str, Any]:
+def listing(also: Path | None = None, *, include_archived: bool = False) -> dict[str, Any]:
     """The registry's workspaces and runs; ``also`` adds a project registry (``project_storage``).
 
     The shared registry's records win on a shared key. An unreadable ``also`` is a diagnostic,
-    never a reason to hide the shared registry.
+    never a reason to hide the shared registry. Archived chats are hidden unless asked for.
     """
-    return _listing(also)
+    return _listing(also, include_archived=include_archived)
 
 
-def _listing(also: Path | None = None, *, visit_run=None) -> dict[str, Any]:
+def _listing(also: Path | None = None, *, include_archived: bool = False, visit_run=None) -> dict[str, Any]:
     """Internal streaming projection: consume each validated checkpoint before the next read.
 
     The visitor receives (pointer record, checkpoint result), or None for a pointer
@@ -500,6 +618,8 @@ def _listing(also: Path | None = None, *, visit_run=None) -> dict[str, Any]:
                 {"id": key, "availability": "malformed_record", "diagnostic": {"message": "Record is not an object"}}
             )
             continue
+        if record.get("archived") is True and not include_archived:
+            continue
         visited = False
 
         def visit_checkpoint(availability, payload):
@@ -515,7 +635,16 @@ def _listing(also: Path | None = None, *, visit_run=None) -> dict[str, Any]:
         # The central pointer record may predate migration. Surface the run's
         # authoritative task_id without writing either registry or checkpoint.
         task_id = diagnostic.pop("task_id", record.get("task_id"))
-        runs.append({**record, "task_id": task_id, "availability": availability, "diagnostic": diagnostic})
+        runs.append(
+            {
+                **record,
+                "task_id": task_id,
+                "availability": availability,
+                "diagnostic": diagnostic,
+                "archived": record.get("archived") is True,
+                "actions": _run_actions(record, availability, diagnostic),
+            }
+        )
     return {
         "registry_version": REGISTRY_VERSION,
         "operation": "list",
@@ -750,6 +879,92 @@ def forget_deleted(workspace: Path, run_dir: Path) -> dict[str, Any]:
     return {"registry_version": REGISTRY_VERSION, "operation": "forget-deleted", "removed": removed}
 
 
+def archive_run(workspace: str | Path, run_dir: str | Path, archived: bool = True) -> dict[str, Any]:
+    """Hide or restore a chat without moving or deleting its run directory."""
+    workspace, run_dir = _pointer(workspace, run_dir)
+
+    def mutate(document: dict[str, Any], keys: list[str]) -> None:
+        for key in keys:
+            record = document["runs"][key]
+            if archived:
+                record["archived"] = True
+            else:
+                record.pop("archived", None)
+
+    updated = _update_run_records(workspace, run_dir, mutate)
+    if not updated:
+        raise RegistryError("run_not_registered", f"No registry entry names {run_dir}")
+    return {
+        "registry_version": REGISTRY_VERSION,
+        "operation": "archive" if archived else "unarchive",
+        "workspace": str(workspace),
+        "run_dir": str(run_dir),
+        "archived": archived,
+        "updated": len(updated),
+    }
+
+
+def delete_run(workspace: str | Path, run_dir: str | Path, confirmed: bool = False) -> dict[str, Any]:
+    """Delete one chat's run record after refusing a live run; never a branch or worktree."""
+    workspace, run_dir = _pointer(workspace, run_dir)
+    if not confirmed:
+        raise RegistryError("confirmation_required", "Deleting a chat requires --yes")
+    if run_dir.is_symlink() or not run_dir.is_dir():
+        raise RegistryError("invalid_run", "Only an existing run directory can be deleted")
+    if not workspace.is_dir():
+        raise RegistryError("invalid_workspace", f"Workspace no longer exists: {workspace}")
+    state_path = run_dir / "state.json"
+    if state_path.is_symlink() or not state_path.is_file() or state_path.resolve().parent != run_dir:
+        raise RegistryError("invalid_run", "Run state.json must be a regular file directly inside the run directory")
+    try:
+        state = json.loads(state_path.read_text())
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise RegistryError("invalid_run", f"Run state.json cannot be read: {error}") from error
+    if not isinstance(state, dict) or state.get("workspace") != str(workspace):
+        raise RegistryError("invalid_run", "Run state.json does not name this canonical workspace")
+    registered = False
+    for root in _registry_roots(workspace):
+        path = root / "registry.json"
+        if path.is_file() and _matching_keys(_read_registry(path), workspace, run_dir):
+            registered = True
+            break
+    if not registered:
+        raise RegistryError("run_not_registered", f"No registry entry names {run_dir}")
+    try:
+        # The workspace writer lock is the one a run's agents hold; the run lock catches a save.
+        with util.workspace_lock(workspace):
+            try:
+                with util.run_lock(run_dir):
+                    pass
+            except util.Paused as error:
+                raise RegistryError("run_busy", "The chat is still running; stop it before deleting it") from error
+            kept_branch = state.get("task_branch") if isinstance(state.get("task_branch"), str) else None
+            try:
+                shutil.rmtree(run_dir)
+            except OSError as error:
+                raise RegistryError("delete_failed", f"Run directory could not be deleted: {error}") from error
+    except util.Paused as error:
+        raise RegistryError("run_busy", "The chat is still running; stop it before deleting it") from error
+
+    def mutate(document: dict[str, Any], keys: list[str]) -> None:
+        for key in keys:
+            document["runs"].pop(key, None)
+        if not any(value.get("workspace") == str(workspace) for value in document["runs"].values()):
+            document["workspaces"] = {
+                key: value for key, value in document["workspaces"].items() if value.get("workspace") != str(workspace)
+            }
+
+    removed = _update_run_records(workspace, run_dir, mutate)
+    return {
+        "registry_version": REGISTRY_VERSION,
+        "operation": "delete",
+        "workspace": str(workspace),
+        "run_dir": str(run_dir),
+        "removed": len(removed),
+        "kept_branch": kept_branch,
+    }
+
+
 def cli(argv: list[str]) -> int:
     if argv and argv[0] in ("roots", "repositories"):
         family, *tail = argv
@@ -760,6 +975,10 @@ def cli(argv: list[str]) -> int:
     subcommands = parser.add_subparsers(dest="operation", required=True)
     for operation in ("location", "list"):
         command = subcommands.add_parser(operation)
+        if operation == "list":
+            command.add_argument(
+                "--include-archived", action="store_true", help="Include chats hidden with registry archive"
+            )
         command.add_argument(
             "--json", action="store_true", help="Accepted for argument-array compatibility; JSON is always emitted"
         )
@@ -791,16 +1010,37 @@ def cli(argv: list[str]) -> int:
     command.add_argument(
         "--json", action="store_true", help="Accepted for argument-array compatibility; JSON is always emitted"
     )
+    for operation, help_text in (
+        ("archive", "Hide a chat from the runs list without deleting it"),
+        ("unarchive", "Show a hidden chat again"),
+        ("delete", "Delete a chat's run directory and registry entry; branches and worktrees are kept"),
+    ):
+        command = subcommands.add_parser(operation, help=help_text)
+        command.add_argument("--workspace", type=Path, required=True, help="The project the run belongs to")
+        command.add_argument("--run-dir", type=Path, required=True, help="The direct run directory")
+        if operation == "delete":
+            command.add_argument("--yes", action="store_true", help="Confirm the irreversible deletion")
+        command.add_argument(
+            "--json", action="store_true", help="Accepted for argument-array compatibility; JSON is always emitted"
+        )
     args = parser.parse_args(argv)
     try:
         if args.operation == "location":
             result = location()
         elif args.operation == "list":
-            result = listing(also=project_storage(Path.cwd()))
+            result = listing(
+                also=project_storage(Path.cwd()), include_archived=getattr(args, "include_archived", False)
+            )
         elif args.operation == "add":
             result = add_project(args.workspace)
         elif args.operation == "forget-deleted":
             result = forget_deleted(args.workspace, args.run_dir)
+        elif args.operation == "archive":
+            result = archive_run(args.workspace, args.run_dir, True)
+        elif args.operation == "unarchive":
+            result = archive_run(args.workspace, args.run_dir, False)
+        elif args.operation == "delete":
+            result = delete_run(args.workspace, args.run_dir, args.yes)
         else:
             result = registry_import(
                 args.selected_root, max_depth=args.max_depth, directory_budget=args.directory_budget

@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode_registry as registry
+import autocode_util as util
 
 from tests.test_util_windows import FakeMsvcrt
 
@@ -414,6 +415,88 @@ registry.register_run(Path(sys.argv[2]), Path(sys.argv[3]), state)
         restarted = registry.listing()
         self.assertIn(acknowledged["run_id"], {item["id"] for item in restarted["runs"]})
         self.assertEqual({str(run), str(second_run)}, {item["run_dir"] for item in restarted["runs"]})
+
+    def test_archive_hides_a_chat_and_unarchive_restores_it(self):
+        workspace, run_dir, state = self.fixture("workspace")
+        state["status"] = "TASK_COMPLETE"
+        (run_dir / "state.json").write_text(json.dumps(state))
+        registry.register_run(workspace, run_dir, state)
+        row = registry.listing()["runs"][0]
+        self.assertFalse(row["archived"])
+        self.assertEqual(["archive", "delete"], [action["id"] for action in row["actions"]])
+        self.assertEqual(
+            ["registry", "archive", "--workspace", str(workspace), "--run-dir", str(run_dir)],
+            row["actions"][0]["next_command"],
+        )
+        self.assertEqual(
+            ["registry", "delete", "--workspace", str(workspace), "--run-dir", str(run_dir), "--yes"],
+            row["actions"][1]["next_command"],
+        )
+
+        archived = registry.archive_run(workspace, run_dir, True)
+        self.assertEqual(1, archived["updated"])
+        self.assertEqual([], registry.listing()["runs"])
+        hidden = registry.listing(include_archived=True)["runs"]
+        self.assertEqual(1, len(hidden))
+        self.assertTrue(hidden[0]["archived"])
+        self.assertEqual(["unarchive", "delete"], [action["id"] for action in hidden[0]["actions"]])
+
+        registry.archive_run(workspace, run_dir, False)
+        restored = registry.listing()["runs"]
+        self.assertEqual(1, len(restored))
+        self.assertFalse(restored[0]["archived"])
+
+    def test_archive_and_delete_reach_the_projects_own_registry(self):
+        project, run_dir, state = self.fixture("project")
+        state["status"] = "TASK_COMPLETE"
+        (run_dir / "state.json").write_text(json.dumps(state))
+        project_home = project / ".autocode" / "registry"
+        with patch.dict(os.environ, {"AUTOCODE_HOME": str(project_home)}):
+            registry.register_run(project, run_dir, state)
+        with patch.dict(os.environ, {}, clear=True), patch.object(Path, "home", return_value=self.root):
+            archived = registry.archive_run(project, run_dir, True)
+            self.assertEqual(1, archived["updated"])
+            stored = json.loads((project_home / "registry.json").read_text())
+            self.assertTrue(next(iter(stored["runs"].values()))["archived"])
+            deleted = registry.delete_run(project, run_dir, confirmed=True)
+            self.assertEqual(1, deleted["removed"])
+            self.assertFalse(run_dir.exists())
+            self.assertEqual({}, json.loads((project_home / "registry.json").read_text())["runs"])
+
+    def test_delete_removes_one_chat_and_keeps_its_branch_and_other_chats(self):
+        workspace, run_dir, state = self.fixture("workspace")
+        state.update({"status": "TASK_COMPLETE", "task_branch": "autocode/greeting-123"})
+        (run_dir / "state.json").write_text(json.dumps(state))
+        registry.register_run(workspace, run_dir, state)
+        other = workspace / ".autocode/runs/other"
+        other.mkdir()
+        other_state = {**state, "task_branch": None}
+        (other / "state.json").write_text(json.dumps(other_state))
+        registry.register_run(workspace, other, other_state)
+
+        with self.assertRaises(registry.RegistryError) as refused:
+            registry.delete_run(workspace, run_dir, confirmed=False)
+        self.assertEqual("confirmation_required", refused.exception.code)
+        self.assertTrue(run_dir.exists(), "an unconfirmed delete changes nothing")
+
+        result = registry.delete_run(workspace, run_dir, confirmed=True)
+        self.assertEqual("delete", result["operation"])
+        self.assertEqual(1, result["removed"])
+        self.assertEqual("autocode/greeting-123", result["kept_branch"])
+        self.assertFalse(run_dir.exists())
+        self.assertTrue(other.is_dir(), "another chat is untouched")
+        self.assertEqual([str(other)], [row["run_dir"] for row in registry.listing()["runs"]])
+
+    def test_delete_refuses_a_live_chat_without_removing_it(self):
+        workspace, run_dir, state = self.fixture("workspace")
+        registry.register_run(workspace, run_dir, state)
+        self.assertEqual([], registry.listing()["runs"][0]["actions"], "an active chat offers no cleanup")
+        with patch.object(util, "run_lock", side_effect=util.Paused("PAUSED_RUN_BUSY", "busy")):
+            with self.assertRaises(registry.RegistryError) as refused:
+                registry.delete_run(workspace, run_dir, confirmed=True)
+        self.assertEqual("run_busy", refused.exception.code)
+        self.assertTrue(run_dir.exists())
+        self.assertEqual(1, len(registry.listing()["runs"]))
 
 
 if __name__ == "__main__":
