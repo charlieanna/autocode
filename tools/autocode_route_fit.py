@@ -9,6 +9,11 @@ runner chose moves to the nearest declared variant and the move is recorded; an 
 named is never moved and refuses with the flag and the declared variants; with no listing the
 launch records the effort as unverified and the tool's own check decides.
 
+A person's level is named for the model it was saved with. When a route answer moves the role to
+another model AutoCode offered and names no level (#3120), the saved level is the person's for the old
+model only: it moves to the nearest level the new model offers like a runner-chosen one, and the move
+is recorded with that model, so the next launch can say why as its ``effort_choice`` (``answer_choice``).
+
 ``launch`` is the one runtime entry point: every stage launch calls it with the effort it is
 about to pass, so a climb, a reduced tier, a route answer and a single-model run all fit at the
 same boundary.
@@ -41,6 +46,8 @@ USER_EXPLICIT = "user_explicit"  # settings.effort_origins value: a person named
 STAGE_CHOICE = "stage_choice"  # settings.effort_origins value: the person's saved stage choice (autocode_role_route)
 # A person-named effort the model does not declare: a pause with a named answer (autocode_effort_question).
 STATUS = "PAUSED_EFFORT_UNSUPPORTED"
+ROUTE_ANSWER = "route_answer"  # effort_fits reason: a route answer moved the saved level to the named model (#3120)
+ROUTE_ANSWER_FIT = "route_answer_fit"  # effort_choice reason the launch records for that move
 
 # reason: declared (the model serves it), fitted (moved to the nearest declared variant),
 # unverified (no listing; the launch check decides).
@@ -112,14 +119,15 @@ def person_named(settings: dict, role: str) -> bool:
     return ((settings or {}).get("effort_origins") or {}).get(role) in (USER_EXPLICIT, STAGE_CHOICE)
 
 
-def fit(settings: dict, role: str, *, effort=None, model=None, declared=None) -> Fit:
+def fit(settings: dict, role: str, *, effort=None, model=None, declared=None, rerouted=False) -> Fit:
     """Fit ``effort`` (default: the saved route's) to the variants ``role``'s model declares.
 
     ``effort`` is the level the caller is about to pass, which may be a tier derived from the
     saved one (the Builder's light attempt, the Plan Reviewer's reduced depth). Only the saved
     level can be a person's; a tier the runner derived always moves. ``model`` overrides the
     saved route's model when the launch uses another (a reviewer fallback). Raises
-    EffortUnsupported when a person's level is not declared.
+    EffortUnsupported when a person's level is not declared, unless ``rerouted``: a route answer
+    moved the role to a model its saved level was not named for (#3120), so that level moves too.
     """
     route = ((settings or {}).get("roles") or {}).get(role) or {}
     model = model or route.get("model")
@@ -127,7 +135,7 @@ def fit(settings: dict, role: str, *, effort=None, model=None, declared=None) ->
     requested = effort if effort is not None else saved
     levels = declared if declared is not None else declared_for(settings, model)
     levels = [level for level in levels or () if level in SCALE]
-    explicit = person_named(settings, role) and requested == saved
+    explicit = not rerouted and person_named(settings, role) and requested == saved
     if requested is not None and declared is None and requested in certified_for(settings, model):
         return Fit(model, requested, requested, "declared", explicit)  # a probe proved this level
     if not levels:
@@ -140,12 +148,36 @@ def fit(settings: dict, role: str, *, effort=None, model=None, declared=None) ->
 
 
 def record(settings: dict, role: str, result: Fit, *, cause=None) -> dict | None:
-    """Save a fitted move as ``settings.effort_fits[role]``; a declared level records nothing."""
+    """Save a fitted move as ``settings.effort_fits[role]``; a declared level records nothing.
+
+    A route answer's move (``cause`` ``ROUTE_ANSWER``) also names the model it was fitted to, so
+    ``answer_choice`` never credits it to a later model."""
     if result.reason != "fitted":
         return None
     row = {"from": result.from_effort, "to": result.effort, "reason": cause or "route_fit"}
+    if cause == ROUTE_ANSWER:
+        row["model"] = result.model
     settings.setdefault("effort_fits", {})[role] = row
     return row
+
+
+def answer_choice(settings: dict, role: str, model, effort) -> dict | None:
+    """The ``effort_choice`` a launch records when a route answer moved ``role``'s saved level (#3120).
+
+    None unless the role's recorded fit is a route answer's, to this ``model`` and this ``effort``: a
+    later answer, a level the person named since or a launch on another model is not that move."""
+    row = ((settings or {}).get("effort_fits") or {}).get(role)
+    if not isinstance(row, dict) or row.get("reason") != ROUTE_ANSWER:
+        return None
+    if row.get("model") != model or row.get("to") != effort or not isinstance(row.get("from"), str):
+        return None
+    return {
+        "level": effort,
+        "saved": row["from"],
+        "model": model,
+        "reason": ROUTE_ANSWER_FIT,
+        "text": f"{model} does not offer {row['from']}, so this stage runs at {effort}, the nearest level it offers",
+    }
 
 
 def record_unverified(settings: dict, role: str, result: Fit, *, stage=None) -> dict | None:

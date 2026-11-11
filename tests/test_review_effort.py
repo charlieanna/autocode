@@ -181,6 +181,44 @@ class LaunchTests(unittest.TestCase):
         )
 
 
+class RouteAnswerFitTests(unittest.TestCase):
+    """A route answer moved the saved level to the offered model's nearest level: the launch says so (#3120)."""
+
+    def moved(self, role, effort="high", saved="medium", model=GLM):
+        state = run_state()
+        state["settings"]["roles"][role] = {"model": model, "reasoning_effort": effort}
+        state["settings"]["effort_fits"] = {
+            role: {"from": saved, "to": effort, "reason": "route_answer", "model": model}
+        }
+        return state, state["settings"]["roles"][role]
+
+    def test_a_stage_no_other_rule_considers_records_the_move_as_its_choice(self):
+        state, route = self.moved("requirements")
+        level, choice = review_effort.launch(state, "requirements_gather", "requirements", False, route)
+        self.assertEqual(
+            ("high", "route_answer_fit", "medium", GLM), (level, choice["reason"], choice["saved"], choice["model"])
+        )
+        self.assertEqual(
+            f"Running at high: {GLM} does not offer medium, so this stage runs at high, the nearest level it offers.",
+            review_effort.note(choice),
+        )
+        self.assertIsNone(review_effort.note({"reason": "route_answer_fit"}), "no text: nothing to say")
+
+    def test_a_review_keeps_its_own_rule_and_carries_the_move_beside_it(self):
+        state, route = self.moved("tester")
+        state["workflow"]["clarity"] = "vague"
+        level, choice = review_effort.launch(state, "tester", "tester", False, route)
+        self.assertEqual(("high", "not_small_clear"), (level, choice["reason"]))
+        self.assertEqual(("high", "medium"), (choice["route_answer_fit"]["level"], choice["route_answer_fit"]["saved"]))
+
+    def test_a_launch_on_another_model_or_level_records_no_move(self):
+        state, route = self.moved("requirements", model=MIMO)
+        state["settings"]["effort_fits"]["requirements"]["model"] = GLM
+        self.assertEqual(
+            ("high", None), review_effort.launch(state, "requirements_gather", "requirements", False, route)
+        )
+
+
 class RunnerLaunchTests(unittest.TestCase):
     def test_a_format_repair_launches_below_the_saved_level_and_records_why(self):
         # #2868: the discovery repair of a one-comma JSON slip reasoned 63,994 tokens into

@@ -283,6 +283,48 @@ class QuotaRouteTests(unittest.TestCase):
         self.assertEqual("medium", unknown["settings"]["roles"]["tester"]["reasoning_effort"], "no listing: unchanged")
         self.assertNotIn("effort", record)
 
+    def test_assign_moves_a_persons_saved_level_the_offered_model_lacks_and_says_why(self):
+        """#3120: Requirements saved medium for MiMo; the answer naming the offered GLM 5.3 was refused."""
+        glm, levels = "zai-coding-plan/glm-5.3", ["low", "high", "max"]
+        for origin in ("stage_choice", "user_explicit"):
+            with self.subTest(origin=origin):
+                state = self.state()
+                settings = state["settings"]
+                settings["roles"]["tester"]["reasoning_effort"] = "medium"
+                settings["effort_origins"] = {"tester": origin}
+                settings["declared_variants"] = {glm: levels}
+                previous = settings["roles"]["tester"]["model"]
+                record = quota_route.assign(state, "tester", glm, at="t", via="answer")
+                self.assertEqual(
+                    ("high", origin),
+                    (settings["roles"]["tester"]["reasoning_effort"], settings["effort_origins"]["tester"]),
+                )
+                self.assertEqual(
+                    {
+                        "from": "medium",
+                        "to": "high",
+                        "reason": f"your medium was saved for {previous}; {glm} does not offer it, "
+                        "so AutoCode chose high, the nearest level it offers",
+                    },
+                    record["effort"],
+                )
+                self.assertEqual(
+                    {"from": "medium", "to": "high", "reason": "route_answer", "model": glm},
+                    settings["effort_fits"]["tester"],
+                )
+
+    def test_a_level_named_with_the_answer_or_for_the_same_model_is_still_the_persons(self):
+        glm, levels = "zai-coding-plan/glm-5.3", ["low", "high", "max"]
+        named = self.state()
+        named["settings"]["declared_variants"] = {glm: levels}
+        with self.assertRaisesRegex(ValueError, "does not declare reasoning variant 'medium'"):
+            quota_route.assign(named, "tester", glm, at="t", via="answer", effort="medium")
+        same = self.state()
+        same["settings"]["roles"]["tester"].update(model=glm, reasoning_effort="medium")
+        same["settings"].update(effort_origins={"tester": "stage_choice"}, declared_variants={glm: levels})
+        with self.assertRaisesRegex(ValueError, "does not declare reasoning variant 'medium'"):
+            quota_route.assign(same, "tester", glm, at="t", via="answer")
+
     def test_assign_applies_the_model_drops_the_session_and_records_the_change(self):
         state = self.state()
         attempt = self.stopped(state)

@@ -923,11 +923,14 @@ def assign(
     }
     if request_id:
         record["request_id"] = request_id
-    _carry(state, role, route.get("model"), model)
+    previous = route.get("model")
+    _carry(state, role, previous, model)
     route["model"] = model
     # The role keeps its effort; the named model may not declare it (#2006). One fit rule (#2057):
-    # a runner-chosen effort moves to the nearest declared variant and is recorded; a person-named
-    # one the model does not declare refuses with its flag.
+    # a runner-chosen effort moves to the nearest declared variant and is recorded; a level named
+    # with this answer that the model does not declare refuses with its flag. A saved level the
+    # person chose for the previous model moves like a runner-chosen one: the answer names a model
+    # AutoCode offered, never refused for a level AutoCode can settle (#3120).
     if effort is not None:
         record["effort"] = {"from": route.get("reasoning_effort"), "to": effort, "named": True}
         route["reasoning_effort"] = effort
@@ -935,11 +938,18 @@ def assign(
         (settings.get("effort_fits") or {}).pop(role, None)
         if settings.get("effort_fits") == {}:
             settings.pop("effort_fits")
-    fitted = route_fit.fit(settings, role)
+    rerouted = effort is None and previous != model
+    persons = rerouted and route_fit.person_named(settings, role)
+    fitted = route_fit.fit(settings, role, rerouted=rerouted)
     if effort is None and fitted.reason == "fitted":
         route["reasoning_effort"] = fitted.effort
         record["effort"] = {"from": fitted.from_effort, "to": fitted.effort}
-        route_fit.record(settings, role, fitted, cause="route_answer")
+        if persons:
+            record["effort"]["reason"] = (
+                f"your {fitted.from_effort} was saved for {previous}; {model} does not offer it, "
+                f"so AutoCode chose {fitted.effort}, the nearest level it offers"
+            )
+        route_fit.record(settings, role, fitted, cause=route_fit.ROUTE_ANSWER)
     if role == "stuck_investigator":
         record["investigator_settings_present"] = "stuck_investigation" in settings
         investigation = settings.setdefault("stuck_investigation", {})
