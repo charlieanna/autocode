@@ -2592,14 +2592,15 @@ for (const surface of ['chat', 'Run details']) {
     assert.equal(launch.mock.callCount(), 0, 'opening a fresh chat must launch no provider');
   });
 
-  test(`a chat the core cannot continue ends in ${surface} with a new conversation, not a client gap`, async (t) => {
+  for (const status of ['PAUSED_STALE_VALIDATION', 'RUNNING']) test(`a chat the core cannot continue ends in ${surface} at ${status} with a new conversation, not a client gap`, async (t) => {
     // Ankur, 2026-11-11: a chat saved under the old route names showed "No action the client can take",
     // since its next_command only explains the stop (--explain). The core now marks it stopped.
     const reason = 'This run was saved before AutoCode named its stages after their jobs. Its status and saved reports stay readable; start a new task to continue the work.';
     const view = {
-      status: 'PAUSED_STALE_VALIDATION', done: false,
+      status, done: false,
       needs: { kind: 'resume', reason, recovery_hint: reason, new_run_required: true, edit_required: false, action: 'fresh_run', feedback_action: null },
-      next_command: `autocode --run-dir ${run.runDir} --workspace ${run.workspace} --explain`,
+      // While an earlier runtime's worker still runs it, the view names no command at all.
+      next_command: status === 'RUNNING' ? null : `autocode --run-dir ${run.runDir} --workspace ${run.workspace} --explain`,
       recovery: { category: 'stopped', title: "This chat can't continue", what_happened: reason,
         retained: '0 finished attempt(s) remain in the history.',
         actions: [{ kind: 'inspect', label: 'Inspect saved work' },

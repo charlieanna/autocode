@@ -450,9 +450,16 @@ def _failures(state: RunState):
 
 def project(state: RunState, need=None):
     status = state.get("status") or ""
-    if status in ACTIVE or not status:
-        return None
     need = _dict(need)
+    # A run this runtime cannot continue (autocode_workflows.retired_stage: saved at a retired stage or
+    # under the old route names). Its next_command, if any, only explains the stop, which is not an
+    # action a client can take for the person, so the card says the chat has ended here and offers a
+    # new one. That holds while an earlier runtime's worker still runs it: this one cannot drive it.
+    fresh_run = bool(
+        need.get("new_run_required") and need.get("action") == "fresh_run" and status != "PAUSED_COMPONENT_PLAN"
+    )
+    if (status in ACTIVE and not fresh_run) or not status:
+        return None
     native_need = native_cleanup_need(state)
     if native_need is not None and need.get("kind") not in ("answer", "review", "approve_plan"):
         need = native_need
@@ -526,15 +533,11 @@ def project(state: RunState, need=None):
             )
         )
         return result
-    if need.get("new_run_required") and need.get("action") == "fresh_run" and status != "PAUSED_COMPONENT_PLAN":
-        # A run this runtime cannot continue (autocode_workflows.retired_stage: saved at a retired stage
-        # or under the old route names). Its next_command only explains the stop, which is not an action
-        # a client can take for the person, so the card says the chat has ended and offers a new one.
-        result.update(
-            title="This chat can't continue",
-            category="stopped",
-            what_happened=need.get("reason") or need.get("recovery_hint") or result["what_happened"],
-        )
+    if fresh_run:
+        why = need.get("reason") or need.get("recovery_hint") or result["what_happened"]
+        if status in ACTIVE:
+            why += " It is still running on the AutoCode version that started it, which this one cannot drive."
+        result.update(title="This chat can't continue", category="stopped", what_happened=why)
         actions.append(
             _action(
                 "new_conversation",
