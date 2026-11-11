@@ -163,10 +163,29 @@ def start_named_job(state: RunState, record: dict) -> bool:
     return True
 
 
+# A reply that opens by saying how Requirements classified the request ("This is a clear bugfix
+# request.") narrates machinery: the job and clarity only label the run, and every request takes the
+# same path (#3010). The prompt forbids it; models still say it (2026-11-11 run), so the one sentence
+# that does nothing else is dropped before a person sees the reply.
+_CLASSIFIED = re.compile(
+    r"^\s*(?:this|that|it)(?:\s+is|['’]s)\s+(?:an?\s+)?"
+    r"(?:(?:very|clear|clearly|vague|simple|small|straightforward|well[- ]defined|focused)[,\s]+)*"
+    r"(?:bug\s*-?\s*fix|build|review|design|discuss(?:ion)?)"
+    r"(?:\s+(?:request|task|job))?\s*[.!]\s*",
+    re.IGNORECASE,
+)
+
+
+def without_classification(text: str) -> str:
+    """``text`` without a leading sentence that only names the job or clarity Requirements chose."""
+    rest = _CLASSIFIED.sub("", text, count=1)
+    return rest if rest.strip() else text
+
+
 def reply(state: RunState):
     report = (state.get("requirements_handoff") or {}).get("report") or {}
     text = report.get("assistant_reply")
-    return text.strip() if isinstance(text, str) else ""
+    return without_classification(text.strip()) if isinstance(text, str) else ""
 
 
 def retain_reply(state: RunState, event):
@@ -250,7 +269,7 @@ def streaming_reply(state: RunState, run_dir):
             item_text = item.get("text", "")
             texts[str(item.get("id", len(texts)))] = item_text if isinstance(item_text, str) else ""
     if live:
-        return live
+        return without_classification(live)
     # Later messages replace earlier ones, so a short intermediate reply is shown
     # only until the next one (or the final report) lands. Growing item.updated
     # text is the same story: the newest extract wins.
@@ -259,4 +278,4 @@ def streaming_reply(state: RunState, run_dir):
         extracted = partial_string(text)
         if extracted:
             reply = extracted
-    return reply[:12000]
+    return without_classification(reply[:12000])
