@@ -1978,7 +1978,7 @@
 
 
 <h1 id="vs-code-extension">VS Code extension<a class="headerlink" href="#vs-code-extension" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/0c4d64b686254bfb56eb4d4b876a432b697e4ff3/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/46f8a2a17890d455ead1b9d8f90590fdee548e8a/README.md">← Back to README</a></p>
 <p>Chat with AutoCode in the sidebar (issue #884). The extension starts the CLI,
 reads <code>--status</code> and <code>registry list --json</code>, and takes the actions the public
 <a href="../task-run/">task-run interface</a> names. It imports no runner internals and never
@@ -2029,7 +2029,7 @@ Markdown and code blocks for assistant replies. A fixed composer grows with your
 draft. New output follows the bottom until you scroll up or select text;
 <strong>Latest messages</strong> returns to the bottom. These composer and scrolling components
 are adapted from Kilo Code's open-source UI; the exact revision and attribution
-are in <a href="https://github.com/charlieanna/autocode/blob/0c4d64b686254bfb56eb4d4b876a432b697e4ff3/vscode-extension/THIRD_PARTY_NOTICES.md">THIRD_PARTY_NOTICES.md</a>.</p>
+are in <a href="https://github.com/charlieanna/autocode/blob/46f8a2a17890d455ead1b9d8f90590fdee548e8a/vscode-extension/THIRD_PARTY_NOTICES.md">THIRD_PARTY_NOTICES.md</a>.</p>
 <p><strong>Models &amp; usage</strong> stays above the composer and starts expanded. <strong>Configured
 models</strong> lists every saved role assignment with its full model ID, provider and
 reasoning <strong>Variant</strong> (such as medium or high), even before that role runs.
@@ -2100,6 +2100,21 @@ finishes; inspecting a run started elsewhere does not disable a named comparison
 registry and retains unavailable pointers with their diagnostic. Both surfaces
 use the core's named commands, including the optional <code>view.chat.input</code> offer.
 Commands use argument arrays; issued tokens stay in the child environment.</p>
+<p>Above the conversation, a run header stays in view while you scroll, like Kilo
+Code's task header. It shows the pipeline (Requirements, Planner, Plan Reviewer,
+Builder, Tester, Completion Reviewer) with each job marked ✓ ran, ● working,
+› next, – skipped or · still to come; hover a job for its model, reasoning level
+and spend, or why it was skipped. Below it are where the run is in one sentence,
+how the spend splits between the Builder and checking, and how many things went
+wrong. <strong>Show details</strong> unfolds the same reading as the terminal chat's
+<code>/details</code>, <code>/why</code> and <code>/spend</code>: where the run is, each stage's model, level and
+cost, every recovery and what AutoCode did about it, where the money went and
+what the checking produced, the verification once the run finishes, the
+planning path and which stages ran or were skipped and why. The choice to keep
+details open is remembered. Everything in the header comes from the status view
+(<code>summary</code>, <code>explanation</code>, <code>pipeline</code>, <code>recoveries</code>, <code>run_metrics</code>,
+<code>verification</code>, <code>stage_policy</code>, <code>stage_decisions</code>); it shows no command or flag
+and takes no action.</p>
 <p>While a step works, the conversation shows the live agent log the status view
 names (<code>view.chat.log</code>): what each running agent thinks (<code>∴</code>), says (<code>»</code>) and
 does (<code>$</code>, <code>±</code>, <code>·</code>). Each agent's screen name heads its run of steps once, and
@@ -2163,7 +2178,7 @@ conversation.</p>
 Requirements follow-up has passed a real Kilo/token-plan greeting conversation;
 full build/test/completion qualification remains outstanding. The earlier full
 task attempt stopped on a MiMo network failure before building.
-See the <a href="https://github.com/charlieanna/autocode/blob/0c4d64b686254bfb56eb4d4b876a432b697e4ff3/docs/bugs/2026-10-16-vscode-chat-qualification.md">qualification record</a>.
+See the <a href="https://github.com/charlieanna/autocode/blob/46f8a2a17890d455ead1b9d8f90590fdee548e8a/docs/bugs/2026-10-16-vscode-chat-qualification.md">qualification record</a>.
 The jsdom tests alone establish neither editor-host nor live-provider compatibility.</p>
 <h2 id="settings">Settings<a class="headerlink" href="#settings" title="Permanent link">&para;</a></h2>
 <table>
