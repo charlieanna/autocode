@@ -308,6 +308,79 @@ class VerificationSourceTests(unittest.TestCase):
         self.assertEqual(b"removed current source\n", self.git("show", "HEAD:removed.txt", root=tree))
         self.assertEqual(before, source_snapshot.snapshot(self.root))
 
+    def commit(self, message, root=None):
+        self.git("add", "-A", root=root)
+        self.git(
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@localhost",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            message,
+            root=root,
+        )
+        return self.git("rev-parse", "HEAD", root=root).decode().strip()
+
+    def test_copy_carries_the_default_branchs_fork_point_for_change_selectors(self):
+        # #3160: `tools/run_suite.py --changed` runs `git merge-base origin/master HEAD`, which exited 128
+        # in the copy (no refs) while the clean replay, a worktree of the same repository, ran it.
+        (self.root / "shared.txt").write_text("base\n")
+        fork = self.commit("base")
+        # The remote's master moved on after the task branched: a commit the task's HEAD does not hold.
+        moved = (
+            self.git(
+                "-c",
+                "user.name=T",
+                "-c",
+                "user.email=t@l",
+                "commit-tree",
+                f"{fork}^{{tree}}",
+                "-p",
+                fork,
+                "-m",
+                "later on master",
+            )
+            .decode()
+            .strip()
+        )
+        self.git("update-ref", "refs/remotes/origin/master", moved)
+        self.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/master")
+        self.git("update-ref", "refs/remotes/origin/feature", moved)  # not a default branch: not carried
+        (self.root / "changed.txt").write_text("the task's committed change\n")
+        self.commit("task change")
+        (self.root / "delivered.txt").write_text("the task's uncommitted change\n")
+
+        tree = self.allocate()
+
+        self.assertEqual(fork, self.git("merge-base", "origin/master", "HEAD", root=tree).decode().strip())
+        self.assertEqual(fork, self.git("rev-parse", "origin/HEAD", root=tree).decode().strip())
+        changed = self.git("diff", "--no-renames", "--name-only", fork, root=tree).decode().split()
+        untracked = self.git("ls-files", "--others", "--exclude-standard", root=tree).decode().split()
+        self.assertEqual(["changed.txt", "delivered.txt"], sorted({*changed, *untracked}))
+        self.assertEqual(
+            [b"refs/remotes/origin/HEAD", b"refs/remotes/origin/master"],
+            sorted(self.git("for-each-ref", "--format=%(refname)", root=tree).split()),
+        )
+        self.assertEqual(b"ref: refs/remotes/origin/master\n", (tree / ".git/refs/remotes/origin/HEAD").read_bytes())
+
+    def test_copy_leaves_out_a_default_branch_with_no_history_in_common(self):
+        (self.root / "shared.txt").write_text("base\n")
+        self.commit("base")
+        other = self.home / "unrelated"
+        other.mkdir()
+        self.init_git(root=other)
+        unrelated = self.commit("unrelated history", root=other)
+        self.git("fetch", "-q", str(other), "HEAD")
+        self.git("update-ref", "refs/remotes/origin/main", unrelated)
+
+        tree = self.allocate()
+
+        self.assertEqual(b"", self.git("for-each-ref", "--format=%(refname)", root=tree))
+
     def test_large_regular_input_does_not_require_whole_file_read_bytes(self):
         payload = b"\0binary\xff\n" * (400 * 1024)
         large = self.root / "large.bin"

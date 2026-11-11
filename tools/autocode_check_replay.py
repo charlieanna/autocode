@@ -50,6 +50,7 @@ except ImportError:
 import datetime as dt
 import json
 import re
+import subprocess
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -59,6 +60,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_acceptance_policy as acceptance_policy
+    from . import autocode_base_attribution as base_attribution
     from . import autocode_brief_evidence as brief_evidence
     from . import autocode_command_receipt as command_receipt
     from . import autocode_protected_oracles as protected_oracles
@@ -69,6 +71,7 @@ try:
     from . import autocode_verification_schedule as schedule
 except ImportError:
     import autocode_acceptance_policy as acceptance_policy
+    import autocode_base_attribution as base_attribution
     import autocode_brief_evidence as brief_evidence
     import autocode_command_receipt as command_receipt
     import autocode_protected_oracles as protected_oracles
@@ -112,6 +115,9 @@ def evidence_pins(result):
         receipt = row.get("scheduling") or {}
         if receipt.get("receipt") and receipt.get("receipt_sha256"):
             pins[receipt["receipt"]] = receipt["receipt_sha256"]
+        on_base = row.get("base_attribution") or {}  # the base run a failure was compared with (#3160)
+        if on_base.get("base_output") and on_base.get("base_output_sha256"):
+            pins[on_base["base_output"]] = on_base["base_output_sha256"]
     protected = (result or {}).get("protected_tests") or {}
     for name in ("candidate", "original"):
         pins.update(command_receipt.pins(protected.get(name)))
@@ -150,6 +156,25 @@ def _failed_check(row):
     return bool(row["error"] or row["timed_out"] or row["exit_code"] != 0 or not command_receipt.completed(row))
 
 
+def _attribute(row, on_base, base_run, workspace, out, timeout):
+    """Run ``row``'s command once on the base revision (cached in ``on_base`` for a repeated command) and
+    judge whose failure it is. A base copy that cannot be prepared leaves the failure the change's."""
+    command = row["command"]
+    if command not in on_base:
+        try:
+            on_base[command] = base_run(
+                workspace, out / f"base-{len(on_base) + 1:02d}", command=command, timeout=timeout
+            )
+        except util.Paused:
+            raise
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+            on_base[command] = error
+    base = on_base[command]
+    if isinstance(base, BaseException):
+        return base_attribution.unavailable(f"The base revision could not be prepared to compare ({base}).")
+    return base_attribution.judge(row, base)
+
+
 def replay(
     checks,
     workspace,
@@ -166,11 +191,15 @@ def replay(
     all_risk_observations=False,
     native_execution=None,
     keep_lifecycle_failure=False,
+    base_run=None,
 ) -> dict:
     """Re-run each distinct check command; return the result or raise ValueError on the first that fails.
 
     keep_lifecycle_failure: when every check reproduces but a mandatory lifecycle observation fails,
     return the saved FAIL replay instead of raising LifecycleFailure (the Tester's accepted report).
+    base_run: runs one command in a clean copy of the base revision (autocode_base_command.run,
+    bound by the caller). With it, a planned check that fails is first run on the base, and a failure
+    the base has identically is recorded as the base's and not counted (autocode_base_attribution).
     """
     try:
         from . import autocode_replay_checks as recorded_checks
@@ -249,6 +278,7 @@ def replay(
     failed: list[Any] = []
     seen: dict[Any, Any] = {}
     contexts: dict[Any, Any] = {}
+    on_base: dict[str, Any] = {}
     for check in checks:
         command = check["command"]
         key = (command, check.get("repetition", 1))
@@ -326,6 +356,16 @@ def replay(
         rows.append(
             {**seen[key], "reported_exit_code": check.get("exit_code"), "evidence_ref": check.get("evidence_ref")}
         )
+        if (
+            _failed_check(rows[-1])
+            and base_run is not None
+            and command in prescribed
+            and not progressive_context
+            and base_attribution.eligible(command)
+        ):
+            rows[-1]["base_attribution"] = _attribute(rows[-1], on_base, base_run, workspace, out, timeout)
+            if rows[-1]["base_attribution"]["kind"] == base_attribution.BASE:
+                continue  # the base's failure, recorded on the row; not the change's
         if _failed_check(rows[-1]):
             failed.append(rows[-1])
             break  # This report cannot pass; preserve the failure before spending on later gates.
@@ -397,6 +437,8 @@ def replay(
             what = "has no complete owned-command evidence"
         else:
             what = f"exited {row['exit_code']}"
+        if row.get("base_attribution"):
+            what += f". {row['base_attribution']['reason']}"
         planned = row.get("evidence_ref") in ("approved-plan", "approved-repeat")
         error_type = PlannedCheckFailure if planned else ValueError
         failure = error_type(

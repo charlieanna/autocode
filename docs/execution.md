@@ -440,6 +440,21 @@ before a PASS is accepted, the runner requires its own current execution of each
   rejected-report path: a bounded report repair may drop the check or cite
   another command that ran (each is replayed again), then the run pauses and
   `--resume-paused` asks for a fresh validation.
+- **When a planned check already fails on the base.** A check the approved plan
+  names, such as a linter over the whole tree, can fail for a reason the base
+  revision already has, in files the change never touched. Before such a failure
+  counts against the change, the runner runs the same command once in a clean copy
+  of the base revision (`tools/autocode_base_attribution.py`, #3160). When both
+  runs complete with the same nonzero exit and the same whole output (each copy's
+  directory replaced by one placeholder), the failure is attributed to the base:
+  the check's row records `base_attribution` with the base run's output and the
+  reason, the evidence report lists it as a base failure, and the replay goes on.
+  Anything else, including another exit code, another message or line, or a base
+  that passes, keeps the failure the change's, and the rejection says what the base
+  did. A test runner the runner recognizes is never compared this way: its tests
+  are judged by name by the regression proof and preservation. A check a Tester
+  reported itself, progressive verification and native checks are not compared
+  either. AutoCode makes this decision itself; nobody is asked.
 - **Record.** The result is saved with the validation, bound to its source
   revision, under `<run>/check-replay/`, and shown in the status view as
   `evidence.check_replay`. Each invocation gets a fresh directory, including

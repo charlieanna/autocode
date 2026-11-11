@@ -181,8 +181,16 @@ def build(view, *, run_identity, completed_at, provenance, binding, kind="task",
             unverified.append(f"{row['id']}: human acceptance not recorded")
     if not checks:
         unverified.append("No independent check replay recorded; job completion does not invent code verification")
-    for check in checks:
-        if check["timed_out"] or (check["exit_code"] != 0 and mapping(check["results"]).get("ok") is not True):
+    attributed = [
+        mapping(row.get("base_attribution")) for row in rows(mapping(evidence.get("check_replay")).get("checks"))
+    ]
+    for check, attribution in zip(checks, attributed, strict=True):
+        if attribution.get("kind") == "base":
+            # Not the change's failure (autocode_base_attribution, #3160), and still not a green check.
+            unverified.append(
+                "Check fails identically on the base revision, attributed to the base: " + str(check["command"])
+            )
+        elif check["timed_out"] or (check["exit_code"] != 0 and mapping(check["results"]).get("ok") is not True):
             unverified.append("Check failed or unavailable: " + str(check["command"]))
     proof = mapping(evidence.get("regression_proof"))
     if proof.get("verdict") and proof["verdict"] != "PASS":

@@ -702,7 +702,9 @@ def evidence(state: RunState) -> dict:
                       lists the proving tests whose repeated runs disagreed, else None
     test_cases        a reproduced bug's regression tests in plain English (id, given, when, then), else []
     check_replay      the current validation's checks as the runner itself re-ran them in a clean copy
-                      (autocode_check_replay): verdict, source_revision and one row per command, else None
+                      (autocode_check_replay): verdict, source_revision and one row per command, else None.
+                      A planned check's row carries base_attribution when its failure was compared with
+                      the base revision (autocode_base_attribution): kind base or change and the reason
     proof_stability   the proving tests' repeats (autocode_proof_stability): repeats, unstable (test, side,
                       kind, runs), unrepeated, next_step when one is unstable, note; else None
     diff_coverage     the proving tests' line coverage of changed product hunks (autocode_diff_coverage):
@@ -837,6 +839,7 @@ def evidence(state: RunState) -> dict:
                         "purpose",
                         "scheduling",
                         "results",
+                        "base_attribution",
                     )
                 }
                 for row in replay.get("checks") or []

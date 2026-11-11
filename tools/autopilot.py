@@ -893,6 +893,7 @@ def apply_review_result(runtime, state: RunState, stage, value, record, workspac
             all_brief_observations=whole,
             all_risk_observations=whole,
             keep_lifecycle_failure=stage == "tester",
+            base_run=regression.clean_base_run(state, workspace, run_dir, native, replay_context),
         )
         if value["verdict"] == "PASS" or human_pending or progressive_pass
         else None
