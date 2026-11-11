@@ -1,9 +1,16 @@
 const assert = require('node:assert/strict');
 const { test, beforeEach, afterEach, mock } = require('node:test');
-const { JSDOM } = require('jsdom');
+// jsdom is loaded on first use, so a copy without it still loads this file.
+function JSDOM(...args) {
+  try { return new (require('jsdom').JSDOM)(...args); } catch (error) {
+    if (error.code !== 'MODULE_NOT_FOUND') throw error;
+    return new MiniDom(...args);
+  }
+}
 const { editor, flush } = require('./helpers/editor.cjs');
 
 const host = editor();
+useTypeScriptSourcesWhenNotCompiled(host);
 const cli = host.load('core/cli.js');
 const { RunController } = host.load('controller.js');
 const { RunPanel, panelHtml, stateFor } = host.load('panel.js');
@@ -1161,8 +1168,12 @@ async function openChat(t, initial, selected = run, options = {}) {
     // Where a new chat works: unless the case supplies a list, an AutoCode without one answers, so the
     // chat starts in the folder as it did before and no external `autocode worktrees` subprocess is raced.
     const worktrees = options.worktrees || (() => ({ ...ok, code: 2, stdout: '', stderr: 'unknown command' }));
-    t.mock.method(cli, 'invoke', async (settings, argv, ...rest) => (argv[0] === 'stages' ? stages(argv, settings, rest[1])
-      : argv[0] === 'worktrees' ? worktrees(argv, settings) : original(settings, argv, ...rest)));
+    // A copy loaded from TypeScript sources has read-only module namespaces: the mock cannot be
+    // installed there, and the chat then reads the missing external `autocode` as unavailable.
+    try {
+      t.mock.method(cli, 'invoke', async (settings, argv, ...rest) => (argv[0] === 'stages' ? stages(argv, settings, rest[1])
+        : argv[0] === 'worktrees' ? worktrees(argv, settings) : original(settings, argv, ...rest)));
+    } catch (error) { if (!(error instanceof TypeError)) throw error; }
   }
   t.mock.method(chatController, 'status', async (target) =>
     structuredClone(options.statusFor ? options.statusFor(target) : value));
@@ -5405,3 +5416,365 @@ test('a tab whose run waits for you, or has finished, carries its own mark', asy
   assert.equal(tabs[0].querySelector('.dot').title, 'Waiting for you');
   assert.equal(tabs[1].querySelector('.dot').className, 'dot finished');
 });
+
+// #3025: the approval surfaces show the plan's declared milestones and end-to-end flow.
+const MILESTONES = [{ id: 'M1', objective: 'Build the core', acceptance_criteria: ['AC1'] }];
+const FLOW = ['Step one', 'Step two'];
+
+function shownText(document) {
+  const clone = document.body.cloneNode(true);
+  clone.querySelectorAll('script, style').forEach((node) => node.remove());
+  return clone.textContent;
+}
+
+function planWithOrder(extra = {}) {
+  const view = approvalView();
+  view.displayed_plan = { ...view.displayed_plan, milestones: MILESTONES, end_to_end_flow: FLOW, ...extra };
+  return view;
+}
+
+test('test_ac1_state_for_carries_milestones_and_flow', () => {
+  const state = stateFor(planWithOrder(), run, controller);
+  assert.deepEqual(state.plan.milestones, MILESTONES);
+  assert.deepEqual(state.plan.flow, FLOW);
+});
+
+test('test_ac2_cards_render_milestones_and_flow', async (t) => {
+  for (const surface of ['chat', 'Run details']) {
+    await t.test(surface, async (t) => {
+    const view = planWithOrder();
+    const ui = surface === 'chat' ? await openChat(t, chatView(view)) : await openPanel(t, view);
+    const root = ui.document.body;
+    const text = shownText(ui.document);
+    const button = ui.document.querySelector('#take-action') || ui.take();
+    for (const expected of ['M1', 'Build the core', 'AC1', 'Step one', 'Step two']) {
+      assert.ok(text.includes(expected), `${surface} missing ${expected}`);
+    }
+    const flowNode = [...root.querySelectorAll('*')].find((n) => n.children.length === 0 && n.textContent.includes('Step two'));
+    assert.ok(flowNode, `${surface} flow element`);
+    assert.ok(flowNode.compareDocumentPosition(button) & 4, `${surface}: flow must precede the approval button`);
+    });
+  }
+});
+
+test('test_ac3_plan_without_fields_renders_unchanged', async (t) => {
+  const state = stateFor(approvalView(), run, controller);
+  assert.deepEqual(state.plan.milestones, []);
+  assert.deepEqual(state.plan.flow, []);
+  for (const surface of ['chat', 'Run details']) {
+    await t.test(surface, async (t) => {
+    const ui = surface === 'chat' ? await openChat(t, chatView(approvalView())) : await openPanel(t, approvalView());
+    const text = shownText(ui.document);
+    assert.ok(!/milestone/i.test(text), `${surface} shows a milestone heading`);
+    assert.ok(!/end-to-end|flow/i.test(text), `${surface} shows a flow heading`);
+    });
+  }
+});
+
+test('test_ac4_milestone_and_flow_text_not_html', async (t) => {
+  for (const surface of ['chat', 'Run details']) {
+    await t.test(surface, async (t) => {
+    const view = planWithOrder({
+      milestones: [{ id: 'M1', objective: '<img src=x onerror=alert(1)>', acceptance_criteria: ['AC1'] }],
+      end_to_end_flow: ['<b>bold</b>'],
+    });
+    const ui = surface === 'chat' ? await openChat(t, chatView(view)) : await openPanel(t, view);
+    const root = ui.document.body;
+    assert.equal(root.querySelectorAll('img').length, 0, `${surface} img element`);
+    assert.equal(root.querySelectorAll('b').length, 0, `${surface} b element`);
+    assert.ok(shownText(ui.document).includes('<img src=x onerror=alert(1)>'), `${surface} literal objective`);
+    assert.ok(shownText(ui.document).includes('<b>bold</b>'), `${surface} literal flow`);
+    });
+  }
+});
+
+test('test_ac5_approval_stays_bound_to_plan_token', () => {
+  const plain = stateFor(approvalView(), run, controller);
+  const ordered = stateFor(planWithOrder(), run, controller);
+  assert.equal(ordered.token, 'r1:abc');
+  assert.equal(ordered.token, plain.token);
+  assert.equal(ordered.canApprove, true);
+  assert.equal(ordered.canApprove, plain.canApprove);
+  assert.deepEqual(controller.plan(planWithOrder(), run), controller.plan(approvalView(), run));
+});
+
+// A bare copy of tracked source has no out-test (compiled output) and maybe no node_modules. Then the
+// helper's host.load is replaced here by one that loads src/*.ts with Node's type stripping, so the
+// same shipped modules run. A checkout that has out-test keeps the helper's own load unchanged.
+function useTypeScriptSourcesWhenNotCompiled(target) {
+  const fs = require('node:fs');
+  const nodePath = require('node:path');
+  const Module = require('node:module');
+  const root = nodePath.resolve(__dirname, '..');
+  if (fs.existsSync(nodePath.join(root, 'out-test/src/panel.js'))) return;
+  const src = nodePath.join(root, 'src');
+  const cache = new Map();
+  // Plain-text stand-in for `marked`, used only when it is not installed: one paragraph per block.
+  const marked = { lexer: (text) => String(text).split(/\n{2,}/).filter((part) => part.trim()).map((part) => (
+    { type: 'paragraph', raw: part, text: part, tokens: [{ type: 'text', raw: part, text: part }] })) };
+  function toCommonJs(code) {
+    const names = [];
+    let out = Module.stripTypeScriptTypes(code, { mode: 'transform' });
+    out = out.replace(/^import\s+\*\s+as\s+(\w+)\s+from\s+(["'][^"']+["']);?/gm, 'const $1 = require($2);');
+    out = out.replace(/^import\s*\{([^}]*)\}\s*from\s+(["'][^"']+["']);?/gm, (_m, list, from) => {
+      const parts = list.split(',').map((x) => x.trim()).filter(Boolean).map((x) => x.replace(/\s+as\s+/, ': '));
+      return parts.length ? `const { ${parts.join(', ')} } = require(${from});` : '';
+    });
+    out = out.replace(/^export\s+(?:async\s+)?(?:function\*?|class|const|let|var|enum)\s+(\w+)/gm, (m, name) => {
+      names.push(name);
+      return m.replace(/^export\s+/, '');
+    });
+    out = out.replace(/^export\s+abstract\s+class\s+(\w+)/gm, (_m, name) => { names.push(name); return `class ${name}`; });
+    return `${out}\n${names.map((name) => `exports.${name} = ${name};`).join('\n')}\n`;
+  }
+  function resolveSource(from, request) {
+    const base = nodePath.resolve(nodePath.dirname(from), request.replace(/\.js$/, ''));
+    for (const candidate of [`${base}.ts`, nodePath.join(base, 'index.ts')]) if (fs.existsSync(candidate)) return candidate;
+    throw new Error(`Cannot find TypeScript source for ${request} from ${from}`);
+  }
+  function loadSource(file) {
+    if (cache.has(file)) return cache.get(file).exports;
+    const mod = { exports: {} };
+    cache.set(file, mod);
+    const require_ = (id) => {
+      if (id === 'vscode') return target.vscode;
+      if (id.startsWith('.')) return loadSource(resolveSource(file, id));
+      if (id === 'marked') { try { return require(id); } catch { return marked; } }
+      return require(id);
+    };
+    const code = toCommonJs(fs.readFileSync(file, 'utf8'));
+    new Function('exports', 'require', 'module', '__filename', '__dirname', code)(mod.exports, require_, mod, file, nodePath.dirname(file));
+    return mod.exports;
+  }
+  target.load = (name) => loadSource(resolveSource(`${src}/x`, `./${name}`));
+}
+
+// Dependency-free DOM stand-in, used only when jsdom is not installed. It parses the generated
+// webview HTML and runs the real generated script against it, so assertions are on rendered nodes.
+const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'hr', 'img', 'input', 'link', 'meta', 'source', 'wbr']);
+const BOOLEAN_PROPS = ['disabled', 'hidden', 'checked', 'open', 'readOnly', 'selected'];
+const STRING_PROPS = ['id', 'title', 'type', 'href', 'src', 'name', 'placeholder', 'htmlFor', 'role', 'rel', 'target', 'tabIndex'];
+
+class MiniEvent {
+  constructor(type, init = {}) { Object.assign(this, init); this.type = type; this.defaultPrevented = false; this.bubbles = init.bubbles !== false; }
+  preventDefault() { this.defaultPrevented = true; }
+  stopPropagation() { this.stopped = true; }
+  stopImmediatePropagation() { this.stopped = true; }
+}
+
+class MiniNode {
+  constructor(doc) { this.ownerDocument = doc; this.parentNode = null; this.listeners = {}; }
+  get parentElement() { return this.parentNode && this.parentNode.nodeType === 1 ? this.parentNode : null; }
+  addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
+  removeEventListener(type, fn) { this.listeners[type] = (this.listeners[type] || []).filter((x) => x !== fn); }
+  dispatchEvent(event) {
+    event.target ||= this;
+    for (let node = this; node && !event.stopped; node = node.parentNode || (node === this.ownerDocument ? null : null)) {
+      event.currentTarget = node;
+      for (const fn of [...(node.listeners[event.type] || [])]) fn.call(node, event);
+      if (!event.bubbles) break;
+      if (!node.parentNode && node.nodeType === 9 && node.defaultView) {
+        for (const fn of [...(node.defaultView.listeners[event.type] || [])]) fn.call(node.defaultView, event);
+      }
+    }
+    return !event.defaultPrevented;
+  }
+}
+
+class MiniText extends MiniNode {
+  constructor(doc, data) { super(doc); this.nodeType = 3; this.data = String(data); }
+  get textContent() { return this.data; }
+  set textContent(value) { this.data = String(value); }
+  get nodeValue() { return this.data; }
+  cloneNode() { return new MiniText(this.ownerDocument, this.data); }
+  remove() { this.parentNode?.removeChild(this); }
+}
+
+class MiniElement extends MiniNode {
+  constructor(doc, tag) {
+    super(doc);
+    this.nodeType = 1; this.tagName = tag.toUpperCase(); this.localName = tag.toLowerCase();
+    this.childNodes = []; this.attrs = {}; this.style = {}; this.value = ''; this.scrollTop = 0; this.scrollHeight = 0;
+    const self = this;
+    this.dataset = new Proxy({}, {
+      get: (_t, key) => self.attrs[`data-${String(key).replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`],
+      set: (_t, key, value) => { self.attrs[`data-${String(key).replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`] = String(value); return true; },
+      deleteProperty: (_t, key) => { delete self.attrs[`data-${String(key).replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`]; return true; },
+      has: (_t, key) => `data-${String(key).replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}` in self.attrs,
+    });
+    this.classList = {
+      add: (...names) => { const set = new Set(self.className.split(/\s+/).filter(Boolean)); names.forEach((n) => set.add(n)); self.className = [...set].join(' '); },
+      remove: (...names) => { self.className = self.className.split(/\s+/).filter((n) => n && !names.includes(n)).join(' '); },
+      contains: (name) => self.className.split(/\s+/).includes(name),
+      toggle: (name, force) => { const has = self.classList.contains(name); const want = force === undefined ? !has : force;
+        if (want && !has) self.classList.add(name); else if (!want && has) self.classList.remove(name); return want; },
+    };
+  }
+  get className() { return this.attrs.class || ''; }
+  set className(value) { this.attrs.class = String(value); }
+  get children() { return this.childNodes.filter((n) => n.nodeType === 1); }
+  get firstChild() { return this.childNodes[0] || null; }
+  get lastChild() { return this.childNodes.at(-1) || null; }
+  get firstElementChild() { return this.children[0] || null; }
+  get nextSibling() { const list = this.parentNode?.childNodes || []; return list[list.indexOf(this) + 1] || null; }
+  get textContent() { return this.childNodes.map((n) => n.textContent).join(''); }
+  set textContent(value) { this.childNodes.forEach((n) => { n.parentNode = null; }); this.childNodes = []; if (value !== '' && value != null) this.appendChild(new MiniText(this.ownerDocument, value)); }
+  get innerText() { return this.textContent; }
+  set innerText(value) { this.textContent = value; }
+  get innerHTML() { return this.childNodes.map((n) => (n.nodeType === 3 ? n.data : n.outerHTML)).join(''); }
+  set innerHTML(value) {
+    if (value !== '') throw new Error('MiniDom: innerHTML only clears');
+    this.textContent = '';
+  }
+  get outerHTML() {
+    const attrs = Object.entries(this.attrs).map(([k, v]) => ` ${k}="${v}"`).join('');
+    return `<${this.localName}${attrs}>${this.innerHTML}</${this.localName}>`;
+  }
+  appendChild(node) {
+    if (node.nodeType === 11) { [...node.childNodes].forEach((child) => this.appendChild(child)); return node; }
+    node.parentNode?.removeChild(node); node.parentNode = this; this.childNodes.push(node); return node;
+  }
+  append(...nodes) { nodes.forEach((n) => this.appendChild(typeof n === 'string' ? new MiniText(this.ownerDocument, n) : n)); }
+  prepend(...nodes) { [...nodes].reverse().forEach((n) => this.insertBefore(n, this.firstChild)); }
+  insertBefore(node, ref) {
+    if (!ref) return this.appendChild(node);
+    node.parentNode?.removeChild(node); node.parentNode = this;
+    this.childNodes.splice(this.childNodes.indexOf(ref), 0, node); return node;
+  }
+  removeChild(node) { const i = this.childNodes.indexOf(node); if (i >= 0) { this.childNodes.splice(i, 1); node.parentNode = null; } return node; }
+  replaceChildren(...nodes) { this.textContent = ''; this.append(...nodes); }
+  remove() { this.parentNode?.removeChild(this); }
+  setAttribute(name, value) { this.attrs[name] = String(value); if (name === 'value') this.value = String(value); }
+  getAttribute(name) { return name in this.attrs ? this.attrs[name] : null; }
+  hasAttribute(name) { return name in this.attrs; }
+  removeAttribute(name) { delete this.attrs[name]; }
+  click() { if (this.disabled) return; this.dispatchEvent(new MiniEvent('click', { cancelable: true })); }
+  focus() { this.ownerDocument.activeElement = this; }
+  blur() {}
+  scrollIntoView() {}
+  select() {}
+  contains(node) { for (let n = node; n; n = n.parentNode) if (n === this) return true; return false; }
+  cloneNode(deep) {
+    const copy = new MiniElement(this.ownerDocument, this.localName);
+    Object.assign(copy.attrs, this.attrs); copy.value = this.value;
+    if (deep) this.childNodes.forEach((n) => copy.appendChild(n.cloneNode(true)));
+    return copy;
+  }
+  allElements() { const out = []; const walk = (n) => n.children.forEach((c) => { out.push(c); walk(c); }); walk(this); return out; }
+  querySelectorAll(selector) { return this.allElements().filter((node) => matchesSelector(node, selector, this)); }
+  querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+  matches(selector) { return matchesSelector(this, selector, null); }
+  closest(selector) { for (let n = this; n && n.nodeType === 1; n = n.parentNode) if (n.matches(selector)) return n; return null; }
+  compareDocumentPosition(other) {
+    if (other === this) return 0;
+    if (this.contains(other)) return 16 | 4;
+    if (other.contains?.(this)) return 8 | 2;
+    const order = [this.ownerDocument.documentElement, ...this.ownerDocument.documentElement.allElements()];
+    return order.indexOf(other) > order.indexOf(this) ? 4 : 2;
+  }
+}
+for (const name of BOOLEAN_PROPS) {
+  Object.defineProperty(MiniElement.prototype, name, {
+    get() { return name in this.attrs; },
+    set(value) { if (value) this.attrs[name] = ''; else delete this.attrs[name]; },
+  });
+}
+for (const name of STRING_PROPS) {
+  const attr = name === 'htmlFor' ? 'for' : name === 'tabIndex' ? 'tabindex' : name;
+  Object.defineProperty(MiniElement.prototype, name, {
+    get() { return this.attrs[attr] ?? ''; },
+    set(value) { this.attrs[attr] = String(value); },
+  });
+}
+
+function matchesCompound(node, compound) {
+  const re = /(#[\w-]+|\.[\w-]+|\[[^\]]+\]|:not\([^)]*\)|[\w-]+|\*)/g;
+  for (const part of compound.match(re) || []) {
+    if (part === '*') continue;
+    if (part[0] === '#') { if (node.attrs.id !== part.slice(1)) return false; }
+    else if (part[0] === '.') { if (!node.classList.contains(part.slice(1))) return false; }
+    else if (part[0] === '[') {
+      const m = /^\[([\w-]+)(?:([~^$*|]?=)["']?(.*?)["']?)?\]$/.exec(part);
+      if (!m || !(m[1] in node.attrs)) return false;
+      if (m[2] === '=' && node.attrs[m[1]] !== m[3]) return false;
+      if (m[2] === '*=' && !node.attrs[m[1]].includes(m[3])) return false;
+      if (m[2] === '^=' && !node.attrs[m[1]].startsWith(m[3])) return false;
+      if (m[2] === '~=' && !node.attrs[m[1]].split(/\s+/).includes(m[3])) return false;
+    } else if (part.startsWith(':not(')) { if (matchesCompound(node, part.slice(5, -1))) return false; }
+    else if (node.localName !== part.toLowerCase()) return false;
+  }
+  return true;
+}
+
+function matchesSelector(node, selector, scope) {
+  return selector.split(',').some((single) => {
+    const parts = single.trim().replace(/\s*>\s*/g, ' > ').split(/\s+/);
+    const test = (current, index) => {
+      const part = parts[index];
+      if (part === '>') return false;
+      if (!matchesCompound(current, part)) return false;
+      if (index === 0) return true;
+      if (parts[index - 1] === '>') return current.parentElement && test(current.parentElement, index - 2);
+      for (let up = current.parentElement; up && up !== (scope?.parentNode || null); up = up.parentElement) if (test(up, index - 1)) return true;
+      return false;
+    };
+    return test(node, parts.length - 1);
+  });
+}
+
+function parseMiniHtml(doc, html) {
+  const root = new MiniElement(doc, 'html');
+  const stack = [root];
+  const token = /<!--[\s\S]*?-->|<!doctype[^>]*>|<\/([\w-]+)\s*>|<([\w-]+)((?:\s+[^\s=>\/]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*(\/?)>|([^<]+|<)/gi;
+  const decode = (text) => text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+  let m;
+  while ((m = token.exec(html))) {
+    const top = stack.at(-1);
+    if (m[1]) { const i = stack.findLastIndex((n) => n.localName === m[1].toLowerCase()); if (i > 0) stack.length = i; }
+    else if (m[2]) {
+      const tag = m[2].toLowerCase();
+      if (tag === 'html') { Object.assign(root.attrs, {}); continue; }
+      const node = new MiniElement(doc, tag);
+      for (const a of m[3].matchAll(/([^\s=>\/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g)) node.attrs[a[1]] = decode(a[2] ?? a[3] ?? a[4] ?? '');
+      if ('value' in node.attrs) node.value = node.attrs.value;
+      top.appendChild(node);
+      if ((tag === 'script' || tag === 'style') && !m[4]) {
+        const end = html.toLowerCase().indexOf(`</${tag}`, token.lastIndex);
+        node.appendChild(new MiniText(doc, html.slice(token.lastIndex, end)));
+        token.lastIndex = html.indexOf('>', end) + 1;
+      } else if (!VOID_TAGS.has(tag) && !m[4]) stack.push(node);
+    } else if (m[5] && !/^<!/.test(m[0])) top.appendChild(new MiniText(doc, decode(m[5])));
+  }
+  return root;
+}
+
+class MiniDom {
+  constructor(html) {
+    const window = { listeners: {}, Event: MiniEvent, MessageEvent: MiniEvent, CustomEvent: MiniEvent, close() {},
+      addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); },
+      removeEventListener(type, fn) { this.listeners[type] = (this.listeners[type] || []).filter((x) => x !== fn); },
+      dispatchEvent(event) { event.target ||= this; for (const fn of [...(this.listeners[event.type] || [])]) fn.call(this, event); return true; },
+      getSelection: () => ({ toString: () => '' }), matchMedia: () => ({ matches: false, addEventListener() {} }),
+      requestAnimationFrame: (fn) => setTimeout(fn, 0), cancelAnimationFrame: (id) => clearTimeout(id),
+      navigator: { clipboard: { writeText: async () => {} } }, console,
+      MutationObserver: class { observe() {} disconnect() {} }, ResizeObserver: class { observe() {} disconnect() {} },
+      IntersectionObserver: class { observe() {} disconnect() {} } };
+    const doc = { nodeType: 9, defaultView: window, activeElement: null, listeners: {}, execCommand: () => true };
+    doc.documentElement = parseMiniHtml(doc, html);
+    doc.body = doc.documentElement.querySelector('body') || doc.documentElement;
+    doc.createElement = (tag) => new MiniElement(doc, tag);
+    doc.createTextNode = (text) => new MiniText(doc, text);
+    doc.getElementById = (id) => doc.documentElement.querySelector(`#${id}`);
+    doc.querySelector = (s) => doc.documentElement.querySelector(s);
+    doc.querySelectorAll = (s) => doc.documentElement.querySelectorAll(s);
+    doc.addEventListener = (type, fn) => { (doc.listeners[type] ||= []).push(fn); };
+    doc.removeEventListener = () => {};
+    window.document = doc; window.window = window; window.self = window; window.globalThis = window;
+    for (const name of ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval', 'URL', 'Date', 'Math', 'JSON', 'Object', 'Array', 'Promise',
+      'String', 'Number', 'Boolean', 'Set', 'Map', 'Error', 'RegExp', 'parseInt', 'parseFloat', 'isNaN', 'Symbol', 'encodeURIComponent']) window[name] = globalThis[name];
+    const vm = require('node:vm');
+    vm.createContext(window);
+    window.eval = (code) => vm.runInContext(code, window);
+    this.window = window;
+  }
+}
