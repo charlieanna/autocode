@@ -66,6 +66,7 @@ try:
     from . import autocode_changed_code_proof as changed_code
     from . import autocode_changed_code_trigger as changed_code_trigger
     from . import autocode_component_plan as component_plan
+    from . import autocode_diff_coverage as diff_coverage
     from . import autocode_follow_up as follow_up
     from . import autocode_follow_up_proof as follow_up_proof
     from . import autocode_goals as goals
@@ -92,6 +93,7 @@ except ImportError:
     import autocode_changed_code_proof as changed_code
     import autocode_changed_code_trigger as changed_code_trigger
     import autocode_component_plan as component_plan
+    import autocode_diff_coverage as diff_coverage
     import autocode_follow_up as follow_up
     import autocode_follow_up_proof as follow_up_proof
     import autocode_goals as goals
@@ -1256,6 +1258,8 @@ def handoff(state: RunState):
         return None
     return {
         **{k: proof.get(k) for k in SUMMARY_KEYS},
+        # Only the changed lines' coverage: a proof saved before #3121 holds every measured file.
+        "diff_coverage": diff_coverage.bounded(proof.get("diff_coverage")),
         "checks": proof.get("checks", {}),
         "path": proof.get("path"),
         "meaning": "Executed by the runner in clean worktrees against this run's base commit: the new or "

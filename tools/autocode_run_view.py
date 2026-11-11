@@ -47,6 +47,7 @@ try:
     from . import autocode_cost as cost
     from . import autocode_criterion_changes as criterion_changes
     from . import autocode_design_coverage as design_coverage
+    from . import autocode_diff_coverage as diff_coverage
     from . import autocode_efficiency, autocode_run_metrics, autocode_usage
     from . import autocode_effort_question as effort_question
     from . import autocode_escalation_view as escalation_view
@@ -107,6 +108,7 @@ except ImportError:
     import autocode_cost as cost
     import autocode_criterion_changes as criterion_changes
     import autocode_design_coverage as design_coverage
+    import autocode_diff_coverage as diff_coverage
     import autocode_efficiency
     import autocode_effort_question as effort_question
     import autocode_escalation_view as escalation_view
@@ -846,7 +848,9 @@ def evidence(state: RunState) -> dict:
         if isinstance(replay, dict)
         else None,
         "proof_stability": deepcopy(proof.get("proof_stability")) if isinstance(proof, dict) else None,
-        "diff_coverage": deepcopy(proof.get("diff_coverage")) if isinstance(proof, dict) else None,
+        "diff_coverage": deepcopy(diff_coverage.bounded(proof.get("diff_coverage")))
+        if isinstance(proof, dict)
+        else None,
         "mutation_check": deepcopy(
             proof.get("mutation_check")
             if isinstance(proof, dict)

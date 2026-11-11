@@ -138,6 +138,7 @@ STATUS_GROUPS = MappingProxyType(
                 "PAUSED_PROGRESSIVE_AUTHORITY",
                 "PAUSED_PROGRESSIVE_BUDGET",
                 "PAUSED_PROGRESSIVE_TRANSITION",
+                "PAUSED_PROMPT_SIZE",
                 "PAUSED_REPORT_REPAIR_INPUT",
                 "PAUSED_RESOLVER",
                 "PAUSED_RESOLVER_OPERATIONAL",

@@ -1,5 +1,6 @@
 """Stability of named proof (#700) and report-only diff coverage of the proving tests (#701)."""
 
+import json
 import shlex
 import shutil
 import subprocess
@@ -258,6 +259,57 @@ class DiffCoverageTests(unittest.TestCase):
             self.assertFalse(missing["collected"])
             (root / "broken.json").write_text("{")
             self.assertFalse(diff_coverage.finish("coverage.py", root / "broken.json", root, self.DIFF)["collected"])
+
+    def test_measured_lines_keep_only_the_changed_lines_not_every_measured_file(self):
+        # #3121: a coverage report measures every file the tests loaded. The proof kept all of it
+        # (1838 files on AutoCode itself), and the Resolver's prompt grew to about 6 MB.
+        report = {
+            "files": {
+                "app.py": {"executed_lines": [1, 9], "missing_lines": [2, 12]},
+                "cold.py": {"executed_lines": [1, 4], "missing_lines": [5, 7]},
+                **{
+                    f"pkg/unrelated_{n}.py": {"executed_lines": list(range(1, 400)), "missing_lines": []}
+                    for n in range(50)
+                },
+            }
+        }
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "coverage.json").write_text(json.dumps(report))
+            result = diff_coverage.finish("coverage.py", root / "coverage.json", root, self.DIFF)
+        self.assertEqual(
+            {"app.py": {"executed": [1], "missing": [2]}, "cold.py": {"executed": [4], "missing": [5]}},
+            result["measured_lines"],
+        )
+        self.assertEqual(
+            [
+                {"path": "app.py", "start": 1, "end": 4, "uncovered_lines": [2]},
+                {"path": "cold.py", "start": 4, "end": 5, "uncovered_lines": [5]},
+            ],
+            result["uncovered"],
+        )
+
+    def test_a_proof_saved_with_every_measured_file_is_bounded_to_the_changed_lines(self):
+        files = diff_coverage.intersect(diff_coverage.hunks(self.DIFF), {"app.py": {1}}, {"app.py": {2}})["files"]
+        saved = {
+            "collected": True,
+            "files": files,
+            "measured_lines": {
+                "app.py": {"executed": [1, 9], "missing": [2]},
+                "big.py": {"executed": list(range(1, 5000)), "missing": []},
+            },
+        }
+        bounded = diff_coverage.bounded(saved)
+        self.assertEqual({"app.py": {"executed": [1], "missing": [2]}}, bounded["measured_lines"])
+        self.assertEqual(files, bounded["files"])
+        # What the Tester, the Completion Reviewer and the Resolver are handed, and the status view.
+        state = {"goal_contract": {"body": {"task_kind": "bugfix"}}, "regression_proof": {"diff_coverage": saved}}
+        self.assertEqual(bounded, regression.handoff(state)["diff_coverage"])
+        self.assertEqual(bounded, run_view.evidence(state)["diff_coverage"])
+        self.assertIn("big.py", saved["measured_lines"])  # the saved proof itself is not changed
+        self.assertEqual(bounded, diff_coverage.bounded(bounded))
+        for value in (None, {"collected": False, "files": []}):
+            self.assertEqual(value, diff_coverage.bounded(value))
 
     def test_no_tool_and_no_product_hunks_cost_no_test_run(self):
         def run(*_):
