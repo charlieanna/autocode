@@ -441,5 +441,5 @@ class ProviderSandboxTests(unittest.TestCase):
             timeout=30,
         )
         requirements = json.loads(status.stdout)["settings"]["roles"]["requirements"]
-        self.assertEqual("model-glm", requirements["model"])
+        self.assertEqual("model-planner", requirements["model"])
         self.assertEqual("medium", requirements["reasoning_effort"])
