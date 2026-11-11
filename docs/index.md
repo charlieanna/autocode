@@ -21,7 +21,7 @@ These five guides cover the first day:
 
 Use the five navigation sections to find deeper guides. Search includes the full
 reference pages. The [stage names](roles.md) come from the same canonical list as
-the CLI and dashboard.
+the CLI and VS Code.
 
 If investigation reveals another repository, follow the
 [multi-repository walkthrough](multi-repo.md#walkthrough-a-bug-reveals-another-repository)

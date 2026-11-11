@@ -39,10 +39,8 @@ A report is in scope if it shows any of these can be broken:
   ancestor/sibling directories in a way the role's prompt and permissions
   forbid.
 - **Credential exposure.** Provider credentials, tokens or secrets are written
-  into `state.json`, run artifacts, dashboard storage, logs, or handoff
+  into `state.json`, run artifacts, logs, or handoff
   exports.
-- **Dashboard exposure.** The local dashboard becomes reachable from other
-  hosts, or an unauthenticated request can start, resume or mutate a run.
 - **Unsafe file handling.** Symlink or path-traversal tricks in run
   directories, intervention inboxes, or registry imports that write or read
   outside the intended paths.

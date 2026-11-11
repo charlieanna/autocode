@@ -21,7 +21,6 @@ ROOT = Path(__file__).resolve().parents[1]
 JOBS = (
     "suite",
     "scenarios",
-    "dashboard",
     "extension",
     "visual",
     "containers",
@@ -155,7 +154,7 @@ def select(paths: list[str], *, full: bool = False) -> dict[str, bool]:
         elif path.startswith(".github/workflows/"):
             # Other standalone workflows keep their existing triggers.
             continue
-        elif path.startswith(("tools/", "tests/", "scenarios/", "test-scenarios/", "macos-app/")):
+        elif path.startswith(("tools/", "tests/", "scenarios/", "test-scenarios/")):
             selected["suite"] = True
         elif path not in ("AGENTS.md", ".gitignore", ".gitattributes"):
             # An unfamiliar repository input still gets the Python regression gate.
@@ -165,27 +164,7 @@ def select(paths: list[str], *, full: bool = False) -> dict[str, bool]:
             path in run_suite.SCENARIO_FIXTURES or path in run_suite.SCENARIO_RUNTIME_CONSUMERS
         ):
             selected["scenarios"] = True
-        if path.startswith(
-            (
-                "tools/dashboard/",
-                "macos-app/",
-                "tests/test_dashboard",
-                "tests/test_catalogue_t12.py",
-                "tests/test_autocode_stop.py",
-                "tests/browser_suite_process.py",
-                "tests/browser_",
-            )
-        ) or path in (
-            "tools/autocode_run_view.py",
-            "tools/autocode_roles.py",
-            "tools/autocode_legacy_process.py",
-            "tools/fake_command_tool.py",
-        ):
-            selected["dashboard"] = True
-        if path.startswith("tests/test_") and "browser" in path:
-            selected["dashboard"] = True
-        # The VS Code client is TypeScript over the CLI, so it has its own Node gate
-        # rather than the dashboard's (#884).
+        # The VS Code client is TypeScript over the CLI, so it has its own Node gate (#884).
         if path.startswith(("vscode-extension/", "tools/autocode_chat_")) or path in (
             "tools/autocode_run_view.py",
             "tools/autocode_quota_route.py",

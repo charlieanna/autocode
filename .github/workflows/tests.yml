@@ -28,7 +28,6 @@ jobs:
     outputs:
       suite: ${{ steps.select.outputs.suite }}
       scenarios: ${{ steps.select.outputs.scenarios }}
-      dashboard: ${{ steps.select.outputs.dashboard }}
       extension: ${{ steps.select.outputs.extension }}
       visual: ${{ steps.select.outputs.visual }}
       containers: ${{ steps.select.outputs.containers }}
@@ -96,7 +95,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    if: needs.scope.outputs.suite == 'true' || needs.scope.outputs.scenarios == 'true' || needs.scope.outputs.dashboard == 'true'
+    if: needs.scope.outputs.suite == 'true' || needs.scope.outputs.scenarios == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -121,7 +120,7 @@ jobs:
           python-version: "3.11"
 
       - uses: actions/setup-node@v4
-        if: needs.scope.outputs.dashboard == 'true' || needs.scope.outputs.scenarios == 'true'
+        if: needs.scope.outputs.suite == 'true' || needs.scope.outputs.scenarios == 'true'
         with:
           node-version: "22"
 
@@ -136,19 +135,6 @@ jobs:
         # Ubuntu runners provide this JDK. Validate both tools and log their actual versions;
         # downloading an older release asset here has repeatedly failed with HTTP 504.
         run: python tools/ci_java.py
-
-      - name: Install dashboard browser test dependencies
-        if: needs.scope.outputs.dashboard == 'true'
-        # AC15 runs a real browser from the Python suite, before the Node gate.
-        # Pin the version used for the local feature acceptance checks.
-        run: |
-          # The Azure mirror can stall on the 61 MB CJK font archive before any tests run.
-          # Keep signed Ubuntu packages and use the official archive over HTTPS.
-          if [ -f /etc/apt/apt-mirrors.txt ]; then
-            sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/apt-mirrors.txt
-          fi
-          npm install --global agent-browser@0.25.3
-          agent-browser install --with-deps
 
       - name: Prepare native Linux verification boundary
         if: runner.os == 'Linux' && needs.scope.outputs.suite == 'true'
@@ -218,67 +204,6 @@ jobs:
           cat .attribution.md >> "$GITHUB_STEP_SUMMARY"
           gh pr comment "$PR" --body-file .attribution.md || echo "could not post the attribution comment"
 
-      - name: Run the dashboard suite
-        if: needs.scope.outputs.dashboard == 'true'
-        # tools/dashboard/tests is outside tests/, so run_suite.py never
-        # discovers it; run it here so it can't drift unnoticed again (#94).
-        run: .venv/bin/python -m unittest discover -s tools/dashboard/tests -p 'test_*.py' -v
-        env:
-          PYTHONDONTWRITEBYTECODE: "1"
-
-      - name: Verify chat, answers, Work, preview and recovery in real browsers
-        if: needs.scope.outputs.dashboard == 'true'
-        # Read-only messages and exact-message confirmation must remain safe
-        # with a pending question, after reload, and at narrow viewports.
-        run: |
-          .venv/bin/python - <<'PYTHON'
-          import json, os, sys, tempfile
-          from pathlib import Path
-          from tests.browser_suite_process import run
-          with tempfile.TemporaryDirectory(prefix="ab-", dir="/tmp") as sockets:
-              env = {**os.environ, "AGENT_BROWSER_SOCKET_DIR": sockets,
-                     "AUTOCODE_TEST_PYTHON": sys.executable}
-              for script, cap in [("test_chat_intent_browser_ui.js", 180),
-                                  ("test_work_summary_browser_ui.js", 240),
-                                  ("test_question_cards_browser_ui.js", 240),
-                                  ("test_cross_pane_links_browser_ui.js", 240),
-                                  ("test_preview_browser_ui.js", 240),
-                                  ("test_recovery_browser_ui.js", 300),
-                                  ("test_draft_cadence_browser_ui.js", 300),
-                                  ("test_delete_browser_ui.js", 300),
-                                  ("test_setup_browser_ui.js", 300),
-                                  ("test_checkpoint_browser_ui.js", 300),
-                                  ("test_criterion_diff_browser_ui.js", 240),
-                                  # #730 acceptance: a scenario's brief in chat through a real fake-provider build.
-                                  ("test_scenario_client_browser_ui.js", 600),
-                                  ("test_preview_dev_server_browser_ui.js", 300),
-                                  ("test_scoped_start_browser_ui.js", 240)]:
-                  try:
-                      result = run(["node", "tools/dashboard/tests/" + script],
-                                   cwd=Path.cwd(), env=env, timeout=cap)
-                  except BaseException as error:
-                      print(json.dumps(getattr(error, "receipt", {"error": str(error)})))
-                      raise
-                  print(json.dumps(result.receipt))
-                  if result.returncode:
-                      sys.exit(result.returncode)
-          PYTHON
-
-      - name: Run the dashboard Node tests
-        if: needs.scope.outputs.dashboard == 'true'
-        # Browser checks invoked by Python tests run in the suite above.
-        # Standalone browser matrices remain part of local visual acceptance;
-        # the log names those omitted from this separate Node gate.
-        run: |
-          for test_file in tools/dashboard/tests/test_*.js; do
-            if grep -q "agent-browser" "$test_file"; then
-              echo "Standalone browser matrix (verified separately): $test_file"
-              continue
-            fi
-            echo "node $test_file"
-            node "$test_file" || exit 1
-          done
-
   scenario-harness:
     needs: scope
     if: needs.scope.outputs.scenarios == 'true'
@@ -298,7 +223,7 @@ jobs:
           python-version: "3.11"
 
       - uses: actions/setup-node@v4
-        if: needs.scope.outputs.dashboard == 'true' || needs.scope.outputs.scenarios == 'true'
+        if: needs.scope.outputs.scenarios == 'true'
         with:
           node-version: "22"
 
@@ -313,19 +238,6 @@ jobs:
         # Ubuntu runners provide this JDK. Validate both tools and log their actual versions;
         # downloading an older release asset here has repeatedly failed with HTTP 504.
         run: python tools/ci_java.py
-
-      - name: Install dashboard browser test dependencies
-        if: needs.scope.outputs.dashboard == 'true'
-        # AC15 runs a real browser from the Python suite, before the Node gate.
-        # Pin the version used for the local feature acceptance checks.
-        run: |
-          # The Azure mirror can stall on the 61 MB CJK font archive before any tests run.
-          # Keep signed Ubuntu packages and use the official archive over HTTPS.
-          if [ -f /etc/apt/apt-mirrors.txt ]; then
-            sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/apt-mirrors.txt
-          fi
-          npm install --global agent-browser@0.25.3
-          agent-browser install --with-deps
 
       - name: Prepare native Linux verification boundary
         if: runner.os == 'Linux'
@@ -538,10 +450,6 @@ jobs:
               # A fake OpenCode run through the CLI whose Builder, Tester and Completion Reviewer launch
               # contained, and the uncontained control for its planted write outside the workspace.
               "tests.test_contained_fake_cli.ContainedFakeOpenCodeFlow",
-              # The dashboard suite job has no bubblewrap and skips this one (#1250). Last: its module
-              # puts tools/dashboard first on sys.path.
-              "dashboard.tests.test_permanent_delete_endpoints.PermanentDeleteTests"
-              ".test_managed_worktree_can_be_deleted_after_a_native_planning_boundary",
           )
           suite = unittest.TestSuite()
           for name in names:
@@ -727,12 +635,12 @@ jobs:
           if needs["scope"]["result"] != "success":
               sys.exit("CI scope selection did not pass")
           scope = needs["scope"]["outputs"]
-          flags = ("suite", "scenarios", "dashboard", "extension", "visual", "containers",
+          flags = ("suite", "scenarios", "extension", "visual", "containers",
                    "macos", "linux", "windows", "wheel", "docs")
           if any(scope.get(flag) not in ("true", "false") for flag in flags):
               sys.exit("CI scope selection returned incomplete outputs")
           selected = {
-              "suite": any(scope[flag] == "true" for flag in ("suite", "scenarios", "dashboard")),
+              "suite": any(scope[flag] == "true" for flag in ("suite", "scenarios")),
               "scenario-harness": scope["scenarios"] == "true",
               "extension": scope["extension"] == "true",
               "macos-tool-containment": scope["macos"] == "true",

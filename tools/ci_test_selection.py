@@ -81,15 +81,8 @@ SCENARIO_SELECTION_INPUTS = {
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    (
-        "tools/dashboard/dashboard_project_controls.py",
-        ("tests.test_dashboard_project_snapshot", "tests.test_catalogue_t12"),
-    ),
     ("pyproject.toml", ("tests.test_repository_pytest",)),
     (".github/workflows/tests.yml", ("tests.test_ci_java",)),
-    ("tools/dashboard/tests/test_shell_a11y_ui.js", ("tests.test_catalogue_t12",)),
-    ("tools/dashboard/tests/test_m3_lifecycle_browser_ui.js", ("tests.test_catalogue_t12",)),
-    ("tools/dashboard/tests/browser_readiness.js", ("tests.test_catalogue_t12",)),
     ("tools/autocode_stage_context.py", ("tests.test_ready_capture_batch_cli",)),
     (
         "tools/autocode_ready_capture_batch.py",
@@ -1177,7 +1170,6 @@ def dependencies(path: str) -> set[str]:
             "tests/",
             "scenarios/",
             "test-scenarios/",
-            "macos-app/",
             ".github/",
             "docs/",
             "examples/",
@@ -1205,7 +1197,7 @@ def dependencies(path: str) -> set[str]:
     for prefix, consumers in RESOURCE_CONSUMERS:
         if path.startswith(prefix):
             selected.update(consumers)
-    if path.startswith("tools/") and not path.startswith(("tools/dashboard/", "tools/prompts/")):
+    if path.startswith("tools/") and not path.startswith("tools/prompts/"):
         for prefixes, consumers in CLI_CONSUMERS:
             if path.startswith(prefixes):
                 selected.update(consumers)

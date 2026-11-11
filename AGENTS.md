@@ -104,18 +104,16 @@ behavior it changes (see Testing).
 | `tests/test_*.py` | Unit and integration tests (`unittest`). `tests/__init__.py` puts `tools/` on `sys.path`, so tests import runtime modules by their top-level names (`import autopilot`, `from units import autoreview`). |
 | `scenarios/` | End-to-end scenario harness and catalog. Black box: it drives the CLI and never imports `tools/`. |
 | `test-scenarios/` | Older fault-injection suite (crash/resume, budgets, dirty workspaces) against a fake Codex. |
-| `tools/dashboard/`, `macos-app/` | Browser dashboard and native macOS host: clients of the core. |
 | `vscode-extension/` | VS Code thin client. The `autocode` CLI and the status view, nothing else. |
 | `docs/` | User documentation. |
 
-**The browser dashboard (`tools/dashboard/`) and the macOS app (`macos-app/`)
-are open for features again** (owner decision, 2026-10-16; they were frozen from
-2026-09-26). New client work follows #730: the core exposes what a client needs
-through the task-run interface (`docs/task-run.md`) first, and the client renders
-it and runs the actions the status view names. Their tests stay in the suite
-gate. The installed macOS app runs the dashboard straight from this checkout, so
-a change that breaks the dashboard breaks the app. The core must not import the
-dashboard.
+**The browser dashboard and the macOS app are retired, owner decision 2026-11-11.**
+`tools/dashboard/` (the `autocode dashboard` subcommand) and `macos-app/`, the native
+window that hosted it, were removed; they were open for features from 2026-10-16 and
+had received only catch-up fixes since late October. Person-facing work goes to the
+VS Code client, with the terminal chat kept working (below). Do not bring either
+back, or start another browser or native client, without the owner's decision. Their
+last source is in the history before the removal.
 
 **VS Code client, approved 2026-10-15 for #884, in `vscode-extension/`.**
 The owner expanded PR #1425 on 2026-10-16 to include sidebar chat, plan
@@ -216,7 +214,7 @@ and how a run is watched over SSH. It takes bug fixes and changes a core or cont
 change requires, but no new commands, panels, keys or screens. Improvements to what a
 person sees go to the core's status view first, then to the VS Code client. The approvals
 above still describe what the terminal chat already does; they do not license growing it.
-This decision does not change the browser dashboard, the macOS app or the channel bridge.
+This decision does not change the channel bridge.
 
 **Asynchronous TUI lifecycle direction approved 2026-10-23 (#1879, PR #1985).**
 The owner approved opt-in durable execution on supported persistent Linux under
@@ -377,8 +375,6 @@ may still write them, and each is read through that table:
   config's `[roles]`, `.autocode/config.toml` and `stages.toml`;
 - a run saved before the rename, which is refused at resume and stays readable, as a run at a
   retired stage is (`names.RETIRED_ROUTES`);
-- the browser dashboard, which still matches the old names and gets them from
-  `dashboard_run_state.read`;
 - schema file stems (`names.file_stem`) and legacy v1 artifacts;
 - a fake provider copied out of `tools/` to run, which names the stages itself
   (`fake_codex.TASK_PLANNER_STAGES`, kept equal by `tests.test_names`).

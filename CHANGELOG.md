@@ -37,6 +37,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Removed
 
+- **The browser dashboard and the macOS app are retired**: `autocode dashboard`, its browser page and the native macOS window that hosted it (`macos-app/`) are removed. Use the VS Code extension, or `autocode chat` in a terminal. Runs the dashboard started are ordinary runs and stay readable with `autocode --status`; conversations it saved under `$AUTOCODE_HOME/dashboard` are left on disk untouched.
+
 - **The Job recognizer, Code Reviewer, bug Investigator, Designer and Analyst stages**, with `--utility-model`/`--utility-reasoning-effort` and `--recover-job-report`. A run saved at one of those stages cannot continue: AutoCode says so and asks for a new task; its status and reports stay readable. The Design Reviewer, the stuck-stage Investigator and the acceptance-test writer stay.
 
 ### Fixed

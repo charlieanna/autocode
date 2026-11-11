@@ -56,9 +56,6 @@ EXPORTS = {
             "workspace_lock",
         ],
     },
-    "dashboard.planner_dispatch": {
-        "autocode_planner_routes": ["conversation_planner_routes", "enforce_conversation_routes"],
-    },
 }
 
 PROBE = """

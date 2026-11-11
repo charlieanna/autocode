@@ -42,7 +42,6 @@
   "tests.test_verify": "14 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_assignment_scenarios": "13 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_dashboard_consumer": "13 s in CI (Ubuntu, one module at a time), 2026-09-29",
-  "tests.test_catalogue_t12": "347 s in CI (Ubuntu, 4 modules at a time), 2026-10-04; drives the dashboard suites in a real browser",
   "tests.test_rework_cli": "194 s in CI (Ubuntu, 4 modules at a time), 2026-10-04",
   "tests.test_protected_oracles_cli": "88 s in CI (Ubuntu, 4 modules at a time), 2026-10-04",
   "tests.test_goal_file_cli": "Two fake-provider CLI runs to plan approval, then plan files refused and one loaded, reviewed, approved and driven to TASK_COMPLETE with its evidence report checked; 133 s locally (Linux cloud container shared with other test runs), 2026-10-16 (#720)",
