@@ -111,9 +111,7 @@ STAGES = (
 )
 ORDER = tuple(stage[0] for stage in STAGES)
 LABELS = {
-    role: (
-        f"{roles.SCREEN[job]} and per-task {roles.SCREEN['planner']}" if role == "task_planner" else roles.SCREEN[job]
-    )
+    role: (roles.ROUTE_SCREEN["task_planner"] if role == "task_planner" else roles.SCREEN[job])
     for role, job, _does, _advice in STAGES
 }
 BACKEND_LABELS = {"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode", "kilocode": "Kilo"}

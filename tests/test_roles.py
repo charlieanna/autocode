@@ -52,7 +52,7 @@ class OneListOfNames(unittest.TestCase):
 class NamesFollowTheJobNotTheAi(unittest.TestCase):
     def test_configured_slot_labels_follow_the_canonical_jobs_and_planning_flow(self):
         for role, expected in {
-            "task_planner": "Planner",
+            "task_planner": "Resolver and per-task Planner",
             "planner": "Planner",
             "requirements": "Requirements",
             "plan_reviewer": "Plan Reviewer",
@@ -62,11 +62,22 @@ class NamesFollowTheJobNotTheAi(unittest.TestCase):
             "resolver": "Resolver",
             "architect": "Design Reviewer",
             "stuck_investigator": "Investigator",
-            "acceptance_tester": "Tester",
+            "acceptance_tester": "Tester (acceptance tests)",
         }.items():
             self.assertEqual(expected, roles.route_name(role, {}))
         self.assertEqual("Planner", roles.route_name("planner", {"settings": {"planning_flow": "v2"}}))
         self.assertEqual("Future Role", roles.route_name("future_role", {}))
+
+    def test_no_two_configured_slots_share_a_screen_name(self):
+        # A chat's model list showed "Planner" twice, on GLM and on MiMo, because the per-task Planner's
+        # slot was named after its primary job like the Planner's own (live VS Code run, 2026-11-11).
+        from autocode_role_route import records
+
+        names = [roles.route_name(role, {}) for role in roles.ROUTE_JOB]
+        self.assertEqual(len(names), len(set(names)), names)
+        state = {"settings": {"roles": {role: {"model": "m"} for role in roles.ROUTE_JOB}}}
+        jobs = [row["job"] for row in records(state).values()]
+        self.assertEqual(len(jobs), len(set(jobs)), jobs)
 
     def test_the_glm_slot_label_follows_the_planner_work_it_runs(self):
         # role_for sends the Planner's draft (draft_plan) and revision (revise_plan)
