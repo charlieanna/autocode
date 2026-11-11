@@ -96,7 +96,7 @@ export interface PanelState {
   checkpoints: { id: string; label: string; at: string | null; files: number; available: boolean; reason: string | null; verdict: string | null; actions: { id: string; label: string }[] }[];
   checkpointsBlocked: string | null;
   /** The plan the current token asks to approve, only when the view shows it. */
-  plan: { revision: number | null; criteria: AcceptanceCriterion[]; constraints: string[]; boundaries: string[]; exclusions: string[]; delivery: string | null } | null;
+  plan: { revision: number | null; criteria: AcceptanceCriterion[]; constraints: string[]; boundaries: string[]; exclusions: string[]; delivery: string | null; milestones: { id: string; objective: string; acceptance_criteria: string[] }[]; flow: string[] } | null;
   /** The token the approval is bound to; the webview echoes it back so a stale click cannot approve. */
   token: string | null;
   /** False when the action would be an approval of a plan this client never displayed. */
@@ -558,6 +558,12 @@ function planOf(plan: DisplayedPlan): NonNullable<PanelState["plan"]> {
     boundaries: plan.permission_boundaries ?? [],
     exclusions: plan.scope_exclusions ?? [],
     delivery: plan.git_delivery ? "Create one local atomic commit: " + plan.git_delivery.message : null,
+    milestones: (plan.milestones ?? []).map((m) => ({
+      id: m.id,
+      objective: m.objective,
+      acceptance_criteria: m.acceptance_criteria ?? [],
+    })),
+    flow: plan.end_to_end_flow ?? [],
   };
 }
 
@@ -1365,6 +1371,22 @@ function render(state) {
 
     if (state.plan) {
       cardContent.appendChild(el('h2', null, 'Plan to approve'));
+      if (state.plan.milestones.length) {
+        cardContent.appendChild(el('h2', null, 'Milestones'));
+        state.plan.milestones.forEach((milestone) => {
+          const box = el('div', 'decision');
+          box.appendChild(el('div', 'q', milestone.id + ': ' + milestone.objective));
+          if (milestone.acceptance_criteria.length) {
+            const criteria = el('div', 'why', 'Criteria: ' + milestone.acceptance_criteria.join(', '));
+            box.appendChild(criteria);
+          }
+          cardContent.appendChild(box);
+        });
+      }
+      if (state.plan.flow.length) {
+        cardContent.appendChild(el('h2', null, 'End-to-end flow'));
+        state.plan.flow.forEach((step) => cardContent.appendChild(el('div', 'row', step)));
+      }
       state.plan.criteria.forEach((criterion) => {
         const item = el('div', 'row');
         item.appendChild(el('span', null, criterion.criterion));
@@ -1585,6 +1607,22 @@ function render(state) {
       state.plan.criteria.length + ' acceptance criteria  ·  '
       + state.plan.constraints.length + ' constraints  ·  '
       + state.plan.boundaries.length + ' permission boundaries'));
+    if (state.plan.milestones.length) {
+      app.appendChild(el('h2', null, 'Milestones'));
+      state.plan.milestones.forEach((milestone) => {
+        const box = el('div', 'decision');
+        box.appendChild(el('div', 'q', milestone.id + ': ' + milestone.objective));
+        if (milestone.acceptance_criteria.length) {
+          const criteria = el('div', 'why', 'Criteria: ' + milestone.acceptance_criteria.join(', '));
+          box.appendChild(criteria);
+        }
+        app.appendChild(box);
+      });
+    }
+    if (state.plan.flow.length) {
+      app.appendChild(el('h2', null, 'End-to-end flow'));
+      state.plan.flow.forEach((step) => app.appendChild(el('div', 'row', step)));
+    }
     state.plan.criteria.forEach((criterion) => {
       const item = el('div', 'decision');
       item.appendChild(el('div', 'q', criterion.id + ': ' + criterion.criterion));
@@ -1720,6 +1758,19 @@ function renderChangeset(set, state) {
     row.target + ' (' + (row.role === 'source' ? 'source run' : 'linked run') + '): ' + row.status + (row.needs ? ', needs ' + row.needs : ''))));
   set.plans.forEach((entry) => {
     app.appendChild(el('div', 'why', entry.target + ': plan revision ' + (entry.plan.revision === null ? '?' : entry.plan.revision)));
+    if (entry.plan.milestones.length) {
+      app.appendChild(el('h3', null, 'Milestones'));
+      entry.plan.milestones.forEach((milestone) => {
+        app.appendChild(el('div', 'row', milestone.id + ': ' + milestone.objective));
+        if (milestone.acceptance_criteria.length) {
+          app.appendChild(el('div', 'why', 'Criteria: ' + milestone.acceptance_criteria.join(', ')));
+        }
+      });
+    }
+    if (entry.plan.flow.length) {
+      app.appendChild(el('h3', null, 'End-to-end flow'));
+      entry.plan.flow.forEach((step) => app.appendChild(el('div', 'row', step)));
+    }
     entry.plan.criteria.forEach((criterion) => {
       app.appendChild(el('div', 'row', criterion.id + ': ' + criterion.criterion));
       app.appendChild(el('pre', null, criterion.verification_method));
