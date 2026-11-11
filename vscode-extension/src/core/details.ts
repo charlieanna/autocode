@@ -26,7 +26,7 @@ export interface PipelineStep {
 }
 
 export interface DetailSection {
-  id: "where" | "pipeline" | "wrong" | "spend" | "verification" | "path" | "decisions";
+  id: "where" | "worktree" | "pipeline" | "wrong" | "spend" | "verification" | "path" | "decisions";
   title: string;
   summary: string;
   /** One line each; a line that starts with two spaces belongs to the line above it. */
@@ -41,6 +41,8 @@ export interface RunHeader {
   pipeline: PipelineStep[];
   /** The collapsed header's short facts: spend and what went wrong. */
   facts: string[];
+  /** Where the chat changes files, always shown: its own worktree and branch, or the person's folder. */
+  place: string;
   sections: DetailSection[];
 }
 
@@ -123,6 +125,22 @@ function where(view: Row): { state: string; label: string; sentence: string; sec
     if (saved && !FLAG.test(saved) && !lines.some((line) => line.includes(saved))) lines.push(`Recorded reason: ${saved}`);
   }
   return { state, label, sentence, section: { id: "where", title: "Where the run is", summary: label, lines: lines.filter(Boolean) } };
+}
+
+// ---- Where it changes files: `worktree` -------------------------------------------------------
+
+function worktree(view: Row): { label: string; section: DetailSection | null } {
+  const place = mapping(view.worktree);
+  const label = text(place.label);
+  if (!label) return { label: "", section: null };
+  const lines = [text(place.sentence)];
+  const path = text(place.path);
+  const folder = text(place.folder);
+  if (path) lines.push(place.kind === "worktree" ? `Worktree: ${path}` : `Folder: ${path}`);
+  lines.push(`Branch: ${text(place.branch) || "none (detached HEAD)"}`);
+  if (place.kind === "moving") lines.push(`From planning on: ${text(place.moves_to_branch) || "a new branch named from the task"}`);
+  if (folder && folder !== path) lines.push(`Your folder: ${folder}`);
+  return { label, section: { id: "worktree", title: "Where it works", summary: label, lines: lines.filter(Boolean) } };
 }
 
 // ---- What went wrong: `recoveries` (the terminal's /why) ------------------------------------
@@ -338,8 +356,10 @@ export function runHeader(view: unknown): RunHeader | null {
   if (spend) facts.push(spend);
   const wrong = recoveries(source).length;
   if (wrong) facts.push(`${wrong} ${wrong === 1 ? "thing" : "things"} went wrong, handled`);
+  const place = worktree(source);
   const sections = [
     now.section,
+    place.section,
     pipelineSection(steps),
     wrongSection(source),
     spendSection(source),
@@ -347,5 +367,5 @@ export function runHeader(view: unknown): RunHeader | null {
     pathSection(source),
     decisionsSection(source),
   ].filter((section): section is DetailSection => section !== null);
-  return { state: now.state, label: now.label, sentence: now.sentence, pipeline: steps, facts, sections };
+  return { state: now.state, label: now.label, sentence: now.sentence, pipeline: steps, facts, place: place.label, sections };
 }

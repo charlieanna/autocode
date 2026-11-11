@@ -1153,7 +1153,11 @@ async function openChat(t, initial, selected = run, options = {}) {
   if (!cli.invoke.mock) {
     const original = cli.invoke;
     const stages = options.stages || (() => ({ ...ok, stdout: JSON.stringify({ version: 1, stages: [] }) }));
-    t.mock.method(cli, 'invoke', async (settings, argv, ...rest) => (argv[0] === 'stages' ? stages(argv, settings) : original(settings, argv, ...rest)));
+    // Where a new chat works: unless the case supplies a list, an AutoCode without one answers, so the
+    // chat starts in the folder as it did before and no external `autocode worktrees` subprocess is raced.
+    const worktrees = options.worktrees || (() => ({ ...ok, code: 2, stdout: '', stderr: 'unknown command' }));
+    t.mock.method(cli, 'invoke', async (settings, argv, ...rest) => (argv[0] === 'stages' ? stages(argv, settings)
+      : argv[0] === 'worktrees' ? worktrees(argv, settings) : original(settings, argv, ...rest)));
   }
   t.mock.method(chatController, 'status', async (target) =>
     structuredClone(options.statusFor ? options.statusFor(target) : value));
@@ -1842,6 +1846,106 @@ test('a started chat changes a stage\'s model from the chat box between stages, 
   assert.equal(chip.title, working, 'the core says why not');
   await ui.poll({ ...initial, stage_models: null });
   assert.equal(chip.hidden, true, 'an older core offers nothing to change');
+});
+
+/** `autocode worktrees list --json`: a new branch by default, two existing branches (one taken), and the folder with its warning. */
+function worktreeList() {
+  return { ...ok, stdout: JSON.stringify({ schema: 1, folder: run.workspace, branch: 'main', default: 'new_branch', places: [
+    { id: 'new_branch', label: 'New worktree and branch', does: 'Plans and builds on a new branch.', start_args: ['--build-in-worktree'], warning: null },
+    { id: 'branch', label: 'Existing branch', does: 'Plans and builds on a branch you pick.', branches: [
+      { name: 'feature', start_args: ['--build-in-worktree', '--worktree-branch', 'feature'], unavailable: null },
+      { name: 'autocode/other-chat', start_args: null, unavailable: 'The chat “Fix <b>it</b>” plans and builds on it.' },
+    ] },
+    { id: 'folder', label: 'This folder (branch main)', does: 'Changes this folder\'s files.', start_args: ['--in-place'],
+      warning: 'Your own edits and 1 other chat working in this folder can conflict with it.' },
+  ], active: [] }) };
+}
+
+test('a new chat works on a new branch of its own unless the person picks a branch or the folder', async (t) => {
+  const reads = [];
+  const ui = await openChat(t, null, false, { worktrees: (argv, settings) => { reads.push([argv, settings.cwd]); return worktreeList(); } });
+  ui.chat.show(); await flush(); await flush();
+  const section = ui.document.querySelector('#chat-place');
+  assert.equal(section.hidden, false, 'where it works is there before the first message');
+  assert.deepEqual(reads[0][0], ['worktrees', 'list', '--json'], 'the window has no folder here: the list for where it runs');
+  assert.equal(section.querySelector('input[value="new_branch"]').checked, true, 'a new worktree and branch is the default');
+  assert.equal(ui.document.querySelector('#chat-place-summary').textContent, 'New worktree and branch');
+  assert.equal(section.querySelector('.chat-place-warning'), null);
+  const taken = section.querySelector('select.branch option[value="autocode/other-chat"]');
+  assert.equal(taken.disabled, true, 'a branch another chat has is not offered');
+  assert.match(taken.textContent, /not available: The chat “Fix <b>it<\/b>” plans/, 'core text is shown as text');
+
+  const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
+  const select = section.querySelector('select.branch');
+  select.value = 'feature'; select.dispatchEvent(new ui.window.Event('change')); await flush();
+  assert.deepEqual(JSON.parse(JSON.stringify(ui.sent.at(-1))), { type: 'chat_place', place: 'branch', branch: 'feature' },
+    'the webview names a place, never a flag');
+  assert.equal(ui.document.querySelector('#chat-place-summary').textContent, 'branch feature');
+  ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
+  assert.equal(start.mock.callCount(), 1);
+  assert.deepEqual(reads.at(-1), [['worktrees', 'list', '--json', '--workspace', run.workspace], run.workspace],
+    'the list is read again in the folder the chat starts in');
+  assert.deepEqual(start.mock.calls[0].arguments[5], ['--build-in-worktree', '--worktree-branch', 'feature']);
+  assert.equal(section.hidden, true, 'a started chat says where it works in its header');
+});
+
+test('a chat in the folder itself starts only once the person confirms the warning', async (t) => {
+  const ui = await openChat(t, null, false, { worktrees: () => worktreeList() });
+  ui.chat.show(); await flush(); await flush();
+  const folder = ui.document.querySelector('#chat-place input[value="folder"]');
+  folder.checked = true; folder.dispatchEvent(new ui.window.Event('change')); await flush();
+  assert.match(ui.document.querySelector('#chat-place .chat-place-warning').textContent, /1 other chat working in this folder can conflict/);
+  const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
+  const confirm = t.mock.method(host.vscode.window, 'showWarningMessage', async () => undefined);
+  ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
+  assert.equal(confirm.mock.callCount(), 1);
+  assert.equal(confirm.mock.calls[0].arguments[1].modal, true);
+  assert.match(confirm.mock.calls[0].arguments[1].detail, /can conflict/);
+  assert.equal(start.mock.callCount(), 0, 'declined: nothing starts');
+  confirm.mock.mockImplementation(async () => 'Start in this folder');
+  ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
+  assert.equal(start.mock.callCount(), 1);
+  assert.deepEqual(start.mock.calls[0].arguments[5], ['--in-place']);
+});
+
+test('a chat started with an AutoCode that cannot list places works in the folder, as before', async (t) => {
+  const ui = await openChat(t, null, false);
+  ui.chat.show(); await flush(); await flush();
+  assert.match(ui.document.querySelector('#chat-place .chat-place-note').textContent, /works in your folder\. Update AutoCode/);
+  const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
+  ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
+  assert.deepEqual(start.mock.calls[0].arguments[5], ['--in-place']);
+});
+
+test('start passes only a placement the core named, and refuses any other flag', async (t) => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'vscode-place-'));
+  t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  await controller.start(folder, 'A task', undefined, [], [], ['--build-in-worktree', '--worktree-branch', 'feature']);
+  const [, args] = launch.mock.calls[0].arguments;
+  assert.deepEqual(args.slice(1, 4), ['--build-in-worktree', '--worktree-branch', 'feature']);
+  assert.ok(!args.includes('--in-place'));
+  await assert.rejects(controller.start(folder, 'A task', undefined, [], [], ['--in-place', '--yes']), /Unsupported placement/);
+  await assert.rejects(controller.start(folder, 'A task', undefined, [], [], ['--build-in-worktree', '--worktree-branch', '--yolo']), /Unsupported placement/);
+  assert.equal(launch.mock.callCount(), 1);
+});
+
+test('a chat says its worktree and branch in the header and its details', async (t) => {
+  const view = { ...approvalView(), summary: { state: 'working', label: 'Working', sentence: 'Builder working.' }, worktree: {
+    kind: 'worktree', path: '/p/.autocode/worktrees/add-x-1', branch: 'autocode/add-x-1', folder: '/p', existing_branch: false,
+    moves_to_branch: null, label: 'Own worktree · branch autocode/add-x-1', sentence: 'This chat changes files only in its own worktree.' } };
+  const ui = await openChat(t, view);
+  const place = ui.document.querySelector('#header-place');
+  assert.equal(place.textContent, 'Own worktree · branch autocode/add-x-1', 'always shown, folded or not');
+  assert.match(place.title, /Worktree: \/p\/\.autocode\/worktrees\/add-x-1/);
+  ui.document.querySelector('#header-toggle').click(); await flush();
+  const details = ui.document.querySelector('#header-details').textContent;
+  assert.match(details, /Where it works/);
+  assert.match(details, /Branch: autocode\/add-x-1/);
+  assert.match(details, /Your folder: \/p/);
 });
 
 test('a new chat drops a pick back to Stage models and starts with none', async (t) => {

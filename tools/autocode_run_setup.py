@@ -419,7 +419,10 @@ def resolve(runner, args, parser):
             # created. A launch line on stdout never reaches a chat client (#1908).
             state["workspace_bootstrap"] = {"selected": str(selected), "project": str(workspace)}
         elif getattr(args, "build_in_worktree", False) and not (args.dry_run or args.status or args.explain):
-            build_worktree.request(state, workspace)  # planned here, built in its own worktree once approved
+            try:  # Requirements here; planned and built in its own worktree, on --worktree-branch when named
+                build_worktree.request(state, workspace, getattr(args, "worktree_branch", None))
+            except ValueError as error:
+                parser.error(str(error))
         task_input.assign(state, task)
         source_log.seed(state)
         project_memory_lifecycle.install(state, getattr(args, "_project_memory_input", None))

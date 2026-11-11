@@ -60,6 +60,7 @@ SUBCOMMANDS = {
     "stages": "autocode_stages_cli",
     "forget": "autocode_forget",
     "clean-worktrees": "autocode_worktrees",
+    "worktrees": "autocode_worktree_choice",
     "prune-run": "autocode_prune_run",
     "merge": "autocode_merge",
     "models": "model_catalogue",

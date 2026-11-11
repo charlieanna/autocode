@@ -17,6 +17,7 @@ import { invoke, tail } from "./core/cli";
 import { chatRoute, fillChatSet, fillSet, readStages, runListCommand, runRoute, type StageView } from "./core/stages";
 import { StageListCache } from "./core/stage-cache";
 import { inFolder, newChatCall, pickStageModel } from "./stages";
+import { chosenPlacement, LEGACY_PLACEMENT, readWorktrees, type PlaceChoice, type WorktreeList } from "./core/worktrees";
 import { confirmRaise, numericActionLabel, numericConfirmation, numericRecoveryEffect, panelHtml, planningSpendConfirmation, stateFor } from "./panel";
 
 // While a reply is being written the view is read this often, so each new extract
@@ -38,6 +39,9 @@ interface ChatMessage {
   answers?: Record<string, string>;
   /** A number typed into the bound's separately named raise (#2044). */
   value?: string;
+  /** Where a new chat works: a place id from its worktree list, and a branch for `branch`. */
+  place?: string;
+  branch?: string;
   /** A new chat's own stage pick: the stage ID, a model and a level from its list. */
   stage?: string;
   model?: string;
@@ -78,13 +82,17 @@ interface ChatTab {
   stages?: StageView;
   stagesError: string;
   stagesBusy: boolean;
+  /** A chat that has not started: where it may work (`worktrees list --json`), and the person's pick. */
+  places?: WorktreeList;
+  placesError: string;
+  placeChoice?: PlaceChoice;
   /** Set while `stages` is the list every new chat here shares (no picks of its own): its cache key. */
   sharedStages?: string;
 }
 
 function newTab(key: string, run?: RunRef): ChatTab {
   return { key, run, error: "", readError: "", pendingBrief: "", starting: false, launching: false, startingLabel: "", comparisons: new Map(),
-    stagesError: "", stagesBusy: false };
+    stagesError: "", stagesBusy: false, placesError: "" };
 }
 
 function tabName(tab: ChatTab): string {
@@ -154,7 +162,10 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   /** Open (or focus) a tab for `run`; without one, open another fresh chat tab. */
   show(run?: RunRef): void {
     if (run) {
-      const existing = this.tabs.find((tab) => tab.key === runKey(run));
+      // A chat that moved to its own worktree (`--build-in-worktree`) is listed where it is now, while
+      // its tab keeps the folder path it started with: the core answers both, so one tab holds it.
+      const existing = this.tabs.find((tab) => tab.key === runKey(run))
+        ?? this.tabs.find((tab) => tab.status?.workspace === run.workspace && tab.status?.run_dir === run.runDir);
       if (existing) this.activate(existing.key);
       else {
         // The boot placeholder ("new", never used) is adopted by the first run
@@ -195,6 +206,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     void this.focus();
     this.post(true);
     this.ensureChatStages(this.active);
+    if (!this.active.run && !this.active.places) void this.loadPlaces(this.active);
     void this.refresh();
   }
 
@@ -323,6 +335,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       state: tab.run && tab.status
         ? { ...stateFor(tab.status, tab.run, this.controller, busy), unreadable: Boolean(tab.readError) } : null,
       chatStages: tab.run ? null : chatStagesFor(tab),
+      chatPlace: tab.run ? null : chatPlaceFor(tab),
       models: modelsChip(tab),
     });
   }
@@ -392,6 +405,30 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       tab.stagesBusy = false;
       this.post();
     }
+  }
+
+  /** Read where a chat that has not started may work; an AutoCode without the list leaves it unset. */
+  private async loadPlaces(tab: ChatTab): Promise<void> {
+    if (tab.run) return;
+    try {
+      tab.places = await readPlaces();
+      tab.placesError = "";
+    } catch (error) {
+      tab.places = undefined;
+      tab.placesError = messageOf(error);
+    }
+    this.post();
+  }
+
+  /** The person's pick of where this chat works, from the list it shows; checked again at the start. */
+  private choosePlace(message: ChatMessage): void {
+    const tab = this.active;
+    if (tab.run || tab.starting || !tab.places) return;
+    const place = tab.places.places.find((row) => row.id === message.place);
+    if (!place) return;
+    const branch = typeof message.branch === "string" && message.branch ? message.branch : undefined;
+    tab.placeChoice = { place: place.id, ...(branch ? { branch } : {}) };
+    this.post();
   }
 
   /**
@@ -532,6 +569,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     if (message.type === "models") { await this.pickModels(); return; }
     if (message.type === "chat_stage" || message.type === "chat_stage_reset") { await this.chatStage(message); return; }
     if (message.type === "chat_stages") { await this.loadChatStages(this.active); return; }
+    if (message.type === "chat_place") { this.choosePlace(message); return; }
     if (message.type === "history") {
       await vscode.commands.executeCommand("setContext", "autocode.showHistory", true);
       await vscode.commands.executeCommand("autocode.runs.focus");
@@ -551,6 +589,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       // The stages first: they show from the cache at once, and a read does not wait on the modes.
       this.ensureChatStages(this.active);
       await this.loadModes();
+      if (!this.active.run && !this.active.places) void this.loadPlaces(this.active);
       await this.refresh();
       return;
     }
@@ -777,6 +816,32 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     await this.storage.update("autocode.checkpoint.requests", saved);
   }
 
+  /**
+   * The placement flags this chat starts with: the chosen place's own `start_args`, read again in the folder
+   * it starts in, after the person confirms a place that warns. An AutoCode without the list works in the
+   * folder, as every chat did before it. Undefined when the person declined.
+   */
+  private async placement(tab: ChatTab, workspace: string): Promise<string[] | undefined> {
+    let list: WorktreeList;
+    try {
+      list = await readPlaces(workspace);
+    } catch (error) {
+      if (tab.places) throw new Error(`Where this chat works: ${messageOf(error)}`);
+      return [...LEGACY_PLACEMENT];
+    }
+    tab.places = list;
+    const { place, args } = chosenPlacement(list, tab.placeChoice);
+    if (place.warning) {
+      const proceed = await vscode.window.showWarningMessage(
+        "Start this chat in your folder?",
+        { modal: true, detail: place.warning },
+        "Start in this folder",
+      );
+      if (proceed !== "Start in this folder") return undefined;
+    }
+    return args;
+  }
+
   private async start(tab: ChatTab, text: string): Promise<void> {
     if (tab.starting) return;
     tab.starting = true;
@@ -807,6 +872,9 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
         stageArgs = fresh.chat?.startArgs ?? [];
         if (this.sequence !== launchSequence) return;
       }
+      // Where it works, read again in the folder it starts in: a branch another chat took meanwhile is refused here.
+      const placement = await this.placement(tab, workspace);
+      if (!placement || this.sequence !== launchSequence) return;
       tab.launching = true;
       this.post();
       await this.controller.start(workspace, text, (run) => {
@@ -833,7 +901,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
           void this.view?.webview.postMessage({ type: "sent", runKey: freshKey, text });
           this.post(true);
         }
-      }, mode?.startArgs, stageArgs);
+      }, mode?.startArgs, stageArgs, placement);
       if (allocatedRun) {
         try {
           const view = await this.controller.status(allocatedRun);
@@ -894,6 +962,35 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
 }
 
 function runKey(run: RunRef): string { return `${run.workspace}\n${run.runDir}`; }
+
+/** Where a new chat in `cwd` (or the window's folder) may work, as the core lists it. */
+async function readPlaces(cwd?: string): Promise<WorktreeList> {
+  const settings = readSettings();
+  const folder = cwd ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const argv = ["worktrees", "list", "--json", ...(folder ? ["--workspace", folder] : [])];
+  const result = await invoke(folder ? { ...settings, cwd: folder } : settings, argv);
+  if (result.code !== 0) throw new Error(tail(result));
+  return readWorktrees(result.stdout);
+}
+
+/** What the webview shows for a chat that has not started: the places, the pick, and its warning. */
+function chatPlaceFor(tab: ChatTab) {
+  const list = tab.places;
+  if (!list) return { places: [], error: tab.placesError ? "This AutoCode cannot say where a chat works; it works in your folder. Update AutoCode." : "", chosen: null, branch: null, warning: null, folder: "" };
+  const chosen = tab.placeChoice?.place ?? list.defaultPlace;
+  const place = list.places.find((row) => row.id === chosen);
+  return {
+    folder: list.folder,
+    error: "",
+    chosen,
+    branch: tab.placeChoice?.branch ?? null,
+    warning: place?.warning ?? null,
+    places: list.places.map((row) => ({
+      id: row.id, label: row.label, does: row.does, warning: row.warning,
+      branches: row.branches.map((branch) => ({ name: branch.name, unavailable: branch.unavailable })),
+    })),
+  };
+}
 
 /** A new chat's stage list: `command` (one the list named) or the plain list, in `cwd` or the window's folder. */
 async function readChatStages(command: string[] | undefined, cwd?: string): Promise<StageView> {

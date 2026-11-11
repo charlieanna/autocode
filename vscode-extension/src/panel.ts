@@ -754,6 +754,17 @@ const METER_STYLES = `
                        color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border); font-size: .72rem; }
   .chat-model select.level { flex: 0 0 auto; width: auto; }
   #chat-models .chat-models-error { color: var(--vscode-errorForeground); margin: 2px 0; }
+  #chat-place { flex-shrink: 0; margin: 0 6px 6px; border: 1px solid var(--vscode-panel-border); border-radius: 6px;
+                padding: 4px 8px; font-size: .75rem; }
+  #chat-place[hidden] { display: none; }
+  #chat-place summary { cursor: pointer; }
+  #chat-place-summary { opacity: .8; }
+  .chat-place-option { display: grid; grid-template-columns: auto 1fr; column-gap: 6px; padding: 3px 0; align-items: start; }
+  .chat-place-option .does { grid-column: 2; opacity: .75; }
+  .chat-place-option select { grid-column: 2; margin-top: 2px; max-width: 100%; background: var(--vscode-dropdown-background);
+                              color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border); font-size: .72rem; }
+  #chat-place .chat-place-warning { color: var(--vscode-editorWarning-foreground, #cc8800); margin: 2px 0; }
+  #chat-place .chat-place-note { opacity: .75; margin: 2px 0; }
   #stages-head { display: flex; justify-content: space-between; align-items: baseline; }
   .stages-title { font-weight: 600; text-transform: uppercase; letter-spacing: .05em; opacity: .75; font-size: .7rem; }
   button.link { background: none; border: none; padding: 0; color: var(--vscode-textLink-foreground); font-size: .72rem; }
@@ -798,6 +809,8 @@ const METER_STYLES = `
   #header-sentence { min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   #header-facts { opacity: .75; margin-top: 2px; }
   #header-facts:empty { display: none; }
+  #header-place { opacity: .8; margin-top: 2px; overflow-wrap: anywhere; }
+  #header-place:empty { display: none; }
   #header-toggle { margin-top: 2px; }
   #header-details { max-height: 35vh; overflow-y: auto; margin-top: 4px; border-top: 1px solid var(--vscode-panel-border); padding-top: 4px; }
   .detail-section { margin: 4px 0 8px; }
@@ -900,9 +913,10 @@ export function panelHtml(chat = false): string {
 </style>
 </head>
 <body>
-${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools"><span id="run-cost" role="status" aria-label="Run cost"></span>${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel, true)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="chat-tabs" role="tablist" aria-label="Open chats"></div><section id="run-header" aria-label="Run overview" hidden><ol id="pipeline" aria-label="Pipeline"></ol><div id="header-now"><span id="header-label"></span><span id="header-sentence"></span></div><div id="header-facts"></div><button type="button" id="header-toggle" class="link" aria-expanded="false" aria-controls="header-details">Show details</button><div id="header-details" hidden></div></section><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
+${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools"><span id="run-cost" role="status" aria-label="Run cost"></span>${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel, true)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="chat-tabs" role="tablist" aria-label="Open chats"></div><section id="run-header" aria-label="Run overview" hidden><ol id="pipeline" aria-label="Pipeline"></ol><div id="header-now"><span id="header-label"></span><span id="header-sentence"></span></div><div id="header-place"></div><div id="header-facts"></div><button type="button" id="header-toggle" class="link" aria-expanded="false" aria-controls="header-details">Show details</button><div id="header-details" hidden></div></section><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
 <div id="app" class="muted">${chat ? "Describe what you want to build, fix, review, or discuss." : "Loading…"}</div>
 ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messages</button>
+<details id="chat-place" aria-label="Where this chat works" hidden><summary><span class="stages-title">Where this chat works</span> <span id="chat-place-summary"></span></summary><div id="chat-place-body"></div></details>
 <details id="chat-models" aria-label="This chat's models" open hidden><summary><span class="stages-title">This chat's models</span> <span id="chat-models-summary"></span></summary><div id="chat-models-body"></div></details>
 <section id="stages" aria-label="Stages" hidden><div id="stages-head"><span class="stages-title">Stages</span><button type="button" id="stages-more" class="link" hidden></button></div><div id="stage-rows"></div></section>
 <section id="telemetry" aria-label="Models and usage">
@@ -1208,6 +1222,9 @@ function renderHeader(data) {
   });
   document.getElementById('header-label').textContent = header.label;
   document.getElementById('header-sentence').textContent = header.sentence;
+  const place = document.getElementById('header-place');
+  place.textContent = header.place;
+  place.title = (header.sections.find((section) => section.id === 'worktree') || { lines: [] }).lines.join('\\n');
   document.getElementById('header-facts').textContent = header.facts.join(' · ');
   const toggle = document.getElementById('header-toggle');
   toggle.textContent = headerOpen ? 'Hide details' : 'Show details';
@@ -2045,6 +2062,7 @@ function renderChat(data) {
     }
   }
   renderHeader(data);
+  renderChatPlace(data);
   renderChatModels(data);
   renderMeter(data);
   renderTelemetry(data.state && data.state.telemetry, data.state && data.state.stageModels, !data.selectedRun && Boolean(data.models));
@@ -2060,6 +2078,62 @@ function renderChat(data) {
       thread.dispatchEvent(new WheelEvent('wheel', { deltaY: -1, bubbles: true, cancelable: true }));
       thread.scrollTop = remembered;
     }
+  }
+}
+
+/**
+ * A chat that has not started: where it will change files, from the core's worktree list. A new worktree
+ * and branch is preselected; the folder itself shows the core's warning, which the person confirms again
+ * at the start. Only a place's id (and a listed branch) goes back; the core's own start flags are used.
+ */
+function renderChatPlace(data) {
+  const host = document.getElementById('chat-place');
+  const info = data.chatPlace;
+  host.hidden = !info || data.busy || Boolean(data.selectedRun) || (!info.places.length && !info.error);
+  if (host.hidden) { host.dataset.content = ''; return; }
+  const key = JSON.stringify(info);
+  if (host.dataset.content === key) return;
+  host.dataset.content = key;
+  const body = document.getElementById('chat-place-body');
+  body.textContent = '';
+  const chosen = info.places.find((place) => place.id === info.chosen);
+  const branchName = chosen && chosen.id === 'branch' ? info.branch : null;
+  document.getElementById('chat-place-summary').textContent = info.error ? 'your folder'
+    : chosen ? (branchName ? 'branch ' + branchName : chosen.id === 'branch' ? 'pick a branch' : chosen.label) : '';
+  if (info.error) { body.appendChild(el('div', 'chat-place-note', info.error)); return; }
+  const group = 'chat-place-' + Math.random().toString(16).slice(2);
+  info.places.forEach((place) => {
+    const row = el('label', 'chat-place-option');
+    row.dataset.place = place.id;
+    const radio = el('input');
+    radio.type = 'radio'; radio.name = group; radio.value = place.id; radio.checked = place.id === info.chosen;
+    radio.addEventListener('change', () => {
+      const first = place.branches.find((branch) => !branch.unavailable);
+      vscode.postMessage({ type: 'chat_place', place: place.id, branch: place.id === 'branch' ? (info.branch || (first && first.name) || '') : '' });
+    });
+    row.appendChild(radio);
+    row.appendChild(el('span', 'label', place.label));
+    row.appendChild(el('span', 'does', place.does));
+    if (place.id === 'branch') {
+      const select = el('select', 'branch');
+      select.setAttribute('aria-label', 'Branch this chat works on');
+      const prompt = el('option', null, place.branches.length ? 'Pick a branch' : 'No other local branch');
+      prompt.value = ''; prompt.disabled = true; prompt.selected = !branchName;
+      select.appendChild(prompt);
+      place.branches.forEach((branch) => {
+        const item = el('option', null, branch.name + (branch.unavailable ? ' — not available: ' + branch.unavailable : ''));
+        item.value = branch.name; item.disabled = Boolean(branch.unavailable); item.selected = branch.name === branchName;
+        select.appendChild(item);
+      });
+      select.addEventListener('change', () => vscode.postMessage({ type: 'chat_place', place: 'branch', branch: select.value }));
+      row.appendChild(select);
+    }
+    body.appendChild(row);
+  });
+  if (info.warning) {
+    const warning = el('div', 'chat-place-warning', '⚠ ' + info.warning);
+    warning.setAttribute('role', 'note');
+    body.appendChild(warning);
   }
 }
 

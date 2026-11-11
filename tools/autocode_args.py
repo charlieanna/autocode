@@ -88,6 +88,7 @@ NEW_RUN_INPUTS = (
     "figma_review",
     "in_place",
     "build_in_worktree",
+    "worktree_branch",
     "builder_strong_model",
     "role_transport",
     "conversation_handoff",
@@ -203,6 +204,12 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         "--build-in-worktree",
         action="store_true",
         help="Gather requirements in this checkout, then plan and build in a new task worktree and branch from HEAD",
+    )
+    parser.add_argument(
+        "--worktree-branch",
+        metavar="BRANCH",
+        help="With --build-in-worktree: plan and build on this existing local branch, in a worktree of its own, "
+        "instead of a new branch (refused when another worktree or chat has it)",
     )
     parser.add_argument(
         "--workflow",
@@ -745,6 +752,8 @@ def parse(unit, argv, default_models):
     if resume_only and _acknowledges_pause(args):
         args.resume_paused = True
     conversation_args.validate(args, parser)
+    if args.worktree_branch is not None and not args.build_in_worktree:
+        parser.error("--worktree-branch requires --build-in-worktree")
     if args.build_in_worktree:
         args.in_place = True  # Requirements reads this checkout; planning and the build move (autocode_build_worktree)
     if args.new_run_dir and (args.run_dir or not args.in_place or args.status or args.explain or args.dry_run):

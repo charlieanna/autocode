@@ -30,12 +30,12 @@ class BuildInWorktreeCliTests(unittest.TestCase):
     def setUp(self):
         self.workspace, self.env = fixture_workspace(self)
 
-    def start(self, workspace):
+    def start(self, workspace, *placement):
         return taskrun.TaskRun.start(
             workspace,
             BRIEF,
             options=FIXTURE_OPTIONS,
-            start_options=("--build-in-worktree",),
+            start_options=("--build-in-worktree", *placement),
             env=self.env,
             timeout=300,
         )
@@ -130,6 +130,56 @@ class BuildInWorktreeCliTests(unittest.TestCase):
             self.assertTrue((plain / "greet.py").is_file())
             self.assertFalse((plain / ".autocode" / "worktrees").exists())
             self.assertNotIn("build-worktree", [row["id"] for row in view["chat"]["messages"]])
+
+    def test_a_chat_the_person_puts_on_an_existing_branch_works_there_and_says_so(self):
+        # Seen 2026-11-11: a VS Code chat says its worktree and branch, and the person may pick an existing branch.
+        self.git("branch", "feature")
+        tip = self.git("rev-parse", "feature").stdout.strip()
+        before = self.autocode("worktrees", "list", "--workspace", str(self.workspace), "--json")
+        branches = {row["name"]: row for row in before["places"][1]["branches"]}
+        self.assertEqual(["--build-in-worktree", "--worktree-branch", "feature"], branches["feature"]["start_args"])
+
+        run = self.start(self.workspace, *branches["feature"]["start_args"][1:])
+        planned = run.advance_until_input()
+        self.assertEqual("approve_plan", planned["needs"]["kind"], planned["needs"])
+        place = planned["worktree"]
+        self.assertEqual(
+            ("worktree", "feature", str(self.workspace)), (place["kind"], place["branch"], place["folder"])
+        )
+        self.assertEqual(planned["workspace"], place["path"])
+        self.assertTrue(place["existing_branch"])
+        # While it works there, no other chat is offered that branch, and the folder names it.
+        during = self.autocode("worktrees", "list", "--workspace", str(self.workspace), "--json")
+        taken = {row["name"]: row for row in during["places"][1]["branches"]}["feature"]
+        self.assertIsNone(taken["start_args"])
+        self.assertIn("checked out in", taken["unavailable"])
+        refused = subprocess.run(
+            [
+                *taskrun.AUTOCODE,
+                BRIEF,
+                "--build-in-worktree",
+                "--worktree-branch",
+                "feature",
+                "--no-chat",
+                "--workspace",
+                str(self.workspace),
+                *FIXTURE_OPTIONS,
+            ],
+            capture_output=True,
+            text=True,
+            env=self.env,
+        )
+        self.assertEqual(2, refused.returncode, refused.stdout + refused.stderr)
+        self.assertIn("two chats never work on one branch", refused.stderr)
+
+        run.approve_plan(planned["needs"]["token"])
+        view = run.advance_until_input()
+        self.assertTrue(view["done"], {key: view.get(key) for key in ("status", "needs", "stop_reason")})
+        delivered = self.git("show", "feature:greet.py").stdout
+        self.assertEqual((Path(view["workspace"]) / "greet.py").read_text(), delivered)
+        self.assertEqual(tip, self.git("rev-parse", "feature~1").stdout.strip(), "delivered on top of the branch")
+        notices = [row["text"] for row in view["chat"]["messages"] if row["id"] == "build-worktree"]
+        self.assertIn("on your branch, feature,", notices[0])
 
 
 if __name__ == "__main__":

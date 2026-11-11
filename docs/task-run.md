@@ -2998,6 +2998,31 @@ marked `unavailable` against the run's other routes, `reset` and `file` null, an
 a client reads the list again afterwards. A refused change exits 2 with the reason on stderr and
 saves nothing.
 
+## Worktrees for clients
+
+A chat changes files either in a worktree and branch of its own or in the person's folder, and a
+person should see which, and choose it for a new chat (owner request 2026-11-11). The status view's
+`worktree` says where a run works: `kind` is `worktree` (its own worktree and branch), `moving`
+(Requirements reads the person's folder; from the Planner on it works in its own worktree, on
+`moves_to_branch` when the person chose an existing branch, else a new one), `project` (a project
+AutoCode made for it) or `folder` (the person's folder itself, shared with their own edits and other
+chats); `path` is where files change, `branch` the branch there (null when detached), `folder` the
+person's folder, `existing_branch` whether it is a branch the person chose, and `label` and `sentence`
+the words a client shows. Null before the run has a workspace.
+
+`autocode worktrees list --workspace FOLDER --json` returns, before a new chat starts, the version-1
+list: `folder`, `branch` (the folder's current branch), `default` (a place id), `places` and `active`
+(the chats working in the folder or its task worktrees: not finished, archived or moved, each with
+`title`, `run_dir`, `path`, `kind`, `branch`, `moves_to_branch` and `status`). Each place has `id`,
+`label` and `does`. `new_branch` and `folder` have `start_args` and `warning`; `branch` has
+`branches`, the local branches most recently committed first, each with `name`, `start_args` and
+`unavailable` (why it is not offered, with `start_args` null): a branch checked out in a worktree,
+the folder's own included, or one another chat will plan on. A folder that is not the top of a Git
+checkout with a commit lists only `folder`, which works there as every chat there does. A client
+shows the places, preselects `default`, passes the chosen place's (or branch's) `start_args`
+unchanged in place of its own placement flag, and, when that place has a `warning`, shows it and
+starts only once the person confirms. It reads the list again just before the start.
+
 ## Run modes for clients
 
 A client that starts runs may offer a choice of how much planning a new run does
