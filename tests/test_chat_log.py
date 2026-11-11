@@ -222,6 +222,29 @@ class ReadTests(unittest.TestCase):
         self.assertEqual(("message", "Response stream activity received; text unavailable."), entries[1])
         self.assertNotIn("reproduced", json.dumps(log.read(self.events)))
 
+    def test_a_finished_thought_reads_from_its_start_and_is_not_partial(self):
+        # Ankur's live Requirements log (2026-11-10): every finished thought stayed its newest words,
+        # cut mid-sentence ("…key files: 1. ...") and marked still arriving. The hook's last row for an
+        # ended reasoning part previews its opening words instead (opencode_activity.mjs).
+        tail = "key files: 1. autocode_stage_context.py 2. autocode_handoff_dedup.py"
+        opening = "Let me look at the files that build the completion review prompt. " + "x " * 300
+        write(
+            self.events,
+            [
+                progress(preview=tail),
+                progress(position=700, preview=opening[:600], final=True, cut=True),
+                progress("reasoning", "p2", preview="Short and whole.", final=True),
+                progress("reasoning", "p3", preview="Short but the hook kept only this", final=True, cut=True),
+            ],
+        )
+        entries = self.entries()
+        self.assertEqual(3, len(entries), "the final row replaces the streaming one in place")
+        self.assertTrue(entries[0][1].startswith("Let me look at the files"), entries)
+        self.assertTrue(entries[0][1].endswith("…"), "a cut thought says it was cut")
+        self.assertNotIn("[partial]", json.dumps(entries))
+        self.assertEqual(("thinking", "Short and whole."), entries[1])
+        self.assertEqual(("thinking", "Short but the hook kept only this…"), entries[2])
+
     def test_a_blank_or_malformed_preview_keeps_the_opaque_receipt(self):
         for preview in ("   ", 7, None, ["text"]):
             with self.subTest(preview=preview):

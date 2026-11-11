@@ -163,9 +163,13 @@ def progress_event(row: dict) -> tuple[str, dict] | None:
     name = "Reasoning" if kind == "reasoning" else "Response"
     shown = PROSE[kind]
     preview = progress.get("preview")
-    if kind == "reasoning" and isinstance(preview, str) and (text := _prose(preview, streaming=True)):
-        # The provider hook's newest reasoning words, bounded and redacted again here. A response
-        # part (possibly the report) never carries a preview, so it stays an opaque receipt.
+    final = progress.get("final") is True
+    if kind == "reasoning" and isinstance(preview, str) and (text := _prose(preview, streaming=not final)):
+        # The provider hook's newest reasoning words, bounded and redacted again here; once the part has
+        # ended, its opening words, so a finished thought reads from its start and is not marked partial.
+        # A response part (possibly the report) never carries a preview, so it stays an opaque receipt.
+        if final and progress.get("cut") is True and not text.endswith("…"):
+            text += "…"
         return f"{shown}:{identifier}", {"kind": shown, "text": text}
     return f"{shown}:{identifier}", {
         "kind": shown,
