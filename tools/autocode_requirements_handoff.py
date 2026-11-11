@@ -178,7 +178,7 @@ def _accept(state: RunState, value: dict, record: dict, *, check_code_refs, queu
     requirements_chat.start_named_job(state, record)
 
 
-OUTCOME_QUESTION = "What would you like me to help you build, change, fix, or review in this project?"
+OUTCOME_QUESTION = requirements_chat.OUTCOME_QUESTION
 
 
 def not_yet_a_goal(value: dict) -> bool:
@@ -220,7 +220,7 @@ def no_goal_first_answer(state: RunState, value: dict) -> bool:
 def outcome_question(state: RunState) -> dict:
     """The runner's own requested-outcome question, under an id no earlier answer used."""
     return {
-        "id": "outcome-"
+        "id": requirements_chat.OUTCOME_PREFIX
         + util.digest(
             {"round": len(state.get("requirements_history") or []), "answers": sorted(state.get("answers") or {})}
         )[:12],

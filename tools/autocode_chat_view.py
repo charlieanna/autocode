@@ -279,9 +279,13 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         # public needs, without asking the person to narrow the coordinated task.
         question = "\n\n".join(q.get("question", "") for q in displayed).strip()
         spoken = requirements_chat.reply(state)
+        # A greeting or small talk names nothing to do, so the runner asks its own requested-outcome
+        # question only to keep the chat open. The reply is the whole answer: the person said "hi"
+        # and is answered like in any chat, not with a second, canned question under it.
+        holds_open = bool(spoken and displayed) and all(requirements_chat.holds_chat_open(q) for q in displayed)
         contains_question = bool(
             question
-            and (plain(question) in plain(spoken) or rewords(spoken, question))
+            and (plain(question) in plain(spoken) or rewords(spoken, question) or holds_open)
             and len(displayed) == len(questions)
         )
         if spoken and spoken != question and not contains_question:

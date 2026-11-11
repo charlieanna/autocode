@@ -144,7 +144,11 @@ class ChatCliTests(unittest.TestCase):
         messages = view["chat"]["messages"]
         self.assertEqual(("user", opener), (messages[0]["role"], messages[0]["text"]))
         self.assertEqual("assistant", messages[-1]["role"])
-        self.assertIn("What would you like to build or change?", messages[-1]["text"])
+        # Asked its name, Requirements answers like any chat and asks for no task in a second message.
+        self.assertEqual(
+            [("user", opener), ("assistant", "I'm AutoCode. What can I do for you?")],
+            [(row["role"], row["text"]) for row in messages],
+        )
         self.assertIsNone(view.get("displayed_plan"))
         self.assertEqual("Send reply", view["chat"]["input"]["label"])
         self.assertNotIn("--approve-goal", view["next_command"])
@@ -247,7 +251,7 @@ class SmallTurnChatTests(unittest.TestCase):
     so the turn is driven through the public task-run interface with the offline provider.
     """
 
-    REPLY = "Hi! I'm AutoCode's requirements assistant."
+    REPLY = "Hi! What can I do for you?"
     GOAL = "Add a --shout option to the greeting CLI"
     OUTCOME = "The greeting CLI gains a --shout option"
     REQUIREMENT = {
@@ -424,6 +428,25 @@ class SmallTurnChatTests(unittest.TestCase):
         gather, repaired = self.dispatch_counts(run)
         self.assertEqual(1, len(gather), [str(path) for path in gather])
         self.assertEqual(0, len(repaired), "a usable no-goal first answer must not pay a report repair")
+
+    def test_a_greeting_is_answered_like_any_chat(self):
+        # Owner, 2026-11-11: "hi" was answered with the reply and then, under it, a canned "What would you
+        # like me to help you build, change, fix, or review in this project?". Someone who only says hello
+        # gets a reply, as in any chat, and nothing more; the chat stays open for the next message.
+        first, repair = self.greeting_answers()
+        run, view, _ = self.drive("hi", first, repair)
+        self.assertEqual("answer", view["needs"]["kind"], view.get("needs"))
+        self.assertEqual("feedback", view["chat"]["input"]["kind"])
+        said = [row["text"] for row in view["chat"]["messages"] if row["role"] == "assistant"]
+        self.assertEqual([self.REPLY], said)
+        # Small talk carries on the same way, and the earlier turn reads back as it was said.
+        run.feedback("How are you?")
+        later = run.advance_until_input()
+        self.assertEqual("answer", later["needs"]["kind"], later.get("needs"))
+        self.assertEqual(
+            [("user", "hi"), ("assistant", self.REPLY), ("user", "How are you?"), ("assistant", self.REPLY)],
+            [(row["role"], row["text"]) for row in later["chat"]["messages"]],
+        )
 
     def test_ac4_small_turn_single_pass_single_launch(self):
         first, repair = self.greeting_answers()

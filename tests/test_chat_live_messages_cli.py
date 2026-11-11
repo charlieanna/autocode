@@ -17,14 +17,17 @@ from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS
 
 @unittest.skipUnless(sys.platform == "linux", "supervised provider requires supported Linux")
 class LiveComposerScreenTests(unittest.TestCase):
-    def test_requirements_question_appears_once_before_and_after_reply_and_reopen(self):
+    def test_requirements_reply_appears_once_before_and_after_reply_and_reopen(self):
         workspace, env = fixture_workspace(self)
         env["PATH"] = os.pathsep.join([str(Path(sys.executable).parent), env["PATH"]])
         run = taskrun.TaskRun.start(
             workspace, "Hi", options=(*FIXTURE_OPTIONS, "--spec-first", "--no-adaptive-planning"), env=env, timeout=300
         )
         gathered = run.advance_until_input()
-        question = gathered["needs"]["questions"][0]["question"]
+        # "Hi" is answered like any chat: the reply alone, never the runner's canned question under it.
+        canned = gathered["needs"]["questions"][0]["question"]
+        question = [row for row in gathered["chat"]["messages"] if row["role"] == "assistant"][-1]["text"]
+        self.assertNotEqual(canned, question)
         argv = [
             sys.executable,
             str(ROOT / "tools/autocode.py"),
@@ -39,6 +42,7 @@ class LiveComposerScreenTests(unittest.TestCase):
         ) as screen:
             shown = screen.wait_for(lambda shown: question in shown and "Type your reply" in shown)
             self.assertEqual(1, shown.count(question), shown)
+            self.assertNotIn(canned, shown)
             screen.paste(BRIEF)
             screen.keys("Enter")
             shown = screen.wait_for(

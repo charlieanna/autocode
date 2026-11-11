@@ -364,24 +364,24 @@
     "sha256": "1b653e44bd7589b02c316b25b4c27be2251a468f997e0b88de232d199b0023ac"
   },
   "planning/requirements_gather/adaptive": {
-    "bytes": 22813,
-    "sha256": "6bddc0838e50259974a80d5aa2771912741c8ffa8f9cfae80738ee326f04836c"
+    "bytes": 22766,
+    "sha256": "54672b76143f6e2f2bb904ab49ce647147dbdbdbedf1070e3e1dc415535c5729"
   },
   "planning/requirements_gather/design": {
-    "bytes": 23925,
-    "sha256": "48062a46756f76fde98bab1c3b85b84a894e8138bcccf6cc73a50d80831ef761"
+    "bytes": 23878,
+    "sha256": "f134a77977c233d1643a10243dab03fbb498ea19a2f463428b4d8f9ef30b87d1"
   },
   "planning/requirements_gather/figma": {
-    "bytes": 23701,
-    "sha256": "28ed4628eeac1934f50e535710430679f2c54980d213936a892899d022fed458"
+    "bytes": 23654,
+    "sha256": "573b9be0b7cc64792d7a0649fb368065dca3397ce904482e115a370fb929dc3b"
   },
   "planning/requirements_gather/investigation": {
-    "bytes": 23729,
-    "sha256": "8d930a6dfa501b5d6a92001f2dd20312fe2c0a241749ebe9c14e35f36b568620"
+    "bytes": 23682,
+    "sha256": "324adaf957aea679cae303e8023451dc145c538cabbbca43cab378ab89abb53a"
   },
   "planning/requirements_gather/ordinary": {
-    "bytes": 22813,
-    "sha256": "6bddc0838e50259974a80d5aa2771912741c8ffa8f9cfae80738ee326f04836c"
+    "bytes": 22766,
+    "sha256": "54672b76143f6e2f2bb904ab49ce647147dbdbdbedf1070e3e1dc415535c5729"
   },
   "planning/review_plan/adaptive": {
     "bytes": 54101,
@@ -572,12 +572,12 @@
     "sha256": "c41533aa11c59e369e71b775ec1edd4c59fa33cf236de6573ae2bd63670b4b30"
   },
   "requirements-final/batch": {
-    "bytes": 29064,
-    "sha256": "c29903d51360397d020b26a802b390b7f45905f4cb8b0968d31a2587fd74b66b"
+    "bytes": 29017,
+    "sha256": "d917025662c73fba7a6a1ea5c00a392ef221d34348b29f148d259730398d732b"
   },
   "requirements-final/conversational": {
-    "bytes": 29361,
-    "sha256": "edfc47ffafef330efae8a892350f1d8c02b737d9ebefe4a29d9595a14fd9e07a"
+    "bytes": 29563,
+    "sha256": "77eaa33ad176bece8b314113f0a0e69f8575b5fe6b04e224fd32f443a7ee3b42"
   },
   "resolver/diagnose": {
     "bytes": 18641,

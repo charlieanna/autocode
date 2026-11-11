@@ -584,30 +584,22 @@ def main() -> int:
             and not data.get("follow_up")
             and "It prints 'Hello, NAME'" not in str(data.get("task", ""))
         ):
-            # A chat message that names no work (a greeting, "What is your name?"): answer it, then ask. A
-            # follow-up's task is its new message alone, with the earlier turn as context (#1860): it is work.
+            # A chat message that names no work (a greeting, "What is your name?"): answer it like any chat and
+            # ask nothing; the runner keeps the chat open. A follow-up's task is its new message alone, with the
+            # earlier turn as context (#1860): it is work.
+            asked_name = "name" in str(data.get("task", "")).lower()
             report.update(
-                summary="The user has not described a task yet.",
-                assistant_reply="I'm AutoCode's requirements assistant. What would you like to build or change?",
-                intended_outcome="Not yet specified by the user",
+                summary="The user has not asked for anything yet.",
+                assistant_reply="I'm AutoCode. What can I do for you?" if asked_name else "Hi! What can I do for you?",
+                intended_outcome="",
                 required_behaviors=[],
                 acceptance_tests=[],
                 requirements=[],
                 proposed_assumptions=[],
                 constraints=[],
                 source_refs=[],
-                open_questions=[
-                    {
-                        "id": "requested-outcome",
-                        "question": "What would you like to build or change?",
-                        "why": "No engineering outcome has been requested yet.",
-                        "options": [],
-                        "proposed_default": "",
-                        "kind": "decision",
-                        "category": "requested_outcome",
-                        "delegable": False,
-                    }
-                ],
+                open_questions=[],
+                job="none",
             )
     elif stage == "draft_plan":
         report = {
