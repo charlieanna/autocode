@@ -42,6 +42,33 @@ class ChatProgressTests(unittest.TestCase):
         self.assertNotIn("passed", " ".join(lines))
         self.assertEqual(before, (self.state, self.public))
 
+    def test_a_rejected_answer_says_why_in_plain_words_until_the_stage_succeeds(self):
+        # The 2026-11-11 chat showed only "Requirements attempt needs correction" for twelve minutes.
+        self.state["active_stage"] = {"stage": "requirements_gather_report_repair"}
+        self.state["stages"] = [
+            {
+                "stage": "requirements_gather",
+                "finished_at": "2026-11-11T08:08:12Z",
+                "exit_code": 0,
+                "rejected": True,
+                "rejection_reason": "Requirements R3, R4: source_quote is not in the task or a saved user event. "
+                'R3 quotes "Exact-token/core gates are unchanged.". For each, copy the source text',
+            }
+        ]
+        self.public["progress"]["headline"] = "Requirements working"
+        lines = progress.project(self.state, self.public)
+        self.assertEqual("Recent steps: Requirements answer not accepted", lines[-2])
+        self.assertEqual(
+            "Why the last Requirements answer was not accepted: it listed R3, R4 as things you asked for, "
+            "but you never wrote the words it quoted for them.",
+            lines[-1],
+        )
+        self.state["stages"].append(
+            {"stage": "requirements_gather_report_repair", "finished_at": "2026-11-11T08:13:16Z", "exit_code": 0}
+        )
+        lines = progress.project(self.state, self.public)
+        self.assertFalse([line for line in lines if line.startswith("Why")], lines)
+
     def test_a_retried_step_reads_as_one_step_with_its_earlier_attempts(self):
         # The 2026-11-11 chat showed "Requirements attempt needs correction · Requirements attempt finished ·
         # Requirements attempt finished": one step's answer, two report repairs and a confirmation, cut to

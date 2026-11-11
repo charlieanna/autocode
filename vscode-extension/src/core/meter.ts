@@ -205,7 +205,8 @@ export function struggling(view: unknown, now = Date.now()): string {
   if (!row || row.state !== "retrying") return "";
   const parts = [row.job, `attempt ${row.attempts}`];
   if (row.seconds !== null) parts.push(duration(row.seconds));
-  if (row.why) parts.push(`last one ${row.why}`);
+  // "last one answer rejected" read as a typo (2026-11-11).
+  if (row.why) parts.push(row.why === "answer rejected" ? "last answer rejected" : `last one ${row.why}`);
   return parts.join(" · ");
 }
 

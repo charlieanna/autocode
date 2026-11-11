@@ -105,7 +105,9 @@ intent and asking clarification questions, source_refs=[] is valid in any worksp
 Return requirements: each has an id, the requirement text, and a source_quote copied
 verbatim from the task or a saved user event. A requirement no source states in so many
 words is not a user requirement: leave it out, or make it a proposed assumption or an
-open question. Put requirement-like sentences you are
+open question. Text you read yourself (an issue or pull request you picked, a file, a web
+page) is not the user's words: when the user asks you to pick the work, quote their request
+for it, and carry what the picked item asks for in required_behaviors and constraints. Put requirement-like sentences you are
 not carrying (must, must not, never, only, required, exactly) in ignored_statements
 with the reason explained in the top-level summary. This field records source text
 not represented as separate requirements; it does not itself declare work out of scope.

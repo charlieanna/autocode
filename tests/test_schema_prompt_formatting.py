@@ -269,6 +269,10 @@ class RequirementsPromptModeTests(unittest.TestCase):
         self.assertIn("summarize what you understand in assistant_reply", rendered)
         # The chat hides a question already asked word for word in the reply; a reworded copy showed twice.
         self.assertIn("put that same sentence, word for word, as the question in open_questions", rendered)
+        # A 2026-11-11 confirmation restated the whole fix plan in one paragraph before its question.
+        self.assertIn("keep assistant_reply to what you understood in one or\ntwo plain sentences", rendered)
+        # The same run quoted the issue it picked as the user's words, and lost its first answer.
+        self.assertIn("is not the user's words: when the user asks you to pick the work", rendered)
         self.assert_complete_render(request, rendered)
 
     def test_final_model_schema_controls_the_prompt_even_when_the_mode_allows_chat(self):

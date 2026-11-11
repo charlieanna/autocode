@@ -37,6 +37,12 @@ DETAIL = 900  # characters of an Investigator's diagnosis
 _SCHEMA_SUMMARY = "The answer was not in the format AutoCode requires"
 # "Completed terra output was rejected (WHY); attempt archived. ..." keeps only WHY.
 _REJECTED = re.compile(r"^Completed \w+ output was rejected \((?P<why>.+)\)(?:;|\.|$)", re.S)
+# autocode_requirement_quotes.unsupported: requirements whose quote is not the person's own words.
+_UNSOURCED = re.compile(r"^Requirements? (?P<ids>[^:]+?):? source_quote is not in the task or a saved user event")
+_UNSOURCED_TEXT = "it listed {ids} as things you asked for, but you never wrote the words it quoted for them."
+# autocode_report_edits: a repair's edit to the rejected report that could not be applied.
+_REPORT_EDIT = re.compile(r"^Report edits?\b")
+_REPORT_EDIT_TEXT = "its correction to the earlier answer was not in a form AutoCode can apply."
 # A sentence that tells someone to run something is machinery, not an explanation.
 _COMMAND = re.compile(r"\bautocode\s+[a-z-]+|(?:^|\s)--[a-z]")
 _SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-Z])")
@@ -138,6 +144,11 @@ def _plain(text, limit=TEXT):
     match = _REJECTED.match(text)
     if match:
         text = match["why"]
+    unsourced = _UNSOURCED.match(text)
+    if unsourced:
+        return _UNSOURCED_TEXT.format(ids=unsourced["ids"].strip())
+    if _REPORT_EDIT.match(text):
+        return _REPORT_EDIT_TEXT
     if _is_schema_rejection(text):
         summary = _summarize_schema(text)
         if summary:
@@ -147,6 +158,17 @@ def _plain(text, limit=TEXT):
     if not text:
         return None
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def explain(text) -> str | None:
+    """Why an answer was not accepted, in plain words a person can read; None when unknown.
+
+    The checks' own reasons are written for the stage that repairs them: "Requirements R3, R4:
+    source_quote is not in the task or a saved user event. R3 quotes ...". The chat said only
+    "answer rejected" and "needs correction" (2026-11-11), so a person waiting twelve minutes on
+    Requirements could not tell what went wrong.
+    """
+    return _plain(text)
 
 
 def _times(count):

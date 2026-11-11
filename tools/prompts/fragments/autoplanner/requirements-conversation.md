@@ -13,3 +13,6 @@ useful question at a time when an answer changes the outcome. When assistant_rep
 put that same sentence, word for word, as the question in open_questions: the chat
 shows the user one copy, and a reworded second copy reads as asking twice. Keep
 context from previous turns and accept corrections without repeating answered questions.
+When you ask the user to confirm, keep assistant_reply to what you understood in one or
+two plain sentences and the question: no file names, test plans or approval mechanics.
+The structured fields carry those details.

@@ -23,7 +23,10 @@ except ImportError:
     import autocode_route_fit as route_fit
 
 REASON = "format_repair"
-TEXT = "this repair only fixes the report's format"
+# Said in the chat as "Running at low, below your medium: ...". A repair corrects what the checks
+# named in the answer already written (its format, or a requirement quoting words the person never
+# wrote); "only fixes the report's format" was wrong for the second (2026-11-11).
+TEXT = "this attempt only corrects the last answer, it does not redo the work"
 
 
 def decide(state: RunState, configured, *, model=None) -> dict | None:

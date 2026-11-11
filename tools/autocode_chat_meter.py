@@ -247,7 +247,8 @@ def struggling(view: dict | None, now: datetime | None = None) -> str:
     if row["attempt_seconds"] is not None:
         parts.append(duration(row["attempt_seconds"]))
     if row["why"]:
-        parts.append(f"last one {row['why']}")
+        # "last one answer rejected" read as a typo (2026-11-11).
+        parts.append("last answer rejected" if row["why"] == "answer rejected" else f"last one {row['why']}")
     return " · ".join(parts)
 
 
