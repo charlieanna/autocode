@@ -1330,9 +1330,12 @@ function render(state) {
         } else if (compare) {
           const comparison = compare.comparison || {};
           const files = (comparison.changed_files || []).length;
-          box.appendChild(el('div', 'why', files + ' file(s) differ from this checkpoint' + (comparison.truncated ? ' · diff truncated' : '')));
+          const step = compare.kind === 'step';
+          box.appendChild(el('div', 'why', step
+            ? files + ' file(s) changed in this step' + (comparison.truncated ? ' · diff truncated' : '')
+            : files + ' file(s) differ from this checkpoint' + (comparison.truncated ? ' · diff truncated' : '')));
           const patch = el('pre');
-          patch.textContent = comparison.patch || 'The files match this checkpoint.';
+          patch.textContent = comparison.patch || (step ? 'This step changed no files.' : 'The files match this checkpoint.');
           box.appendChild(patch);
         }
         if (checkpointResult && checkpointResult.checkpoint === cp.id && checkpointResult.result) {
@@ -1678,7 +1681,8 @@ window.addEventListener('message', (event) => {
     }
   }
   if (data && data.type === 'checkpoint_compare') {
-    checkpointCompare[data.checkpoint] = data.error ? { error: data.error } : { comparison: data.comparison };
+    checkpointCompare[data.checkpoint] = data.error ? { error: data.error }
+      : { comparison: data.comparison, kind: data.kind === 'step' ? 'step' : 'compare' };
     renderedState = '';
     if (current) render(current);
   }

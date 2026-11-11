@@ -2263,6 +2263,8 @@ function checkpointView() {
           available: true, recorded_check: { verdict: 'PASS' }, actions: [
             { id: 'compare', label: 'Show what changed since here',
               next_command: ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--compare', 'cp-1'] },
+            { id: 'step', label: 'Show what this step changed',
+              next_command: ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--step', 'cp-1'] },
             { id: 'restore', label: 'Go back to here',
               next_command: ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--restore', 'cp-1', '--expected-token', '-', '--request-id', 'REQUEST_ID'] },
           ] },
@@ -2284,9 +2286,25 @@ test('saved code changes render with only the actions the view named', async (t)
   const buttons = [...ui.document.querySelectorAll('[data-checkpoint-action]')];
   assert.deepEqual(
     buttons.map((button) => button.dataset.checkpointId + ':' + button.dataset.checkpointAction),
-    ['cp-1:compare', 'cp-1:restore'],
+    ['cp-1:compare', 'cp-1:step', 'cp-1:restore'],
     'unavailable rows offer no actions',
   );
+});
+
+test('a saved step shows what that step itself changed', async (t) => {
+  const ui = await openChat(t, checkpointView());
+  const invoke = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({
+    version: 1, checkpoint_id: 'cp-1', since: 'start', changed_files: ['app.txt'],
+    patch: 'diff --step app.txt\n+hello', truncated: false,
+  }) }));
+  ui.document.querySelector('[data-checkpoint-action="step"]').click();
+  await flush(); await flush();
+  assert.deepEqual(invoke.mock.calls[0].arguments[1],
+    ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--step', 'cp-1']);
+  const text = ui.document.querySelector('#app').textContent;
+  assert.match(text, /1 file\(s\) changed in this step/);
+  assert.ok(text.includes('+hello'));
+  assert.ok(!text.includes('differ from this checkpoint'), 'a step view is not a compare');
 });
 
 for (const outcome of ['success', 'failure']) {
