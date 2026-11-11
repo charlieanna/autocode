@@ -11,6 +11,10 @@
 - ``publish``: after the investigation's checkpoint, the receipted notes are written to the project
   file (autocode_project_notes) and the investigation records the IDs, or why it could not. A
   failure never stops the run.
+- ``complete``: the completion path, the second writer. Once a run's completed checkpoint is saved,
+  the tests its own regression proofs saw fail and then pass on the same source are kept as
+  ``flaky_test`` notes (autocode_project_notes_completion), and ``state.project_notes.completions``
+  records, for each completed proof, what was written or why nothing was.
 - ``view``: the status view's ``project_notes``.
 
 Domain layer: pure functions over run state plus the project-notes store; nothing from the runner.
@@ -31,11 +35,13 @@ try:
     from . import autocode_project_memory as memory
     from . import autocode_project_memory_interface as memory_interface
     from . import autocode_project_notes as store
+    from . import autocode_project_notes_completion as completion
     from . import autocode_prompts as prompts
 except ImportError:
     import autocode_project_memory as memory
     import autocode_project_memory_interface as memory_interface
     import autocode_project_notes as store
+    import autocode_project_notes_completion as completion
     import autocode_prompts as prompts
 
 KEY = "project_notes"
@@ -176,11 +182,88 @@ def proposals(value: dict, shown: list[dict], entry: dict, *, run_dir) -> dict |
     return {"status": "pending", "notes": kept, "omitted": omitted}
 
 
+def _completion_notes(state: RunState, run_dir) -> dict:
+    """What the completion path keeps: the flaky tests its proofs showed, each with its receipt."""
+    run = _run_name(run_dir)
+    rows = completion.flaky(state, run_dir) if run else []
+    if not rows:
+        return {
+            "status": "not_recorded",
+            "reason": "No test failed in one regression proof and passed in a later one of the same source.",
+        }
+    kept: list[dict] = []
+    for row in rows[: completion.MAX_FLAKY]:
+        receipt = {
+            "run": run,
+            "stage": "regression_proof",
+            "investigation": None,
+            "observation": f"The runner's {row['failed_in']} failed this test on the candidate and its "
+            f"{row['passed_in']} passed it, on the same source revision and proof context.",
+            "source_revision": row["source_revision"],
+            "recorded_at": now(),
+        }
+        text = (
+            f"{row['test']} is flaky: it failed and then passed on unchanged code, so one failure of it "
+            "alone does not show a regression."
+        )
+        if (note := store.candidate("flaky_test", text, receipt)) is not None:
+            kept.append(note)
+    omitted = len(rows) - len(kept)
+    if not kept:
+        return {
+            "status": "not_recorded",
+            "reason": "Every flaky test's name held a secret or a local path.",
+            "omitted": omitted,
+        }
+    return {"status": "pending", "notes": kept, "omitted": omitted}
+
+
+def complete(path, state: RunState) -> bool:
+    """Once, after a completed run's state.json checkpoint, keep the flaky tests its proofs showed.
+
+    The same rule as project memory's publication: only a completed parent run with nothing in
+    flight, judged once per completed proof. ``state.project_notes.completions`` records the notes
+    written, or why there were none or they could not be written; a failure never changes the run's
+    result. True when the state changed.
+    """
+    record = state.get(KEY)
+    proof = state.get("regression_proof")
+    proof = proof.get("path") if isinstance(proof, dict) else None
+    if (
+        not isinstance(record, dict)
+        or any(isinstance(row, dict) and row.get("proof") == proof for row in record.get("completions") or [])
+        or state.get("status") != "TASK_COMPLETE"
+        or state.get("parent_run")
+        or state.get("active_stage")
+        or state.get("uncertain_artifacts")
+        or Path(path).name != "state.json"
+    ):
+        return False
+    outcome = _completion_notes(state, Path(path).parent)
+    if outcome["status"] == "pending":
+        root = state.get("project_workspace") or state.get("workspace")
+        try:
+            if not isinstance(root, str) or not root:
+                raise ValueError("No selected project")
+            ids = store.add(memory_interface.selected(root), outcome["notes"])
+            outcome = {**outcome, "status": "written", "ids": ids}
+        except (OSError, TypeError, ValueError, KeyError):
+            outcome = {
+                **outcome,
+                "status": "unavailable",
+                "reason": "The project notes file could not be written; the run's result is unchanged.",
+            }
+    # One entry per completed proof: a follow-up that completes again on a new proof is judged again.
+    record.setdefault("completions", []).append({"proof": proof, **outcome})
+    return True
+
+
 def publish(path, state: RunState) -> bool:
-    """Write every pending investigation's notes to the project; True when the state changed.
+    """Write every pending investigation's notes, then a completed run's, to the project; True when
+    the state changed.
 
     Called after a run's state.json checkpoint (autocode_status), so a note is never written for an
-    investigation the run has not saved.
+    investigation or a completion the run has not saved.
     """
     if Path(path).name != "state.json":
         return False
@@ -207,14 +290,18 @@ def publish(path, state: RunState) -> bool:
                 "reason": "The project notes file could not be written; the run is unchanged.",
             }
         changed = True
-    return changed
+    return complete(path, state) or changed
 
 
 def learned(state: RunState) -> list[dict]:
-    """The notes this run wrote to the project, oldest first."""
+    """The notes this run wrote to the project, oldest first: its investigations', then its completion's."""
     rows: list[dict] = []
-    for entry in state.get("stuck_investigations") or []:
-        record = entry.get("project_notes") if isinstance(entry, dict) else None
+    records = [
+        entry.get("project_notes") for entry in state.get("stuck_investigations") or [] if isinstance(entry, dict)
+    ]
+    memory = state.get(KEY)
+    records += (memory.get("completions") or []) if isinstance(memory, dict) else []
+    for record in records:
         if isinstance(record, dict) and record.get("status") == "written":
             rows.extend(copy.deepcopy(record.get("notes") or []))
     return rows
