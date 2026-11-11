@@ -123,7 +123,7 @@ def record(state: RunState, text, review_token, *, source_revision, at=None):
         "contract_token": current,
         "contract_revision": contract.get("revision"),
         "task_id": task_id,
-        "milestone_id": cast(dict, state.get("current_task") or {}).get("milestone_id"),
+        "milestone_id": (state.get("current_task") or {}).get("milestone_id"),
         "source_revision": source_revision,
         "pause_status": state.get("status"),
         "next_stage": state.get("next_stage"),
