@@ -943,12 +943,13 @@ def assign(
     fitted = route_fit.fit(settings, role, rerouted=rerouted)
     if effort is None and fitted.reason == "fitted":
         route["reasoning_effort"] = fitted.effort
-        record["effort"] = {"from": fitted.from_effort, "to": fitted.effort}
+        moved = {"from": fitted.from_effort, "to": fitted.effort}
         if persons:
-            record["effort"]["reason"] = (
+            moved["reason"] = (
                 f"your {fitted.from_effort} was saved for {previous}; {model} does not offer it, "
                 f"so AutoCode chose {fitted.effort}, the nearest level it offers"
             )
+        record["effort"] = moved
         route_fit.record(settings, role, fitted, cause=route_fit.ROUTE_ANSWER)
     if role == "stuck_investigator":
         record["investigator_settings_present"] = "stuck_investigation" in settings
