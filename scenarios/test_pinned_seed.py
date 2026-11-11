@@ -30,29 +30,25 @@ class PinnedSeedTests(unittest.TestCase):
         self.root = Path(tempfile.mkdtemp())
         self.addCleanup(subprocess.run, ["rm", "-rf", str(self.root)])
         self.source = self.root / "upstream"
-        (self.source / "project/pkg").mkdir(parents=True)
-        (self.source / "docs").mkdir()
+        (self.source / "pkg").mkdir(parents=True)
         git(self.source, "init", "-q", "-b", "main")
-        (self.source / "project/pkg/core.py").write_text("VERSION = 1\n")
-        (self.source / "docs/site.md").write_text("not the project\n")
+        (self.source / "pkg/core.py").write_text("VERSION = 1\n")
+        (self.source / ".gitignore").write_text("/output/\n")
         self.pinned = commit_all(self.source, "pinned")
-        (self.source / "project/pkg/core.py").write_text("VERSION = 2\n")
-        (self.source / "project/pkg/later.py").write_text("ADDED = True\n")
+        (self.source / "pkg/core.py").write_text("VERSION = 2\n")
+        (self.source / "pkg/later.py").write_text("ADDED = True\n")
         self.tip = commit_all(self.source, "later")
         self.cache = self.root / "cache"
 
-    def seed(self, commit=None, path="project"):
-        return pinned_seed.PinnedSeed(str(self.source), commit or self.pinned, path)
+    def seed(self, commit=None):
+        return pinned_seed.PinnedSeed(str(self.source), commit or self.pinned)
 
-    def test_the_pinned_commits_project_directory_not_the_tip_nor_its_history(self):
+    def test_the_pinned_commits_files_not_the_tip_nor_its_history(self):
         tree = pinned_seed.tree(self.seed(), self.cache)
+        self.assertEqual({".gitignore", "pkg"}, {path.name for path in tree.iterdir()}, "no .git: no history")
         self.assertEqual("VERSION = 1\n", (tree / "pkg/core.py").read_text())
         self.assertFalse((tree / "pkg/later.py").exists(), "a file from after the pin")
-        self.assertFalse((tree / "docs").exists(), "a file outside the declared path")
-        self.assertFalse((tree / ".git").exists(), "the repository's history")
         self.assertEqual([tree], [path for path in self.cache.iterdir()], "only the finished tree stays cached")
-        whole = pinned_seed.tree(self.seed(path=""), self.cache)
-        self.assertEqual({"docs", "project"}, {path.name for path in whole.iterdir()})
 
     def test_a_cached_seed_is_reused_without_fetching_again(self):
         first = pinned_seed.tree(self.seed(), self.cache)
@@ -66,31 +62,23 @@ class PinnedSeedTests(unittest.TestCase):
         self.assertEqual("first\n", (first / "marker").read_text())
         self.assertEqual([first], list(self.cache.iterdir()), "the second extraction is discarded")
 
-    def test_a_commit_the_source_lacks_or_a_missing_path_is_unavailable_and_leaves_no_cache(self):
-        with self.assertRaisesRegex(pinned_seed.SeedUnavailable, "git fetch failed"):
+    def test_a_commit_the_source_lacks_is_unavailable_and_leaves_no_cache(self):
+        with self.assertRaisesRegex(pinned_seed.SeedUnavailable, f"@{UNKNOWN[:12]}: git fetch failed"):
             pinned_seed.tree(self.seed(commit=UNKNOWN), self.cache)
-        with self.assertRaisesRegex(pinned_seed.SeedUnavailable, "has no directory 'absent'"):
-            pinned_seed.tree(self.seed(path="absent"), self.cache)
-        with self.assertRaisesRegex(pinned_seed.SeedUnavailable, "has no directory 'project/pkg/core.py'"):
-            pinned_seed.tree(self.seed(path="project/pkg/core.py"), self.cache)
         self.assertEqual([], list(self.cache.iterdir()))
 
     def test_the_seed_table_is_validated(self):
         good = {"git": "https://example.test/project.git", "commit": self.pinned}
-        self.assertEqual(
-            pinned_seed.PinnedSeed(good["git"], self.pinned, "a/b"),
-            pinned_seed.parse("s", {**good, "path": "a/b/"}),
-        )
+        self.assertEqual(pinned_seed.PinnedSeed(good["git"], self.pinned), pinned_seed.parse("s", good))
         for table, message in (
-            ({"git": good["git"]}, "needs git and commit"),
-            ({**good, "branch": "main"}, "accepts only"),
+            ("https://example.test/project.git", "needs exactly git and commit"),
+            ({"git": good["git"]}, "needs exactly git and commit"),
+            ({**good, "path": "src"}, "needs exactly git and commit"),
+            ({**good, "git": " "}, "must name a repository"),
             ({**good, "git": "--upload-pack=touch x"}, "must name a repository"),
             ({**good, "commit": "main"}, "40-character"),
             ({**good, "commit": self.pinned[:12]}, "40-character"),
             ({**good, "commit": self.pinned.upper()}, "40-character"),
-            ({**good, "path": "/etc"}, "relative subdirectory"),
-            ({**good, "path": "a/../.."}, "relative subdirectory"),
-            ({**good, "path": 3}, "relative subdirectory"),
         ):
             with self.subTest(table=table), self.assertRaisesRegex(ValueError, message):
                 pinned_seed.parse("s", table)
@@ -100,7 +88,7 @@ class PinnedSeedTests(unittest.TestCase):
         entry.mkdir(parents=True, exist_ok=True)
         (entry / "scenario.toml").write_text(
             'title = "t"\ncategory = "feature"\nbrief = "Add it."\n'
-            f'[seed]\ngit = "{self.source}"\ncommit = "{commit or self.pinned}"\npath = "project"\n'
+            f'[seed]\ngit = "{self.source}"\ncommit = "{commit or self.pinned}"\n'
         )
         if seed_dir:
             (entry / "seed").mkdir()
@@ -114,6 +102,9 @@ class PinnedSeedTests(unittest.TestCase):
             project = materialize(scenario.seed, self.root / "run" / "project")
         self.assertEqual("VERSION = 1\n", (project / "pkg/core.py").read_text())
         self.assertEqual(["Scenario seed"], git(project, "log", "--format=%s").splitlines())
+        (project / "output").mkdir()
+        (project / "output/report.txt").write_text("written by the suite\n")
+        self.assertEqual("", git(project, "status", "--porcelain"), "the repository's own ignore rules apply")
 
     def test_an_unreachable_seed_skips_the_scenario_like_a_missing_toolchain(self):
         with patch.dict("os.environ", {pinned_seed.CACHE_ENV: str(self.cache)}):

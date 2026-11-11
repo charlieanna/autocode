@@ -51,6 +51,14 @@ scheduled, bounded by explicit time limits, with `--i-authorize-live-model-spend
 uncapped under the testing policy and with each stage's provider and model recorded;
 its oracle controls and scripted (`--fake`) run are ordinary CI evidence that needs
 no spend.
+The case is `bugfix-realrepo-docutils-number-lines`: the whole Docutils repository
+(191,000 lines of Python, 94,000 of them the project with a suite of about 2,300
+cases) at the parent of upstream's fix for `:number-lines: 0` on "include". Its first
+scripted run found two scale defects no fixture reached: a crash at start on Python
+files that are not UTF-8 (fixed), and a test-role rule that leaves every Docutils test
+ambiguous and stops the run, recorded as the scenario's known failure
+([findings](docs/bugs/2026-11-11-real-repo-docutils-findings.md)). It has not yet run
+live.
 
 For each case record:
 

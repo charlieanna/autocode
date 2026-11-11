@@ -20,8 +20,8 @@ from docutils import nodes
 INCLUDE1 = Path(__file__).resolve().with_name('include1.rst')
 
 
-def line_numbers(options):
-    source = f'.. include:: {INCLUDE1}\n   :literal:\n{options}'
+def line_numbers(options, kind=':literal:'):
+    source = f'.. include:: {INCLUDE1}\n   {kind}\n{options}'
     doctree = publish_doctree(source,
                               settings_overrides={'warning_stream': ''})
     return [node.astext().strip()
@@ -34,6 +34,10 @@ class IncludeNumberLinesTestCase(unittest.TestCase):
     def test_start_value_zero(self):
         self.assertEqual(['0', '1', '2', '3'],
                          line_numbers('   :number-lines: 0\n'))
+
+    def test_start_value_zero_for_included_code(self):
+        self.assertEqual(['0', '1', '2', '3'],
+                         line_numbers('   :number-lines: 0\n', ':code:'))
 
     def test_default_start_value(self):
         self.assertEqual(['1', '2', '3', '4'],

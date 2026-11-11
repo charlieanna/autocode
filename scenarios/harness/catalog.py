@@ -4,7 +4,7 @@
                          and optional [[turn]] follow-up messages
     <id>/brief.md        the request given to AutoCode, verbatim
     <id>/seed/           starting project, committed before the run (optional)
-    [seed] in scenario.toml  instead of seed/: a real repository at a pinned commit (harness/pinned_seed.py)
+    [seed] in scenario.toml  instead of seed/: a whole real repository at a pinned commit (harness/pinned_seed.py)
     <id>/oracle.py       check(project, scenario[, run]) -> list[Check], and optionally
                          diagnosis(project, run) -> dict, scored apart from the run verdict
     <id>/reference/      overlay that makes a correct solution (optional)

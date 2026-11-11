@@ -1,23 +1,28 @@
-title = "Fix :number-lines: 0 on the include directive in Docutils, a 94,000-line real repository"
+title = "Fix :number-lines: 0 on the include directive in the Docutils repository (191,000 lines of Python)"
 category = "bugfix"
-# RELIABILITY.md's fourth bounded case (#2944): a bug fix in a mid-size real repository. The seed is
-# Docutils (docutils/ of the official GitHub mirror: 771 files, about 94,000 lines of Python, a suite of
-# several thousand unittest cases) at the parent of upstream commit 26bfb7fe, which fixed this bug (Sphinx
-# issue #14261). The cause is one falsy test in misc.py's Include directive; body.py's "code" directive
-# has the same option and already handles 0, so a fix there alone looks right and changes nothing. The
-# reference is upstream's own fix with a new regression test; the hidden tests check 0, no value and
-# another start for both directives through the public publish_doctree.
+# RELIABILITY.md's fourth bounded case (#2944): a bug fix in a mid-size real repository. The seed is the
+# whole official Docutils GitHub mirror (2,984 files; 191,000 lines of Python: 94,000 in the docutils/
+# project with a suite of about 2,300 unittest cases, 97,000 in sandbox/ experiments) at the parent of
+# upstream commit 26bfb7fe, which fixed this bug (Sphinx issue #14261). The repository's own .gitignore
+# keeps the files its suite writes out of the change. The option's value became an integer, and two `or 1` tests turn a start of 0 into 1:
+# one in misc.py's Include directive (`:literal:`), one in body.py's CodeBlock, which an include with
+# `:code:` hands its options to (a "code" directive's own option is still a string, so it works). The
+# reference is upstream's own fix of both with a new regression test; broken/fixes-code-directive-only
+# fixes body.py alone, so `:code:` works and `:literal:` does not. The hidden tests check 0, no value
+# and other starts for both include forms and the "code" directive through the public publish_doctree.
 # The upstream files in reference/ and broken/ keep Docutils' own style and are excluded from ruff.
 
 [seed]
 git = "https://github.com/docutils/docutils.git"
 commit = "54f4d615a7608d6b0bee7dec43a5be1543d4e456"
-path = "docutils"
 
 [run]
 timeout_minutes = 120
+known_failure = """The run stops at PAUSED_INVALID_OUTPUT: the Python test-role policy calls every test under \
+docutils/test/ ambiguous, because test/ counts as a test tree only at the repository root and sandbox/'s 98 \
+unparseable Python 2 files make runtime reach uncertain (docs/bugs/2026-11-11-real-repo-docutils-findings.md)."""
 
 [fake]
-check = "python3 test/alltests.py"
+check = "cd docutils/test && python3 alltests.py"
 # Exits 0 while the seed's bug is present; the runner checks the scripted reproduction.
-probe = 'python3 -c "import sys; from docutils.core import publish_doctree as p; t = p(\".. include:: test/test_parsers/test_rst/test_directives/include1.rst\n   :literal:\n   :number-lines: 0\n\").astext(); sys.exit(0 if t.split()[0] == \"1\" else 1)"'
+probe = 'cd docutils && python3 -c "import sys; from docutils import nodes; from docutils.core import publish_doctree as p; d = p(\".. include:: test/test_parsers/test_rst/test_directives/include1.rst\n   :literal:\n   :number-lines: 0\n\"); n = [x.astext().strip() for x in d.findall(nodes.inline) if \"ln\" in x[\"classes\"]]; sys.exit(0 if n[0] == \"1\" else 1)"'

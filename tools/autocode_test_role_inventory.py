@@ -20,8 +20,17 @@ except ImportError:
 
 
 def _text(path, data):
-    encoding = tokenize.detect_encoding(io.BytesIO(data).readline)[0] if path.endswith(".py") else "utf-8"
-    return data.decode(encoding)
+    """A Python file's text in its declared (or default UTF-8) encoding.
+
+    A file Python itself could not read (bytes its encoding cannot decode, or an unknown coding cookie,
+    as in a real repository's Python 2 era files, #2944) keeps its bytes as surrogate escapes: parsing it
+    then fails like any unparseable source, which the role policy already treats as uncertain."""
+    if not path.endswith(".py"):
+        return data.decode("utf-8")
+    try:
+        return data.decode(tokenize.detect_encoding(io.BytesIO(data).readline)[0])
+    except (SyntaxError, UnicodeDecodeError):
+        return data.decode("utf-8", "surrogateescape")
 
 
 def _git(workspace, *args):

@@ -1,10 +1,11 @@
 """A bug fix in Docutils, a mid-size real repository (RELIABILITY.md's fourth case, #2944).
 
-The checks are python_change_checks' for a project whose suite is its own: Docutils' full suite
-(test/alltests.py) passes, the hidden tests pass, the delivered test modules fail on the seed's
-docutils/ package, and no existing test was removed. Docutils has optional third-party imports of its
-own, so the standard-library check is not applied to the repository; only the delivered changes are
-read for new imports.
+The project is the whole repository; Docutils itself is its docutils/ directory. The checks are
+python_change_checks' for a project with a suite of its own: Docutils' full suite (docutils/test/
+alltests.py) passes, the hidden tests pass, the delivered test modules fail on the seed's docutils/docutils/
+package, and no existing test was removed. Docutils has optional third-party imports of its own, so the
+standard-library check is not applied to the repository; only the delivered changes are read for new
+imports.
 """
 
 import ast
@@ -24,16 +25,18 @@ from harness.oracle import (
     test_names,
 )
 
-PACKAGE = "docutils"
-# The full suite takes about a minute on a developer machine; leave room for a loaded CI host.
-SUITE_SECONDS = 1800
+ROOT = "docutils"  # the Docutils project inside the repository
+PACKAGE = "docutils/docutils"
+# The full suite (about 2,300 cases) takes seconds; the bound leaves room for a delivered change that hangs.
+SUITE_SECONDS = 900
 
 
 def delivered_test_modules(project):
+    """Dotted names, from docutils/ as Docutils' own tests import each other, of added or changed tests."""
     return [
-        path.removesuffix(".py").replace("/", ".")
+        path.removeprefix(f"{ROOT}/").removesuffix(".py").replace("/", ".")
         for path in changed_since_seed(project)
-        if path.startswith("test/") and path.rsplit("/", 1)[-1].startswith("test_") and path.endswith(".py")
+        if path.startswith(f"{ROOT}/test/") and path.rsplit("/", 1)[-1].startswith("test_") and path.endswith(".py")
         if (project / path).is_file()
     ]
 
@@ -54,7 +57,8 @@ def new_imports(project, scenario):
                 names.add(node.module.split(".")[0])
         return names
 
-    local = {path.name for path in project.iterdir()} | {path.stem for path in project.glob("*.py")}
+    local = {path.name for root in (project, project / ROOT) for path in root.iterdir()}
+    local |= {path.stem for root in (project, project / ROOT) for path in root.glob("*.py")}
     foreign = []
     for path in changed_since_seed(project):
         if not path.endswith(".py") or not (project / path).is_file():
@@ -69,9 +73,9 @@ def new_imports(project, scenario):
 def check(project, scenario, run_record=None):
     checks = []
     with scratch_copy(project) as copy:
-        suite = run([sys.executable, "test/alltests.py"], copy, timeout=SUITE_SECONDS)
+        suite = run([sys.executable, "alltests.py"], copy / ROOT / "test", timeout=SUITE_SECONDS)
         checks.append(Check("project_tests_pass", suite.returncode == 0, tail(suite)))
-        hidden = hidden_tests(copy, scenario.dir / "hidden")
+        hidden = hidden_tests(copy / ROOT, scenario.dir / "hidden")
         checks.append(Check("hidden_tests_pass", hidden.returncode == 0, tail(hidden)))
     modules = delivered_test_modules(project)
     if not modules:
@@ -80,7 +84,7 @@ def check(project, scenario, run_record=None):
         with scratch_copy(project) as copy:
             shutil.rmtree(copy / PACKAGE)
             shutil.copytree(scenario.seed / PACKAGE, copy / PACKAGE, ignore=IGNORED)
-            against_seed = run([sys.executable, "-m", "unittest", *modules], copy, timeout=SUITE_SECONDS)
+            against_seed = run([sys.executable, "-m", "unittest", *modules], copy / ROOT, timeout=SUITE_SECONDS)
         checks.append(
             Check(
                 "new_tests_fail_on_original_code",
@@ -89,7 +93,7 @@ def check(project, scenario, run_record=None):
                 + ", ".join(modules),
             )
         )
-    missing = sorted(test_names(scenario.seed / "test") - test_names(project / "test"))
+    missing = sorted(test_names(scenario.seed / ROOT / "test") - test_names(project / ROOT / "test"))
     checks.append(Check("existing_tests_kept", not missing, f"removed: {missing}" if missing else ""))
     foreign = new_imports(project, scenario)
     checks.append(Check("no_new_third_party_imports", not foreign, "; ".join(foreign)))
