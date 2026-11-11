@@ -1073,6 +1073,48 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(0, plain.converse())
         self.assertEqual([["--resume-paused"]], plain.taken)
 
+    def planning_budget_pause(self):
+        """A reconciled PAUSED_PLANNING_BUDGET: the resume itself carries the typed review total."""
+        row = {
+            "id": "planning_review_call_limit",
+            "kind": "integer",
+            "flag": "--planning-review-call-limit",
+            "placeholder": "N",
+            "arg_index": 2,
+            "label": "Total plan-review calls",
+            "current": 3,
+            "used": 3,
+            "minimum": 4,
+            "maximum": actions.MAX_SAFE_INTEGER,
+        }
+        return {
+            "status": "PAUSED_PLANNING_BUDGET",
+            "pause_category_label": "Limit reached",
+            "needs": {"kind": "planning_budget", "reason": "3/3 plan-review calls used.", "command_inputs": [row]},
+            "recovery": {"token": "rt"},
+            "next_command": f"AUTOCODE_EXPECTED_RECOVERY_TOKEN=rt autocode {PLACE} --resume-paused "
+            "--planning-review-call-limit N --expected-recovery-token -",
+        }
+
+    def test_a_number_typed_again_at_continue_is_the_review_total_not_a_decline(self):
+        """#3094: typing 4 at "Continue? [y/N]" after the review-total prompt read as "no", and the full-screen
+        chat left the run for a blank new chat without applying the limit."""
+        raised = ["--resume-paused", "--planning-review-call-limit", "5", "--expected-recovery-token", "-"]
+        for replies, taken in ((["4", "4"], "4"), (["4", "5"], "5"), (["4", "3", "y"], "4"), (["4", "y"], "4")):
+            with self.subTest(replies=replies):
+                client = ScriptedChat(self.planning_budget_pause(), DONE, replies=replies)
+                self.assertEqual(0, client.converse())
+                out = client.text()
+                self.assertIn("Total plan-review calls (4 or more): ", out)
+                self.assertIn("Continue? [y/N], or type a different total plan-review calls: ", out)
+                self.assertEqual([[*raised[:2], taken, *raised[3:]]], client.taken)
+                self.assertNotIn("Left as it is", out)
+                self.assertEqual("3" in replies, "Enter a whole number of 4 or more" in out, "too small: asked again")
+        declined = ScriptedChat(self.planning_budget_pause(), DONE, replies=["4", "n"])
+        self.assertEqual(2, declined.converse())
+        self.assertEqual([], declined.taken)
+        self.assertIn("Left as it is", declined.text())
+
     def operational_time_pause(self):
         """#2607's shape: AutoResolver published its request for a time limit the person set."""
         view = self.held_time_pause()

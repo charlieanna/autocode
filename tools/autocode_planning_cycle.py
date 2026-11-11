@@ -71,6 +71,30 @@ INHERITED_KEYS = (
 )
 
 
+def new_feedback(state: RunState, archived) -> list[str]:
+    """The person's feedback on an unapproved plan given since ``archived`` began, as sorted planning_inputs IDs.
+
+    A change the person asks for while the plan waits for their approval is a new review round (#3094): under
+    the small-brief total (#1564) the revised draft otherwise inherited the spent allowance and paused for a
+    raise before anyone reviewed it. Only the person's recorded feedback counts; an answer, a retried report or
+    any model output adds none, and an archived record saved without inputs grants nothing. A correction of an
+    approved plan keeps its own bounded recovery (autocode_planning_correction_budget)."""
+    before = archived.get("inputs") if isinstance(archived, dict) else None
+    if not isinstance(before, list):
+        return []
+    approved = {
+        row.get("token")
+        for row in state.get("user_events") or []
+        if isinstance(row, dict) and row.get("kind") == "goal_approval"
+    }
+    unapproved = {
+        "feedback:" + str(row["id"])
+        for row in state.get("brief_feedback") or []
+        if isinstance(row, dict) and row.get("id") and row.get("contract_token") not in approved
+    }
+    return sorted((set(planning_inputs(state)) - set(before)) & unapproved)
+
+
 def inherits_review(archived) -> bool:
     """Whether the cycle after ``archived`` continues its review instead of starting one.
 
@@ -184,6 +208,21 @@ def new_cycle(state: RunState, *, new_turn=False):
             state["planning"].update(
                 review_call_limit=archived["review_call_limit"],
                 review_call_limit_origin=archived["review_call_limit_origin"],
+            )
+        feedback = [] if explicit else new_feedback(state, archived)
+        limit = review_limit(state, state["planning"])
+        if feedback and limit:
+            # The person asked for this revision (#3094): its draft gets a fresh allowance on top of the calls
+            # already charged, at the same reduced depth, as a new request would. Usage is never erased, and a
+            # total the person chose stays a total, as on a new turn.
+            used = state["planning"]["plan_review_calls"]
+            allowance = review_limit(state, {})
+            renewed = max(limit, used + (allowance or 2))
+        if feedback and limit and renewed > limit:
+            state["planning"].update(
+                review_call_limit=renewed,
+                review_call_limit_origin="runner_default",
+                feedback_renewal={"feedback": feedback, "calls_used": used, "from": limit, "to": renewed},
             )
     if new_turn and archived and explicit:
         state["planning"].update(plan_review_calls=archived.get("plan_review_calls", 0))
