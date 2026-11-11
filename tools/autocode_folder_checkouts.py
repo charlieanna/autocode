@@ -25,9 +25,10 @@ def found(folder, *, depth: int = DEPTH, budget: int = BUDGET) -> list[Path]:
 
     A checkout is a directory with a ``.git`` entry (a repository or a linked worktree); the search
     does not look inside one. At most ``budget`` entries are looked at."""
-    result, level, seen = [], [Path(folder)], 0
+    result: list[Path] = []
+    level, seen = [Path(folder)], 0
     for _ in range(depth):
-        below = []
+        below: list[Path] = []
         for directory in level:
             try:
                 children = sorted(directory.iterdir())
