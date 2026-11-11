@@ -25,7 +25,10 @@ module is the runner's mechanical check for the rest of the brief:
   backticked literal and negation inside the cited sentences in the citing
   criteria (or the contract's restated behaviors, constraints and approach,
   where obligations are allowed to live). A dropped negation stands only with
-  the reviewer's pinned waiver.
+  the reviewer's pinned waiver. Every worked example in a citing criterion
+  must also render the templates of the cited sentences as written: keeping
+  `ID TEXT [open|done]` elsewhere does not excuse an example `1 buy milk open`
+  (#2941, autocode_brief_literals.disagreements).
 
 Contracts sealed before this change carry no source_trace key, and contracts
 whose criteria cite nothing, and both validate as before. Imports nothing
@@ -275,10 +278,29 @@ def _inactive_literals(body, records, source_id):
     }
 
 
+def _example_errors(record, citing, cited, known):
+    """Worked examples of the citing criteria that render a cited template other than as written (#2941)."""
+    wrong = [
+        f"{row.get('id', '?')} writes `{example}` for `{literal}`"
+        for row in citing
+        for example, literal in brief_literals.disagreements(
+            cited, brief_literals.literals([str(row.get("criterion", ""))]), known
+        )
+    ]
+    if not wrong:
+        return []
+    return [
+        f"Criteria citing {record['id']} have worked examples that disagree with a literal the source states: "
+        + "; ".join(wrong)
+        + " (fill the literal in keeping its brackets, separators, field order and casing exactly)"
+    ]
+
+
 def _survival_errors(body, records, waivers):
     errors = []
     criteria = body.get("acceptance_criteria") or []
     source_ids = [record["id"] for record in records]
+    known = brief_literals.literals([record["text"] for record in records])
     for record in records:
         protected_locations = source_metadata.output_locations(record["text"])
         ticket_title_key = source_metadata.ticket_title_key(record["text"])
@@ -313,18 +335,18 @@ def _survival_errors(body, records, waivers):
             # obligation; the criterion must still carry it.
             stripped = [{key: value for key, value in row.items() if key != "sources"} for row in citing]
             pseudo = {"acceptance_criteria": stripped, "corpus": corpus}
-            lost_literals = [
+            cited = [
                 literal
-                for literal in brief_literals.missing(
-                    brief_literals.literals([sentence], protected_locations=protected_locations), pseudo
-                )
+                for literal in brief_literals.literals([sentence], protected_locations=protected_locations)
                 if literal not in bound
             ]
+            lost_literals = brief_literals.missing(cited, pseudo)
             if lost_literals:
                 errors.append(
                     f"Criteria citing {record['id']} dropped a literal the source states: "
                     + ", ".join(f"`{item}`" for item in lost_literals)
                 )
+            errors += _example_errors(record, citing, cited, known)
             waived = any(
                 record["id"] == waiver["source_id"] and _covered(sentence, [waiver["quote"]]) for waiver in waivers
             )
@@ -436,7 +458,11 @@ def resolve_sentence_ids(contract, records):
     """Replace each citation whose quote is a sentence id by that sentence's verbatim text, in place.
 
     Everything after this (citation checks, coverage, survival, the seal, the saved contract) sees verbatim quotes
-    only. An id that names no sentence is left as written, so the citation check refuses it."""
+    only. An id that names no sentence is left as written, so the citation check refuses it.
+
+    A criterion that names one sentence twice (its id and its text, or the same id again) then holds two
+    identical citations. The repeat adds nothing, and the model never wrote one quote twice, so a repair asked to
+    remove it cannot see what to change (#3119): keep the first and drop the rest."""
     by_id = {row["id"]: row for row in records}
     for row in (contract or {}).get("acceptance_criteria") or []:
         for citation in row.get("sources") or []:
@@ -449,6 +475,27 @@ def resolve_sentence_ids(contract, records):
             sentences = cues.sentences(source["text"])
             if int(match["number"]) <= len(sentences):
                 citation["quote"] = sentences[int(match["number"]) - 1]
+        if isinstance(row.get("sources"), list):
+            row["sources"] = _without_repeats(row["sources"])
+
+
+def _without_repeats(citations):
+    """``citations`` less each citation that repeats an earlier one's source and quote, as check_citations compares them."""
+    kept, seen = [], set()
+    for citation in citations:
+        # Only well-formed citations merge; anything else stays for check_citations to refuse.
+        if (
+            isinstance(citation, dict)
+            and set(citation) == {"source_id", "quote"}
+            and isinstance(citation["source_id"], str)
+            and isinstance(citation["quote"], str)
+        ):
+            key = (citation["source_id"], citation["quote"].strip())
+            if key in seen:
+                continue
+            seen.add(key)
+        kept.append(citation)
+    return kept
 
 
 def uncited_sentences(state: RunState, body, records):

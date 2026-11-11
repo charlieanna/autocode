@@ -177,6 +177,7 @@ KEYS: frozenset[str] = frozenset(
         "intervention_capability",
         "investigation",
         "investigation_refresh",
+        "implementation_discrepancies",
         "investigation_request",
         "iteration",
         "job_failure",
@@ -365,6 +366,10 @@ class RunState(TypedDict, total=False):
     # Builder rounds the runner queued because an approved plan check failed on the candidate, bounded per
     # command; written by autocode_planned_check_rework, read there and by autocode_resolver_recovery.
     planned_check_reworks: list
+    # A person's reports that the built code departs from the approved plan, each bound to that plan's token, the
+    # task and the source revision (#3045); written only by autocode_implementation_discrepancy.record, read there
+    # for the reviewers' context packet (autocode_stage_context) and the status view's implementation_discrepancy.
+    implementation_discrepancies: list
     acceptance_tests: dict  # spec-first receipts, redirect and contract-bound pending test names; route pins names, job writes receipts; read by job/check/run_view
     criteria_revision: str | None  # hash of the criteria; follow_up clears it before a fresh plan
     # The approved contract; written by goals. A revision loaded with --goal-file also names that file in

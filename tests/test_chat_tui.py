@@ -468,6 +468,18 @@ class PasteTests(unittest.TestCase):
         self.assertIsNone(tui.read_paste(self.keys("x")))
         self.assertIsNone(tui.read_paste(self.keys("[", "2", "0", "1", "~")))
 
+    def test_a_slow_terminal_pausing_inside_a_paste_does_not_end_it(self):
+        """#3074: a pause of a few reads inside the paste is not its end; the rest is text, not keys."""
+        quiet = [None] * (tui.PASTE_PATIENCE - 1)
+        read = self.keys(*"[200~", *"two ", *quiet, *"sum\r", *quiet, *"\x1b[201~", "x")
+        self.assertEqual("two sum", tui.read_paste(read))
+        self.assertEqual("x", read(), "the key after the closed paste is still the next key")
+
+    def test_a_paste_the_terminal_never_closes_ends_after_its_patience(self):
+        read = self.keys(*"[200~", *"two", *[None] * tui.PASTE_PATIENCE, "x")
+        self.assertEqual("two", tui.read_paste(read))
+        self.assertEqual("x", read())
+
     def test_the_keys_read_after_an_escape_that_is_no_paste_are_handed_back(self):
         consumed: list = []
         self.assertIsNone(tui.read_paste(self.keys("x", "y"), consumed))
@@ -557,7 +569,7 @@ class PromptTypeaheadTests(unittest.TestCase):
         ui._screen.timeout.side_effect = lambda value: delay.__setitem__(0, value)
 
         def read():
-            if delay[0] == 0:
+            if delay[0] in (0, 50):  # the boundary's own reads, and a paste's within it
                 if pending:
                     return pending.pop(0)
                 raise tui.curses.error("no queued input")
@@ -576,7 +588,7 @@ class PromptTypeaheadTests(unittest.TestCase):
 
     def test_discard_keeps_only_an_empty_draft_exit_and_restores_input_timeout(self):
         ui, pending = self.ui(["y", "\n", "\x04"])
-        self.assertTrue(ui._discard_typeahead())
+        self.assertEqual((True, "y"), ui._take_typeahead())
         self.assertEqual([], pending)
         ui._screen.timeout.assert_has_calls([mock.call(0), mock.call(-1)])
 
@@ -584,16 +596,21 @@ class PromptTypeaheadTests(unittest.TestCase):
         ui, pending = self.ui(["y", "\n"])
         self.assertEqual("", ui.ask("Approve this plan? [y/N]: "))
         self.assertEqual([], pending)
+        # #3074: the text is not lost either: it waits in history behind a notice.
+        self.assertEqual(["y"], ui._composer.history)
+        self.assertTrue(any("before the question showed" in text for _, text in ui._transcript.blocks))
 
     def test_ctrl_d_with_an_existing_draft_is_not_an_exit(self):
         ui, pending = self.ui(["\x04"], draft="unsent reply")
-        self.assertFalse(ui._discard_typeahead())
+        self.assertEqual((False, ""), ui._take_typeahead())
         self.assertEqual("unsent reply", ui._composer.text)
         self.assertEqual([], pending)
 
     def test_literal_ctrl_d_inside_a_bracketed_paste_is_not_an_exit(self):
         ui, pending = self.ui(list("\x1b[200~quoted \x04 text\x1b[201~"))
-        self.assertFalse(ui._discard_typeahead())
+        leave, typed = ui._take_typeahead()
+        self.assertFalse(leave)
+        self.assertEqual(("quoted ", " text"), (typed[:7], typed[-5:]))
         self.assertEqual([], pending)
 
     def test_already_buffered_answer_keys_cannot_approve_the_new_plan(self):
@@ -601,10 +618,51 @@ class PromptTypeaheadTests(unittest.TestCase):
         ui._queued.extend(["y", "\n"])
         self.assertEqual("", ui.ask("Approve this plan? [y/N]: "))
 
+    def test_a_paste_typed_ahead_never_leaves_the_boundary_waiting_for_a_key(self):
+        ui, pending = self.ui(list("\x1b[200~two sum\x1b[201~") + ["!"])
+        self.assertEqual((False, "two sum!"), ui._take_typeahead())
+        self.assertEqual([], pending)
+        waits = [call.args[0] for call in ui._screen.timeout.call_args_list]
+        self.assertEqual(0, waits[waits.index(50) + 2], "the boundary reads on without waiting after the paste")
+
+    def test_text_typed_between_polls_joins_the_draft_a_free_reply_takes(self):
+        """#3074: "write a … two " typed while working and "sum " while the client was busy between
+        polls: the reply keeps both, not the first part alone."""
+        ui, pending = self.ui(list("sum "))
+        working = {
+            "workspace": "/project",
+            "run_dir": "/project/run",
+            "status": "RUNNING",
+            "liveness": {"kind": "supervised"},
+            "chat": {"context": "turn-1"},
+        }
+        ui.observe(working)
+        for key in "write a solution for the two ":
+            ui._handle(key, asking=False)
+        ui.observe({**working, "status": "WAITING_FOR_USER", "chat": {"context": "turn-2"}})
+        with mock.patch.object(tui.curses, "beep"):
+            self.assertEqual("write a solution for the two sum ", ui.ask("You: "))
+        self.assertEqual([], pending)
+        self.assertFalse(any("Earlier draft kept" in text for _, text in ui._transcript.blocks))
+
+    def test_a_question_reads_and_handles_each_key_under_the_screen_lock(self):
+        ui, _ = self.ui([])
+        held = []
+        real_read = ui._read_key
+
+        def read():
+            held.append(ui._lock._is_owned())
+            return real_read()
+
+        with mock.patch.object(ui, "_read_key", side_effect=read):
+            self.assertEqual("", ui.ask("Approve this plan? [y/N]: "))
+        self.assertTrue(held)
+        self.assertTrue(all(held), "another thread could draw between a key read and its handling")
+
     def test_discard_bounds_a_continuous_stream_before_flushing(self):
         ui, _ = self.ui([])
         ui._screen.get_wch.side_effect = lambda: "y"
-        self.assertFalse(ui._discard_typeahead())
+        self.assertEqual((False, "y" * 4096), ui._take_typeahead())
         self.assertLessEqual(ui._screen.get_wch.call_count, 4096)
         tui.curses.flushinp.assert_called_once()
 
