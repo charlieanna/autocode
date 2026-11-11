@@ -126,11 +126,13 @@ export const chatStyles = /* css */ `
     font-size: .75rem; cursor: pointer; color: var(--vscode-descriptionForeground);
     border: 1px solid transparent; border-bottom: none; border-radius: 5px 5px 0 0; }
   .chat-tab:hover { background: var(--vscode-toolbar-hover); }
+  .chat-tab:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
   .chat-tab.active { color: var(--vscode-foreground); background: var(--vscode-input-background);
     border-color: var(--vscode-panel-border); }
   .chat-tab .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .chat-tab .dot { color: var(--vscode-charts-blue, #1a6fb0); }
-  .chat-tab .close { padding: 0 2px; border-radius: 3px; font-size: .8rem; }
+  .chat-tab .close { padding: 0 2px; border: 0; border-radius: 3px; font-size: .8rem; color: inherit;
+                     background: none; cursor: pointer; }
   .chat-tab .close:hover { background: var(--vscode-toolbar-hover); color: var(--vscode-foreground); }
   /* Leave room for both picker chips and Send in a sidebar. The textarea keeps
      the shortcut description available to assistive technology at every width. */
