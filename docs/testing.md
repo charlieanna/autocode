@@ -292,7 +292,11 @@ Runner-owned verification copies keep a detached HEAD at the source snapshot's a
 an independent pack of its reachable history. Current uncommitted source still overlays that
 history. This lets delivery checks such as `git diff-tree -r HEAD` inspect the delivered commit.
 The copy imports no original configuration, hooks, replacement refs, other branches or object
-alternates, and retains the source's shallow boundary when present. Its complete Git metadata is
+alternates, and retains the source's shallow boundary when present. Each remote's default branch (the
+one its `HEAD` names, else `main` and `master`) is carried as the commit where it forked from `HEAD`,
+already part of that history, so a check that selects the change against it (`git merge-base
+origin/master HEAD`, as `tools/run_suite.py --changed` does) runs in the copy as it does in the clean
+replay (#3160). Its complete Git metadata is
 covered by the same immutable-copy manifest as the source files. History export shares the existing
 preparation deadline; an export failure cannot publish a usable verification copy. Worktree-status
 checks remain unsuitable for clean replay, whose index represents the copied source.

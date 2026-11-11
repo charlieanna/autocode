@@ -1121,7 +1121,9 @@ async function readPlaces(cwd?: string): Promise<WorktreeList> {
   const settings = readSettings();
   const folder = cwd ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const argv = ["worktrees", "list", "--json", ...(folder ? ["--workspace", folder] : [])];
-  const result = await invoke(folder ? { ...settings, cwd: folder } : settings, argv);
+  // Bounded like the stages list: a start awaits this read, and a wedged list would leave
+  // the chat saying "starting" forever with nothing for the person to answer.
+  const result = await invoke(folder ? { ...settings, cwd: folder } : settings, argv, {}, STAGES_TIMEOUT_MS);
   if (result.code !== 0) throw new Error(tail(result));
   return readWorktrees(result.stdout);
 }

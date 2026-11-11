@@ -67,6 +67,7 @@ def diagnosis(outcome="reproduced", **overrides):
         "plan_approval_requested": False,
         "workspace_scope": {"spans_repositories": False, "external_parts": []},
         "counterexample": {"file": "", "find": "", "replace": ""},
+        "project_notes": [],
     }
     if outcome == "not_reproduced":
         value.update(

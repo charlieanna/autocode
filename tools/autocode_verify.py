@@ -55,6 +55,7 @@ try:
     from . import autocode_agent_env as agent_env
     from . import autocode_command_receipt as command_receipt
     from . import autocode_command_supervision as command_supervision
+    from . import autocode_dependency_dirs as dependency_dirs
     from . import autocode_diff_coverage as diff_coverage
     from . import autocode_first_suite as first_suite
     from . import autocode_go_test_prerequisites as go_prerequisites
@@ -92,12 +93,13 @@ try:
     from . import autocode_vitest_tests as vitest_tests
     from .autocode_suite_health import suite_health
     from .autocode_test_framework import Framework
-    from .autocode_verification_commands import _go_test, command_framework, select_commands, untargeted
+    from .autocode_verification_commands import _go_test, command_framework, select_commands, unheld, untargeted
     from .autocode_verification_commands import _mentions_tests as _mentions_tests
 except ImportError:
     import autocode_agent_env as agent_env
     import autocode_command_receipt as command_receipt
     import autocode_command_supervision as command_supervision
+    import autocode_dependency_dirs as dependency_dirs
     import autocode_diff_coverage as diff_coverage
     import autocode_first_suite as first_suite
     import autocode_go_test_prerequisites as go_prerequisites
@@ -135,7 +137,7 @@ except ImportError:
     import autocode_vitest_tests as vitest_tests
     from autocode_suite_health import suite_health
     from autocode_test_framework import Framework
-    from autocode_verification_commands import _go_test, command_framework, select_commands, untargeted
+    from autocode_verification_commands import _go_test, command_framework, select_commands, unheld, untargeted
     from autocode_verification_commands import _mentions_tests as _mentions_tests
 
 PASS, FAIL, UNVERIFIED = "PASS", "FAIL", "UNVERIFIED"
@@ -188,7 +190,7 @@ CODE_SUFFIXES = frozenset(
         ".zig",
     }
 )
-DEPENDENCY_DIRS = ("node_modules", ".venv", "venv")
+DEPENDENCY_DIRS = dependency_dirs.NAMES
 COLLECTION_ERROR = python_tests.COLLECTION_ERROR
 UNITTEST_HEADER = python_tests.UNITTEST_HEADER
 UNITTEST_STATUS = python_tests.UNITTEST_STATUS
@@ -2852,8 +2854,10 @@ def verify(
         if trees and runnable_tests and commands["regression"]:
             _prove_regression(run, trees, no_go_project=no_go_project, no_junit_project=no_junit_project)
         elif "base_with_tests" in trees and commands["suite"]:
-            # No targeted command: the whole suite proves the flip when base was green.
-            if base_suite is None or base_suite["health"] != "passing":
+            # No targeted command: the whole suite proves the flip when base was green, if it holds the tests.
+            if reason := unheld(framework, commands["suite"], runnable_tests):
+                unverified.append(reason)
+            elif base_suite is None or base_suite["health"] != "passing":
                 unverified.append(
                     "No targeted regression command, and the base suite is not green, "
                     "so a fail-to-pass flip cannot be attributed to the new tests"
@@ -2912,12 +2916,13 @@ def verify(
 
 
 def product_files(changes, *, roles=None, source_files=None) -> list[tuple[str, str]]:
-    """The changed product code (not tests, not deletions) diff coverage and mutants read: (path, status)."""
+    """The changed product code (not tests, deletions or installed dependencies, #3164) diff coverage and mutants read."""
     return [
         (path, status)
         for path, status in changes.items()
         if status != "deleted"
         and is_code_path(path)
+        and not dependency_dirs.installed(path)
         and (
             path in source_files
             if source_files is not None

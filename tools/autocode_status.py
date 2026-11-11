@@ -215,6 +215,13 @@ def persist(path, state: RunState, *, before_commit=None, after_commit=None):
     if project_memory_lifecycle.publish(path, state):
         util.atomic_json(path, state)
     try:
+        from . import autocode_project_notes_lifecycle as project_notes_lifecycle
+    except ImportError:
+        import autocode_project_notes_lifecycle as project_notes_lifecycle
+    # An Investigator's receipted notes reach the project only after its investigation is saved (#2943).
+    if project_notes_lifecycle.publish(path, state):
+        util.atomic_json(path, state)
+    try:
         from . import autocode_controller_owner as controller_owner
     except ImportError:
         import autocode_controller_owner as controller_owner

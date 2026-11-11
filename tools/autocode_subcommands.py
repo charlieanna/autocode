@@ -59,6 +59,7 @@ SUBCOMMANDS = {
     "setup": "autocode_setup",
     "stages": "autocode_stages_cli",
     "forget": "autocode_forget",
+    "notes": "autocode_notes_cli",
     "clean-worktrees": "autocode_worktrees",
     "worktrees": "autocode_worktree_choice",
     "prune-run": "autocode_prune_run",

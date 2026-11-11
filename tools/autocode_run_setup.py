@@ -58,6 +58,7 @@ try:
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_project_memory_lifecycle as project_memory_lifecycle
+    from . import autocode_project_notes_lifecycle as project_notes_lifecycle
     from . import autocode_prompts as prompts
     from . import autocode_protected_oracles as protected_oracles
     from . import autocode_quota_route as quota_route
@@ -107,6 +108,7 @@ except ImportError:
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
     import autocode_project_memory_lifecycle as project_memory_lifecycle
+    import autocode_project_notes_lifecycle as project_notes_lifecycle
     import autocode_prompts as prompts
     import autocode_protected_oracles as protected_oracles
     import autocode_quota_route as quota_route
@@ -426,6 +428,8 @@ def resolve(runner, args, parser):
         task_input.assign(state, task)
         source_log.seed(state)
         project_memory_lifecycle.install(state, getattr(args, "_project_memory_input", None))
+        # What earlier runs learned about the repository, frozen for this run (#2943).
+        project_notes_lifecycle.install(state, project_notes_lifecycle.load(workspace))
         interaction_timing.begin(state, getattr(args, "_interaction_launched_at", None) or state["created_at"])
         isolated = task_workspaces.metadata(workspace)
         if isolated:

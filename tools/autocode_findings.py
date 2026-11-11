@@ -104,25 +104,53 @@ def recheck_by_validator(state: RunState, value, source_revision):
     rejected until the run stopped. The run goes back to the Validator for a fresh review only when its
     latest validation passed and did not report these findings again: a FAIL, or a finding raised in
     that same report, is the Validator's current word and the gate refuses completion as before. At
-    most once per source revision and set of findings; ``validator_rechecks`` records each (read only here).
+    most once per source revision and set of findings; ``validator_rechecks`` records each (_recheck_due).
     """
     if value.get("status") not in ("COMPLETE", "TASK_COMPLETE"):
         return value
     blocking = blocking_entries(state)
-    validation = state.get("validation") or {}
-    if (
-        not blocking
-        or any(row.get("source") != "tester" for row in blocking)
-        or validation.get("verdict") != "PASS"
-        or any(row.get("last_reported_in") == validation.get("output") for row in blocking)
-    ):
+    if not blocking or any(row.get("source") != "tester" for row in blocking):
         return value
-    key = {"source_revision": source_revision, "findings": sorted(row["id"] for row in blocking)}
+    if not _recheck_due(state, blocking, source_revision):
+        return value
+    return {**value, "status": "VALIDATE"}
+
+
+def milestone_recheck_by_tester(state: RunState, blocking, source_revision) -> list:
+    """The Tester findings a refused milestone advancement sends back to the Tester, or [] (#3036).
+
+    ``blocking`` is blocking_for_milestone for the current scope. A report-only repair of a passing
+    Tester report cannot close the Tester's own findings (_record), and the Completion Reviewer cannot
+    close another reviewer's finding, so returning the refusal to the Completion Reviewer only repeats
+    it until the milestone stops for replanning. The Tester reviews again instead, on the same terms as
+    recheck_by_validator: its latest validation passed and did not report these findings again, at most
+    once per source revision and set of findings. A blocking finding of the Completion Reviewer's own
+    keeps the refusal with that reviewer first, and nothing here closes a finding.
+    """
+    if any(row.get("source") == "task_planner" for row in blocking):
+        return []
+    rows = [row for row in blocking if row.get("source") == "tester"]
+    return rows if rows and _recheck_due(state, rows, source_revision) else []
+
+
+def _recheck_due(state: RunState, rows, source_revision) -> bool:
+    """Record one fresh Tester review of ``rows`` on ``source_revision``; False when it is not owed.
+
+    It is owed when the Tester's latest validation passed without reporting these findings again,
+    and not yet asked for this source and set of findings. ``validator_rechecks`` (read only here)
+    bounds it for both the completion and the milestone gate.
+    """
+    validation = state.get("validation") or {}
+    if validation.get("verdict") != "PASS" or any(
+        row.get("last_reported_in") == validation.get("output") for row in rows
+    ):
+        return False
+    key = {"source_revision": source_revision, "findings": sorted(row["id"] for row in rows)}
     asked = state.setdefault("validator_rechecks", [])
     if key in asked:
-        return value
+        return False
     asked.append(key)
-    return {**value, "status": "VALIDATE"}
+    return True
 
 
 def blocking_for_milestone(state: RunState, current_scope) -> list:

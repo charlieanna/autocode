@@ -96,6 +96,8 @@ def route_review_only_request(state: RunState, request, origin, *, visual_proof=
             }
         )
         state.pop("user_request", None)
+        if fresh:
+            _recheck_tester_findings(state, current)
         return None
     return {
         "kind": "human_review",
@@ -775,6 +777,30 @@ def handle_gate(state: RunState, error, current, *, ask_user, origin=None):
     criteria_passed = bool(required) and all(results.get(cid, {}).get("status") == "PASS" for cid in required)
     proof_disagrees = validation.get("verdict") != "PASS" and criteria_passed
     state["next_stage"] = "review_completion" if fresh and not proof_disagrees else "tester"
+    if state["next_stage"] == "review_completion":
+        _recheck_tester_findings(state, current)
+
+
+def _recheck_tester_findings(state: RunState, current):
+    """Send an evidence hold held only by the Tester's open findings back to the Tester (#3036).
+
+    The Completion Reviewer cannot close them; findings_ledger.milestone_recheck_by_tester decides,
+    and the blocker records the decision for the reviewers and the report."""
+    try:
+        from . import autocode_findings as findings_ledger
+    except ImportError:
+        import autocode_findings as findings_ledger
+    rows = findings_ledger.milestone_recheck_by_tester(
+        state, findings_ledger.blocking_for_milestone(state, scope(state)), current["revision"]
+    )
+    if rows:
+        state["next_stage"] = "tester"
+        state["milestone_blocker"] = (
+            f"{state.get('milestone_blocker') or 'Current milestone still has open findings'}. "
+            "The Tester's latest report passed but did not settle its open findings "
+            + ", ".join(row["id"] for row in rows)
+            + ", which only the Tester can close, so the Tester reviews the current source again"
+        )
 
 
 def activate(state: RunState):

@@ -47,6 +47,7 @@ try:
     from . import autocode_cost as cost
     from . import autocode_criterion_changes as criterion_changes
     from . import autocode_design_coverage as design_coverage
+    from . import autocode_diff_coverage as diff_coverage
     from . import autocode_efficiency, autocode_run_metrics, autocode_usage
     from . import autocode_effort_question as effort_question
     from . import autocode_escalation_view as escalation_view
@@ -67,6 +68,7 @@ try:
     from . import autocode_plan_retention as plan_retention
     from . import autocode_planning_review_usage as review_usage
     from . import autocode_progressive_plan as progressive_rules
+    from . import autocode_project_notes_lifecycle as project_notes
     from . import autocode_python_test_roles as test_roles
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_history as recovery_history
@@ -109,6 +111,7 @@ except ImportError:
     import autocode_cost as cost
     import autocode_criterion_changes as criterion_changes
     import autocode_design_coverage as design_coverage
+    import autocode_diff_coverage as diff_coverage
     import autocode_efficiency
     import autocode_effort_question as effort_question
     import autocode_escalation_view as escalation_view
@@ -129,6 +132,7 @@ except ImportError:
     import autocode_plan_retention as plan_retention
     import autocode_planning_review_usage as review_usage
     import autocode_progressive_plan as progressive_rules
+    import autocode_project_notes_lifecycle as project_notes
     import autocode_python_test_roles as test_roles
     import autocode_quota_route as quota_route
     import autocode_recovery_history as recovery_history
@@ -378,6 +382,10 @@ def view(
         # where the code departs from that plan without revising it, and the reports kept for the reviewers
         # (autocode_implementation_discrepancy, #3045). None when there is neither.
         "implementation_discrepancy": implementation_discrepancy.project(state, run_dir=run_dir, workspace=workspace),
+        # What earlier runs learned about this repository and this run was given as advisory context
+        # (notes), what this run's Investigator learned (learned), each with its receipt, and the list
+        # whose argument arrays retract or correct one (autocode_project_notes_lifecycle, #2943).
+        "project_notes": project_notes.view(state),
         # AutoResolver's one re-evaluation of corrective information sent to an operational request
         # (autocode_operational_information, #486): status pending, held, admitted, stale or superseded
         # (the run left the pause unevaluated); the decision, its reason and, when held, the exact next
@@ -710,7 +718,9 @@ def evidence(state: RunState) -> dict:
                       lists the proving tests whose repeated runs disagreed, else None
     test_cases        a reproduced bug's regression tests in plain English (id, given, when, then), else []
     check_replay      the current validation's checks as the runner itself re-ran them in a clean copy
-                      (autocode_check_replay): verdict, source_revision and one row per command, else None
+                      (autocode_check_replay): verdict, source_revision and one row per command, else None.
+                      A planned check's row carries base_attribution when its failure was compared with
+                      the base revision (autocode_base_attribution): kind base or change and the reason
     proof_stability   the proving tests' repeats (autocode_proof_stability): repeats, unstable (test, side,
                       kind, runs), unrepeated, next_step when one is unstable, note; else None
     diff_coverage     the proving tests' line coverage of changed product hunks (autocode_diff_coverage):
@@ -845,6 +855,7 @@ def evidence(state: RunState) -> dict:
                         "purpose",
                         "scheduling",
                         "results",
+                        "base_attribution",
                     )
                 }
                 for row in replay.get("checks") or []
@@ -854,7 +865,9 @@ def evidence(state: RunState) -> dict:
         if isinstance(replay, dict)
         else None,
         "proof_stability": deepcopy(proof.get("proof_stability")) if isinstance(proof, dict) else None,
-        "diff_coverage": deepcopy(proof.get("diff_coverage")) if isinstance(proof, dict) else None,
+        "diff_coverage": deepcopy(diff_coverage.bounded(proof.get("diff_coverage")))
+        if isinstance(proof, dict)
+        else None,
         "mutation_check": deepcopy(
             proof.get("mutation_check")
             if isinstance(proof, dict)

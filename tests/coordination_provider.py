@@ -396,6 +396,7 @@ def main():
             probe=shlex.join([sys.executable, "-c", expression]),
             untestable="",
             counterexample={"file": source, "find": find, "replace": replace},
+            project_notes=[],
             workspace_scope={
                 "spans_repositories": bool(target),
                 "external_parts": [

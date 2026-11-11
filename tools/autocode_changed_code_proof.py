@@ -14,6 +14,7 @@ try:
     from . import autocode_changed_code_evidence as policy
     from . import autocode_changed_code_measurement as measurement
     from . import autocode_command_receipt as command_receipt
+    from . import autocode_dependency_dirs as dependency_dirs
     from . import autocode_mutation_check as mutation
     from . import autocode_package_scope as package_scope
     from . import autocode_proof_stability as proof_stability
@@ -25,6 +26,7 @@ except ImportError:
     import autocode_changed_code_evidence as policy
     import autocode_changed_code_measurement as measurement
     import autocode_command_receipt as command_receipt
+    import autocode_dependency_dirs as dependency_dirs
     import autocode_mutation_check as mutation
     import autocode_package_scope as package_scope
     import autocode_proof_stability as proof_stability
@@ -42,6 +44,9 @@ def collect(proof, result, framework, workspace, out, tree, execution_context, *
     context = util.digest(execution_context)
     changes = result.get("changes") or {}
     files = verify.product_files(changes, source_files=result.get("source_files"))
+    installed = dependency_dirs.summary(
+        path for path, status in changes.items() if status != "deleted" and verify.is_code_path(path)
+    )
     diff = verify.product_diff(workspace, result["base"], files)
     inventory = measurement.inventory(tree, files, diff)
     coverage_report = proof.get("diff_coverage") or {}
@@ -144,6 +149,8 @@ def collect(proof, result, framework, workspace, out, tree, execution_context, *
         "command_outputs": [receipt["output"] for receipt in proof["changed_code_receipts"]],
         "custody_gaps": custody_gaps,
         "line_texts": texts,
+        # Recorded so a reviewer sees what the inventory left out, and why (#3164).
+        "installed_dependencies": installed,
     }
     proof["changed_code_evidence"] = assessment
     return mutation.final(report, proof["verdict"], proof.get("case_tests"))

@@ -692,12 +692,12 @@
     "sha256": "40606db57cb1dfe868b45b1bcd1fdd17dbfd21e71389703c1fdaf2686e45962f"
   },
   "stuck/builder-failure": {
-    "bytes": 5290,
-    "sha256": "06a514e1d482aeec4644b5a8e520545b41caa45e4318cd45f515b27147475118"
+    "bytes": 5901,
+    "sha256": "6f416a83d13db151e4e1aa63be020b7ed213dbd0c8d75abbd691986e9273d727"
   },
   "stuck/ordinary": {
-    "bytes": 4484,
-    "sha256": "75aeb75ef6db5b9c83c6655fc9b61d7db7915fcadf771b5ffe0b742a8bc17c29"
+    "bytes": 5095,
+    "sha256": "ba6980cfa1418914044eeeeee91e02a60222aaa43e70515da301b050746a2425"
   },
   "unit/builder": {
     "bytes": 12509,

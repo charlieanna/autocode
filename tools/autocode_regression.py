@@ -43,6 +43,7 @@ except ImportError:
 
 
 import contextlib
+import functools
 import re
 
 try:
@@ -62,10 +63,12 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_acceptance_tests as acceptance
+    from . import autocode_base_command as base_command
     from . import autocode_base_patch as operator_patch
     from . import autocode_changed_code_proof as changed_code
     from . import autocode_changed_code_trigger as changed_code_trigger
     from . import autocode_component_plan as component_plan
+    from . import autocode_diff_coverage as diff_coverage
     from . import autocode_focused_suite as focused_suite
     from . import autocode_follow_up as follow_up
     from . import autocode_follow_up_proof as follow_up_proof
@@ -89,10 +92,12 @@ try:
     from . import autocode_wrapped_runner as wrapped_runner
 except ImportError:
     import autocode_acceptance_tests as acceptance
+    import autocode_base_command as base_command
     import autocode_base_patch as operator_patch
     import autocode_changed_code_proof as changed_code
     import autocode_changed_code_trigger as changed_code_trigger
     import autocode_component_plan as component_plan
+    import autocode_diff_coverage as diff_coverage
     import autocode_focused_suite as focused_suite
     import autocode_follow_up as follow_up
     import autocode_follow_up_proof as follow_up_proof
@@ -349,6 +354,20 @@ def reviewed_patch(state: RunState, workspace):
         *([Path(state["project_workspace"]) / name] if state.get("project_workspace") else []),
     ]
     return next((path for path in candidates if path.is_file()), candidates[0])
+
+
+def clean_base_run(state: RunState, workspace, run_dir, native=None, progressive=None):
+    """The clean replay's base runner (#3160): autocode_base_command.run on the original code the proof
+    compares the change with (the run's base revision, with a review follow-up's reviewed change applied),
+    under the same launch-input guard as the candidate's clean runner. A planned check that fails is run
+    there, and a failure the base has identically is the base's (autocode_base_attribution). None, so
+    every failure stays the change's, under a native check owner or progressive verification (whose
+    replays stay fail-closed), without a recorded base, or with an operator base patch pinned."""
+    base = base_commit(state, workspace)
+    if native is not None or progressive or not base or operator_patch.pinned(state):
+        return None
+    bound = functools.partial(base_command.run, base=base, base_patch=reviewed_patch(state, workspace))
+    return launch_inputs.runners(state, workspace, run_dir, bound)[0]
 
 
 def proof_dependencies(state: RunState, workspace):
@@ -1312,6 +1331,8 @@ def handoff(state: RunState):
         return None
     return {
         **{k: proof.get(k) for k in SUMMARY_KEYS},
+        # Only the changed lines' coverage: a proof saved before #3121 holds every measured file.
+        "diff_coverage": diff_coverage.bounded(proof.get("diff_coverage")),
         "checks": proof.get("checks", {}),
         "path": proof.get("path"),
         "meaning": "Executed by the runner in clean worktrees against this run's base commit: the new or "

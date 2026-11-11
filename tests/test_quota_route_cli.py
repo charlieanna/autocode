@@ -328,6 +328,40 @@ class QuotaRouteCliTests(unittest.TestCase):
             ["gpt-5.6-sol", OTHER_MODEL], [self.model_of(row) for row in testers], "the refused model is never replayed"
         )
 
+    def test_a_named_model_without_the_saved_level_runs_at_the_nearest_level_it_offers(self):
+        # #3120: the person's stage choice saved medium for the refused model; the model AutoCode then
+        # offered declares low, high and max (GLM 5.3's levels), and the answer naming it was refused.
+        self.env["AUTOCODE_FIXTURE_QUOTA_MESSAGE"] = "The response was blocked by the provider's content filter"
+        self.quota_stop()
+        state_file = self.run_dir / "state.json"
+        saved = json.loads(state_file.read_text())
+        settings = saved["settings"]
+        settings["roles"]["tester"]["reasoning_effort"] = "medium"
+        settings.setdefault("effort_origins", {})["tester"] = "stage_choice"
+        settings["declared_variants"] = {OTHER_MODEL: ["low", "high", "max"]}
+        state_file.write_text(json.dumps(saved))
+
+        answered = self.launch([*self.args, "--answer", "route-tester=" + OTHER_MODEL], 0)
+        self.assertNotIn("Input rejected", answered.stderr)
+        [assignment] = self.view()["route_assignments"]
+        self.assertEqual(
+            ("gpt-5.6-sol", OTHER_MODEL, "medium", "high"),
+            (assignment["from"], assignment["to"], assignment["effort"]["from"], assignment["effort"]["to"]),
+        )
+        self.assertIn("does not offer it", assignment["effort"]["reason"])
+
+        self.launch([*self.args, "--resume-paused", "--no-chat"], 0)
+        _, done = self.saved()
+        self.assertEqual("TASK_COMPLETE", done["status"])
+        tester = [row for row in self.model_stages(done) if row["stage"] == "tester"][-1]
+        self.assertEqual((OTHER_MODEL, "high"), (self.model_of(tester), tester["reasoning_effort"]))
+        choice = tester["effort_choice"]
+        choice = choice.get("route_answer_fit", choice)
+        self.assertEqual(
+            ("high", "medium", OTHER_MODEL, "route_answer_fit"),
+            (choice["level"], choice["saved"], choice["model"], choice["reason"]),
+        )
+
     def answer_in_process(self, model, opencode=None):
         """answer_quota_question on the saved state, as the CLI calls it; (exit code, stderr, saved bytes)."""
         state = json.loads((self.run_dir / "state.json").read_text())

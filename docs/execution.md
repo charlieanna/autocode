@@ -440,6 +440,21 @@ before a PASS is accepted, the runner requires its own current execution of each
   rejected-report path: a bounded report repair may drop the check or cite
   another command that ran (each is replayed again), then the run pauses and
   `--resume-paused` asks for a fresh validation.
+- **When a planned check already fails on the base.** A check the approved plan
+  names, such as a linter over the whole tree, can fail for a reason the base
+  revision already has, in files the change never touched. Before such a failure
+  counts against the change, the runner runs the same command once in a clean copy
+  of the base revision (`tools/autocode_base_attribution.py`, #3160). When both
+  runs complete with the same nonzero exit and the same whole output (each copy's
+  directory replaced by one placeholder), the failure is attributed to the base:
+  the check's row records `base_attribution` with the base run's output and the
+  reason, the evidence report lists it as a base failure, and the replay goes on.
+  Anything else, including another exit code, another message or line, or a base
+  that passes, keeps the failure the change's, and the rejection says what the base
+  did. A test runner the runner recognizes is never compared this way: its tests
+  are judged by name by the regression proof and preservation. A check a Tester
+  reported itself, progressive verification and native checks are not compared
+  either. AutoCode makes this decision itself; nobody is asked.
 - **Record.** The result is saved with the validation, bound to its source
   revision, under `<run>/check-replay/`, and shown in the status view as
   `evidence.check_replay`. Each invocation gets a fresh directory, including
@@ -530,8 +545,16 @@ runs once more in that scratch tree to record line coverage
 (`tools/autocode_diff_coverage.py`). That run cannot change the verdict.
 `--status` shows it as `evidence.diff_coverage`: the changed product hunks no
 proving test executed (`uncovered`), and the changed files the report never
-measured (`unmeasured`, never counted as covered). Nothing is installed into the
-project; a project without a tool gets a note and no extra test run.
+measured (`unmeasured`, never counted as covered). `measured_lines` keeps the
+report's executed and missing lines for the changed lines only; the full report
+stays at `report_path`, so a large repository's coverage never reaches a stage
+prompt (#3121). Nothing is installed into the project; a project without a tool
+gets a note and no extra test run.
+
+A stage prompt over 2 MiB is never launched. The runner pauses `PAUSED_PROMPT_SIZE`
+before writing the prompt, admitting the stage or charging anything, and names the
+handoff field that holds most of it (`tools/autocode_prompt_bound.py`). Such a
+prompt is a defect in what AutoCode handed the stage, not in the task.
 
 ### Mutation check of named proof
 

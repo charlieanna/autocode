@@ -107,6 +107,16 @@ test("stage history retains every used model and variant independently of future
 });
 
 
+test("models used names the level each attempt ran at, not the saved route's ceiling", () => {
+  // A live chat listed its Plan Reviewer at high while the stage table, from the same view, said medium.
+  const result = telemetry({ done: true, usage: { accounting: { attempts: [
+    { job: "Plan Reviewer", model: "mimo", reasoning_effort: "medium", launch_route: { reasoning_effort: "high" }, finished_at: "t" },
+    { job: "Builder", model: "mimo", launch_route: { reasoning_effort: "high" }, finished_at: "t" },
+  ] } } });
+  assert.deepEqual(result.stagesUsed.map((row) => [row.job, row.variant]), [["Plan Reviewer", "medium"], ["Builder", "high"]]);
+  assert.equal(result.models[0]!.variant, "high");
+});
+
 test("cap accounting is primary while the distinct historical estimate stays secondary", () => {
   const view = { done: false, cost: { spent_usd: 1.966683, cap_usd: 2, complete: false, unpriced_stages: 10 },
     usage: { accounting: { cost: { historical_estimated_usd: quantity(1.5335513, false) } } } };

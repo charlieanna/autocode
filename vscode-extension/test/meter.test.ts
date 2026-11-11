@@ -208,3 +208,11 @@ test("the status bar names the working stage, its cost and trouble", () => {
   assert.match(statusLine(waiting, NOW).tooltip, /Waiting for you/);
   assert.match(statusLine({ ...waiting, done: true }, NOW).text, /^\$\(check\)/);
 });
+
+test("a stage shows the level it ran at, not the saved route's ceiling", () => {
+  // A small, clear task's Plan Reviewer ran at medium under a saved high (#2747): the header said high.
+  const rows = stages(view([
+    attempt("review_plan", "Plan Reviewer", { reasoning_effort: "medium", launch_route: { model: "mimo", reasoning_effort: "high" } }),
+  ]), NOW);
+  assert.equal(rows[0]!.route, "mimo medium");
+});
