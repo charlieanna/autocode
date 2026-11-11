@@ -154,13 +154,16 @@ class CostDisplayTests(unittest.TestCase):
                 "ceiling": "high",
                 "lowered": True,
                 "reason": "format_repair",
-                "text": "this repair only fixes the report's format",
+                "text": "this attempt only corrects the last answer, it does not redo the work",
             },
         )
         lines = details(view).splitlines()
         repair = lines.index(next(line for line in lines if line.startswith("001/validator-report-repair-01")))
         self.assertIn(" · low · ", lines[repair + 1])
-        self.assertEqual("  Below your high: this repair only fixes the report's format", lines[repair + 2])
+        self.assertEqual(
+            "  Below your high: this attempt only corrects the last answer, it does not redo the work",
+            lines[repair + 2],
+        )
 
     def test_attempts_and_subsets_are_not_added_to_the_core_totals(self):
         shown = details(public_view())

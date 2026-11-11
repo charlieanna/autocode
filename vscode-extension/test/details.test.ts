@@ -231,3 +231,128 @@ test("sections come in a fixed order: where, pipeline, what went wrong, spend, v
   }))!;
   assert.deepEqual(header.sections.map((row) => row.id), ["where", "pipeline", "wrong", "spend", "verification", "path", "decisions"]);
 });
+
+// What the terminal's /details (autocode_chat_cost.details) and its Stage panel add beyond the
+// pipeline: each stage's own attempts, what the working stage does now, the run's accounting and
+// the saved routes. Every figure comes from the view; nothing is a command.
+
+const STARTED = Date.parse("2026-11-11T08:00:00Z");
+
+function attempt(stage: string, job: string, extra: Record<string, unknown> = {}) {
+  return {
+    stage, job, attempt_id: `001/${stage}`, model: null,
+    launch_route: { model: "claude-sonnet-5-5", reasoning_effort: "high", provider: "anthropic" },
+    started_at: "2026-11-11T07:58:00Z", finished_at: "2026-11-11T07:59:00Z", duration_seconds: 60,
+    attributed_tokens: { input_tokens: { value: 12_000, known: 12_000, complete: true }, output_tokens: { value: 800, known: 800, complete: true } },
+    ...extra,
+  };
+}
+
+function working(extra: Record<string, unknown> = {}) {
+  return view({
+    pipeline: [
+      // Requirements has no saved route here: its model is the one its attempt launched on.
+      step("requirements", "Requirements", "ran"),
+      step("planner", "Planner", "working", { model: "claude-opus-5-5", reasoning_effort: "high" }),
+      step("plan_reviewer", "Plan Reviewer", "pending", { model: "claude-opus-5-5", reasoning_effort: "medium" }),
+    ],
+    cost: {
+      spent_usd: 0.05, running_usd: 0.12, estimated_usd: 0.05, reported_usd: null, cap_usd: 5, complete: false,
+      prices_as_of: "2026-11-09", unpriced_stages: 0,
+      breakdown: { by_stage: [{ stage: "requirements_gather", job: "Requirements", spent_usd: 0.05 }], by_billing: [{ billing: "subscription", spent_usd: 0.17 }] },
+    },
+    usage: {
+      accounting: {
+        complete: true, active_attempts: 1,
+        tokens: { input_tokens: { value: 40_000, known: 40_000, complete: true }, output_tokens: { value: null, known: 2_000, complete: false },
+          cached_input_tokens: { value: 30_000, known: 30_000, complete: true }, cache_write_tokens: { value: null, known: 0, complete: false } },
+        attempts: [
+          attempt("requirements_gather", "Requirements"),
+          attempt("draft_plan", "Planner", {
+            active: true, finished_at: null, duration_seconds: null, started_at: "2026-11-11T07:59:30Z",
+            launch_route: { model: "claude-opus-5-5", reasoning_effort: "high", provider: "anthropic" },
+            effort_choice: { raised: true, saved: "medium", text: "the draft touches sensitive paths" },
+            attributed_tokens: { input_tokens: { value: null, known: 28_000, complete: false }, output_tokens: { value: null, known: 1_200, complete: false } },
+          }),
+          attempt("runner_check", "Runner", { runner_owned: true }),
+        ],
+      },
+    },
+    efficiency: { time: { summed_execution_seconds: 90, exclusive_wall_seconds_by_category: { planning: 90 } },
+      by_category: { planning: { attempts: 2, tokens: { input_tokens: { value: null, known: 40_000 }, output_tokens: { value: null, known: 2_000 } } } } },
+    routes: { planner: { job: "Planner", model: "claude-opus-5-5", reasoning_effort: "high", provider: "anthropic" } },
+    escalations: [{ job: "Planner", from: { model: "claude-sonnet-5-5" }, to: { model: "claude-opus-5-5" }, trigger: "plan_review_blocked", outcome: "accepted" }],
+    chat: {
+      now: [{ agent: "Requirements", text: "done" }, { agent: "Planner", text: "reading files" }],
+      log: [
+        { id: "1", agent: "Planner", kind: "message", text: "Mapping the export path first." },
+        { id: "2", agent: "Planner", kind: "message", text: "The CSV writer drops the header row [partial]" },
+        { id: "3", agent: "Planner", kind: "command", text: "rg header" },
+      ],
+    },
+    ...extra,
+  });
+}
+
+test("each stage shows the model, level, time, tokens and spend its own attempts used, and the working one what it does now", () => {
+  const steps = pipelineSteps(working(), STARTED);
+  assert.deepEqual(steps.map((row) => [row.label, row.detail, row.now]), [
+    ["Requirements", "claude-sonnet-5-5 · high · 1m00s · 13k tokens · $0.05", ""],
+    // The running attempt: its time so far, its tokens as a floor and the core's running spend.
+    ["Planner", "claude-opus-5-5 · high · 30s · 29k+ tokens · $0.12", "reading files"],
+    ["Plan Reviewer", "claude-opus-5-5 · medium", ""],
+  ]);
+  const header = runHeader(working(), STARTED);
+  // Always visible, without opening the details: the working stage and what it is doing.
+  assert.equal(header?.current, "Planner working · claude-opus-5-5 · high · 30s · 29k+ tokens · $0.12 · reading files");
+  assert.deepEqual(header?.facts, ["1m30s working"]);
+  const stages = section(header, "pipeline");
+  assert.equal(stages?.title, "Stages");
+  assert.deepEqual(stages?.lines.slice(1, 4), [
+    "● Planner · claude-opus-5-5 · high · 30s · 29k+ tokens · $0.12",
+    "  Now: reading files",
+    "  Latest: The CSV writer drops the header row",
+  ]);
+  // Before anything ran, the next stage is the one shown.
+  const before = runHeader(view({ pipeline: [step("requirements", "Requirements", "next", { model: "claude-sonnet-5-5", reasoning_effort: "medium" })] }));
+  assert.equal(before?.current, "Requirements next · claude-sonnet-5-5 · medium");
+  assert.equal(runHeader(view({ pipeline: [] }))?.current, "");
+});
+
+test("cost and usage restate the core's accounting, tokens, time and attempts as the terminal's /details does", () => {
+  const usage = section(runHeader(working(), STARTED), "usage");
+  assert.equal(usage?.summary, "$0.17+ of $5.00 · 42k+ tokens");
+  assert.deepEqual(usage?.lines, [
+    "Accounted so far: $0.05 (1 running)",
+    "  Running stage so far: $0.12",
+    "  Price-table estimate: $0.05 (prices as of 2026-11-09)",
+    "  Spending cap: $5.00",
+    "  On your subscription: $0.17 as API-equivalent pricing, not an invoice",
+    "Tokens",
+    "  Input: 40,000",
+    "  Output: 2,000 known",
+    "  Cache reads (in input): 30,000",
+    "Time and tokens by kind of work",
+    "  Planning: 2 attempts, 40,000 known in, 2,000 known out, 1m30s",
+    "Total execution time: 1m30s",
+    "Attempts",
+    "  1. Requirements · finished · 1m00s",
+    "    claude-sonnet-5-5 · high · anthropic",
+    "    Tokens: input 12,000, output 800",
+    "  2. Planner · running",
+    "    claude-opus-5-5 · high · anthropic",
+    "    One level above your medium: the draft touches sensitive paths",
+    "    Tokens: input 28,000 known, output 1,200 known",
+    "Estimates and provider reports are not an invoice.",
+  ]);
+  const routes = section(runHeader(working(), STARTED), "routes");
+  assert.deepEqual(routes?.lines, [
+    "Planner: claude-opus-5-5 · high · anthropic",
+    "Moved up",
+    "  Planner: claude-sonnet-5-5 → claude-opus-5-5; plan review blocked",
+    "  Outcome: accepted",
+  ]);
+  // A view with no accounting or routes shows neither section.
+  assert.equal(section(runHeader(view()), "usage"), undefined);
+  assert.equal(section(runHeader(view()), "routes"), undefined);
+});

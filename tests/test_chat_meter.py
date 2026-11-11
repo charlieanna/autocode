@@ -78,7 +78,7 @@ class StageTests(unittest.TestCase):
         )
         (row,) = meter.stages(shown, NOW)
         self.assertEqual((meter.RETRYING, 2, 270.0), (row["state"], row["attempts"], row["seconds"]))
-        self.assertEqual("Builder · attempt 2 · 4m00s · last one answer rejected", meter.struggling(shown, NOW))
+        self.assertEqual("Builder · attempt 2 · 4m00s · last answer rejected", meter.struggling(shown, NOW))
 
     def test_retry_time_is_distinct_from_the_stage_total(self):
         shown = view(
@@ -115,7 +115,7 @@ class StageTests(unittest.TestCase):
         )
         shown = view(rejected, attempt("resolver", "Resolver"), repairing)
         self.assertEqual(["Tester", "Resolver"], [row["job"] for row in meter.stages(shown, NOW)])
-        self.assertEqual("Tester · attempt 2 · 30s · last one answer rejected", meter.struggling(shown, NOW))
+        self.assertEqual("Tester · attempt 2 · 30s · last answer rejected", meter.struggling(shown, NOW))
         repaired = {**repairing, "active": False, "duration_seconds": 18}
         costs = [{"stage": "tester", "spent_usd": 0.25}, {"stage": "tester_report_repair", "spent_usd": 0.1}]
         tester = meter.stages(view(rejected, attempt("resolver", "Resolver"), repaired, by_stage=costs), NOW)[0]
@@ -169,9 +169,7 @@ class StageTests(unittest.TestCase):
         )
         self.assertEqual("", meter.tries_left(shown), "an older core says nothing about the bound")
         shown["progress"] = {"retry": {"failures": 1, "limit": 3}}
-        self.assertEqual(
-            "Builder · attempt 2 · 2 tries left · 5s · last one answer rejected", meter.struggling(shown, NOW)
-        )
+        self.assertEqual("Builder · attempt 2 · 2 tries left · 5s · last answer rejected", meter.struggling(shown, NOW))
         shown["progress"]["retry"] = {"failures": 2, "limit": 3}
         self.assertEqual("last try", meter.tries_left(shown))
         shown["progress"]["retry"] = {"failures": 3, "limit": 3}

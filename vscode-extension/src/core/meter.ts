@@ -18,6 +18,9 @@ export interface StageRow {
   job: string;
   /** Model and reasoning level of the newest attempt. */
   route: string;
+  /** The same route's model and level apart, for a client that shows them separately. */
+  model: string;
+  level: string;
   state: StageState;
   attempts: number;
   /** How many of its attempts were rejected, timed out, interrupted or exited nonzero. */
@@ -115,10 +118,13 @@ function why(row: Row): string {
   return Number.isInteger(row.exit_code) && row.exit_code !== 0 ? `exit ${row.exit_code}` : "";
 }
 
-function routeOf(row: Row): string {
+function modelOf(row: Row): [string, string] {
   const route = mapping(row.launch_route);
-  return [text(route.model) || text(row.model), text(route.reasoning_effort) || text(row.reasoning_effort)]
-    .filter(Boolean).join(" ");
+  return [text(route.model) || text(row.model), text(route.reasoning_effort) || text(row.reasoning_effort)];
+}
+
+function routeOf(row: Row): string {
+  return modelOf(row).filter(Boolean).join(" ");
 }
 
 /** One row per stage the run has launched, in the order it first ran. */
@@ -162,6 +168,8 @@ export function stages(view: unknown, now = Date.now()): StageRow[] {
       stage,
       job: text(newest.job) || stage,
       route: routeOf(newest),
+      model: modelOf(newest)[0],
+      level: modelOf(newest)[1],
       state,
       attempts: group.length,
       failedAttempts: group.filter(failed).length,
@@ -197,7 +205,8 @@ export function struggling(view: unknown, now = Date.now()): string {
   if (!row || row.state !== "retrying") return "";
   const parts = [row.job, `attempt ${row.attempts}`];
   if (row.seconds !== null) parts.push(duration(row.seconds));
-  if (row.why) parts.push(`last one ${row.why}`);
+  // "last one answer rejected" read as a typo (2026-11-11).
+  if (row.why) parts.push(row.why === "answer rejected" ? "last answer rejected" : `last one ${row.why}`);
   return parts.join(" · ");
 }
 

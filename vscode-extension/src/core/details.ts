@@ -2,15 +2,19 @@
  * The run header at the top of a chat: the pipeline, where the run is, and its details.
  *
  * The same reading as the terminal chat's `/details`, `/why` and `/spend` and its Pipeline panel
- * (`autocode_chat_panel`, `autocode_chat_recoveries`, `autocode_chat_spend`,
+ * (`autocode_chat_panel`, `autocode_chat_recoveries`, `autocode_chat_spend`, `autocode_chat_cost`,
  * `autocode_chat_verification`, `autocode_chat_stage_policy`), from the public status view
- * alone: `summary`, `explanation`, `pipeline`, `recoveries`, `run_metrics`, `verification`,
- * `delivery`, `stage_policy` and `stage_decisions`. Every figure and sentence is a value the
- * core wrote; this module only words and orders them. It never adds up spend, decides anything
- * about the run, or shows a command or flag. Job names come from the view (the pipeline's rows
+ * alone: `summary`, `explanation`, `pipeline`, `recoveries`, `run_metrics`, `cost`, `usage`,
+ * `efficiency`, `routes`, `escalations`, `route_assignments`, `chat.now`, `chat.log`,
+ * `verification`, `delivery`, `stage_policy` and `stage_decisions`. Every figure and sentence is a
+ * value the core wrote; this module only words and orders them. A stage's time, tokens and spend
+ * are the meter's reading of that stage's own attempts (`core/meter.ts`); beyond that it never adds
+ * up spend, decides anything about the run, or shows a command or flag. Job names come from the view (the pipeline's rows
  * carry the core's own names); the only words kept here are the planning path's coverage terms,
  * as the terminal chat words them. Display only: nothing here is an action.
  */
+
+import { duration, money as stageMoney, runTotal, stages as meterStages, tokens as stageTokens, totalText, type StageRow } from "./meter";
 
 type Row = Record<string, unknown>;
 
@@ -21,15 +25,17 @@ export interface PipelineStep {
   label: string;
   state: StepState;
   mark: string;
-  /** Model, level and spend, or why it was skipped. */
+  /** Model, level, time, tokens, spend and runs, or why it was skipped. */
   detail: string;
+  /** What the working stage is doing now (`chat.now`), empty otherwise. */
+  now: string;
 }
 
 export interface DetailSection {
-  id: "where" | "worktree" | "pipeline" | "wrong" | "spend" | "verification" | "path" | "decisions";
+  id: "where" | "worktree" | "pipeline" | "wrong" | "spend" | "usage" | "routes" | "verification" | "path" | "decisions";
   title: string;
   summary: string;
-  /** One line each; a line that starts with two spaces belongs to the line above it. */
+  /** One line each; a line that starts with two spaces belongs to the line above it, and four to that one's own sub-line. */
   lines: string[];
 }
 
@@ -39,7 +45,9 @@ export interface RunHeader {
   label: string;
   sentence: string;
   pipeline: PipelineStep[];
-  /** The collapsed header's short facts: spend and what went wrong. */
+  /** The working (or next) stage, always shown: its model, level, time, tokens, spend and what it does now. */
+  current: string;
+  /** The collapsed header's short facts: spend, tokens, time and what went wrong. */
   facts: string[];
   /** Where the chat changes files, always shown: its own worktree and branch, or the person's folder. */
   place: string;
@@ -73,32 +81,91 @@ function clock(value: unknown): string {
   return typeof value === "string" && value.length >= 19 ? value.slice(11, 19) : "";
 }
 
-// ---- Pipeline: the view's `pipeline` rows -------------------------------------------------
+// ---- Pipeline: the view's `pipeline` rows, with each job's own attempts ----------------------
 
-export function pipelineSteps(view: Row): PipelineStep[] {
+/** A job's launched attempts as the meter reads them (`usage.accounting.attempts`), several stages of one job together. */
+interface JobUse { model: string; level: string; seconds: number | null; tokens: number; tokensComplete: boolean; spent: number | null; attempts: number; failed: number }
+
+function jobUse(view: Row, now: number): Map<string, JobUse> {
+  const used = new Map<string, JobUse>();
+  for (const row of meterStages(view, now) as StageRow[]) {
+    const seen = used.get(row.job);
+    const add = (a: number | null, b: number | null) => (a === null ? b : b === null ? a : a + b);
+    used.set(row.job, {
+      // The newest attempt's route: the model a job that has no saved route actually launched on.
+      model: row.model || seen?.model || "",
+      level: row.level || seen?.level || "",
+      seconds: add(seen?.seconds ?? null, row.seconds),
+      tokens: (seen?.tokens ?? 0) + row.tokens,
+      tokensComplete: (seen?.tokensComplete ?? true) && row.tokensComplete,
+      spent: add(seen?.spent ?? null, row.spentUsd),
+      attempts: (seen?.attempts ?? 0) + row.attempts,
+      failed: (seen?.failed ?? 0) + row.failedAttempts,
+    });
+  }
+  return used;
+}
+
+/** What each working agent is doing now (`chat.now`), by the job it names first (`Builder · task M2`). */
+function nowFor(view: Row, label: string): string {
+  const found = rows(mapping(view.chat).now).filter((row) => typeof row.agent === "string" && (row.agent === label || row.agent.startsWith(`${label} ·`)));
+  return found.length ? text(found[found.length - 1]!.text) : "";
+}
+
+/** The newest message the working job wrote (`chat.log`), as the terminal's Stage panel shows it. */
+function latestFor(view: Row, label: string): string {
+  const found = rows(mapping(view.chat).log).filter((row) => row.kind === "message" && typeof row.agent === "string"
+    && (row.agent === label || row.agent.startsWith(`${label} ·`)) && text(row.text));
+  return found.length ? text(found[found.length - 1]!.text).replace(/ \[partial\]$/, "") : "";
+}
+
+const shortModel = (model: string): string => (model.includes("/") ? model.slice(model.lastIndexOf("/") + 1) : model);
+
+export function pipelineSteps(view: Row, now = Date.now()): PipelineStep[] {
+  const used = jobUse(view, now);
   return rows(view.pipeline).flatMap((row) => {
     const label = text(row.label);
     const state = row.state as StepState;
     if (!label || !STEP_STATES.has(state)) return [];
     let detail: string;
+    const use = used.get(label);
     if (state === "skipped") detail = "skipped" + (text(row.reason) ? `: ${text(row.reason)}` : "");
     else {
-      const model = text(row.model);
-      const parts = [model.includes("/") ? model.slice(model.lastIndexOf("/") + 1) : model, text(row.reasoning_effort)];
-      if (isNumber(row.spent_usd) && row.spent_usd > 0) parts.push(money(row.spent_usd));
+      const parts = [shortModel(text(row.model) || use?.model || ""), text(row.reasoning_effort) || use?.level || ""];
+      if (use?.seconds && use.seconds >= 1) parts.push(duration(use.seconds));
+      if (use?.tokens) parts.push(`${stageTokens(use.tokens)}${use.tokensComplete ? "" : "+"} tokens`);
+      const spent = use?.spent ?? (isNumber(row.spent_usd) ? row.spent_usd : null);
+      if (spent !== null && (spent > 0 || use)) parts.push(stageMoney(spent));
+      if (use && use.attempts > 1) parts.push(use.failed ? `attempt ${use.attempts}` : `${use.attempts} runs`);
       detail = parts.filter(Boolean).join(" · ");
     }
-    return [{ label, state, mark: STEP_MARKS[state], detail }];
+    return [{ label, state, mark: STEP_MARKS[state], detail, now: state === "working" ? nowFor(view, label) : "" }];
   });
 }
 
-function pipelineSection(steps: PipelineStep[]): DetailSection | null {
+function pipelineSection(view: Row, steps: PipelineStep[]): DetailSection | null {
   if (!steps.length) return null;
   const working = steps.find((step) => step.state === "working");
   const next = steps.find((step) => step.state === "next");
   const ran = steps.filter((step) => step.state === "ran").length;
   const summary = working ? `${working.label} working` : next ? `${next.label} next` : `${ran} of ${steps.length} ran`;
-  return { id: "pipeline", title: "Pipeline", summary, lines: steps.map((step) => `${step.mark} ${step.label}${step.detail ? ` · ${step.detail}` : ""}`) };
+  const lines: string[] = [];
+  for (const step of steps) {
+    lines.push(`${step.mark} ${step.label}${step.detail ? ` · ${step.detail}` : ""}`);
+    if (step.state !== "working") continue;
+    if (step.now) lines.push(`  Now: ${step.now}`);
+    const latest = latestFor(view, step.label);
+    if (latest) lines.push(`  Latest: ${latest}`);
+  }
+  return { id: "pipeline", title: "Stages", summary, lines };
+}
+
+/** The working stage, or the one that runs next, as one always-visible line. */
+function currentLine(steps: PipelineStep[]): string {
+  const step = steps.find((row) => row.state === "working") ?? steps.find((row) => row.state === "next");
+  if (!step) return "";
+  const head = `${step.label} ${step.state === "working" ? "working" : "next"}${step.detail ? ` · ${step.detail}` : ""}`;
+  return step.now ? `${head} · ${step.now}` : head;
 }
 
 // ---- Where the run is: `summary` and `explanation` -----------------------------------------
@@ -239,6 +306,179 @@ function spendSection(view: Row): DetailSection | null {
   return { id: "spend", title: "Spend", summary: spendSummary(view) ?? money(metrics.spent_usd), lines };
 }
 
+// ---- Cost and usage: `cost`, `usage.accounting`, `efficiency` (the terminal's /details) ------------
+
+/** An accounting quantity (`{value, known, complete}` or a bare number), with "known" while it is incomplete. */
+function quantity(value: unknown, asMoney = false): string {
+  let amount: unknown = value;
+  let suffix = "";
+  if (value && typeof value === "object") {
+    const row = value as Row;
+    amount = row.complete === true ? row.value : row.known;
+    suffix = row.complete === true ? "" : " known";
+  }
+  if (!isNumber(amount)) return "unknown";
+  return (asMoney ? stageMoney(amount) : Math.round(amount).toLocaleString("en-US")) + suffix;
+}
+
+/** Why the accounted total is a floor, in the terminal's words (`autocode_chat_cost._gaps`). */
+function accountingGaps(view: Row): string[] {
+  const cost = mapping(view.cost);
+  const accounting = mapping(mapping(view.usage).accounting);
+  const gaps: string[] = [];
+  if (isCount(cost.unpriced_stages) && cost.unpriced_stages) gaps.push(`${cost.unpriced_stages} unpriced`);
+  if (isCount(accounting.active_attempts) && accounting.active_attempts) gaps.push(`${accounting.active_attempts} running`);
+  const pending = accounting.parallel_workers_pending;
+  if (Array.isArray(pending) && pending.length) gaps.push(counted(pending.length, "worker pending", "workers pending"));
+  if (accounting.complete === false) gaps.push("attempt coverage incomplete");
+  else if (accounting.complete !== true) gaps.push("attempt coverage unavailable");
+  return gaps;
+}
+
+const TOKEN_LABELS = [
+  ["input_tokens", "Input"],
+  ["output_tokens", "Output"],
+  ["cached_input_tokens", "Cache reads (in input)"],
+  ["cache_write_tokens", "Cache writes (in input)"],
+  ["reasoning_output_tokens", "Reasoning (in output)"],
+] as const;
+
+/** The token kinds a row reports; one it reports as nothing so far is left out. */
+function tokenRows(row: Row): [string, string][] {
+  return TOKEN_LABELS.map(([key, label]): [string, string] => [label, quantity(row[key])])
+    .filter(([, shown]) => shown !== "unknown" && shown !== "0 known");
+}
+
+function attemptLines(row: Row, number: number): string[] {
+  const route = mapping(row.launch_route);
+  const model = text(route.model) || text(row.model) || "model unknown";
+  const level = text(row.reasoning_effort) || text(route.reasoning_effort);
+  const provider = text(route.provider) || text(mapping(row.execution_identity).provider);
+  const flags = (["active", "rejected", "interrupted", "timed_out"] as const).filter((key) => row[key] === true)
+    .map((key) => (key === "active" ? "running" : key.replace("_", " ")));
+  if (row.report_only === true) flags.push("report repair");
+  if (Number.isInteger(row.exit_code) && row.exit_code !== 0) flags.push(`exit ${row.exit_code}`);
+  if (!flags.length) flags.push(row.finished_at ? "finished" : "outcome unavailable");
+  const head = [text(row.job) || "Job unreported", flags.join(", ")];
+  if (isNumber(row.duration_seconds) && row.duration_seconds >= 1) head.push(duration(row.duration_seconds));
+  const lines = [`${number}. ${head.join(" · ")}`, `  ${[model, level, provider].filter(Boolean).join(" · ")}`];
+  const choice = mapping(row.effort_choice);
+  if (choice.raised && text(choice.saved) && text(choice.text)) lines.push(`  One level above your ${text(choice.saved)}: ${text(choice.text)}`);
+  if (choice.lowered && text(choice.ceiling)) {
+    if (choice.reason === "small_clear") lines.push(`  One level below your ${text(choice.ceiling)}: the task is small and clear`);
+    else if (text(choice.text)) lines.push(`  Below your ${text(choice.ceiling)}: ${text(choice.text)}`);
+  }
+  const used = Object.keys(mapping(row.attributed_tokens)).length ? mapping(row.attributed_tokens) : mapping(row.tokens);
+  const shown = tokenRows(used);
+  if (shown.length) lines.push(`  Tokens: ${shown.map(([label, amount]) => `${label.toLowerCase()} ${amount}`).join(", ")}`);
+  const reported = "attributed_reported_usd" in row ? quantity(row.attributed_reported_usd, true)
+    : isNumber(row.reported_cost_usd) ? stageMoney(row.reported_cost_usd) : "unknown";
+  if (reported !== "unknown" && reported !== "$0 known") lines.push(`  Provider-reported: ${reported}`);
+  return lines;
+}
+
+/** Wall time by kind of work, from `efficiency.time` (or the older top-level copy). */
+function wallTimes(efficiency: Row): Row {
+  const time = mapping(efficiency.time);
+  for (const key of ["exclusive_wall_seconds_by_category", "observed_exclusive_wall_seconds_by_category"]) {
+    const found = mapping(time[key]);
+    if (Object.keys(found).length) return found;
+    const old = mapping(efficiency[key]);
+    if (Object.keys(old).length) return old;
+  }
+  return {};
+}
+
+/** The run's summed execution time as the core recorded it, or null. */
+export function executionSeconds(view: Row): number | null {
+  const efficiency = mapping(view.efficiency);
+  for (const value of [mapping(efficiency.time).summed_execution_seconds, efficiency.summed_execution_seconds]) if (isNumber(value) && value > 0) return value;
+  return null;
+}
+
+function usageSection(view: Row): DetailSection | null {
+  const cost = mapping(view.cost);
+  const usage = mapping(view.usage);
+  const accounting = mapping(usage.accounting);
+  if (!Object.keys(cost).length && !Object.keys(usage).length) return null;
+  const gaps = accountingGaps(view);
+  const complete = cost.complete === true && isNumber(cost.spent_usd) && !gaps.length;
+  const accounted = isNumber(cost.spent_usd) ? stageMoney(cost.spent_usd) : "unknown";
+  const lines = [`Accounted ${complete ? "total" : "so far"}: ${accounted}${complete ? "" : ` (${gaps.join(", ") || "coverage unknown"})`}`];
+  if (isNumber(cost.running_usd) && cost.running_usd > 0) lines.push(`  Running stage so far: ${stageMoney(cost.running_usd)}`);
+  if (isNumber(cost.estimated_usd)) lines.push(`  Price-table estimate: ${stageMoney(cost.estimated_usd)}${text(cost.prices_as_of) ? ` (prices as of ${text(cost.prices_as_of)})` : ""}`);
+  const reported = mapping(accounting.cost).reported_usd ?? cost.reported_usd;
+  const reportedText = quantity(reported, true);
+  if (reportedText !== "unknown" && reportedText !== "$0 known") lines.push(`  Provider-reported: ${reportedText}`);
+  if (isNumber(cost.inherited_usd)) lines.push(`  Carried over from a restored step: ${stageMoney(cost.inherited_usd)}`);
+  lines.push(isNumber(cost.cap_usd) && cost.cap_usd > 0 ? `  Spending cap: ${stageMoney(cost.cap_usd)}` : "  Spending cap: none");
+  for (const row of rows(mapping(cost.breakdown).by_billing)) {
+    if (row.billing !== "subscription") continue;
+    lines.push(`  On your subscription: ${stageMoney(isNumber(row.spent_usd) ? row.spent_usd : null)} as API-equivalent pricing, not an invoice`);
+  }
+  const tokenRow = Object.keys(accounting).length ? mapping(accounting.tokens) : mapping(usage.tokens);
+  const tokenLines = tokenRows(tokenRow);
+  if (tokenLines.length) lines.push("Tokens", ...tokenLines.map(([label, amount]) => `  ${label}: ${amount}`));
+  const efficiency = mapping(view.efficiency);
+  const wall = wallTimes(efficiency);
+  const categories = Object.entries(mapping(efficiency.by_category)).sort(([a], [b]) => a.localeCompare(b));
+  const timeLines: string[] = [];
+  for (const [name, value] of categories) {
+    const data = mapping(value);
+    const parts: string[] = [];
+    if (isCount(data.attempts) && data.attempts) parts.push(counted(data.attempts, "attempt", "attempts"));
+    const usedTokens = mapping(data.tokens);
+    const [input, output] = [quantity(usedTokens.input_tokens), quantity(usedTokens.output_tokens)];
+    if (input !== "unknown" && input !== "0") parts.push(`${input} in`);
+    if (output !== "unknown" && output !== "0") parts.push(`${output} out`);
+    if (isNumber(wall[name]) && wall[name] >= 1) parts.push(duration(wall[name] as number));
+    if (parts.length) timeLines.push(`  ${capitalize(words(name))}: ${parts.join(", ")}`);
+  }
+  if (timeLines.length) lines.push("Time and tokens by kind of work", ...timeLines);
+  const seconds = executionSeconds(view);
+  if (seconds !== null) lines.push(`Total execution time: ${duration(seconds)}`);
+  const attempts = rows(accounting.attempts).filter((row) => row.runner_owned !== true && row.usage_basis !== "runner");
+  if (attempts.length) {
+    lines.push("Attempts");
+    attempts.forEach((row, index) => lines.push(...attemptLines(row, index + 1).map((line) => `  ${line}`)));
+    if (attempts.some((row) => row.unobserved_usage_possible === true || row.request_coverage_complete === false)) {
+      lines.push("  Some attempts' usage may be unreported.");
+    }
+  }
+  lines.push("Estimates and provider reports are not an invoice.");
+  // The same total as the toolbar's cost line: accounted spend with the running stage's so far.
+  const summary = totalText(runTotal(view)) || `${accounted}${complete ? "" : "+"}`;
+  return { id: "usage", title: "Cost and usage", summary, lines };
+}
+
+// ---- Routes: `routes`, `escalations`, `route_assignments` -------------------------------------
+
+function routeText(value: unknown): string {
+  const route = mapping(value);
+  return [text(route.model) || "model unknown", text(route.reasoning_effort), text(route.provider) || text(route.engine)].filter(Boolean).join(" · ");
+}
+
+function routesSection(view: Row): DetailSection | null {
+  const lines: string[] = [];
+  for (const value of Object.values(mapping(view.routes))) {
+    const route = mapping(value);
+    if (Object.keys(route).length) lines.push(`${text(route.job) || "Job unreported"}: ${routeText(route)}`);
+  }
+  for (const [key, title] of [["escalations", "Moved up"], ["route_assignments", "Route changes"]] as const) {
+    const found = rows(view[key]);
+    if (!found.length) continue;
+    lines.push(title);
+    for (const row of found) {
+      const from = row.from && typeof row.from === "object" ? routeText(row.from) : words(row.from);
+      const to = row.to && typeof row.to === "object" ? routeText(row.to) : words(row.to);
+      lines.push(`  ${text(row.job) || "Job unreported"}: ${from} → ${to}; ${words(row.trigger || row.via, "reason unreported")}`);
+      if (text(row.outcome)) lines.push(`  Outcome: ${words(row.outcome)}`);
+    }
+  }
+  if (!lines.length) return null;
+  return { id: "routes", title: "Models for the next attempts", summary: `${Object.keys(mapping(view.routes)).length} routes`, lines };
+}
+
 // ---- Verification: `verification`, `delivery`, `review_result` -------------------------------
 
 function reviewResult(view: Row): Row {
@@ -346,26 +586,31 @@ function decisionsSection(view: Row): DetailSection | null {
 // ---- The header ---------------------------------------------------------------------------
 
 /** The run header for one status view, or null before a run has a view. */
-export function runHeader(view: unknown): RunHeader | null {
+export function runHeader(view: unknown, at = Date.now()): RunHeader | null {
   const source = mapping(view);
   if (!Object.keys(source).length) return null;
-  const steps = pipelineSteps(source);
+  const steps = pipelineSteps(source, at);
   const now = where(source);
   const facts: string[] = [];
   const spend = spendSummary(source);
   if (spend) facts.push(spend);
+  // The run's working time; its spend and tokens are already on the toolbar's cost line.
+  const seconds = executionSeconds(source);
+  if (seconds !== null) facts.push(`${duration(seconds)} working`);
   const wrong = recoveries(source).length;
   if (wrong) facts.push(`${wrong} ${wrong === 1 ? "thing" : "things"} went wrong, handled`);
   const place = worktree(source);
   const sections = [
     now.section,
     place.section,
-    pipelineSection(steps),
+    pipelineSection(source, steps),
     wrongSection(source),
     spendSection(source),
+    usageSection(source),
+    routesSection(source),
     verificationSection(source),
     pathSection(source),
     decisionsSection(source),
   ].filter((section): section is DetailSection => section !== null);
-  return { state: now.state, label: now.label, sentence: now.sentence, pipeline: steps, facts, place: place.label, sections };
+  return { state: now.state, label: now.label, sentence: now.sentence, pipeline: steps, current: currentLine(steps), facts, place: place.label, sections };
 }

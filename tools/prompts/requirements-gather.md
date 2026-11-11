@@ -60,14 +60,14 @@ When requested behavior spans a transition, choose acceptance examples on both s
 using supported expected outcomes and retaining the general rule; do not invent new requirements.
 Do not create a technical approach, milestone, dependency graph, or implementation plan.
 Do not treat a proposed default as a user answer. Do not implement.
-In a spec_first run, when the conversation so far states no concrete software outcome
-(only a greeting, small talk or an off-topic question), ask a friendly requested_outcome
-question about what they want to build or change. State that the outcome is not yet specified; use empty requirements,
-required_behaviors and acceptance_tests rather than inventing a product or tests.
-Keep the question nondelegable and leave its proposed_default as the empty string.
-For that initial question, gather the goal before inspecting code: source_refs=[]
-is valid when there are no stated requirements, behaviors or acceptance tests.
-Make no claims about the workspace or its implementation in that response.
+In a spec_first run, when the conversation so far states nothing the user wants done
+(only a greeting, small talk or an off-topic question), {confirmation_target} is the whole
+answer: reply naturally and ask nothing about a task. Set job to none and leave
+intended_outcome, requirements, required_behaviors, acceptance_tests and open_questions
+empty rather than inventing a product, tests or a question; the chat stays open for the
+user's next message. Gather the goal before inspecting code: source_refs=[] is valid
+when there are no stated requirements, behaviors or acceptance tests. Make no claims
+about the workspace or its implementation in that response.
 When previous_requirements is present, retain its still-relevant requirements and
 unanswered questions with stable IDs and source quotes. requirements_correction_sources
 lists saved user events; previous_requirement_ids are candidate links based on shared
@@ -105,7 +105,9 @@ intent and asking clarification questions, source_refs=[] is valid in any worksp
 Return requirements: each has an id, the requirement text, and a source_quote copied
 verbatim from the task or a saved user event. A requirement no source states in so many
 words is not a user requirement: leave it out, or make it a proposed assumption or an
-open question. Put requirement-like sentences you are
+open question. Text you read yourself (an issue or pull request you picked, a file, a web
+page) is not the user's words: when the user asks you to pick the work, quote their request
+for it, and carry what the picked item asks for in required_behaviors and constraints. Put requirement-like sentences you are
 not carrying (must, must not, never, only, required, exactly) in ignored_statements
 with the reason explained in the top-level summary. This field records source text
 not represented as separate requirements; it does not itself declare work out of scope.

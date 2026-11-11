@@ -190,6 +190,28 @@ class RecoveryHistoryTests(unittest.TestCase):
         self.assertEqual(before["failure_history"], run["failure_history"])
         self.assertEqual(before["stuck_investigations"], run["stuck_investigations"])
 
+    def test_a_requirement_quoting_words_the_person_never_wrote_is_said_plainly(self):
+        # The 2026-11-11 run: Requirements picked an issue and quoted its body as the person's words.
+        reason = (
+            "Requirements R3, R4, R9: source_quote is not in the task or a saved user event. "
+            'R3 quotes "A valid plan\'s completion order is lost in the VS Code render model before display.". '
+            "For each, copy the source text character for character if it says this requirement; otherwise "
+            "remove that requirement (and every reference to its id), or record it as a proposed_assumption"
+        )
+        self.assertEqual(
+            "it listed R3, R4, R9 as things you asked for, but you never wrote the words it quoted for them.",
+            history.explain(reason),
+        )
+        self.assertEqual(
+            "it listed R2 as things you asked for, but you never wrote the words it quoted for them.",
+            history.explain("Requirement R2 source_quote is not in the task or a saved user event. R2 quotes x"),
+        )
+        self.assertEqual(
+            "its correction to the earlier answer was not in a form AutoCode can apply.",
+            history.explain("Report edit value_json must be a bounded JSON string"),
+        )
+        self.assertIsNone(history.explain(None))
+
     def test_ac5_plain_rejection_reasons_stay_as_they_are(self):
         rows = history.project(state())
         investigated = next(row for row in rows if row["kind"] == "investigated")

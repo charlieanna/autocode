@@ -1595,6 +1595,29 @@ test('the run header unfolds its details and keeps them open across polling, tab
   assert.equal(ui.webviewState.headerOpen, false);
 });
 
+test('the run header shows the working stage and what it does, and its details the run accounting, as /details does', async (t) => {
+  const ui = await openChat(t, headerView({
+    pipeline: [{ job: 'requirements', label: 'Requirements', state: 'working', model: null, reasoning_effort: null, spent_usd: null, reason: null }],
+    cost: { spent_usd: 0, running_usd: 0.04, cap_usd: null, complete: false, unpriced_stages: 0, breakdown: {} },
+    usage: { accounting: { complete: true, active_attempts: 1,
+      tokens: { input_tokens: { value: null, known: 9000, complete: false }, output_tokens: { value: null, known: 400, complete: false } },
+      attempts: [{ stage: 'requirements_gather', job: 'Requirements', active: true, started_at: new Date(Date.now() - 75_000).toISOString(),
+        launch_route: { model: 'claude-sonnet-5-5', reasoning_effort: 'medium', provider: 'anthropic' },
+        attributed_tokens: { input_tokens: { value: null, known: 9000, complete: false }, output_tokens: { value: null, known: 400, complete: false } } }] } },
+    chat: { ...chatView().chat, now: [{ agent: 'Requirements', text: 'reading the issue list' }] },
+  }));
+  // Visible without opening anything: the working stage's model, level, time, tokens, spend and doing.
+  assert.match(ui.document.querySelector('#header-stage').textContent,
+    /^Requirements working · claude-sonnet-5-5 · medium · 1m1\ds · 9\.4k\+ tokens · \$0\.04 · reading the issue list$/);
+  ui.document.querySelector('#header-toggle').click();
+  const details = ui.document.querySelector('#header-details');
+  assert.deepEqual([...details.querySelectorAll('.detail-section')].map((node) => node.dataset.section), ['where', 'pipeline', 'wrong', 'spend', 'usage']);
+  const usage = [...details.querySelectorAll('[data-section="usage"] .detail-line')].map((node) => [node.className, node.textContent]);
+  assert.deepEqual(usage.slice(0, 2), [['detail-line', 'Accounted so far: $0 (1 running)'], ['detail-line sub', 'Running stage so far: $0.04']]);
+  assert.ok(usage.some(([cls, line]) => cls === 'detail-line sub sub2' && line === 'claude-sonnet-5-5 · medium · anthropic'), 'an attempt\'s route sits under it');
+  assert.equal(ui.document.querySelector('#header-stage').hidden, false);
+});
+
 test('a new chat with no run shows no run header', async (t) => {
   const ui = await openChat(t, headerView(), false);
   assert.equal(ui.document.querySelector('#run-header').hidden, true);
@@ -2388,6 +2411,38 @@ test('a pending spend confirmation says in the chat that a dialog is open', asyn
   release(confirmation.label); await flush(); await flush();
   assert.equal(launch.mock.callCount(), 1);
   assert.ok(!ui.document.getElementById('app').textContent.includes('answer the dialog that opened'), 'the notice leaves with the dialog');
+});
+
+// A live chat showed "Here's what I understand..." as a message and then the same text again as a
+// raw block in the approval card under it (2026-11-11). review.summary is that question's own text.
+const understanding = 'Here’s what I understand. Does this match what you want?\n\nOutcome: Greet by name';
+function understandingView(messages) {
+  return { status: 'WAITING_FOR_USER', done: false,
+    needs: { kind: 'answer', resolver_token: 'review:exact', questions: [
+      { id: 'requirements-review-current', question: understanding, options: [], proposed_default: 'plan' },
+    ] },
+    next_command: `autocode --answer requirements-review-current=ANSWER --resolver-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { phase: 'requirements', context: 'review', input: null, messages, review: {
+      question_id: 'requirements-review-current', answer: 'plan', label: 'Approve understanding and prepare plan', summary: understanding,
+    } },
+  };
+}
+
+test('the Requirements understanding shows once: the thread holds it, the approval card does not repeat it', async (t) => {
+  const asked = [{ id: 'initial', role: 'user', text: 'greet by name' },
+    { id: 'requirements-question-abc123', role: 'assistant', text: understanding }];
+  const ui = await openChat(t, understandingView(asked));
+  const thread = ui.document.getElementById('messages').textContent;
+  assert.equal(thread.split('Outcome: Greet by name').length - 1, 1, 'the thread shows the understanding once');
+  assert.equal(ui.document.querySelector('#app pre.understanding'), null, 'the card does not repeat it');
+  assert.ok(!ui.document.getElementById('app').textContent.includes('Outcome: Greet by name'));
+  assert.ok(ui.document.querySelector('#take-action').textContent.includes('Approve understanding'), 'the approval is still offered');
+});
+
+test('the approval card shows the understanding when the thread does not hold it', async (t) => {
+  // An older core sent no requirements-question message: the card is then the only place it is shown.
+  const ui = await openChat(t, understandingView([{ id: 'initial', role: 'user', text: 'greet by name' }]));
+  assert.ok(ui.document.querySelector('#app pre.understanding').textContent.includes('Outcome: Greet by name'));
 });
 
 test('a send dropped for a stale chat key keeps the draft and says so', async (t) => {
@@ -5124,7 +5179,7 @@ test('a stage on a later attempt shows a struggling warning in the working card'
   const ui = await openChat(t, meteredView());
   const warn = ui.document.getElementById('struggling');
   assert.ok(warn, 'the working card carries the warning');
-  assert.equal(warn.textContent, '⚠ Tester · attempt 2 · 42s · last one answer rejected');
+  assert.equal(warn.textContent, '⚠ Tester · attempt 2 · 42s · last answer rejected');
   const calm = meteredView();
   calm.usage.accounting.attempts = calm.usage.accounting.attempts.filter((row) => !row.rejected);
   await ui.poll(calm);
