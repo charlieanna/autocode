@@ -98,6 +98,26 @@ test("where the run is uses the core's summary and plain meaning, never its stat
   assert.equal(runHeader(null), null);
 });
 
+test("a stopped step's details say the core's reason, next action and saved cause, never a flag", () => {
+  const notice = "I couldn’t finish this step. The step failed. Your work so far is saved; continue to try this step again.";
+  const stopped = (saved: string) => runHeader(view({
+    status: "PAUSED_JOB_FAILURE",
+    summary: { state: "stopped", label: "Stopped", sentence: "The step stopped." },
+    needs: { kind: "resume", reason: saved },
+    chat: { notice },
+    recovery: { what_happened: "The step failed.", saved_reason: saved },
+  }))!;
+  const where = section(stopped("Builder exited with code 2"), "where")!;
+  assert.ok(where.lines.includes(notice));
+  assert.ok(where.lines.includes("Recorded reason: Builder exited with code 2"));
+  const flagged = section(stopped("Run --abandon-stage 001/builder-01 first"), "where")!;
+  assert.ok(flagged.lines.includes(notice));
+  assert.ok(!flagged.lines.includes("Recorded reason: Run --abandon-stage 001/builder-01 first"));
+  assert.doesNotMatch(JSON.stringify(flagged), /--abandon-stage/);
+  // A running run carries no stopped-step lines.
+  assert.ok(!section(runHeader(view({ chat: { notice } }))!, "where")!.lines.includes(notice));
+});
+
 test("what went wrong lists every recovery with what AutoCode did, as /why does", () => {
   const recoveries = [
     { id: "a", kind: "rejected", at: "2026-11-02T05:33:44.837705+00:00", headline: "Investigator answer rejected (2 times)",
