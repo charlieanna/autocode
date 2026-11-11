@@ -58,8 +58,7 @@ def _task_id(state: RunState):
 
 def refusal(state: RunState):
     """Why a discrepancy may not be reported on ``state`` now; None when it may."""
-    contract = state.get("goal_contract")
-    if not isinstance(contract, dict) or not identity.approved(state):
+    if _sealed_token(state) is None or not identity.approved(state):
         return (
             "A discrepancy is reported against an approved plan; this run has none. Use --feedback to change the plan"
         )
@@ -133,14 +132,22 @@ def record(state: RunState, text, review_token, *, source_revision, at=None):
     return report, True
 
 
+def _sealed_token(state: RunState):
+    """The saved plan's token, or None when there is no intact saved plan to bind a report to."""
+    contract = state.get("goal_contract")
+    try:
+        return identity.token(contract) if isinstance(contract, dict) and identity.sealed(contract) else None
+    except (KeyError, TypeError):
+        return None
+
+
 def current(state: RunState, stage):
     """The reports ``stage`` must check: the current task's for its Tester, the whole plan's for completion."""
-    if stage not in TASK_STAGES + PLAN_STAGES:
+    if stage not in TASK_STAGES + PLAN_STAGES or not state.get(KEY):
         return []
-    contract = state.get("goal_contract")
-    if not isinstance(contract, dict) or not identity.sealed(contract):
+    token = _sealed_token(state)
+    if token is None:
         return []
-    token = identity.token(contract)
     if stage in TASK_STAGES:
         task_id = _task_id(state)
         return _open(state, contract_token=token, task_id=task_id) if task_id else []
@@ -187,8 +194,7 @@ def project(state: RunState, *, run_dir=None, workspace=None):
         }
     if offer is None and not rows:
         return None
-    contract = state.get("goal_contract")
-    token = identity.token(contract) if isinstance(contract, dict) and identity.sealed(contract) else None
+    token = _sealed_token(state)
     return {
         "offer": offer,
         "reports": [
