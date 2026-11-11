@@ -345,7 +345,7 @@ class RunState(TypedDict, total=False):
     # in the conversation instead of leaving a client to infer it from workspace (#1908).
     workspace_bootstrap: dict
     project_memory: dict  # project_memory_lifecycle owns launch input/tags/publication; Requirements reads context
-    project_notes: dict  # project_notes_lifecycle owns the launch input; Requirements, Planner, Investigator read it
+    project_notes: dict  # project_notes_lifecycle owns the launch input and the completion path's notes; Requirements, Planner, Investigator read it
     run_dir: str  # this run's .autocode/runs/<id>
     status: str  # RUNNING / PAUSED_* / TASK_COMPLETE; written by the runner
     phase: str  # PLANNING / EXECUTING / ...; written by the runner

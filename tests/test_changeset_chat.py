@@ -135,6 +135,18 @@ class ChangesetActionTests(unittest.TestCase):
             actions.changeset_status({"scope": {"linked": [{"target": "b"}]}}, Path("/w"), Path("/r")),
         )
 
+    def test_a_finished_set_with_no_check_says_nothing_checked_it_together(self):
+        summary = {
+            "changeset": "changeset-1",
+            "runs": [{"target": "api", "role": "source", "status": "TASK_COMPLETE"}],
+            "approval": {"set_token": None, "waiting_on": [], "next_command": None},
+            "verification": {"waiting_on": [], "check": None, "result": None, "done": False, "next_command": None},
+        }
+        shown = chat_changeset.text(summary, lambda plan: "")
+        self.assertIn("nothing has checked them together", shown)
+        self.assertNotIn("Checked together: done", shown)
+        self.assertIsNone(chat_changeset.offer(summary), "naming the check or a waiver stays the person's command")
+
     def test_runs_group_only_sets_with_two_listed_chats(self):
         rows = [{"changeset": "changeset-1"}, {"changeset": None}, {"changeset": "changeset-1"}, {"changeset": "x"}]
         self.assertEqual(["Change set changeset-1: chats 1 and 3 are one request."], chat_changeset.groups(rows))

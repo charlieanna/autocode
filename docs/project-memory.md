@@ -11,9 +11,10 @@ the names of pause states that needed a person. Unknown facts remain null.
 It writes after the completed checkpoint and evidence; learning cannot approve
 a task, change its verified result, or make completion fail.
 
-Facts a run's Investigator pays to discover about the repository, such as how to
-reproduce a failure or which test flakes, are kept separately, each with the
-receipt of the observation that produced it. See [Project notes](project-notes.md).
+Facts a run pays to discover about the repository, such as how to reproduce a
+failure, which the Investigator finds, or which test flakes, which a completed run's
+own proofs show, are kept separately, each with the receipt of the observation that
+produced it. See [Project notes](project-notes.md).
 
 ## Reusing an answer
 

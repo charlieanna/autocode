@@ -11,8 +11,12 @@ run can check, all driven by a person through ``autocode changeset`` (autocode_c
 - ``verify`` runs it once every run is TASK_COMPLETE. Results and waivers identify the named check,
   member runs and every workspace's code. A later change withdraws that evidence; a concurrent
   record change refuses the write instead of assigning an old result to a new check;
-- ``waive`` records the person's reason to accept the set without a passing check, bound the same
-  way; ``reopen`` sends the run that diverged a follow-up carrying the failed check's output;
+- the set is done only when every run is complete and either the named check passed for the code
+  as it is now or the person waived it. With no check named, completed runs alone do not make the
+  set done: the person names one or waives the check with a reason;
+- ``waive`` records the person's reason to accept the set without a passing check (or without any
+  named check), bound the same way; ``reopen`` sends the run that diverged a follow-up carrying the
+  failed check's output;
 - ``order`` sets the merge order, and ``pr_body`` writes the section each pull request carries:
   the change set id, every run, the merge order, the check or waiver, and the parts not covered.
 
@@ -130,15 +134,19 @@ def view(summary: dict, record: dict) -> dict:
         and result.get("fingerprint") == current
         and result.get("check_identity") == identity
     )
+    # A waiver binds the check it accepts, or the absence of one; a record from before that binding
+    # (no ``check_identity`` key) never accepts the set.
     waiver_current = bool(
         waiver
         and current
-        and identity
+        and "check_identity" in waiver
         and waiver.get("fingerprint") == current
         and waiver.get("check_identity") == identity
     )
     passed = result_current and bool(result and result.get("passed"))
-    done = not waiting and (check is None or passed or waiver_current)
+    # Separate green runs do not show the producer and consumer agree: with no named check, only the
+    # person's explicit waiver accepts the set.
+    done = not waiting and (passed or waiver_current)
     next_command = None
     if not waiting and check and not result_current:
         next_command = ["autocode", "changeset", "verify", "--run-dir", summary["runs"][0]["run_dir"]]
@@ -272,12 +280,12 @@ def pr_body(summary: dict, record: dict, target: str, uncovered: list[str]) -> s
         )
     lines += ["", "Merge order: " + ", then ".join(verification["merge_order"]) + "."]
     check, result, waiver = verification["check"], verification["result"], verification["waiver"]
-    if check is None:
-        lines.append("Integration check: none was named.")
+    if waiver and waiver["current"]:
+        lines.append(f"Integration check waived by the person: {waiver['reason']}")
+    elif check is None:
+        lines.append("Integration check: none was named, so nothing has checked these repositories together yet.")
     elif result and result["current"] and result["passed"]:
         lines.append(f"Integration check passed: `{' '.join(check['command'])}` in {check['in']}.")
-    elif waiver and waiver["current"]:
-        lines.append(f"Integration check waived by the person: {waiver['reason']}")
     else:
         lines.append(f"Integration check not passed yet: `{' '.join(check['command'])}` in {check['in']}.")
     if uncovered:

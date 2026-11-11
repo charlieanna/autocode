@@ -648,10 +648,21 @@ NESTED_TEST = (
     "test('guard_loads', () => { assert.equal(typeof require('../out/greet.js').greet, 'function'); });\n"
 )
 
+# The root's test reads helper.py, and the package's own test reads its built greet.js: code only one suite runs.
+ROOT_HELPER = {
+    "helper.py": "VALUE = 1\n",
+    "tests/test_root.py": "import sys, pathlib\nsys.path.insert(0, str(pathlib.Path(__file__).parents[1]))\n"
+    "import helper\n\ndef test_root():\n    assert helper.VALUE == 1\n",
+}
+OLD_WEB_TEST = (
+    "const test = require('node:test');\nconst assert = require('node:assert/strict');\n"
+    "test('test_old', () => { assert.equal(require('../out/greet.js').greet(), 'hi'); });\n"
+)
 
-def nested_project(case):
+
+def nested_project(case, extra=None):
     """The repository with its package's installed build tool, which Git ignores as npm's would be."""
-    project = Project(NESTED)
+    project = Project({**NESTED, **(extra or {})})
     case.addCleanup(project.close)
     tool = project.root / WEB / "node_modules/.bin/build-it"
     tool.parent.mkdir(parents=True)
@@ -731,7 +742,7 @@ class NestedPackage(unittest.TestCase):
         self.assertEqual((verify.PASS, WEB), (proof["verdict"], proof["framework"]["directory"]), proof)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm run the package suite")
-    def test_a_code_change_outside_the_package_keeps_the_root_suite(self):
+    def test_a_code_change_outside_the_package_is_checked_by_the_root_suite(self):
         project = nested_project(self)
         project.write(
             {
@@ -746,8 +757,77 @@ class NestedPackage(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as run_dir:
             proof = regression.prove(state, project.root, Path(run_dir))
-        self.assertEqual("pytest", proof["framework"]["name"], "helper.py is code the package suite never runs")
-        self.assertNotEqual(verify.PASS, proof["verdict"])
+        # The package's suite proves the fix; the root's own suite checks helper.py, which it never runs (#2889).
+        self.assertEqual((verify.PASS, WEB), (proof["verdict"], proof["framework"]["directory"]), proof)
+        root_suite = verify.detect_framework(project.root, python=sys.executable).suite
+        self.assertIn(
+            f"Code in the repository root changed and the proof's suite `cd {WEB} && npm test --silent` cannot run "
+            f"its tests, so its own suite `{root_suite}` ran on the original code and with the change",
+            proof["notes"],
+        )
+        for label in ("companion_suite_on_base:.", "companion_suite_on_candidate:."):
+            self.assertTrue(proof["checks"][label]["command"].startswith(root_suite), proof["checks"][label])
+            self.assertEqual(0, proof["checks"][label]["exit_code"])
+        self.assertEqual(
+            {".": root_suite}, {k: v["suite"] for k, v in proof["execution_context"]["companion_suites"].items()}
+        )
+
+    @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm run the package suite")
+    def test_a_change_that_breaks_the_root_suite_fails_the_proof_the_package_suite_passed(self):
+        project = nested_project(self, extra=ROOT_HELPER)
+        project.write(
+            {
+                f"{WEB}/test/greet.test.cjs": NESTED_TEST,
+                f"{WEB}/src/greet.js": "exports.greet = () => 'hello';\n",
+                "helper.py": "VALUE = 2\n",  # breaks tests/test_root.py, which only the root's suite runs
+            }
+        )
+        state = bugfix_state(project, package=None)
+        state["goal_contract"]["body"]["acceptance_criteria"] = [
+            {"id": "C1", "criterion": "It says hello", "verification_method": "test: test_greets"}
+        ]
+        with tempfile.TemporaryDirectory() as run_dir:
+            proof = regression.prove(state, project.root, Path(run_dir))
+        self.assertEqual((verify.FAIL, WEB), (proof["verdict"], proof["framework"]["directory"]), proof)
+        self.assertEqual(["test/greet.test.cjs::test_greets"], proof["fail_to_pass"], proof)
+        root_suite = verify.detect_framework(project.root, python=sys.executable).suite
+        self.assertEqual(
+            [
+                f"The repository root's suite `{root_suite}`: tests that pass on the original code do not pass with "
+                "the change: tests.test_root::test_root"
+            ],
+            [text for text in proof["failures"] if text.startswith("The repository root's suite")],
+        )
+
+    @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm run the package suite")
+    def test_the_package_suite_protects_its_tests_when_the_root_suite_proves_the_fix(self):
+        project = nested_project(self, extra={**ROOT_HELPER, f"{WEB}/test/old.test.cjs": OLD_WEB_TEST})
+        project.write(
+            {
+                "helper.py": "VALUE = 2\n",
+                "tests/test_root.py": "import sys, pathlib\nsys.path.insert(0, str(pathlib.Path(__file__).parents[1]))\n"
+                "import helper\n\ndef test_root():\n    assert helper.VALUE == 2\n",
+                f"{WEB}/src/greet.js": "exports.greet = () => 'hello';\n",  # breaks the package's own test
+            }
+        )
+        state = bugfix_state(project, package=None)
+        state["goal_contract"]["body"]["acceptance_criteria"] = [
+            {"id": "C1", "criterion": "VALUE is 2", "verification_method": "test: test_root"}
+        ]
+        with tempfile.TemporaryDirectory() as run_dir:
+            proof = regression.prove(state, project.root, Path(run_dir))
+        self.assertIsNone(proof["framework"].get("directory"), "the root's suite runs the proving test")
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        # `npm test` reports an exit code, not per-test results: it passed on the original code and fails now.
+        self.assertIn(
+            f"The {WEB}/ suite `cd {WEB} && npm test --silent` passes on the original code and fails with the change "
+            "(exit 1)",
+            proof["failures"],
+        )
+        self.assertEqual(
+            [f"companion_suite_on_base:{WEB}", f"companion_suite_on_candidate:{WEB}"],
+            sorted(label for label in proof["checks"] if label.startswith("companion")),
+        )
 
     def test_enclosing_needs_tests_below_the_root(self):
         project = nested_project(self)
@@ -794,13 +874,15 @@ class PolyglotSuite(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("node"), "Node runs the root suite")
     def test_a_suite_that_cannot_run_the_proving_tests_reports_that_instead_of_passing_on_base(self):
-        project = self.project()
+        # Without backend/'s Gemfile no project around the spec has a suite, so the root's Node suite is kept.
+        project = Project({path: text for path, text in POLYGLOT.items() if path != "backend/Gemfile"})
+        self.addCleanup(project.close)
         project.write(
             {
                 POLYGLOT_SPEC: "require_relative '../../app/grader'\nRSpec.describe Grader do\n"
                 "  it('passes a correct answer') { expect(Grader.new.grade).to eq(:passed) }\nend\n",
                 "backend/app/grader.rb": "class Grader\n  def grade\n    :passed\n  end\nend\n",
-                # Code outside backend/ keeps the root's Node suite (autocode_package_scope.for_tests).
+                # Code outside backend/ as well: the proof's one suite is still the root's.
                 "frontend/scripts/routing.mjs": "export const route = () => '/staging/';\n",
             }
         )

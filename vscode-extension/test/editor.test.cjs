@@ -5521,6 +5521,23 @@ test('the change set status read is bounded like a status poll', async (t) => {
     'a wedged change-set read must fail and let the next poll retry, not freeze Run details');
 });
 
+test('a finished change set with no check is not shown as checked together (#2066)', async (t) => {
+  const ownController = new RunController(host.log);
+  const summary = changesetSummary('set-1');
+  summary.runs.forEach((row) => { row.status = 'TASK_COMPLETE'; row.needs = null; row.plan = null; });
+  summary.approval = { set_token: null, waiting_on: [], next_command: null };
+  summary.verification = { waiting_on: [], done: false, merge_order: ['ws', 'b'], next_command: null, check: null, result: null, waiver: null };
+  t.mock.method(cli, 'invoke', async (_settings, args) => (args[0] === 'changeset'
+    ? { ...ok, stdout: JSON.stringify(summary), stderr: '', rejected: false } : ok));
+  const view = { status: 'TASK_COMPLETE', done: true,
+    scope: { linked: [{ changeset: 'changeset-1', target: 'b', role: 'member', workspace: '/b', run_dir: '/b/.autocode/runs/m' }] } };
+  const ui = await openPanel(t, view, undefined, ownController);
+  const text = ui.document.body.textContent;
+  assert.ok(text.includes('nothing has checked them together'), text);
+  assert.ok(!text.includes('Checked together: done'));
+  assert.equal(ui.document.querySelector('#changeset-action'), null, 'naming the check or a waiver stays the person\'s command');
+});
+
 test('a change-set action says it is working while the check runs', async (t) => {
   host.config.set('confirmPersonOnly', false);
   const ownController = new RunController(host.log);

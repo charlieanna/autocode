@@ -361,6 +361,11 @@ def _render(summary: dict) -> str:
         lines.append("Check the runs together: " + " ".join(verification["next_command"]))
     elif (verification.get("result") or {}).get("current"):
         lines.append("The integration check failed: reopen the run that diverged, or waive it with a reason.")
+    elif not verification.get("waiting_on") and not verification.get("check"):
+        lines.append(
+            "Every run is complete, but nothing has checked them together. Name the set's check "
+            "(autocode changeset check-command) or waive it with a reason (autocode changeset waive)."
+        )
     return "\n".join(lines)
 
 

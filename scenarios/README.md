@@ -862,6 +862,7 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | Scenario | Category | What it exercises |
 | --- | --- | --- |
 | `bugfix-iso-weeks` | bugfix | Root-causing a reported symptom in a different module; hidden tests cover every day from 2000 to 2030, so a special-case fix fails. |
+| `bugfix-realrepo-docutils-number-lines` | bugfix | RELIABILITY.md's fourth case (#2944): a real bug in a mid-size real repository. The seed is the whole Docutils repository at a pinned commit (`[seed]`; 191,000 lines of Python, a suite of about 2,300 cases), at the parent of upstream's fix for `:number-lines: 0` on "include" (Sphinx issue #14261). The cause is two `or 1` tests, in misc.py's Include and body.py's CodeBlock, which an include with `:code:` uses; `broken/fixes-code-directive-only` fixes body.py alone. The oracle runs Docutils' full suite, hidden tests through `publish_doctree`, and the delivered tests against the original package. A known failure: the run stops on the test-role policy ([findings](../docs/bugs/2026-11-11-real-repo-docutils-findings.md)). |
 | `bugfix-go-interval-boundary` | bugfix | A half-open Go interval includes its upper endpoint; native boundary cases, hidden CLI checks and original-source proof. |
 | `feature-go-first-package` | feature | Adds the first Go package to a C# seed without a Go module (#685); real Go cases and an explicit no-project original-source comparison. |
 | `bugfix-node-interval-boundary` | bugfix | Touching or empty intervals overlap incorrectly; dependency-free `node:test` cases and hidden validation checks. |
@@ -1027,6 +1028,13 @@ catalog/<id>/
                     never part of the project
   brief.md          the request, exactly as a user would type it (plain text, no headings)
   seed/             the starting project, committed before the run (omit for an empty repo)
+  [seed]            in scenario.toml, instead of seed/: a whole real repository at a pinned commit,
+                    git = "https://...", commit = "<full 40-character hash>". The harness fetches that exact
+                    commit once into .scenario-runs/seed-cache/ (or $AUTOCODE_SCENARIO_SEED_CACHE) and uses
+                    its files wherever seed/ is used, the repository's own .gitignore included; none of its
+                    history reaches the run. A source that cannot be fetched skips the scenario like a
+                    missing toolchain (harness/pinned_seed.py). reference/ and broken/ then lay the
+                    repository's own files over it, in its own style (excluded from ruff for *-realrepo-*).
   oracle.py         def check(project, scenario, run=None) -> list[Check]
                     optional def diagnosis(project, run) -> dict (see "Diagnosis"; never in check())
   reference/        files that, laid over the seed, make a correct solution

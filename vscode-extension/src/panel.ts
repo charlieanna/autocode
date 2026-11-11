@@ -147,6 +147,7 @@ export function changesetState(summary: ChangesetSummary): ChangesetState {
   if (verification.done) note = "Checked together: done. Merge order: " + verification.merge_order.join(", then ");
   else if (!approving && approval.waiting_on.length && verification.waiting_on.length) note = "A set approval waits for a complete plan from: " + approval.waiting_on.join(", ");
   else if (verification.result?.current && !verification.result.passed) note = "The integration check failed. Reopen the run that diverged (autocode changeset reopen) or waive it with a reason (autocode changeset waive).";
+  else if (!verification.waiting_on.length && !verification.check) note = "Every run is complete, but nothing has checked them together. Name the set's check (autocode changeset check-command) or waive it with a reason (autocode changeset waive).";
   return {
     id: summary.changeset,
     runs: summary.runs.map((row) => ({ target: row.target, role: row.role, status: row.status, needs: row.needs ?? null })),
