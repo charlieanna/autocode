@@ -1924,10 +1924,11 @@ function renderTelemetry(info) {
     });
     host.appendChild(section);
   }
-  if (configured.length) modelSection('configured-models', 'Configured models', 'Saved role assignments. Several stages can share a model; an assignment does not mean it has run.', configured);
+  // A run keeps the routes it started with; Stage models changes reach new chats only (docs/task-run.md#stage-choices-for-clients).
+  if (configured.length) modelSection('configured-models', "This chat's models", 'Fixed when this chat started; a change in Stage models applies to new chats. Several stages can share a model; an assignment does not mean it has run.', configured);
   if (info && info.stagesUsed.length) modelSection('used-models', 'Models used', 'Recorded attempts, including retries and earlier model variants.', info.stagesUsed);
   else {
-    host.appendChild(el('span', 'model-placeholder', info ? 'No model attempts reported yet.' : 'Configured models appear when a run starts.'));
+    host.appendChild(el('span', 'model-placeholder', info ? 'No model attempts reported yet.' : 'A new chat runs the models in Stage models; they are listed here when a run starts.'));
   }
   document.getElementById('usage-summary').textContent = info ? info.tokens + ' · ' + info.cost : 'Tokens not reported · Cost not reported';
   const details = document.getElementById('usage-breakdown');
