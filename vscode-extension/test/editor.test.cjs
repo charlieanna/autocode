@@ -1990,6 +1990,27 @@ test('a chat in the folder itself starts only once the person confirms the warni
   assert.deepEqual(start.mock.calls[0].arguments[5], ['--in-place']);
 });
 
+test('a chosen branch the fresh list no longer offers is not still claimed by the picker', async (t) => {
+  const without = (name) => {
+    const list = JSON.parse(worktreeList().stdout);
+    for (const place of list.places) place.branches = (place.branches || []).filter((branch) => branch.name !== name);
+    return { ...ok, stdout: JSON.stringify(list) };
+  };
+  const ui = await openChat(t, null, false, {
+    worktrees: (argv) => (argv.includes('--workspace') ? without('feature') : worktreeList()),
+  });
+  ui.chat.show(); await flush(); await flush();
+  const select = ui.document.querySelector('#chat-place select.branch');
+  select.value = 'feature'; select.dispatchEvent(new ui.window.Event('change')); await flush();
+  assert.equal(ui.document.querySelector('#chat-place-summary').textContent, 'branch feature');
+  const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
+  ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
+  assert.match(ui.document.querySelector('#chat-error').textContent, /Pick the branch/);
+  assert.equal(start.mock.callCount(), 0, 'a branch the list does not offer cannot start a chat');
+  const summary = ui.document.querySelector('#chat-place-summary').textContent;
+  assert.notEqual(summary, 'branch feature', `the picker must not claim a branch the list dropped: ${summary}`);
+});
+
 test('a chat in the folder itself names the open warning in the chat, never a setup step', async (t) => {
   const ui = await openChat(t, null, false, { worktrees: () => worktreeList() });
   ui.chat.show(); await flush(); await flush();

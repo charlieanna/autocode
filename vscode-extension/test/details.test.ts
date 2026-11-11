@@ -371,6 +371,23 @@ test("a stage that launched more than once counts its attempts and failures, and
   assert.deepEqual([single.attempts, single.runs], [1, ""]);
 });
 
+test("a report repair joins the stage it repairs on one row, not an extra row of its own", () => {
+  // The meter groups a repair under the stage it repairs (original_stage); the table must land
+  // both attempts on that stage's row, with the repair's own job name or not.
+  const repaired = working({
+    pipeline: [step("plan_reviewer", "Plan Reviewer", "ran"), step("builder", "Builder", "working")],
+    usage: { accounting: { attempts: [
+      attempt("review_plan", "Plan Reviewer"),
+      attempt("sol_report_repair", "Plan Reviewer", { original_stage: "review_plan", rejected: true }),
+    ] } },
+  });
+  const steps = pipelineSteps(repaired, STARTED);
+  assert.deepEqual(steps.map((row) => [row.label, row.attempts, row.failed, row.runs]), [
+    ["Plan Reviewer", 2, 1, "2 attempts, 1 failed"],
+    ["Builder", 0, 0, ""],
+  ]);
+});
+
 test("a job the pipeline does not list, such as the model preflight, gets its own row where it ran", () => {
   // Ankur, 2026-11-11: Model Preflight was in the Stages list but not in the header's pipeline.
   const shown = working({
