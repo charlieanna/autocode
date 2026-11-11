@@ -108,6 +108,14 @@ ROUTE_JOB = {
     "acceptance_tester": "tester",
 }
 
+# Two slots share their primary job with another slot, so a list of a run's slots showed the same name
+# twice with different models ("Planner" on GLM and "Planner" on MiMo in a live VS Code chat,
+# 2026-11-11). These name the work that sets each apart; the Stage models list uses the same names.
+ROUTE_SCREEN = {
+    "task_planner": f"{SCREEN['resolver']} and per-task {SCREEN['planner']}",
+    "acceptance_tester": f"{SCREEN['tester']} (acceptance tests)",
+}
+
 
 # The configured slot each job of the standard pipeline runs on, preferred first: the first one a run
 # configures is the one its stages launch on (units/autoplanner._resolve_route). Without its own slot,
@@ -136,6 +144,8 @@ def route_name(role: str, state: Mapping[str, Any]) -> str:
     ``state`` stays in the call contract (autocode_role_route.record passes it);
     the label no longer reads it: the same Planner work runs the slot in both flows.
     """
+    if role in ROUTE_SCREEN:
+        return ROUTE_SCREEN[role]
     job = ROUTE_JOB.get(role)
     return SCREEN[job] if job else str(role).replace("_", " ").title()
 

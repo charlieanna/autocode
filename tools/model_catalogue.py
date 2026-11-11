@@ -229,7 +229,7 @@ ROLES = {
     # The per-task Planner runs on the task_planner route, and the Resolver starts as a copy of it unless
     # --resolver-model sets the Resolver's own route (docs/models.md).
     "task_planner": (
-        f"{roles.SCREEN['resolver']} and per-task {roles.SCREEN['planner']}",
+        roles.ROUTE_SCREEN["task_planner"],
         "--task-planner-model",
         "resolver",
     ),
