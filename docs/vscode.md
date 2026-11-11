@@ -186,8 +186,8 @@ time, tokens and spend, or why it was skipped. Below it are where the run is in
 one sentence, then the working stage (or the one that runs next) on its own
 line: its model and level, how long it has run, its tokens and spend so far, and
 what it is doing now (`reading files`, `running a command`). The facts line says
-how the spend splits between the Builder and checking, the run's tokens and
-working time, and how many things went wrong. **Show details** unfolds the same
+how the spend splits between the Builder and checking, the run's working time
+and how many things went wrong (the toolbar keeps the run's spend and tokens). **Show details** unfolds the same
 reading as the terminal chat's `/details`, `/why` and `/spend`: where the run
 is; each stage's model, level, time, tokens, cost and runs, with the working
 stage's latest message; every recovery and what AutoCode did about it; where the
