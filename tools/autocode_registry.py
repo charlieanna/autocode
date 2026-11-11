@@ -879,6 +879,22 @@ def forget_deleted(workspace: Path, run_dir: Path) -> dict[str, Any]:
     return {"registry_version": REGISTRY_VERSION, "operation": "forget-deleted", "removed": removed}
 
 
+def archived_run_dirs(also: Path | None = None) -> set[str]:
+    """The run directories of the chats a person archived, read from the registries without their checkpoints.
+
+    ``also`` adds a project registry (``project_storage``). An unreadable registry hides nothing."""
+    archived: set[str] = set()
+    for path in (registry_path(), *((also / "registry.json",) if also is not None else ())):
+        try:
+            document = _read_registry(path)
+        except RegistryError:
+            continue
+        for record in document["runs"].values():
+            if isinstance(record, dict) and record.get("archived") is True and isinstance(record.get("run_dir"), str):
+                archived.add(record["run_dir"])
+    return archived
+
+
 def archive_run(workspace: str | Path, run_dir: str | Path, archived: bool = True) -> dict[str, Any]:
     """Hide or restore a chat without moving or deleting its run directory."""
     workspace, run_dir = _pointer(workspace, run_dir)

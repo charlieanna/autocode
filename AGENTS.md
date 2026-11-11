@@ -169,7 +169,11 @@ names in `stage_models.next_command` (`stages list --run-dir RUN --json`) and ta
 arrays, to change that chat's own models between stages (owner request 2026-11-10). Before a chat
 starts it may show the new-chat list's stages and take only each stage's `chat_set` and `chat_reset` arrays, and
 pass the list's `chat.start_args` unchanged to that chat's start, so a person changes one chat's models
-without changing Stage models (owner request 2026-11-11). Choosing models
+without changing Stage models (owner request 2026-11-11). Before a chat starts it may also read
+`worktrees list --json` and pass the chosen place's `start_args` (a new worktree and branch, an existing
+branch, or the folder itself after the person confirms the place's `warning`) unchanged in place of its
+own placement flag, and show the status view's `worktree` (owner request 2026-11-11: each VS Code chat
+had worked on the folder's one branch, so chats conflicted). Choosing models
 automatically by measured capability (#2049) is paused until the owner revisits it.
 
 **Review levels under the stage choices, owner decision 2026-11-05.** The person chooses each

@@ -11,6 +11,7 @@
 import * as vscode from "vscode";
 import { realpath } from "node:fs/promises";
 import { invoke, readStatus, stream, tail, type CliResult } from "./core/cli";
+import { LEGACY_PLACEMENT, placementArgs } from "./core/worktrees";
 import {
   applyDecisions,
   boundOffer,
@@ -160,7 +161,11 @@ export class RunController {
    * refuses an existing directory or a symlink before a provider launches.
    */
   async start(workspace: string, brief: string, created?: (run: RunRef) => void, startArgs: readonly string[] = FULL_START_ARGS,
-    stageArgs: readonly string[] = []): Promise<RunRef> {
+    stageArgs: readonly string[] = [], placement: readonly string[] = LEGACY_PLACEMENT): Promise<RunRef> {
+    // Where the chat works, exactly as `worktrees list` named it: its own worktree and new branch, an existing
+    // branch, or the folder itself. Anything else is not a placement and never reaches a launch.
+    const place = placementArgs(placement);
+    if (!place) throw new ClientGap(`Unsupported placement ${JSON.stringify(placement)}`);
     // The core resolves the workspace before validating the run destination
     // (autocode_run_destination.reserve); a symlinked folder such as macOS
     // /tmp must not make the two paths disagree (#1555).
@@ -172,8 +177,8 @@ export class RunController {
     // Creation flags stay off later actions, which use the run's saved flow.
     // This chat's own stage picks (`chat.start_args` of its stage list) come last, so they win over
     // a model flag in the settings' extra options as they win over the saved Stage models.
-    const args = [brief, "--in-place", "--no-chat", ...startArgs, ...settings.runOptions, ...stageArgs, "--workspace", runWorkspace, "--new-run-dir", runDir];
-    this.log.appendLine(`$ autocode ${summarize(brief)} --in-place --no-chat --new-run-dir ${runDir}`);
+    const args = [brief, ...place, "--no-chat", ...startArgs, ...settings.runOptions, ...stageArgs, "--workspace", runWorkspace, "--new-run-dir", runDir];
+    this.log.appendLine(`$ autocode ${summarize(brief)} ${place.join(" ")} --no-chat --new-run-dir ${runDir}`);
     created?.({ workspace: runWorkspace, runDir });
     const result = await this.mutating([{ workspace: runWorkspace, runDir }], () =>
       stream({ ...settings, cwd: runWorkspace }, args, {}, (chunk) => this.log.append(chunk)));

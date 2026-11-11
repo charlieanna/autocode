@@ -33,6 +33,34 @@ starts Full. A chat that has started keeps the flow it started with, so the
 chip shows only on a new chat. An AutoCode without run modes shows no chip and
 starts the full flow.
 
+### Where a chat works
+
+Each chat changes files on a branch of its own, so two chats never edit the same
+files. Before you send the first message, **Where this chat works** above the
+composer shows where the new chat will work; open it to choose:
+
+- **New worktree and branch** (the default): the chat talks with you in your
+  folder, then plans and builds in a worktree of its own under
+  `.autocode/worktrees/`, on a new `autocode/…` branch named from the task,
+  starting from your last commit. Your folder, your uncommitted edits and other
+  chats are not touched; review and merge the branch when it is done.
+- **Existing branch**: the same, on a local branch you pick, for example a
+  finished chat's branch to carry on. A branch that is checked out anywhere
+  (your folder included) or that another chat is about to use is greyed out with
+  the reason, so two chats never share a branch.
+- **This folder**: the chat changes your folder's files directly, on the branch
+  checked out there, as every chat did before. It shows a warning that your own
+  edits and other chats in the folder can conflict with it, naming the chats
+  working there now, and asks you to confirm when you send.
+
+Once the chat starts, its header always shows where it works (**Own worktree ·
+branch autocode/…** or **Your folder · branch main**), and **Show details** lists
+the worktree path, the branch and your folder. The choices come from
+`autocode worktrees list --json` and the header from the status view's
+`worktree` ([Worktrees for clients](task-run.md#worktrees-for-clients)); the
+extension passes the chosen place's own flags unchanged. An AutoCode without the
+list starts chats in your folder, as before.
+
 In the full flow, new sidebar chats enable joint planning and the core's `--spec-first` flow.
 The Requirements agent answers your first message, whatever it is, and talks
 with you until it understands what you want done. A greeting or an off-topic

@@ -20,10 +20,12 @@ the new run (``moved_to``): a status read or action on the old path is answered 
 One key on the run state, ``build_worktree``, written only here:
 
 - ``{"state": "planning"}``: started with ``--build-in-worktree`` (``request``); still in the checkout.
+  ``"branch"`` names an existing local branch to plan and build on (``--worktree-branch``) instead of a
+  new one; the worktree checks it out, and nothing removes that branch afterwards.
   A move saves where it goes (``moving_to``, ``left_out``) before it writes there, so a crashed move
   is finished, never started again in a second worktree.
 - ``{"state": "moved", "moved_to": {...}}``: the record left in the checkout.
-- ``{"state": "building", "moved_from": {...}, "branch": ..., "left_out": [...], "after_events": N}``: the
+- ``{"state": "building", "moved_from": {...}, "branch": ..., "existing_branch": bool, "left_out": [...], "after_events": N}``: the
   moved run; autocode_chat_history says once where it works and what it left out, after the person's
   N-th message (``after_events``, the messages before the move), or after the plan's approval in a run
   that moved then.
@@ -55,6 +57,7 @@ try:
     from . import autocode_run_status as run_status
     from . import autocode_util as util
     from . import autocode_workspaces as workspaces
+    from . import autocode_worktree_choice as worktree_choice
 except ImportError:
     import autocode_activity_log as activity_log
     import autocode_changeset_store as changeset_store
@@ -68,6 +71,7 @@ except ImportError:
     import autocode_run_status as run_status
     import autocode_util as util
     import autocode_workspaces as workspaces
+    import autocode_worktree_choice as worktree_choice
 
 KEY: Final = "build_worktree"
 PLANNING, MOVED, BUILDING = "planning", "moved", "building"
@@ -78,21 +82,32 @@ IN_PLACE_ONLY = ("launch_sources", "package_outside_at_launch")
 NAMED = 5
 
 
-def request(state: RunState, workspace) -> bool:
-    """Mark a new run to build in its own worktree once its plan is approved; False when it builds here.
+def request(state: RunState, workspace, branch: str | None = None) -> bool:
+    """Mark a new run to plan and build in its own worktree; False when it builds here.
 
     A folder AutoCode just made a project of, or a task worktree, is already the run's own, and a
-    checkout with no commit yet has nothing to start a worktree from: these build where they are."""
+    checkout with no commit yet has nothing to start a worktree from: these build where they are.
+    ``branch`` is an existing local branch to work on instead of a new one: ValueError says why it
+    cannot be (another worktree or chat has it, or there is no such branch, or no worktree here)."""
     workspace = Path(workspace)
     try:
-        if workspaces.metadata(workspace) or state.get("workspace_bootstrap"):
-            return False
-        if Path(workspaces.git(workspace, "rev-parse", "--show-toplevel")).resolve() != workspace.resolve():
-            return False
-        workspaces.git(workspace, "rev-parse", "--verify", "HEAD")  # a worktree starts from a commit
+        own = bool(workspaces.metadata(workspace) or state.get("workspace_bootstrap"))
+        if not own and Path(workspaces.git(workspace, "rev-parse", "--show-toplevel")).resolve() != workspace.resolve():
+            own = True
+        if not own:
+            workspaces.git(workspace, "rev-parse", "--verify", "HEAD")  # a worktree starts from a commit
     except (OSError, ValueError, json.JSONDecodeError):
+        own = True
+    if own:
+        if branch:
+            raise ValueError(
+                f"--worktree-branch {branch}: this chat cannot move to a worktree of its own from {workspace}; "
+                "start it from the top of a Git checkout with a commit"
+            )
         return False
-    state[KEY] = {"state": PLANNING}
+    if branch and (problem := worktree_choice.branch_problem(workspace, branch)):
+        raise ValueError(f"--worktree-branch {branch}: {problem}")
+    state[KEY] = {"state": PLANNING, **({"branch": branch} if branch else {})}
     return True
 
 
@@ -193,10 +208,16 @@ def _prepared(state: RunState, workspace: Path, run_dir: Path, persist) -> dict:
     except (OSError, ValueError, KeyError, json.JSONDecodeError):
         pass
     left_out = _left_out(workspace)
-    created = workspaces.create(workspace, state.get("task") or "task")
+    branch = record.get("branch") if isinstance(record.get("branch"), str) else None
+    if branch and (problem := worktree_choice.branch_problem(workspace, branch, run_dir)):
+        # Another worktree took the branch the person chose while this chat talked with them: two chats never
+        # share one. Nothing is changed; the same command plans and builds on it once it is free.
+        raise checkout_lock.CheckoutBusy(f"This chat waits to plan on {branch}: {problem} Nothing was changed.")
+    created = workspaces.create(workspace, state.get("task") or "task", branch=branch)
     tree = Path(created["workspace"])
     record = {
         "state": PLANNING,
+        **({"branch": branch} if branch else {}),
         "moving_to": {
             "workspace": str(tree),
             "run_dir": str(tree / ".autocode" / "runs" / run_dir.name),
@@ -235,6 +256,7 @@ def move(state: RunState, workspace, run_dir, persist) -> dict:
             "state": BUILDING,
             "moved_from": {"workspace": str(workspace), "run_dir": str(run_dir), "at": at},
             "branch": target["branch"],
+            "existing_branch": bool(record.get("branch")),
             "base_commit": target["base_commit"],
             "left_out": record.get("left_out") or [],
         }
@@ -272,9 +294,14 @@ def notice(state: RunState) -> str | None:
     origin = (record.get("moved_from") or {}).get("workspace") or "your folder"
     branch = record.get("branch") or "its own branch"
     work = "plan and build" if "after_events" in record else "build"
+    whose, start = (
+        ("your branch", f"the last commit on {branch}")
+        if record.get("existing_branch")
+        else ("its own branch", "your last commit")
+    )
     text = (
-        f"I {work} this on its own branch, {branch}, in a separate copy of {origin}, so your folder and "
-        "other chats there are not changed while I work. It starts from your last commit; uncommitted "
+        f"I {work} this on {whose}, {branch}, in a separate copy of {origin}, so your folder and "
+        f"other chats there are not changed while I work. It starts from {start}; uncommitted "
         "changes and ignored files (such as installed dependencies or local settings) are not part of it."
     )
     left = [str(path) for path in record.get("left_out") or []]

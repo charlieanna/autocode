@@ -125,7 +125,9 @@ def metadata(workspace):
     return data
 
 
-def create(project, task):
+def create(project, task, branch=None):
+    """A task worktree of ``project`` on a new ``autocode/<task>-<id>`` branch from HEAD, or on the existing
+    local ``branch`` from its last commit. AutoCode never removes a branch it did not create (``branch_owned``)."""
     project = Path(project).resolve()
     previous = metadata(project)
     if previous:
@@ -133,8 +135,10 @@ def create(project, task):
     if Path(git(project, "rev-parse", "--show-toplevel")).resolve() != project:
         raise ValueError("Select the root of a Git checkout")
     try:
-        base = git(project, "rev-parse", "--verify", "HEAD")
+        base = git(project, "rev-parse", "--verify", f"refs/heads/{branch}^{{commit}}" if branch else "HEAD")
     except ValueError as error:
+        if branch:
+            raise ValueError(f"There is no local branch {branch} in {project}") from error
         raise ValueError(
             "Create an initial Git commit before starting an isolated task: "
             f"git -C {project} commit --allow-empty -m 'Start' (autocode doctor checks this too)"
@@ -147,9 +151,13 @@ def create(project, task):
     keep_out_of_git(project)
     parent.mkdir(parents=True, exist_ok=True)
     workspace = parent / name
-    branch = "autocode/" + name
+    owned = not branch
     with creating(project):
-        git(project, "worktree", "add", "-b", branch, str(workspace), base)
+        if owned:
+            branch = "autocode/" + name
+            git(project, "worktree", "add", "-b", branch, str(workspace), base)
+        else:
+            git(project, "worktree", "add", str(workspace), branch)
     # kind 'task': this worktree and its branch belong to one task (autocode_worktrees
     # delivers to and cleans up only these; worktrees an archived `autocode program` made have no kind).
     data = {
@@ -159,6 +167,7 @@ def create(project, task):
         "workspace": str(workspace),
         "branch": branch,
         "base_commit": base,
+        **({} if owned else {"branch_owned": False}),
     }
     artifact = keep_out_of_git(workspace) / "task-workspace.json"
     artifact.write_text(json.dumps(data, indent=2) + "\n")
@@ -185,7 +194,8 @@ def discard_unused(data) -> bool:
             return False
         project = Path(data["project_workspace"])
         git(project, "worktree", "remove", "--force", str(tree))
-        git(project, "branch", "-D", data["branch"])
+        if data.get("branch_owned") is not False:  # an existing branch the person chose stays
+            git(project, "branch", "-D", data["branch"])
     except (OSError, ValueError, subprocess.SubprocessError):
         return False
     return True

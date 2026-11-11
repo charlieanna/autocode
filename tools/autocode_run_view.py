@@ -90,6 +90,7 @@ try:
     from . import autocode_validation_exhaustion_recovery as validation_recovery
     from . import autocode_verification_view as verification_view
     from . import autocode_workflows as workflows
+    from . import autocode_worktree_choice as worktree_choice
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
     import autocode_accepted_source as accepted_source
@@ -151,6 +152,7 @@ except ImportError:
     import autocode_validation_exhaustion_recovery as validation_recovery
     import autocode_verification_view as verification_view
     import autocode_workflows as workflows
+    import autocode_worktree_choice as worktree_choice
 
 SCHEMA = 2
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
@@ -267,6 +269,8 @@ def view(
         # effective location is what named commands carry.
         "workspace": str(workspace) if workspace is not None else state.get("workspace"),
         "run_dir": str(run_dir) if run_dir is not None else None,
+        # Where this chat changes files: its own worktree and branch, or the person's folder (autocode_worktree_choice).
+        "worktree": worktree_choice.where(state, workspace),
         "controller": deepcopy(controller),
         "observation": deepcopy(observation),
         "execution": worker_view.execution(
