@@ -11,9 +11,11 @@ from pathlib import Path
 try:
     from . import autocode_chat_task_messages as task_messages
     from . import autocode_client_actions as actions
+    from . import autocode_folder_checkouts as folder_checkouts
 except ImportError:
     import autocode_chat_task_messages as task_messages
     import autocode_client_actions as actions
+    import autocode_folder_checkouts as folder_checkouts
 
 
 def environment(workspace, selected=None):
@@ -461,30 +463,13 @@ def add_source(history, argument):
     )
 
 
-LAUNCH_DEPTH = 2  # the launch folder's children and grandchildren: a folder of checkouts, or of groups of them
-LAUNCH_BUDGET = 2000  # directories looked at before giving up: the core's discovery does the real, deeper search
-SKIPPED = {".git", ".autocode", ".autocode-ui", "node_modules", "vendor", ".venv", "venv"}
+LAUNCH_DEPTH = folder_checkouts.DEPTH
+LAUNCH_BUDGET = folder_checkouts.BUDGET
 
 
 def checkouts_in(folder):
     """The Git checkouts in the first levels of a folder that is not one itself, nearest first."""
-    found, level, seen = [], [Path(folder)], 0
-    for _ in range(LAUNCH_DEPTH):
-        below = []
-        for directory in level:
-            try:
-                children = sorted(directory.iterdir())
-            except OSError:
-                continue
-            for child in children:
-                seen += 1
-                if seen > LAUNCH_BUDGET:
-                    return found
-                if child.name in SKIPPED or child.is_symlink() or not child.is_dir():
-                    continue
-                (found if (child / ".git").exists() else below).append(child)
-        level = below
-    return found
+    return folder_checkouts.found(folder, depth=LAUNCH_DEPTH, budget=LAUNCH_BUDGET)
 
 
 def include_launch_folder(history):
@@ -500,7 +485,7 @@ def include_launch_folder(history):
     found = checkouts_in(folder)
     if not found:
         return None
-    names = ", ".join(path.name for path in found[:3]) + (f" and {len(found) - 3} more" if len(found) > 3 else "")
+    names = folder_checkouts.names(found)
     try:
         listing = history.read(["registry", "roots", "list", "--json"])
         roots = [Path(row["path"]) for row in listing.get("roots", []) if isinstance(row, dict) and row.get("path")]

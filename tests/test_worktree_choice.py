@@ -164,12 +164,49 @@ class OptionsTests(unittest.TestCase):
     def test_a_folder_that_is_not_a_checkout_s_top_offers_only_itself(self):
         root = checkout(self)
         (root / "sub").mkdir()
-        for folder in (root / "sub", root.parent):
+        (root / "sub" / "nested").mkdir()
+        (root / "sub" / "nested" / ".git").mkdir()  # inside a checkout: not a folder of checkouts
+        empty = root.parent / "empty"
+        empty.mkdir()
+        for folder in (root / "sub", root.parent, empty):
             with self.subTest(folder=folder):
                 listing = choice.options(folder)
                 self.assertEqual(["folder"], [place["id"] for place in listing["places"]])
                 self.assertEqual(["--build-in-worktree"], listing["places"][0]["start_args"])
-                self.assertIsNone(listing["places"][0]["warning"])
+                warning = listing["places"][0]["warning"]
+                if folder == root.parent:
+                    self.assertIsNotNone(warning)
+                else:
+                    self.assertIsNone(warning)
+
+    def test_a_folder_of_checkouts_warns_that_a_chat_there_changes_none_of_them(self):
+        """#2066: a parent folder of repositories bootstraps an empty project; the person sees it first."""
+        root = checkout(self)
+        parent = root.parent
+        history = parent / "group" / "history"
+        history.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(history)], check=True)
+        (parent / "notes").mkdir()
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = subcommands.dispatch(["worktrees", "list", "--workspace", str(parent), "--json"])
+        self.assertEqual(0, code)
+        listing = json.loads(out.getvalue())
+        self.assertEqual("folder", listing["default"])
+        [place] = listing["places"]
+        self.assertEqual(["--build-in-worktree"], place["start_args"])
+        self.assertEqual(
+            f"{parent} is not a Git checkout, but it holds the checkouts project, history. A chat here works "
+            "in a new, empty private project, not in any of them. To change one of them, open that checkout "
+            "and start the chat there.",
+            place["warning"],
+        )
+        self.assertIn("Warning: " + place["warning"], choice.text(listing))
+        only = parent / "group"
+        self.assertIn(
+            "holds the checkout history. A chat here works in a new, empty private project, not in it. To change it,",
+            choice.options(only)["places"][0]["warning"],
+        )
 
     def test_autocode_worktrees_list_prints_the_listing(self):
         root = checkout(self)

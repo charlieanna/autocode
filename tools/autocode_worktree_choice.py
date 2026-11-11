@@ -34,8 +34,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_folder_checkouts as folder_checkouts
     from . import autocode_util as util
 except ImportError:
+    import autocode_folder_checkouts as folder_checkouts
     import autocode_util as util
 
 SCHEMA = 1
@@ -154,8 +156,10 @@ def options(folder) -> dict:
     folder = Path(folder).resolve()
     try:
         root = Path(util.git(folder, "rev-parse", "--show-toplevel", timeout=30)).resolve()
-        util.git(folder, "rev-parse", "--verify", "HEAD", timeout=30)
-        checkout = root == folder
+    except (OSError, ValueError):
+        root = None
+    try:
+        checkout = root == folder and bool(util.git(folder, "rev-parse", "--verify", "HEAD", timeout=30))
     except (OSError, ValueError):
         checkout = False
     if not checkout:
@@ -166,7 +170,7 @@ def options(folder) -> dict:
             "label": "This folder",
             "does": "This folder is not the top of a Git checkout with a commit, so the chat works here.",
             "start_args": [WORKTREE_FLAG],
-            "warning": None,
+            "warning": None if root is not None else _parent_folder_warning(folder),
         }
         return {
             "schema": SCHEMA,
@@ -242,6 +246,24 @@ def options(folder) -> dict:
         "places": [new_branch, branch, in_folder],
         "active": active,
     }
+
+
+def _parent_folder_warning(folder: Path) -> str | None:
+    """What a chat in a folder outside Git that holds Git checkouts does not do (#2066); None when it holds none.
+
+    The chat works in a new, empty private project (autocode_workspaces.bootstrap), so a person who opened
+    their folder of repositories to change one of them would otherwise find, after planning, that nothing
+    of theirs was read or changed."""
+    found = folder_checkouts.found(folder)
+    if not found:
+        return None
+    one = len(found) == 1
+    return (
+        f"{folder} is not a Git checkout, but it holds {'the checkout' if one else 'the checkouts'} "
+        f"{folder_checkouts.names(found)}. A chat here works in a new, empty private project, not in "
+        f"{'it' if one else 'any of them'}. To change {'it' if one else 'one of them'}, open that checkout "
+        "and start the chat there."
+    )
 
 
 def branch_problem(project, branch: str, run_dir=None) -> str | None:
