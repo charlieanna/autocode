@@ -4,6 +4,7 @@ import ast
 import contextlib
 import copy
 import io
+import itertools
 import unittest
 from pathlib import Path
 
@@ -178,13 +179,16 @@ class RecoveryViewTests(unittest.TestCase):
             "old route names": {"settings": {"roles": {"astra": {"model": "m"}, "terra": {"model": "m"}}}},
             "retired stage": {"next_stage": "investigate_bug"},
         }
-        for name, fields in cases.items():
-            with self.subTest(name):
-                view = run_view.view(self.state("PAUSED_STALE_VALIDATION", **fields))
+        # Ankur, 2026-11-11, again: the same chat while the earlier runtime's worker still ran it read
+        # 'needs "resume" at RUNNING names no next_command'; this runtime cannot drive it either.
+        for (name, fields), status in itertools.product(cases.items(), ("PAUSED_STALE_VALIDATION", "RUNNING")):
+            with self.subTest(name, status=status):
+                view = run_view.view(self.state(status, **fields))
                 self.assertTrue(view["needs"]["new_run_required"])
                 card = view["recovery"]
                 self.assertEqual(("stopped", "This chat can't continue"), (card["category"], card["title"]))
-                self.assertEqual(view["needs"]["reason"], card["what_happened"])
+                self.assertTrue(card["what_happened"].startswith(view["needs"]["reason"]))
+                self.assertEqual(status == "RUNNING", "still running" in card["what_happened"])
                 self.assertIn("start a new task", card["what_happened"])
                 self.assertEqual(["inspect", "new_conversation"], [row["kind"] for row in card["actions"]])
         # A component run's immutable caller binding keeps its own fresh-run card.
