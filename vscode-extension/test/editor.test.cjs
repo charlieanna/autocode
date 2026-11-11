@@ -1595,6 +1595,29 @@ test('the run header unfolds its details and keeps them open across polling, tab
   assert.equal(ui.webviewState.headerOpen, false);
 });
 
+test('the run header shows the working stage and what it does, and its details the run accounting, as /details does', async (t) => {
+  const ui = await openChat(t, headerView({
+    pipeline: [{ job: 'requirements', label: 'Requirements', state: 'working', model: null, reasoning_effort: null, spent_usd: null, reason: null }],
+    cost: { spent_usd: 0, running_usd: 0.04, cap_usd: null, complete: false, unpriced_stages: 0, breakdown: {} },
+    usage: { accounting: { complete: true, active_attempts: 1,
+      tokens: { input_tokens: { value: null, known: 9000, complete: false }, output_tokens: { value: null, known: 400, complete: false } },
+      attempts: [{ stage: 'requirements_gather', job: 'Requirements', active: true, started_at: new Date(Date.now() - 75_000).toISOString(),
+        launch_route: { model: 'claude-sonnet-5-5', reasoning_effort: 'medium', provider: 'anthropic' },
+        attributed_tokens: { input_tokens: { value: null, known: 9000, complete: false }, output_tokens: { value: null, known: 400, complete: false } } }] } },
+    chat: { ...chatView().chat, now: [{ agent: 'Requirements', text: 'reading the issue list' }] },
+  }));
+  // Visible without opening anything: the working stage's model, level, time, tokens, spend and doing.
+  assert.match(ui.document.querySelector('#header-stage').textContent,
+    /^Requirements working · claude-sonnet-5-5 · medium · 1m1\ds · 9\.4k\+ tokens · \$0\.04 · reading the issue list$/);
+  ui.document.querySelector('#header-toggle').click();
+  const details = ui.document.querySelector('#header-details');
+  assert.deepEqual([...details.querySelectorAll('.detail-section')].map((node) => node.dataset.section), ['where', 'pipeline', 'wrong', 'spend', 'usage']);
+  const usage = [...details.querySelectorAll('[data-section="usage"] .detail-line')].map((node) => [node.className, node.textContent]);
+  assert.deepEqual(usage.slice(0, 2), [['detail-line', 'Accounted so far: $0 (1 running)'], ['detail-line sub', 'Running stage so far: $0.04']]);
+  assert.ok(usage.some(([cls, line]) => cls === 'detail-line sub sub2' && line === 'claude-sonnet-5-5 · medium · anthropic'), 'an attempt\'s route sits under it');
+  assert.equal(ui.document.querySelector('#header-stage').hidden, false);
+});
+
 test('a new chat with no run shows no run header', async (t) => {
   const ui = await openChat(t, headerView(), false);
   assert.equal(ui.document.querySelector('#run-header').hidden, true);
