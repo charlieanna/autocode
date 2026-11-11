@@ -1156,7 +1156,7 @@ async function openChat(t, initial, selected = run, options = {}) {
     // Where a new chat works: unless the case supplies a list, an AutoCode without one answers, so the
     // chat starts in the folder as it did before and no external `autocode worktrees` subprocess is raced.
     const worktrees = options.worktrees || (() => ({ ...ok, code: 2, stdout: '', stderr: 'unknown command' }));
-    t.mock.method(cli, 'invoke', async (settings, argv, ...rest) => (argv[0] === 'stages' ? stages(argv, settings)
+    t.mock.method(cli, 'invoke', async (settings, argv, ...rest) => (argv[0] === 'stages' ? stages(argv, settings, rest[1])
       : argv[0] === 'worktrees' ? worktrees(argv, settings) : original(settings, argv, ...rest)));
   }
   t.mock.method(chatController, 'status', async (target) =>
@@ -1690,6 +1690,19 @@ test('a new chat starts with the run mode picked from the core list and passes i
     'the chip style must not override hidden');
 });
 
+/**
+ * What a row of This chat's models shows, in the words the core's route uses: the model and level
+ * from its dropdowns and, beside them, only where they come from. The full words are its tooltip.
+ */
+function shownRoute(row) {
+  const now = row.querySelector('.now');
+  const model = row.querySelector('select.model');
+  if (!model) return now.textContent;
+  const shown = `${model.value} at ${row.querySelector('select.level').value} (${now.textContent})`;
+  assert.equal(now.title, shown, 'the tooltip names the same route');
+  return shown;
+}
+
 /** `autocode stages list --json` for a new chat, trimmed to the Builder and Tester, with any picks it was given. */
 function chatStageView(argv) {
   const base = ['stages', 'list', '--json', '--backend', 'claude'];
@@ -1724,7 +1737,7 @@ test('a new chat shows the stages it will run and changes one for itself alone b
   assert.equal(section.hidden, false, 'the stages are there before the first message');
   assert.deepEqual(calls[0], ['stages', 'list', '--json', '--backend', 'claude'], 'the list new chats here run on');
   const rows = [...section.querySelectorAll('.chat-model')];
-  assert.deepEqual(rows.map((row) => row.querySelector('.now').textContent),
+  assert.deepEqual(rows.map(shownRoute),
     ['haiku at medium (default)', 'opus at high (Stage models)']);
   const builder = section.querySelector('[data-stage="builder"] select.model');
   assert.equal(builder.value, 'haiku');
@@ -1734,7 +1747,7 @@ test('a new chat shows the stages it will run and changes one for itself alone b
     'the webview names a pick, never a command');
   assert.deepEqual(calls.at(-1), ['stages', 'list', '--json', '--backend', 'claude', '--chat-stage', 'builder', 'sonnet', 'medium']);
   assert.ok(calls.every((argv) => argv[1] === 'list'), 'nothing is saved to Stage models');
-  assert.equal(section.querySelector('[data-stage="builder"] .now').textContent, 'sonnet at medium (this chat)');
+  assert.equal(shownRoute(section.querySelector('[data-stage="builder"]')), 'sonnet at medium (this chat)');
   assert.match(ui.document.querySelector('#chat-models-summary').textContent, /Claude Code · 1 changed for this chat/);
   assert.equal(section.querySelector('[data-stage="tester"] select.model option[value="sonnet"]').disabled, true,
     'the Tester is judged against this chat\'s Builder');
@@ -1786,7 +1799,7 @@ test('the chat box Models chip changes a new chat\'s model, not only its level, 
     'only the stage\'s own chat_set, filled with the pick');
   assert.ok(calls.every((argv) => argv[1] === 'list'), 'nothing is saved to Stage models');
   assert.equal(ui.document.getElementById('models-name').textContent, 'Models · 1 changed');
-  assert.equal(ui.document.querySelector('#chat-models [data-stage="builder"] .now').textContent, 'sonnet at high (this chat)');
+  assert.equal(shownRoute(ui.document.querySelector('#chat-models [data-stage="builder"]')), 'sonnet at high (this chat)');
   const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
   ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
   assert.deepEqual(start.mock.calls[0].arguments[4], ['--builder-model', 'sonnet', '--builder-reasoning-effort', 'high']);
@@ -1846,6 +1859,29 @@ test('a started chat changes a stage\'s model from the chat box between stages, 
   assert.equal(chip.title, working, 'the core says why not');
   await ui.poll({ ...initial, stage_models: null });
   assert.equal(chip.hidden, true, 'an older core offers nothing to change');
+});
+
+test('a started chat\'s Models chip says it is reading the chat\'s models, and comes back when the pick is cancelled', async (t) => {
+  const list = ['stages', 'list', '--run-dir', run.runDir, '--json'];
+  const initial = { ...chatView(), stage_models: { changeable: true, reason: null, next_command: list } };
+  const waiting = [];
+  const timeouts = [];
+  t.mock.method(cli, 'invoke', async (settings, argv, env, timeout) => {
+    // Only the chat's own list waits; anything else (the new-chat list) answers an empty one.
+    if (!argv.includes('--run-dir')) return { ...ok, stdout: JSON.stringify({ version: 1, stages: [] }) };
+    timeouts.push(timeout);
+    return new Promise((resolve) => { waiting.push(() => resolve(runStageView())); });
+  });
+  const ui = await openChat(t, initial, run);
+  const chip = ui.document.getElementById('models-picker');
+  chip.click(); await flush(); await flush();
+  assert.equal(waiting.length, 1);
+  assert.equal(ui.document.getElementById('models-name').textContent, 'Models · Reading models…', 'not a chip that seems to do nothing');
+  assert.equal(chip.disabled, true, 'a second click does not read the list twice');
+  assert.deepEqual(timeouts, [60000]);
+  waiting.shift()(); await flush(); await flush(); await flush(); await flush();
+  assert.equal(ui.document.getElementById('models-name').textContent, 'Models', 'a cancelled pick gives the chip back');
+  assert.equal(chip.disabled, false);
 });
 
 /** `autocode worktrees list --json`: a new branch by default, two existing branches (one taken), and the folder with its warning. */
@@ -1959,12 +1995,70 @@ test('a new chat drops a pick back to Stage models and starts with none', async 
   const picked = calls.length;
   ui.document.querySelector('[data-stage="tester"] button.link').click(); await flush(); await flush();
   assert.equal(calls.length, picked, 'without its pick the chat shows the list every new chat shares, read a moment ago');
-  assert.equal(ui.document.querySelector('[data-stage="tester"] .now').textContent, 'opus at high (Stage models)');
+  assert.equal(shownRoute(ui.document.querySelector('[data-stage="tester"]')), 'opus at high (Stage models)');
   const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
   const before = calls.length;
   ui.type('Build it'); ui.submit(); await flush(); await flush();
   assert.equal(calls.length, before, 'without a pick nothing is read again');
   assert.deepEqual(start.mock.calls[0].arguments[4], []);
+});
+
+test('a new chat keeps a model pick in its row, marked as being checked, until the core answers', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  const waiting = [];
+  const timeouts = [];
+  // The pick's own list is slow (OpenCode lists its accounts' models): it answers only when released.
+  const ui = await openChat(t, null, false, { stages: (argv, _settings, timeout) => {
+    timeouts.push(timeout);
+    if (!argv.includes('--chat-stage')) return chatStageView(argv);
+    return new Promise((resolve) => { waiting.push(() => resolve(chatStageView(argv))); });
+  } });
+  ui.chat.show(); await flush(); await flush();
+  const row = () => ui.document.querySelector('#chat-models [data-stage="builder"]');
+  const chip = ui.document.getElementById('models-picker');
+  row().querySelector('select.model').value = 'sonnet';
+  row().querySelector('select.model').dispatchEvent(new ui.window.Event('change')); await flush(); await flush();
+  assert.equal(waiting.length, 1, 'the core is checking the pick');
+  assert.equal(row().querySelector('select.model').value, 'sonnet', 'the dropdown keeps the pick, never the old model');
+  assert.equal(row().querySelector('select.level').value, 'medium');
+  assert.equal(row().querySelector('.now').textContent, 'Checking…');
+  assert.equal(row().querySelector('.now').getAttribute('role'), 'status');
+  assert.ok(row().classList.contains('checking'));
+  assert.equal(ui.document.getElementById('models-name').textContent, 'Models · checking…');
+  assert.equal(chip.disabled, true);
+  assert.ok(timeouts.length && timeouts.every((timeout) => timeout === 60000), 'a wedged list read cannot grey the box out for good');
+  waiting.shift()(); await flush(); await flush(); await flush();
+  assert.equal(shownRoute(row()), 'sonnet at medium (this chat)');
+  assert.ok(!row().classList.contains('checking'));
+  assert.equal(row().querySelector('select.model').disabled, false, 'the box answers again');
+  assert.equal(ui.document.getElementById('models-name').textContent, 'Models · 1 changed');
+});
+
+test('a new chat whose pick the core refuses goes back to what it runs and says why', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  const ui = await openChat(t, null, false, { stages: (argv) => (argv.includes('--chat-stage')
+    ? { ...ok, code: 2, stdout: '', stderr: 'the Tester runs sonnet' } : chatStageView(argv)) });
+  ui.chat.show(); await flush(); await flush();
+  const row = () => ui.document.querySelector('#chat-models [data-stage="builder"]');
+  row().querySelector('select.model').value = 'sonnet';
+  row().querySelector('select.model').dispatchEvent(new ui.window.Event('change'));
+  for (let i = 0; i < 5; i += 1) await flush();
+  assert.equal(shownRoute(row()), 'haiku at medium (default)');
+  assert.equal(row().querySelector('select.model').disabled, false);
+  assert.match(ui.document.querySelector('#chat-models .chat-models-error').textContent, /the Tester runs sonnet/);
+  assert.equal(ui.document.getElementById('models-name').textContent, 'Models');
+});
+
+test('a row of This chat\'s models names its model once: in the dropdown, with only where it comes from beside it', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  const ui = await openChat(t, null, false, { stages: chatStageView });
+  ui.chat.show(); await flush(); await flush();
+  const rows = [...ui.document.querySelectorAll('#chat-models .chat-model')];
+  assert.deepEqual(rows.map((row) => row.querySelector('.now').textContent), ['default', 'Stage models']);
+  for (const row of rows) {
+    const model = row.querySelector('select.model').value;
+    assert.doesNotMatch(row.querySelector('.head').textContent, new RegExp(model), 'the model is not repeated beside its dropdown');
+  }
 });
 
 /** `chatStageView` with the Stage models choices in `chosen` (stage ID to model and level). */
@@ -1975,7 +2069,7 @@ function withChosen(argv, chosen) {
   return { ...answer, stdout: JSON.stringify(parsed) };
 }
 
-const nowText = (ui) => [...ui.document.querySelectorAll('#chat-models .chat-model')].map((row) => row.querySelector('.now').textContent);
+const nowText = (ui) => [...ui.document.querySelectorAll('#chat-models .chat-model')].map(shownRoute);
 
 test('every new chat after the first shows its models at once, from the list the first one read', async (t) => {
   host.config.set('extraOptions', ['--engine', 'claude']);
@@ -4968,21 +5062,16 @@ test('a finished run with no follow-up offer says so instead of pointing at an a
   assert.equal(ui.document.getElementById('send-hint').textContent, 'This run is finished. Start a new chat with +.');
 });
 
-test('a new chat welcomes with what AutoCode does, and an example only fills the message box', async (t) => {
+test('a new chat welcomes with one short line and no example list', async (t) => {
   const ui = await openChat(t, null, false);
   const welcome = ui.document.getElementById('welcome');
   assert.ok(welcome, 'a new chat shows the welcome');
-  assert.match(welcome.textContent, /plans the change for your approval, builds it, and tests it independently/);
-  assert.match(welcome.textContent, /question about this code is answered without changing anything/);
+  assert.equal(welcome.querySelectorAll('p').length, 1, 'one line, not two paragraphs');
+  assert.match(welcome.textContent, /Describe a change, or ask about this code\. Changes are planned for your approval, then built and tested\./);
+  assert.doesNotMatch(welcome.textContent, /Try asking/);
+  assert.equal(welcome.querySelector('button'), null, 'no example requests to click');
   assert.equal(welcome.querySelector('.kinds'), null, 'every task takes one path, so there is no job picker');
-  const examples = [...welcome.querySelectorAll('button.example')];
-  assert.equal(examples.length, 3);
-  const launched = t.mock.method(cli, 'stream', async () => ok);
-  examples[1].click();
-  assert.equal(ui.document.getElementById('message').value, 'Add a --json option to the export command');
-  assert.equal(ui.document.getElementById('send-message').disabled, false);
-  await flush();
-  assert.equal(launched.mock.callCount(), 0, 'choosing an example starts nothing');
+  assert.equal(ui.document.getElementById('message').value, '');
   assert.equal(ui.document.getElementById('stages').hidden, true);
   assert.equal(ui.document.getElementById('run-cost').textContent, '');
 });

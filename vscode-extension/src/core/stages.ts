@@ -155,6 +155,17 @@ export function chatRoute(stage: Stage): string {
   return currentRoute(stage).replace(/\(your choice\)$/, "(Stage models)");
 }
 
+/**
+ * Where a new chat's stage takes its model from, without the model: what sits beside a dropdown
+ * that already shows the model and level. Empty when nothing is chosen until the chat starts.
+ */
+export function chatSource(stage: Stage): string {
+  if (stage.chat?.model) return "this chat";
+  if (stage.chosen?.model) return "Stage models";
+  if (stage.default.model && !stage.default.offered) return "";
+  return "default";
+}
+
 /** What the stage runs now, in words: the person's choice, else its default. */
 export function currentRoute(stage: Stage): string {
   if (stage.chosen?.model) return `${stage.chosen.model} at ${stage.chosen.effort ?? "its own default level"} (your choice)`;

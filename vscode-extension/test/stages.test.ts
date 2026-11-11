@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { backendArgs, chatRoute, currentRoute, fillChatSet, fillSet, readStages } from "../src/core/stages";
+import { backendArgs, chatRoute, chatSource, currentRoute, fillChatSet, fillSet, readStages } from "../src/core/stages";
 
 const OPUS = "claude-opus-5-5";
 const set = ["stages", "set", "terra", "--backend", "claude", "--json", "--model", "MODEL", "--effort", "EFFORT"];
@@ -79,6 +79,11 @@ test("a new chat's list names its picks, the command for each and the flags its 
   // Without a pick a stage reads as every new chat runs it.
   const [plain] = readStages(view({ chosen: { model: OPUS, effort: "high" } })).stages;
   assert.equal(chatRoute(plain!), `${OPUS} at high (Stage models)`);
+  // Beside a dropdown that already shows the model: only where it comes from.
+  assert.equal(chatSource(builder!), "this chat");
+  assert.equal(chatSource(plain!), "Stage models");
+  assert.equal(chatSource(readStages(view()).stages[0]!), "default");
+  assert.equal(chatSource(readStages(view({ default: { model: "x", offered: false } })).stages[0]!), "", "nothing chosen until the chat starts");
   assert.throws(() => fillChatSet(plain!, "claude-haiku-4-5-20251001", "low"), /update AutoCode/, "an older AutoCode names no pick");
   // Only a stage flag and its value reach a start, and only a new chat's own list is read.
   for (const start_args of [["--max-cost-usd", "0"], ["--terra-model"], ["--terra-model", "--resume"], "--terra-model x"]) {

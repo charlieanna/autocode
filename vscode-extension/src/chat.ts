@@ -14,7 +14,7 @@ import { transitionNotice, waitsForPerson } from "./notify";
 import { runTotal, sessionTotal, totalText } from "./core/meter";
 import { applyEngine, engineOf, ENGINES, readSettings, type Engine } from "./settings";
 import { invoke, tail } from "./core/cli";
-import { chatRoute, fillChatSet, fillSet, readStages, runListCommand, runRoute, type StageView } from "./core/stages";
+import { chatRoute, chatSource, fillChatSet, fillSet, readStages, runListCommand, runRoute, type StageView } from "./core/stages";
 import { StageListCache } from "./core/stage-cache";
 import { inFolder, newChatCall, pickStageModel } from "./stages";
 import { chosenPlacement, LEGACY_PLACEMENT, readWorktrees, type PlaceChoice, type WorktreeList } from "./core/worktrees";
@@ -82,6 +82,10 @@ interface ChatTab {
   stages?: StageView;
   stagesError: string;
   stagesBusy: boolean;
+  /** The pick the core is checking now (`chat_set`/`chat_reset`), shown in its row until the list answers. */
+  stagesPick?: { stage: string; model?: string; effort?: string };
+  /** A started chat's Models chip while it reads the chat's list or sends a change: what it is doing. */
+  modelsBusy?: string;
   /** A chat that has not started: where it may work (`worktrees list --json`), and the person's pick. */
   places?: WorktreeList;
   placesError: string;
@@ -359,23 +363,33 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     }
     const run = tab.run;
     const list = runListCommand(tab.status?.stage_models?.next_command);
-    if (!list || !tab.status?.stage_models?.changeable || this.busy.has(tab.key)) return;
+    if (!list || !tab.status?.stage_models?.changeable || this.busy.has(tab.key) || tab.modelsBusy) return;
     const settings = { ...readSettings(), cwd: run.workspace };
     tab.error = "";
+    // Reading the list takes seconds on some backends: the chip says so instead of seeming to do nothing.
+    tab.modelsBusy = "Reading models…";
+    this.post();
     try {
-      const listed = await invoke(settings, list);
+      const listed = await invoke(settings, list, {}, STAGES_TIMEOUT_MS);
       if (listed.code !== 0) throw new Error(tail(listed));
       const view = readStages(listed.stdout);
       if (!view.changeable) throw new Error(view.reason ?? "This chat's models cannot change now.");
+      tab.modelsBusy = "Choosing…";
+      this.post();
       const pick = await pickStageModel(view, runRoute, (stage) => stage.chosen ?? stage.default, "for this chat");
       if (!pick || tab.run !== run) return;
-      const result = await invoke(settings, fillSet(pick.stage, pick.model, pick.effort));
+      tab.modelsBusy = "Changing…";
+      this.post();
+      const result = await invoke(settings, fillSet(pick.stage, pick.model, pick.effort), {}, STAGES_TIMEOUT_MS);
       if (result.code !== 0) throw new Error(tail(result));
       void vscode.window.showInformationMessage(`This chat runs the ${pick.stage.label} on ${pick.model} at ${pick.effort} from its next stage.`);
     } catch (error) {
       tab.error = messageOf(error);
+    } finally {
+      // A cancelled pick returns early: the chip still comes back.
+      tab.modelsBusy = undefined;
+      this.post();
     }
-    this.post();
     await this.refresh();
   }
 
@@ -488,7 +502,17 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       this.post();
       return;
     }
-    if (command) await this.loadChatStages(tab, command);
+    if (!command) return;
+    // The list takes seconds on some backends (OpenCode lists its accounts' models): keep the pick
+    // in its row, marked as being checked, rather than the old model under a greyed-out dropdown.
+    tab.stagesPick = message.type === "chat_stage_reset" ? { stage: stage.id }
+      : { stage: stage.id, model: String(message.model), effort: String(message.effort) };
+    try {
+      await this.loadChatStages(tab, command);
+    } finally {
+      tab.stagesPick = undefined;
+      this.post();
+    }
   }
 
   /** Every open run's accounted total added up, shown only when two or more chats hold runs. */
@@ -993,11 +1017,17 @@ function chatPlaceFor(tab: ChatTab) {
   };
 }
 
+/**
+ * A stage list lists the backend's models: seconds on OpenCode, but a wedged CLI must not leave
+ * This chat's models greyed out for good. After this the read fails, says so, and can be tried again.
+ */
+const STAGES_TIMEOUT_MS = 60_000;
+
 /** A new chat's stage list: `command` (one the list named) or the plain list, in `cwd` or the window's folder. */
 async function readChatStages(command: string[] | undefined, cwd?: string): Promise<StageView> {
   const settings = readSettings();
   const argv = command ?? newChatCall().argv;
-  const result = await invoke(cwd ? { ...settings, cwd } : inFolder(settings), argv);
+  const result = await invoke(cwd ? { ...settings, cwd } : inFolder(settings), argv, {}, STAGES_TIMEOUT_MS);
   if (result.code !== 0) throw new Error(tail(result));
   return readStages(result.stdout);
 }
@@ -1006,7 +1036,7 @@ async function readChatStages(command: string[] | undefined, cwd?: string): Prom
 type NewChatList = ReturnType<typeof newChatCall>;
 
 async function readListText(list: NewChatList): Promise<string> {
-  const result = await invoke(list.settings, list.argv);
+  const result = await invoke(list.settings, list.argv, {}, STAGES_TIMEOUT_MS);
   if (result.code !== 0) throw new Error(tail(result));
   return result.stdout;
 }
@@ -1026,9 +1056,13 @@ function chatStagesFor(tab: ChatTab) {
     // An AutoCode without per-chat picks still lists the stages; it only offers no change.
     changeable: Boolean(view?.chat),
     stages: (view?.stages ?? []).map((stage) => {
-      const route = stage.chat ?? stage.chosen ?? (stage.default.offered ? stage.default : null);
+      const pick = tab.stagesPick?.stage === stage.id ? tab.stagesPick : undefined;
+      // A reset being checked shows what the stage falls back to; a pick shows the pick.
+      const route = pick?.model ? { model: pick.model, effort: pick.effort ?? null }
+        : (pick ? null : stage.chat) ?? stage.chosen ?? (stage.default.offered ? stage.default : null);
       return {
-        id: stage.id, label: stage.label, does: stage.does, now: chatRoute(stage), picked: Boolean(stage.chat),
+        id: stage.id, label: stage.label, does: stage.does, now: chatRoute(stage), source: chatSource(stage),
+        picked: Boolean(stage.chat), checking: Boolean(pick),
         model: route?.model ?? "", effort: route?.effort ?? "",
         options: stage.options.map((option) => ({ model: option.model, family: option.family, unavailable: option.unavailable, effortChoices: option.effortChoices })),
         resettable: Boolean(stage.chatReset),
@@ -1045,11 +1079,13 @@ function modelsChip(tab: ChatTab): { label: string; disabled: boolean; title: st
   if (!tab.run) {
     if (!tab.stages?.chat || !tab.stages.stages.length) return null;
     const picked = tab.stages.stages.filter((stage) => stage.chat).length;
+    if (tab.stagesPick) return { label: "Models · checking…", disabled: true, title: "Checking this chat's pick" };
     return { label: picked ? `Models · ${picked} changed` : "Models", disabled: tab.starting || tab.stagesBusy,
       title: "Change a stage's model and reasoning level for this chat only" };
   }
   const offer = tab.status?.stage_models;
   if (!offer || !runListCommand(offer.next_command)) return null;
+  if (tab.modelsBusy) return { label: `Models · ${tab.modelsBusy}`, disabled: true, title: tab.modelsBusy };
   return { label: "Models", disabled: !offer.changeable,
     title: offer.changeable ? "Change a stage's model and reasoning level for this chat from its next stage"
       : offer.reason ?? "This chat's models cannot change now." };
