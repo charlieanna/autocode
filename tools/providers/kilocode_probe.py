@@ -41,7 +41,7 @@ def capture():
 def probe(words, run, *, seconds=PROBE_SECONDS, observe=None):
     """Retry one timed-out setup check once, after subprocess.run has reaped it.
 
-    The first attempt keeps the existing 30-second bound. A retry receives only
+    The first attempt is bounded by FIRST_ATTEMPT_SECONDS. A retry receives only
     the remaining shared budget. Nonzero exits, malformed answers and OS errors
     are not retried, and this helper never receives a model-running command.
     """

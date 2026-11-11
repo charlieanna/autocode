@@ -8,6 +8,7 @@ from pathlib import Path
 
 import autocode_design_check_job as check_job
 import autocode_jobs as jobs
+import autocode_run_view as run_view
 import autocode_util as util
 import autocode_workflows as workflows
 import autopilot
@@ -168,6 +169,29 @@ class ApplyTests(unittest.TestCase):
             path.write_text('{"conflicts": [], "annotated after the pause": true}\n')
             autoreview.apply_job(check_job.STAGE, state, report(), {}, root)
             self.assertFalse(path.exists())
+
+    def test_a_passing_re_run_leaves_no_conflict_instruction_in_the_status_view(self):
+        # The stopped check told the person to decide using the blockers file; once a re-check passes
+        # and removes it, the status view no longer offers that instruction as current (#2992).
+        with tempfile.TemporaryDirectory() as root:
+            state = state_for(workspace_with_design(root))
+            autoreview.apply_job(check_job.STAGE, state, report([CONFLICT], constraints=()), {"output": "o"}, root)
+            autoreview.apply_job(check_job.STAGE, state, report(), {}, root)
+            self.assertFalse((Path(root) / "docs/design/rate-limiter.blockers.json").exists())
+            shown = run_view.view(state)
+        self.assertEqual(("RUNNING", "PLANNING"), (shown["status"], shown["phase"]))
+        self.assertIsNone(shown["stop_reason"])
+        self.assertNotIn("rate-limiter.blockers.json", json.dumps(shown))
+
+    def test_a_re_run_that_still_conflicts_keeps_the_instruction_and_its_file(self):
+        with tempfile.TemporaryDirectory() as root:
+            state = state_for(workspace_with_design(root))
+            autoreview.apply_job(check_job.STAGE, state, report([CONFLICT], constraints=()), {"output": "o"}, root)
+            autoreview.apply_job(check_job.STAGE, state, report([CONFLICT], constraints=()), {"output": "o"}, root)
+            self.assertTrue((Path(root) / "docs/design/rate-limiter.blockers.json").is_file())
+            shown = run_view.view(state)
+        self.assertEqual(check_job.STOP_STATUS, shown["status"])
+        self.assertIn("Decide using docs/design/rate-limiter.blockers.json", shown["stop_reason"])
 
     def test_a_build_of_the_earlier_turn_s_design_is_planned_afresh(self):
         # Live runs of discuss-then-design-then-build (#185): "Build it." revised the design turn's contract

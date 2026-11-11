@@ -2389,7 +2389,11 @@ A `resolver_scope` of `operational_exhaustion` or `blocker` means Resolver
 stopped the run because it could not continue safely (for example, the
 run time limit was reached). That question is for a person who has looked at
 the run; a caller must not answer it with a proposed default. Its `action` is
-the response command. A `blocker` is often a decision about the approved
+the response command. Its `questions` hold only the sentences meant for that
+person: the operator advice AutoResolver saves with the request (flags, a
+token's environment variable, `autocode resume`) stays in the saved request and
+`stop_reason`, and an option's "with `--flag`" clause is dropped, so a client
+can show the question as written (#3145). A `blocker` is often a decision about the approved
 contract (a criterion Resolver proved contradictory): the response is retained
 as information and never edits the contract, so after it the run holds and
 `needs.reason` names the path that applies such a decision, `--edit-goal
@@ -2998,6 +3002,18 @@ marked `unavailable` against the run's other routes, `reset` and `file` null, an
 --stage-model ROLE MODEL EFFORT`, filled the same way; it prints a sentence rather than the view, so
 a client reads the list again afterwards. A refused change exits 2 with the reason on stderr and
 saves nothing.
+
+At a pause the person requested while the approved plan is being built, the status view's
+`implementation_discrepancy` lets them say where the code departs from that plan without revising it
+(#3045). `offer` is null unless a report may be sent now; otherwise it has `label`, `effect` and
+`next_command`, the argument array `--workspace WS --run-dir RUN --review-token TOKEN
+--report-discrepancy MESSAGE` with `MESSAGE` replaced by the person's text and `TOKEN` the approved
+plan's. `reports` lists every saved report (`id`, `text`, `at`, `contract_token`, `task_id`,
+`milestone_id`, `source_revision`, and `current`, true while it is bound to the current plan
+revision). The whole field is null when there is neither. A report keeps the plan approved and the
+run paused; the Tester of that task and the Completion Reviewer read it as an allegation to check
+against the approved plan when the person resumes, and it never approves, accepts, closes a finding
+or changes a limit. A change to the plan itself stays `--feedback`.
 
 ## Worktrees for clients
 
