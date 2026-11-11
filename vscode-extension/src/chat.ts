@@ -108,7 +108,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   /** Wait identities already announced, keyed by run key: a new tab for the same run does not re-announce. */
   private readonly notified = new Map<string, Set<string>>();
   private sequence = 0;
-  private refreshing = false;
+  private refreshing: Promise<void> | null = null;
   private timer: NodeJS.Timeout | undefined;
   private disposed = false;
   /** Last streaming extract per tab and how many reads it stayed unchanged (the TUI's pace). */
@@ -461,10 +461,16 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     return totalText(sessionTotal(runs.map((tab) => (tab.status ? runTotal(tab.status) : null))), false);
   }
 
-  async refresh(): Promise<void> {
-    if (this.refreshing) return;
+  /** One poll cycle. A caller that awaits this joins the cycle already running, never a no-op. */
+  refresh(): Promise<void> {
+    if (this.refreshing) return this.refreshing;
+    const running = this.runRefresh();
+    this.refreshing = running;
+    return running;
+  }
+
+  private async runRefresh(): Promise<void> {
     const sequence = this.sequence;
-    this.refreshing = true;
     try {
       // Tabs read in parallel: one slow or hung --status must not freeze the others
       // until its timeout (#1711 timing gaps).
@@ -489,7 +495,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
         }
       }));
     } finally {
-      this.refreshing = false;
+      this.refreshing = null;
       if (sequence === this.sequence) this.post();
       else void this.refresh();
     }
