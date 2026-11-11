@@ -9,6 +9,9 @@ import sys
 OPT_OUT = "AUTOCODE_NO_CAPABILITY_DROP"
 REEXEC = "_AUTOCODE_CAPABILITY_REEXEC"
 DROPPED = False
+# The one line a re-executed CLI writes to stderr before anything else. It is a notice, not a refusal,
+# though it starts with "autocode:" (TaskRun and other callers that read stderr leave it out).
+NOTICE = "autocode: dropped CAP_SYS_PTRACE and CAP_SYS_ADMIN for this invocation"
 _CAPABILITIES = (19, 21)  # CAP_SYS_PTRACE, CAP_SYS_ADMIN
 _MASK = sum(1 << cap for cap in _CAPABILITIES)
 
@@ -53,7 +56,7 @@ def prepare() -> None:
         if receipt:
             if receipt == "1" and not any(value & _MASK for value in sets.values()):
                 DROPPED = True
-                print("autocode: dropped CAP_SYS_PTRACE and CAP_SYS_ADMIN for this invocation", file=sys.stderr)
+                print(NOTICE, file=sys.stderr)
             return
         mask = sets["CapBnd"] & _MASK
         if mask:

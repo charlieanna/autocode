@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from . import autocode_capability_startup as capability_startup
     from . import autocode_conversation_session as conversation_session
     from . import autocode_names as names
     from . import autocode_operational_change as operational_change
@@ -34,6 +35,7 @@ try:
     from .autocode_captured_process import run as run_captured
     from .autocode_control_tokens import private_command
 except ImportError:
+    import autocode_capability_startup as capability_startup
     import autocode_conversation_session as conversation_session
     import autocode_names as names
     import autocode_operational_change as operational_change
@@ -928,9 +930,12 @@ class TaskRun:
             self.last_advance = proc
         # Advancing exits 0 when complete and 2 when stopped for input. Usage errors
         # also exit 2, so recognize argparse's message rather than trusting the code.
-        usage_error = proc.returncode == 2 and proc.stderr.startswith("usage:")
+        # A privileged Linux host's CLI first notes its capability drop on stderr; that is neither
+        # argparse's usage line nor a refusal, though it starts with "autocode:".
+        stderr = _without_notice(proc.stderr)
+        usage_error = proc.returncode == 2 and stderr.startswith("usage:")
         rejected_input = proc.returncode == 2 and any(
-            line.startswith(REFUSALS) for message in (proc.stdout, proc.stderr) for line in message.splitlines()
+            line.startswith(REFUSALS) for message in (proc.stdout, stderr) for line in message.splitlines()
         )
         accepted = proc.returncode in (0, 2) if advancing else proc.returncode == 0
         if usage_error or rejected_input or not accepted:
@@ -961,6 +966,14 @@ def _split_flag(options, flag):
 
 # The lines a refusal starts with: AutoCode's own, and argparse's usage error (PROG: error: ...).
 REFUSALS = ("Input rejected:", "autocode:")
+
+
+def _without_notice(text) -> str:
+    """``text`` less the capability-drop notice line, which reports how the CLI started, not a refusal."""
+    lines = str(text or "").splitlines(keepends=True)
+    return "".join(line for line in lines if line.rstrip("\r\n") != capability_startup.NOTICE)
+
+
 DETAIL_CHARACTERS = 800
 
 
@@ -968,11 +981,12 @@ def _detail(proc) -> str:
     """The process's output for an error message, at most DETAIL_CHARACTERS long: its end, as before, but
     a refusal keeps its reason line first, since a long recovery command after it would push it out (#1032).
     The whole output stays on the error's ``process``."""
-    text = (proc.stderr or proc.stdout or "").strip()
+    stderr = _without_notice(proc.stderr)
+    text = (stderr or proc.stdout or "").strip()
     reason = next(
         (
             line.strip()
-            for stream in (proc.stderr, proc.stdout)
+            for stream in (stderr, proc.stdout)
             for line in (stream or "").splitlines()
             if line.startswith(REFUSALS)
         ),
