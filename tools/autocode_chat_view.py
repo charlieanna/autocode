@@ -326,6 +326,10 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
     elif status == acceptance_tests_job.PAUSE and not pause_authority.feedback_refusal(state):
         # The Tester's pause says --feedback revises the plan; offer it so a client can take it (#1869).
         action = ("feedback", "Send plan feedback", "--feedback")
+    elif status == run_status.DESIGN_CONFLICT and not pause_authority.feedback_refusal(state):
+        # The design check's stop says --feedback records the person's decision. Without this offer a
+        # client read a typed decision at "Continue? [y/N]" as a no and left the chat (live run, 2026-11-11).
+        action = ("feedback", "Send your decision", "--feedback")
     elif (
         status == "RUNNING"
         and need.get("kind") == "continue"

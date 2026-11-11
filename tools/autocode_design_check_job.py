@@ -61,7 +61,7 @@ except ImportError:
     from autocode_test_cases import COUNTEREXAMPLE, run_probes
 
 STAGE = workflows.DESIGN_CHECK_STAGE
-STOP_STATUS = "PAUSED_DESIGN_CONFLICT"
+STOP_STATUS = run_status.DESIGN_CONFLICT
 TEXT = {"type": "string"}
 TEXTS = {"type": "array", "items": TEXT}
 CONFLICT = {

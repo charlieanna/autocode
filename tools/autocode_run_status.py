@@ -13,7 +13,9 @@ if TYPE_CHECKING:
 
 PAUSE_PHASE = "PAUSED_OR_BLOCKED"
 # The pauses that take brief feedback as plan feedback: the Tester's names --feedback as its way to revise the plan (#1869).
-PLAN_FEEDBACK_PAUSES = ("PAUSED_PLANNING_BUDGET", "PAUSED_COMPONENT_PLAN", "PAUSED_ACCEPTANCE_TESTS")
+# A design check's conflict stop names --feedback as how the person records their decision.
+DESIGN_CONFLICT = "PAUSED_DESIGN_CONFLICT"
+PLAN_FEEDBACK_PAUSES = ("PAUSED_PLANNING_BUDGET", "PAUSED_COMPONENT_PLAN", "PAUSED_ACCEPTANCE_TESTS", DESIGN_CONFLICT)
 _RESERVED = frozenset({"status", "phase", "stop_reason"})
 
 
