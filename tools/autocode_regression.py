@@ -513,7 +513,8 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
     detection.update(package_scope.detection(state.get("settings")))
     framework = framework or verify.detect_framework(workspace, python=python, **detection)
     unscoped = "package" not in detection and "test_root" not in detection
-    companions, companion_notes = [], []
+    companions: list = []
+    companion_notes: list = []
     if base and unscoped and not command and not options.get("regression_command"):
         # Tests the root's suite cannot run are proven with the suite of the project around them, as in a
         # --package run of that directory (autocode_package_scope.for_tests). Every other project whose code

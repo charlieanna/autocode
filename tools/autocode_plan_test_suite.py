@@ -106,7 +106,7 @@ def check(state: RunState, body, *, origin=None) -> None:
     framework = verify.detect_framework(workspace, python=python, **package_scope.detection(settings))
     detect = lambda directory: verify.detect_framework(directory, python=python)  # noqa: E731
     unrun = problems(workspace, framework, tests, detect, scoped=package_scope.of(settings) is not None)
-    if unrun:
+    if unrun and framework is not None:  # problems() names none without a framework
         runs = SHOWN[RUNNER_KIND[framework.name]]
         raise ValueError(
             f"The regression proof would never run the plan's tests {', '.join(unrun)}: it runs the plan's tests "

@@ -25,7 +25,7 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Final, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -47,7 +47,7 @@ except ImportError:
     import autocode_source_scope as source_scope
     import autocode_support as support
 
-KEY = "reasoning_exhaustion_recoveries"
+KEY: Final = "reasoning_exhaustion_recoveries"
 REASON = "output_cap_reasoning"
 # The share of the attempt's output that was reasoning for the stop to count as reasoning-bound.
 # A report that ran long is a different stop: a lower level would not shorten it.
@@ -159,7 +159,7 @@ def recover(runtime, state: RunState, run_dir, workspace, error) -> bool:
     runtime.write_json(Path(run_dir) / "state.json", candidate)
     cast(dict, state).clear()
     state.update(candidate)
-    job = quota_route.roles.screen_name(stage or role, state)
+    job = quota_route.roles.screen_name(stage or role or "", state)
     print(
         f"{job}: {model} at {level} spent its whole output limit on reasoning "
         f"({tokens['reasoning_tokens']} of {tokens['output_tokens']} output tokens); "
