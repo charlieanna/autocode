@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -37,7 +38,22 @@ LIMIT = 40  # entries from one attempt
 PROSE_LIMIT = 400
 WORKER_LIMIT = 8  # parallel Builders read in one view
 PROSE = {"reasoning": "thinking", "agent_message": "message", "text": "message"}  # an event's kind in the log
+LIST_ITEM = re.compile(r"\s*(?:\d{1,2}[.)]|[-*•])\s")  # a line that is an item of a list
+SENTENCE = re.compile(r"(?<![0-9])[.!?:] +(?=[A-Z`])")  # where a sentence ends; not "1. " in a list
+REPEAT = 0.6  # a thought sharing this much of its words with the one before it repeats it
+DOING = {"thinking": "thinking", "message": "writing", "command": "running a command", "edit": "editing files"}
 CODEX_ROWS = ("item.started", "item.updated", "item.completed")
+
+
+def _join_lines(text: str) -> str:
+    """Lines as one, keeping a list's items apart: "files: 1. a; 2. b; Read them", not "1. a 2. b Read them"."""
+    lines = text.split("\n")
+    joined = lines[0]
+    for before, line in zip(lines, lines[1:], strict=False):
+        listed = LIST_ITEM.match(before) or LIST_ITEM.match(line)
+        ended = not before.strip() or before.rstrip()[-1] in ".:;,!?"
+        joined += ("; " if listed and not ended else " ") + line
+    return joined
 
 
 def _prose(value, *, streaming=False) -> str:
@@ -46,16 +62,18 @@ def _prose(value, *, streaming=False) -> str:
     still streaming keeps its newest words behind one, and says ``[partial]``. The cut is at a word
     boundary where there is one; a bracketed notice in its place read as part of the thought (#2762).
     """
-    text = " ".join("".join(char if char.isprintable() else " " for char in str(value or "")).split())
+    text = " ".join("".join(char if char.isprintable() else " " for char in _join_lines(str(value or ""))).split())
     text = util.redact(text)
     suffix = " [partial]" if streaming and text else ""
     if len(text) + len(suffix) <= PROSE_LIMIT:
         return text + suffix
     if streaming:
         start = len(text) - (PROSE_LIMIT - len(suffix) - 1)
-        boundary = text.find(" ", start)
-        if 0 <= boundary < len(text) - 1:
-            start = boundary + 1
+        # Begin at a sentence where the kept words hold one, so a thought does not open mid-sentence.
+        sentence = SENTENCE.search(text, start)
+        boundary = sentence.end() if sentence else text.find(" ", start) + 1
+        if 0 < boundary < len(text) - 1:
+            start = boundary
         return "…" + text[start:] + suffix
     end = PROSE_LIMIT - 1
     boundary = text.rfind(" ", 0, end + 1)
@@ -181,6 +199,48 @@ def _receipts(entries: dict[str, dict]) -> dict[str, dict]:
     return kept
 
 
+def _words(text: str) -> set[str]:
+    return {word.strip(".,:;`'\"()…").lower() for word in text.split()} - {""}
+
+
+def _repeats(entries: dict[str, dict]) -> dict[str, dict]:
+    """Without a thought that says again what the thought before it said.
+
+    A model often restates its plan before each tool call ("Let me read these files", then "Let me
+    look at these files more carefully"), and a log of near-identical thoughts hides the steps
+    between them. A thought that shares most of its words with the previous one is left out; the
+    first one stays, so an entry a client already shows keeps its place.
+    """
+    kept: dict[str, dict] = {}
+    previous: set[str] = set()
+    for key, entry in entries.items():
+        if entry.get("kind") == "thinking" and entry.get("status") != "streaming":
+            words = _words(str(entry.get("text") or ""))
+            if len(words) >= 8 and previous and len(words & previous) / len(words | previous) >= REPEAT:
+                continue
+            previous = words
+        kept[key] = entry
+    return kept
+
+
+def now(log: list[dict]) -> list[dict]:
+    """``chat.now``: one line for each agent in the log saying what it is doing, from its newest entry."""
+    newest: dict[str, dict] = {}
+    for entry in log:
+        if entry.get("agent") == "Orchestrator" or entry["id"].startswith("effort:"):
+            continue  # a runner note, not the agent at work
+        newest.pop(entry["agent"], None)
+        newest[entry["agent"]] = entry
+    found = []
+    for agent, entry in newest.items():
+        summary = entry.get("summary")
+        doing = activity.DOING.get(summary) if isinstance(summary, str) else None
+        if doing is None and isinstance(summary, str) and summary.startswith("Used "):
+            doing = "using " + summary[len("Used ") :]
+        found.append({"agent": agent, "text": doing or DOING.get(entry["kind"], "working")})
+    return found
+
+
 def read(path: Path, workspace=None) -> list[tuple[str, dict]]:
     """The newest entries in an attempt's event file, oldest first, each with its key in that file."""
     entries: dict[str, dict] = {}
@@ -203,7 +263,7 @@ def read(path: Path, workspace=None) -> list[tuple[str, dict]]:
                     found = (f"{found[1]['kind']}:{found[0]}", found[1])
         if found is not None:
             entries[found[0]] = found[1]  # a later row for the same item replaces it in place
-    return list(_receipts(entries).items())[-LIMIT:]
+    return list(_repeats(_receipts(entries)).items())[-LIMIT:]
 
 
 def _attempt(active, root: Path, workspace, agent: str) -> list[dict]:

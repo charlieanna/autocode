@@ -378,6 +378,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         state, public_view, run_dir, supervised=supervised, finished=bool(active_finished), stopped=bool(next_action)
     ):
         public_view["chat"]["log"] = log
+        public_view["chat"]["now"] = chat_log.now(log)
     if public_view.get("progressive") and completion_current is not None:
         public_view["progressive"]["current_whole_product_proof"] = {
             "verified": completion_current is True,

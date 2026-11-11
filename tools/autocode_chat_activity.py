@@ -54,6 +54,68 @@ def _relative(path, workspace) -> str:
     return _line(text, 200)
 
 
+def _quote(value) -> str:
+    return f"“{_line(value, 60)}”"
+
+
+# Plain words for the tools an agent uses to look around, by lower-case tool name: OpenCode's and
+# Kilo's names and Claude Code's built-in ones (Read, Grep, Glob, WebFetch, Task). Each tool gives
+# its line ("Searched tools for “context_packet”") and the short phrase that groups repeats of it
+# ("Searched code"). A tool not named here keeps its own name.
+def _describe(tool: str, given: dict, workspace) -> tuple[str, str] | None:
+    def field(*keys):
+        return next((given[key] for key in keys if isinstance(given.get(key), str) and given[key].strip()), "")
+
+    path = _relative(field("filePath", "file_path", "path"), workspace)
+    pattern, query, url = field("pattern"), field("query"), field("url")
+    if tool in ("read", "view"):
+        return (f"Read {path}" if path else "Read a file"), "Read files"
+    if tool in ("grep", "search", "codesearch"):
+        target = pattern or query
+        where = f" {path}" if path else ""
+        return (
+            f"Searched{where} for {_quote(target)}" if target else f"Searched{where or ' the code'}"
+        ), "Searched code"
+    if tool == "glob":
+        where = f" in {path}" if path else ""
+        return (
+            f"Looked for files matching {_line(pattern, 60)}{where}" if pattern else "Looked for files"
+        ), "Listed files"
+    if tool in ("list", "ls"):
+        return (f"Listed {path}" if path else "Listed files"), "Listed files"
+    if tool == "websearch":
+        return (f"Searched the web for {_quote(query)}" if query else "Searched the web"), "Searched the web"
+    if tool == "webfetch":
+        return (f"Fetched {_line(url, 120)}" if url else "Fetched a web page"), "Fetched web pages"
+    if tool in ("todowrite", "todoread"):
+        return "Updated its to-do list" if tool == "todowrite" else "Read its to-do list", "Updated its to-do list"
+    if tool == "task":
+        what = field("description")
+        return (f"Asked a helper agent to {_line(what, 100)}" if what else "Asked a helper agent"), "Used helper agents"
+    return None
+
+
+# What an agent is doing now, from its newest entry's group (chat.now).
+DOING = {
+    "Read files": "reading files",
+    "Searched code": "searching the code",
+    "Listed files": "looking through files",
+    "Searched the web": "searching the web",
+    "Fetched web pages": "reading a web page",
+    "Updated its to-do list": "planning its steps",
+    "Used helper agents": "working with a helper agent",
+}
+
+
+def _arguments(value) -> dict:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return {}
+    return value if isinstance(value, dict) else {}
+
+
 def _outcome(status, exit_code=None) -> str:
     if status in ("failed", "declined", "error") or (type(exit_code) is int and exit_code != 0):
         return "failed"
@@ -86,9 +148,18 @@ def item_event(row: dict, workspace) -> tuple[str, dict] | None:
         paths = [_relative(c["path"], workspace) for c in changes]
         verbs = [FILE_VERBS.get(str(c.get("kind")), "edited") for c in changes]
         return str(item["id"]), {**_edit(paths, verbs), "status": state}
+    if kind == "web_search":
+        found = _describe("websearch", {"query": item.get("query")}, workspace)
+        return str(item["id"]), {"kind": "tool", "text": found[0], "summary": found[1], "status": state}
     if kind in TOOL_ITEMS:
         name = item.get("name") or item.get("tool") or item.get("query")
-        return str(item["id"]), {"kind": "tool", "text": _line(name or TOOL_ITEMS[kind]), "status": state}
+        if kind in ("tool_call", "function_call") and isinstance(name, str):
+            # Claude Code reports its built-in tools by their own names (Read, Grep, Task).
+            found = _describe(name.lower(), _arguments(item.get("arguments")), workspace)
+            if found is not None:
+                return str(item["id"]), {"kind": "tool", "text": found[0], "summary": found[1], "status": state}
+        text = _line(name or TOOL_ITEMS[kind])
+        return str(item["id"]), {"kind": "tool", "text": text, "summary": f"Used {text}", "status": state}
     return None
 
 
@@ -112,9 +183,12 @@ def part_event(row: dict, workspace) -> tuple[str, dict] | None:
             }
     if not tool:
         return None
+    found = _describe(tool, given, workspace)
+    if found is not None:
+        return part["id"], {"kind": "tool", "text": found[0], "summary": found[1], "status": outcome}
     target = next((given[key] for key in TARGET_KEYS if isinstance(given.get(key), str) and given[key]), "")
     text = _line(f"{part.get('tool')} {_relative(target, workspace)}" if target else part.get("tool"))
-    return part["id"], {"kind": "tool", "text": text, "status": outcome}
+    return part["id"], {"kind": "tool", "text": text, "summary": _line(f"Used {part.get('tool')}"), "status": outcome}
 
 
 def rows(path: Path) -> list[dict]:

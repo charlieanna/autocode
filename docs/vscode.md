@@ -159,8 +159,13 @@ and takes no action.
 
 While a step works, the conversation shows the live agent log the status view
 names (`view.chat.log`): what each running agent thinks (`∴`), says (`»`) and
-does (`$`, `±`, `·`). Each agent's screen name heads its run of steps once, and
-each thought folds to one line that a click unfolds. Like the terminal chat's `/live`,
+does (`$`, `±`, `·`); each mark names itself on hover. Each agent's screen name
+heads its run of steps once, followed by what it is doing now from `view.chat.now`
+("Requirements · searching the code"), and the run's headline is not repeated
+above it. A run of thoughts folds to one "Thought" line ("Thinking…" while one
+still arrives) that a click unfolds. Tool calls are in plain words ("Searched tools
+for “context_packet”"), and a run of them with the same `summary` is one counted
+line ("Searched code ×4") that a click unfolds to each call. Like the terminal chat's `/live`,
 those entries are display only — a thought is not a report and a command shown
 is not a passed check. Where an older core offers only `chat.activity`, the
 conversation shows those tool marks instead.
