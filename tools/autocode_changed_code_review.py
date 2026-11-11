@@ -35,7 +35,7 @@ def prompt_order(schema: dict) -> dict:
     return ordered
 
 
-SCHEMA = {
+SCHEMA: dict = {
     "type": ["array", "null"],
     "items": {
         "type": "object",

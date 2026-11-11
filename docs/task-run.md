@@ -134,6 +134,15 @@ log hashes and supervision receipts, and refuses any actual failing test name,
 mixed error or stale scope. Reviewer findings still require that reviewer
 to resolve or retract them; no product edit is manufactured for an environment
 repair, and no completion or approval follows from this reconciliation alone.
+The same holds when every earlier failed proof of that source refused only
+because the old collector chose another parser for a plain `python -m unittest`
+suite (#3037): each exited zero with no parsed results and its sole refusal is
+the unbounded base suite definition. The core re-reads those owned, intact logs
+with the unittest parser and requires complete passes with no failure, skip or
+collection error, the same source, base and case scope as a fresh passing proof
+in the current approved contract, the same suite command apart from `-v`, and
+the same passing suite inventory. The settled finding names the superseded
+receipts beside the fresh one; the old receipts are kept unchanged.
 
 At a settled shared-cost stop, `needs.kind=budget` names the current finite cap,
 known accumulated spend, accounting completeness, `minimum_cap_usd`, and its own
