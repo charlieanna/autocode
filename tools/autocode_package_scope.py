@@ -251,6 +251,7 @@ class PackageFramework(Framework):
             note=found.note,
             node_files=found.node_files,
             invocation=found.invocation,
+            setup=found.setup,
         )
         self.inner, self.directory = found, package
 
@@ -268,3 +269,65 @@ def detect(root, package, detect_in) -> PackageFramework | None:
     directory = directory_in(root, package)
     found = detect_in(directory) if directory is not None else None
     return PackageFramework(found, package) if found is not None else None
+
+
+# Files that make a directory a project of its own, with a suite detection can find there.
+MANIFESTS = ("package.json", "go.mod", "Cargo.toml", "pyproject.toml", "setup.py", "setup.cfg", "Gemfile")
+
+
+def enclosing(root, tests, detect_in) -> PackageFramework | None:
+    """The suite of the innermost project directory below ``root`` that holds every one of ``tests``
+    and runs them all, or None.
+
+    A run of the whole repository detects one suite at its root. When that suite cannot run the
+    tests (a Node package inside a Python repository, 2026-11-11), the tests belong to the project
+    around them: this finds it the way ``--package`` would have named it, with the same commands
+    (``cd PACKAGE && RUNNER``). Only a directory with its own manifest counts, never the root.
+    """
+    tests = [str(PurePosixPath(test)) for test in tests]
+    if not tests:
+        return None
+    common = os.path.commonpath([str(PurePosixPath(test).parent) for test in tests])
+    parts = PurePosixPath(common).parts if common not in ("", ".") else ()
+    for end in range(len(parts), 0, -1):
+        package = "/".join(parts[:end])
+        directory = directory_in(root, package)
+        if directory is None or not any((directory / name).is_file() for name in MANIFESTS):
+            continue
+        found = detect(root, package, detect_in)
+        if found is not None and found.targeted(tests):
+            return found
+    return None
+
+
+def for_tests(root, framework, tests, detect_in) -> PackageFramework | None:
+    """The suite of the project around ``tests`` when ``framework``, detected at the root, runs none of
+    them (``enclosing``), else None. A Node package's tests in a Python repository were handed to the
+    root's pytest, which cannot run them, and the run paused (2026-11-11)."""
+    tests = sorted(tests)
+    if not tests or (framework is not None and framework.targeted(tests)):
+        return None
+    return enclosing(root, tests, detect_in)
+
+
+def link_node_modules(tree, roots) -> None:
+    """Link each package's own ``node_modules`` (beside a tracked ``package.json`` below the root) into the
+    scratch ``tree``, from the first of ``roots`` that has it: a task worktree starts without the ignored
+    directory its main checkout installed. The root's own is autocode_verify.link_dependencies'."""
+    listed = _listing(tree, "ls-files", "-z").split("\0")
+    for package in sorted(
+        {str(PurePosixPath(path).parent) for path in listed if PurePosixPath(path).name == "package.json"}
+    ):
+        target = Path(tree) / package / "node_modules"
+        if package == "." or target.exists() or target.is_symlink() or not target.parent.is_dir():
+            continue
+        source = next(
+            (
+                Path(root) / package / "node_modules"
+                for root in roots
+                if (Path(root) / package / "node_modules").is_dir()
+            ),
+            None,
+        )
+        if source is not None:
+            target.symlink_to(source.resolve(), target_is_directory=True)

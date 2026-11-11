@@ -629,6 +629,134 @@ class PackageSuite(unittest.TestCase):
         )
 
 
+# A Node package inside a Python repository whose test script builds before it tests, like
+# vscode-extension/ in this repository (2026-11-11: the Tester's tests there were handed to the root's
+# pytest, which cannot run them). The build step copies src/ into out/, which the tests load.
+WEB = "packages/web"
+BUILD = "#!/bin/sh\nmkdir -p out && cp src/greet.js out/greet.js\n"
+NESTED = {
+    "pyproject.toml": "[tool.pytest.ini_options]\n",
+    "tests/test_root.py": "def test_root():\n    pass\n",
+    f"{WEB}/package.json": '{"name": "web", "scripts": {"test": "build-it && node --test test/*.test.cjs"}}\n',
+    f"{WEB}/.gitignore": "node_modules/\nout/\n",
+    f"{WEB}/src/greet.js": "exports.greet = () => 'hi';\n",
+    f"{WEB}/test/old.test.cjs": "require('node:test')('test_old', () => {});\n",
+}
+NESTED_TEST = (
+    "const test = require('node:test');\nconst assert = require('node:assert/strict');\n"
+    "test('test_greets', () => { assert.equal(require('../out/greet.js').greet(), 'hello'); });\n"
+    "test('guard_loads', () => { assert.equal(typeof require('../out/greet.js').greet, 'function'); });\n"
+)
+
+
+def nested_project(case):
+    """The repository with its package's installed build tool, which Git ignores as npm's would be."""
+    project = Project(NESTED)
+    case.addCleanup(project.close)
+    tool = project.root / WEB / "node_modules/.bin/build-it"
+    tool.parent.mkdir(parents=True)
+    tool.write_text(BUILD)
+    tool.chmod(0o755)
+    return project
+
+
+class NestedPackage(unittest.TestCase):
+    """A run of the whole repository proves a package's tests with that package's own suite."""
+
+    def test_the_package_around_the_tests_supplies_their_suite_with_its_build_step(self):
+        project = nested_project(self)
+        detect = lambda directory: verify.detect_framework(directory, python=sys.executable)  # noqa: E731
+        root = detect(project.root)
+        self.assertEqual("pytest", root.name)
+        tests = [f"{WEB}/test/greet.test.cjs"]
+        self.assertIsNone(root.targeted(tests), "the root's pytest cannot run a Node test file")
+        found = package_scope.for_tests(project.root, root, tests, detect)
+        self.assertEqual((WEB, "node"), (found.directory, found.name))
+        self.assertEqual(f"cd {WEB} && npm test --silent", found.suite)
+        self.assertEqual(f"cd {WEB} && node --test test/greet.test.cjs", found.targeted(tests))
+        self.assertEqual("npm exec --call build-it", found.setup)
+        self.assertEqual("npm exec --call build-it", found.to_dict()["setup"])
+        # Tests the root suite runs keep it; no package holds tests in two packages or at the root.
+        self.assertIsNone(package_scope.for_tests(project.root, root, ["tests/test_root.py"], detect))
+        self.assertIsNone(package_scope.for_tests(project.root, root, [], detect))
+        for elsewhere in ([*tests, "tests/test_other.cjs"], ["test/root.test.cjs"]):
+            with self.subTest(tests=elsewhere):
+                self.assertIsNone(package_scope.for_tests(project.root, root, elsewhere, detect))
+        # A test in a directory below the package belongs to the package around it.
+        deeper = package_scope.for_tests(project.root, root, [f"{WEB}/test/unit/a.test.cjs"], detect)
+        self.assertEqual(
+            f"cd {WEB} && node --test test/unit/a.test.cjs", deeper.targeted([f"{WEB}/test/unit/a.test.cjs"])
+        )
+
+    def test_a_directory_without_a_manifest_or_a_suite_is_not_a_package(self):
+        project = nested_project(self)
+        project.write({"docs/notes/a.test.cjs": "require('node:test')('x', () => {});\n"})
+        detect = lambda directory: verify.detect_framework(directory, python=sys.executable)  # noqa: E731
+        self.assertIsNone(package_scope.enclosing(project.root, ["docs/notes/a.test.cjs"], detect))
+        self.assertIsNone(package_scope.enclosing(project.root, [f"{WEB}/test/a.test.cjs"], lambda directory: None))
+
+    @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm run the package suite")
+    def test_the_testers_tests_run_on_todays_code_with_the_package_build_and_its_node_modules(self):
+        project = nested_project(self)
+        project.write({f"{WEB}/test/greet.test.cjs": NESTED_TEST})
+        with tempfile.TemporaryDirectory() as run_dir:
+            receipt = verify.scratch_run(project.root, Path(run_dir), tests=[f"{WEB}/test/greet.test.cjs"])
+        self.assertFalse(receipt.get("error"), receipt)
+        self.assertTrue(receipt["command"].startswith(f"cd {WEB} && npm exec --call build-it && node "), receipt)
+        self.assertEqual(["test/greet.test.cjs::guard_loads"], receipt["results"]["passed"])
+        self.assertEqual(["test/greet.test.cjs::test_greets"], receipt["results"]["failed"])
+        # The runner's link to the package's node_modules is never part of a change.
+        (project.root / "packages/other").mkdir()
+        (project.root / "packages/other/node_modules").symlink_to(project.root / WEB, target_is_directory=True)
+        self.assertNotIn("packages/other/node_modules", verify.changed_files(project.root, project.base))
+
+    @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm run the package suite")
+    def test_a_fix_in_the_package_is_proven_with_its_suite_in_a_run_of_the_whole_repository(self):
+        project = nested_project(self)
+        project.write(
+            {
+                f"{WEB}/test/greet.test.cjs": NESTED_TEST,
+                f"{WEB}/src/greet.js": "exports.greet = () => 'hello';\n",
+                "CHANGELOG.md": "- It says hello\n",  # not code: the package suite still proves the change
+            }
+        )
+        state = bugfix_state(project, package=None)
+        state["goal_contract"]["body"]["acceptance_criteria"] = [
+            {"id": "C1", "criterion": "It says hello", "verification_method": "test: test_greets"}
+        ]
+        with tempfile.TemporaryDirectory() as run_dir:
+            proof = regression.prove(state, project.root, Path(run_dir))
+        self.assertEqual(["test/greet.test.cjs::test_greets"], proof["fail_to_pass"], proof)
+        self.assertEqual(["test/greet.test.cjs::test_greets"], proof["case_tests"]["C1"], proof)
+        self.assertEqual((verify.PASS, WEB), (proof["verdict"], proof["framework"]["directory"]), proof)
+
+    @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm run the package suite")
+    def test_a_code_change_outside_the_package_keeps_the_root_suite(self):
+        project = nested_project(self)
+        project.write(
+            {
+                f"{WEB}/test/greet.test.cjs": NESTED_TEST,
+                f"{WEB}/src/greet.js": "exports.greet = () => 'hello';\n",
+                "helper.py": "VALUE = 1\n",
+            }
+        )
+        state = bugfix_state(project, package=None)
+        state["goal_contract"]["body"]["acceptance_criteria"] = [
+            {"id": "C1", "criterion": "It says hello", "verification_method": "test: test_greets"}
+        ]
+        with tempfile.TemporaryDirectory() as run_dir:
+            proof = regression.prove(state, project.root, Path(run_dir))
+        self.assertEqual("pytest", proof["framework"]["name"], "helper.py is code the package suite never runs")
+        self.assertNotEqual(verify.PASS, proof["verdict"])
+
+    def test_enclosing_needs_tests_below_the_root(self):
+        project = nested_project(self)
+        detect = lambda directory: verify.detect_framework(directory, python=sys.executable)  # noqa: E731
+        self.assertIsNone(package_scope.enclosing(project.root, [], detect))
+        self.assertIsNone(package_scope.enclosing(project.root, ["a.test.cjs"], detect))
+        self.assertEqual(WEB, package_scope.enclosing(project.root, [f"./{WEB}/test/a.test.cjs"], detect).directory)
+
+
 class PackageRequired(unittest.TestCase):
     def setUp(self):
         self.project = Project(MONOREPO)
