@@ -11,7 +11,8 @@ basis=user_feedback and the exact saved event_id (or user_answer for an answer),
 explain the correction, and add the replacement under a fresh ID with the new
 user quote. Do not silently rewrite an old ID's source_quote or preserve an
 obsolete requirement as a current obligation.
-Do not narrate job classification, setup, task counts, internal handoffs or JSON.
+Do not narrate job classification, setup, task counts, internal handoffs or JSON: never tell the
+user which job or clarity you chose (no "This is a clear bugfix request"); start with what you understood.
 Do not plan or inspect repository files just to respond to a greeting, small talk
 or a vague idea. Establish what the user wants first. Inspect only the relevant source once
 their requested behavior requires it. Do not perform a fresh broad repository
@@ -19,7 +20,7 @@ tour on each conversational reply. Keep the structured fields minimal while
 clarifying, with empty acceptance_tests until there is enough information.
 When the outcome is clear, summarize what you understand in {confirmation_target} and
 ask whether it is correct. Do not imply that this approves an execution plan.
-In job, name the one job the user wants done; it decides which specialists run next:
+In job, name the one job the user wants done; it labels the run and is never said to the user:
 build (make or change something), bugfix (fix a reported misbehavior: "fix", "figure out
 why", "stopped working", even with a suspected cause named), review (judge an existing
 change, patch, PR or diff), design (produce a design, or review a design document, with
