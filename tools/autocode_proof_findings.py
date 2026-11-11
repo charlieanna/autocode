@@ -14,7 +14,9 @@ SEND_BACK_NOTE (``send_back``); a second request for the same source pauses PAUS
 which the Investigator takes (autocode_stuck_job.RETRYABLE), never a person question. The same holds
 when a test the original code passes failed on a source whose proof then passed (``intermittent``,
 #2942): the finding stays open, and the request is sent back with INTERMITTENT_NOTE instead of stopping
-at the completion gate.
+at the completion gate. When every test that failed was one the flaky-test recheck saw pass again on that
+source (``passed_again``), the passing proof settles the finding instead (``flake_settled``): the
+Builder cannot change a test the change does not own.
 
 Only this module writes or closes ``runner`` findings marked ``regression_proof``. Imports nothing
 above the findings ledger; the caller passes whether the proof is owed and proven.
@@ -138,12 +140,55 @@ def reconcile(
         )
     if revision not in row.setdefault("failed_revisions", []):
         row["failed_revisions"].append(revision)
+    flaky = row.setdefault("flaky_revisions", {})
+    flaky.pop(revision, None)
+    if tests := passed_again(proof):
+        flaky[revision] = {"tests": tests, "receipt": proof.get("path")}
     brief = {key: row[key] for key in ("id", "source", "severity", "finding", "evidence", "blocking")}
     state["unresolved_findings"] = [
         *[item for item in state.get("unresolved_findings") or [] if item.get("id") != row["id"]],
         brief,
     ]
     return row
+
+
+def passed_again(proof) -> list[str]:
+    """The tests a failing proof failed only because they then passed again on the same source, or [].
+
+    The proof's one failure must be the suite judgment's REGRESSED line, with nothing unverified, and every
+    test it names must be one the flaky-test recheck (autocode_suite_flakes) ran again on the candidate and
+    saw pass: a suite test no due case names and no changed file mentions, which failed once with the
+    change. Anything else (another failure, a test the recheck did not run, a rerun that failed or did not
+    report it) is not this case.
+    """
+    failures = proof.get("failures") or []
+    if proof.get("unverified") or len(failures) != 1 or not str(failures[0]).startswith(REGRESSED + ": "):
+        return []
+    named = set(str(failures[0])[len(REGRESSED) + 2 :].split(", "))
+    rows = {row.get("test"): row for row in (proof.get("suite_flakes") or {}).get("tests") or []}
+    for test in named:
+        runs = (rows.get(test) or {}).get("candidate") or []
+        if len(runs) < 2 or runs[0] != "fail" or any(run != "pass" for run in runs[1:]):
+            return []
+    return sorted(named)
+
+
+def flake_settled(row, revision, proof) -> str | None:
+    """Resolution evidence when ``row`` failed ``revision`` only on tests that then passed, else None.
+
+    ``proof`` is the passing proof of the same source. A pre-existing suite test that failed once with the
+    change, passed every rerun of the recheck and passes the runner's later full proof of the unchanged
+    source is a flake, not a regression: the Builder cannot change a test the change does not own, so
+    holding the finding open could only stop the run (#2942). The failing receipt stays named.
+    """
+    flaky = (row.get("flaky_revisions") or {}).get(revision)
+    if not flaky or proof.get("source_revision") != revision or proof.get("verdict") != "PASS":
+        return None
+    return (
+        f"Settled as a flaky test, not a regression: {', '.join(flaky['tests'])} failed once on source "
+        f"{str(revision)[:12]} ({flaky.get('receipt')}), passed every rerun of the flaky-test recheck there, and "
+        f"the runner's later proof of the same source passes ({proof.get('path')})"
+    )
 
 
 def intermittent(state: RunState, revision) -> bool:

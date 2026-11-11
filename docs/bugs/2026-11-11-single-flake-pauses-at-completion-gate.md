@@ -1,7 +1,7 @@
 # One flaky test failure stops a run at the completion gate
 
 **Seen:** 2026-11-11, while adding the completion writer for project notes (#2943), with the
-offline fake provider. **Fix:** #3197 (#2942).
+offline fake provider. **Fix:** #3197, then the flake settlement (#2942).
 
 ## What happens
 
@@ -31,6 +31,14 @@ not a recognized flake. A completion request on that source is now sent back onc
 naming the intermittent failure, so the Builder makes the change or the test reliable. A second
 request goes to the Investigator through the existing `PAUSED_COMPLETION_REVIEW` route. The run
 no longer stops at the gate.
+
+A live Kilo run on master with that fix then showed the send-back was not enough for a test the change
+does not touch. The Builder may not edit a protected test, so the Investigator advised disarming it,
+and the run paused at `PAUSED_BUILDER_OPERATIONAL` until its wall-time bound. The runner now settles
+the finding itself (`autocode_proof_findings.flake_settled`, #2942). The failing proof's only failure must
+be suite tests that the flaky-test recheck saw fail once and then pass on every rerun. The runner's later
+proof of the same source must pass. The settlement names both receipts, and the send-back remains for
+every other failure.
 
 The completion writer in #2943 does not depend on that fix. It reads the replay pair from the
 proof history whichever later source the run delivers, so a run that is sent back after the
