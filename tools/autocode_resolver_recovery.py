@@ -39,6 +39,7 @@ try:
     from . import autocode_failures as failures
     from . import autocode_planned_check_rework as planned_check_rework
     from . import autocode_process as processes
+    from . import autocode_quota_route as quota_route
     from . import autocode_recovery_inputs as inputs
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_recovery_novelty as novelty
@@ -64,6 +65,7 @@ except ImportError:
     import autocode_failures as failures
     import autocode_planned_check_rework as planned_check_rework
     import autocode_process as processes
+    import autocode_quota_route as quota_route
     import autocode_recovery_inputs as inputs
     import autocode_recovery_limits as recovery_limits
     import autocode_recovery_novelty as novelty
@@ -357,15 +359,24 @@ def _decided(packet):
     return set(task.get("acceptance_criteria") or []) & set(milestone.get("acceptance_criteria") or [])
 
 
+# A provider stop on the model that gives no response at all: quota, a content-filter refusal, or a
+# request over the context window. An output-limit stop came back cut short, so it still counts.
+_NO_RESPONSE_STOPS = (quota_route.QUOTA_STATUS, quota_route.REFUSAL_STATUS, quota_route.CONTEXT_STATUS)
+
+
 def _returned_nothing(row):
     """Automatic recovery archived this stopped attempt because it ended without a completed
     turn (a timeout, capacity or startup failure, a denied path). Each of those routes checks
     the attempt's log or output for that before it accounts the attempt and archives it as
     abandoned and rejected, so it returned no report. A truncated review report came back cut
-    short, so it still counts."""
-    return all(row.get(key) for key in ("accounted", "automatic_recovery", "abandoned", "rejected")) and not row.get(
-        "truncated_output"
-    )
+    short, so it still counts.
+
+    So did an attempt a person set aside after its provider stopped it on the model with no
+    response (``route_stop``, autocode_stage_recovery.abandon_stage): the stop names another
+    model to continue on, and the experiment never ran on this one (#3159)."""
+    if not all(row.get(key) for key in ("accounted", "abandoned", "rejected")) or row.get("truncated_output"):
+        return False
+    return bool(row.get("automatic_recovery")) or row.get("route_stop") in _NO_RESPONSE_STOPS
 
 
 def receipts(state: RunState, *, returned=False):
@@ -1022,6 +1033,11 @@ def _investigation_grant(state: RunState, request, record):
 AUTOMATIC_ACTOR = "autocode"
 
 
+def _spent_automatic(state: RunState):
+    """The grant ids that dispatches which could have returned a result carry: the automatic grants they spent."""
+    return {row.get("grant_id") for row in receipts(state, returned=True)}
+
+
 def _automatic_grants(state: RunState, packet, stage):
     """AutoCode's own scoped retry grants of ``packet`` at ``stage`` (recover_no_progress), oldest first."""
     digest = util.digest(packet)
@@ -1035,15 +1051,18 @@ def _automatic_grants(state: RunState, packet, stage):
     ]
 
 
-def _automatic_grant(state: RunState, packet, request: dict, record, prior):
+def _automatic_grant(state: RunState, packet, request: dict, record):
     """The one scoped retry AutoCode authorized itself at this packet's no-progress hold (#2485), while
-    unspent and still bound to the hold's source, settings, contract and scope. Any dispatch it admits
-    spends it, as a person's --retry-failed-stage grant is spent."""
+    unspent and still bound to the hold's source, settings, contract and scope. A dispatch it admits
+    spends it once that dispatch could have returned a result (``receipts(returned=True)``): one the
+    provider stopped with no response ran no experiment, and the model a person names at that stop
+    takes the same retry (#3159). A person's grant is spent by any dispatch (``_explicit_grant``)."""
     held = request.get("novelty_hold") or {}
     revision = packet["binding"]["source_revision"]
+    spent = _spent_automatic(state)
     for grant in reversed(_automatic_grants(state, packet, record["stage"])):
         ident = util.digest(grant)
-        if any(row.get("grant_id") == ident for row in prior):
+        if ident in spent:
             continue
         if (
             grant.get("binding") == packet["binding"]
@@ -1070,7 +1089,7 @@ def _explicit_grant(state: RunState, packet, request, record, prior, authorizati
     ident = _investigation_grant(state, request, record)
     if ident is not None:
         return ident, "investigation"
-    ident = _automatic_grant(state, packet, request, record, prior)
+    ident = _automatic_grant(state, packet, request, record)
     return ident, "automatic" if ident is not None else None
 
 
@@ -1717,7 +1736,7 @@ def recover_no_progress(runner, state: RunState, run_dir, workspace, error):
         return False
     taken = _automatic_grants(state, packet, stage)
     if taken:
-        spent = {row.get("grant_id") for row in receipts(state)}
+        spent = _spent_automatic(state)
         if not all(util.digest(grant) in spent for grant in taken):
             return False  # The grant stands unspent: another guard holds the stage, and its pause says which.
         action = "repair" if stage == "builder" else "diagnosis"

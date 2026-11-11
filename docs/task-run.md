@@ -1488,6 +1488,14 @@ contract or scope is refused. A model change alone cannot authorize a call, and 
 rejected combined change saves no settings. Clients continue to use only named
 view actions; this operator control does not add a client-side route override.
 
+When the provider refused the Resolver's retry (quota or a content filter), the stop
+asks for a model instead, and no scoped retry is involved (#3159): `--abandon-stage
+ATTEMPT`, then `--resume-paused --resolver-model MODEL` records the usual route
+assignment, and the incident's binding treats the model, its effort and their origins
+as that one assignment. A call the provider stopped with no response ran no experiment,
+so AutoCode's own retry of the held incident is still there for the named model. A held
+Resolver change the CLI cannot take now names why, never a retry it would refuse.
+
 ### What went wrong (`recoveries`)
 
 `view.recovery` describes a stop. `view.recoveries` is the history of what went wrong while the
