@@ -1097,6 +1097,26 @@ test('registry rows carry the archived flag and only named cleanup actions', () 
   }]);
 });
 
+test('a malformed registry row is left out, never the whole list', () => {
+  const { readRegistryList } = host.load('core/view.js');
+  const list = readRegistryList(JSON.stringify({ runs: [
+    { id: 'r1', workspace: '/ws', run_dir: '/ws/.autocode/runs/r1', availability: 'available' },
+    null,
+    'junk',
+    { id: 'no-handle' },
+    { workspace: '/ws', run_dir: '/ws/.autocode/runs/no-id', availability: 'available' },
+    { id: 'r2', workspace: '/ws', run_dir: '/ws/.autocode/runs/r2', availability: 'available', title: 'Second chat' },
+  ], diagnostics: ['a note'] }));
+  assert.deepEqual(list.runs.map((row) => row.id), ['r1', 'r2'], 'one bad entry must not cost the person the list');
+  assert.equal(list.runs[1].title, 'Second chat');
+  assert.deepEqual(list.diagnostics, ['a note']);
+});
+
+test('a registry list that is not JSON says so, without parser jargon', () => {
+  const { readRegistryList } = host.load('core/view.js');
+  assert.throws(() => readRegistryList('not json'), /registry list did not return JSON/);
+});
+
 test('archived chats are marked and shown only when the list asks for them', async () => {
   const calls = [];
   const listed = [{
