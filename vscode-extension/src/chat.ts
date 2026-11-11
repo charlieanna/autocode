@@ -14,8 +14,8 @@ import { transitionNotice, waitsForPerson } from "./notify";
 import { runTotal, sessionTotal, totalText } from "./core/meter";
 import { applyEngine, engineOf, ENGINES, readSettings, routeKeyOf, type Engine } from "./settings";
 import { invoke, tail } from "./core/cli";
-import { backendArgs, chatRoute, fillChatSet, readStages, type StageView } from "./core/stages";
-import { inFolder } from "./stages";
+import { backendArgs, chatRoute, fillChatSet, fillSet, readStages, runListCommand, runRoute, type StageView } from "./core/stages";
+import { inFolder, pickStageModel } from "./stages";
 import { confirmRaise, numericActionLabel, numericConfirmation, numericRecoveryEffect, panelHtml, planningSpendConfirmation, stateFor } from "./panel";
 
 // While a reply is being written the view is read this often, so each new extract
@@ -308,7 +308,47 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       state: tab.run && tab.status
         ? { ...stateFor(tab.status, tab.run, this.controller, busy), unreadable: Boolean(tab.readError) } : null,
       chatStages: tab.run ? null : chatStagesFor(tab),
+      models: modelsChip(tab),
     });
+  }
+
+  /**
+   * The chat box's Models chip: a stage, a model and a level for this chat alone. A chat that has
+   * not started fills its stage's `chat_set` (nothing saved); a started chat fills the `set` of the
+   * list its status view names (`stage_models.next_command`), which the core takes only between
+   * stages. Either way the core checks the pick, a checker's independence included.
+   */
+  private async pickModels(): Promise<void> {
+    const tab = this.active;
+    if (!tab.run) {
+      if (tab.starting || tab.stagesBusy) return;
+      if (!tab.stages) await this.loadChatStages(tab);
+      const view = tab.stages;
+      if (tab.run || !view?.chat) return;
+      const pick = await pickStageModel(view, chatRoute, (stage) => stage.chat ?? stage.chosen ?? stage.default, "for this chat");
+      if (pick && this.active === tab) await this.chatStage({ type: "chat_stage", stage: pick.stage.id, model: pick.model, effort: pick.effort });
+      return;
+    }
+    const run = tab.run;
+    const list = runListCommand(tab.status?.stage_models?.next_command);
+    if (!list || !tab.status?.stage_models?.changeable || this.busy.has(tab.key)) return;
+    const settings = { ...readSettings(), cwd: run.workspace };
+    tab.error = "";
+    try {
+      const listed = await invoke(settings, list);
+      if (listed.code !== 0) throw new Error(tail(listed));
+      const view = readStages(listed.stdout);
+      if (!view.changeable) throw new Error(view.reason ?? "This chat's models cannot change now.");
+      const pick = await pickStageModel(view, runRoute, (stage) => stage.chosen ?? stage.default, "for this chat");
+      if (!pick || tab.run !== run) return;
+      const result = await invoke(settings, fillSet(pick.stage, pick.model, pick.effort));
+      if (result.code !== 0) throw new Error(tail(result));
+      void vscode.window.showInformationMessage(`This chat runs the ${pick.stage.label} on ${pick.model} at ${pick.effort} from its next stage.`);
+    } catch (error) {
+      tab.error = messageOf(error);
+    }
+    this.post();
+    await this.refresh();
   }
 
   /**
@@ -416,6 +456,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   private async receive(message: ChatMessage): Promise<void> {
     if (message.type === "connections") { await vscode.commands.executeCommand("autocode.connections"); return; }
     if (message.type === "stage_models") { await this.stageModels(); return; }
+    if (message.type === "models") { await this.pickModels(); return; }
     if (message.type === "chat_stage" || message.type === "chat_stage_reset") { await this.chatStage(message); return; }
     if (message.type === "chat_stages") { await this.loadChatStages(this.active); return; }
     if (message.type === "history") {
@@ -809,6 +850,24 @@ function chatStagesFor(tab: ChatTab) {
       };
     }),
   };
+}
+
+/**
+ * The chat box's Models chip, or null where the core offers no change: a chat that has not started
+ * with a list naming per-chat picks, or a started chat whose status view names its own list.
+ */
+function modelsChip(tab: ChatTab): { label: string; disabled: boolean; title: string } | null {
+  if (!tab.run) {
+    if (!tab.stages?.chat || !tab.stages.stages.length) return null;
+    const picked = tab.stages.stages.filter((stage) => stage.chat).length;
+    return { label: picked ? `Models · ${picked} changed` : "Models", disabled: tab.starting || tab.stagesBusy,
+      title: "Change a stage's model and reasoning level for this chat only" };
+  }
+  const offer = tab.status?.stage_models;
+  if (!offer || !runListCommand(offer.next_command)) return null;
+  return { label: "Models", disabled: !offer.changeable,
+    title: offer.changeable ? "Change a stage's model and reasoning level for this chat from its next stage"
+      : offer.reason ?? "This chat's models cannot change now." };
 }
 
 function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error); }

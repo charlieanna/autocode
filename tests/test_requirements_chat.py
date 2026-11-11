@@ -396,6 +396,37 @@ class RequirementsChatTests(unittest.TestCase):
             with self.subTest(raw=raw):
                 self.assertEqual(expected, chat.partial_string(raw))
 
+    def test_a_reply_never_says_how_requirements_classified_the_request(self):
+        # 2026-11-11 run: the chat opened with "This is a clear bugfix request." Every request takes the
+        # same path, so the job and clarity only label the run and are not said to the person.
+        rest = "The Completion Reviewer prompt inlines every passing test. Is that right?"
+        for opening in (
+            "This is a clear bugfix request.",
+            "This is a clear bug fix request. ",
+            "It's a small, clear build task.",
+            "This is a review.",
+        ):
+            with self.subTest(opening=opening):
+                state = {"requirements_handoff": {"report": {"assistant_reply": f"{opening} {rest}"}}}
+                self.assertEqual(rest, chat.reply(state))
+        for kept in (
+            "This is a clear bug in the parser. Is that right?",
+            "This is a build failure on macOS. Should I fix it?",
+            "This is a clear bugfix request.",  # nothing else to show: keep the stage's words
+        ):
+            with self.subTest(kept=kept):
+                self.assertEqual(kept, chat.reply({"requirements_handoff": {"report": {"assistant_reply": kept}}}))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            events = root / "requirements.jsonl"
+            reply = json.dumps({"assistant_reply": f"This is a clear bugfix request. {rest}"})
+            events.write_text(json.dumps({"type": "text", "part": {"id": "r", "text": reply}}) + "\n")
+            state = {"settings": {"spec_first": True}, "active_stage": {"stage": chat.STAGE, "events": str(events)}}
+            self.assertEqual(rest, chat.streaming_reply(state, root))
+            with events.open("a") as target:
+                target.write(json.dumps({"type": "autocode_chat_reply", "reply": f"This is a bugfix task. {rest}"}))
+            self.assertEqual(rest, chat.streaming_reply(state, root))
+
     def test_stream_is_bounded_to_the_current_requirements_assistant_events(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

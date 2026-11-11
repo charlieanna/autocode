@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import autocode_chat_log as chat_log
 from providers import opencode
 
 HOOK = Path(opencode.__file__).with_name("opencode_activity.mjs")
@@ -126,6 +127,71 @@ await update({id: "c1", type: "compaction", sessionID: "next", overflow: false})
             rows,
         )
         self.assertNotIn("msg_secret", result.stdout)
+
+    @unittest.skipUnless(shutil.which("node"), "Node is needed to execute the OpenCode hook")
+    def test_an_ended_reasoning_part_previews_its_opening_words_once(self):
+        """Ankur's live log (2026-11-10) kept each finished thought as its newest words, cut mid-sentence."""
+        script = r"""
+import plugin from HOOK;
+let now = 0;
+Object.defineProperty(globalThis.performance, "now", {value: () => now});
+Date.now = () => now;
+const hook = await plugin();
+const update = (id, type, end) => hook.event({event: {
+  type: "message.part.updated", properties: {part: {id, type, sessionID: "main", time: end ? {end} : {}}}}});
+const delta = (id, text, eventID) => hook.event({event: {
+  id: eventID, type: "message.part.delta", properties: {sessionID: "main", partID: id, field: "text", delta: text}}});
+await hook["chat.message"]({sessionID: "main"});
+await update("long", "reasoning");
+await delta("long", "Let me read the files that build the prompt. ", "l1");
+now = 300;
+await delta("long", "x".repeat(700) + " the newest words", "l2");
+await update("long", "reasoning", 300);
+await update("long", "reasoning", 301); // a repeated end adds nothing
+await update("short", "reasoning");
+now = 600;
+await delta("short", "Short and whole.", "s1");
+await update("short", "reasoning", 600);
+await update("reply", "text");
+now = 900;
+await delta("reply", "the report", "r1");
+await update("reply", "text", 900);
+""".replace("HOOK", json.dumps(HOOK.resolve().as_uri()))
+        result = subprocess.run(
+            [shutil.which("node"), "--input-type=module", "-e", script],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=15,
+        )
+        rows = [json.loads(line) for line in result.stdout.splitlines()]
+        progress = [row["progress"] for row in rows]
+        self.assertEqual(["long", "long", "long", "short", "short", "reply"], [row["id"] for row in progress])
+        streamed, newest, ended = progress[:3]
+        self.assertNotIn("final", streamed)
+        self.assertTrue(newest["preview"].endswith("the newest words"))
+        self.assertNotIn("final", newest)
+        self.assertEqual(
+            (True, True, newest["position"], newest["content_hash"]),
+            (ended["final"], ended["cut"], ended["position"], ended["content_hash"]),
+            "the end row adds no stream position or content, so it is never fresh liveness",
+        )
+        self.assertEqual(600, len(ended["preview"]))
+        self.assertTrue(ended["preview"].startswith("Let me read the files that build the prompt."))
+        self.assertEqual(
+            {"final": True, "preview": "Short and whole."}, {k: progress[4].get(k) for k in ("final", "preview")}
+        )
+        self.assertNotIn("cut", progress[4], "a thought the preview holds whole is not cut")
+        self.assertNotIn("final", progress[5], "a text part, which may be the report, gets no final preview")
+        self.assertNotIn("preview", progress[5])
+        # The live log shows each finished thought from its start, not as a partial tail.
+        with tempfile.TemporaryDirectory() as temp:
+            events = Path(temp) / "events.jsonl"
+            events.write_text(result.stdout)
+            shown = [entry["text"] for _, entry in chat_log.read(events) if entry["kind"] == "thinking"]
+        self.assertEqual(2, len(shown))
+        self.assertTrue(shown[0].startswith("Let me read the files that build the prompt.") and shown[0].endswith("…"))
+        self.assertEqual("Short and whole.", shown[1])
 
     def test_launch_preserves_plugins_and_registers_one_packaged_hook(self):
         uri = HOOK.resolve().as_uri()

@@ -148,14 +148,16 @@ def item_event(row: dict, workspace) -> tuple[str, dict] | None:
         paths = [_relative(c["path"], workspace) for c in changes]
         verbs = [FILE_VERBS.get(str(c.get("kind")), "edited") for c in changes]
         return str(item["id"]), {**_edit(paths, verbs), "status": state}
-    if kind == "web_search":
-        found = _describe("websearch", {"query": item.get("query")}, workspace)
+    if kind == "web_search" and (found := _describe("websearch", {"query": item.get("query")}, workspace)):
         return str(item["id"]), {"kind": "tool", "text": found[0], "summary": found[1], "status": state}
     if kind in TOOL_ITEMS:
         name = item.get("name") or item.get("tool") or item.get("query")
         if kind in ("tool_call", "function_call") and isinstance(name, str):
-            # Claude Code reports its built-in tools by their own names (Read, Grep, Task).
-            found = _describe(name.lower(), _arguments(item.get("arguments")), workspace)
+            # Claude Code reports its built-in tools by their own names (Read, Grep, Task), with what
+            # each looked at under display_input (providers/claude_stream.py).
+            given = item.get("display_input")
+            given = given if isinstance(given, dict) else _arguments(item.get("arguments"))
+            found = _describe(name.lower(), given, workspace)
             if found is not None:
                 return str(item["id"]), {"kind": "tool", "text": found[0], "summary": found[1], "status": state}
         text = _line(name or TOOL_ITEMS[kind])

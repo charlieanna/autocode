@@ -312,6 +312,55 @@ class LiveSampleTests(TempMixin, unittest.TestCase):
         self.assertEqual(0, monitor.poll()["idle_seconds"])
 
 
+class DisplayInputTests(unittest.TestCase):
+    def test_a_tool_call_says_what_it_looked_at_for_the_live_log(self):
+        """Synthesized Read, Grep, Glob and Task calls: the chat's live log names the file or search, not
+        "Read a file", and the call's full signature never appears as ``arguments``."""
+        import autocode_chat_activity as activity
+
+        rows, _ = translate(
+            [
+                init(),
+                tool_use("t1", "Grep", {"pattern": "def context_packet", "path": "/work/tools", "output_mode": "x"}),
+                tool_result("t1", "tools/autocode_stage_context.py"),
+                tool_use("t2", "Read", {"file_path": "/work/tools/autocode_stage_context.py", "limit": 40}),
+                tool_result("t2", "source"),
+                tool_use("t3", "Glob", {"pattern": "**/*.ts"}),
+                tool_use("t4", "Task", {"description": "find the callers", "prompt": "p" * 500}),
+                tool_use("t5", "WebFetch", {"url": "https://example.com/" + "a" * 400}),
+                result(structured_output={"ok": True}),
+            ]
+        )
+        started = items(rows, "tool_call", "item.started")
+        self.assertEqual(
+            [
+                {"pattern": "def context_packet", "path": "/work/tools"},
+                {"file_path": "/work/tools/autocode_stage_context.py"},
+                {"pattern": "**/*.ts"},
+                {"description": "find the callers"},
+                {"url": "https://example.com/" + "a" * (claude_stream.DISPLAY_LIMIT - 20)},
+            ],
+            [item["display_input"] for item in started],
+            "only what a call looked at, each bounded",
+        )
+        completed = items(rows, "tool_call")
+        self.assertEqual(
+            [started[0]["display_input"], started[1]["display_input"]], [item["display_input"] for item in completed]
+        )
+        self.assertTrue(all("arguments" not in item for item in started + completed))
+        shown = [activity.item_event(row, "/work") for row in rows if row["type"] == "item.completed"]
+        self.assertEqual(
+            [
+                ("Searched tools for “def context_packet”", "Searched code"),
+                ("Read tools/autocode_stage_context.py", "Read files"),
+            ],
+            [(event["text"], event["summary"]) for _, event in filter(None, shown)],
+        )
+        shown = [activity.item_event(row, "/work")[1]["text"] for row in rows if row["type"] == "item.started"]
+        self.assertEqual("Looked for files matching **/*.ts", shown[2])
+        self.assertEqual("Asked a helper agent to find the callers", shown[3])
+
+
 class FailClosedTests(TempMixin, unittest.TestCase):
     def bash(self, block_content, *, is_error=False, meta=None, command="make test"):
         rows, _ = translate(
