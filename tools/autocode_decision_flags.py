@@ -86,6 +86,7 @@ START_FLAGS = (
     "--brief",
     "--brief-file",
     "--build-in-worktree",
+    "--worktree-branch",
     "--builder-strong-model",
     "--compact-bugfix-planning",
     "--completion-model",

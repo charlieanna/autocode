@@ -165,7 +165,7 @@ class BashTests(unittest.TestCase):
         unit = tuple(next(a.choices for a in main_parser()._actions if "--unit" in a.option_strings))
         for words, expected in (
             (("res",), ["resume"]),
-            (("--wor",), ["--workspace", "--workflow"]),
+            (("--wor",), ["--workspace", "--workflow", "--worktree-branch"]),
             (("--unit", ""), list(unit)),
             (("--unit", "=", "auto"), [choice for choice in unit if choice.startswith("auto")]),
             (("doctor", "--"), ["--help", "--workspace", "--engine", "--json"]),
@@ -229,7 +229,7 @@ _autocode
     def test_completions(self):
         unit = tuple(next(a.choices for a in main_parser()._actions if "--unit" in a.option_strings))
         self.assertIn("resume", self.complete("res"))  # compadd filters by prefix itself
-        self.assertEqual(["--workflow", "--workspace"], sorted(self.complete("--wor")))
+        self.assertEqual(["--workflow", "--workspace", "--worktree-branch"], sorted(self.complete("--wor")))
         self.assertEqual(list(unit), self.complete("--unit", ""))
         self.assertEqual(["--engine", "--help", "--json", "--workspace"], sorted(self.complete("doctor", "--")))
         self.assertEqual(list(autocode_doctor.ENGINES), self.complete("doctor", "--engine", ""))
