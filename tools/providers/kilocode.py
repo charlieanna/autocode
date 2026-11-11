@@ -153,35 +153,12 @@ class KiloProvider(command.CommandProvider):
         """Validate the exact native variant; an unknown name otherwise silently becomes the model default."""
         if not effort:
             return
-        words = [self._config["command"][0], "models", "--verbose"]
-        try:
-            # The whole verbose listing, not just this model's provider: route discovery reads the same
-            # listing at the start of a task, so within a run this is answered from that check.
-            result = kilocode_probe.probe(
-                words,
-                lambda seconds: command.env_prep.preflight_run(
-                    words,
-                    self._preflight_environment(env),
-                    cwd=workspace,
-                    require_executable=env is not None,
-                    capture_output=True,
-                    text=True,
-                    timeout=seconds,
-                ),
-            )
-        # Every way this can fail gets its own sentence: one message for four causes left a stopped run
-        # unable to say which happened (#2959).
-        except kilocode_probe.KiloProbeTimeout as error:
-            raise KiloEffortError(str(error)) from error
-        except OSError as error:
-            raise KiloEffortError(
-                f"Kilo's reasoning-variant listing could not start: {error}; no model request was launched"
-            ) from error
-        if result.returncode:
-            raise KiloEffortError(
-                f"Kilo's reasoning-variant listing failed (exit {result.returncode}); no model request was launched"
-            )
+        result = self._variant_listing(workspace, env)
         levels = route_levels.parse(result.stdout)
+        if model not in levels and isinstance(result, command.env_prep.KeptCheck):
+            # A kept listing is asked again once before a route is called unlisted (#3078): the person
+            # cannot act on "name the model as Kilo lists it" when the route already is how Kilo lists it.
+            levels = route_levels.parse(self._variant_listing(workspace, env, fresh=True).stdout)
         if model not in levels:
             raise KiloEffortError(
                 f"Kilo's reasoning-variant listing has no variants for {model}; "
@@ -199,6 +176,42 @@ class KiloProvider(command.CommandProvider):
                 f"Kilo model {model} does not support reasoning variant {effort!r}; supported variants: {supported}. "
                 f"{advice}; no model request was launched"
             )
+
+    def _variant_listing(self, workspace, env, *, fresh=False):
+        """The whole ``models --verbose`` listing, answered from a kept check unless ``fresh``."""
+        words = [self._config["command"][0], "models", "--verbose"]
+        try:
+            # The whole verbose listing, not just this model's provider: route discovery reads the same
+            # listing at the start of a task, so within a run this is answered from that check. A listing
+            # cut off before its end is neither kept nor trusted, and is asked once more (#3078).
+            result = kilocode_probe.probe(
+                words,
+                lambda seconds: command.env_prep.preflight_run(
+                    words,
+                    self._preflight_environment(env),
+                    cwd=workspace,
+                    require_executable=env is not None,
+                    complete=route_levels.complete,
+                    fresh=fresh,
+                    capture_output=True,
+                    text=True,
+                    timeout=seconds,
+                ),
+                complete=route_levels.complete,
+            )
+        # Every way this can fail gets its own sentence: one message for four causes left a stopped run
+        # unable to say which happened (#2959).
+        except (kilocode_probe.KiloProbeTimeout, kilocode_probe.KiloProbeIncomplete) as error:
+            raise KiloEffortError(str(error)) from error
+        except OSError as error:
+            raise KiloEffortError(
+                f"Kilo's reasoning-variant listing could not start: {error}; no model request was launched"
+            ) from error
+        if result.returncode:
+            raise KiloEffortError(
+                f"Kilo's reasoning-variant listing failed (exit {result.returncode}); no model request was launched"
+            )
+        return result
 
     def local_settings(self, workspace=None, *, env=None):
         settings = super().local_settings(workspace, env=env)

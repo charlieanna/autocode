@@ -172,6 +172,91 @@ class KiloEffortTests(unittest.TestCase):
             self.assertNotIn("private diagnostic", str(raised.exception))
 
 
+class KeptKiloListingTests(unittest.TestCase):
+    """#3078: a listing cut off before its end was kept for an hour and read as "no variants" for every
+    route in its missing tail, so each resume paused again with an instruction the person could not act on."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        with patch.dict("os.environ", {"XDG_CONFIG_HOME": str(self.root)}):
+            self.provider = kilocode.load("kilocode")
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        self.calls, self.listing_file = self.root / "calls", self.root / "listing"
+        kilo = bin_dir / "kilo"
+        kilo.write_text(f"#!/bin/sh\necho call >> '{self.calls}'\nexec /bin/cat '{self.listing_file}'\n")
+        kilo.chmod(0o755)
+        self.env = {"PATH": str(bin_dir), "HOME": str(self.root)}
+        self.workspace = self.root / "workspace"
+        self.workspace.mkdir()
+        self.run_dir = self.root / "project" / ".autocode" / "runs" / "chat"
+        self.run_dir.mkdir(parents=True)
+        self.kept = self.root / "project" / ".autocode" / kilocode.command.env_prep.REUSE_FOLDER
+
+    def lists(self, *models, cut=False):
+        listing = "".join(
+            f'{model}\n{{\n  "cost": {{"input": 0, "output": 0}},\n  "variants": {{"high": {{}}}}\n}}\n'
+            for model in models
+        )
+        if cut:
+            listing = listing[: listing.rindex('"output": 0')] + '"output": 0,'
+        self.listing_file.write_text(listing)
+
+    def check(self, model):
+        with kilocode.command.env_prep.reuse_checks(self.run_dir):
+            self.provider.validate_effort(model, "high", self.workspace, env=self.env)
+
+    def launched(self):
+        return len(self.calls.read_text().splitlines()) if self.calls.exists() else 0
+
+    def test_a_cut_off_listing_is_neither_kept_nor_read_as_no_variants(self):
+        self.lists("openai/example", "zai-coding-plan/glm-5.3", cut=True)
+        with self.assertRaises(kilocode.KiloEffortError) as raised:
+            self.check("zai-coding-plan/glm-5.3")
+        self.assertIn("cut off before its end", str(raised.exception))
+        self.assertNotIn("name the model", str(raised.exception))
+        self.assertEqual(2, self.launched())
+        self.assertEqual([], list(self.kept.glob("*.json")) if self.kept.exists() else [])
+        # The next check runs the listing again instead of replaying the cut one for the rest of the hour.
+        self.lists("openai/example", "zai-coding-plan/glm-5.3")
+        self.check("zai-coding-plan/glm-5.3")
+        self.assertEqual(3, self.launched())
+        self.assertEqual(1, len(list(self.kept.glob("*.json"))))
+        self.lists("openai/example", cut=True)
+        self.check("zai-coding-plan/glm-5.3")
+        self.assertEqual(3, self.launched(), "a whole listing is still answered from the kept check")
+
+    def test_a_cut_off_listing_kept_before_this_check_is_not_answered_again(self):
+        self.lists("openai/example", "zai-coding-plan/glm-5.3", cut=True)
+        with kilocode.command.env_prep.reuse_checks(self.run_dir):
+            # A caller that does not check for a cut (as every caller did before #3078) keeps it.
+            kilocode.command.env_prep.preflight_run(
+                ["kilo", "models", "--verbose"],
+                self.provider.preflight_environment(self.env),
+                cwd=self.workspace,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        self.assertEqual(1, len(list(self.kept.glob("*.json"))))
+        self.lists("openai/example", "zai-coding-plan/glm-5.3")
+        self.check("zai-coding-plan/glm-5.3")
+        self.assertEqual(2, self.launched())
+
+    def test_a_kept_listing_that_lacks_the_route_is_asked_once_more_before_a_refusal(self):
+        self.lists("openai/example")
+        with self.assertRaisesRegex(kilocode.KiloEffortError, "has no variants for zai-coding-plan/glm-5.3"):
+            self.check("zai-coding-plan/glm-5.3")
+        self.assertEqual(1, self.launched(), "a listing just run is not run again")
+        self.lists("openai/example", "zai-coding-plan/glm-5.3")
+        self.check("zai-coding-plan/glm-5.3")
+        self.assertEqual(2, self.launched())
+        self.check("zai-coding-plan/glm-5.3")
+        self.assertEqual(2, self.launched(), "the fresh listing replaces the kept one")
+
+
 @unittest.skipUnless(
     sys.platform == "linux" and os.environ.get("AUTOCODE_KILO_LOCAL_SSE_TEST") == "1",
     "Opt-in original Kilo 7.8.3 and loopback-only network; no paid models",
