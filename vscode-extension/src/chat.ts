@@ -12,10 +12,11 @@ import { chosenMode, type RunModes } from "./core/modes";
 import { RunStarting, type StatusView } from "./core/view";
 import { transitionNotice, waitsForPerson } from "./notify";
 import { runTotal, sessionTotal, totalText } from "./core/meter";
-import { applyEngine, engineOf, ENGINES, readSettings, routeKeyOf, type Engine } from "./settings";
+import { applyEngine, engineOf, ENGINES, readSettings, type Engine } from "./settings";
 import { invoke, tail } from "./core/cli";
-import { backendArgs, chatRoute, fillChatSet, fillSet, readStages, runListCommand, runRoute, type StageView } from "./core/stages";
-import { inFolder, pickStageModel } from "./stages";
+import { chatRoute, fillChatSet, fillSet, readStages, runListCommand, runRoute, type StageView } from "./core/stages";
+import { StageListCache } from "./core/stage-cache";
+import { inFolder, newChatCall, pickStageModel } from "./stages";
 import { confirmRaise, numericActionLabel, numericConfirmation, numericRecoveryEffect, panelHtml, planningSpendConfirmation, stateFor } from "./panel";
 
 // While a reply is being written the view is read this often, so each new extract
@@ -77,6 +78,8 @@ interface ChatTab {
   stages?: StageView;
   stagesError: string;
   stagesBusy: boolean;
+  /** Set while `stages` is the list every new chat here shares (no picks of its own): its cache key. */
+  sharedStages?: string;
 }
 
 function newTab(key: string, run?: RunRef): ChatTab {
@@ -115,7 +118,14 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   /** The core's run modes for new chats; null when this AutoCode lists none (an older CLI). */
   private modes: RunModes | null | undefined;
 
-  constructor(private readonly controller: RunController, private readonly storage: vscode.Memento, private readonly actions: Actions) {
+  /** Kept for the editor's restart, so a new chat shows its models before the CLI answers. */
+  private readonly stageLists: StageListCache;
+  private readonly stageListsChanged: { dispose(): void };
+
+  constructor(private readonly controller: RunController, private readonly storage: vscode.Memento, private readonly actions: Actions,
+    stageLists?: StageListCache) {
+    this.stageLists = stageLists ?? new StageListCache(storage);
+    this.stageListsChanged = this.stageLists.onChange((key) => this.sharedStagesChanged(key));
     // Keep the pre-multi-window selection only for one-time migration. The
     // open tabs now live in this window's webview state; workspaceState is
     // shared by windows opened on the same workspace.
@@ -130,7 +140,11 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     this.view = view;
     view.webview.options = { enableScripts: true, localResourceRoots: [] };
     view.webview.onDidReceiveMessage((message: ChatMessage) => void this.receive(message));
-    view.onDidChangeVisibility(() => { if (view.visible) void this.refresh(); });
+    view.onDidChangeVisibility(() => {
+      if (!view.visible) return;
+      this.ensureChatStages(this.active);
+      void this.refresh();
+    });
     view.onDidDispose(() => { if (this.view === view) this.view = undefined; });
     view.webview.html = panelHtml(true);
     if (this.active.run) this.actions.selected(this.active.run);
@@ -180,7 +194,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     this.actions.selected(this.active.run);
     void this.focus();
     this.post(true);
-    if (!this.active.run && !this.active.stages) void this.loadChatStages(this.active);
+    this.ensureChatStages(this.active);
     void this.refresh();
   }
 
@@ -246,6 +260,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
     this.configuration.dispose();
+    this.stageListsChanged.dispose();
   }
 
   /** The mode id the person last chose for new chats; the core's default until then. */
@@ -351,23 +366,75 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     await this.refresh();
   }
 
+  /** Show a chat that has not started its stages: the shared list at once, read again only when stale. */
+  private ensureChatStages(tab: ChatTab): void {
+    if (!tab.run && (!tab.stages || tab.sharedStages)) void this.loadChatStages(tab);
+  }
+
   /**
    * Read the stages a chat that has not started will run: its own list again when it has picks
    * (`chat.next_command`), else the new-chat list for the backend new chats here use.
    */
   private async loadChatStages(tab: ChatTab, command?: string[]): Promise<void> {
     if (tab.run || tab.stagesBusy) return;
+    const shared = newChatCall();
+    const argv = command ?? (tab.sharedStages ? undefined : tab.stages?.chat?.list) ?? shared.argv;
+    if (sameWords(argv, shared.argv)) { await this.showSharedStages(tab, shared); return; }
     tab.stagesBusy = true;
     tab.stagesError = "";
     this.post();
     try {
-      tab.stages = await readChatStages(command ?? tab.stages?.chat?.list);
+      tab.stages = await readChatStages(argv);
+      tab.sharedStages = undefined;
     } catch (error) {
       tab.stagesError = messageOf(error);
     } finally {
       tab.stagesBusy = false;
       this.post();
     }
+  }
+
+  /**
+   * The list every new chat here shares, without waiting: the latest one is shown at once and read
+   * again in the background when stale; only a folder and backend never read waits for the CLI.
+   * A failed background read keeps the list shown; the next one tries again.
+   */
+  private async showSharedStages(tab: ChatTab, shared: NewChatList): Promise<void> {
+    const cached = this.stageLists.peek(shared.key);
+    if (cached) {
+      tab.stages = cached;
+      tab.sharedStages = shared.key;
+      tab.stagesError = "";
+      this.post();
+      if (this.stageLists.fresh(shared.key) || this.stageLists.loading(shared.key)) return;
+    } else {
+      tab.stagesBusy = true;
+      tab.stagesError = "";
+      this.post();
+    }
+    try {
+      const view = await this.stageLists.load(shared.key, () => readListText(shared));
+      if (!tab.run && (!tab.stages || tab.sharedStages === shared.key)) { tab.stages = view; tab.sharedStages = shared.key; }
+    } catch (error) {
+      if (!cached) tab.stagesError = messageOf(error);
+    } finally {
+      if (!cached) tab.stagesBusy = false;
+      this.post();
+    }
+  }
+
+  /** A shared list was read again (`key`), or every list went stale (""): fresh chats show the new one. */
+  private sharedStagesChanged(key: string): void {
+    if (!key) { if (this.active.sharedStages) void this.loadChatStages(this.active); return; }
+    const view = this.stageLists.peek(key);
+    if (!view) return;
+    let changed = false;
+    for (const tab of this.tabs) {
+      if (tab.run || tab.starting || tab.sharedStages !== key) continue;
+      tab.stages = view;
+      changed = true;
+    }
+    if (changed) this.post();
   }
 
   /** A pick for this chat alone: only the stage's own `chat_set` (or `chat_reset`) from the list it shows. */
@@ -475,8 +542,9 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       for (const tab of this.tabs) tab.status = undefined;
       if (this.active.run) this.actions.selected(this.active.run);
       this.post(true);
+      // The stages first: they show from the cache at once, and a read does not wait on the modes.
+      this.ensureChatStages(this.active);
       await this.loadModes();
-      if (!this.active.run && !this.active.stages) void this.loadChatStages(this.active);
       await this.refresh();
       return;
     }
@@ -496,7 +564,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       await pickEngine();
       if (engineOf(readSettings()) !== before) {
         // Another backend offers other models: a chat that has not started takes its list afresh.
-        for (const tab of this.tabs) if (!tab.run) { tab.stages = undefined; tab.stagesError = ""; }
+        for (const tab of this.tabs) if (!tab.run) { tab.stages = undefined; tab.sharedStages = undefined; tab.stagesError = ""; }
         void this.loadChatStages(this.active);
       }
       this.post();
@@ -824,10 +892,23 @@ function runKey(run: RunRef): string { return `${run.workspace}\n${run.runDir}`;
 /** A new chat's stage list: `command` (one the list named) or the plain list, in `cwd` or the window's folder. */
 async function readChatStages(command: string[] | undefined, cwd?: string): Promise<StageView> {
   const settings = readSettings();
-  const argv = command ?? ["stages", "list", "--json", ...backendArgs(settings.runOptions, routeKeyOf(settings))];
+  const argv = command ?? newChatCall().argv;
   const result = await invoke(cwd ? { ...settings, cwd } : inFolder(settings), argv);
   if (result.code !== 0) throw new Error(tail(result));
   return readStages(result.stdout);
+}
+
+/** The list every new chat in this window starts from: the call, where it runs and its cache key. */
+type NewChatList = ReturnType<typeof newChatCall>;
+
+async function readListText(list: NewChatList): Promise<string> {
+  const result = await invoke(list.settings, list.argv);
+  if (result.code !== 0) throw new Error(tail(result));
+  return result.stdout;
+}
+
+function sameWords(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((word, index) => word === b[index]);
 }
 
 /** What the webview shows for a chat that has not started: each stage, what it will run, and its choices. */

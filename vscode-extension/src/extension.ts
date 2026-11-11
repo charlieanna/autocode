@@ -15,6 +15,7 @@ import { RunItem, RunsProvider } from "./runsView";
 import { ChatView } from "./chat";
 import { ConnectionsPanel } from "./connections";
 import { runStages, StagesPanel } from "./stages";
+import { StageListCache } from "./core/stage-cache";
 import { readSettings, spendTarget } from "./settings";
 
 type RunTarget = RunRef | RunItem;
@@ -24,7 +25,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const controller = new RunController(log);
   const runs = new RunsProvider(controller);
   const connections = new ConnectionsPanel(context.workspaceState);
-  const stagePanel = new StagesPanel();
+  // One list of new-chat stage models for the chat and the Stage models panel, kept per workspace.
+  const stageLists = new StageListCache(context.workspaceState);
+  const stagePanel = new StagesPanel(stageLists);
   let active: RunRef | undefined;
   let watched: RunRef | undefined;
   let statusSequence = 0;
@@ -87,7 +90,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (run) watched = run;
       void updateStatus();
     },
-  });
+  }, stageLists);
 
   /** A History row's named cleanup action; the core refuses a live chat. */
   const cleanup = async (target: unknown, actionId: "archive" | "unarchive" | "delete"): Promise<void> => {

@@ -13,6 +13,7 @@ const { activate, pickWorkspace, NO_FOLDER } = host.load('extension.js');
 const { ConnectionsPanel, connectionsHtml } = host.load('connections.js');
 const { StagesPanel, stagesHtml, runStages } = host.load('stages.js');
 const { readStages, currentRoute } = host.load('core/stages.js');
+const { StageListCache } = host.load('core/stage-cache.js');
 const { engineOf, routeKeyOf, spendTarget, sanitizeRoutes, readSettings, applyEngine } = host.load('settings.js');
 let controller = new RunController(host.log);
 const run = { workspace: '/ws', runDir: '/ws/.autocode/runs/test' };
@@ -1170,7 +1171,7 @@ async function openChat(t, initial, selected = run, options = {}) {
   const chat = new ChatView(chatController, storage, {
     pickWorkspace: async () => run.workspace, confirmStart: async () => true, changed() {}, selected() {},
     ...options.actions,
-  });
+  }, options.stageLists);
   chat.resolveWebviewView(view);
   const dom = new JSDOM(webview.html, { runScripts: 'outside-only' });
   const sent = [];
@@ -1851,14 +1852,111 @@ test('a new chat drops a pick back to Stage models and starts with none', async 
   const level = ui.document.querySelector('[data-stage="tester"] select.level');
   level.value = 'low'; level.dispatchEvent(new ui.window.Event('change')); await flush(); await flush();
   assert.deepEqual(calls.at(-1).slice(-4), ['--chat-stage', 'tester', 'opus', 'low']);
+  const picked = calls.length;
   ui.document.querySelector('[data-stage="tester"] button.link').click(); await flush(); await flush();
-  assert.deepEqual(calls.at(-1), ['stages', 'list', '--json', '--backend', 'claude']);
+  assert.equal(calls.length, picked, 'without its pick the chat shows the list every new chat shares, read a moment ago');
   assert.equal(ui.document.querySelector('[data-stage="tester"] .now').textContent, 'opus at high (Stage models)');
   const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
   const before = calls.length;
   ui.type('Build it'); ui.submit(); await flush(); await flush();
   assert.equal(calls.length, before, 'without a pick nothing is read again');
   assert.deepEqual(start.mock.calls[0].arguments[4], []);
+});
+
+/** `chatStageView` with the Stage models choices in `chosen` (stage ID to model and level). */
+function withChosen(argv, chosen) {
+  const answer = chatStageView(argv);
+  const parsed = JSON.parse(answer.stdout);
+  for (const stage of parsed.stages) if (chosen[stage.id]) stage.chosen = chosen[stage.id];
+  return { ...answer, stdout: JSON.stringify(parsed) };
+}
+
+const nowText = (ui) => [...ui.document.querySelectorAll('#chat-models .chat-model')].map((row) => row.querySelector('.now').textContent);
+
+test('every new chat after the first shows its models at once, from the list the first one read', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  const calls = [];
+  let answer = (argv) => chatStageView(argv);
+  const ui = await openChat(t, null, false, { stages: (argv) => { calls.push(argv); return answer(argv); } });
+  ui.chat.show(); await flush(); await flush();
+  assert.equal(calls.length, 1, 'the first new chat reads the list');
+  // From here the CLI never answers: a chat that waited for it would show no models.
+  answer = () => new Promise(() => {});
+  for (let chat = 0; chat < 3; chat++) {
+    ui.chat.show(); await flush();
+    assert.equal(ui.document.querySelector('#chat-models').hidden, false);
+    assert.deepEqual(nowText(ui), ['haiku at medium (default)', 'opus at high (Stage models)']);
+    assert.doesNotMatch(ui.document.querySelector('#chat-models-body').textContent, /Reading the stages/);
+    const chip = ui.document.getElementById('models-picker');
+    assert.equal(chip.hidden, false); assert.equal(chip.disabled, false, 'the Models chip works at once');
+  }
+  assert.equal(calls.length, 1, 'a list read a moment ago is not read again for each chat');
+});
+
+test('a list older than a minute is shown at once and read again in the background', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  let clock = 1_000_000;
+  const stageLists = new StageListCache(undefined, () => clock);
+  const chosen = {};
+  const calls = [];
+  let release;
+  let answer = (argv) => withChosen(argv, chosen);
+  const ui = await openChat(t, null, false, { stageLists, stages: (argv) => { calls.push(argv); return answer(argv); } });
+  ui.chat.show(); await flush(); await flush();
+  ui.chat.show(); await flush();
+  assert.equal(calls.length, 1);
+  clock += 61_000;
+  chosen.tester = { model: 'sonnet', effort: 'low' };
+  answer = (argv) => new Promise((resolve) => { release = () => resolve(withChosen(argv, chosen)); });
+  ui.chat.show(); await flush();
+  assert.deepEqual(nowText(ui), ['haiku at medium (default)', 'opus at high (Stage models)'], 'the last list, without waiting');
+  assert.equal(calls.length, 2, 'read again in the background');
+  ui.chat.show(); await flush();
+  assert.equal(calls.length, 2, 'one read at a time, shared by every new chat');
+  release(); await flush(); await flush();
+  assert.deepEqual(nowText(ui), ['haiku at medium (default)', 'sonnet at low (Stage models)'], 'the fresh list replaces it');
+});
+
+test('after the editor restarts, a new chat shows the saved list at once, then the fresh one', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  const storageValues = new Map();
+  const chosen = {};
+  const calls = [];
+  let release;
+  let answer = (argv) => withChosen(argv, chosen);
+  const before = await openChat(t, null, false, { storageValues, stages: (argv) => { calls.push(argv); return answer(argv); } });
+  before.chat.show(); await flush(); await flush();
+  before.chat.dispose();
+  chosen.builder = { model: 'sonnet', effort: 'high' };
+  answer = (argv) => new Promise((resolve) => { release = () => resolve(withChosen(argv, chosen)); });
+  const ui = await openChat(t, null, false, { storageValues, timersEnabled: true });
+  ui.chat.show(); await flush();
+  assert.deepEqual(nowText(ui), ['haiku at medium (default)', 'opus at high (Stage models)'], 'kept in the workspace, shown before the CLI answers');
+  assert.equal(calls.length, 2, 'a saved list is read again once');
+  release(); await flush(); await flush();
+  assert.deepEqual(nowText(ui), ['sonnet at high (Stage models)', 'opus at high (Stage models)']);
+});
+
+test('a choice saved in Stage models reaches a new chat that is already open', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  const stageLists = new StageListCache();
+  const chosen = {};
+  const calls = [];
+  const ui = await openChat(t, null, false, { stageLists, stages: (argv) => {
+    calls.push(argv);
+    if (argv[1] === 'set') chosen[argv[2]] = { model: argv[7], effort: argv[9] };
+    return withChosen(argv, chosen);
+  } });
+  ui.chat.show(); await flush(); await flush();
+  const panel = new StagesPanel(stageLists);
+  t.after(() => panel.dispose());
+  await panel.show();
+  const page = host.panels.at(-1);
+  assert.equal(page.webview.messages.at(-1).view.stages[0].now, 'haiku at medium (default)', 'the panel opens on the shared list');
+  page.webview.receive({ type: 'set', stage: 'builder', model: 'sonnet', effort: 'high' }); await flush(); await flush(); await flush();
+  assert.deepEqual(calls.filter((argv) => argv[1] === 'set').length, 1);
+  assert.deepEqual(calls.at(-1), ['stages', 'list', '--json', '--backend', 'claude'], 'the chat reads its list again');
+  assert.deepEqual(nowText(ui), ['sonnet at high (Stage models)', 'opus at high (Stage models)']);
 });
 
 test('a pick the core refuses where the chat starts keeps the draft and starts nothing', async (t) => {
