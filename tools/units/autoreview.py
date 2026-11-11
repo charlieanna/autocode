@@ -30,6 +30,7 @@ try:
     from .. import autocode_role_transport as role_transport
     from .. import autocode_run_status as run_status
     from .. import autocode_task_authority as task_authority
+    from .. import autocode_toolchain_requirements as toolchain_requirements
     from .. import autocode_verification_commands as command_policy
     from .. import autocode_verification_plan as verification_plan
     from .. import autocode_verify as verify
@@ -44,6 +45,7 @@ except ImportError:
     import autocode_role_transport as role_transport
     import autocode_run_status as run_status
     import autocode_task_authority as task_authority
+    import autocode_toolchain_requirements as toolchain_requirements
     import autocode_verification_commands as command_policy
     import autocode_verification_plan as verification_plan
     import autocode_verify as verify
@@ -204,6 +206,21 @@ def job_request(state: RunState, job, role, route):
     return ModelRequest(role, route, prompt, metrics, schema, True)
 
 
+def _planned_go_targeted(state: RunState, tests):
+    """The approved plan's recognized Go suite command narrowed to these files (#3091).
+
+    With no saved ``--test-command`` the proof must not tree-detect a plain ``go test ./...``
+    and drop the env prefix the plan's own command carries."""
+    for entry in toolchain_requirements.initial_validation(state):
+        for command in verification_plan.commands(entry):
+            framework = command_policy.command_framework(command)
+            if framework is not None and framework.name == "go":
+                narrowed = framework.targeted(list(tests))
+                if narrowed:
+                    return narrowed
+    return None
+
+
 def apply_job(stage, state: RunState, value, record, workspace, *, run_dir=None):
     """Autopilot hands a job stage's validated report here; the job decides how the run continues."""
     evidence_dir = Path(record.get("output") or workspace).parent
@@ -224,7 +241,8 @@ def apply_job(stage, state: RunState, value, record, workspace, *, run_dir=None)
                 workspace,
                 evidence_dir / "acceptance-proof",
                 tests=tests,
-                command=command_policy.configured_targeted(state.get("settings"), tests),
+                command=command_policy.configured_targeted(state.get("settings"), tests)
+                or _planned_go_targeted(state, tests),
                 timeout=verify.DEFAULT_TIMEOUT,
             ),
             evidence_dir=evidence_dir,

@@ -501,6 +501,116 @@ class RunnerCollectionTests(unittest.TestCase):
         self.assertEqual(["go test ./pkg/util/log", None, None], [call["command"] for call in calls])
         self.assertEqual([["pkg/util/log/sink_test.go"]] * 3, [call["tests"] for call in calls])
 
+    def test_c7_tree_detection_path_keeps_env_prefix(self):
+        # #3091: with no saved --test-command the plan's own Go command supplies the env prefix,
+        # so the proof never falls back to prefix-free tree detection.
+        import autocode_go_tests as go_tests
+        from units import autoreview
+
+        calls, captured = [], {}
+
+        def clean_run(workspace, run_dir, **kwargs):
+            calls.append(kwargs)
+            return {"results": None, "error": "stub"}
+
+        state = {
+            "settings": {},
+            "current_task": {"acceptance_criteria": ["AC1"]},
+            "goal_contract": {
+                "body": {
+                    "acceptance_criteria": [{"id": "AC1", "criterion": "c", "verification_method": "test: test_c1_x"}],
+                    "initial_task": {
+                        "acceptance_criteria": ["AC1"],
+                        "validation_plan": ["env GOTOOLCHAIN=go1.27.2 GOPROXY=off go test ./..."],
+                    },
+                }
+            },
+        }
+        with (
+            mock.patch.object(autoreview.launch_inputs, "runners", return_value=(clean_run, None)),
+            mock.patch.object(autoreview.acceptance_tests_job, "apply", side_effect=lambda *a, **k: captured.update(k)),
+            tempfile.TemporaryDirectory() as root,
+        ):
+            record = {"output": str(Path(root) / "iterations" / "tester.jsonl")}
+            autoreview.apply_job(autoreview.acceptance_tests_job.STAGE, state, {}, record, root, run_dir=Path(root))
+            captured["run_tests"](["pkg/a/a_test.go", "pkg/b/b_test.go"])
+        self.assertEqual(
+            ["env GOTOOLCHAIN=go1.27.2 GOPROXY=off go test ./pkg/a ./pkg/b"], [call["command"] for call in calls]
+        )
+        self.assertEqual(
+            "env GOTOOLCHAIN=go1.27.2 GOPROXY=off go test -json ./pkg/a ./pkg/b",
+            go_tests.parse(calls[0]["command"]).instrument(),
+        )
+
+    def test_c2_exit_zero_without_results_keeps_standard_tests_message(self):
+        # Guard: a command that exits 0 with no per-test results keeps today's wording.
+        import autocode_acceptance_tests_job as job
+
+        with tempfile.TemporaryDirectory() as root:
+            workspace = Path(root)
+            test = workspace / "test_example.py"
+            test.write_text("def test_example():\n    assert False\n")
+            report = {
+                "tests": [{"case_id": "T1", "test_name": "test_example", "file": test.name}],
+                "cannot_write": [],
+                "already_passing": [],
+            }
+            run = {
+                "command": "env GOTOOLCHAIN=go1.27.2 GOPROXY=off go test -json ./pkg/a ./pkg/b",
+                "exit_code": 0,
+                "timed_out": False,
+                "results": None,
+                "tail": "",
+            }
+            state = approved({"T1": "test: test_example"})
+            acceptance.route(state)
+            job.apply(state, report, {"changed_files": [test.name]}, workspace, run_tests=lambda files: run)
+            self.assertEqual(job.PAUSE, state["status"])
+            self.assertIn(
+                "The acceptance tests reported no per-test results; write standard tests for the project",
+                state["stop_reason"],
+            )
+
+    def test_c3_failed_run_without_results_shows_command_output(self):
+        # #3091: a failed command with no per-test results shows its own output, never "write standard tests".
+        import autocode_acceptance_tests_job as job
+
+        with tempfile.TemporaryDirectory() as root:
+            workspace = Path(root)
+            for package in ("pkg/a", "pkg/b"):
+                (workspace / package).mkdir(parents=True)
+                name = package.rsplit("/", 1)[1] + "_test.go"
+                (workspace / package / name).write_text("package x\n")
+            report = {
+                "tests": [
+                    {"case_id": "T1", "test_name": "TestA", "file": "pkg/a/a_test.go"},
+                    {"case_id": "T2", "test_name": "TestB", "file": "pkg/b/b_test.go"},
+                ],
+                "cannot_write": [],
+                "already_passing": [],
+            }
+            run = {
+                "command": "env GOTOOLCHAIN=go1.27.2 GOPROXY=off go test -json ./pkg/a ./pkg/b",
+                "exit_code": 1,
+                "timed_out": False,
+                "results": None,
+                "tail": "go: go.mod requires go >= 1.27.2 (running go 1.23.4; GOTOOLCHAIN=local)\n",
+            }
+            state = approved({"T1": "test: TestA", "T2": "test: TestB"})
+            acceptance.route(state)
+            job.apply(
+                state,
+                report,
+                {"changed_files": ["pkg/a/a_test.go", "pkg/b/b_test.go"]},
+                workspace,
+                run_tests=lambda files: run,
+            )
+            self.assertEqual(job.PAUSE, state["status"])
+            self.assertIn(
+                "go: go.mod requires go >= 1.27.2 (running go 1.23.4; GOTOOLCHAIN=local)", state["stop_reason"]
+            )
+            self.assertNotIn("write standard tests", state["stop_reason"])
+
     def already_working_bug_fix(self, passing):
         """Apply a bug fix's Tester report (#1868) whose runner sees the ``passing`` tests pass on today's code.
 

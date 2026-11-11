@@ -45,6 +45,19 @@ class Framework:
                 return self.invocation.targeted(scripts) if scripts else None
             scripts = [p for p in files if p in self.node_files]
             return "node --test " + " ".join(map(shlex.quote, scripts)) if scripts else None
+        if self.name == "go":
+            packages = sorted(
+                {
+                    "./" + str(PurePosixPath(p).parent) if str(PurePosixPath(p).parent) != "." else "."
+                    for p in files
+                    if p.endswith("_test.go")
+                }
+            )
+            if not packages:
+                return None
+            # Keep the approved command's env prefix (#3091); parse() reads it, no second parser.
+            prefix = list(self.invocation.prefix) if self.invocation else []
+            return shlex.join([*prefix, "go", "test", *packages])
         if self.invocation:
             modules = [p for p in files if PYTHON_TEST_MODULE.match(PurePosixPath(p).name)]
             return self.invocation.targeted(modules) if modules else None
@@ -62,15 +75,6 @@ class Framework:
                 if modules
                 else None
             )
-        if self.name == "go":
-            packages = sorted(
-                {
-                    "./" + str(PurePosixPath(p).parent) if str(PurePosixPath(p).parent) != "." else "."
-                    for p in files
-                    if p.endswith("_test.go")
-                }
-            )
-            return ("go test " + " ".join(map(shlex.quote, packages))) if packages else None
         if self.name in ("jest", "vitest", "mocha"):
             scripts = [p for p in files if re.search(r"\.(test|spec)\.[cm]?[jt]sx?$", p) or p.endswith((".js", ".ts"))]
             if not scripts:

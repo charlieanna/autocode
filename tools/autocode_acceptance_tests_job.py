@@ -203,6 +203,12 @@ def corrected_body(state: RunState, names: dict[str, str]) -> dict:
     return body
 
 
+def _output_excerpt(run: dict, *, keep: int = 3, limit: int = 400) -> str:
+    """A short, bounded tail of the failed command's own output (#3091); receipts carry it in ``tail``."""
+    kept = [line for line in str(run.get("tail") or "").splitlines() if line.strip()]
+    return "\n".join(kept[-keep:])[-limit:]
+
+
 def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: dict, *, inherited=()) -> dict[str, str]:
     """Per case, how the runner saw its test on today's code; raises ValueError naming what is wrong."""
     if run.get("error"):
@@ -211,6 +217,14 @@ def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: d
         )
     results = run.get("results")
     if results is None:
+        if run.get("exit_code") not in (0, None):
+            # A failed command that printed no events is a command failure, not missing tests (#3091).
+            excerpt = _output_excerpt(run)
+            detail = f"; its output ends with:\n{excerpt}" if excerpt else ""
+            raise ExecutionEvidenceRequired(
+                f"The acceptance tests reported no per-test results and the test command exited "
+                f"{run['exit_code']}{detail}"
+            )
         raise ExecutionEvidenceRequired(
             "The acceptance tests reported no per-test results; write standard tests for the project"
         )

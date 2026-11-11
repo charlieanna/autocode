@@ -85,7 +85,7 @@ def command_framework(command, *, test_report=None):
         return Framework("node", command, invocation=invocation)
     invocation = go_tests.parse(command)
     if invocation and not invocation.compile_only:
-        return Framework("go", command)
+        return Framework("go", command, invocation=invocation)
     return None
 
 
