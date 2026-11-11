@@ -505,8 +505,16 @@ runs once more in that scratch tree to record line coverage
 (`tools/autocode_diff_coverage.py`). That run cannot change the verdict.
 `--status` shows it as `evidence.diff_coverage`: the changed product hunks no
 proving test executed (`uncovered`), and the changed files the report never
-measured (`unmeasured`, never counted as covered). Nothing is installed into the
-project; a project without a tool gets a note and no extra test run.
+measured (`unmeasured`, never counted as covered). `measured_lines` keeps the
+report's executed and missing lines for the changed lines only; the full report
+stays at `report_path`, so a large repository's coverage never reaches a stage
+prompt (#3121). Nothing is installed into the project; a project without a tool
+gets a note and no extra test run.
+
+A stage prompt over 2 MiB is never launched. The runner pauses `PAUSED_PROMPT_SIZE`
+before writing the prompt, admitting the stage or charging anything, and names the
+handoff field that holds most of it (`tools/autocode_prompt_bound.py`). Such a
+prompt is a defect in what AutoCode handed the stage, not in the task.
 
 ### Mutation check of named proof
 

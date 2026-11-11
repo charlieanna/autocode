@@ -177,7 +177,7 @@ class AllRoleSubprocessTests(unittest.TestCase):
             "resolver": models["task_planner"],
             "plan_reviewer": planning.PINNED_REVIEWER_MODEL,
         }
-        flags = [arg for role, model in models.items() for arg in ("--" + role + "-model", model)]
+        flags = [arg for role, model in models.items() for arg in ("--" + role.replace("_", "-") + "-model", model)]
         self.launch(["Build a greeting tool", "--no-chat", *flags], 2)
         run, state = self.saved()
         args = ["--run-dir", str(run)]

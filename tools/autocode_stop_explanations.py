@@ -449,6 +449,10 @@ TABLE: dict[str, tuple[str, str]] = {
         "A progressive transition is pending.",
         "--resume-paused continues the transition.",
     ),
+    "PAUSED_PROMPT_SIZE": (
+        "A stage's prompt was over AutoCode's size bound, so it was not launched; nothing was spent on it.",
+        "--resume-paused rebuilds the handoff and checks it again.",
+    ),
     "PAUSED_USAGE_UNKNOWN": (
         "Usage is unknown for an attempt; it is not counted as zero.",
         "--resume-paused continues; usage stays unknown until reported.",
