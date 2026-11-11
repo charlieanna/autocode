@@ -1790,12 +1790,25 @@ def _refund_fixture(data, root, producer):
     return accepted
 
 
+def quote_changed_lines(data, rows):
+    """Each decision with its gap's source_line from the handoff, as a Tester quotes the line it decides (#2977)."""
+    texts = {}
+    evidence = ((data.get("regression_proof") or {}).get("changed_code_evidence") or {}).get("obligations") or []
+    for row in evidence if isinstance(evidence, list) else []:
+        for gap in [row, *(row.get("gaps") or [])] if isinstance(row, dict) else []:
+            for key in ("gap_id", "handle"):
+                if isinstance(gap, dict) and isinstance(gap.get(key), str):
+                    texts[gap[key]] = gap.get("source_line", "")
+    return [{**row, "source_line": texts.get(row.get("gap_id"), "")} for row in rows]
+
+
 def judgments(data, root=None, *, producer=None):
     data = _review_data(data)
     if data is None:
         return []
     root = Path.cwd() if root is None else Path(root)
-    return (
+    return quote_changed_lines(
+        data,
         _stock(data, root)
         + _totals(data, root)
         + _greeting(data, root)
@@ -1811,7 +1824,7 @@ def judgments(data, root=None, *, producer=None):
         + _native_fixture(data, root, producer)
         + _by_project(data, root, producer)
         + _cache_fixture(data, root, producer)
-        + _refund_fixture(data, root, producer)
+        + _refund_fixture(data, root, producer),
     )
 
 
@@ -2188,4 +2201,4 @@ def progressive_judgments(data, reference, slice_id, *, root=None, **variant):
                 "evidence_refs": [proof["path"], name],
             }
         )
-    return accepted
+    return quote_changed_lines(data, accepted)

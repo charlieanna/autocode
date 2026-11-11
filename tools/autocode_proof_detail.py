@@ -8,8 +8,8 @@ and the model's provider refused the prompt as too long before the Tester could 
 
 For a review stage, each of those fields that is over ``LIMIT`` moves whole into the hash-pinned context
 artifact, and the handoff keeps a summary: counts and outcomes per file, the tests each criterion's
-survivors passed, and per file the tested lines plus every other line's handle, line, status, execution
-and mutation outcomes. The gap a Tester decides is named by its handle, which the generation schema already offers and
+survivors passed, and per file the tested lines plus every other line's handle, line, source text, status,
+execution and mutation outcomes. The gap a Tester decides is named by its handle, which the generation schema already offers and
 the runner resolves against the run's own assessment (``autocode_changed_code_review``). Nothing moves
 when another part of the handoff points into an obligation, or when the summary would not be smaller.
 Pure: the caller passes the original proof, the packet it already copied, and the dict of moved fields.
@@ -34,7 +34,7 @@ INSTRUCTION = (
     "SHA-256 below) under {fields}. mutation_check.files keeps each file's mutant count and outcomes; "
     "mutation_check.survivors keeps each criterion's survivor count and the tests that passed with a mutant; "
     "changed_code_evidence.obligations groups the changed lines by file: tested_lines lists the lines whose "
-    "mutants the tests already kill, and gaps lists every other line with its handle, line, status, "
+    "mutants the tests already kill, and gaps lists every other line with its handle, line, source_line, status, "
     "execution and mutation outcomes. Only a handle under gaps names a gap; a tested line is not one and "
     "takes no changed_code_exceptions decision. Read the complete rows before "
     "relying on a mutant, a reason or an evidence log. Missing, unreadable or hash-mismatched artifacts are "
@@ -119,7 +119,7 @@ def _obligations(rows):
         group["gaps"].append(
             {
                 key: row[key]
-                for key in ("handle", "line", "end_line", "status", "executed", "mutation_outcomes")
+                for key in ("handle", "line", "end_line", "source_line", "status", "executed", "mutation_outcomes")
                 if key in row
             }
         )

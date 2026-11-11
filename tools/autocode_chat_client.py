@@ -1824,11 +1824,23 @@ class ChatClient:
             and (conversation.get("input") or {}).get("next_command")
         )
         hint = ", or type the model to continue on" if model_command else ""
+        # The number this command takes, already typed above. Typed again here it is that number, not a no:
+        # the full-screen chat read "4" at this prompt as a decline and left the run for a new chat (#3094).
+        number = next((row for row in decided if row.kind == "integer"), None)
         if offer:
             hint = f", or type a new {offer[0]['label'].lower()} ({offer[0]['minimum']} or more)"
+        elif number:
+            hint = f", or type a different {str((number.integer or {}).get('label')).lower()}"
         elif message_offer and not model_command:
             hint = ", or type what to change"
         answer = self.ask(f"{prompt}? [y/N]{hint}: ")
+        while number and answer.strip().isdigit():
+            try:
+                answers[number.key] = actions.integer_value(answer, number.integer or {})
+                answer = "y"
+            except actions.ClientGap as error:
+                self.say(str(error))
+                answer = self.ask(f"{prompt}? [y/N]{hint}: ")
         if model_command and answer.strip() and answer.strip().lower() not in (*YES, "n", "no"):
             return self.route_model(view, model_command, route, answer.strip())
         if offer and answer.strip() and answer.strip().lower() not in (*YES, "n", "no"):

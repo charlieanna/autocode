@@ -120,7 +120,6 @@ STATUS_WRITERS = frozenset(
         "autocode_checkpoint_continuation",
         "autocode_classification_recovery",
         "autocode_dependency",
-        "autocode_design_check_job",
         "autocode_design_intake",
         "autocode_design_revision",
         "autocode_dispatch",

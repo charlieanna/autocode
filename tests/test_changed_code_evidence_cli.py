@@ -228,7 +228,8 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
                     changed = (data.get("regression_proof") or {}).get("changed_code_evidence") or {}
                     target = report["validation"] if stage == "review_checkpoint" else report
                     target["changed_code_exceptions"] = [
-                        {"gap_id": row["gap_id"], "decision": "accept", "reason_kind": "equivalent_mutant",
+                        {"gap_id": row["gap_id"], "source_line": row.get("source_line", ""),
+                         "decision": "accept", "reason_kind": "equivalent_mutant",
                          "reason": REASON_LITERAL,
                          "evidence_refs": ["calc.py", "tests/test_limits.py"]}
                         for row in changed.get("obligations", [])
@@ -264,10 +265,14 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
                 if stage in ("tester", "review_checkpoint") and data.get("report_repair"):
                     import re as _re
                     target = report["validation"] if stage == "review_checkpoint" else report
+                    # The Tester reads each listed line and quotes it (#2977).
+                    lines = Path("calc.py").read_text().splitlines()
                     target["changed_code_exceptions"] = [
-                        {"gap_id": gap, "decision": "accept", "reason_kind": "instrumentation_unavailable",
+                        {"gap_id": gap, "source_line": " ".join(lines[int(line) - 1].split()),
+                         "decision": "accept", "reason_kind": "instrumentation_unavailable",
                          "reason": REASON_LITERAL, "evidence_refs": ["calc.py", "tests/test_limits.py"]}
-                        for gap in dict.fromkeys(_re.findall(r"\\((changed-code:[0-9a-f]+)\\)", data.get("error") or ""))]
+                        for line, gap in dict.fromkeys(
+                            _re.findall(r"calc\\.py:(\\d+) \\((changed-code:[0-9a-f]+)\\)", data.get("error") or ""))]
             """).replace("REASON_LITERAL", repr(NO_SITE_REASON))
                 + witness
             )

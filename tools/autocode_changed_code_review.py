@@ -8,6 +8,7 @@ by the caller. This module never treats model prose or a file name as evidence.
 from __future__ import annotations
 
 import copy
+import json
 
 try:
     from . import autocode_changed_code_evidence as line_evidence
@@ -39,9 +40,11 @@ SCHEMA = {
     "items": {
         "type": "object",
         "additionalProperties": False,
-        "required": ["gap_id", "decision", "reason_kind", "reason", "evidence_refs"],
+        "required": ["gap_id", "source_line", "decision", "reason_kind", "reason", "evidence_refs"],
         "properties": {
             "gap_id": {"type": "string"},
+            # The text of the exact line gap_id binds, copied from its obligation's source_line (#2977).
+            "source_line": {"type": "string"},
             "decision": {"type": "string", "enum": ["accept", "reject"]},
             "reason_kind": {"type": "string", "enum": list(KINDS)},
             "reason": {"type": "string"},
@@ -49,6 +52,10 @@ SCHEMA = {
         },
     },
 }
+
+
+# A report generated before decisions quoted their line (#2977) was offered these fields alone.
+LEGACY_FIELDS = frozenset(SCHEMA["items"]["properties"]) - {"source_line"}
 
 
 def _stage(record):
@@ -88,6 +95,43 @@ def _names(gaps):
 def resolve(assessment, name):
     """The exact gap id a supplied handle or id names, or the name unchanged when it names none."""
     return _names(_gaps(assessment)).get(name, name) if isinstance(name, str) else name
+
+
+def misquoted(assessment, decisions):
+    """Each decision whose source_line is not the text of the exact line its gap_id binds (#2977).
+
+    A handle names one authenticated path, file hash and line; a reason under it must justify that
+    line. A decision that quotes another line describes another line, whatever its handle says, so
+    it is returned to the Tester rather than accepted. Only a gap whose text was read from its
+    measured bytes is compared. Matching text proves only that the reason names its own line; the
+    reason's adequacy stays the independent reviewers' judgment.
+    """
+    gaps = _gaps(assessment)
+    names = _names(gaps)
+    result = []
+    for row in decisions if isinstance(decisions, list) else []:
+        if not isinstance(row, dict) or "source_line" not in row:
+            continue
+        gap = gaps.get(names.get(row.get("gap_id"))) if isinstance(row.get("gap_id"), str) else None
+        expected = gap.get("source_line") if gap else None
+        if isinstance(expected, str) and line_evidence.quoted(row["source_line"]) != expected:
+            result.append((row, gap))
+    return result
+
+
+def misquote_message(mismatches):
+    """The report-repair error naming each decision's quoted line and the line its handle binds."""
+    listed = "; ".join(
+        f"{row.get('gap_id')} quotes {json.dumps(line_evidence.quoted(row.get('source_line')) or '')} but binds "
+        f"{gap['path']}:{gap['line']}, which is {json.dumps(gap['source_line'])}"
+        for row, gap in mismatches
+    )
+    return (
+        f"A changed_code_exceptions decision describes a different line than the one its handle binds: {listed}. "
+        "Each decision's source_line must be the source_line of its own gap, and its reason must justify "
+        "that exact line. Re-read each named line and decide it on its own, or give the decision under "
+        "the handle of the line you described."
+    )
 
 
 def generation_schema(schema, assessment, stage):
@@ -197,9 +241,15 @@ def bind(assessment, decisions, record, *, offered_schema, verified_refs):
         or not isinstance(verified_refs, dict)
     ):
         raise ValueError("Changed-code reason review has no exact current offered gap binding")
+    fields = set(field.get("items", {}).get("properties") or ())
+    if fields not in (set(SCHEMA["items"]["properties"]), LEGACY_FIELDS):
+        raise ValueError("Changed-code reason review has no exact current offered gap binding")
+    mismatches = misquoted(assessment, decisions)
+    if mismatches:
+        raise ValueError(misquote_message(mismatches))
     result, seen = [], set()
     for row in decisions:
-        if not isinstance(row, dict) or set(row) != set(SCHEMA["items"]["properties"]):
+        if not isinstance(row, dict) or set(row) != fields:
             raise ValueError("Malformed changed-code exception decision")
         supplied = row.get("gap_id")
         identity = names.get(supplied) if isinstance(supplied, str) and supplied in offered else None
@@ -246,6 +296,7 @@ def bind(assessment, decisions, record, *, offered_schema, verified_refs):
                 "path": gap["path"],
                 "sha256": gap["sha256"],
                 "line": gap["line"],
+                **({"source_line": gap["source_line"]} if isinstance(gap.get("source_line"), str) else {}),
                 "accepted": row["decision"] == "accept",
                 "reason_kind": row["reason_kind"],
                 "reason": reason.strip(),

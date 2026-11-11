@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import autocode as runner
+import autocode_action_authority as action_authority
 import autocode_args
 import autocode_dependency as dependency
 import autocode_resolver_human as human
@@ -103,6 +104,65 @@ class HumanPublicationTests(unittest.TestCase):
         self.assertEqual(3, self.state["resolver"]["lifetime_attempts"])
         self.assertEqual("superseded", self.state["resolver"]["human_escalations"][published["request_id"]]["status"])
         fake_runner.run_role.assert_not_called()
+
+    def test_resume_inspection_never_republishes_the_retained_pause_over_the_request(self):
+        # #3020: a resume holding an operational request whose retained pause is a repeated failure
+        # asks the two completion recoveries whether they apply. It hands them that pause instead of
+        # publishing it as the run's status, so a check that declines or raises leaves the request
+        # and the status the person was shown exactly as they were.
+        self.state.update(status="PAUSED_REPEATED_FAILURE", next_stage="review_completion")
+        run = Path(self.state["run_dir"])
+        self.assertTrue(
+            runner.resolver_runtime.record_operational_exhaustion(
+                runner, self.state, run, support.Paused("PAUSED_REPEATED_FAILURE", "Recovery exhausted")
+            )
+        )
+        runner.write_json(run / "state.json", self.state)
+        self.assertEqual("WAITING_FOR_USER", self.state["status"])
+        published = human.current(self.state)
+        self.assertEqual("operational_exhaustion", published["scope"])
+        saved = copy.deepcopy(self.state)
+        args = autocode_args.build_parser(None, runner.DEFAULT_ROLE_MODELS).parse_args(
+            ["--run-dir", str(run), "--resume-paused", "--no-chat"]
+        )
+
+        class Inspection(OSError):
+            pass
+
+        class Held(Exception):
+            pass
+
+        for first, second in ((Inspection, None), (False, Inspection), (False, False)):
+            with self.subTest(first=first, second=second):
+                state = copy.deepcopy(saved)
+                seen = []
+
+                def observer(result):
+                    def inspect(observed, run_dir, workspace, **kwargs):
+                        seen.append((observed["status"], kwargs))
+                        if result is Inspection:
+                            raise Inspection("inspection failed before any change")
+                        return result
+
+                    return inspect
+
+                fake_runner = Mock(wraps=runner)
+                fake_runner.prepare_abandoned_completion_revalidation.side_effect = observer(first)
+                fake_runner.prepare_timeout_archived_completion.side_effect = observer(second)
+                # Hold the resume right after the inspection, before anything downstream acts.
+                fake_runner.stale_report_repair.side_effect = Held
+                with self.assertRaises(Inspection if Inspection in (first, second) else Held):
+                    action_authority.settle(fake_runner, args, None, state, run / "state.json", run, self.root, Mock())
+                self.assertEqual(saved, state)
+                self.assertEqual(published, human.current(state))
+                origin = {"origin": "PAUSED_REPEATED_FAILURE"}
+                self.assertEqual(
+                    [("WAITING_FOR_USER", origin)] * (1 if first is Inspection else 2),
+                    seen,
+                    "each check reads the retained pause as an argument, never as the run's status",
+                )
+                fake_runner.write_json.assert_not_called()
+                fake_runner.run_role.assert_not_called()
 
     def test_generic_answer_cannot_reclassify_operational_question_as_new_requirements(self):
         self.contract()
