@@ -30,7 +30,16 @@ export interface Stage {
   options: StageOption[];
   set: string[];
   reset: string[] | null;
+  /** A new chat's own pick for this stage (`--chat-stage`), never saved; null when it takes the saved choice or default. */
+  chat: StageRoute | null;
+  /** The list with this stage picked for one new chat: `MODEL` and `EFFORT` filled as `set` is. */
+  chatSet: string[] | null;
+  /** The list without this stage's pick for the chat, or null with none. */
+  chatReset: string[] | null;
 }
+
+/** How a new chat starts with its picks: the stage flags to add to its start, and the list that names them. */
+export interface ChatStart { startArgs: string[]; list: string[] }
 
 export interface StageView {
   backend: string;
@@ -40,6 +49,8 @@ export interface StageView {
   /** A started run's list (`stages list --run-dir`): false while a stage works, with the reason. */
   changeable: boolean;
   reason: string | null;
+  /** A new chat's list (`stages list --json`, with any `--chat-stage` picks); null from an older AutoCode. */
+  chat: ChatStart | null;
 }
 
 const text = (value: unknown): string => (typeof value === "string" ? value : "");
@@ -85,24 +96,63 @@ export function readStages(raw: string): StageView {
       options,
       set,
       reset: words((value.reset as Record<string, unknown> | null | undefined)?.next_command),
+      chat: route(value.chat),
+      chatSet: chatListCommand((value.chat_set as Record<string, unknown> | null | undefined)?.next_command),
+      chatReset: chatListCommand((value.chat_reset as Record<string, unknown> | null | undefined)?.next_command),
     });
   }
+  const chat = parsed.chat as Record<string, unknown> | null | undefined;
+  const list = chatListCommand(chat?.next_command);
+  const startArgs = stageFlags(chat?.start_args);
   return {
     backend: text(parsed.backend), label: text(parsed.label) || text(parsed.backend), optionsStop: textOrNull(parsed.options_stop), stages,
     changeable: parsed.changeable !== false, reason: textOrNull(parsed.reason),
+    chat: list && startArgs ? { list, startArgs } : null,
   };
+}
+
+/** A new chat's read-only list: `stages list`, never a run's or a change. */
+function chatListCommand(value: unknown): string[] | null {
+  const argv = words(value);
+  return argv && argv[0] === "stages" && argv[1] === "list" && !argv.includes("--run-dir") ? argv : null;
+}
+
+/** Only stage model and level flags, each with its value: anything else is not a pick and is not passed to a start. */
+function stageFlags(value: unknown): string[] | null {
+  const argv = words(value);
+  if (!argv || argv.length % 2) return null;
+  for (let i = 0; i < argv.length; i += 2) {
+    if (!/^--[a-z]+(?:-[a-z]+)*-(?:model|reasoning-effort)$/.test(argv[i]!) || argv[i + 1]!.startsWith("-")) return null;
+  }
+  return argv;
 }
 
 /** The stage's own set command with a listed model and one of its levels, or an error saying why not. */
 export function fillSet(stage: Stage, model: string, effort: string): string[] {
+  return fill(stage, stage.set, model, effort);
+}
+
+/** The stage's pick for one new chat, filled the same way; an older AutoCode names none. */
+export function fillChatSet(stage: Stage, model: string, effort: string): string[] {
+  if (!stage.chatSet) throw new Error("This AutoCode cannot change a new chat's models; update AutoCode.");
+  return fill(stage, stage.chatSet, model, effort);
+}
+
+function fill(stage: Stage, command: string[], model: string, effort: string): string[] {
   const option = stage.options.find((row) => row.model === model);
   if (!option) throw new Error(`The ${stage.label} is not offered ${model}.`);
   if (option.unavailable) throw new Error(`The ${stage.label} cannot run ${model}: ${option.unavailable}.`);
   if (!option.effortChoices.includes(effort)) throw new Error(`${model} takes ${option.effortChoices.join(", ")}.`);
-  if (stage.set.filter((word) => word === "MODEL").length !== 1 || stage.set.filter((word) => word === "EFFORT").length !== 1) {
+  if (command.filter((word) => word === "MODEL").length !== 1 || command.filter((word) => word === "EFFORT").length !== 1) {
     throw new Error("The stage view names no choice the extension can make; update AutoCode.");
   }
-  return stage.set.map((word) => (word === "MODEL" ? model : word === "EFFORT" ? effort : word));
+  return command.map((word) => (word === "MODEL" ? model : word === "EFFORT" ? effort : word));
+}
+
+/** What a new chat's stage will run, in words: this chat's pick, else what every new chat takes. */
+export function chatRoute(stage: Stage): string {
+  if (stage.chat?.model) return `${stage.chat.model} at ${stage.chat.effort ?? "its own default level"} (this chat)`;
+  return currentRoute(stage).replace(/\(your choice\)$/, "(Stage models)");
 }
 
 /** What the stage runs now, in words: the person's choice, else its default. */

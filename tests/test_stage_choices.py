@@ -11,6 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import autocode_args
 import autocode_configure
 import autocode_role_transport as role_transport
 import autocode_roles as role_names
@@ -388,6 +389,110 @@ class StagesCommandTests(unittest.TestCase):
         self.assertIn(f"Planner: {SONNET} at medium (default)", out)
         self.assertEqual(0, self.run_cli("reset", "builder", "--backend", "claude")[0])
         self.assertEqual({"tester"}, set(choices.load()["claude"]))
+
+    def test_a_new_chat_lists_its_stages_and_changes_them_for_itself_without_saving(self):
+        """A chat that has not started shows the stages it will run and takes picks for itself alone."""
+        self.assertEqual(
+            0, self.run_cli("set", "tester", "--model", OPUS, "--effort", "high", "--backend", "claude")[0]
+        )
+        saved = self.file_text()
+        code, out, _err = self.run_cli("list", "--backend", "claude", "--json")
+        self.assertEqual(0, code)
+        current = json.loads(out)
+        builder = next(stage for stage in current["stages"] if stage["id"] == "builder")
+        self.assertIsNone(builder["chat"])
+        self.assertIsNone(builder["chat_reset"])
+        self.assertEqual(
+            {"start_args": [], "next_command": ["stages", "list", "--json", "--backend", "claude"]}, current["chat"]
+        )
+        self.assertEqual(
+            ["stages", "list", "--json", "--backend", "claude", "--chat-stage", "builder", "MODEL", "EFFORT"],
+            builder["chat_set"]["next_command"],
+        )
+        # The Builder's own pick, filled as `set` is: the Tester keeps its saved Opus.
+        fill = {"MODEL": SONNET, "EFFORT": "high"}
+        code, out, _err = self.run_cli(*[fill.get(word, word) for word in builder["chat_set"]["next_command"][1:]])
+        self.assertEqual(0, code)
+        picked = json.loads(out)
+        by_id = {stage["id"]: stage for stage in picked["stages"]}
+        self.assertEqual({"model": SONNET, "effort": "high"}, by_id["builder"]["chat"])
+        self.assertIsNone(by_id["builder"]["chosen"], "the saved choices are untouched")
+        self.assertEqual({"model": OPUS, "effort": "high"}, by_id["tester"]["chosen"])
+        self.assertEqual(
+            ["--builder-model", SONNET, "--builder-reasoning-effort", "high"], picked["chat"]["start_args"]
+        )
+        self.assertEqual(saved, self.file_text(), "a chat's pick is never saved")
+        # Every other stage's command carries the Builder's pick, and the checkers are judged against it.
+        self.assertEqual(
+            [
+                "stages",
+                "list",
+                "--json",
+                "--backend",
+                "claude",
+                "--chat-stage",
+                "builder",
+                SONNET,
+                "high",
+                "--chat-stage",
+                "tester",
+                "MODEL",
+                "EFFORT",
+            ],
+            by_id["tester"]["chat_set"]["next_command"],
+        )
+        sonnet = next(option for option in by_id["completion"]["options"] if option["model"] == SONNET)
+        self.assertIn("checks the Builder's work, and the Builder runs " + SONNET, sonnet["unavailable"])
+        self.assertEqual(
+            ["stages", "list", "--json", "--backend", "claude"], by_id["builder"]["chat_reset"]["next_command"]
+        )
+        code, out, _err = self.run_cli("list", "--backend", "claude", "--chat-stage", "builder", SONNET, "high")
+        self.assertIn(f"Builder: {SONNET} at high (this chat)", out)
+        self.assertIn(f"Tester: {OPUS} at high (your choice)", out)
+
+    def test_a_new_chats_pick_is_refused_as_a_saved_one_would_be(self):
+        for given, reason in (
+            (("builder", OPUS, "high", "--chat-stage", "tester", OPUS, "high"), "cannot run " + OPUS),
+            (("builder", "nobody/model", "high"), "does not offer nobody/model"),
+            (("builder", HAIKU, "turbo"), HAIKU + " takes"),
+            (("nobody", SONNET, "high"), "nobody is not a stage"),
+            (("builder", SONNET, "high", "--chat-stage", "builder", HAIKU, "low"), "names builder twice"),
+        ):
+            with self.subTest(given=given):
+                code, out, err = self.run_cli("list", "--backend", "claude", "--json", "--chat-stage", *given)
+                self.assertEqual((2, ""), (code, out))
+                self.assertIn(reason, err)
+        for action in (("set", "builder", "--model", SONNET, "--effort", "high"), ("reset",)):
+            with self.subTest(action=action):
+                code, _out, err = self.run_cli(
+                    *action, "--backend", "claude", "--chat-stage", "builder", SONNET, "high"
+                )
+                self.assertEqual(2, code)
+                self.assertIn("saves nothing", err)
+        self.assertFalse(choices.path().exists())
+
+    def test_a_new_chats_start_args_give_its_run_the_picks_over_the_saved_choices(self):
+        self.assertEqual(
+            0, self.run_cli("set", "builder", "--model", HAIKU, "--effort", "low", "--backend", "claude")[0]
+        )
+        self.assertEqual(
+            0, self.run_cli("set", "tester", "--model", OPUS, "--effort", "high", "--backend", "claude")[0]
+        )
+        out = self.run_cli("list", "--backend", "claude", "--json", "--chat-stage", "builder", SONNET, "xhigh")[1]
+        start = json.loads(out)["chat"]["start_args"]
+        args = autocode_args.build_parser(None, autocode_args.DEFAULT_ROLE_MODELS).parse_args(["fix it", *start])
+        choices.apply(args, "claude")
+        self.assertEqual((SONNET, "xhigh"), (args.builder_model, args.builder_reasoning_effort))
+        self.assertEqual((OPUS, "high"), (args.tester_model, args.tester_reasoning_effort), "the saved choice stays")
+        self.assertEqual({"model": HAIKU, "effort": "low"}, choices.load()["claude"]["builder"])
+        # A model that lists no levels runs at its own: no level flag, so no saved level is taken either.
+        out = self.run_cli(
+            "list", "--backend", "opencode", "--json", "--chat-stage", "builder", "opencode/plain", "default"
+        )[1]
+        self.assertEqual(["--builder-model", "opencode/plain"], json.loads(out)["chat"]["start_args"])
+
+    def file_text(self):
+        return choices.path().read_text() if choices.path().exists() else ""
 
     def test_set_without_a_model_or_level_and_choose_without_a_terminal_ask_nothing(self):
         self.assertEqual(2, self.run_cli("set", "builder", "--backend", "claude")[0])

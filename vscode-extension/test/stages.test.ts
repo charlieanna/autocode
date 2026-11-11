@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { backendArgs, currentRoute, fillSet, readStages } from "../src/core/stages";
+import { backendArgs, chatRoute, currentRoute, fillChatSet, fillSet, readStages } from "../src/core/stages";
 
 const OPUS = "claude-opus-5-5";
 const set = ["stages", "set", "terra", "--backend", "claude", "--json", "--model", "MODEL", "--effort", "EFFORT"];
@@ -58,4 +58,32 @@ test("each stage says what it runs now and the list names the backend only when 
   assert.deepEqual(backendArgs(["--engine", "claude"], "claude"), ["--backend", "claude"]);
   assert.deepEqual(backendArgs(["--provider=kilocode"], "kilocode"), ["--backend", "kilocode"]);
   assert.deepEqual(backendArgs(["--max-cost-usd", "3"], "opencode"), []);
+});
+
+test("a new chat's list names its picks, the command for each and the flags its start takes", () => {
+  const list = ["stages", "list", "--json", "--backend", "claude"];
+  const raw = JSON.parse(view({
+    chat: { model: "claude-haiku-4-5-20251001", effort: "low" },
+    chat_set: { next_command: [...list, "--chat-stage", "terra", "MODEL", "EFFORT"] },
+    chat_reset: { next_command: list },
+  }));
+  raw.chat = { next_command: [...list, "--chat-stage", "terra", "claude-haiku-4-5-20251001", "low"],
+    start_args: ["--terra-model", "claude-haiku-4-5-20251001", "--terra-reasoning-effort", "low"] };
+  const read = readStages(JSON.stringify(raw));
+  const [builder] = read.stages;
+  assert.equal(chatRoute(builder!), "claude-haiku-4-5-20251001 at low (this chat)");
+  assert.deepEqual(builder!.chatReset, list);
+  assert.deepEqual(fillChatSet(builder!, "claude-haiku-4-5-20251001", "medium").slice(-4), ["--chat-stage", "terra", "claude-haiku-4-5-20251001", "medium"]);
+  assert.throws(() => fillChatSet(builder!, OPUS, "low"), /cannot run claude-opus-5-5/, "refused as a saved choice is");
+  assert.deepEqual(read.chat?.startArgs, raw.chat.start_args);
+  // Without a pick a stage reads as every new chat runs it.
+  const [plain] = readStages(view({ chosen: { model: OPUS, effort: "high" } })).stages;
+  assert.equal(chatRoute(plain!), `${OPUS} at high (Stage models)`);
+  assert.throws(() => fillChatSet(plain!, "claude-haiku-4-5-20251001", "low"), /update AutoCode/, "an older AutoCode names no pick");
+  // Only a stage flag and its value reach a start, and only a new chat's own list is read.
+  for (const start_args of [["--max-cost-usd", "0"], ["--terra-model"], ["--terra-model", "--resume"], "--terra-model x"]) {
+    assert.equal(readStages(JSON.stringify({ ...raw, chat: { ...raw.chat, start_args } })).chat, null, JSON.stringify(start_args));
+  }
+  assert.equal(readStages(JSON.stringify({ ...raw, chat: { ...raw.chat, next_command: ["stages", "set", "terra"] } })).chat, null);
+  assert.equal(readStages(JSON.stringify({ ...raw, chat: { ...raw.chat, next_command: [...list, "--run-dir", "/r"] } })).chat, null);
 });
