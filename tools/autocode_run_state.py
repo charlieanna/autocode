@@ -248,6 +248,7 @@ KEYS: frozenset[str] = frozenset(
         "project_workspace",
         "prompts_hash",
         "reasoning_escalations",
+        "reasoning_exhaustion_recoveries",
         "reconciliation_notes",
         "recovery",
         "recovery_context",
@@ -601,6 +602,9 @@ class RunState(TypedDict, total=False):
     progress_sequence: Any
     project_worked_in_place: Any
     reasoning_escalations: Any
+    # autocode_output_cap_recovery appends one row per reasoning-bound output stop it lowered (stage, model,
+    # from, to); its decide reads it at each launch through autocode_review_effort.launch.
+    reasoning_exhaustion_recoveries: list[dict]
     reconciliation_notes: Any
     recovery: Any
     recovery_context_archive: Any
