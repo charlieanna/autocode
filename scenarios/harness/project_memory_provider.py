@@ -153,6 +153,18 @@ def install_fixture_reviewer(root: Path) -> None:
     )
 
 
+def quote_changed_lines(data, rows):
+    """Each decision with its gap's source_line from the handoff, as a Tester quotes the line it decides (#2977)."""
+    texts = {}
+    evidence = ((data.get("regression_proof") or {}).get("changed_code_evidence") or {}).get("obligations") or []
+    for row in evidence if isinstance(evidence, list) else []:
+        for gap in [row, *(row.get("gaps") or [])] if isinstance(row, dict) else []:
+            for key in ("gap_id", "handle"):
+                if isinstance(gap, dict) and isinstance(gap.get(key), str):
+                    texts[gap[key]] = gap.get("source_line", "")
+    return [{**row, "source_line": texts.get(row.get("gap_id"), "")} for row in rows]
+
+
 def fixture_judgments(data: dict, *, producer=None) -> list[dict]:
     """Explain only exact unsupported lines this task's Builder actually scripts."""
     import hashlib
@@ -195,4 +207,4 @@ def fixture_judgments(data: dict, *, producer=None) -> list[dict]:
                 "evidence_refs": [proof["path"], path, CLI_TEST_PATH],
             }
         )
-    return result
+    return quote_changed_lines(data, result)

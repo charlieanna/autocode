@@ -137,6 +137,7 @@ class ChangedCodeProofTests(unittest.TestCase):
             review.FIELD: [
                 {
                     "gap_id": self.exception["gap_id"],
+                    "source_line": self.exception.get("source_line", ""),
                     "decision": "accept",
                     "reason_kind": "equivalent_mutant",
                     "reason": self.exception["reason"],
@@ -177,6 +178,24 @@ class ChangedCodeProofTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "unauthenticated evidence"):
                     accept()
                 path.write_bytes(original)
+
+    def test_each_gap_shows_its_line_read_from_the_exact_measured_bytes(self):
+        """The Tester sees the text of the line each handle binds, and reassessment keeps it (#2977)."""
+        texts = proof_policy.line_texts(self.root, self.inventory)
+        self.assertEqual({"calc.py": {"sha256": file_hash(self.product), "lines": {"2": "return n + 1"}}}, texts)
+        for inventory in (
+            [{**self.inventory[0], "sha256": "b" * 64}],  # other bytes than the measured file
+            [{**self.inventory[0], "path": "missing.py"}],
+            [{**self.inventory[0], "path": "../calc.py"}],
+            None,
+        ):
+            with self.subTest(inventory=inventory):
+                self.assertEqual({}, proof_policy.line_texts(self.root, inventory))
+        proof = copy.deepcopy(self.proof)
+        proof["changed_code_inputs"]["line_texts"] = texts
+        reviewed = proof_policy.reviewed(proof, [])
+        self.assertEqual("return n + 1", reviewed["obligations"][0]["source_line"])
+        self.assertNotIn("source_line", proof_policy.reviewed(self.proof, [])["obligations"][0])
 
     def test_valid_unverified_gaps_reuse_measurement_without_claiming_ready(self):
         before = copy.deepcopy((self.proof, self.result))
