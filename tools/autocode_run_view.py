@@ -52,6 +52,7 @@ try:
     from . import autocode_escalation_view as escalation_view
     from . import autocode_finding_rescope as finding_rescope
     from . import autocode_goals as goals
+    from . import autocode_implementation_discrepancy as implementation_discrepancy
     from . import autocode_liveness as liveness_policy
     from . import autocode_member_stop as member_stop
     from . import autocode_operational_information as operational_information
@@ -113,6 +114,7 @@ except ImportError:
     import autocode_escalation_view as escalation_view
     import autocode_finding_rescope as finding_rescope
     import autocode_goals as goals
+    import autocode_implementation_discrepancy as implementation_discrepancy
     import autocode_liveness as liveness_policy
     import autocode_member_stop as member_stop
     import autocode_operational_information as operational_information
@@ -372,6 +374,10 @@ def view(
         # Whether a person may change this started run's stage models now, why not, and the read-only
         # list whose `set` arrays change one between stages (autocode_run_stage_models); None before routes.
         "stage_models": run_stage_models.offer(state, run_dir=run_dir),
+        # At a pause the person requested while the approved plan is being built: the named action that reports
+        # where the code departs from that plan without revising it, and the reports kept for the reviewers
+        # (autocode_implementation_discrepancy, #3045). None when there is neither.
+        "implementation_discrepancy": implementation_discrepancy.project(state, run_dir=run_dir, workspace=workspace),
         # AutoResolver's one re-evaluation of corrective information sent to an operational request
         # (autocode_operational_information, #486): status pending, held, admitted, stale or superseded
         # (the run left the pause unevaluated); the decision, its reason and, when held, the exact next
