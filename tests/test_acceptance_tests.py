@@ -424,8 +424,15 @@ class RunnerCollectionTests(unittest.TestCase):
             ]
             for mark, result in variants:
                 with self.subTest(mark=mark, result=result):
-                    state = approved({"T1": f"{mark} test_example"})
+                    state = approved({"T1": f"{mark} test_example"}, task="t")
                     acceptance.route(state)
+                    # A test the command ran wrongly, or did not run, is the Tester's to fix: the runner gives
+                    # it fresh attempts with its evidence before it stops (live run, 2026-11-11).
+                    rewrites = job.MAX_REWRITES if result.get("results") else 0
+                    for attempt in range(rewrites):
+                        job.apply(state, report, {"changed_files": [test.name]}, workspace, run_tests=lambda f: result)
+                        self.assertEqual(("RUNNING", job.STAGE), (state["status"], state["next_stage"]))
+                        self.assertEqual(attempt + 1, len(job.packet(state)["runner_feedback"]))
                     job.apply(state, report, {"changed_files": [test.name]}, workspace, run_tests=lambda files: result)
                     self.assertEqual(job.PAUSE, state["status"])
                     self.assertEqual(job.STAGE, state["next_stage"])
@@ -720,8 +727,9 @@ class RunnerCollectionTests(unittest.TestCase):
                     "\ndef load_tests(loader, tests, pattern):\n    return tests\n"
                 )
             job.apply(state, dict(value), record, workspace, run_tests=run_tests, evidence_dir=evidence)
-            self.assertEqual(job.PAUSE, state["status"])
-            message = state["stop_reason"]
+            # The Tester gets the runner's evidence and a fresh attempt; the person is not asked.
+            self.assertEqual(("RUNNING", job.STAGE), (state["status"], state["next_stage"]))
+            [message] = job.packet(state)["runner_feedback"]
             self.assertIn(f"no test named {name} ran in tests/test_stats.py", message)
             self.assertIn("-m unittest", message)
             self.assertIn("ran 0 test(s) and did not collect it", message)
@@ -736,6 +744,71 @@ class RunnerCollectionTests(unittest.TestCase):
             job.apply(state, dict(value), record, workspace, run_tests=run_tests, evidence_dir=evidence)
             receipt = next(iter(acceptance.receipts(state).values()))
             self.assertEqual({"T1": "fails"}, receipt["results"])
+            self.assertEqual("builder", state["next_stage"])
+
+    def test_a_guard_whose_file_cannot_load_goes_back_to_the_tester_with_the_cause(self):
+        # Live run, 2026-11-11: the new tests imported char_count at the top of the module that also held the
+        # guard, so on today's code the module could not load, the guard never ran, and the run asked the
+        # person how to fix the tests. The runner now names the cause and gives the Tester a fresh attempt.
+        import autocode_acceptance_tests_job as job
+        import autocode_verify as verify
+
+        with tempfile.TemporaryDirectory() as root:
+            workspace, evidence = Path(root) / "workspace", Path(root) / "evidence"
+            workspace.mkdir()
+            evidence.mkdir()
+            (workspace / "textkit.py").write_text("def word_count(text):\n    return len(text.split())\n")
+            guard = "class WordCountTests(unittest.TestCase):\n    def test_counts_words(self):\n        self.assertEqual(2, word_count('a b'))\n"
+            test_file = workspace / "test_textkit.py"
+            test_file.write_text("import unittest\n\nfrom textkit import word_count\n\n\n" + guard)
+            git = ["git", "-C", str(workspace), "-c", "user.name=t", "-c", "user.email=t@t"]
+            for args in (("init", "-q"), ("add", "-A"), ("commit", "-qm", "base")):
+                subprocess.run([*git, *args], check=True)
+            state = approved({"G1": "guard: test_counts_words", "T1": "test: test_t1_counts_characters"}, task="t")
+            acceptance.route(state)
+            value = {
+                "tests": [
+                    {"case_id": "G1", "test_name": "test_counts_words", "file": "test_textkit.py"},
+                    {"case_id": "T1", "test_name": "test_t1_counts_characters", "file": "test_textkit.py"},
+                ],
+                "cannot_write": [],
+                "already_passing": [],
+            }
+            record = {"output": str(evidence / "tester.json"), "changed_files": ["test_textkit.py"]}
+
+            def run_tests(files):
+                return verify.scratch_run(workspace, evidence / "acceptance-proof", tests=files)
+
+            new_test = "class CharCountTests(unittest.TestCase):\n    def test_t1_counts_characters(self):\n"
+            test_file.write_text(
+                "import unittest\n\nfrom textkit import char_count, word_count\n\n\n"
+                + guard
+                + "\n\n"
+                + new_test
+                + "        self.assertEqual(3, char_count('a b'))\n"
+            )
+            job.apply(state, dict(value), record, workspace, run_tests=run_tests, evidence_dir=evidence)
+            self.assertEqual(("RUNNING", job.STAGE), (state["status"], state["next_stage"]))
+            self.assertNotIn("stop_reason", state)
+            [feedback] = job.packet(state)["runner_feedback"]
+            self.assertIn("guard G1 (test_counts_words) does not pass on today's code", feedback)
+            self.assertIn("test_textkit.py cannot load on today's code", feedback)
+            self.assertIn("char_count", feedback)
+            self.assertIn("import what the product does not have yet inside the new tests", feedback)
+            self.assertFalse(acceptance.receipts(state))
+
+            # The retry the feedback asks for: the new name imported inside the new test.
+            test_file.write_text(
+                "import unittest\n\nfrom textkit import word_count\n\n\n"
+                + guard
+                + "\n\n"
+                + new_test
+                + "        from textkit import char_count\n\n        self.assertEqual(3, char_count('a b'))\n"
+            )
+            job.apply(state, dict(value), record, workspace, run_tests=run_tests, evidence_dir=evidence)
+            self.assertEqual(
+                {"G1": "passes", "T1": "fails"}, next(iter(acceptance.receipts(state).values()))["results"]
+            )
             self.assertEqual("builder", state["next_stage"])
 
     def test_unconfigured_pytest_acceptance_is_collected_and_really_fails_before_building(self):
@@ -1174,7 +1247,7 @@ class AcceptanceTestsCliTests(unittest.TestCase):
         loaded = catalog.load("feature-stock-refusals")
         self.scenario = dataclasses.replace(loaded, fake_fault="", fake_criteria=dict(CASES))
 
-    def run_to_end(self, *planning, env=None, plan_messages=None, uncollected_writer=False):
+    def run_to_end(self, *planning, env=None, plan_messages=None, uncollected_writer=False, unloadable_writer=False):
         self.plan_approvals = []
         project = without_maintenance(materialize(self.scenario.seed, self.root / "project"))
         flags, provider_env = fake_setup(self.scenario, self.root, self.scenario.dir / "reference")
@@ -1199,6 +1272,26 @@ class AcceptanceTestsCliTests(unittest.TestCase):
             source = provider.read_text()
             self.assertIn(marker, source)
             provider.write_text(source.replace(marker, injection + marker + trace))
+        if unloadable_writer:
+            # The live run's first attempt (2026-11-11): the new tests' name is imported at the top of the file
+            # holding the guard, so that file cannot load on today's code. A retry the runner sent back with
+            # its feedback writes the file as the reference does.
+            provider = self.root / "bin" / "codex"
+            marker = "def report_for(stage: str, data: dict) -> dict:\n"
+            injection = (
+                "original_acceptance_tests = acceptance_tests\n"
+                "def acceptance_tests(data):\n"
+                "    report = original_acceptance_tests(data)\n"
+                "    with open(os.environ['ACCEPTANCE_TRACE'], 'a') as stream:\n"
+                "        stream.write(json.dumps({'feedback': data.get('runner_feedback')}) + '\\n')\n"
+                "    if not data.get('runner_feedback'):\n"
+                "        path = Path(report['tests'][0]['file'])\n"
+                "        path.write_text('from stock import not_built_yet\\n' + path.read_text())\n"
+                "    return report\n\n"
+            )
+            source = provider.read_text()
+            self.assertIn(marker, source)
+            provider.write_text(source.replace(marker, injection + marker))
         if plan_messages:
             # Script only the declared replies. Runtime intent interpretation is still the provider's job.
             provider = self.root / "bin" / "codex"
@@ -1263,7 +1356,8 @@ class AcceptanceTestsCliTests(unittest.TestCase):
             uncollected_writer=True,
         )
         calls = [json.loads(line) for line in trace.read_text().splitlines()]
-        self.assertEqual([{"repair": False}], calls)
+        # The runner's own fresh attempts come first; only then does the run stop (live run, 2026-11-11).
+        self.assertEqual([{"repair": False}] * 3, calls)
         self.assertFalse(held["done"], self.details(held))
         self.assertEqual("write_acceptance_tests", held["next_stage"])
         self.assertIn("no test named", held["stop_reason"])
@@ -1274,9 +1368,30 @@ class AcceptanceTestsCliTests(unittest.TestCase):
         completed = run.resume_paused()
         self.assertTrue(completed["done"], self.details(completed))
         self.assertEqual(original_token, completed["approved_contract"]["token"])
-        self.assertEqual(
-            [{"repair": False}, {"repair": False}], [json.loads(line) for line in trace.read_text().splitlines()]
+        self.assertEqual([{"repair": False}] * 4, [json.loads(line) for line in trace.read_text().splitlines()])
+
+    def test_a_guard_file_that_cannot_load_is_rewritten_without_asking_the_person(self):
+        guard = {"C0": "guard: test_receive_adds_units"}
+        self.scenario = dataclasses.replace(self.scenario, fake_criteria={**guard, **CASES})
+        trace = self.root / "writer-trace.jsonl"
+        run, project, view = self.run_to_end(
+            "--joint-planning",
+            "--no-adaptive-planning",
+            "--spec-first",
+            env={"ACCEPTANCE_TRACE": str(trace)},
+            unloadable_writer=True,
         )
+        self.assertTrue(view["done"], self.details(view))
+        calls = [json.loads(line)["feedback"] for line in trace.read_text().splitlines()]
+        self.assertEqual(2, len(calls), calls)
+        self.assertEqual([], calls[0])
+        [feedback] = calls[1]
+        self.assertIn("guard C0 (test_receive_adds_units) does not pass on today's code", feedback)
+        self.assertIn("tests/test_stock.py cannot load on today's code", feedback)
+        self.assertIn("not_built_yet", feedback)
+        self.assertEqual("passes", view["acceptance_tests"]["results"]["C0"])
+        order = self.stage_order(run)
+        self.assertLess(order.index("acceptance-tests"), order.index("builder"), order)
 
     def test_the_tester_writes_failing_tests_before_the_builder_and_the_run_completes(self):
         # C0 guards behavior the seed already has: its test must pass before the Builder starts.

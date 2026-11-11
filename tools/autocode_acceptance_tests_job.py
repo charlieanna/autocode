@@ -19,6 +19,10 @@ already works is the same disagreement as in a build (#1868). A second disagreem
 test can show (``cannot_write``) and a bug's reproduction that already passes pause the run
 (PAUSED_ACCEPTANCE_TESTS): only the user (``--feedback``) can say which is right.
 
+A fault in the tests themselves (a guard that does not pass on today's code, often because its file cannot
+load there, or a test the runner's command did not run) is not a question for the user: the runner sends the
+tests back to the Tester with its evidence (``runner_feedback``), up to MAX_REWRITES times per plan and batch.
+
 Pure: prompt, schema and the transition; the unit passes in the function that runs the tests.
 """
 
@@ -98,6 +102,17 @@ SCHEMA = {
 }
 PROMPT = prompts.get("acceptance-tests.md")
 REPAIR_RULES = prompts.get("fragments/acceptance-tests/repair-rules.md")
+# Fresh Tester attempts the runner grants itself, per plan and batch of cases, when it ran the Tester's tests
+# and saw a fault in the tests themselves. Only once they are spent does the run stop.
+MAX_REWRITES = 2
+
+
+class TestsNeedRewriting(ExecutionEvidenceRequired):
+    """The runner ran the Tester's tests on today's code and the fault is in the tests: a guard that does not
+    pass there, or a test the command did not run. The Tester can fix that, so the run gives it a fresh
+    attempt with this evidence instead of asking the person (live run, 2026-11-11: a test module that imported
+    the new function at its top could not load on today's code, so the guard in it never ran, and the run
+    asked the person how to fix the tests)."""
 
 
 def _case(case: dict, inherited=False) -> dict:
@@ -128,7 +143,38 @@ def packet(state: RunState, inventory: dict | None = None, engine: str | None = 
         "current_task": state.get("current_task"),
         "saved_answers": state.get("answers") or {},
         "workspace_inventory": inventory or {},
+        # Why the runner rejected this plan's earlier attempts at these cases, oldest first.
+        "runner_feedback": [row["feedback"] for row in _rewrites(state)],
     }
+
+
+def _rewrites(state: RunState) -> list[dict]:
+    """The fresh attempts the runner granted itself for the current plan and batch of cases."""
+    record = state.get(acceptance.KEY) or {}
+    contract = (state.get("goal_contract") or {}).get("hash")
+    cases = sorted(record.get("pending_case_ids") or [])
+    return [
+        row
+        for row in record.get("rewrites") or []
+        if row.get("contract_hash") == contract and sorted(row.get("case_ids") or []) == cases
+    ]
+
+
+def _rewrite(state: RunState, error: TestsNeedRewriting, record: dict) -> bool:
+    """Send the tests back to the Tester with the runner's evidence; False once MAX_REWRITES are spent."""
+    if len(_rewrites(state)) >= MAX_REWRITES:
+        return False
+    saved = state.setdefault(acceptance.KEY, {"receipts": {}})
+    saved.setdefault("rewrites", []).append(
+        {
+            "contract_hash": (state.get("goal_contract") or {}).get("hash"),
+            "case_ids": sorted(saved.get("pending_case_ids") or []),
+            "feedback": str(error),
+            "output": record.get("output"),
+        }
+    )
+    run_status.running(state, "EXECUTING", next_stage=STAGE)
+    return True
 
 
 def prompt(
@@ -256,7 +302,7 @@ def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: d
             verdicts[case["id"]] = "passes" if passed[case["id"]] else ""
             if not passed[case["id"]]:
                 needs_execution = True
-                wrong.append(f"guard {case['id']} ({case['test_name']}) does not pass on today's code")
+                wrong.append(_guard_not_passing(case, rows[case["id"]]["file"], run, results))
         elif case["id"] in inherited and passed[case["id"]]:
             verdicts[case["id"]] = "already passes"
         elif case["id"] in already:
@@ -273,7 +319,7 @@ def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: d
             needs_execution = True
             wrong.append(_not_run(case, rows[case["id"]]["file"], source, run, results))
     if wrong:
-        error = ExecutionEvidenceRequired if needs_execution else ValueError
+        error = TestsNeedRewriting if needs_execution else ValueError
         raise error(
             "The runner ran the acceptance tests on today's code: "
             + "; ".join(wrong)
@@ -281,6 +327,22 @@ def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: d
             "already exists, keep its test and also report the case in already_passing; do not weaken the test."
         )
     return verdicts
+
+
+def _guard_not_passing(case: dict, file: str, run: dict, results: dict) -> str:
+    """Why a guard's test did not pass on today's code; a file that cannot load there is named as the cause."""
+    wrong = f"guard {case['id']} ({case['test_name']}) does not pass on today's code"
+    stem = Path(file).stem
+    unloadable = [name for name in results.get("collection_errors") or [] if file in name or stem in name]
+    if not unloadable:
+        return wrong
+    errors = [line.strip() for line in str(run.get("tail") or "").splitlines() if "Error" in line]
+    cause = f" ({errors[-1][:200]})" if errors else ""
+    return (
+        f"{wrong}: it never ran, because {file} cannot load on today's code{cause}. A file that holds a "
+        "guard must load before the Builder starts: import what the product does not have yet inside the new "
+        "tests that use it, not at the top of the file, or put the new tests in a file of their own"
+    )
 
 
 def _not_run(case: dict, file: str, source: str, run: dict, results: dict) -> str:
@@ -343,6 +405,8 @@ def apply(
     try:
         verdicts = _verdicts(state, cases, value, workspace, run, inherited=inherited)
     except ExecutionEvidenceRequired as error:
+        if isinstance(error, TestsNeedRewriting) and _rewrite(state, error, record):
+            return
         if "no test command runs these files" in str(error):
             # The run's suite cannot name these files: a binding gap, not a fault in the tests (#2609).
             remedy = (
