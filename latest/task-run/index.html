@@ -2876,7 +2876,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/46f8a2a17890d455ead1b9d8f90590fdee548e8a/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/c03f3b82f42cad2dcf168e365a66bd3f9656d28c/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -4067,7 +4067,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/46f8a2a17890d455ead1b9d8f90590fdee548e8a/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/c03f3b82f42cad2dcf168e365a66bd3f9656d28c/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -4828,7 +4828,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/46f8a2a17890d455ead1b9d8f90590fdee548e8a/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/c03f3b82f42cad2dcf168e365a66bd3f9656d28c/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -5148,8 +5148,9 @@ a saved route does not rewrite an earlier attempt's model or reasoning effort.</
 or a configured tool's name); it is null when every role runs on Codex. <code>route_assignments</code> lists, oldest first, every model a person named for a
 role after its quota ran out or its provider's content filter refused it: <code>kind</code> (always <code>route_assignment</code>), <code>role</code>, <code>job</code>,
 <code>from</code>, <code>to</code>, <code>engine</code>, <code>stage</code>, <code>attempt_id</code>, <code>events</code>, <code>pause_status</code>, <code>at</code>,
-<code>actor</code>, <code>via</code> (<code>answer</code> or <code>resume_flag</code>) and, when <code>via</code> is <code>answer</code>, the
-<code>request_id</code> it answered. It is empty for runs that never stopped on quota or a refusal.</p>
+<code>actor</code>, <code>via</code> (<code>answer</code>, <code>resume_flag</code>, or <code>stage_models</code> for a model the person changed between stages with
+<code>--stage-model</code>) and, when <code>via</code> is <code>answer</code>, the <code>request_id</code> it answered. It is empty for runs that never
+stopped on quota or a refusal and whose models the person never changed.</p>
 <p><a id="operational-information"></a>
 For a diagnosed criterion contradiction, an answer need may include
 <code>recommended_revision</code> with <code>acceptance_criteria: [{id, criterion}]</code> and
@@ -6062,6 +6063,17 @@ that option's <code>effort_choices</code>, and refuses anything else. <code>rese
 is saved) forgets the stage's choice. Both print the updated view, and a refused choice exits 2 with
 the reason on stderr and saves nothing. The view launches no model and reads no credential. A new
 task reads the choices when it starts; a running task keeps its own.</p>
+<p>A started run keeps its own routes, and the status view's <code>stage_models</code> says how a person changes
+them (<a href="../models/#changing-a-started-runs-models">Changing a started run's models</a>): <code>changeable</code>
+(true only between stages: the run is not <code>RUNNING</code> and no stage attempt or runner check is open),
+<code>reason</code> (why not, in words a client shows, or null) and <code>next_command</code>, the read-only
+<code>stages list --run-dir RUN --json</code> argument array. Null before the run has routes. That list is the
+same version-1 view with the run's current route as each stage's <code>chosen</code> and <code>default</code>, <code>options</code>
+marked <code>unavailable</code> against the run's other routes, <code>reset</code> and <code>file</code> null, and <code>run_dir</code>,
+<code>changeable</code> and <code>reason</code> added. Its <code>set.next_command</code> is <code>--run-dir RUN --workspace WS
+--stage-model ROLE MODEL EFFORT</code>, filled the same way; it prints a sentence rather than the view, so
+a client reads the list again afterwards. A refused change exits 2 with the reason on stderr and
+saves nothing.</p>
 <h2 id="run-modes-for-clients">Run modes for clients<a class="headerlink" href="#run-modes-for-clients" title="Permanent link">&para;</a></h2>
 <p>A client that starts runs may offer a choice of how much planning a new run does
 before the person approves it. <code>autocode modes list --json</code> returns the
