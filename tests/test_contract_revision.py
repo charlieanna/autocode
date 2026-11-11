@@ -142,7 +142,7 @@ class DraftVerificationRevisionTests(unittest.TestCase):
         revision_guard(state, after, [], "revise_plan")
         for fields in ({"approval_status": "approved"}, {"origin": "user_cli_edit"}):
             with self.subTest(fields=fields):
-                state["goal_contract"].update({"approval_status": "draft", "origin": "glm_draft", **fields})
+                state["goal_contract"].update({"approval_status": "draft", "origin": "planner_draft", **fields})
                 with self.assertRaises(ValueError):
                     revision_guard(state, after, [], "revise_plan")
 
@@ -432,7 +432,12 @@ class GreetingRevisionTests(unittest.TestCase):
             )
         ]
         state = {
-            "goal_contract": {"body": before, "origin": "glm_draft", "approval_status": "draft", "approval_event": None}
+            "goal_contract": {
+                "body": before,
+                "origin": "planner_draft",
+                "approval_status": "draft",
+                "approval_event": None,
+            }
         }
         return state, {"contract": after, "contract_changes": changes, "summary": "Close review coverage gaps"}
 
@@ -525,7 +530,12 @@ class DraftExampleRevisionTests(unittest.TestCase):
         }
         state = {
             "task": "Count all logical data records in the CSV.",
-            "goal_contract": {"body": body, "origin": "glm_draft", "approval_status": "draft", "approval_event": None},
+            "goal_contract": {
+                "body": body,
+                "origin": "planner_draft",
+                "approval_status": "draft",
+                "approval_event": None,
+            },
             "planning": {"reports": {"review_plan": {"report": {"concerns": [concern]}}}},
         }
         revised = copy.deepcopy(body)
@@ -716,7 +726,12 @@ class LayoutExampleRevisionTests(unittest.TestCase):
         }
         state = {
             "task": "Show the hours per project, right-aligned in the same 0.00h column.",
-            "goal_contract": {"body": body, "origin": "glm_draft", "approval_status": "draft", "approval_event": None},
+            "goal_contract": {
+                "body": body,
+                "origin": "planner_draft",
+                "approval_status": "draft",
+                "approval_event": None,
+            },
             "planning": {"reports": {"review_plan": {"report": {"concerns": [concern]}}}},
         }
         revised = copy.deepcopy(body)
@@ -956,7 +971,7 @@ class UnapprovedRewordingTests(unittest.TestCase):
             "body": body,
             "approval_status": "draft",
             "approval_event": None,
-            "origin": "glm_draft",
+            "origin": "planner_draft",
             **contract_fields,
         }
         after = copy.deepcopy(body)
@@ -1400,7 +1415,7 @@ class BaselineCorrectionTests(unittest.TestCase):
             "hash": "h2",
             "approval_status": "approved" if approved else "draft",
             "approval_event": {"id": "e1"} if approved else None,
-            "origin": "revise_plan" if approved else "glm_draft",
+            "origin": "revise_plan" if approved else "planner_draft",
         }
         state = {
             "goal_contract": contract,

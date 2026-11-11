@@ -1107,7 +1107,7 @@ SCENARIOS = {
         "baseline": {
             "status": "HONEST_BLOCKER",
             "note": (
-                "attempt budget exhausted on schema-invalid astra_review/resolver "
+                "attempt budget exhausted on schema-invalid review_completion/resolver "
                 "reports (finding L3); Policy.cs + golden-cases.json correct, "
                 "Go implementation missing (2026-09-24, glm53)"
             ),

@@ -75,7 +75,7 @@ def retain_review_allowance(state: RunState, previous, original):
     if not original.get("draft_assignment_recheck"):
         return
     for key in (
-        "astra_calls",
+        "plan_review_calls",
         "review_call_limit",
         "review_call_limit_origin",
         "review_charges",

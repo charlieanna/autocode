@@ -1129,7 +1129,7 @@ def before_review(state: RunState, stage, workspace, run_dir):
         package_writes.check(state, workspace)
         if acceptance.is_blind(state):
             acceptance.check_candidate(state, workspace, run_dir)
-    # Due-now scope even for astra_review: it also reviews each milestone before advancing, where a later
+    # Due-now scope even for review_completion: it also reviews each milestone before advancing, where a later
     # milestone's unbuilt tests would fail the proof and the owner note would demand REWORK. Final
     # completion still needs every case, enforced by complete(all_due=True).
     # One comparison of the candidate with the run's base serves both: it stages the whole working

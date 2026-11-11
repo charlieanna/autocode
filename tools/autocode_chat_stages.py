@@ -86,7 +86,7 @@ def text(view: dict) -> str:
 
 
 def find(view: dict, name: str) -> dict | None:
-    """A stage by its id (``terra``), its label's first word (``builder``) or its label (``plan reviewer``)."""
+    """A stage by its id (``plan_reviewer``), its label's first word (``plan``) or its label (``plan reviewer``)."""
     wanted = name.strip().lower().replace("-", " ").replace("_", " ")
     for stage in view.get("stages") or []:
         label = str(stage.get("label") or "").lower()

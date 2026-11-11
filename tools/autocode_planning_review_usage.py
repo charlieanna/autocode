@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 
 def _charges(record):
-    count, charges = record.get("astra_calls"), record.get("review_charges", [])
+    count, charges = record.get("plan_review_calls"), record.get("review_charges", [])
     if (
         type(count) is not int
         or count < 0
@@ -42,10 +42,10 @@ def _evidence(state: RunState):
     if (
         current is None
         or not parent_charges
-        or parent["astra_calls"] != len(parent_charges)
+        or parent["plan_review_calls"] != len(parent_charges)
         or parent.get("turn_event_id") != turn
-        or type(inherited.get("astra_calls")) is not int
-        or inherited["astra_calls"] != parent["astra_calls"]
+        or type(inherited.get("plan_review_calls")) is not int
+        or inherited["plan_review_calls"] != parent["plan_review_calls"]
         or not parent_charges <= current
     ):
         return None
@@ -54,10 +54,10 @@ def _evidence(state: RunState):
         if row.get("turn_event_id") != turn:
             continue
         charges = _charges(row)
-        if charges is None or row["astra_calls"] != len(charges):
+        if charges is None or row["plan_review_calls"] != len(charges):
             return None  # Unreceipted/recovery/legacy usage cannot be inferred away.
         prior.update(charges)
-        raw += row["astra_calls"]
+        raw += row["plan_review_calls"]
     # Charge IDs must name actual, completed, ordinarily charged review attempts.
     for charge in prior | current:
         attempts = [row for row in stages if isinstance(row, dict) and row.get("planning_review_charge") == charge]
@@ -74,7 +74,7 @@ def _evidence(state: RunState):
         ):
             return None
     before = planning.get("review_calls_before_policy", 0) if planning.get("review_depth_reduced") else 0
-    if type(before) is not int or before < 0 or planning["astra_calls"] != before + len(current):
+    if type(before) is not int or before < 0 or planning["plan_review_calls"] != before + len(current):
         return None
     return {"raw_archived": raw, "archived": len(prior - current), "charges": sorted(prior & current)}
 
@@ -96,13 +96,13 @@ def correction(state: RunState):
     duplicate = evidence["raw_archived"] - evidence["archived"]
     if duplicate <= 0:
         return None
-    return {**evidence, "previous": planning["astra_calls"], "used": planning["astra_calls"] - duplicate}
+    return {**evidence, "previous": planning["plan_review_calls"], "used": planning["plan_review_calls"] - duplicate}
 
 
 def effective_calls(state: RunState):
     adjusted = correction(state)
     planning = state.get("planning") or {}
-    return adjusted["used"] if adjusted else planning.get("astra_calls") if isinstance(planning, dict) else None
+    return adjusted["used"] if adjusted else planning.get("plan_review_calls") if isinstance(planning, dict) else None
 
 
 def can_resume(state: RunState):
@@ -131,7 +131,7 @@ def reconcile(state: RunState, *, at):
     if not adjusted:
         return False
     planning = state["planning"]
-    planning["astra_calls"] = adjusted["used"]
+    planning["plan_review_calls"] = adjusted["used"]
     planning["review_calls_before_policy"] = adjusted["archived"]
     state.setdefault("reconciliation_notes", []).append(
         {

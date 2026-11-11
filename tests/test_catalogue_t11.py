@@ -169,7 +169,6 @@ class BoundaryScenarios(BoundaryCase):
 
     def test_sec07_archiving_never_deletes_source(self):
         """SEC-07. Compact: the archive action moves run metadata, never the repository."""
-        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools" / "dashboard"))
         project = self.root / "proj"
         project.mkdir()
         subprocess.run(["git", "init", "-q", str(project)], check=True)
@@ -186,8 +185,7 @@ class BoundaryScenarios(BoundaryCase):
         self.check("source_preserved_across_archive_cycle", source_hash, support.file_hash(project / "source.py"))
         self.bundle.log(
             "scoped_note",
-            note="full archive/restore lifecycle is exercised by the "
-            "dashboard browser suite (T12); here we pin the source-preservation invariant",
+            note="here we pin the source-preservation invariant",
         )
         self.finish(summary="ARCHIVED_WITH_SOURCE_PRESERVED: repository files never deleted")
 

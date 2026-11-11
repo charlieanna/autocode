@@ -1148,7 +1148,7 @@ class ActualApprovalCallbackTests(unittest.TestCase):
         revision = runner.source_scope.snapshot(self.root, self.state, base_snapshot=util.snapshot)["revision"]
         self.state["stages"] = [{"stage": "finalize_plan", "output": str(output), "source_revision": revision}]
         self.state["planning"] = {
-            "astra_calls": 0,
+            "plan_review_calls": 0,
             "reports": {"finalize_plan": {"output": str(output)}},
             "final_token": contracts.token(self.state["goal_contract"]),
         }

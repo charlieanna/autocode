@@ -1740,7 +1740,7 @@ class RepairTests(unittest.TestCase):
             "stage": "tester_report_repair",
             "role": "tester",
             "iteration": 5,
-            "output": str(self.run / "iterations/005/sol_report_repair-01.json"),
+            "output": str(self.run / "iterations/005/tester_report_repair-01.json"),
             "abandoned": True,
         }
         self.state["stages"].append(abandoned)
@@ -2752,7 +2752,7 @@ class ExactEventRepairPublicCliTests(unittest.TestCase):
                 assert len(originals) == 1 and originals[0]['evidence_ref'].startswith('event:synthetic-original-')
                 assert originals[0]['exit_code'] == 0
             report = data['rejected_report']['content']
-            reference = originals[0]['evidence_ref'] if originals else 'event:synthetic-original-sol'
+            reference = originals[0]['evidence_ref'] if originals else 'event:synthetic-original-tester'
             if args.fault == 'unknown':
                 reference = 'event:synthetic-unknown'
             elif args.fault == 'repair_only':
@@ -2760,7 +2760,7 @@ class ExactEventRepairPublicCliTests(unittest.TestCase):
                 reference = 'event:synthetic-repair-only'
             elif args.fault == 'foreign_attempt':
                 # This ID exists in the Builder attempt, never in the original Tester.
-                reference = 'event:synthetic-original-terra'
+                reference = 'event:synthetic-original-builder'
             report['checks'] = [{'command': None, 'exit_code': None, 'evidence_ref': reference}]
             report['criterion_results'][0]['evidence_refs'] = [reference]
             observe('repair', original_executed_checks=originals, selected_reference=reference,

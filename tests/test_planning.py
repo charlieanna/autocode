@@ -640,7 +640,7 @@ class PlanningTests(unittest.TestCase):
     def state(self):
         state = {"version": 2, "task": "Greeting", "settings": {"joint_planning": True}, "acceptance_criteria": []}
         lifecycle.migrate(state)
-        lifecycle.install_draft(state, body(), origin="glm_draft")
+        lifecycle.install_draft(state, body(), origin="planner_draft")
         return state
 
     def test_reviewed_draft_proof_repair_retains_report_and_prior_contract(self):
@@ -746,13 +746,13 @@ class PlanningTests(unittest.TestCase):
         with self.assertRaises(support.Paused) as error:
             planning.charge(state, "finalize_plan")
         self.assertEqual("PAUSED_PLANNING_BUDGET", error.exception.status)
-        self.assertEqual(2, state["planning"]["astra_calls"])
+        self.assertEqual(2, state["planning"]["plan_review_calls"])
         state["status"] = "PAUSED_PLANNING_BUDGET"
         goals.feedback(state, "Resolve this with a simpler approach")
-        self.assertEqual(2, state["planning"]["astra_calls"])
-        lifecycle.install_draft(state, body(), origin="glm_draft")
-        self.assertEqual(0, state["planning"]["astra_calls"])
-        self.assertEqual(2, state["planning_history"][-1]["astra_calls"])
+        self.assertEqual(2, state["planning"]["plan_review_calls"])
+        lifecycle.install_draft(state, body(), origin="planner_draft")
+        self.assertEqual(0, state["planning"]["plan_review_calls"])
+        self.assertEqual(2, state["planning_history"][-1]["plan_review_calls"])
 
     def test_all_concerns_need_responses_and_final_decisions(self):
         state = self.state()
@@ -821,7 +821,7 @@ class PlanningTests(unittest.TestCase):
         planning.set_review_call_limit(state, 3)
         self.assertEqual(before["goal_contract"], state["goal_contract"])
         self.assertEqual(before["planning"]["reports"], state["planning"]["reports"])
-        self.assertEqual(2, state["planning"]["astra_calls"])
+        self.assertEqual(2, state["planning"]["plan_review_calls"])
         self.assertEqual("PAUSED_PLANNING_BUDGET", state["status"])
         event = state["user_events"][-1]
         self.assertEqual((2, 3, 2), (event["previous_limit"], event["limit"], event["calls_used"]))
@@ -836,17 +836,17 @@ class PlanningTests(unittest.TestCase):
         planning.charge(state, "finalize_plan")
         with self.assertRaises(support.Paused):
             planning.charge(state, "finalize_plan")
-        self.assertEqual(3, state["planning"]["astra_calls"])
+        self.assertEqual(3, state["planning"]["plan_review_calls"])
         goals.feedback(state, "Start a genuinely new cycle")
-        lifecycle.install_draft(state, body(), origin="glm_draft")
+        lifecycle.install_draft(state, body(), origin="planner_draft")
         self.assertEqual(2, planning.review_call_limit(state))
-        self.assertEqual(0, state["planning"]["astra_calls"])
+        self.assertEqual(0, state["planning"]["plan_review_calls"])
         self.assertEqual(3, state["planning_history"][-1]["review_call_limit"])
 
     def test_review_allowance_rejects_invalid_limits_and_unreconciled_boundaries(self):
         state = self.state()
         state.update(status="PAUSED_PLANNING_BUDGET", next_stage="finalize_plan")
-        state["planning"]["astra_calls"] = 2
+        state["planning"]["plan_review_calls"] = 2
         for limit in (None, True, -1, 1, 2.5, "3"):
             before = copy.deepcopy(state)
             with self.subTest(limit=limit), self.assertRaises(ValueError):
@@ -878,20 +878,20 @@ class PlanningTests(unittest.TestCase):
     def test_explicit_unlimited_review_preserves_usage_and_survives_new_cycle(self):
         state = self.state()
         state.update(status="PAUSED_PLANNING_BUDGET", next_stage="finalize_plan")
-        state["planning"]["astra_calls"] = 7
+        state["planning"]["plan_review_calls"] = 7
         contract = copy.deepcopy(state["goal_contract"])
         planning.set_review_call_limit(state, 0)
-        self.assertEqual(7, state["planning"]["astra_calls"])
+        self.assertEqual(7, state["planning"]["plan_review_calls"])
         for _ in range(10):
             planning.charge(state, "finalize_plan")
-        self.assertEqual(17, state["planning"]["astra_calls"])
+        self.assertEqual(17, state["planning"]["plan_review_calls"])
         self.assertEqual(contract, state["goal_contract"])
         self.assertIn("17 plan-review calls used; unlimited", lifecycle.render(state))
         goals.feedback(state, "Start a genuinely new cycle")
-        lifecycle.install_draft(state, body(), origin="glm_draft")
+        lifecycle.install_draft(state, body(), origin="planner_draft")
         self.assertEqual(0, planning.review_call_limit(state))
         self.assertEqual("user_explicit", state["planning"]["review_call_limit_origin"])
-        self.assertEqual(17, state["planning_history"][-1]["astra_calls"])
+        self.assertEqual(17, state["planning_history"][-1]["plan_review_calls"])
 
     def test_unlimited_can_be_saved_at_stopped_checkpoint_but_not_during_a_stage(self):
         state = self.state()
@@ -1468,7 +1468,7 @@ class JointFlow(unittest.TestCase):
         )
         self.assertEqual(["opencode"] * 6, [r["engine"] for r in stages])
         self.assertEqual("AWAITING_GOAL_APPROVAL", state["status"])
-        self.assertEqual(2, state["planning"]["astra_calls"])
+        self.assertEqual(2, state["planning"]["plan_review_calls"])
         self.assertEqual(3, len({state["sessions"][role] for role in ("requirements", "planner", "plan_reviewer")}))
         self.assertFalse((self.project / "greet.py").exists())
         self.assertIn("Reject whitespace-only input", state["goal_contract"]["body"]["important_failure_cases"])
@@ -1507,7 +1507,7 @@ class JointFlow(unittest.TestCase):
         self.assertEqual("medium", completion["command"][completion["command"].index("--variant") + 1])
         self.assertIn("autocode_completion", completion["command"])
         self.assertEqual(3, len({final["sessions"][role] for role in ("plan_reviewer", "tester", "completion")}))
-        self.assertEqual(2, final["planning"]["astra_calls"])
+        self.assertEqual(2, final["planning"]["plan_review_calls"])
 
     def test_gpt_sol_revalidates_terras_rework_in_its_own_opencode_session(self):
         run, state = self.draft("rework")
@@ -1618,7 +1618,7 @@ class JointFlow(unittest.TestCase):
         run, state = self.draft("planning-blocked")
         self.assertEqual("WAITING_FOR_USER", state["status"])
         self.assertEqual("P2", state["pending_questions"][0]["id"])
-        self.assertEqual(2, state["planning"]["astra_calls"])
+        self.assertEqual(2, state["planning"]["plan_review_calls"])
         # The draft is displayed with the clarification request, but approving
         # that displayed token is refused while the question is open.
         self.launch(["--run-dir", str(run), "--approve-goal", state["displayed_goal"]], 2)
@@ -1629,7 +1629,7 @@ class JointFlow(unittest.TestCase):
     def test_failed_final_cannot_trigger_third_astra_call_on_resume(self):
         run, state = self.draft("planning-invalid", report_repair=0)
         self.assertEqual("PAUSED_INVALID_OUTPUT", state["status"])
-        self.assertEqual(2, state["planning"]["astra_calls"])
+        self.assertEqual(2, state["planning"]["plan_review_calls"])
         # The rejected final was investigated once (autocode_stuck_job); the fixture's Investigator
         # pauses, so the original pause stands and no review allowance was granted.
         self.assertEqual(
@@ -1640,7 +1640,7 @@ class JointFlow(unittest.TestCase):
         paused = self.saved()[1]
         # An exhausted planning budget is now an operational AutoResolver request.
         assert_operational_wait(self, paused, "PAUSED_PLANNING_BUDGET")
-        self.assertEqual(2, paused["planning"]["astra_calls"])
+        self.assertEqual(2, paused["planning"]["plan_review_calls"])
         # Only a runner-owned AutoResolver receipt was added; no third provider call. The one
         # investigate_stuck attempt happened in the draft, before the resume.
         self.assertEqual(state["stages"], [r for r in paused["stages"] if not r.get("runner_owned")])
@@ -1652,8 +1652,8 @@ class JointFlow(unittest.TestCase):
         self.launch(["--run-dir", str(run), "--no-chat"], 2)
         fresh = self.saved()[1]
         self.assertEqual("AWAITING_GOAL_APPROVAL", fresh["status"])
-        self.assertEqual(2, fresh["planning_history"][-1]["astra_calls"])
-        self.assertEqual(2, fresh["planning"]["astra_calls"])
+        self.assertEqual(2, fresh["planning_history"][-1]["plan_review_calls"])
+        self.assertEqual(2, fresh["planning"]["plan_review_calls"])
 
     def test_editing_final_plan_requires_a_new_joint_review(self):
         run, state = self.draft()
@@ -1714,7 +1714,7 @@ class JointFlow(unittest.TestCase):
         paused = self.saved()[1]
         self.assertEqual("PAUSED_REQUESTED", paused["status"])
         # Only the challenge that returned a report counts: the timed-out attempt was given back.
-        self.assertEqual(1, paused["planning"]["astra_calls"])
+        self.assertEqual(1, paused["planning"]["plan_review_calls"])
         self.assertEqual("stage", paused["automatic_timeout_recoveries"][-1]["timeout_kind"])
         self.assertIn("revise_plan", paused["planning"]["reports"])
         self.assertFalse(paused["planning"].get("recovery_review_grants"))
@@ -1723,7 +1723,7 @@ class JointFlow(unittest.TestCase):
         self.launch([*args, "--resume-paused", "--unit", "autoplanner"], 2)
         final = self.saved()[1]
         self.assertEqual("AWAITING_GOAL_APPROVAL", final["status"])
-        self.assertEqual(2, final["planning"]["astra_calls"])
+        self.assertEqual(2, final["planning"]["plan_review_calls"])
         # Exactly one extra provider call: the final review. It is an ordinary second call, inside
         # the allowance, so no recovery grant and no runner-owned resolver stage; no replanning
         # or extra debate round.
@@ -1746,14 +1746,14 @@ class JointFlow(unittest.TestCase):
         lost = copy.deepcopy(paused)
         lost["stages"] = final["stages"][:-1]
         lost["active_stage"] = final["stages"][-1]
-        for key in ("astra_calls", "review_charges", "recovery_review_grants", "recovery_review_calls_used"):
+        for key in ("plan_review_calls", "review_charges", "recovery_review_grants", "recovery_review_calls_used"):
             if key in final["planning"]:
                 lost["planning"][key] = final["planning"][key]
         (run / "state.json").write_text(json.dumps(lost))
         self.launch([*args, "--resume-paused"], 2)
         recovered = self.saved()[1]
         self.assertEqual("AWAITING_GOAL_APPROVAL", recovered["status"])
-        self.assertEqual(2, recovered["planning"]["astra_calls"])
+        self.assertEqual(2, recovered["planning"]["plan_review_calls"])
         self.assertEqual(len(final["stages"]), len(recovered["stages"]))
         self.assertIn("recovered_at", recovered["stages"][-1])
 
@@ -1764,7 +1764,7 @@ class JointFlow(unittest.TestCase):
         self.launch([*args, "--planning-review-call-limit", "3"], 0)
         self.launch([*args, "--resume-paused"], 2)
         failed = self.saved()[1]
-        self.assertEqual(3, failed["planning"]["astra_calls"])
+        self.assertEqual(3, failed["planning"]["plan_review_calls"])
         self.launch([*args, "--resume-paused"], 2)
         assert_operational_wait(self, self.saved()[1], "PAUSED_PLANNING_BUDGET")
         self.launch([*args, "--planning-review-call-limit", "3"], 0)
@@ -1797,18 +1797,18 @@ class JointFlow(unittest.TestCase):
             self.launch([*args, "--resume-paused", "--pause-after-stage"], 2)
             state = self.saved()[1]
             self.assertEqual(next_stage, state["next_stage"])
-            self.assertEqual(count, state["planning"]["astra_calls"])
+            self.assertEqual(count, state["planning"]["plan_review_calls"])
         before_final = copy.deepcopy(state)
         self.launch([*args, "--resume-paused"], 2)
         final = self.saved()[1]
         # Simulate loss of the last state transition, with terminal artifacts intact.
         before_final["active_stage"] = final["stages"][-1]
-        before_final["planning"]["astra_calls"] = 2
+        before_final["planning"]["plan_review_calls"] = 2
         (run / "state.json").write_text(json.dumps(before_final))
         self.launch(args, 2)
         recovered = self.saved()[1]
         self.assertEqual("AWAITING_GOAL_APPROVAL", recovered["status"])
-        self.assertEqual(2, recovered["planning"]["astra_calls"])
+        self.assertEqual(2, recovered["planning"]["plan_review_calls"])
         self.assertEqual(6, len(recovered["stages"]))
         self.assertIn("recovered_at", recovered["stages"][-1])
         self.assertEqual(final["planning"]["final_token"], recovered["planning"]["final_token"])
@@ -1825,13 +1825,13 @@ class JointFlow(unittest.TestCase):
         # A provider quota pause is now published as an operational AutoResolver request.
         assert_operational_wait(self, paused, "PAUSED_BUDGET")
         self.assertEqual("opencode", paused["active_stage"]["engine"])
-        self.assertEqual(1, paused["planning"]["astra_calls"])
+        self.assertEqual(1, paused["planning"]["plan_review_calls"])
         self.assertEqual(3, len([r for r in paused["stages"] if not r.get("runner_owned")]))
         del self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"]
         self.launch([*args, "--resume-paused"], 2)
         still = self.saved()[1]
         self.assertEqual(paused["active_stage"], still["active_stage"])
-        self.assertEqual(1, still["planning"]["astra_calls"])
+        self.assertEqual(1, still["planning"]["plan_review_calls"])
         self.assertFalse((self.project / "greet.py").exists())
 
 
@@ -2029,7 +2029,7 @@ class BudgetOriginTests(unittest.TestCase):
         state = {
             "status": "PAUSED_PLANNING_BUDGET",
             "task_id": "t",
-            "planning": {"astra_calls": 2, "reports": {}},
+            "planning": {"plan_review_calls": 2, "reports": {}},
             "goal_contract": {"task_id": "t", "revision": 1, "hash": "h", "body": {}, "approval_status": "approved"},
             "settings": {
                 "planning_review_call_limit": 4,
@@ -2046,7 +2046,7 @@ class BudgetOriginTests(unittest.TestCase):
         state = {
             "status": "PAUSED_PLANNING_BUDGET",
             "task_id": "t",
-            "planning": {"astra_calls": 2, "reports": {}},
+            "planning": {"plan_review_calls": 2, "reports": {}},
             "goal_contract": {"task_id": "t", "revision": 1, "hash": "h", "body": {}, "approval_status": "approved"},
             "settings": {"planning_review_call_limit": 4},
         }
@@ -2066,7 +2066,7 @@ class ReviewDepthPolicyTests(unittest.TestCase):
         base = {
             "status": "RUNNING",
             "next_stage": "review_plan",
-            "planning": {"astra_calls": 0, "reports": {}},
+            "planning": {"plan_review_calls": 0, "reports": {}},
             "workflow": {"kind": "build", "clarity": "clear", "brief_size": "small"},
             "settings": {"planning_review_call_limit": 2},
         }
@@ -2077,9 +2077,9 @@ class ReviewDepthPolicyTests(unittest.TestCase):
         state = self.state()
         planning.charge(state, "review_plan")
         self.assertTrue(state["planning"]["review_depth_reduced"])
-        state["planning"]["astra_calls"] = 2
+        state["planning"]["plan_review_calls"] = 2
         cycle.new_cycle(state)
-        self.assertEqual(state["planning"]["astra_calls"], 2, "a revision restarts the record, not the counter")
+        self.assertEqual(state["planning"]["plan_review_calls"], 2, "a revision restarts the record, not the counter")
         self.assertTrue(state["planning"]["review_depth_reduced"])
         with self.assertRaises(Exception) as raised:
             planning.charge(state, "review_plan")
@@ -2090,16 +2090,16 @@ class ReviewDepthPolicyTests(unittest.TestCase):
         # and the redrafted plan could never be reviewed (2/2 carried); the run waited for a person.
         state = self.state()
         planning.charge(state, "review_plan")
-        state["planning"]["astra_calls"] = 2
+        state["planning"]["plan_review_calls"] = 2
         cycle.internal_answer_restart(state)
         cycle.new_cycle(state)
-        self.assertEqual(0, state["planning"]["astra_calls"])
+        self.assertEqual(0, state["planning"]["plan_review_calls"])
         self.assertEqual(1, state["planning"]["internal_answer_renewals"])
         planning.charge(state, "review_plan")
         planning.charge(state, "finalize_plan")
         cycle.internal_answer_restart(state)
         cycle.new_cycle(state)
-        self.assertEqual(2, state["planning"]["astra_calls"], "only one renewal per run")
+        self.assertEqual(2, state["planning"]["plan_review_calls"], "only one renewal per run")
         with self.assertRaises(support.Paused):
             planning.charge(state, "review_plan")
 
@@ -2107,7 +2107,7 @@ class ReviewDepthPolicyTests(unittest.TestCase):
         """2/2 spent on challenges; the Planner answered the last one's concerns and the final review is next."""
         state = self.state(**extra)
         planning.charge(state, "review_plan")
-        state["planning"]["astra_calls"] = 2
+        state["planning"]["plan_review_calls"] = 2
         concern = {"id": "C1", "concern": "AC6 uses a value Python lacks", "blocking": blocking}
         state["planning"]["reports"] = {
             "review_plan": {"report": {"concerns": [concern]}, "output": "/run/plan-challenge-02.json"},
@@ -2120,7 +2120,7 @@ class ReviewDepthPolicyTests(unittest.TestCase):
         # #1815: a live worker run spent 2/2 on two blocking challenges and stopped before the final review.
         state = self.spent_revision()
         planning.charge(state, "finalize_plan")
-        self.assertEqual((3, 3), (state["planning"]["astra_calls"], state["planning"]["review_call_limit"]))
+        self.assertEqual((3, 3), (state["planning"]["plan_review_calls"], state["planning"]["review_call_limit"]))
         self.assertEqual(["C1"], state["planning"]["revision_review_renewal"]["blocking_ids"])
         cycle.new_cycle(state)
         state["planning"]["reports"] = self.spent_revision()["planning"]["reports"]
@@ -2147,25 +2147,25 @@ class ReviewDepthPolicyTests(unittest.TestCase):
     def test_an_ordinary_restart_still_carries_the_small_brief_total(self):
         state = self.state()
         planning.charge(state, "review_plan")
-        state["planning"]["astra_calls"] = 2
+        state["planning"]["plan_review_calls"] = 2
         cycle.new_cycle(state)
-        self.assertEqual(2, state["planning"]["astra_calls"])
+        self.assertEqual(2, state["planning"]["plan_review_calls"])
         self.assertEqual(0, state["planning"]["internal_answer_renewals"])
 
     def test_normal_brief_resets_per_cycle_as_today(self):
         state = self.state(workflow={"kind": "build", "clarity": "vague"})
         planning.charge(state, "review_plan")
         self.assertNotIn("review_depth_reduced", state["planning"])
-        state["planning"]["astra_calls"] = 2
+        state["planning"]["plan_review_calls"] = 2
         cycle.new_cycle(state)
-        self.assertEqual(state["planning"]["astra_calls"], 0)
+        self.assertEqual(state["planning"]["plan_review_calls"], 0)
 
     def test_explicit_finite_allowance_survives_when_restart_keeps_spent_calls(self):
         state = self.state(settings={"planning_review_call_limit": 2, "joint_planning": True})
         state["task_id"] = "t"
         state["goal_contract"] = {"task_id": "t", "revision": 1, "hash": "h", "body": {}, "approval_status": "draft"}
         planning.charge(state, "review_plan")
-        state["planning"]["astra_calls"] = 7
+        state["planning"]["plan_review_calls"] = 7
         state.update(status="PAUSED_PLANNING_BUDGET", next_stage="review_plan")
         planning.set_review_call_limit(state, 8)
         settings = copy.deepcopy(state["settings"])
@@ -2194,7 +2194,7 @@ class ReviewDepthPolicyTests(unittest.TestCase):
 
     def test_finalized_small_plan_activates_and_counts_earlier_cycles(self):
         state = self.state(workflow={"kind": "build", "clarity": "clear", "brief_size": "medium"})
-        state["planning_history"] = [{"astra_calls": 2, "reports": {}}]
+        state["planning_history"] = [{"plan_review_calls": 2, "reports": {}}]
         state["planning"]["adaptive"] = {"size": "small"}
         # Activation happens at admission: the two full-depth reviews already run
         # join the total, so this admission pauses instead of granting a fresh cycle.
@@ -2202,7 +2202,7 @@ class ReviewDepthPolicyTests(unittest.TestCase):
             planning.charge(state, "review_plan")
         self.assertIn("2/2 plan-review calls used", str(raised.exception))
         self.assertTrue(state["planning"]["review_depth_reduced"])
-        self.assertEqual(state["planning"]["astra_calls"], 2, "full-depth reviews already run join the total")
+        self.assertEqual(state["planning"]["plan_review_calls"], 2, "full-depth reviews already run join the total")
         self.assertEqual(state["planning"]["review_calls_before_policy"], 2)
 
     def test_budget_line_names_the_policy(self):
@@ -2211,7 +2211,7 @@ class ReviewDepthPolicyTests(unittest.TestCase):
         state = {
             "status": "PAUSED_PLANNING_BUDGET",
             "task_id": "t",
-            "planning": {"astra_calls": 2, "reports": {}, "review_depth_reduced": True},
+            "planning": {"plan_review_calls": 2, "reports": {}, "review_depth_reduced": True},
             "goal_contract": {"task_id": "t", "revision": 1, "hash": "h", "body": {}, "approval_status": "approved"},
             "settings": {"planning_review_call_limit": 2},
         }
@@ -2225,7 +2225,7 @@ class ReviewerEffortTierTests(unittest.TestCase):
         base = {
             "status": "RUNNING",
             "next_stage": "review_plan",
-            "planning": {"astra_calls": 0, "reports": {}},
+            "planning": {"plan_review_calls": 0, "reports": {}},
             "workflow": {"kind": "build", "clarity": "clear", "brief_size": "small"},
             "settings": {
                 "planning_review_call_limit": 6,
@@ -2299,13 +2299,13 @@ class ReviewerEffortTierTests(unittest.TestCase):
                     state["settings"]["effort_origins"]["plan_reviewer"] = origin
                 state["settings"]["roles"]["plan_reviewer"].update(reasoning_effort="medium", light_effort="low")
                 state["settings"]["roles"]["investigator"] = {"model": "different/model", "reasoning_effort": "high"}
-                state["planning_history"] = [{"astra_calls": 2}]
+                state["planning_history"] = [{"plan_review_calls": 2}]
                 planning.route_for(state, "review_plan")
                 planning.charge(state, "review_plan")
                 self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
                 self.assertEqual("high", state["settings"]["roles"]["investigator"]["reasoning_effort"])
                 self.assertEqual(2, state["planning"]["review_calls_before_policy"])
-                self.assertEqual(3, state["planning"]["astra_calls"])
+                self.assertEqual(3, state["planning"]["plan_review_calls"])
 
     def test_ac3_one_step_down_ladder_boundaries(self):
         self.assertEqual("xhigh", planning.reduced_reviewer_effort({"reasoning_effort": "max"}))
@@ -2339,12 +2339,12 @@ class ReviewerEffortTierTests(unittest.TestCase):
 
     def test_ac8_first_launch_consumes_reduced_tier(self):
         state = self.state()
-        state["planning_history"] = [{"astra_calls": 3, "reports": {}}]
+        state["planning_history"] = [{"plan_review_calls": 3, "reports": {}}]
         self.assertEqual("plan_reviewer", planning.route_for(state, "review_plan"))
         self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
         planning.charge(state, "review_plan")
         self.assertEqual(3, state["planning"]["review_calls_before_policy"])
-        self.assertEqual(4, state["planning"]["astra_calls"])
+        self.assertEqual(4, state["planning"]["plan_review_calls"])
         cycle.new_cycle(state)
         self.assertEqual("plan_reviewer", planning.route_for(state, "review_plan"))
         self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
@@ -2379,7 +2379,7 @@ class InternalAnswerInheritanceTests(unittest.TestCase):
             "workflow": {"kind": "build", "clarity": "vague"},
             "settings": {"planning_review_call_limit": 2, "joint_planning": True},
             "planning": {
-                "astra_calls": calls,
+                "plan_review_calls": calls,
                 "final_token": None,
                 "review_charges": ["charge-1"],
                 "reports": {
@@ -2409,7 +2409,7 @@ class InternalAnswerInheritanceTests(unittest.TestCase):
         cycle.start(state)
         record = state["planning"]
         self.assertEqual(1, len(state["planning_history"]))
-        self.assertEqual(1, record["astra_calls"], "the redraft answers the review the cycle already paid for")
+        self.assertEqual(1, record["plan_review_calls"], "the redraft answers the review the cycle already paid for")
         self.assertEqual(["charge-1"], record["review_charges"])
         self.assertEqual({"review_plan", "revise_plan"}, set(record["reports"]))
         self.assertEqual(state["planning_history"][0]["adaptive"], record["adaptive"])
@@ -2417,7 +2417,7 @@ class InternalAnswerInheritanceTests(unittest.TestCase):
         self.assertEqual(
             {
                 "cycle": 0,
-                "astra_calls": 1,
+                "plan_review_calls": 1,
                 "reports": ["review_plan", "revise_plan"],
                 "next_stage": "finalize_plan",
             },
@@ -2427,7 +2427,7 @@ class InternalAnswerInheritanceTests(unittest.TestCase):
             ("RUNNING", "PLANNING", "finalize_plan"), (state["status"], state["phase"], state["next_stage"])
         )
         planning.charge(state, "finalize_plan")
-        self.assertEqual(2, record["astra_calls"])
+        self.assertEqual(2, record["plan_review_calls"])
 
     def test_with_two_calls_left_the_redraft_is_reviewed_again_with_its_earlier_review(self):
         state = self.reviewed(limit=3)
@@ -2457,19 +2457,19 @@ class InternalAnswerInheritanceTests(unittest.TestCase):
         cycle.start(state)
         record = state["planning"]
         self.assertEqual(
-            (2, 3, 1), (record["astra_calls"], record["review_call_limit"], record["internal_answer_renewals"])
+            (2, 3, 1), (record["plan_review_calls"], record["review_call_limit"], record["internal_answer_renewals"])
         )
         self.assertEqual({"from": 2, "to": 3}, record["inherited_review"]["renewed"])
         self.assertEqual("finalize_plan", state["next_stage"])
         planning.charge(state, "finalize_plan")
-        self.assertEqual(3, record["astra_calls"])
+        self.assertEqual(3, record["plan_review_calls"])
         # A second internal restart with nothing left still stops: one renewal per run.
         cycle.internal_answer_restart(state)
         cycle.start(state)
         self.assertEqual(
             (3, 3, 1),
             (
-                state["planning"]["astra_calls"],
+                state["planning"]["plan_review_calls"],
                 state["planning"]["review_call_limit"],
                 state["planning"]["internal_answer_renewals"],
             ),
@@ -2488,7 +2488,7 @@ class InternalAnswerInheritanceTests(unittest.TestCase):
             with self.subTest(name):
                 cycle.internal_answer_restart(state)
                 cycle.start(state)
-                self.assertEqual(2, state["planning"]["astra_calls"])
+                self.assertEqual(2, state["planning"]["plan_review_calls"])
                 self.assertNotIn("renewed", state["planning"]["inherited_review"])
                 self.assertEqual("finalize_plan", state["next_stage"])
                 with self.assertRaises(support.Paused):
@@ -2509,7 +2509,7 @@ class InternalAnswerInheritanceTests(unittest.TestCase):
         for name, state in (("no internal answer", plain), ("no first review yet", unreviewed)):
             with self.subTest(name):
                 cycle.start(state)
-                self.assertEqual((0, {}), (state["planning"]["astra_calls"], state["planning"]["reports"]))
+                self.assertEqual((0, {}), (state["planning"]["plan_review_calls"], state["planning"]["reports"]))
                 self.assertNotIn("inherited_review", state["planning"])
                 self.assertEqual("review_plan", state["next_stage"])
 
@@ -2522,7 +2522,7 @@ class InternalAnswerInheritanceTests(unittest.TestCase):
         self.assertEqual(
             (0, 1, {}),
             (
-                state["planning"]["astra_calls"],
+                state["planning"]["plan_review_calls"],
                 state["planning"]["internal_answer_renewals"],
                 state["planning"]["reports"],
             ),

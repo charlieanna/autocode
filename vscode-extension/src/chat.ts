@@ -35,7 +35,7 @@ interface ChatMessage {
   /** A number typed into the bound's separately named raise (#2044). */
   value?: string;
   checkpoint?: string;
-  action?: "compare" | "restore";
+  action?: "compare" | "step" | "restore";
   workspace?: string;
   runDir?: string;
   /** Tab messages (#1558): the webview addresses tabs by their key. */
@@ -507,10 +507,14 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     this.busy.add(key);
     this.post();
     try {
-      if (message.action === "compare") {
-        const comparison = await this.controller.compareCheckpoint(run, checkpointId);
-        tab.comparisons.set(checkpointId, comparison);
-        void this.view?.webview.postMessage({ type: "checkpoint_compare", runKey: key, checkpoint: checkpointId, comparison });
+      if (message.action === "compare" || message.action === "step") {
+        const comparison = message.action === "compare"
+          ? await this.controller.compareCheckpoint(run, checkpointId)
+          : await this.controller.stepCheckpoint(run, checkpointId);
+        // A step view carries no restore token; never keep it where a restore would reuse it.
+        if (message.action === "compare") tab.comparisons.set(checkpointId, comparison);
+        void this.view?.webview.postMessage({ type: "checkpoint_compare", runKey: key, checkpoint: checkpointId,
+          kind: message.action, comparison });
         return;
       }
       if (message.action !== "restore") return;
@@ -518,7 +522,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       if (!comparison) {
         comparison = await this.controller.compareCheckpoint(run, checkpointId);
         tab.comparisons.set(checkpointId, comparison);
-        void this.view?.webview.postMessage({ type: "checkpoint_compare", runKey: key, checkpoint: checkpointId, comparison });
+        void this.view?.webview.postMessage({ type: "checkpoint_compare", runKey: key, checkpoint: checkpointId,
+          kind: "compare", comparison });
       }
       if (comparison.blocked_reason) throw new Error(comparison.blocked_reason);
       const label = (tab.status?.code_checkpoints?.rows ?? []).find((row) => row.id === checkpointId)?.label ?? checkpointId;

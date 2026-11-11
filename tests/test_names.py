@@ -67,6 +67,12 @@ class OneTableOfNames(unittest.TestCase):
         ]
         self.assertEqual(names.TASK_PLANNER_STAGES, ast.literal_eval(table))
 
+    def test_each_stage_and_its_report_repair_give_back_their_old_code_name(self):
+        for old, new in names.STAGES.items():
+            self.assertEqual(old, names.old_stage(new))
+            self.assertEqual(old + "_report_repair", names.old_stage(new + "_report_repair"))
+        self.assertEqual("requirements_gather", names.old_stage("requirements_gather"))
+
     def test_the_legacy_planning_stages_do_not_reuse_the_v2_flows_names(self):
         v2 = {"requirements", "plan", "plan_review", "plan_revise", "plan_finalize"}
         self.assertFalse(v2 & set(names.STAGES.values()))

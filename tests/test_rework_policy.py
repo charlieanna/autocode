@@ -153,7 +153,7 @@ class ReworkPolicyTests(unittest.TestCase):
                     "tester": {"model": "reviewer", "reasoning_effort": "high"},
                 },
             },
-            "sessions": {"builder": "terra-session", "tester": "sol-session"},
+            "sessions": {"builder": "builder-session", "tester": "tester-session"},
         }
         if state_change:
             state_change(state)
@@ -387,7 +387,7 @@ class ReworkPolicyTests(unittest.TestCase):
             ),
             "same-model": lambda state: state["stages"][0]["launch_route"].update(model="reviewer"),
             "same-model-alias": lambda state: state["stages"][0]["launch_route"].update(model="provider/reviewer"),
-            "same-session": lambda state: state["stages"][0].update(thread_id="sol-session"),
+            "same-session": lambda state: state["stages"][0].update(thread_id="tester-session"),
         }
         for label, change in mutations.items():
             with self.subTest(label=label):

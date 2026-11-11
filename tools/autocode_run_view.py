@@ -80,6 +80,7 @@ try:
     from . import autocode_route_ladder as route_ladder
     from . import autocode_run_stage_models as run_stage_models
     from . import autocode_stage_decisions as stage_decisions
+    from . import autocode_stage_pipeline as stage_pipeline
     from . import autocode_stage_policy as stage_policy
     from . import autocode_stop_explanations as stop_explanations
     from . import autocode_task_input as task_input
@@ -139,6 +140,7 @@ except ImportError:
     import autocode_run_metrics
     import autocode_run_stage_models as run_stage_models
     import autocode_stage_decisions as stage_decisions
+    import autocode_stage_pipeline as stage_pipeline
     import autocode_stage_policy as stage_policy
     import autocode_stop_explanations as stop_explanations
     import autocode_task_input as task_input
@@ -421,6 +423,9 @@ def view(
     # Where the spend went, what was spent again, and what the checking stages produced,
     # read from the cost, usage, efficiency, recoveries and evidence above (display only).
     result["run_metrics"] = autocode_run_metrics.project(result)
+    # The six pipeline jobs, each with where it stands, its route's model and level and its spend, read from
+    # the routes, stage decisions and run metrics above, so a client shows the pipeline without a job table.
+    result["pipeline"] = stage_pipeline.project(state, result)
     contract = state.get("goal_contract") or {}
     if isinstance(contract, dict) and isinstance(contract.get("body"), dict):
         try:

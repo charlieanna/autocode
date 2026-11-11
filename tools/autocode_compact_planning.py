@@ -101,8 +101,12 @@ def fall_back(state: RunState, reason: str) -> None:
     # have had without it (a live fallback otherwise left the final review no call: PAUSED_PLANNING_BUDGET).
     planning = state.get("planning")
     refunded = False
-    if isinstance(planning, dict) and type(planning.get("astra_calls")) is int and planning["astra_calls"] > 0:
-        planning["astra_calls"] -= 1
+    if (
+        isinstance(planning, dict)
+        and type(planning.get("plan_review_calls")) is int
+        and planning["plan_review_calls"] > 0
+    ):
+        planning["plan_review_calls"] -= 1
         refunded = True
     stage_policy.fall_back(state, stage="review_plan", reason=reason, review_call_refunded=refunded)
     run_status.running(state, "PLANNING", next_stage=workflows.planner_stage(state))

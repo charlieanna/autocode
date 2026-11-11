@@ -678,7 +678,7 @@ class ReReviewAfterAnswers(unittest.TestCase):
             ],
         }
         return {
-            "astra_calls": 2,
+            "plan_review_calls": 2,
             "final_token": None,
             "reports": {
                 "review_plan": {"report": {"summary": "", "concerns": [concern]}},
@@ -690,7 +690,7 @@ class ReReviewAfterAnswers(unittest.TestCase):
         state = {
             **awaiting(status="RUNNING"),
             "planning_history": [self.cycle()],
-            "planning": {"astra_calls": 0, "reports": {}, "final_token": None},
+            "planning": {"plan_review_calls": 0, "reports": {}, "final_token": None},
         }
         self.assertIsNone(autoplanner.previous_review(state), "the question is not answered yet")
         state["answers"] = {"Q1": {"kind": "answer", "text": "Yes, reword AC2."}}
@@ -731,7 +731,7 @@ class ReReviewAfterAnswers(unittest.TestCase):
         state = {
             **awaiting(status="RUNNING"),
             "planning_history": [self.cycle()],
-            "planning": {"astra_calls": 1, "reports": {}, "final_token": None},
+            "planning": {"plan_review_calls": 1, "reports": {}, "final_token": None},
             "user_events": [
                 {
                     "kind": "technical_decision",

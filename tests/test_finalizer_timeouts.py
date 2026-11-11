@@ -152,7 +152,7 @@ class FinalizerTimeoutTests(unittest.TestCase):
             # Neither silent review returned a report, so each gave its call back.
             self.assertTrue(failed["planning_review_refunded"])
         # The allowance holds exactly the two reviews that reported: the challenge and the final.
-        self.assertEqual(2, state["planning"]["astra_calls"])
+        self.assertEqual(2, state["planning"]["plan_review_calls"])
         self.assertEqual(2, runner.planning.review_call_limit(state))
         self.assert_no_planning_recovery_grant(state)
         # No approval is implied: the final plan waits for the person, and nothing was built.
@@ -181,7 +181,7 @@ class FinalizerTimeoutTests(unittest.TestCase):
         self.assertEqual(3, sum(bool(row.get("timed_out")) for row in self.finalizer_attempts(state)))
         public = assert_operational_wait(self, state, "PAUSED_TIMEOUT_RECOVERY")
         self.assertIn("--grant-recovery", public["request"]["decision_needed"])
-        self.assertLessEqual(state["planning"]["astra_calls"], runner.planning.review_call_limit(state))
+        self.assertLessEqual(state["planning"]["plan_review_calls"], runner.planning.review_call_limit(state))
         self.assert_no_planning_recovery_grant(state)
         self.assertFalse(goals.approved(state))
         self.assertIsNone(state["planning"]["final_token"])

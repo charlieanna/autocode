@@ -713,8 +713,8 @@ class GoalTests(unittest.TestCase):
         # "permission" and "blocker" differently, so it can only reach the
         # non-invalidating route by chance (see issue #78). Guard the text
         # that actually gives it that instruction.
-        self.assertIn('kind="permission"', s.ASTRA_DECISIONS)
-        self.assertIn("never choose it merely", s.ASTRA_DECISIONS)
+        self.assertIn('kind="permission"', s.REVIEW_DECISIONS)
+        self.assertIn("never choose it merely", s.REVIEW_DECISIONS)
 
     def operational_limit_request(self):
         """The issue #78 scenario: a stopped operational exhaustion request presenting

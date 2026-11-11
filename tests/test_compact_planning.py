@@ -174,10 +174,12 @@ class CompactPlanningTests(unittest.TestCase):
             "blocking": True,
         }
         report = self.review([concern])
-        state["planning"]["astra_calls"] = 1  # the review was charged at admission
+        state["planning"]["plan_review_calls"] = 1  # the review was charged at admission
         autopilot.apply_planning(state, "review_plan", report, self.reviewer_record(state, report))
         self.assertEqual(("RUNNING", "PLANNING", "draft_plan"), (state["status"], state["phase"], state["next_stage"]))
-        self.assertEqual(0, state["planning"]["astra_calls"], "the compact review does not count against the full path")
+        self.assertEqual(
+            0, state["planning"]["plan_review_calls"], "the compact review does not count against the full path"
+        )
         self.assertEqual(
             compact.ORIGIN, state["goal_contract"]["origin"], "the refused draft stays on record, unapproved"
         )

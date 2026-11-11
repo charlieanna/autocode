@@ -153,7 +153,7 @@ class Gate(unittest.TestCase):
         contract = {"task_id": "t", "revision": 1, "body": body}
         contract["hash"] = util.digest(contract)
         event = {"kind": "goal_approval", "actor": "user_cli", "token": contracts.token(contract)}
-        contract.update(approval_status="approved", approval_event=event, origin="glm_draft")
+        contract.update(approval_status="approved", approval_event=event, origin="planner_draft")
         self.state["goal_contract"] = contract
         self.state["user_events"] = [event]
         self.assertTrue(contracts.approved(self.state))

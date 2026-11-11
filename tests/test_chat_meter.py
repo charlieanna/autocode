@@ -103,7 +103,7 @@ class StageTests(unittest.TestCase):
         self.assertIn("15m00s total", meter.stage_lines(row)[0])
 
     def test_a_report_repair_is_the_repaired_stages_next_attempt(self):
-        # As in the live run of 2026-11-02: sol was rejected, the Resolver ran, then sol_report_repair passed.
+        # As in the live run of 2026-11-02: sol was rejected, the Resolver ran, then tester_report_repair passed.
         rejected = attempt("tester", "Tester", rejected=True)
         repairing = attempt(
             "tester_report_repair",

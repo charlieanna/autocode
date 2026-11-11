@@ -78,7 +78,7 @@ def fixture(*, investigation=None, interpretation=False, named_proof=False, comp
         "validation_plan": ["Run"],
         "affected_paths": ["greet.py"],
     }
-    lifecycle.install_draft(current, draft, origin="glm_draft")
+    lifecycle.install_draft(current, draft, origin="planner_draft")
     receipt = {
         "snapshot": correction.snapshot(current),
         "judgment": "unapproved_bugfix_compatibility_inference" if compatibility else "unapproved_model_inference",

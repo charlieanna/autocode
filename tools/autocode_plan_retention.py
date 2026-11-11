@@ -301,7 +301,7 @@ def validated_trace(state: RunState):
     """Inherit a trace only from the report that produced this exact contract."""
     contract = state.get("goal_contract") or {}
     origin = str(contract.get("origin") or "")
-    previous = {"glm_draft": "draft_plan"}.get(origin, origin)
+    previous = {"planner_draft": "draft_plan"}.get(origin, origin)
     report = ((state.get("planning") or {}).get("reports") or {}).get(previous, {}).get("report") or {}
     saved, proposed = contract.get("body"), report.get("contract")
     if not isinstance(saved, dict) or not isinstance(proposed, dict):

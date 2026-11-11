@@ -24,7 +24,7 @@ Security problems: do NOT file them here. See SECURITY.md.
    ```sh
    autocode "..." --workspace ... --engine ...
    ```
-2. What AutoCode printed or showed in the dashboard:
+2. What AutoCode printed or showed in the terminal or VS Code:
 3. The next command (if any):
 
 ## Evidence

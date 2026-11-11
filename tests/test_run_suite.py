@@ -148,10 +148,10 @@ class SelectTestsTests(unittest.TestCase):
     def test_a_changed_data_file_runs_the_tests_that_mention_it(self):
         self.assertIn("tests.test_prompts", self.select("tools/prompts/builder.md"))
 
-    def test_docs_and_the_dashboard_run_only_the_architecture_test(self):
+    def test_docs_run_only_the_architecture_test(self):
         self.assertEqual(
             {"tests.test_architecture": "always"},
-            self.select("docs/workflow.md", "tools/dashboard/app.js", "scenarios/run.py"),
+            self.select("docs/workflow.md", "scenarios/run.py"),
         )
 
     def test_suite_and_workflow_changes_select_controls_instead_of_everything(self):
@@ -218,7 +218,6 @@ class SelectTestsTests(unittest.TestCase):
     def test_package_modules_map_to_dotted_names(self):
         self.assertEqual("units.autoreview", run_suite.tools_module("tools/units/autoreview.py"))
         self.assertEqual("providers", run_suite.tools_module("tools/providers/__init__.py"))
-        self.assertIsNone(run_suite.tools_module("tools/dashboard/server.py"))
         self.assertIsNone(run_suite.tools_module("docs/cli.md"))
 
 

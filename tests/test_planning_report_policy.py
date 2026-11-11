@@ -28,7 +28,7 @@ class PlanningReportPolicyTests(unittest.TestCase):
 
     def test_first_review_omits_slice_rules_for_an_ordinary_draft(self):
         contract = {"task_id": fixed_state()["task_id"], "revision": 1, "body": {}}
-        contract.update(hash=util.digest(contract), approval_status="draft", origin="glm_draft")
+        contract.update(hash=util.digest(contract), approval_status="draft", origin="planner_draft")
         empty = {"version": 0, "needed_because": "", "slices": []}
 
         def render(stage, proposal, **state_fields):

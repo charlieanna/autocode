@@ -76,7 +76,7 @@ class TechnicalQuestionsCliTests(unittest.TestCase):
                     # cycle: the saved first review and one final review, not a second review from scratch.
                     self.assertEqual(1, len(state["planning_history"]))
                     self.assertEqual(["review_plan", "finalize_plan"], reviews)
-                    self.assertEqual(2, state["planning"]["astra_calls"])
+                    self.assertEqual(2, state["planning"]["plan_review_calls"])
                     self.assertEqual("finalize_plan", state["planning"]["inherited_review"]["next_stage"])
                 else:
                     self.assertEqual([], state.get("planning_history", []))

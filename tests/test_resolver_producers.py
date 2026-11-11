@@ -137,7 +137,7 @@ class ResolverProducerTests(unittest.TestCase):
 
     def test_intermediate_joint_drafts_and_migration_do_not_queue_approval(self):
         self.state["settings"]["joint_planning"] = True
-        for origin, next_stage in (("glm_draft", "review_plan"), ("revise_plan", "finalize_plan")):
+        for origin, next_stage in (("planner_draft", "review_plan"), ("revise_plan", "finalize_plan")):
             lifecycle.install_draft(self.state, body(), origin=origin)
             self.assertEqual("RUNNING", self.state["status"])
             self.assertEqual(next_stage, self.state["next_stage"])

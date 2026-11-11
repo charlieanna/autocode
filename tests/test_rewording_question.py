@@ -278,7 +278,7 @@ class DraftAssumptionQuestionTests(unittest.TestCase):
                 "hash": util.digest(sealed),
                 "approval_status": "draft",
                 "approval_event": None,
-                "origin": "glm_draft",
+                "origin": "planner_draft",
             },
             "answers": {"A1": {"kind": "answer", "text": "next to the CLI"}},
         }

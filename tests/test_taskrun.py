@@ -117,7 +117,9 @@ class RunViewTests(unittest.TestCase):
 
     def test_explicit_report_retry_bypasses_automatic_escalation(self):
         self.assertTrue(
-            action_authority.explicit_recovery_requested(SimpleNamespace(retry_report="001/sol_report_repair-02"), None)
+            action_authority.explicit_recovery_requested(
+                SimpleNamespace(retry_report="001/tester_report_repair-02"), None
+            )
         )
         self.assertFalse(action_authority.explicit_recovery_requested(SimpleNamespace(retry_report=None), None))
 
@@ -160,6 +162,7 @@ class RunViewTests(unittest.TestCase):
                 "direct_rework_assignments",
                 "efficiency",
                 "run_metrics",
+                "pipeline",
                 "recovery",
                 "recoveries",
                 "verification",
@@ -796,10 +799,10 @@ class RunViewTests(unittest.TestCase):
                 "error": "Check is not supported by an exact executed Validator event",
                 "original": {"stage": "tester"},
                 "attempts": 2,
-                "latest_rejected": {"iteration": 1, "output": "/run/sol_report_repair-02.json"},
+                "latest_rejected": {"iteration": 1, "output": "/run/tester_report_repair-02.json"},
             },
         }
-        self.assertEqual("001/sol_report_repair-02", run_view.needs(state)["retry_report_attempt"])
+        self.assertEqual("001/tester_report_repair-02", run_view.needs(state)["retry_report_attempt"])
 
     def test_legacy_job_without_source_identity_exposes_recovery_not_retry(self):
         failure = {
@@ -1073,8 +1076,8 @@ class TaskRunTests(unittest.TestCase):
         repaired = run.advance_until_input()
         self.assertEqual("approve_plan", repaired["needs"]["kind"], (repaired["status"], repaired["stop_reason"]))
         self.assertNotEqual(state["planning"]["final_token"], repaired["needs"]["token"])
-        calls = util.read(checkpoint)["planning"]["astra_calls"]
-        self.assertEqual(state["planning"]["astra_calls"] + int(adaptive), calls)
+        calls = util.read(checkpoint)["planning"]["plan_review_calls"]
+        self.assertEqual(state["planning"]["plan_review_calls"] + int(adaptive), calls)
         accepted = run.approve_plan(repaired["needs"]["token"])
         self.assertTrue(accepted["approved_contract"]["body"]["initial_task"]["affected_paths"])
 
@@ -1741,9 +1744,14 @@ class TaskRunClientTests(unittest.TestCase):
     def test_retry_report_uses_exact_attempt_and_explicit_resume(self):
         run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
         with patch.object(run, "_invoke") as invoke, patch.object(run, "status", return_value={}) as status:
-            run.retry_report("001/sol_report_repair-02")
+            run.retry_report("001/tester_report_repair-02")
         invoke.assert_called_once_with(
-            "retry report", "--resume-paused", "--retry-report", "001/sol_report_repair-02", "--no-chat", advancing=True
+            "retry report",
+            "--resume-paused",
+            "--retry-report",
+            "001/tester_report_repair-02",
+            "--no-chat",
+            advancing=True,
         )
         status.assert_called_once()
 

@@ -796,7 +796,7 @@ start a second task. Read the current plan and use the separate `approve_plan()`
 action only when the operator authorizes implementation. The original handoff
 source digest stays immutable; later human feedback retains its own provenance.
 Assistant text and unapproved drafts never become mandatory requirements merely
-because they appear in the journal. The browser dashboard and macOS app still use their existing path.
+because they appear in the journal.
 
 The additive `view.conversation` is `None` for ordinary and legacy dashboard
 runs. A core conversation exposes actionable `status`/`needs` (including current questions and resolver tokens),
@@ -2317,6 +2317,24 @@ A stage that launched is never shown as skipped. Whole stages are not reused, so
 execution, stays in that stage's own record. The terminal chat's Pipeline panel marks a job
 `✓` when one of its stages ran and `–` with "skipped" when every one of its stages was skipped,
 and `/details` lists the whole record in words.
+
+`pipeline` lists the six pipeline jobs in order (Requirements, Planner, Plan Reviewer, Builder,
+Tester, Completion Reviewer) so a client can show the whole pipeline without a table of job names
+of its own (`tools/autocode_stage_pipeline.py`). It is always present. Each row is read from
+`routes`, `stage_decisions` and `run_metrics` and the saved running and next stage:
+
+| Field | Meaning |
+| --- | --- |
+| `job` | The job key from `autocode_roles` (`planner`, `plan_reviewer`, ...) |
+| `label` | The job's screen name (`Plan Reviewer`) |
+| `state` | `working` (one of its stages is running), `next` (its stage runs next while the run waits or is between stages), `ran` (it launched at least once), `skipped` (a saved decision passed over it and it never launched), `pending` (not reached yet) or `not_run` (the run has ended without reaching it) |
+| `model` | The model of the route the job runs on (`routes`), or `null`; the models that actually ran stay on `usage.accounting.attempts` |
+| `reasoning_effort` | The level it last ran at when a rule moved it (`stage_decisions[].effort_choice`), else its route's level, or `null` |
+| `spent_usd` | Its accounted spend from `run_metrics.by_job`, or `null` before it has any |
+| `reason` | Why a skipped job was skipped, from `stage_decisions`; `null` otherwise |
+
+`ran` says the job launched, never that its work was accepted. The record grants nothing; the VS
+Code chat shows it as the strip at the top of a chat.
 
 `proxied_requirements` lists the requirements the current plan proves only on a stand-in
 (#2068): the user-visible result is rendered by code outside this checkout, so the plan's

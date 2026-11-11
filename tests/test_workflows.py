@@ -176,6 +176,12 @@ class RetiredStageTests(unittest.TestCase):
             with self.subTest(stage=stage):
                 self.assertIsNone(workflows.retired_stage({"next_stage": stage}))
 
+    def test_a_run_saved_with_the_old_plan_review_counter_is_refused(self):
+        message = workflows.retired_stage({"next_stage": "review_plan", "planning": {"astra_calls": 1}})
+        self.assertIn("its plan review count is kept as astra_calls", message)
+        self.assertIn("start a new task to continue the work", message)
+        self.assertIsNone(workflows.retired_stage({"next_stage": "review_plan", "planning": {"plan_review_calls": 1}}))
+
     def test_the_status_view_asks_for_a_new_run_instead_of_resuming(self):
         state = {**fresh(), "next_stage": "investigate_bug", "status": "RUNNING", "phase": "INVESTIGATING"}
         needs = run_view.view(state)["needs"]

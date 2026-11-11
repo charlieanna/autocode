@@ -5,7 +5,6 @@ from pathlib import Path
 
 import autocode_checkpoints as checkpoints
 import autocode_status as status
-from dashboard import dashboard_monitor as monitor
 
 
 class CheckpointTests(unittest.TestCase):
@@ -33,9 +32,6 @@ class CheckpointTests(unittest.TestCase):
             self.assertEqual("running", rows["implementation"]["status"])
             self.assertEqual(21, rows["builder_activity"]["completed_tools"])
             self.assertEqual("not_verified", rows["criterion:C1"]["status"])
-            self.assertEqual(
-                saved["execution_checkpoints"], monitor.snapshot(saved, Path(tmp), detailed=True)["checkpoints"]
-            )
 
     def test_prior_pass_is_not_visible_for_new_candidate_or_contract(self):
         state = self.state()
@@ -65,12 +61,6 @@ class CheckpointTests(unittest.TestCase):
         self.assertEqual("task1", state["checkpoint_history"][0]["task_id"])
         checkpoints.update(state)
         self.assertEqual(1, len(state["checkpoint_history"]))
-
-    def test_dashboard_refuses_worker_paths_outside_batch(self):
-        state = self.state()
-        state["orchestration_batch"] = {"id": "batch", "workers": [{"run_dir": "/outside", "milestone_id": "M1"}]}
-        view = monitor.snapshot(state, Path("/fixture/run"), detailed=True)
-        self.assertNotIn("checkpoints", view["orchestration_batch"]["workers"][0])
 
     def test_no_progress_is_scoped_to_task_and_contract(self):
         state = self.state()

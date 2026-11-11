@@ -37,7 +37,7 @@ except ImportError:
     import autocode_test_cases as test_cases
     from autocode_user_authority import saved_user_basis
 
-PLANNER_ORIGINS = {"glm_draft", "revise_plan", "finalize_plan", "draft_plan"}
+PLANNER_ORIGINS = {"planner_draft", "revise_plan", "finalize_plan", "draft_plan"}
 PROTECTED_LISTS = ("required_behaviors", "scope_exclusions", "constraints", "important_failure_cases")
 # The lists a revision may change on its own when the Plan Reviewer blocked the draft and the line is the
 # Planner's own (reviewer_requested_own_text): a constraint or a permission boundary that only restates how the
@@ -384,7 +384,7 @@ def reviewer_requested_own_text(state: RunState, previous_contract: dict, previo
     A live vague-brief run (2026-10-20) put its milestone file split into a constraint and a permission
     boundary; the Plan Reviewer's blocking concern asked to rebalance the milestones, and the revision that did
     so was refused for changing protected text, which cost a repair, a question AutoCode answered itself and a
-    planning restart from scratch. In a contract nobody has approved or edited, a ``glm_revise`` may reword or
+    planning restart from scratch. In a contract nobody has approved or edited, a ``revise_plan`` may reword or
     drop a constraint, or replace a permission boundary, when the current cycle's first review holds a blocking
     concern, the change is declared as the Planner's own (``agent_proposed``) with its replacement, and the line
     repeats none of the person's sentences (quotes_person_text). The declared change is shown at approval with
@@ -524,7 +524,7 @@ def revision_guard(state: RunState, body, changes, origin):
     protected_history = bool(protected_revisions)
     interpretation_corrections = assumption_provenance.corrections(feedback_interpretations(state), body)
     if (
-        origin in ("glm_draft", "draft_plan")
+        origin in ("planner_draft", "draft_plan")
         and previous_contract.get("approval_status") != "approved"
         and not (internal_restart and protected_history)
     ):

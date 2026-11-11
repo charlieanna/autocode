@@ -431,10 +431,6 @@ The canonical browser evidence requires rendered geometry and a screenshot, not
 DOM presence or a browser keyword in a report. The Go evidence requires raw
 program output, not an echoed shell summary.
 
-### Dashboard tests
-
-See [Dashboard](dashboard.md#dashboard-verification) for the dashboard test commands.
-
 ### Live-trial results
 
 `tools/live_trial.py` uses the same verdict in `live-trial.json` and the bundle's

@@ -225,7 +225,7 @@ class ResolverRecommendationLifecycleTests(unittest.TestCase):
     def test_joint_planning_reviews_before_any_approval(self):
         self.state["settings"]["joint_planning"] = True
         self.state["planning"] = {
-            "astra_calls": 2,
+            "plan_review_calls": 2,
             "reports": {},
             "final_token": goals.token(self.state["goal_contract"]),
         }

@@ -372,13 +372,14 @@ export class RunController {
   }
 
   /** The checkpoint action the view named, checked against the exact grammar before anything runs. */
-  private namedCheckpointAction(view: StatusView, run: RunRef, checkpointId: string, actionId: "compare" | "restore"): CheckpointAction {
+  private namedCheckpointAction(view: StatusView, run: RunRef, checkpointId: string,
+    actionId: "compare" | "step" | "restore"): CheckpointAction {
     const row = (view.code_checkpoints?.rows ?? []).find((item) => item.id === checkpointId);
     const action = row?.actions?.find((item) => item.id === actionId);
     if (!row || !action) {
       throw new ClientGap(`AutoCode named no ${actionId} action for saved code change ${checkpointId}`);
     }
-    const flag = actionId === "compare" ? "--compare" : "--restore";
+    const flag = { compare: "--compare", step: "--step", restore: "--restore" }[actionId];
     const own = effective(view, run);
     const expected = ["checkpoint", "--workspace", own.workspace, "--run-dir", own.runDir, flag, checkpointId,
       ...(actionId === "restore" ? ["--expected-token", "-", "--request-id", "REQUEST_ID"] : [])];
@@ -395,6 +396,15 @@ export class RunController {
     const result = await invoke(this.settings, action.next_command);
     if (result.code !== 0) throw new Error(tail(result));
     return JSON.parse(result.stdout) as CheckpointComparison;
+  }
+
+  /** The named step view: what one saved step itself changed, display only. */
+  async stepCheckpoint(run: RunRef, checkpointId: string): Promise<WorkingComparison> {
+    const view = await this.status(run);
+    const action = this.namedCheckpointAction(view, run, checkpointId, "step");
+    const result = await invoke(this.settings, action.next_command);
+    if (result.code !== 0) throw new Error(tail(result));
+    return JSON.parse(result.stdout) as WorkingComparison;
   }
 
   /** The view's named, display-only diff of what the running Builder has changed so far. */

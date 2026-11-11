@@ -56,7 +56,7 @@ class PlanRetentionTests(unittest.TestCase):
     def reviewed_state(self, *, added_guard=False):
         state = self.state()
         draft = state["goal_contract"]
-        draft.update(task_id="small-fix", revision=1, approval_status="draft", origin="glm_draft")
+        draft.update(task_id="small-fix", revision=1, approval_status="draft", origin="planner_draft")
         body = draft["body"]
         body.update(
             task_kind="bugfix",
@@ -644,7 +644,7 @@ class CompletedTurnAllowanceTests(unittest.TestCase):
         return {
             "settings": {},
             "planning": {
-                "astra_calls": 2,
+                "plan_review_calls": 2,
                 "reports": {"finalize_plan": {"output": "old.json"}},
                 "review_depth_reduced": True,
                 "review_call_limit": 2,
@@ -662,10 +662,10 @@ class CompletedTurnAllowanceTests(unittest.TestCase):
         state["workflow"] = {"kind": "build", "clarity": "clear", "brief_size": "small"}
         state["next_stage"] = "review_plan"
         cycle.new_cycle(state, new_turn=True)
-        self.assertEqual(0, state["planning"]["astra_calls"])
+        self.assertEqual(0, state["planning"]["plan_review_calls"])
         planner.charge(state, "review_plan")
-        self.assertEqual(1, state["planning"]["astra_calls"])
-        self.assertEqual(2, state["planning_history"][0]["astra_calls"])
+        self.assertEqual(1, state["planning"]["plan_review_calls"])
+        self.assertEqual(2, state["planning_history"][0]["plan_review_calls"])
         self.assertEqual(stages, state["stages"])
         self.assertEqual(ledger, state["cost_ledger"])
 
@@ -679,14 +679,14 @@ class CompletedTurnAllowanceTests(unittest.TestCase):
         del state["planning"]["review_call_limit"]
         state["turns"] = [{"event_id": "human-followup-1"}]
         cycle.new_cycle(state, new_turn=True)
-        self.assertEqual(0, state["planning"]["astra_calls"])
+        self.assertEqual(0, state["planning"]["plan_review_calls"])
         self.assertNotEqual("user_explicit", state["planning"].get("review_call_limit_origin"))
-        self.assertEqual(2, state["planning_history"][0]["astra_calls"])
+        self.assertEqual(2, state["planning_history"][0]["plan_review_calls"])
 
     def test_internal_restart_and_explicit_human_bound_never_mint_reviews(self):
         for new_turn, explicit in ((False, False), (True, True)):
             state = self.state(explicit)
             cycle.new_cycle(state, new_turn=new_turn)
-            self.assertEqual(2, state["planning"]["astra_calls"])
+            self.assertEqual(2, state["planning"]["plan_review_calls"])
             if explicit:
                 self.assertEqual(2, state["planning"]["review_call_limit"])

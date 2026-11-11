@@ -23,7 +23,6 @@ import autocode_command_inputs as command_inputs
 import autocode_configure
 import autocode_run_view as run_view
 import autocode_support as support
-from dashboard import dashboard_recovery
 
 from scenarios.harness import conformance, needs_command
 from tests import test_needs_contract
@@ -60,7 +59,7 @@ def paused(status, **more):
         "consecutive_timeout_recoveries": 3,
         "automatic_timeout_recoveries": [{"stage": "builder"}],
         "recovery_grants": [],
-        "planning": {"astra_calls": 2, "review_call_limit": 2},
+        "planning": {"plan_review_calls": 2, "review_call_limit": 2},
         "goal_contract": CONTRACT,
         "current_task": {"id": "T1", "milestone_id": "M1", "contract_hash": CONTRACT["hash"]},
         "milestone_progress": {KEY: {"seconds": 5500, "replans": 1}},
@@ -121,15 +120,7 @@ class EveryPauseNumberIsDescribed(unittest.TestCase):
                     filled = actions.fill(view, command, {row["id"]: str(row["minimum"])})
                 args = parses(filled)
                 self.assertEqual(view["recovery"]["token"], args.expected_recovery_token)
-                # The browser dashboard types the number into the same command, with the token moved back
-                # into argv for its launcher's private channel (dashboard_recovery.number_command).
-                extra, taken = dashboard_recovery.number_command(view, WORKSPACE, RUN, row["id"], str(row["minimum"]))
-                self.assertEqual(row, taken)
-                token_at = filled.argv.index("--expected-recovery-token") + 1
-                self.assertEqual(["--no-chat", *filled.argv[:token_at], view["recovery"]["token"]], extra)
                 self.assertEqual(row["minimum"], round(getattr(args, row["flag"][2:].replace("-", "_"))))
-                with self.assertRaisesRegex(ValueError, "whole number"):
-                    dashboard_recovery.number_command(view, WORKSPACE, RUN, row["id"], str(row["minimum"] - 1))
                 with self.assertRaises(actions.ClientGap):  # one below the minimum grants nothing
                     if "command" in row:
                         actions.fill_offer(view, row, command, str(row["minimum"] - 1))

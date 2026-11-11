@@ -111,7 +111,7 @@ DEFAULT_MODELS = {
     "builder": "zai-coding-plan/glm-5.3",
     "tester": "openai/gpt-6-sol",
     "completion": "openai/gpt-6-sol",
-    # The astra route: the per-task Planner (astra_plan) runs on it, and the Resolver's own
+    # The task_planner route: the per-task Planner (plan_task) runs on it, and the Resolver's own
     # route ("resolver") starts as a copy of it. Only the Resolver's route climbs the GPT-6
     # Astra effort ladder (autocode_route_ladder; user 2026-09-28, #1345).
     "task_planner": "openai/gpt-6-astra",

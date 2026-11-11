@@ -1,4 +1,4 @@
-"""The durable Stop-after-current-step operation: AC15 and AC26-AC29.
+"""The durable Stop-after-current-step operation: AC26-AC29.
 
 Every credited case drives the real public CLI (tools/autocode.py) as a
 subprocess with an offline config-tool provider, so no model is ever called.
@@ -6,14 +6,9 @@ The provider command wraps tools/fake_command_tool.py (the same offline
 fixture tests/test_command_flow.py uses) with a hold: one chosen step blocks
 until a release file appears, which keeps a real provider step in flight while
 the test submits the durable stop through the supported intervention inbox.
-The dashboard's real stop-submission adapter (dashboard_backend.intervene, the
-handler behind the composer Stop control's /api/action post) submits through
-the same boundary, so AC15 fails when the Stop control is absent, decorative,
-or wired to anything but the supported durable request.
 """
 
 import contextlib
-import html.parser
 import json
 import os
 import shutil
@@ -27,12 +22,9 @@ from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
-sys.path.insert(0, str(TOOLS / "dashboard"))
 
 
 RUNNER = TOOLS / "autocode.py"
-DASHBOARD_HARNESS = TOOLS / "dashboard" / "tests" / "workspace_panes_harness.js"
-BROWSER_MODEL_CONTROLS = TOOLS / "dashboard" / "tests" / "test_composer_models_browser_ui.js"
 STOP_REASON_MARKER = "Durable stop"
 
 # The provider command: the offline fixture tool, wrapped so one named stage
@@ -128,51 +120,6 @@ completion = { model = "fixture-completion", effort = "medium" }
 glm = { model = "fixture-planner", effort = "medium" }
 plan_reviewer = { model = "fixture-plan-reviewer", effort = "high" }
 """
-
-
-class _MarkupAncestry(html.parser.HTMLParser):
-    """Record the enclosing element ids of every id-addressed element."""
-
-    VOID = {
-        "area",
-        "base",
-        "br",
-        "col",
-        "embed",
-        "hr",
-        "img",
-        "input",
-        "link",
-        "meta",
-        "param",
-        "source",
-        "track",
-        "wbr",
-    }
-
-    def __init__(self):
-        super().__init__(convert_charrefs=True)
-        self.stack = []
-        self.ancestors = {}
-
-    def handle_starttag(self, tag, attrs):
-        ident = dict(attrs).get("id")
-        if ident is not None and ident not in self.ancestors:
-            self.ancestors[ident] = list(self.stack)
-        if tag not in self.VOID:
-            self.stack.append(ident)
-
-    def handle_endtag(self, tag):
-        for index in range(len(self.stack) - 1, -1, -1):
-            del self.stack[index:]
-            break
-
-
-def markup_ancestors(page):
-    parser = _MarkupAncestry()
-    parser.feed(page)
-    parser.close()
-    return parser.ancestors
 
 
 class StopFixture(unittest.TestCase):
@@ -384,56 +331,6 @@ class StopFixture(unittest.TestCase):
         return [line.split()[1] for line in self.stage_log(run) if line.startswith("start ")]
 
     # -- shared scenarios ------------------------------------------------
-    def assert_rendered_running_composer_controls(self):
-        """The shipped page's composer_run_controls VM case: the beside-composer
-        Pause, Stop, Continue/Resume and model controls render for a running
-        conversation — visible, enabled, separate and state-appropriate — post
-        the durable stop request, and keep the paused resume control actionable
-        while an applied stop suppresses Continue. AC15 and AC28 both require
-        this rendered proof; markup ancestry alone cannot establish it."""
-        result = subprocess.run(
-            ["node", str(DASHBOARD_HARNESS), "composer_run_controls"],
-            capture_output=True,
-            text=True,
-            timeout=180,
-            env=dict(os.environ),
-        )
-        self.assertEqual(
-            0,
-            result.returncode,
-            f"the rendered beside-composer controls case failed:\n{result.stdout}\n{result.stderr}",
-        )
-
-    def assert_browser_visible_beside_composer_model_controls(self):
-        """The model-route entry beside the composer is visibly usable in a
-        real browser: the synthetic VM harness cannot observe computed CSS or
-        open a real <details> disclosure, so the credited case also drives the
-        shipped page against the disposable dashboard fixture — the entry's
-        summary must render visibly, stay focusable, open by click and present
-        the saved model controls in their true running state. A hidden or
-        inert model entry beside the composer fails this, and with it AC15."""
-        if shutil.which("agent-browser") is None:
-            self.skipTest(
-                "agent-browser bridge is not on PATH; install it to run "
-                "the real-browser beside-composer model-entry case"
-            )
-        environment = os.environ.copy()
-        # macOS AF_UNIX paths must fit the bridge's session suffix.
-        with tempfile.TemporaryDirectory(prefix="ab-", dir="/tmp") as sockets:
-            environment["AGENT_BROWSER_SOCKET_DIR"] = sockets
-            result = subprocess.run(
-                ["node", str(BROWSER_MODEL_CONTROLS)],
-                capture_output=True,
-                text=True,
-                timeout=300,
-                env=environment,
-            )
-        self.assertEqual(
-            0,
-            result.returncode,
-            f"the browser-level beside-composer model-entry case failed:\n{result.stdout}\n{result.stderr}",
-        )
-
     def stop_during_hold(self, kind="stop", request_id="s1", submitter=None):
         """Run to the held step, submit the durable request, then release it."""
         process = self.launch()
@@ -465,83 +362,6 @@ class StopFixture(unittest.TestCase):
 
 
 class StopOperationTests(StopFixture):
-    def test_ac15_conversation_controls_beside_composer(self):
-        """The shipped page renders pause, stop and model-route controls beside the
-        composer, and the dashboard's real stop-submission adapter issues the
-        supported durable request, which the runner applies at the saved boundary."""
-        from agent_console import Console
-
-        page = (TOOLS / "dashboard" / "dashboard.html").read_text(encoding="utf-8")
-        app_js = (TOOLS / "dashboard" / "dashboard_app.js").read_text(encoding="utf-8")
-        ancestors = markup_ancestors(page)
-        for control in ("pause-run", "stop-run", "continue-run"):
-            chain = ancestors.get(control) or []
-            self.assertTrue(chain, f"the shipped page renders the {control} control")
-            self.assertIn(
-                "composer-run-controls",
-                chain,
-                f"{control} sits in the beside-composer run controls row; enclosing ids: {chain}",
-            )
-            self.assertIn(
-                "live-controls",
-                chain,
-                f"{control} sits in the composer section inside the conversation view; enclosing ids: {chain}",
-            )
-        for control in ("task-model-settings", "task-reasoning-form"):
-            chain = ancestors.get(control) or []
-            self.assertIn(
-                "composer-models",
-                chain,
-                f"the {control} model-route host must sit beside the composer; enclosing ids: {chain}",
-            )
-        self.assertIn(
-            "sendChange(run,'stop')",
-            app_js,
-            "the Stop control is wired to the durable stop submission, not a decoration",
-        )
-        self.assertIn("'stop-run'", app_js, "the Stop control participates in the page's control state handling")
-        # The rendered proof: for a running conversation the Pause, Stop and
-        # model controls show beside the composer — visible, enabled, separate —
-        # with Continue present and state-appropriate, and activating Stop posts
-        # the durable stop request. Ancestry and wiring alone cannot show this;
-        # dashboard.html ships the controls with the hidden attribute.
-        self.assert_rendered_running_composer_controls()
-        # Computed-visibility proof the synthetic VM cannot provide: a real
-        # browser confirms the model-route entry's summary renders visibly,
-        # stays focusable, opens by click and presents the saved model
-        # controls in their true running state beside the composer.
-        self.assert_browser_visible_beside_composer_model_controls()
-
-        console = Console([self.project], str(RUNNER), lambda: None)
-        self.addCleanup(console.pool.shutdown, False)
-
-        def adapter_submit(request_id):
-            row = console.intervene(self.project, self.run_dir(), "stop", "", request_id)
-            self.assertEqual("stop", row["kind"], f"the dashboard adapter submits the stop kind: {row}")
-            self.assertTrue(row.get("durable"), f"the adapter submits through the durable inbox: {row}")
-            self.assertIn(row.get("status"), ("queued", "applied"), f"the stop submission was accepted: {row}")
-            self.assertEqual(request_id, row["id"])
-
-        process, run = self.stop_during_hold(submitter=adapter_submit)
-        self.assertEqual(2, process.returncode, "the stopped run exits non-zero\n" + self.output())
-        state = self.state()
-        self.assert_stopped_boundary(state, "s1")
-        self.assertNotIn(
-            "s1",
-            [item["id"] for item in self.pending_inbox(run)],
-            "the dashboard-submitted stop was consumed into the authoritative state",
-        )
-        view = console._intervention_view(self.project, run)
-        self.assertEqual(
-            ["s1"],
-            (view.get("stop_intent") or {}).get("request_ids"),
-            "the dashboard reads the applied stop intent back: {}".format(view.get("stop_intent")),
-        )
-        applied = [
-            entry for entry in view["entries"] if entry.get("kind") == "stop" and entry.get("status") == "applied"
-        ]
-        self.assertTrue(applied, "the dashboard shows the applied stop receipt among the entries")
-
     def test_ac26_stop_finishes_inflight_step_prevents_subsequent_stages(self):
         process, run = self.stop_during_hold()
         self.assertEqual(2, process.returncode, "the stopped run exits non-zero\n" + self.output())
@@ -643,9 +463,6 @@ class StopOperationTests(StopFixture):
         self.assertNotEqual("TASK_COMPLETE", self.state()["status"])
 
     def test_ac28_stop_distinct_from_pause_no_immediate_kill(self):
-        # The given state: a healthy running conversation shows its separate,
-        # actionable composer-side Pause and Stop controls before Stop is used.
-        self.assert_rendered_running_composer_controls()
         self.hold_stage = "builder"
         self.write_provider()
         saved_history = {}
@@ -672,8 +489,8 @@ class StopOperationTests(StopFixture):
             "every saved conversation-history entry survives the applied stop",
         )
         log = self.stage_log(run)
-        releases = [line for line in log if line.startswith("released terra")]
-        dones = [line for line in log if line.startswith("done terra")]
+        releases = [line for line in log if line.startswith("released builder")]
+        dones = [line for line in log if line.startswith("done builder")]
         self.assertTrue(
             releases and dones and float(dones[0].split()[-1]) >= float(releases[0].split()[-1]),
             f"the in-flight worker was not killed: it delivered after the stop was submitted: {log}",
@@ -682,7 +499,7 @@ class StopOperationTests(StopFixture):
             (self.project / "greet.py").exists(), "the finished step's partial work is preserved in the project"
         )
         stages = [record.get("stage") for record in state.get("stages", [])]
-        self.assertIn("builder", stages, "the terra result was saved")
+        self.assertIn("builder", stages, "the Builder result was saved")
         self.assertNotIn("tester", stages, "the stopped run never reached the next stage")
         self.assertNotIn("tester", self.started_stages(run), f"no worker for a later stage was launched: {log}")
         before = len(log)
@@ -719,7 +536,7 @@ class StopOperationTests(StopFixture):
         self.assertIsNone(pause_receipt.get("resumed_at"), "the pause receipt is resumable, not terminal")
         self.assertEqual([], self.applied_stop_receipts(paused_state), "a pause is not a stop")
         finished_at = float(
-            next(line for line in self.stage_log(twin_run) if line.startswith("done terra")).split()[-1]
+            next(line for line in self.stage_log(twin_run) if line.startswith("done builder")).split()[-1]
         )
         resumed_twin = self.cli_in(paused_project, twin_run, "--no-chat", "--resume-paused", timeout=300)
         resumed_state = self.state(paused_project, twin_run)
@@ -826,7 +643,6 @@ class StopOperationTests(StopFixture):
         self.assertIn(STOP_REASON_MARKER, str(raised.exception))
 
         # Approval after Stop must also fail with a real, current, displayed token.
-        from agent_console import Console
         from autocode_taskrun import TaskRun
 
         self.hold_stage = ""
@@ -846,14 +662,10 @@ class StopOperationTests(StopFixture):
         view = planned.advance_until_input()
         self.assertEqual("approve_plan", view["needs"]["kind"], view)
         token = view["needs"]["token"]
-        console = Console([project], str(RUNNER), lambda: None)
-        self.addCleanup(console.pool.shutdown, False)
-        self.assertEqual(token, console.view(project, planned.run_dir)["goal_token"])
         submitted = self.submit_in(project, planned.run_dir, "stop-at-plan")
         self.assertEqual(0, submitted.returncode, submitted.stdout + submitted.stderr)
         stopped = planned.advance()
         self.assertIn(STOP_REASON_MARKER, stopped["stop_reason"])
-        self.assertEqual(token, console.view(project, planned.run_dir)["goal_token"])
         count = len(self.stage_log(planned.run_dir))
         refused = self.cli_in(project, planned.run_dir, "--approve-goal", token)
         self.assertEqual(2, refused.returncode)
@@ -969,19 +781,6 @@ class StopPersistenceTests(unittest.TestCase):
             )
         self.assertEqual("PAUSED_INTERVENTION", person["status"])
         self.assertEqual(stop_policy.STOP_REASON, person["stop_reason"])
-
-    def test_old_runner_stop_is_refused_before_submission(self):
-        from unittest.mock import Mock
-
-        from agent_console import Console
-
-        console = Console([], str(RUNNER), lambda: None)
-        self.addCleanup(console.pool.shutdown, False)
-        console._intervention_view = Mock(return_value={"mode": "capable", "capable": True})
-        console._json_command = Mock()
-        with self.assertRaisesRegex(ValueError, "does not support Stop"):
-            console.intervene(Path("fixture"), Path("fixture/run"), "stop", request_id="s")
-        console._json_command.assert_not_called()
 
 
 if __name__ == "__main__":

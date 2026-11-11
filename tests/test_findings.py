@@ -2,10 +2,8 @@
 
 import copy
 import sys
-import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode_finding_scope as finding_scope
@@ -690,50 +688,6 @@ class LedgerTests(unittest.TestCase):
         self.assertEqual({"Help text missing", "Missing authorization check"}, {row["finding"] for row in open_rows})
         self.assertTrue(all(row["status"] == "open" for row in state["findings_ledger"]))
         self.assertEqual("astra-02.json", next(row["not_rechecked_in"] for row in open_rows if row["id"] == existing))
-
-
-class DashboardLedgerTests(unittest.TestCase):
-    def test_monitor_prefers_the_ledger_and_reports_counts(self):
-        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools" / "dashboard"))
-        import dashboard_monitor as monitor
-
-        with tempfile.TemporaryDirectory() as temp:
-            run = Path(temp) / "run"
-            run.mkdir()
-            (run / "state.json").write_text("{}")
-            state = {
-                "status": "RUNNING",
-                "next_stage": "builder",
-                "stages": [],
-                "unresolved_findings": [{"severity": "high", "finding": "sol only"}],
-            }
-            findings.record_validation(
-                state, sol("Empty names are accepted", "Help text missing"), {"output": "sol-01.json"}
-            )
-            findings.record_decision(state, astra("REWORK", "No blank-input test"), {"output": "astra-01.json"})
-            findings.assign(state, {"id": "task-9"}, {"kind": "implement"}, {"status": "REWORK"})
-            repeat = sol("Empty names are accepted")
-            repeat["findings"][0]["id"] = next(
-                row["id"]
-                for row in findings.open_entries(state, "tester")
-                if row["finding"] == "Empty names are accepted"
-            )
-            findings.record_validation(state, repeat, {"output": "sol-02.json"})
-            with patch.object(monitor, "process_table") as probe:
-                result = monitor.snapshot(state, run, detailed=True)
-            probe.assert_not_called()
-            self.assertEqual({"open": 3, "resolved": 0, "repeated": 1, "not_rechecked": 1}, result["findings_summary"])
-            self.assertEqual(
-                {(None, False), (None, True)}, {(row["milestone"], row["not_rechecked"]) for row in result["findings"]}
-            )
-            legacy = monitor.snapshot(
-                {"status": "RUNNING", "stages": [], "unresolved_findings": [{"severity": "low", "finding": "old"}]},
-                run,
-                detailed=True,
-                process_snapshot=None,
-            )
-            self.assertEqual([{"severity": "low", "finding": "old"}], legacy["findings"])
-            self.assertNotIn("findings_summary", legacy)
 
 
 if __name__ == "__main__":

@@ -76,8 +76,6 @@ def posix_only_imports():
     found = {}
     for path in sorted(TOOLS.rglob("*.py")):
         relative = path.relative_to(TOOLS)
-        if relative.parts[0] == "dashboard":
-            continue
         names = set(load_time_imports(ast.parse(path.read_text(encoding="utf-8")))) & POSIX_ONLY
         if names:
             found[relative.as_posix()] = names

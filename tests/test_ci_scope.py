@@ -47,18 +47,12 @@ class ScopeTests(unittest.TestCase):
         ):
             self.assertIn("extension", self.enabled(path))
 
-    def test_dashboard_and_visual_changes_keep_their_real_browser_jobs(self):
-        self.assertEqual({"suite", "dashboard", "wheel"}, self.enabled("tools/dashboard/dashboard_app.js"))
+    def test_visual_changes_keep_their_real_browser_job(self):
         self.assertTrue({"suite", "visual", "wheel"} <= self.enabled("tools/autocode_visual_browser.cjs"))
-        self.assertIn("dashboard", self.enabled("tests/test_preview_browser_ui.py"))
-        self.assertIn("dashboard", self.enabled("tests/test_catalogue_t12.py"))
-        self.assertIn("dashboard", self.enabled("tests/test_autocode_stop.py"))
 
-    def test_legacy_guard_changes_keep_the_dashboard_approval_consumer(self):
-        self.assertTrue({"suite", "dashboard"} <= self.enabled("tools/autocode_legacy_process.py"))
-
-    def test_config_tool_fixture_changes_keep_the_dashboard_handoff_consumer(self):
-        self.assertTrue({"suite", "dashboard"} <= self.enabled("tools/fake_command_tool.py"))
+    def test_the_retired_dashboard_job_is_gone(self):
+        self.assertNotIn("dashboard", ci_scope.JOBS)
+        self.assertEqual({"suite"}, self.enabled("tests/test_autocode_stop.py"))
 
     def test_process_provider_and_boundary_changes_keep_native_refusal_consumers(self):
         for path in (
@@ -134,12 +128,11 @@ class ScopeTests(unittest.TestCase):
         self.assertNotIn("scenarios", self.enabled("tools/fake_codex.py"))
 
     def test_files_the_contained_flow_never_reads_leave_the_linux_job_off(self):
-        # Runtime modules the flow neither imports nor starts by name, the dashboard,
+        # Runtime modules the flow neither imports nor starts by name,
         # the scenario runner, a fixture and a prompt.
         for path in (
             "tools/autocode_doctor.py",
             "tools/inprocess_cli.py",
-            "tools/dashboard/agent_console.py",
             "scenarios/run.py",
             "tools/fixtures/fake_docker.py",
             "tools/prompts/fragments/milestones/policy.md",
@@ -297,7 +290,7 @@ class WorkflowGateTests(unittest.TestCase):
     def results(self, enabled):
         flags = {flag: str(flag in enabled).lower() for flag in ci_scope.JOBS}
         jobs = {
-            "suite": bool(enabled & {"suite", "scenarios", "dashboard"}),
+            "suite": bool(enabled & {"suite", "scenarios"}),
             "scenario-harness": "scenarios" in enabled,
             "extension": "extension" in enabled,
             "macos-tool-containment": "macos" in enabled,

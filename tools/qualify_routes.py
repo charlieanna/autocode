@@ -84,7 +84,7 @@ def accepted(row) -> bool:
 def reached(state: RunState) -> dict:
     """The model each role actually sent an attempt to, from the run's own accounting.
 
-    A stage's unit role is not always the slot whose route it launched (``astra`` runs the
+    A stage's unit role is not always the slot whose route it launched (``task_planner`` runs the
     Plan Reviewer and Completion Reviewer stages), so an attempt counts for its route slot
     first and its unit role only when no other slot was named (#2114). A reviewer fallback
     launches on another slot's route, so its attempt counts for that slot.

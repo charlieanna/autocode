@@ -1,7 +1,7 @@
 """Read-only diagnosis and bounded repair planning; never writes application code.
 
-Owns three stages: ``astra_resolve`` (why did a reviewed build fail, and what bounded
-rework fixes it), ``astra_diagnose`` (an operational diagnosis that can only recommend a
+Owns three stages: ``resolve`` (why did a reviewed build fail, and what bounded
+rework fixes it), ``diagnose`` (an operational diagnosis that can only recommend a
 retry or escalation) and ``investigate_stuck`` (autocode_stuck_job: why a stage stopped
 converging, before the run pauses)."""
 
@@ -300,7 +300,7 @@ def validate(state: RunState, value, record, workspace):
     resolver_recovery.validate_decision(state, value, record)
 
 
-# Operational diagnosis: a genuinely separate stage and schema from astra_resolve.
+# Operational diagnosis: a genuinely separate stage and schema from resolve.
 # It is not bound to a reviewer REWORK verdict, never touches acceptance_criteria,
 # and its output can only recommend "retry" (with guidance) or "escalate" -- never
 # an implementation task, a contract change, or a completion claim. The runner

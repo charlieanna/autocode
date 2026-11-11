@@ -42,6 +42,9 @@ STAGES = {
     "astra_diagnose": "diagnose",
 }
 
+# The planning record's count of Plan Reviewer calls, before it was named plan_review_calls.
+OLD_PLANNING_COUNTER = "astra_calls"
+
 # Every flag spelled with an old route name. ``--investigator-*`` already names the stuck
 # Investigator's route, and the Design Reviewer takes no flag of its own.
 OLD_FLAGS = (
@@ -72,6 +75,14 @@ def current_route(name: str) -> str:
 def stage(name: str) -> str:
     """The job name of a stage, old or new; an unknown name is returned as it is."""
     return STAGES.get(name, name)
+
+
+def old_stage(name: str) -> str:
+    """The code name a stage (or its report repair) had before the rename; any other name is returned as it is."""
+    repair = str(name).endswith("_report_repair")
+    base = str(name).removesuffix("_report_repair")
+    old = next((old for old, new in STAGES.items() if new == base), base)
+    return old + ("_report_repair" if repair else "")
 
 
 def flag(old: str) -> str:

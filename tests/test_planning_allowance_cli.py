@@ -96,7 +96,7 @@ class PlanningAllowanceCLITests(unittest.TestCase):
         charges = planning["review_charges"]
         self.assertEqual(2, len(charges), "The fixture supplies two completed real fake-provider reviews")
         self.assertNotEqual(charges[0], charges[1])
-        self.assertEqual(2, planning["astra_calls"])
+        self.assertEqual(2, planning["plan_review_calls"])
         # Owned fault boundary from #2087: A and B were reported in two cycles of this turn;
         # the current cycle inherited B. Reduced-depth activation counted A + B + inherited B.
         # Keep the actual review reports, stage records and usage; only seed the accounting shape.
@@ -104,16 +104,16 @@ class PlanningAllowanceCLITests(unittest.TestCase):
         history = state.setdefault("planning_history", [])
         for charge in charges:
             archived = copy.deepcopy(planning)
-            archived.update(astra_calls=1, review_charges=[charge], turn_event_id=turn)
+            archived.update(plan_review_calls=1, review_charges=[charge], turn_event_id=turn)
             archived.pop("inherited_review", None)
             archived.pop("review_depth_reduced", None)
             history.append(archived)
         planning.update(
-            astra_calls=3,
+            plan_review_calls=3,
             review_charges=[charges[-1]],
             turn_event_id=turn,
             inherited_review={
-                "astra_calls": 1,
+                "plan_review_calls": 1,
                 "cycle": len(history) - 1,
                 "reports": ["review_plan", "revise_plan"],
                 "next_stage": "finalize_plan",
@@ -156,7 +156,9 @@ class PlanningAllowanceCLITests(unittest.TestCase):
         self.assertEqual(initial_history, saved["planning_history"])
         self.assertEqual(3, saved["planning"]["review_call_limit"])
         self.assertEqual("runner_default", saved["planning"]["review_call_limit_origin"])
-        self.assertEqual(3, saved["planning"]["astra_calls"], "Two unique earlier reviews plus one new final review")
+        self.assertEqual(
+            3, saved["planning"]["plan_review_calls"], "Two unique earlier reviews plus one new final review"
+        )
         attempts = {row["identity"]: row for row in after["usage"]["accounting"]["attempts"]}
         for identity, original in old_attempts.items():
             self.assertEqual(original, attempts[identity], "Historical reported usage must stay intact")

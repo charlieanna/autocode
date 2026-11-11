@@ -193,7 +193,7 @@ class ResolverHumanTests(unittest.TestCase):
             status="PAUSED_RESOLVER_OPERATIONAL",
             next_stage="review_plan",
             automatic_recoveries_since_resume=3,
-            planning={"astra_calls": 3},
+            planning={"plan_review_calls": 3},
         )
         receipt = {
             "stage": "resolver",

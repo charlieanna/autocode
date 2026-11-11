@@ -120,7 +120,7 @@ def _planning_binding(state: RunState, stage, workspace):
         "settings_hash": support.digest(state["settings"]),
         "inputs": inputs,
         "ordinary_limit": planning.get("review_call_limit", 2),
-        "astra_calls": planning["astra_calls"],
+        "plan_review_calls": planning["plan_review_calls"],
         "recovery_calls_used": planning.get("recovery_review_calls_used", 0),
         "planning_inputs_hash": support.digest(
             {
@@ -255,7 +255,7 @@ def operational_boundary(runner, state: RunState, run_dir, workspace, *, persist
     if not planning.get("recovery_review_grants"):
         runner.planning.refund_unreported(state, planning)
     limit = runner.planning.review_call_limit(state)
-    if limit == 0 or planning.get("astra_calls", 0) < limit:
+    if limit == 0 or planning.get("plan_review_calls", 0) < limit:
         return False
     origin = planning.get("review_call_limit_origin", "runner_default" if "review_call_limit" not in planning else None)
     if origin != "runner_default":
@@ -310,7 +310,10 @@ def operational_boundary(runner, state: RunState, run_dir, workspace, *, persist
         return False
     if not eligible:
         return False
-    if len(grants) >= MAX_PLANNING_RECOVERY_GRANTS or planning["astra_calls"] >= limit + MAX_PLANNING_RECOVERY_GRANTS:
+    if (
+        len(grants) >= MAX_PLANNING_RECOVERY_GRANTS
+        or planning["plan_review_calls"] >= limit + MAX_PLANNING_RECOVERY_GRANTS
+    ):
         _operational_stop("Reserved planning recovery exhausted; no provider will launch")
     used = {grant["origin_output"] for grant in grants}
     remaining = [(row, pins) for row, pins in eligible if row["output"] not in used]
@@ -600,7 +603,7 @@ def record_operational_exhaustion(runner, state: RunState, run_dir, error, *, re
             "status": error.status,
             "stage": state.get("next_stage"),
             "budget": budget,
-            "astra_calls": cast(dict, state.get("planning", {})).get("astra_calls"),
+            "plan_review_calls": cast(dict, state.get("planning", {})).get("plan_review_calls"),
             "recovery_calls_used": cast(dict, state.get("planning", {})).get("recovery_review_calls_used", 0),
         },
     )
@@ -1173,7 +1176,7 @@ def reset_for_resume(state: RunState):
 # repetition count only; do not describe or rely on it as an exhaustion check
 # until one exists. A
 # reviewer's own REWORK verdict keeps using the existing, unrelated
-# astra_resolve route.
+# resolve route.
 # A diagnosis may retry or escalate only; like every runtime decision it never replans the contract.
 DIAGNOSIS_BOUNDARIES = policy.Boundaries(frozenset({"retry", "escalate"}), frozenset())
 DIAGNOSTIC_CALL_DEFAULTS = {"max_calls_per_run": 2}
@@ -1340,7 +1343,7 @@ def admit_operational_diagnosis(runner, state: RunState, run_dir, workspace):
         runner.write_json(Path(run_dir) / "state.json", state)
         raise support.Paused("PAUSED_REPEATED_FAILURE", decision.rationale)
     # The run-level cap is charged at actual dispatch (charge_diagnostic_dispatch),
-    # not here: admission alone does not guarantee astra_diagnose ever launches,
+    # not here: admission alone does not guarantee diagnose ever launches,
     # and charging here would falsely count an invocation that never happened.
     pins = {
         record[key]: support.file_hash(record[key])
@@ -1393,7 +1396,7 @@ def finish_operational_diagnosis(state: RunState, run_dir, recommendation, *, re
     pattern (``autopilot.apply_result``) discards every candidate mutation
     the moment anything raises out of it. Raising here would silently lose
     the very evaluation this function exists to make durable, and a later
-    resume would redispatch astra_diagnose against a ledger that still
+    resume would redispatch diagnose against a ledger that still
     showed only the first (admission) attempt spent -- an uncounted repeat
     of the second evaluation on every such resume. Setting the paused
     status on the candidate and returning is what the drive loop already
