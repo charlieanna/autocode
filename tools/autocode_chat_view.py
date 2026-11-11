@@ -107,6 +107,64 @@ def bound_words(row) -> str:
     return f"{name} ({_amount(row, used)} used of {_amount(row, current)})"
 
 
+# Text a client never shows a person: a CLI flag, an internal status code or a code span.
+MACHINERY = re.compile(r"(?:^|\s)--[a-z]|\b[A-Z]+(?:_[A-Z]+)+\b|`")
+NEW_TASK = re.compile(r"\bnew (?:task|run|chat|conversation)\b", re.IGNORECASE)
+
+
+def said(text) -> str:
+    """``text`` as one sentence for a person, or "" when it is empty or names machinery."""
+    text = " ".join(str(text or "").split())
+    if not text or MACHINERY.search(text):
+        return ""
+    return text if text.endswith((".", "?", "!")) else text + "."
+
+
+def offered(public) -> str | None:
+    """The label of the recovery action the view's own ``next_command`` runs, or None."""
+    try:
+        command = shlex.split(public.get("next_command") or "")
+    except ValueError:
+        return None
+    for row in (public.get("recovery") or {}).get("actions") or []:
+        args = row.get("args") if isinstance(row, dict) else None
+        if (
+            args
+            and isinstance(row.get("label"), str)
+            and any(command[i : i + len(args)] == args for i in range(len(command)))
+        ):
+            return row["label"]
+    return None
+
+
+def stopped(public) -> str:
+    """Why a stopped step stopped and what the person can do next, in the core's own words.
+
+    The reason is the recovery view's plain summary (raw causes stay in the run's details); the
+    next action is the one the view itself offers. A run that cannot continue says to start a new
+    task, and a stop with no recorded summary says so instead of pointing at empty details."""
+    need = public.get("needs") or {}
+    recovery = public.get("recovery") or {}
+    if need.get("new_run_required"):
+        why = said(need.get("recovery_hint")) or said(need.get("reason"))
+        follow = "" if NEW_TASK.search(why) else "Start a new task to carry on; this chat’s saved work stays readable."
+        return " ".join(filter(None, ["I can’t continue this run.", why, follow]))
+    what = said(recovery.get("what_happened"))
+    text = (
+        f"I couldn’t finish this step. {what}" if what else "I couldn’t finish this step, and no reason was recorded."
+    )
+    label = offered(public)
+    if label:
+        text += f" Your work so far is saved; choose “{label}” when you’re ready."
+    elif "--resume-paused" in (public.get("next_command") or ""):
+        text += " Your work so far is saved; continue to try this step again."
+    else:
+        text += " Your work so far is saved."
+    if what and recovery.get("saved_reason"):
+        text += " The run’s details show the recorded reason."
+    return text
+
+
 def notice(public):
     """Explain the next human step without exposing the diagnostic dashboard."""
     status = public.get("status") or ""
@@ -132,7 +190,7 @@ def notice(public):
         # The run stopped to apply a pause, feedback or stop someone asked for; not a failure either.
         return "Paused to apply your request. Your work so far is saved; continue when you’re ready."
     if status.startswith("PAUSED"):
-        return "I couldn’t finish this step. The run’s details say what needs attention."
+        return stopped(public)
     if status == "RUNNING":
         liveness = public.get("liveness") or {}
         if isinstance(liveness, dict) and liveness.get("kind") in ("supervised", "unsupervised"):

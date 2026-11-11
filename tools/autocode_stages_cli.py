@@ -17,6 +17,10 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_connected_engine as connected_engine
@@ -66,6 +70,14 @@ def parser():
         "--run-dir",
         help="list: the stages of this started run instead, with the models it runs now; it never changes them",
     )
+    result.add_argument(
+        stage_choices.CHAT_FLAG,
+        nargs=3,
+        action="append",
+        metavar=("STAGE", "MODEL", "EFFORT"),
+        help="list: a new chat's own model and level for one stage, shown and checked for that chat only; "
+        "nothing is saved",
+    )
     result.add_argument("--json", action="store_true", help="Print the stage view clients read")
     return result
 
@@ -98,6 +110,9 @@ def text(current) -> str:
 
 
 def _route(stage) -> str:
+    picked = stage.get("chat")
+    if picked:
+        return f"{picked['model']} at {picked['effort'] or 'its own default level'} (this chat)"
     chosen = stage["chosen"]
     if chosen:
         return f"{chosen['model']} at {chosen['effort'] or 'its own default level'} (your choice)"
@@ -223,6 +238,12 @@ def cli(argv=None) -> int:
     stage = _stage(args.stage)
     if args.run_dir is not None:
         return _run(args)
+    if args.chat_stage and args.action != "list":
+        print(
+            f"autocode stages: {stage_choices.CHAT_FLAG} only lists a new chat's stages; it saves nothing",
+            file=sys.stderr,
+        )
+        return 2
     try:
         backend = args.backend or current_backend(args.workspace)
         if args.action == "choose":
@@ -242,7 +263,7 @@ def cli(argv=None) -> int:
         elif args.action == "reset":
             current = stage_choices.reset(backend, stage, args.workspace)
         else:
-            current = stage_choices.view(backend, args.workspace)
+            current = stage_choices.chat_view(backend, _picks(args.chat_stage), _list_command(args), args.workspace)
     except ValueError as error:
         print(f"autocode stages: {error}", file=sys.stderr)
         return 2
@@ -250,9 +271,30 @@ def cli(argv=None) -> int:
     return 0
 
 
+def _picks(given) -> dict:
+    """``{role: (model, effort)}`` from each ``--chat-stage STAGE MODEL EFFORT``; a stage named twice is refused."""
+    picks: dict = {}
+    for name, model, effort in given or ():
+        role = _stage(name)
+        if role in picks:
+            raise ValueError(f"{stage_choices.CHAT_FLAG} names {role} twice")
+        picks[role] = (model, effort)
+    return picks
+
+
+def _list_command(args) -> list[str]:
+    """This list's own arguments without the chat's picks, which ``chat_view`` adds to each command it names."""
+    words = ["stages", "list", "--json"]
+    if args.backend:
+        words += ["--backend", args.backend]
+    if args.workspace != ".":
+        words += ["--workspace", args.workspace]
+    return words
+
+
 def _run(args) -> int:
     """``list --run-dir RUN``: the run's own stages (autocode_run_stage_models.view); read-only."""
-    if args.action != "list" or args.backend:
+    if args.action != "list" or args.backend or args.chat_stage:
         print(
             "autocode stages --run-dir only lists a run's stages; change one with the `set` command it names",
             file=sys.stderr,
@@ -264,7 +306,7 @@ def _run(args) -> int:
         if not isinstance(state, dict):
             raise ValueError("its state.json is not a saved run")
         workspace = state.get("workspace") or args.workspace
-        current = run_stage_models.view(state, run_dir, workspace)
+        current = run_stage_models.view(cast("RunState", state), run_dir, workspace)
     except (OSError, ValueError) as error:
         print(f"autocode stages: {args.run_dir} cannot be read: {error}", file=sys.stderr)
         return 2

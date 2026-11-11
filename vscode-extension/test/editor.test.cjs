@@ -1058,6 +1058,13 @@ async function openChat(t, initial, selected = run, options = {}) {
   // UI fixtures choose a deterministic no-modes response unless the case has
   // supplied one. They must not race an unmocked external modes subprocess.
   if (!chatController.modes.mock) t.mock.method(chatController, 'modes', async () => ({ modes: [] }));
+  // A chat that has not started reads the stages it will run. Unless the case supplies a list,
+  // the core answers an empty one, so no external `autocode stages` subprocess is raced.
+  if (!cli.invoke.mock) {
+    const original = cli.invoke;
+    const stages = options.stages || (() => ({ ...ok, stdout: JSON.stringify({ version: 1, stages: [] }) }));
+    t.mock.method(cli, 'invoke', async (settings, argv, ...rest) => (argv[0] === 'stages' ? stages(argv, settings) : original(settings, argv, ...rest)));
+  }
   t.mock.method(chatController, 'status', async (target) =>
     structuredClone(options.statusFor ? options.statusFor(target) : value));
   let receive;
@@ -1334,7 +1341,7 @@ test('composer model, variant and usage update on polling without losing the dra
   assert.equal(field.selectionStart, 5);
   assert.equal(details.open, false);
   ui.chat.show(); await flush();
-  assert.match(ui.document.querySelector('#model-info').textContent, /A new chat runs the models in Stage models; they are listed here when a run starts/);
+  assert.match(ui.document.querySelector('#model-info').textContent, /A new chat runs the models listed under This chat's models; they are listed here once it starts/);
   assert.match(ui.document.querySelector('#usage-summary').textContent, /Tokens not reported/);
 });
 
@@ -1587,6 +1594,97 @@ test('a new chat starts with the run mode picked from the core list and passes i
     'the chip style must not override hidden');
 });
 
+/** `autocode stages list --json` for a new chat, trimmed to the Builder and Tester, with any picks it was given. */
+function chatStageView(argv) {
+  const base = ['stages', 'list', '--json', '--backend', 'claude'];
+  const picks = {};
+  for (let i = argv.indexOf('--chat-stage'); i >= 0; i = argv.indexOf('--chat-stage', i + 1)) picks[argv[i + 1]] = [argv[i + 2], argv[i + 3]];
+  const others = (role) => Object.entries(picks).filter(([id]) => id !== role).flatMap(([id, [model, effort]]) => ['--chat-stage', id, model, effort]);
+  const option = (model, unavailable = null) => ({ model, levels: ['low', 'medium', 'high'], family: 'claude', context: null, account: null,
+    effort_choices: ['low', 'medium', 'high'], unavailable });
+  const builderModel = picks.builder ? picks.builder[0] : 'haiku';
+  const stage = (id, label, chosen, options) => ({
+    id, label, does: `${label} does its job.`, advice: '', flag: `--${id}-model`, effort_flag: `--${id}-reasoning-effort`,
+    default: { model: 'haiku', effort: 'medium', offered: true }, chosen, options,
+    set: { next_command: ['stages', 'set', id, '--backend', 'claude', '--json', '--model', 'MODEL', '--effort', 'EFFORT'] }, reset: null,
+    chat: picks[id] ? { model: picks[id][0], effort: picks[id][1] } : null,
+    chat_set: { next_command: [...base, ...others(id), '--chat-stage', id, 'MODEL', 'EFFORT'] },
+    chat_reset: picks[id] ? { next_command: [...base, ...others(id)] } : null,
+  });
+  return { ...ok, stdout: JSON.stringify({ version: 1, backend: 'claude', label: 'Claude Code', options_stop: null, stages: [
+    stage('builder', 'Builder', null, [option('haiku'), option('sonnet'), option('opus', 'the Tester runs opus')]),
+    stage('tester', 'Tester', { model: 'opus', effort: 'high' }, [option('haiku'), option('sonnet'), option(builderModel === 'opus' ? 'none' : 'opus')]
+      .map((row) => (row.model === builderModel ? { ...row, unavailable: `the Builder runs ${builderModel}` } : row))),
+  ], chat: { next_command: [...base, ...others(null)],
+    start_args: Object.entries(picks).flatMap(([id, [model, effort]]) => [`--${id}-model`, model, `--${id}-reasoning-effort`, effort]) } }) };
+}
+
+test('a new chat shows the stages it will run and changes one for itself alone before it starts', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  const calls = [];
+  const ui = await openChat(t, null, false, { stages: (argv) => { calls.push(argv); return chatStageView(argv); } });
+  ui.chat.show(); await flush(); await flush();
+  const section = ui.document.querySelector('#chat-models');
+  assert.equal(section.hidden, false, 'the stages are there before the first message');
+  assert.deepEqual(calls[0], ['stages', 'list', '--json', '--backend', 'claude'], 'the list new chats here run on');
+  const rows = [...section.querySelectorAll('.chat-model')];
+  assert.deepEqual(rows.map((row) => row.querySelector('.now').textContent),
+    ['haiku at medium (default)', 'opus at high (Stage models)']);
+  const builder = section.querySelector('[data-stage="builder"] select.model');
+  assert.equal(builder.value, 'haiku');
+  assert.equal(builder.querySelector('option[value="opus"]').disabled, true, 'a model a checker runs is not offered');
+  builder.value = 'sonnet'; builder.dispatchEvent(new ui.window.Event('change')); await flush(); await flush();
+  assert.deepEqual(JSON.parse(JSON.stringify(ui.sent.at(-1))), { type: 'chat_stage', stage: 'builder', model: 'sonnet', effort: 'medium' },
+    'the webview names a pick, never a command');
+  assert.deepEqual(calls.at(-1), ['stages', 'list', '--json', '--backend', 'claude', '--chat-stage', 'builder', 'sonnet', 'medium']);
+  assert.ok(calls.every((argv) => argv[1] === 'list'), 'nothing is saved to Stage models');
+  assert.equal(section.querySelector('[data-stage="builder"] .now').textContent, 'sonnet at medium (this chat)');
+  assert.match(ui.document.querySelector('#chat-models-summary').textContent, /Claude Code · 1 changed for this chat/);
+  assert.equal(section.querySelector('[data-stage="tester"] select.model option[value="sonnet"]').disabled, true,
+    'the Tester is judged against this chat\'s Builder');
+  const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
+  ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
+  assert.equal(start.mock.callCount(), 1);
+  assert.deepEqual(calls.at(-1), ['stages', 'list', '--json', '--backend', 'claude', '--chat-stage', 'builder', 'sonnet', 'medium'],
+    'the picks are checked again where the chat starts');
+  assert.deepEqual(start.mock.calls[0].arguments[4], ['--builder-model', 'sonnet', '--builder-reasoning-effort', 'medium']);
+  assert.equal(section.hidden, true, 'a started chat lists its own models in Models & usage');
+});
+
+test('a new chat drops a pick back to Stage models and starts with none', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  const calls = [];
+  const ui = await openChat(t, null, false, { stages: (argv) => { calls.push(argv); return chatStageView(argv); } });
+  ui.chat.show(); await flush(); await flush();
+  const level = ui.document.querySelector('[data-stage="tester"] select.level');
+  level.value = 'low'; level.dispatchEvent(new ui.window.Event('change')); await flush(); await flush();
+  assert.deepEqual(calls.at(-1).slice(-4), ['--chat-stage', 'tester', 'opus', 'low']);
+  ui.document.querySelector('[data-stage="tester"] button.link').click(); await flush(); await flush();
+  assert.deepEqual(calls.at(-1), ['stages', 'list', '--json', '--backend', 'claude']);
+  assert.equal(ui.document.querySelector('[data-stage="tester"] .now').textContent, 'opus at high (Stage models)');
+  const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
+  const before = calls.length;
+  ui.type('Build it'); ui.submit(); await flush(); await flush();
+  assert.equal(calls.length, before, 'without a pick nothing is read again');
+  assert.deepEqual(start.mock.calls[0].arguments[4], []);
+});
+
+test('a pick the core refuses where the chat starts keeps the draft and starts nothing', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  let refuse = false;
+  const ui = await openChat(t, null, false, { stages: (argv) => (refuse && argv.includes('--chat-stage')
+    ? { ...ok, code: 2, stderr: 'autocode stages: the Builder cannot run sonnet: the Tester runs sonnet\n' } : chatStageView(argv)) });
+  ui.chat.show(); await flush(); await flush();
+  const builder = ui.document.querySelector('[data-stage="builder"] select.model');
+  builder.value = 'sonnet'; builder.dispatchEvent(new ui.window.Event('change')); await flush(); await flush();
+  refuse = true;
+  const start = t.mock.method(controller, 'start', async () => run);
+  ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
+  assert.equal(start.mock.callCount(), 0);
+  assert.match(ui.document.querySelector('#messages').textContent, /This chat's models: autocode stages: the Builder cannot run sonnet/);
+  assert.equal(ui.document.querySelector('#message').value, 'Build it');
+});
+
 test('a saved mode the core no longer lists starts new chats in its default (quick, removed 2026-10-22)', async (t) => {
   const modes = { defaultId: 'full', modes: [{ ...structuredClone(RUN_MODES.modes[0]), spendConfirmation: 'planning' }] };
   t.mock.method(controller, 'modes', async () => structuredClone(modes));
@@ -1607,6 +1705,36 @@ test('while a new run is still starting the chat says what it is doing, not that
   await ui.poll(); await flush();
   assert.ok(ui.document.querySelector('#app').textContent.includes('Resolving which model each stage runs…'));
   assert.equal(ui.document.querySelector('#chat-error').textContent, '', 'a start in progress is not a read error');
+});
+
+test('a run its own start has not saved yet is starting, not a status notice, until the start returns', async (t) => {
+  // A core older than its launch note (#3079), or a read before the core reserves the directory,
+  // refuses --status for the chat's own run while its first message is still starting it.
+  const unsaved = `usage: autocode [TASK] [OPTIONS]\nautocode: error: --run-dir ${run.runDir} has no state.json. A saved run is PROJECT/.autocode/runs/RUN`;
+  const ui = await openChat(t, null, false, { statusFor: () => { throw new Error(unsaved); } });
+  let finish;
+  t.mock.method(controller, 'start', async (workspace, brief, created) => {
+    created(run);
+    return new Promise((resolve, reject) => { finish = { resolve, reject }; });
+  });
+  ui.type('any bugs?'); ui.submit(); await flush(); await flush();
+  await ui.poll(); await flush();
+  const app = () => ui.document.querySelector('#app').textContent;
+  assert.ok(app().includes('Starting the run…'), app());
+  assert.ok(!app().includes('has no state.json'), 'the first message shows no refused status read');
+  assert.equal(ui.document.querySelector('#chat-error').textContent, '');
+  // The start's own failure is still the person's to read once its command returns.
+  finish.reject(new Error('AutoCode stopped before it saved the run:\nno engine is connected'));
+  await flush(); await flush(); await flush();
+  assert.ok(ui.document.querySelector('#chat-error').textContent.includes('no engine is connected'));
+});
+
+test('a refused command shows the core\'s reason without the argparse usage line', () => {
+  const refused = { code: 2, stdout: '', rejected: false,
+    stderr: 'usage: autocode [TASK] [OPTIONS]\nautocode: error: --run-dir /ws/.autocode/runs/x has no state.json' };
+  assert.equal(cli.tail(refused), '--run-dir /ws/.autocode/runs/x has no state.json');
+  assert.equal(cli.tail({ code: 1, stdout: '', stderr: 'Run: /ws\nsomething failed', rejected: false }), 'Run: /ws\nsomething failed');
+  assert.equal(cli.tail({ code: 2, stdout: '', stderr: 'usage: autocode [TASK] [OPTIONS]', rejected: false }), 'usage: autocode [TASK] [OPTIONS]');
 });
 
 test('Full chat starts a greeting without the spend dialog when the core defers it to planning', async (t) => {

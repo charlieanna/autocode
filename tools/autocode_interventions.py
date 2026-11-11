@@ -357,12 +357,15 @@ def consume(
                 ) from error
             state.pop("intervention_ack_pending", None)
             write_state()
-        elif (ack_pending := state.get("intervention_ack_pending")) and isinstance(ack_pending, list):
+        elif (
+            (ack_pending := state.get("intervention_ack_pending"))
+            and isinstance(ack_pending, list)
+            and all(request_id in applied_ids for request_id in ack_pending)
+        ):
             # A crash after clearing the inbox but before this final state write leaves
             # only an obsolete acknowledgement marker. Clear it during owner recovery.
-            if all(request_id in applied_ids for request_id in ack_pending):
-                state.pop("intervention_ack_pending", None)
-                write_state()
+            state.pop("intervention_ack_pending", None)
+            write_state()
         return new
 
 

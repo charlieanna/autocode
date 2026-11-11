@@ -139,7 +139,8 @@ export class RunController {
    * created, not whichever one a parallel session happened to start. AutoCode
    * refuses an existing directory or a symlink before a provider launches.
    */
-  async start(workspace: string, brief: string, created?: (run: RunRef) => void, startArgs: readonly string[] = FULL_START_ARGS): Promise<RunRef> {
+  async start(workspace: string, brief: string, created?: (run: RunRef) => void, startArgs: readonly string[] = FULL_START_ARGS,
+    stageArgs: readonly string[] = []): Promise<RunRef> {
     // The core resolves the workspace before validating the run destination
     // (autocode_run_destination.reserve); a symlinked folder such as macOS
     // /tmp must not make the two paths disagree (#1555).
@@ -149,7 +150,9 @@ export class RunController {
     // The chosen run mode's flags, exactly as `modes list` named them; without
     // one, sidebar conversations gather and confirm requirements before planning.
     // Creation flags stay off later actions, which use the run's saved flow.
-    const args = [brief, "--in-place", "--no-chat", ...startArgs, ...settings.runOptions, "--workspace", runWorkspace, "--new-run-dir", runDir];
+    // This chat's own stage picks (`chat.start_args` of its stage list) come last, so they win over
+    // a model flag in the settings' extra options as they win over the saved Stage models.
+    const args = [brief, "--in-place", "--no-chat", ...startArgs, ...settings.runOptions, ...stageArgs, "--workspace", runWorkspace, "--new-run-dir", runDir];
     this.log.appendLine(`$ autocode ${summarize(brief)} --in-place --no-chat --new-run-dir ${runDir}`);
     created?.({ workspace: runWorkspace, runDir });
     const result = await this.mutating([{ workspace: runWorkspace, runDir }], () =>

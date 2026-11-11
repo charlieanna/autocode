@@ -148,8 +148,68 @@ class ChatViewTests(unittest.TestCase):
     def test_a_failed_step_names_no_control_only_one_client_has(self):
         # The terminal chat has no "Run details" button; every client shows the run's details its own way.
         text = chat.notice({"status": "PAUSED_JOB_FAILURE"})
-        self.assertEqual("I couldn’t finish this step. The run’s details say what needs attention.", text)
+        self.assertEqual("I couldn’t finish this step, and no reason was recorded. Your work so far is saved.", text)
         self.assertNotIn("Run details", text)
+
+    def test_a_stopped_step_says_why_and_the_next_action_instead_of_pointing_at_empty_details(self):
+        # A chat said only "The run's details say what needs attention." while the details named nothing
+        # to act on: the notice now carries the core's own summary and the action the view offers.
+        cause = "builder output rejected ($: missing summary); inspect the output probe"
+        state = {"status": "PAUSED_INVALID_OUTPUT", "next_stage": "builder", "stop_reason": cause}
+        view = run_view.view(state, workspace=Path("/ws"), run_dir=Path("/run"))
+        text = view["chat"]["notice"]
+        self.assertEqual(
+            "I couldn’t finish this step. The saved report could not be accepted in its current form. "
+            "Your work so far is saved; choose “Resume after correction” when you’re ready. "
+            "The run’s details show the recorded reason.",
+            text,
+        )
+        self.assertEqual(cause, view["recovery"]["saved_reason"])
+        for raw in ("output probe", "missing summary", "--resume-paused", "PAUSED_"):
+            self.assertNotIn(raw, text)
+        # A plain resume the view offers without a labelled recovery action is still named as the next step.
+        failed = run_view.view(
+            {"status": "PAUSED_JOB_FAILURE", "next_stage": "builder", "stop_reason": "exit 2"},
+            workspace=Path("/ws"),
+            run_dir=Path("/run"),
+        )
+        self.assertIn("The step failed.", failed["chat"]["notice"])
+        self.assertIn("continue to try this step again", failed["chat"]["notice"])
+
+    def test_a_stop_with_no_recorded_reason_says_so_and_offers_to_continue(self):
+        view = run_view.view(
+            {"status": "PAUSED_FUTURE_REASON", "next_stage": "builder"}, workspace=Path("/ws"), run_dir=Path("/run")
+        )
+        self.assertIn("It recorded no reason.", view["recovery"]["what_happened"])
+        self.assertNotIn("Inspect the saved reason", view["recovery"]["what_happened"])
+        text = view["chat"]["notice"]
+        self.assertIn("It recorded no reason.", text)
+        self.assertIn("continue to try this step again", text)
+        self.assertNotIn("details show the recorded reason", text)
+        # With a saved reason the same stop points at it.
+        saved = run_view.view(
+            {"status": "PAUSED_FUTURE_REASON", "next_stage": "builder", "stop_reason": "x"},
+            workspace=Path("/ws"),
+            run_dir=Path("/run"),
+        )
+        self.assertIn("Inspect the saved reason", saved["recovery"]["what_happened"])
+        self.assertIn("details show the recorded reason", saved["chat"]["notice"])
+
+    def test_a_run_that_cannot_continue_says_why_and_to_start_a_new_task(self):
+        retired = (
+            "This run was saved before AutoCode named its stages after their jobs: its routes terra (now builder) "
+            "use the old names, which this runtime no longer runs. Its status and saved reports stay readable; "
+            "start a new task to continue the work."
+        )
+        need = {"kind": "resume", "reason": retired, "recovery_hint": retired, "new_run_required": True}
+        text = chat.notice({"status": "PAUSED_STALE_HANDOFF", "needs": need, "recovery": {"saved_reason": "x"}})
+        self.assertEqual("I can’t continue this run. " + retired, text)
+        # A hint that names a flag or omits the next step is replaced by the plain next step.
+        flagged = dict(need, reason="Use --edit-goal FILE", recovery_hint="Use --edit-goal FILE")
+        text = chat.notice({"status": "PAUSED_COMPONENT_PLAN", "needs": flagged})
+        self.assertEqual(
+            "I can’t continue this run. Start a new task to carry on; this chat’s saved work stays readable.", text
+        )
 
     def test_a_pause_someone_asked_for_is_not_reported_as_a_failure(self):
         for status in ("PAUSED_INTERVENTION", "PAUSED_REQUESTED"):
