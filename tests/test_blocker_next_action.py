@@ -212,6 +212,32 @@ class BlockerNeedTests(unittest.TestCase):
         self.assertNotEqual(recovery_limits.SCOPED_RETRY, need.get("action"))
         self.assertNotIn("retry_failed_stage", self.card_actions())
 
+    def test_a_deferred_blocker_is_machinery_not_a_person_question(self):
+        # The #3145 live dead end: a blocker the Resolver deferred to its own investigation
+        # (origin outside resolve, no diagnosis or recovery receipt) sat at RESOLVER_PENDING.
+        # The view surfaced it as a person ``answer`` need with no token, request id or action,
+        # so its only next_command was the refused --no-chat relaunch. The core's recorded defer
+        # disposition means nothing is needed from the person: the view names the admitted resume
+        # instead, matching the status line ("Nothing is needed from you yet").
+        self.contract()
+        human.queue(
+            self.state,
+            "blocker",
+            {"stage": "requirements_gather"},
+            request=blocker_request(),
+            evidence={},
+        )
+        self.assertEqual("defer", human.evaluate(self.state))
+        self.assertEqual("RESOLVER_PENDING", self.state["status"])
+        self.assertIsNone(human.current(self.state))
+        view = run_view.view(self.state)
+        need = view["needs"]
+        self.assertEqual("resume", need["kind"])
+        self.assertNotIn("resolver_token", need)
+        self.assertNotIn("resolver_request_id", need)
+        self.assertIn("--resume-paused", view["next_command"])
+        self.assertNotIn("--no-chat", view["next_command"])
+
     def test_the_view_and_the_cli_share_one_admission_rule(self):
         # A published request of another kind refuses in both, with the same reason.
         self.publish_no_progress()
