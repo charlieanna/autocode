@@ -333,6 +333,7 @@ def _ignored(path: str) -> bool:
         or "/__pycache__/" in f"/{path}"
         or path.endswith(".pyc")
         or path in DEPENDENCY_DIRS
+        or path.endswith("/node_modules")  # a nested package's link (link_dependencies)
     )
 
 
@@ -944,6 +945,7 @@ def link_dependencies(source_root, tree):
                 if not target.exists() and not target.is_symlink():
                     target.symlink_to(source.resolve(), target_is_directory=True)
                 break
+    package_scope.link_node_modules(tree, roots)  # a package inside the repository has its own
 
 
 GENERATED_SOURCE_LIMIT = 1_000_000
@@ -1604,6 +1606,8 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_
         planned = native_execution.instrument(framework.name if framework else None, command, xml, tree)
         if planned != actual:
             raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native suite instrumentation differs from the runner")
+    if native_execution is None:  # a native check runs exactly the command it planned
+        actual = node_tests.build_first(getattr(framework, "setup", None), command, actual)
     actual = package_scope.command(package, actual) if package else actual
     receipt = run_command(
         actual, tree, Path(evidence_dir) / f"{label}.log", timeout=timeout, native_execution=native_execution
@@ -2011,6 +2015,9 @@ def scratch_run(
                 # A project with no suite of its own: standard unittest files still run.
                 framework = Framework("unittest", f"{shlex.quote(python)} -m unittest discover -v", python=python)
             command = framework.targeted(list(tests)) if framework else None
+            detect = lambda directory: detect_framework(directory, python=python)  # noqa: E731
+            if not command and (nested := package_scope.for_tests(tree, framework, tests, detect)):
+                framework, command = nested, nested.targeted(list(tests))
             if not command:
                 return {"error": untargeted(framework, tests), "results": None}
             receipt = run_suite(

@@ -464,6 +464,19 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
     # A package run's suite is detected in its package and runs from there (autocode_package_scope).
     detection.update(package_scope.detection(state.get("settings")))
     framework = framework or verify.detect_framework(workspace, python=python, **detection)
+    unscoped = "package" not in detection and "test_root" not in detection
+    if base and unscoped and not command and not options.get("regression_command"):
+        # Tests the root's suite cannot run are proven with the suite of the project around them, as in a
+        # --package run of that directory (autocode_package_scope.for_tests), when it holds every changed code file:
+        # a code change outside it keeps the root's suite, which still names what it cannot run.
+        changes = verify.changed_files(workspace, base, source_paths=source_scope.paths(state))
+        roles = role_inventory.from_git(workspace, base, verify.is_test_path, changes=changes)
+        tests = [path for path, change in changes.items() if roles.is_test(path) and change != "deleted"]
+        detect = lambda directory: verify.detect_framework(directory, python=python)  # noqa: E731
+        nested = package_scope.for_tests(workspace, framework, tests, detect)
+        code = [path for path in changes if verify.is_code_path(path)]
+        if nested is not None and not package_scope.outside(nested.directory, code):
+            framework = nested
     try:
         from . import autocode_replay_checks as recorded_checks
     except ImportError:

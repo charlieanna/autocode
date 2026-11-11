@@ -831,6 +831,25 @@ incomplete results is then refused, as for the same runner at the root. A direct
 node:test command in that form always runs fresh and is never reused from the
 baseline cache, as at the root.
 
+A run of the whole repository, without `--package`, finds the package around tests
+its root suite cannot run. When the Tester's tests, or a proof's changed tests, all
+sit inside one directory below the root that has its own manifest (`package.json`,
+`go.mod`, `Cargo.toml`, `pyproject.toml`, `setup.py`, `setup.cfg` or `Gemfile`) and
+a suite detected there runs them, they run with that suite from that directory, as
+if the run had named it with `--package`. The innermost such directory wins. The
+regression proof does this only when every changed code file is inside that
+directory; a code change elsewhere keeps the root's suite. A Node package in a
+Python repository (this repository's `vscode-extension/`) is the case it was
+added for: its tests were handed to the root's pytest, which cannot run them, and
+the run paused for a `--test-command`.
+
+A Node package whose `test` script builds first, in the form
+`BUILD && node --test FILES`, runs its build steps before a targeted test run, with
+the package's `node_modules/.bin` on the path (`npm exec --call 'BUILD' && node
+--test FILE`); the whole suite still runs as `npm test`. A scratch copy links each
+package's own `node_modules` (beside a tracked `package.json`) from the checkout,
+or from its main checkout when a task worktree has none.
+
 Not covered yet (#711):
 
 - Nothing limits what the Builder writes while it works: a change outside the
@@ -854,16 +873,17 @@ Not covered yet (#711):
   instrumentation"), in a run with or without `--package`. A package run's own
   suite has that form, so its native visual checks cannot run it.
 - The test environment still comes from the repository root: the Python
-  interpreter is the root's, and only the root's `node_modules`, `.venv` or
-  `venv` are linked into scratch copies. A package's own `node_modules` or
-  `.venv` is not used.
+  interpreter is the root's, and only the root's `.venv` or `venv` is linked
+  into scratch copies. A package's own `.venv` is not used; its own
+  `node_modules` is (above).
 - A package run never reuses an earlier passing Python proof; it runs again.
 - The first-Go-module rule (#685) still looks for a Go project in the whole
   repository. A Go module, workspace or Go source in another package counts, so
   a first Go module in this package is then held to a base suite that cannot
   run, and the proof stays `UNVERIFIED`.
-- The Tester's acceptance tests, written before the Builder starts, still run
-  with the suite detected at the repository root.
+- The Tester's acceptance tests, written before the Builder starts, run with the
+  suite detected at the repository root, or with the suite of the package around
+  them when the root's cannot run them (above), even in a `--package` run.
 - Diff coverage and the mutation report, which never change a verdict, are not
   narrowed to a package's commands and may be skipped.
 

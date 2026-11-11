@@ -20,9 +20,22 @@ class Framework:
     test_roles: object
 
     def __init__(
-        self, name, suite, *, python=None, runner=None, note="", node_files=(), invocation=None, test_root=None
+        self,
+        name,
+        suite,
+        *,
+        python=None,
+        runner=None,
+        note="",
+        node_files=(),
+        invocation=None,
+        test_root=None,
+        setup=None,
     ):
         self.name, self.suite, self.python, self.runner, self.note = name, suite, python, runner, note
+        # The project's own build steps a targeted test command needs first (autocode_node_tests.script_steps);
+        # run_suite runs them before it, never before the whole suite, whose own command builds.
+        self.setup = setup
         self.node_files = frozenset(node_files)
         self.invocation = invocation
         # A scope descriptor, not authority for the first-root exception in verify().
@@ -87,4 +100,5 @@ class Framework:
         return None
 
     def to_dict(self):
-        return {"name": self.name, "suite": self.suite, "python": self.python, "note": self.note}
+        shown = {"name": self.name, "suite": self.suite, "python": self.python, "note": self.note}
+        return {**shown, "setup": self.setup} if self.setup else shown

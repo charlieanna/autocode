@@ -73,6 +73,11 @@ def detect(root, files, is_test_path) -> Framework | None:
         for name in ("vitest", "jest", "mocha"):
             if name in deps:
                 return Framework(name, suite or f"npx --no-install {'vitest run' if name == 'vitest' else name}")
+        if steps := node_tests.script_steps(script):
+            # `BUILD && node --test ...`: a targeted run builds first, as the script does.
+            return Framework(
+                "node", suite, node_files=node_files, invocation=steps[1], setup=node_tests.build_command(steps[0])
+            )
         if node_files or node_tests.command_words(script):
             return Framework(
                 "node", suite or "node --test " + " ".join(map(shlex.quote, node_files)), node_files=node_files

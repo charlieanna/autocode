@@ -39,6 +39,23 @@ class CommandTests(unittest.TestCase):
                 self.assertIsNone(node_tests.command_words(command))
                 self.assertEqual(command, node_tests.instrument(command, "/tmp/proof.jsonl"))
 
+    def test_a_test_script_that_builds_first_names_its_build_steps(self):
+        steps, invocation = node_tests.script_steps("tsc -p tsconfig.test.json && node --test out-test/*.test.js")
+        self.assertEqual("tsc -p tsconfig.test.json", steps)
+        self.assertEqual("node --test test/a.test.cjs", invocation.targeted(["test/a.test.cjs"]))
+        self.assertEqual("rm -rf out && tsc", node_tests.script_steps("rm -rf out && tsc && node --test")[0])
+        self.assertEqual("npm exec --call 'rm -rf out && tsc'", node_tests.build_command("rm -rf out && tsc"))
+        for script in (
+            None,
+            "node --test",  # nothing to build first
+            "tsc && vitest run",  # the last step is not node --test
+            "tsc &&  && node --test",
+            "tsc\n&& node --test",
+            "tsc\r&& node --test",
+        ):
+            with self.subTest(script=script):
+                self.assertIsNone(node_tests.script_steps(script))
+
     def test_configured_node_collector_keeps_runtime_and_options_for_changed_tests(self):
         command = "/configured/node --no-warnings --test --require ./setup.cjs --test-concurrency=1 old.test.cjs"
         framework = verify.command_framework(command)

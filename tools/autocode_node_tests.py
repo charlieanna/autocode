@@ -132,6 +132,36 @@ def parse(command):
     return Invocation(words[0], tuple(words[1:]), command) if words else None
 
 
+def script_steps(script):
+    """(build steps, test invocation) for an npm ``test`` script of the form ``BUILD && node --test ...``.
+
+    The project's own script names the steps its tests need first, such as compiling TypeScript the
+    tests load (``tsc -p tsconfig.test.json && node --test out-test/test/*.test.js``). Running only the
+    ``node --test`` part runs the tests against a missing or stale build. Returns None for any other
+    script, including a plain ``node --test`` with nothing before it.
+    """
+    if not isinstance(script, str) or "\n" in script or "\r" in script:
+        return None
+    steps = [step.strip() for step in script.split(" && ")]
+    if len(steps) < 2 or not all(steps):
+        return None
+    invocation = parse(steps[-1])
+    return (" && ".join(steps[:-1]), invocation) if invocation else None
+
+
+def build_first(setup, command, actual):
+    """``actual`` (``command`` as the runner runs it) after the framework's build ``setup``, when ``command``
+    is a direct ``node --test`` run; the whole suite (``npm test``) builds by itself. Without it a targeted
+    run's tests load a missing or stale build."""
+    return f"{setup} && {actual}" if setup and command_words(command) else actual
+
+
+def build_command(steps):
+    """The command that runs a test script's build steps as ``npm test`` would, with the package's
+    ``node_modules/.bin`` on the path."""
+    return "npm exec --call " + shlex.quote(steps)
+
+
 def instrument(command, result_path):
     words = command_words(command)
     if not words:
