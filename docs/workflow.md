@@ -838,7 +838,11 @@ sit inside one directory below the root that has its own manifest (`package.json
 a suite detected there runs them, they run with that suite from that directory, as
 if the run had named it with `--package`. The innermost such directory wins. The
 regression proof does this only when every changed code file is inside that
-directory; a code change elsewhere keeps the root's suite. A Node package in a
+directory; a code change elsewhere keeps the root's suite. When that suite's
+runner chooses tests by kind (pytest, unittest, Node, Go, Jest, Vitest, Mocha or
+RSpec) and runs none of the changed tests, the proof is unverified and names the
+tests and the suite that cannot run them; it never reports that they pass on the
+original code, which it did not observe (#2889). A Node package in a
 Python repository (this repository's `vscode-extension/`) is the case it was
 added for: its tests were handed to the root's pytest, which cannot run them, and
 the run paused for a `--test-command`.

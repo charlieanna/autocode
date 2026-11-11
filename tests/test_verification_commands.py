@@ -11,6 +11,7 @@ import autocode_regression as regression
 import autocode_verification_commands as command_policy
 import autocode_verify as verify
 from autocode_python_tests import parse, verbose_unittest
+from autocode_test_framework import Framework
 
 from . import test_verify as fixtures
 
@@ -42,6 +43,28 @@ class CommandRecognitionTests(unittest.TestCase):
         ):
             with self.subTest(command=command):
                 self.assertIsNone(verify.command_framework(command))
+
+
+class SuiteHoldsTestsTests(unittest.TestCase):
+    """Whether a detected suite can hold a change's tests at all (#2889)."""
+
+    def test_a_runner_that_chooses_files_by_kind_cannot_run_another_kinds_tests(self):
+        spec = "backend/spec/requests/grader_spec.rb"
+        node = Framework("node", "npm test --silent", node_files=["frontend/scripts/routing.test.mjs"])
+        self.assertTrue(command_policy.cannot_run(node, [spec]))
+        self.assertTrue(command_policy.cannot_run(Framework("pytest", "pytest", python="python3"), [spec]))
+        self.assertFalse(command_policy.cannot_run(node, ["frontend/scripts/routing.test.mjs"]))
+        rspec = Framework("rspec", "bundle exec rspec", runner="bundle exec rspec")
+        self.assertFalse(command_policy.cannot_run(rspec, [spec]))
+        # One the runner can run is enough: the targeted proof then runs it.
+        self.assertFalse(command_policy.cannot_run(node, [spec, "frontend/scripts/routing.test.mjs"]))
+
+    def test_an_untargetable_runner_or_no_tests_is_never_said_to_exclude_them(self):
+        spec = ["backend/spec/requests/grader_spec.rb"]
+        for framework in (Framework("make", "make test"), Framework("cargo", "cargo test"), None):
+            with self.subTest(framework=framework and framework.name):
+                self.assertFalse(command_policy.cannot_run(framework, spec))
+        self.assertFalse(command_policy.cannot_run(Framework("node", "npm test"), []))
 
 
 class ExplicitUnittestProofTests(unittest.TestCase):

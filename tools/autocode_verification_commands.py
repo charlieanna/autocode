@@ -100,6 +100,22 @@ def configured_targeted(settings, test_paths):
     return framework.targeted(list(test_paths)) if framework else None
 
 
+# Runners that choose test files by their kind (a Python module, a Node script, a Go package, an RSpec
+# file). A suite of one of these that targets none of a change's tests cannot hold them (#2889).
+TARGETING = frozenset({"pytest", "unittest", "node", "go", "jest", "vitest", "mocha", "rspec"})
+
+
+def cannot_run(framework, test_paths) -> bool:
+    """True when ``framework`` chooses test files by kind and runs none of ``test_paths``.
+
+    Its whole suite then never runs them, so it passing on the original code shows nothing about them.
+    A runner that cannot be targeted (``make test``, ``cargo test``, an unrecognised command) may hold
+    any test, so it is never said to exclude one.
+    """
+    paths = list(test_paths)
+    return bool(paths) and framework is not None and framework.name in TARGETING and not framework.targeted(paths)
+
+
 def untargeted(framework, test_paths) -> str:
     """Say which suite could not run these test files, so a wrong binding reads as one (#2609)."""
     found = f"the detected {framework.name} suite `{framework.suite}`" if framework else "no detected test suite"
