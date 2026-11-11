@@ -166,7 +166,10 @@ about machinery. The terminal chat and the VS Code client may read `autocode sta
 and take only its named `set` and `reset` argument arrays, filled from the view's own options,
 to show one dropdown per stage. The VS Code client may also read the list a started run's status view
 names in `stage_models.next_command` (`stages list --run-dir RUN --json`) and take only its stages' `set`
-arrays, to change that chat's own models between stages (owner request 2026-11-10). Choosing models
+arrays, to change that chat's own models between stages (owner request 2026-11-10). Before a chat
+starts it may show the new-chat list's stages and take only each stage's `chat_set` and `chat_reset` arrays, and
+pass the list's `chat.start_args` unchanged to that chat's start, so a person changes one chat's models
+without changing Stage models (owner request 2026-11-11). Choosing models
 automatically by measured capability (#2049) is paused until the owner revisits it.
 
 **Review levels under the stage choices, owner decision 2026-11-05.** The person chooses each

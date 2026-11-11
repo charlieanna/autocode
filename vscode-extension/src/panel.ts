@@ -739,6 +739,20 @@ const METER_STYLES = `
   #stages { flex-shrink: 0; margin: 0 6px 6px; border: 1px solid var(--vscode-panel-border); border-radius: 6px;
             padding: 4px 8px; font-size: .75rem; }
   #stages[hidden] { display: none; }
+  #chat-models { flex-shrink: 0; margin: 0 6px 6px; border: 1px solid var(--vscode-panel-border); border-radius: 6px;
+                 padding: 4px 8px; font-size: .75rem; max-height: 40vh; overflow-y: auto; }
+  #chat-models[hidden] { display: none; }
+  #chat-models summary { cursor: pointer; }
+  .chat-model { padding: 3px 0; border-top: 1px solid var(--vscode-panel-border); }
+  .chat-model:first-of-type { border-top: none; }
+  .chat-model .head { display: flex; justify-content: space-between; gap: 6px; }
+  .chat-model .now { opacity: .75; overflow-wrap: anywhere; }
+  .chat-model.picked .now { opacity: 1; color: var(--vscode-textLink-foreground); }
+  .chat-model .pick { display: flex; gap: 4px; margin-top: 2px; }
+  .chat-model select { min-width: 0; flex: 1 1 auto; max-width: 100%; background: var(--vscode-dropdown-background);
+                       color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border); font-size: .72rem; }
+  .chat-model select.level { flex: 0 0 auto; }
+  #chat-models .chat-models-error { color: var(--vscode-errorForeground); margin: 2px 0; }
   #stages-head { display: flex; justify-content: space-between; align-items: baseline; }
   .stages-title { font-weight: 600; text-transform: uppercase; letter-spacing: .05em; opacity: .75; font-size: .7rem; }
   button.link { background: none; border: none; padding: 0; color: var(--vscode-textLink-foreground); font-size: .72rem; }
@@ -887,6 +901,7 @@ export function panelHtml(chat = false): string {
 ${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools"><span id="run-cost" role="status" aria-label="Run cost"></span>${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel, true)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="chat-tabs" role="tablist" aria-label="Open chats"></div><section id="run-header" aria-label="Run overview" hidden><ol id="pipeline" aria-label="Pipeline"></ol><div id="header-now"><span id="header-label"></span><span id="header-sentence"></span></div><div id="header-facts"></div><button type="button" id="header-toggle" class="link" aria-expanded="false" aria-controls="header-details">Show details</button><div id="header-details" hidden></div></section><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
 <div id="app" class="muted">${chat ? "Describe what you want to build, fix, review, or discuss." : "Loading…"}</div>
 ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messages</button>
+<details id="chat-models" aria-label="This chat's models" open hidden><summary><span class="stages-title">This chat's models</span> <span id="chat-models-summary"></span></summary><div id="chat-models-body"></div></details>
 <section id="stages" aria-label="Stages" hidden><div id="stages-head"><span class="stages-title">Stages</span><button type="button" id="stages-more" class="link" hidden></button></div><div id="stage-rows"></div></section>
 <section id="telemetry" aria-label="Models and usage">
 <details id="usage-details"><summary id="telemetry-summary"><span class="telemetry-heading">Models &amp; usage</span>
@@ -2022,6 +2037,7 @@ function renderChat(data) {
     }
   }
   renderHeader(data);
+  renderChatModels(data);
   renderMeter(data);
   renderTelemetry(data.state && data.state.telemetry, data.state && data.state.stageModels);
   updateComposer();
@@ -2037,6 +2053,79 @@ function renderChat(data) {
       thread.scrollTop = remembered;
     }
   }
+}
+
+/**
+ * A chat that has not started: the model and level each stage will run, from the core's list, and
+ * dropdowns that change them for this chat alone. The extension fills only the stage's own named
+ * command with what was picked here; the core checks it and nothing is saved.
+ */
+function renderChatModels(data) {
+  const host = document.getElementById('chat-models');
+  const info = data.chatStages;
+  host.hidden = !info || data.busy || Boolean(data.selectedRun) || (!info.stages.length && !info.error && !info.busy);
+  if (host.hidden) { host.dataset.content = ''; return; }
+  const key = JSON.stringify(info);
+  if (host.dataset.content === key) return;
+  host.dataset.content = key;
+  const picked = info.stages.filter((stage) => stage.picked).length;
+  document.getElementById('chat-models-summary').textContent = [info.label, picked ? picked + ' changed for this chat' : '']
+    .filter(Boolean).join(' · ');
+  const body = document.getElementById('chat-models-body');
+  body.textContent = '';
+  if (info.error) { const error = el('div', 'chat-models-error', info.error); error.setAttribute('role', 'alert'); body.appendChild(error); }
+  if (info.busy && !info.stages.length) body.appendChild(el('div', 'model-note', 'Reading the stages…'));
+  if (!info.stages.length) return;
+  body.appendChild(el('div', 'model-note', info.optionsStop ? 'Models cannot be listed: ' + info.optionsStop
+    : info.changeable ? 'Change a stage here for this chat only; Stage models still sets every other new chat.'
+    : 'Update AutoCode to change these for one chat; Stage models sets them for new chats.'));
+  info.stages.forEach((stage) => {
+    const row = el('div', 'chat-model' + (stage.picked ? ' picked' : ''));
+    row.dataset.stage = stage.id;
+    row.title = stage.does;
+    const head = el('div', 'head');
+    head.appendChild(el('span', 'label', stage.label));
+    head.appendChild(el('span', 'now', stage.now));
+    row.appendChild(head);
+    if (info.changeable && stage.options.length) {
+      const pick = el('div', 'pick');
+      const models = el('select', 'model'); models.setAttribute('aria-label', stage.label + ' model for this chat');
+      const levels = el('select', 'level'); levels.setAttribute('aria-label', stage.label + ' reasoning level for this chat');
+      if (!stage.model) {
+        const automatic = el('option', null, 'Chosen when the chat starts'); automatic.value = ''; automatic.disabled = true; automatic.selected = true;
+        models.appendChild(automatic);
+      }
+      stage.options.forEach((option) => {
+        const item = el('option', null, option.model + (option.family ? ' · ' + option.family : '') + (option.unavailable ? ' — not available: ' + option.unavailable : ''));
+        item.value = option.model; item.disabled = Boolean(option.unavailable); item.selected = option.model === stage.model;
+        models.appendChild(item);
+      });
+      const fill = (wanted) => {
+        levels.textContent = '';
+        const option = stage.options.find((row) => row.model === models.value);
+        const choices = option ? option.effortChoices : [];
+        choices.forEach((level) => {
+          const item = el('option', null, level); item.value = level;
+          item.selected = level === (choices.includes(wanted) ? wanted : choices[0]);
+          levels.appendChild(item);
+        });
+      };
+      fill(stage.effort || 'default');
+      const send = () => { if (models.value && levels.value) vscode.postMessage({ type: 'chat_stage', stage: stage.id, model: models.value, effort: levels.value }); };
+      models.addEventListener('change', () => { fill(levels.value || stage.effort); send(); });
+      levels.addEventListener('change', send);
+      models.disabled = levels.disabled = info.busy;
+      pick.appendChild(models); pick.appendChild(levels);
+      row.appendChild(pick);
+    }
+    if (stage.resettable) {
+      const reset = el('button', 'link', 'Use Stage models');
+      reset.type = 'button'; reset.disabled = info.busy;
+      reset.addEventListener('click', () => vscode.postMessage({ type: 'chat_stage_reset', stage: stage.id }));
+      row.appendChild(reset);
+    }
+    body.appendChild(row);
+  });
 }
 
 /** A reader scrolled up keeps their place; the Latest button names the step running now (#1711). */
@@ -2093,7 +2182,7 @@ function renderTelemetry(info, stageModels) {
   }
   if (info && info.stagesUsed.length) modelSection('used-models', 'Models used', 'Recorded attempts, including retries and earlier model variants.', info.stagesUsed);
   else {
-    host.appendChild(el('span', 'model-placeholder', info ? 'No model attempts reported yet.' : 'A new chat runs the models in Stage models; they are listed here when a run starts.'));
+    host.appendChild(el('span', 'model-placeholder', info ? 'No model attempts reported yet.' : "A new chat runs the models listed under This chat's models; they are listed here once it starts."));
   }
   document.getElementById('usage-summary').textContent = info ? info.tokens + ' · ' + info.cost : 'Tokens not reported · Cost not reported';
   const details = document.getElementById('usage-breakdown');

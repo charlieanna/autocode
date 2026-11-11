@@ -111,7 +111,7 @@ def _cause(state: RunState):
     )
 
 
-def _explanation(status, role):
+def _explanation(status, role, recorded=True):
     exact = {
         "WAITING_FOR_DEPENDENCY": "This task is waiting for the required accepted delivery from another task.",
         "AWAITING_GOAL_APPROVAL": "The plan is at a saved review checkpoint before implementation can begin.",
@@ -171,7 +171,9 @@ def _explanation(status, role):
     for fragments, text in groups:
         if any(part in status for part in fragments):
             return text
-    return f"{role or 'The task'} stopped before starting another step. Inspect the saved reason before continuing."
+    # Point at a saved reason only when the run saved one; otherwise say plainly that it did not.
+    after = "Inspect the saved reason before continuing." if recorded else "It recorded no reason."
+    return f"{role or 'The task'} stopped before starting another step. {after}"
 
 
 # The stop of a job_failure saved before #463, which has its kind but no pause_status.
@@ -487,7 +489,11 @@ def project(state: RunState, need=None):
         if ended is not None
         else "The current step finished and saved. This conversation will launch no more stages."
         if terminal
-        else (_auth_stop(state) or _job_model_stop(state, role) or _explanation(cause, role)),
+        else (
+            _auth_stop(state)
+            or _job_model_stop(state, role)
+            or _explanation(cause, role, bool(state.get("stop_reason")))
+        ),
         "retained": f"{finished} finished attempt(s) remain in the history. Saved plan, messages and recorded evidence remain available; partial work still needs verification.",
         "saved_reason": state.get("stop_reason"),
         "context": {

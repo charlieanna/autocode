@@ -12,7 +12,10 @@ import { chosenMode, type RunModes } from "./core/modes";
 import { RunStarting, type StatusView } from "./core/view";
 import { transitionNotice, waitsForPerson } from "./notify";
 import { runTotal, sessionTotal, totalText } from "./core/meter";
-import { applyEngine, engineOf, ENGINES, readSettings, type Engine } from "./settings";
+import { applyEngine, engineOf, ENGINES, readSettings, routeKeyOf, type Engine } from "./settings";
+import { invoke, tail } from "./core/cli";
+import { backendArgs, chatRoute, fillChatSet, readStages, type StageView } from "./core/stages";
+import { inFolder } from "./stages";
 import { confirmRaise, numericActionLabel, numericConfirmation, numericRecoveryEffect, panelHtml, planningSpendConfirmation, stateFor } from "./panel";
 
 // While a reply is being written the view is read this often, so each new extract
@@ -34,6 +37,10 @@ interface ChatMessage {
   answers?: Record<string, string>;
   /** A number typed into the bound's separately named raise (#2044). */
   value?: string;
+  /** A new chat's own stage pick: the stage ID, a model and a level from its list. */
+  stage?: string;
+  model?: string;
+  effort?: string;
   checkpoint?: string;
   action?: "compare" | "step" | "restore";
   workspace?: string;
@@ -66,10 +73,15 @@ interface ChatTab {
   startingLabel: string;
   /** Compare results this tab already holds, by checkpoint id. */
   readonly comparisons: Map<string, CheckpointComparison>;
+  /** A chat that has not started: the stages it will run, with its own picks (`stages list --json`). */
+  stages?: StageView;
+  stagesError: string;
+  stagesBusy: boolean;
 }
 
 function newTab(key: string, run?: RunRef): ChatTab {
-  return { key, run, error: "", readError: "", pendingBrief: "", starting: false, launching: false, startingLabel: "", comparisons: new Map() };
+  return { key, run, error: "", readError: "", pendingBrief: "", starting: false, launching: false, startingLabel: "", comparisons: new Map(),
+    stagesError: "", stagesBusy: false };
 }
 
 function tabName(tab: ChatTab): string {
@@ -153,6 +165,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     this.actions.selected(this.active.run);
     void this.focus();
     this.post(true);
+    if (!this.active.run && !this.active.stages) void this.loadChatStages(this.active);
     void this.refresh();
   }
 
@@ -279,7 +292,44 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       mode: !tab.run && this.modes ? chosenMode(this.modes, this.modeChoice)?.label ?? null : null,
       state: tab.run && tab.status
         ? { ...stateFor(tab.status, tab.run, this.controller, busy), unreadable: Boolean(tab.readError) } : null,
+      chatStages: tab.run ? null : chatStagesFor(tab),
     });
+  }
+
+  /**
+   * Read the stages a chat that has not started will run: its own list again when it has picks
+   * (`chat.next_command`), else the new-chat list for the backend new chats here use.
+   */
+  private async loadChatStages(tab: ChatTab, command?: string[]): Promise<void> {
+    if (tab.run || tab.stagesBusy) return;
+    tab.stagesBusy = true;
+    tab.stagesError = "";
+    this.post();
+    try {
+      tab.stages = await readChatStages(command ?? tab.stages?.chat?.list);
+    } catch (error) {
+      tab.stagesError = messageOf(error);
+    } finally {
+      tab.stagesBusy = false;
+      this.post();
+    }
+  }
+
+  /** A pick for this chat alone: only the stage's own `chat_set` (or `chat_reset`) from the list it shows. */
+  private async chatStage(message: ChatMessage): Promise<void> {
+    const tab = this.active;
+    const stage = tab.stages?.stages.find((row) => row.id === message.stage);
+    if (tab.run || tab.starting || tab.stagesBusy || !stage) return;
+    let command: string[] | null;
+    try {
+      command = message.type === "chat_stage_reset" ? stage.chatReset
+        : fillChatSet(stage, String(message.model ?? ""), String(message.effort ?? ""));
+    } catch (error) {
+      tab.stagesError = messageOf(error);
+      this.post();
+      return;
+    }
+    if (command) await this.loadChatStages(tab, command);
   }
 
   /** Every open run's accounted total added up, shown only when two or more chats hold runs. */
@@ -351,6 +401,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   private async receive(message: ChatMessage): Promise<void> {
     if (message.type === "connections") { await vscode.commands.executeCommand("autocode.connections"); return; }
     if (message.type === "stage_models") { await this.stageModels(); return; }
+    if (message.type === "chat_stage" || message.type === "chat_stage_reset") { await this.chatStage(message); return; }
+    if (message.type === "chat_stages") { await this.loadChatStages(this.active); return; }
     if (message.type === "history") {
       await vscode.commands.executeCommand("setContext", "autocode.showHistory", true);
       await vscode.commands.executeCommand("autocode.runs.focus");
@@ -368,6 +420,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       if (this.active.run) this.actions.selected(this.active.run);
       this.post(true);
       await this.loadModes();
+      if (!this.active.run && !this.active.stages) void this.loadChatStages(this.active);
       await this.refresh();
       return;
     }
@@ -383,7 +436,13 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       return;
     }
     if (message.type === "engine") {
+      const before = engineOf(readSettings());
       await pickEngine();
+      if (engineOf(readSettings()) !== before) {
+        // Another backend offers other models: a chat that has not started takes its list afresh.
+        for (const tab of this.tabs) if (!tab.run) { tab.stages = undefined; tab.stagesError = ""; }
+        void this.loadChatStages(this.active);
+      }
       this.post();
       return;
     }
@@ -608,6 +667,16 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
         const confirmed = await this.actions.confirmStart();
         if (!confirmed || this.sequence !== launchSequence) return;
       }
+      // This chat's own picks, checked again where it starts: a saved choice made since can clash.
+      let stageArgs: string[] = [];
+      if (tab.stages?.chat?.startArgs.length) {
+        const fresh = await readChatStages(tab.stages.chat.list, workspace).catch((error: unknown) => {
+          throw new Error(`This chat's models: ${messageOf(error)}`);
+        });
+        tab.stages = fresh;
+        stageArgs = fresh.chat?.startArgs ?? [];
+        if (this.sequence !== launchSequence) return;
+      }
       tab.launching = true;
       this.post();
       await this.controller.start(workspace, text, (run) => {
@@ -634,7 +703,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
           void this.view?.webview.postMessage({ type: "sent", runKey: freshKey, text });
           this.post(true);
         }
-      }, mode?.startArgs);
+      }, mode?.startArgs, stageArgs);
       if (allocatedRun) {
         try {
           const view = await this.controller.status(allocatedRun);
@@ -695,6 +764,37 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
 }
 
 function runKey(run: RunRef): string { return `${run.workspace}\n${run.runDir}`; }
+
+/** A new chat's stage list: `command` (one the list named) or the plain list, in `cwd` or the window's folder. */
+async function readChatStages(command: string[] | undefined, cwd?: string): Promise<StageView> {
+  const settings = readSettings();
+  const argv = command ?? ["stages", "list", "--json", ...backendArgs(settings.runOptions, routeKeyOf(settings))];
+  const result = await invoke(cwd ? { ...settings, cwd } : inFolder(settings), argv);
+  if (result.code !== 0) throw new Error(tail(result));
+  return readStages(result.stdout);
+}
+
+/** What the webview shows for a chat that has not started: each stage, what it will run, and its choices. */
+function chatStagesFor(tab: ChatTab) {
+  const view = tab.stages;
+  return {
+    busy: tab.stagesBusy,
+    error: tab.stagesError,
+    label: view?.label ?? "",
+    optionsStop: view?.optionsStop ?? null,
+    // An AutoCode without per-chat picks still lists the stages; it only offers no change.
+    changeable: Boolean(view?.chat),
+    stages: (view?.stages ?? []).map((stage) => {
+      const route = stage.chat ?? stage.chosen ?? (stage.default.offered ? stage.default : null);
+      return {
+        id: stage.id, label: stage.label, does: stage.does, now: chatRoute(stage), picked: Boolean(stage.chat),
+        model: route?.model ?? "", effort: route?.effort ?? "",
+        options: stage.options.map((option) => ({ model: option.model, family: option.family, unavailable: option.unavailable, effortChoices: option.effortChoices })),
+        resettable: Boolean(stage.chatReset),
+      };
+    }),
+  };
+}
 
 function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 
