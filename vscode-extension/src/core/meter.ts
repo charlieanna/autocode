@@ -120,7 +120,9 @@ function why(row: Row): string {
 
 function modelOf(row: Row): [string, string] {
   const route = mapping(row.launch_route);
-  return [text(route.model) || text(row.model), text(route.reasoning_effort) || text(row.reasoning_effort)];
+  // The level the attempt ran at comes first: a review below its saved ceiling records it there, and the
+  // saved route keeps the ceiling (docs/task-run.md). The terminal chat's meter reads it the same way.
+  return [text(route.model) || text(row.model), text(row.reasoning_effort) || text(route.reasoning_effort)];
 }
 
 function routeOf(row: Row): string {
