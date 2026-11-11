@@ -278,7 +278,13 @@ def context(settings, affected_paths=(), state: RunState | None = None, *, curre
     return result | {"instruction": instruction}
 
 
-def replay(state: RunState, workspace, out, scratch_run, *, timeout):
+def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=None):
+    """Run the original suite on the candidate and with the original tests overlaid.
+
+    ``run_check(label, execute, policy=..., accepted_failure=...)`` lets the caller schedule each run
+    under its own obligation (#3040); ``execute(directory)`` performs it. Whatever it returns, the
+    gate below interprets the receipt afresh under the current approved supersedes list.
+    """
     record = state.get("settings", {}).get("protected_tests")
     if not record:
         return None  # compatibility: do not invent an original binding for old runs
@@ -309,9 +315,28 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout):
             verdict="NOT_VERIFIED", error="No original suite command was available; explicit user revision required"
         )
     else:
-        result["candidate"] = scratch_run(
-            workspace, directory / "candidate", command=record["command"], timeout=timeout
-        )
+        replaced = superseded_tests.approved(state)
+        policy = {
+            "binding_hash": record["binding_hash"],
+            "command": record["command"],
+            "changed_tests": sorted(changed),
+            "superseded": _listed(replaced, changed),
+        }
+
+        def run(label, **overlays):
+            def execute(folder):
+                return scratch_run(workspace, folder, command=record["command"], timeout=timeout, **overlays)
+
+            if run_check is None:
+                return execute(directory / label)
+            return run_check(
+                label,
+                execute,
+                policy=policy,
+                accepted_failure=lambda row: superseded_tests.excused(row, replaced, changed) is not None,
+            )
+
+        result["candidate"] = run("candidate")
         with store.opened(record, workspace) as original_root:
             overlays = {
                 "files": {
@@ -323,12 +348,9 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout):
             links = {name: value["symlink"] for name, value in record["files"].items() if "symlink" in value}
             if links:
                 overlays["links"] = links
-            result["original"] = scratch_run(
-                workspace, directory / "original", command=record["command"], timeout=timeout, **overlays
-            )
+            result["original"] = run("original", **overlays)
         if _failed(result["candidate"]) or _failed(result["original"]):
             result["verdict"] = "FAIL"
-        replaced = superseded_tests.approved(state)
         if replaced and not _failed(result["candidate"]) and command_receipt.completed(result["original"]):
             # The approved plan replaces these original tests (#2748): only their failures are accepted.
             excused = superseded_tests.excused(result["original"], replaced, changed)

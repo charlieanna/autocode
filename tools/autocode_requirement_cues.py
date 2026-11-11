@@ -72,6 +72,10 @@ _FENCE = re.compile(r"^[ \t]{0,3}```.*?^[ \t]{0,3}```[^\n]*$", re.M | re.S)
 # A paragraph or new list item cannot complete the preceding item's sentence.
 # Horizontal whitespace after a marker distinguishes lists from -I and 3.14.
 _BLOCK_BOUNDARY = re.compile(r"\r?\n[ \t]*\r?\n|(?<=\n)(?=[ \t]*(?:[-*+]|\d+[.)])[ \t]+)")
+# The marker alone ("2." before "The panel did not ...") is what the sentence split leaves when an
+# item's first sentence ends; it states nothing, so it is never a sentence to cite, exclude or keep
+# the number of (#3118).
+_LIST_MARKER = re.compile(r"(?:[-*+]|\d+[.)])")
 
 
 def _without_label_headings(text):
@@ -110,7 +114,7 @@ def sentences(text):
         for block in _BLOCK_BOUNDARY.split(piece)
         for part in re.split(r"(?<=[.!?])\s+", _without_label_headings(block).strip())
     ]
-    return [part.strip() for part in parts if part.strip()]
+    return [part.strip() for part in parts if part.strip() and not _LIST_MARKER.fullmatch(part.strip())]
 
 
 def cue_sentences(text):

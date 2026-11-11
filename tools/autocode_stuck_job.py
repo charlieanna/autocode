@@ -234,7 +234,7 @@ def intercept(state: RunState, status: str, reason: str) -> bool:
     investigated, or the run's investigation budget is spent.
     """
     stuck = state.get("next_stage")
-    if progressive.retained_review_budget_pause(state, status):
+    if progressive.retained_review_budget_pause(state, status) or persons_review_total(state, status):
         return False
     if (
         not enabled(state)
@@ -300,6 +300,18 @@ def intercept(state: RunState, status: str, reason: str) -> bool:
         state.pop(field, None)
     state.update({"status": "RUNNING", "phase": "INVESTIGATING", "next_stage": STAGE})
     return True
+
+
+def persons_review_total(state: RunState, status: str) -> bool:
+    """A planning-budget pause at the review total the person chose in this run (--planning-review-call-limit).
+
+    Nothing there needs investigating: the runner keeps the counter itself and the person set the number, so
+    an Investigator call only cost a model call before the same pause (#3094), and its retry would raise the
+    person's own limit. The pause goes straight back to them with its typed allowance offer."""
+    return (
+        status == "PAUSED_PLANNING_BUDGET"
+        and (state.get("planning") or {}).get("review_call_limit_origin") == "user_explicit"
+    )
 
 
 def operator_retried(state: RunState, stage: str) -> bool:
