@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import shlex
 import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -51,18 +52,52 @@ NOT_SEARCHED_INSTRUCTION = (
 )
 
 
+# Every chat on this computer shares the configured source roots, so a root one chat added stops the
+# others too (#3073). The stop names the command that removes it, and where to run it: typed into a
+# chat, a command is a new request.
+OUTSIDE_CHAT = "in a terminal, not in a chat (where it would be read as a new request)"
+
+
+def owning_roots(rows, roots):
+    """The configured roots that hold the blocking rows, deepest match first; a root's own row is itself."""
+    configured = sorted(
+        (Path(row["path"]) for row in roots if isinstance(row, dict) and isinstance(row.get("path"), str)),
+        key=lambda path: len(path.parts),
+        reverse=True,
+    )
+    found = []
+    for row in rows:
+        path = row.get("path")
+        if not isinstance(path, str):
+            continue
+        owner = next((root for root in configured if Path(path).is_relative_to(root)), None)
+        if owner is not None and str(owner) not in found:
+            found.append(str(owner))
+    return found
+
+
 class DiscoveryIncomplete(ValueError):
     """Discovery could not see every readable source: the person's source roots need a change."""
 
     status = "PAUSED_SOURCE_UNAVAILABLE"
 
-    def __init__(self, rows):
+    def __init__(self, rows, roots=()):
         shown = "; ".join(row["code"] + (f" at {row['path']}" if row.get("path") else "") for row in rows[:3])
         more = f"; and {len(rows) - 3} more" if len(rows) > 3 else ""
-        super().__init__(
-            f"Source discovery is incomplete: {shown}{more}. "
-            "Change the configured source roots so discovery can see every checkout, then continue."
-        )
+        owners = owning_roots(rows, roots)
+        if owners:
+            commands = "; ".join(f"`autocode registry roots remove {shlex.quote(root)}`" for root in owners)
+            fix = (
+                "Configured source roots are shared by every chat on this computer. "
+                f"To stop {'this root' if len(owners) == 1 else 'these roots'} blocking tasks, run {OUTSIDE_CHAT}: "
+                f"{commands}, or fix the folder so discovery can see every checkout under it. Then continue."
+            )
+        else:
+            fix = (
+                "Change the configured source roots so discovery can see every checkout "
+                f"(`autocode registry roots list` shows them; run it {OUTSIDE_CHAT}), then continue."
+            )
+        super().__init__(f"Source discovery is incomplete: {shown}{more}. {fix}")
 
 
 def context(state: RunState):
@@ -72,7 +107,7 @@ def context(state: RunState):
     saved = util.read_object(receipt) if receipt and receipt.is_file() else None
     discovery = catalog.discover()
     if stopped := catalog.blocking(discovery):
-        raise DiscoveryIncomplete(stopped)
+        raise DiscoveryIncomplete(stopped, discovery.get("catalog_roots") or ())
     if saved and any(
         saved.get(key) != discovery.get(key) for key in ("catalog", "catalog_identity", "source_snapshot")
     ):
