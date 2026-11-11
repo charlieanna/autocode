@@ -1042,6 +1042,29 @@ test('the Runs list puts the most recently active chats on top under Recent', as
   }
 });
 
+test('a finished chat shows the check icon, not the working sync icon', async () => {
+  const listed = [
+    { id: 'done', workspace: '/alpha', runDir: '/alpha/.autocode/runs/done', availability: 'available',
+      status: 'TASK_COMPLETE', title: 'Done chat', updatedAt: '2026-11-11T11:00:00Z' },
+    { id: 'running', workspace: '/alpha', runDir: '/alpha/.autocode/runs/running', availability: 'available',
+      status: 'RUNNING', title: 'Running chat', updatedAt: '2026-11-11T11:05:00Z' },
+    { id: 'paused', workspace: '/alpha', runDir: '/alpha/.autocode/runs/paused', availability: 'available',
+      status: 'PAUSED_REQUESTED', title: 'Paused chat', updatedAt: '2026-11-11T11:03:00Z' },
+  ];
+  const provider = new RunsProvider({ list: async () => ({ runs: listed, diagnostics: [] }) });
+  try {
+    await provider.refresh();
+    const [recent] = provider.getChildren();
+    const rows = provider.getChildren(recent);
+    const icon = (id) => rows.find((row) => row.run.id === id)?.iconPath?.id;
+    assert.equal(icon('done'), 'check', 'TASK_COMPLETE is a finished chat');
+    assert.equal(icon('running'), 'sync');
+    assert.equal(icon('paused'), 'report');
+  } finally {
+    provider.dispose();
+  }
+});
+
 test('registry rows carry the archived flag and only named cleanup actions', () => {
   const { readRegistryList } = host.load('core/view.js');
   const list = readRegistryList(JSON.stringify({ runs: [{
