@@ -42,6 +42,7 @@ def obligation(index):
         "path": f"pkg/mod{index % 3}.py",
         "sha256": str(index % 3) * 64,
         "line": index,
+        "source_line": f"value = compute({index})",
         "status": "tested" if tested else "reason_required",
         "executed": index % 2 == 0,
         "mutation_demonstrated": tested,
@@ -176,7 +177,7 @@ class ProofDetailTests(unittest.TestCase):
                 self.assertEqual(whole["changed_code_inputs"]["inventory"], inline["changed_code_inputs"]["inventory"])
                 self.assertEqual(400, inline["changed_code_inputs"]["command_outputs"]["total"])
 
-                # Every changed line keeps its handle, line, status, execution and outcomes; each gap the
+                # Every changed line keeps its handle, line, text, status, execution and outcomes; each gap the
                 # Tester may decide is named by a handle the runner resolves to the run's exact gap id.
                 assessment = whole["changed_code_evidence"]
                 groups = inline["changed_code_evidence"]["obligations"]
@@ -190,7 +191,8 @@ class ProofDetailTests(unittest.TestCase):
                         self.assertNotIn(row["handle"], by_handle)
                         continue
                     kept = by_handle[row["handle"]]
-                    for key in ("path", "sha256", "line", "status", "executed", "mutation_outcomes"):
+                    # The exact line text stays beside its handle (#2977).
+                    for key in ("path", "sha256", "line", "source_line", "status", "executed", "mutation_outcomes"):
                         self.assertEqual(row[key], kept[key])
                     self.assertEqual(row["gap_id"], changed_code_review.resolve(assessment, row["handle"]))
                 self.assertEqual(len(assessment["obligations"]), len(gaps) + len(tested))

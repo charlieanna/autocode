@@ -1,10 +1,14 @@
 """Discovery evidence reaches a read-only intake without selecting the launch checkout."""
 
+import io
 import json
 import os
+import re
+import shlex
 import subprocess
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -94,6 +98,51 @@ class CatalogContextTests(unittest.TestCase):
         self.assertIn("symlink_escape at /sources/link-2; and 2 more.", message)
         self.assertNotIn("link-3", message)
         self.assertIn("budget_exhausted.", str(context.DiscoveryIncomplete([{"code": "budget_exhausted"}])))
+
+    def test_a_root_one_chat_added_does_not_silently_block_a_chat_in_another_workspace(self):
+        # #3073: a chat started in a folder of checkouts adds that folder as a source root, shared by every
+        # chat. AutoCode's own scratch copies under it are too deep to search and do not stop a later chat in
+        # an unrelated workspace.
+        folder = self.repo.parent
+        scratch = folder.joinpath(".autocode-operations", *(f"copy-{n}" for n in range(catalog.MAX_DEPTH + 2)))
+        (scratch / "source").mkdir(parents=True)
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(0, catalog.cli(["add", str(folder)]))
+        first_chat = {"workspace": str(folder), "run_dir": str(folder / ".autocode/runs/first")}
+        self.assertEqual([str(self.repo)], context.read_roots(first_chat))
+        self.assertEqual([str(self.repo)], context.read_roots(self.state))
+        # When the root does stop a later chat (here the folder was moved away), the stop names the exact
+        # command that removes it and says it is run outside the chat; running it lets the chat continue.
+        folder.rename(self.root / "moved")
+        later = {"workspace": str(self.root / "elsewhere"), "run_dir": str(self.root / "elsewhere/runs/later")}
+        with self.assertRaises(context.DiscoveryIncomplete) as raised:
+            context.context(later)
+        message = str(raised.exception)
+        self.assertIn(f"root_unavailable at {folder}", message)
+        self.assertIn("in a terminal, not in a chat", message)
+        named = re.search(r"`autocode registry roots (remove [^`]+)`", message)
+        self.assertIsNotNone(named, message)
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(0, catalog.cli(shlex.split(named.group(1))))
+        self.assertIsNone(context.context(later))
+
+    def test_a_blocking_row_names_the_configured_root_that_holds_it(self):
+        roots = [{"path": "/w"}, {"path": "/w/team"}, {"path": "/other dir"}]
+        rows = [
+            {"code": "budget_exhausted", "path": "/w/team/deep/x"},
+            {"code": "symlink_escape", "path": "/w/link"},
+            {"code": "root_unavailable", "path": "/other dir"},
+            {"code": "symlink_escape", "path": "/w/team/again"},
+        ]
+        self.assertEqual(["/w/team", "/w", "/other dir"], context.owning_roots(rows, roots))
+        message = str(context.DiscoveryIncomplete(rows, roots))
+        self.assertIn("`autocode registry roots remove /w/team`; `autocode registry roots remove /w`", message)
+        self.assertIn("`autocode registry roots remove '/other dir'`", message)
+        self.assertIn("To stop these roots blocking tasks", message)
+        # A row outside every root, or without a path, still names where the roots are listed.
+        alone = str(context.DiscoveryIncomplete([{"code": "incomplete"}], roots))
+        self.assertIn("`autocode registry roots list` shows them; run it in a terminal, not in a chat", alone)
+        self.assertNotIn("roots remove", alone)
 
     def test_an_unreadable_checkout_is_skipped_and_recorded_in_the_pinned_inventory(self):
         unborn = self.repo.parent / "unborn"

@@ -131,18 +131,22 @@ def launch(state: RunState, stage, route_role, report_only, route: dict) -> tupl
     small prompt at the floor level (autocode_requirements_triage, #2940); a hard plan's Planner and
     Plan Reviewer run one level above their saved level (autocode_plan_difficulty, owner decision
     2026-11-09). ``decision`` is None when no rule considered the launch.
+
+    Triage is a first-dispatch rule only: a repair of the triage pass's report keeps the repair
+    bound and its reason, because the runner launches a repair under the original stage name and
+    the triage pass stays due until a report is accepted.
     """
     configured = light_builder.effort(state, stage, report_only, route.get("reasoning_effort"))
     if report_only:
         decision = repair_effort.decide(state, configured, model=route.get("model"))
+    elif triage_decision := requirements_triage.effort_decision(state, stage, configured):
+        return triage_decision["level"], triage_decision
     else:
         # A hard plan's Planner and Plan Reviewer run one level up (autocode_plan_difficulty); a raise
         # wins over a small task's lowered review, so a small plan touching sensitive files is not cut.
         raised = plan_difficulty.decide(state, stage, route_role, report_only, configured, model=route.get("model"))
         lowered = decide(state, stage, route_role, report_only, configured, model=route.get("model"))
         decision = raised if raised and (raised.get("raised") or not lowered) else lowered
-    if triage_decision := requirements_triage.effort_decision(state, stage, configured):
-        return triage_decision["level"], triage_decision
     return effort(decision, configured), decision
 
 

@@ -602,6 +602,24 @@ class ApplyTests(unittest.TestCase):
                 self.assertEqual(4, state["planning"]["plan_review_calls"])
                 self.assertEqual(settings, state["settings"])
 
+    def test_a_review_total_the_person_chose_pauses_without_an_investigation(self):
+        # #3094: the person raised the allowance to 3; at 3/3 the run spent an Investigator call to "find" why
+        # the counter it keeps itself reached the person's own number, then paused for the person anyway.
+        for origin, investigated in (("user_explicit", False), ("runner_default", True), (None, True)):
+            with self.subTest(origin=origin):
+                planning = {"plan_review_calls": 3, "review_call_limit": 3, "reports": {}}
+                if origin:
+                    planning["review_call_limit_origin"] = origin
+                state = state_for(next_stage="finalize_plan", phase="PLANNING", planning=planning)
+                self.addCleanup(shutil.rmtree, state["workspace"])
+                self.assertEqual(investigated, stuck.intercept(state, "PAUSED_PLANNING_BUDGET", "3/3 used"))
+                self.assertEqual(investigated, "stuck_investigation" in state)
+                self.assertEqual("investigate_stuck" if investigated else "finalize_plan", state["next_stage"])
+        state = state_for(planning={"plan_review_calls": 3, "review_call_limit": 3})
+        state["planning"]["review_call_limit_origin"] = "user_explicit"
+        self.addCleanup(shutil.rmtree, state["workspace"])
+        self.assertTrue(stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "x"), "other stops are still investigated")
+
     def test_granted_review_round_preserves_an_existing_explicit_origin(self):
         from units import autoplanner as planning
 
