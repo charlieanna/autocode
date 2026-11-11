@@ -73,9 +73,9 @@ def project(state: RunState, public, *, finished=False, stopped=False) -> list[s
     if attempts:
         lines.append("Recent steps: " + " · ".join(attempts[-3:]))
     # Say why the newest answer was not accepted while the stage tries again, in plain words.
-    why = recovery_history.explain(newest.get("rejection_reason")) if newest and newest.get("rejected") else None
-    if why:
-        lines.append(
-            f"Why the last {roles.screen_name(newest.get('stage') or '', state)} answer was not accepted: {why}"
-        )
+    if newest and newest.get("rejected"):
+        why = recovery_history.explain(newest.get("rejection_reason"))
+        if why:
+            job = roles.screen_name(newest.get("stage") or "", state)
+            lines.append(f"Why the last {job} answer was not accepted: {why}")
     return lines
