@@ -29,7 +29,10 @@ What to do:
    point (the command, the function, the endpoint), with the exact values the example gives. Do not
    assert only an exit status or that some error was printed when the criterion says what the output
    must be; a test that would also pass on today's code proves nothing.
-4. A "guard:" case is behavior that already works and must keep working: its test must PASS now.
+4. A "guard:" case is behavior that already works and must keep working: its test must PASS now. Its
+   file must therefore load on today's code: when a new test uses a name the product does not have yet,
+   import that name inside the new test (or put the new tests in a file of their own), never at the top of
+   a file that holds a guard, where the missing name stops the guard from running at all.
 5. Run permitted checks in a scratch copy under .autocode/scratch/write_acceptance_tests (inside the
    workspace; never /tmp or another outside path). Test authoring and runner qualification are separate:
    the core runs every reported test file after your provider exits, before Builder can start, and checks
@@ -46,6 +49,9 @@ What to do:
    runner checks that it passes and sends the plan back to make that case a guard: case, except an explicitly
    identified inherited case, whose approved test: meaning and fresh original-reference proof are retained. If no automated
    test can show a case, report it in cannot_write with the reason; that stops the run for the user.
+
+If runner_feedback is not empty, the runner already ran your earlier tests for these cases on today's code
+and rejected them for the reasons it lists, oldest first: correct the tests it names, in place.
 
 Report every due case exactly once, in tests (case_id, test_name, file: the workspace-relative path) or
 cannot_write (case_id, reason); already_passing (case_id, evidence) adds to a tests row. tests_run lists the commands you
