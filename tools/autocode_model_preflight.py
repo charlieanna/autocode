@@ -50,6 +50,7 @@ try:
     from . import autocode_access_evidence as access_evidence
     from . import autocode_access_identity as access_identity
     from . import autocode_agent_env as agent_env
+    from . import autocode_build_worktree as build_worktree
     from . import autocode_builder_policy as builder_policy
     from . import autocode_cost as cost
     from . import autocode_preflight_attempts as attempts
@@ -66,6 +67,7 @@ except ImportError:
     import autocode_access_evidence as access_evidence
     import autocode_access_identity as access_identity
     import autocode_agent_env as agent_env
+    import autocode_build_worktree as build_worktree
     import autocode_builder_policy as builder_policy
     import autocode_cost as cost
     import autocode_preflight_attempts as attempts
@@ -523,9 +525,12 @@ def check(
     attempts.reconcile(runner, state, run_dir, checkpoint)
     marker = run_dir / "model-preflight.json"
     saved = _saved_receipts(marker)
+    # A run that moved into its task worktree keeps what it proved in the folder it came from (#3219):
+    # its probes and calls there were made on the same tool, and their files stay where they ran.
+    earlier = [directory for directory in (build_worktree.origin(state, run_dir),) if directory is not None]
     charged = [
         record
-        for record in attempts.records(state, run_dir)
+        for record in attempts.records(state, run_dir, earlier)
         if record.get("preflight_complete") and record.get("accounted") and record.get("preflight_outcome")
     ]
     receipts: list[tuple] = []
@@ -556,7 +561,7 @@ def check(
         # remain authoritative over earlier successful task calls.
         probed = {model: outcome for model, outcome in probed.items() if outcome.get("source") != "completed_stage"}
         for model, outcome in access_evidence.passed(
-            state.get("stages", []), identity, run_dir, equivalent=equivalent
+            state.get("stages", []), identity, run_dir, equivalent=equivalent, earlier_dirs=earlier
         ).items():
             probed.setdefault(model, outcome)
         # Preserve each relocated receipt's original binding on disk. Only calls
@@ -564,7 +569,9 @@ def check(
         current_probed = {
             model: outcome for model, outcome in current_probed.items() if outcome.get("source") != "completed_stage"
         }
-        for model, outcome in access_evidence.passed(state.get("stages", []), identity, run_dir).items():
+        for model, outcome in access_evidence.passed(
+            state.get("stages", []), identity, run_dir, earlier_dirs=earlier
+        ).items():
             current_probed.setdefault(model, outcome)
         publication.extend(
             entry for entry in saved if entry["identity"] in equivalent and entry["identity"] != identity

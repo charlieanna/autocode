@@ -152,6 +152,31 @@ def moved(state: RunState) -> dict | None:
     return record["moved_to"]
 
 
+def origin(state: RunState, run_dir) -> Path | None:
+    """The run directory in the person's checkout this run moved from, when that record names this run.
+
+    A move carries the run's state, not its files: what a stage or an access probe earned before the
+    move stays in the folder's run directory, which its records name. Evidence checks read it there
+    (#3219), so the moved run does not pay again for access it already proved on the same tool. Only
+    the record this run came from counts, and only while it still says it moved here."""
+    record = state.get(KEY) if isinstance(state, dict) else None
+    if not isinstance(record, dict) or record.get("state") != BUILDING:
+        return None
+    source = (record.get("moved_from") or {}).get("run_dir")
+    if not isinstance(source, str) or not Path(source).is_absolute():
+        return None
+    source_dir = Path(source)
+    try:
+        if source_dir.is_symlink() or (source_dir / "state.json").is_symlink():
+            return None
+        target = moved(util.read(source_dir / "state.json"))
+        if target is None or Path(str(target.get("run_dir") or "")).resolve() != Path(run_dir).resolve():
+            return None
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+    return source_dir
+
+
 def resolve(workspace, run_dir, state: RunState) -> tuple[Path, Path, RunState] | None:
     """The run a moved record names, as (worktree, run directory, state), when it is exactly that run.
 
