@@ -1978,7 +1978,7 @@
 
 
 <h1 id="registry-apis">Registry APIs<a class="headerlink" href="#registry-apis" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/5bb7fef2d2e68e48408db2cd485122ca0c2ed3b6/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/c248d5e0bd6e90d8ff6fe8fec71db4674eac6686/README.md">← Back to README</a></p>
 <p>Autocode automatically records every real new run and ordinary resumed run before a
 provider can start. The registry is a small per-user pointer index, not a copy of
 <code>state.json</code>, logs, prompts, credentials, or provider configuration. It is stored at
@@ -2004,8 +2004,11 @@ task file. <code>location</code> returns <code>registry_version</code>, <code>st
 <code>exists</code>. <code>list</code> returns <code>registry_version</code>, <code>workspaces</code>, <code>runs</code>, and <code>diagnostics</code>.
 Run records contain stable canonical-path-derived <code>id</code>, <code>workspace_id</code>, <code>workspace</code>,
 <code>run_dir</code>, and <code>task_id</code> when the run-level checkpoint identity is available. Listings
-derive only a small current summary (<code>status</code>, <code>phase</code>, <code>next_stage</code>) from a valid referenced
-checkpoint.</p>
+derive only a small current summary (<code>status</code>, <code>phase</code>, <code>next_stage</code>, <code>title</code>, <code>updated_at</code>) from
+a valid referenced checkpoint, under the run's <code>diagnostic</code> object. <code>title</code> is the first line of
+the run's task, at most 80 characters, or null; <code>updated_at</code> is when the checkpoint was last
+written, in UTC as <code>YYYY-MM-DDTHH:MM:SSZ</code>, so a client can list the most recently used chats
+first.</p>
 <p>Each listed run has an <code>availability</code> value. <code>available</code> includes that summary;
 <code>workspace_missing</code>, <code>workspace_invalid</code>, <code>checkpoint_missing</code>, <code>checkpoint_malformed</code>,
 <code>containment_invalid</code>, <code>checkpoint_unsupported</code>, <code>inaccessible</code>, and
