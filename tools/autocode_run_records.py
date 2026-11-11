@@ -154,11 +154,14 @@ def normalize_human_boundary(state: RunState, run_dir):
     # The batch's last records belong to its members, never the parent. A pending member request
     # left stale by a settings write must stay for its retry/answer instead of becoming a legacy decision.
     member_request = worker_quota.at_checkpoint(state) and resolver_human.pending_issued(state)
-    if (
-        not proposal
-        and not member_request
-        and state.get("status") in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL", "PAUSED_GOAL_UNAPPROVED")
-    ):
+    waiting = state.get("status") in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL", "PAUSED_GOAL_UNAPPROVED")
+    if not proposal and not member_request and waiting and _restage_stale_request(state):
+        # A published request a settings write left stale (a stage's model changed while it was
+        # pending, #3145) goes back to evaluate() with its own origin and evidence. Rebuilt from the
+        # bare request below, a diagnosed blocker lost its diagnosis and was deferred to another
+        # Resolver run, so the person's question and its reply vanished from the view.
+        proposal = state.get(resolver_human.PRIVATE)
+    elif not proposal and not member_request and waiting:
         # Explicit locked reconciliation of legacy decisions. Read-only status
         # and dashboard projections never enter this writer path.
         request = copy.deepcopy(state.get("user_request") or {})
@@ -325,6 +328,18 @@ def normalize_human_boundary(state: RunState, run_dir):
             )
     # Deferred or rejected proposals stay private for resolver diagnosis.
     state.update({"status": "RESOLVER_PENDING", "phase": "RESOLVING"})
+
+
+def _restage_stale_request(state: RunState) -> bool:
+    """Restage the authentic pending request for evaluate(); False when there is none to restage.
+
+    restage_pending() refuses a request whose plan or current task moved and raises on changed
+    evidence; either way the request is not current, and the caller reconciles what is saved.
+    """
+    try:
+        return resolver_human.restage_pending(state)
+    except ValueError:
+        return False
 
 
 def read_json(path: Path) -> dict[str, Any]:

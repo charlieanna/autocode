@@ -68,6 +68,10 @@ TANGLED: frozenset[str] = frozenset()
 # 2026-11-11: #3200 and #3194 raised autocode_verify.py to 3014 lines without raising its limit. product_files
 # then left out installed dependencies (#3164); the rule lives in autocode_dependency_dirs, and its import and one
 # condition raised autocode_verify.py by 3 more lines, to 3017.
+# 2026-11-11: the failed-verification summary for the Builder (feedback) moved to autocode_verify_result,
+# which assembles the result it reads, lowering autocode_verify.py to 3003.
+# 2026-11-11: the flaky-suite-test recheck (#2942) lives in autocode_suite_flakes; its import and the one
+# argument _preserve_suite passes to the suite judgment raised autocode_verify.py by 3 and _preserve_suite by 1.
 MAX_LINES = {
     "autocode.py": 1830,
     "autocode_goals.py": 1404,
@@ -75,7 +79,7 @@ MAX_LINES = {
     "autopilot.py": 1392,
     "autocode_run_actions.py": 366,
     "autocode_args.py": 1038,
-    "autocode_verify.py": 3017,
+    "autocode_verify.py": 3006,
 }
 
 # Line counts of the largest functions, (module, function): lines. handle() was 946 lines before its
@@ -97,7 +101,7 @@ MAX_FUNCTION_LINES = {
     ("autocode_args.py", "build_parser"): 544,
     ("autocode.py", "run_role"): 527,
     ("autocode_verify.py", "verify"): 334,
-    ("autocode_verify.py", "_preserve_suite"): 219,
+    ("autocode_verify.py", "_preserve_suite"): 220,
     ("autocode_configure.py", "configure"): 291,
     ("autocode_configure.py", "_configure_saved"): 164,
     ("autocode_tool_containment.py", "configure"): 189,

@@ -262,6 +262,27 @@ class HumanPublicationTests(unittest.TestCase):
         self.assertIn("cannot continue safely", public["request"]["impact"])
         self.assertEqual(3, saved["failure_history"]["failure"]["count"])
 
+    def test_a_time_limit_question_names_the_limit_without_its_flags(self):
+        # #3145 shows a person only the sentences that name no flag, so the advice naming
+        # --max-seconds is dropped; the person's own sentence must still say which limit stopped the run.
+        import autocode_run_view as run_view
+
+        self.state.update(status="PAUSED_TIME_LIMIT", next_stage="review_plan")
+        self.state["settings"].setdefault("limits", {})["max_seconds"] = 1
+        self.state["settings"].setdefault("budget_origins", {})["max_seconds"] = "user_explicit"
+        run = Path(self.state["run_dir"])
+        error = support.Paused("PAUSED_TIME_LIMIT", "Active time limit reached")
+        self.assertTrue(runner.resolver_runtime.record_operational_exhaustion(runner, self.state, run, error))
+        with contextlib.redirect_stderr(io.StringIO()):
+            runner.write_json(run / "state.json", self.state)
+        saved = support.read(run / "state.json")
+        need = run_view.needs(saved)
+        self.assertEqual("answer", need["kind"], need)
+        shown = json.dumps(need["questions"])
+        self.assertIn("could not resolve the active time limit you set", shown)
+        self.assertNotIn("--", shown)
+        self.assertIn("--max-seconds N", saved["stop_reason"])
+
     def test_worker_cannot_publish_a_question_independently(self):
         self.queue_question()
         self.state["parent_run"] = "/parent/run"

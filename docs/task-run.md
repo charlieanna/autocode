@@ -2612,8 +2612,10 @@ Each run still passes its own completion gate. `changeset status` adds `verifica
   AutoCode's own excluded) match the recorded evidence. Historical results and waivers without
   the check identity remain readable but are not current; run the check again or record a fresh
   explicit waiver rather than inferring approval for an unknown command.
-- `done` is true once every run is complete and either no command was named, a current result
-  passed, or a current waiver exists.
+- `done` is true once every run is complete and either a current result passed or a current
+  waiver exists. With no command named, completed runs alone do not make the set done: separate
+  green runs do not show the producer and consumer agree. Name a check, or waive it with a reason;
+  clients say so while `check` is null and `waiting_on` is empty.
 - `merge_order` and `next_command` (the `verify` argument array, while a check is due).
 
 The summary's additive `record_revision` identifies the inspected change-set record. Changing
@@ -2630,8 +2632,9 @@ The actions:
   the producer's checkout. This is where the shared interface is checked. Naming a command
   clears both the previous result and its waiver, including when changing only the target.
 - `changeset verify --run-dir RUN` runs it. A check that changes a workspace does not pass.
-- `changeset waive --run-dir RUN --reason TEXT` records a waiver for the named check, current
-  member runs and code. It grants no waiver for a replacement check.
+- `changeset waive --run-dir RUN --reason TEXT` records a waiver for the named check (or for
+  having none), current member runs and code. It grants no waiver for a replacement check or for
+  a check named after it.
 - `changeset reopen --run-dir RUN --target TARGET [--message TEXT]` sends that run a
   follow-up, by default the failed check's command and output.
 - `changeset order --run-dir RUN TARGET...` sets the merge order. By default the source

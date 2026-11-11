@@ -148,8 +148,9 @@ the existing participant gates still govern continuation.
   command, execution target, member runs and their code; a change to any of those withdraws it.
   Replacing the check also clears its previous waiver. A concurrent record change refuses an
   old result instead of attaching it to a new check. A failed check can reopen the run that
-  diverged, or you can waive that check with a reason. `autocode changeset pr-body` writes the section each
-  pull request carries, with the merge order
+  diverged, or you can waive that check with a reason. Until a check passes or you waive it, the
+  set is not done: with no check named, its status says nothing has checked the runs together.
+  `autocode changeset pr-body` writes the section each pull request carries, with the merge order
   ([Checking the set together](task-run.md#checking-the-set-together-and-delivering-it)).
 - **The terminal chat shows the change set.** Its side panel lists the linked runs, and
   `/changeset` shows every run and asks before approving the plans together or running the
@@ -335,13 +336,13 @@ Live end-to-end delivery is not yet verified. The current implementation also ha
   one consolidated approval for member plans and the joint-test plan. A plain
   parent folder is not itself a multi-repository run; configure it as a local
   source root for automatic discovery.
-- In the manual change-set API, without a named integration command, `verification.done` means all individual
-  runs completed. It does **not** prove the producer and consumer agree. Name the
-  check before treating the overall bug as resolved.
-- Manual change-set approval binds member plans; automatic coordination binds
-  member and joint-test plans together. A separately versioned shared-interface
-  contract and the remaining guided onboarding work are tracked in
-  [#2066](https://github.com/charlieanna/autocode/issues/2066).
+- In the manual change-set API, a set with no named integration command is not done until you
+  name one or waive it with a reason: separate green runs do not prove the producer and consumer
+  agree.
+- There is no separately versioned shared-interface document. The two sides' agreement is checked
+  where it can fail: by the integration command in a manual change set, and by the joint-test plan
+  and its fail-before/pass-after regression in automatic coordination. Manual set approval binds
+  the member plans; automatic coordination binds the member and joint-test plans together.
 
 ## The manual workflow
 

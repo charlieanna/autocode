@@ -171,7 +171,11 @@ Shell pipelines, custom reporters, ordinary npm/Jest/Mocha summaries and custom
 assertion scripts do not currently provide named proof. A direct supported
 targeted command can accompany an existing package-script suite. If the project
 cannot use a supported runner, settle that compatibility blocker during planning;
-do not downgrade an approved named criterion to prose to make a run finish.
+do not downgrade an approved named criterion to prose to make a run finish. A
+draft whose test files the proof's suite would never run, such as RSpec specs in
+a repository whose root suite is Node, is refused when it is drafted unless one
+directory with its own suite holds them all (see the monorepo packages section of
+[workflow](workflow.md)), so the Planner settles it before a Builder runs.
 
 ## JUnit XML from other test runners
 

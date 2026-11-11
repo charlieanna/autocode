@@ -107,7 +107,11 @@ class TaskFlows(unittest.TestCase):
         ui_spec, code_spec = lane["tasks"]
         ui_record, code_record = (lane_state["tasks"][item["id"]] for item in lane["tasks"])
 
-        def completed(command, **_kwargs):
+        run_git = subprocess.run
+
+        def completed(command, **kwargs):
+            if command[0] == "git":  # the child run's plan check detects its suite (autocode_plan_test_suite)
+                return run_git(command, **kwargs)
             if command[2:3] == ["ui"]:
                 run = Path(command[command.index("--run-dir") + 1])
                 run.mkdir(parents=True)
