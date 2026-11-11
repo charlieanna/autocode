@@ -208,25 +208,26 @@ def _entry(directory, name):
         return None
 
 
-def _read(directory):
-    before = _entry(directory, FILENAME)
+def _read(directory, name=FILENAME, sanitize=None, limit=MAX_BYTES):
+    sanitize = sanitize or sanitize_record
+    before = _entry(directory, name)
     if before is None:
         return None, None, None
     _regular(before)
-    if before.st_size > MAX_BYTES:
+    if before.st_size > limit:
         raise _error()
-    leaf = os.open(FILENAME, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+    leaf = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
     try:
         opened = os.fstat(leaf)
         _regular(opened)
         if _signature(before) != _signature(opened):
             raise _error()
         with os.fdopen(leaf, "rb", closefd=False) as stream:
-            data = stream.read(MAX_BYTES + 1)
+            data = stream.read(limit + 1)
         if (
-            len(data) > MAX_BYTES
+            len(data) > limit
             or _signature(opened) != _signature(os.fstat(leaf))
-            or _signature(opened) != _signature(_entry(directory, FILENAME))
+            or _signature(opened) != _signature(_entry(directory, name))
         ):
             raise _error()
     finally:
@@ -235,7 +236,7 @@ def _read(directory):
         value = json.loads(
             data.decode("utf-8"), object_pairs_hook=_pairs, parse_constant=lambda _: (_ for _ in ()).throw(_error())
         )
-        record = sanitize_record(value)
+        record = sanitize(value)
     except (ValueError, UnicodeError, TypeError, RecursionError, OverflowError) as error:
         raise _error() from error
     return record, data, before
@@ -378,29 +379,67 @@ def _merge(previous, current):
     }
 
 
+def _replace(directory, name, data, before):
+    """Atomically replace ``name`` with ``data`` unless it changed since ``before`` was read."""
+    temporary = ".project-memory-" + uuid.uuid4().hex
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        latest = _entry(directory, name)
+        if (before is None) != (latest is None) or before is not None and _signature(before) != _signature(latest):
+            raise _error()
+        os.replace(temporary, name, src_dir_fd=directory, dst_dir_fd=directory)
+        os.fsync(directory)
+    finally:
+        with suppress(FileNotFoundError):
+            os.unlink(temporary, dir_fd=directory)
+
+
 def write(workspace, record):
     """Atomically merge current-run safe facts under the same lock as forget."""
     current = sanitize_record(record)
     with _directory(workspace, create=True) as directory, _locked(directory):
         previous, _, before = _read(directory)
         merged = sanitize_record(_merge(previous, current))
-        data = _encoded(merged)
-        temporary = ".project-memory-" + uuid.uuid4().hex
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
-        try:
-            with os.fdopen(descriptor, "wb") as stream:
-                stream.write(data)
-                stream.flush()
-                os.fsync(stream.fileno())
-            latest = _entry(directory, FILENAME)
-            if (before is None) != (latest is None) or before is not None and _signature(before) != _signature(latest):
-                raise _error()
-            os.replace(temporary, FILENAME, src_dir_fd=directory, dst_dir_fd=directory)
-            os.fsync(directory)
-        finally:
-            with suppress(FileNotFoundError):
-                os.unlink(temporary, dir_fd=directory)
+        _replace(directory, FILENAME, _encoded(merged), before)
     return merged
+
+
+def safe(value, *, command=False):
+    """Whether a string is shareable project data: no credential, secret value or local absolute/private path."""
+    return _safe(value, command=command)
+
+
+def read_document(workspace, name, sanitize, *, limit=MAX_BYTES):
+    """Read another bounded document in the project's .autocode with this record's file rules.
+
+    Returns ``(value, sha256)``, or ``(None, None)`` when it is absent; raises ValueError when the
+    file is a link, special file, oversized or fails ``sanitize``. Its contents are never echoed.
+    """
+    with _directory(workspace, create=False) as directory:
+        if directory is None or _entry(directory, name) is None:
+            return None, None
+        value, data, _ = _read(directory, name, sanitize, limit)
+        return value, hashlib.sha256(data).hexdigest()
+
+
+def update_document(workspace, name, sanitize, change, *, limit=MAX_BYTES):
+    """Read, change and atomically replace a bounded project document under the project-memory lock.
+
+    ``change(previous)`` gets the sanitized value, or None when absent, and returns the new value,
+    which is sanitized and encoded here; an unchanged or invalid file is never partly written.
+    """
+    with _directory(workspace, create=True) as directory, _locked(directory):
+        previous, _, before = _read(directory, name, sanitize, limit)
+        current = sanitize(change(copy.deepcopy(previous)))
+        data = _encoded(current)
+        if len(data) > limit:
+            raise _error()
+        _replace(directory, name, data, before)
+    return current
 
 
 def forget(workspace):
