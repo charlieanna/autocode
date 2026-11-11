@@ -91,11 +91,14 @@ should watch the same boundaries. Standing tally after the fixes: all three case
 to end; the one observed false completion came through the requirements boundary, and its
 guard is now model-dependent — verified by live runs, not mechanically. Since 2026-10-04 one part is
 mechanical (`tools/autocode_brief_literals.py`): a planner draft that drops a literal the brief writes in
-backticks goes back to the planner. Whether every worked example agrees with that literal is still the
-Plan Reviewer's check. Since 2026-10-13 (#595) the handoff itself is machine-checkable: each
+backticks goes back to the planner. Since 2026-10-13 (#595) the handoff itself is machine-checkable: each
 criterion cites append-only source sentences, the Plan Reviewer seals out-of-scope and
 negation waivers, and `validate_body` refuses a ready contract that drops a number, literal
-or negation from a cited sentence (`docs/bugs/2026-10-13-source-trace.md`).
+or negation from a cited sentence (`docs/bugs/2026-10-13-source-trace.md`). Since #2941 the
+same check compares each worked example in a citing criterion with the templates its cited
+sentences state, so the to-do case's `1 buy milk open` beside a quoted `ID TEXT [open|done]` goes
+back to the planner with the changed brackets, separators, field order or casing named. Whether an
+example means what the brief means, beyond its format, is still the Plan Reviewer's check.
 
 First run of the three cases (2026-10-01, master 68e89aa4, profile glm53-openai:
 GLM-5.3 producers on the Z.AI plan, GPT-6 verifiers on OpenCode's ChatGPT login;
