@@ -490,6 +490,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#changing-a-new-chats-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changing a new chat's models
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#changing-a-started-runs-models" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1970,6 +1981,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#changing-a-new-chats-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changing a new chat's models
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#changing-a-started-runs-models" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2122,7 +2144,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/27e754f78c8b9fd2cf6764baf77686043a2589bb/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/42755a3d27f35a5b8856cef06074a6e061451e2b/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2290,7 +2312,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/27e754f78c8b9fd2cf6764baf77686043a2589bb/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/42755a3d27f35a5b8856cef06074a6e061451e2b/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2451,6 +2473,18 @@ selection picks for it (below). <code>autocode stages set STAGE --model MODEL --
 <code>autocode stages reset [STAGE]</code> change one stage without asking.</p>
 <p>A saved level differs from a typed one in one way: for the three review stages it is a ceiling
 (<a href="#reasoning-effort">reasoning effort</a>). Every other stage runs at the level you saved.</p>
+<h3 id="changing-a-new-chats-models">Changing a new chat's models<a class="headerlink" href="#changing-a-new-chats-models" title="Permanent link">&para;</a></h3>
+<p>A client can show a chat that has not started the model and level each stage will run, and let the
+person change them for that chat alone (owner request 2026-11-11):</p>
+<pre><code class="language-sh">autocode stages list --chat-stage builder claude-sonnet-5-5 high   # what a new chat runs with that Builder
+</code></pre>
+<p>Each <code>--chat-stage STAGE MODEL EFFORT</code> is checked as <code>autocode stages set</code> checks a saved choice (a
+model the backend offers, a level it takes, a checker never sharing its producer's model, judged
+against the chat's other stages) and saved nowhere: other new tasks keep the saved choices. The list
+marks the stage <code>(this chat)</code> and, with <code>--json</code>, names <code>chat.start_args</code>, the stage flags
+(<code>--builder-model claude-sonnet-5-5 --builder-reasoning-effort high</code>) the chat's run starts with. They
+are typed flags, so the start checks them again, the level is exact, and the saved choice for that
+stage is not taken; every other stage takes its saved choice or default as usual.</p>
 <h3 id="changing-a-started-runs-models">Changing a started run's models<a class="headerlink" href="#changing-a-started-runs-models" title="Permanent link">&para;</a></h3>
 <p>A task already running keeps its routes, so <code>autocode stages</code> reaches only new tasks. To change
 what one stage runs in a started run (owner request 2026-11-10), change it between stages:</p>
