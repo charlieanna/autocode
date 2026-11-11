@@ -61,7 +61,7 @@ using supported expected outcomes and retaining the general rule; do not invent 
 Do not create a technical approach, milestone, dependency graph, or implementation plan.
 Do not treat a proposed default as a user answer. Do not implement.
 In a spec_first run, when the conversation so far states nothing the user wants done
-(only a greeting, small talk or an off-topic question), assistant_reply is the whole
+(only a greeting, small talk or an off-topic question), {confirmation_target} is the whole
 answer: reply naturally and ask nothing about a task. Set job to none and leave
 intended_outcome, requirements, required_behaviors, acceptance_tests and open_questions
 empty rather than inventing a product, tests or a question; the chat stays open for the
