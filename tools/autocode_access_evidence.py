@@ -38,10 +38,10 @@ def launch_binding(settings, role, adapter, model, effort) -> dict | None:
     return {"schema": 1, "identity": identity, "model": model}
 
 
-def _completed_events(record, run_dir) -> bool:
+def _completed_events(record, roots) -> bool:
     """Use actual local terminal events, never a report's claim of success."""
     try:
-        root = Path(run_dir).resolve()
+        roots = [Path(root).resolve() for root in roots]
         for key in ("output", "events"):
             name = record.get(key)
             if not isinstance(name, str) or not name:
@@ -51,7 +51,7 @@ def _completed_events(record, run_dir) -> bool:
                 not path.is_absolute()
                 or not path.is_file()
                 or path.is_symlink()
-                or not path.resolve().is_relative_to(root)
+                or not any(path.resolve().is_relative_to(root) for root in roots)
             ):
                 return False
         terminal = False
@@ -71,8 +71,11 @@ def _completed_events(record, run_dir) -> bool:
         return False
 
 
-def passed(records, identity, run_dir, *, equivalent=()) -> dict[str, dict]:
+def passed(records, identity, run_dir, *, equivalent=(), earlier_dirs=()) -> dict[str, dict]:
     """Only clean, charged real calls under the requested or proven equivalent identity qualify.
+
+    A call's files must lie in ``run_dir`` or in ``earlier_dirs``, the run directories this same run
+    moved from (``autocode_build_worktree.origin``), where its calls before the move left them.
 
     An accepted report-only repair is also a real request to that route. Its own
     launch binding and terminal events prove access; the rejected original does
@@ -111,7 +114,7 @@ def passed(records, identity, run_dir, *, equivalent=()) -> dict[str, dict]:
             record.get(key) for key in ("timed_out", "interrupted", "rejected", "dry_run", "replay", "cleanup_error")
         ):
             continue
-        if not _completed_events(record, run_dir):
+        if not _completed_events(record, (run_dir, *earlier_dirs)):
             continue
         outcomes[model] = {
             "status": "ok",

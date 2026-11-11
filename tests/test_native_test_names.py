@@ -771,7 +771,9 @@ class DraftValidationTests(unittest.TestCase):
         state = self.state(self.python.root, task=task)
         self.assertEqual("unittest", native.proof_framework(state))
         self.assertEqual([], native.requested(state))
-        lifecycle.validate_body(state, plan(CONVENTION), ready=True)
+        body = plan(CONVENTION)
+        body["milestones"][0]["affected_paths"] = ["calc.py", "test_calc.py"]  # a Go test file no suite here runs
+        lifecycle.validate_body(state, body, ready=True)
 
     def test_an_existing_test_the_brief_mentions_is_not_a_new_case(self):
         task = "The test TestExistingIsSeven must keep passing; fix Fixed to return 2."

@@ -34,8 +34,9 @@ except ImportError:
 STAGE = "model_preflight"
 
 
-def records(state: RunState, run_dir):
-    root = (Path(run_dir) / "model-preflight").resolve()
+def records(state: RunState, run_dir, earlier_dirs=()):
+    """This run's probe attempts: those under ``run_dir``, and under the run directories it moved from."""
+    roots = [(Path(directory) / "model-preflight").resolve() for directory in (run_dir, *earlier_dirs)]
     return [
         row
         for row in state.get("stages", [])
@@ -43,7 +44,7 @@ def records(state: RunState, run_dir):
         and row.get("stage") == STAGE
         and isinstance(row.get("events"), str)
         and Path(row["events"]).is_absolute()
-        and Path(row["events"]).resolve().is_relative_to(root)
+        and any(Path(row["events"]).resolve().is_relative_to(root) for root in roots)
     ]
 
 

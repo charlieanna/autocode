@@ -1,4 +1,8 @@
-"""A real Requirements child replaces only its own paid access probe (#2345)."""
+"""A real Requirements child replaces only its own paid access probe (#2345).
+
+A run that plans in a task worktree of its own (#3081) keeps the access it proved in the person's folder:
+seen 2026-11-11 on Kilo (#3219), the worktree probed every model again, Requirements' own route included.
+"""
 
 import json
 import shutil
@@ -26,6 +30,9 @@ class AccessEvidenceCLI(unittest.TestCase):
     def test_fresh_joint_requirements_defers_only_its_exact_probe_before_same_invocation_planning(self):
         self.check_requirements_access(repaired=False, fresh=True)
 
+    def test_a_run_that_moves_to_its_worktree_keeps_the_access_it_proved_in_the_folder(self):
+        self.check_requirements_access(repaired=False, worktree=True)
+
     def test_failed_requirements_auth_is_charged_and_does_not_launch_planning(self):
         self.check_requirements_access(repaired=False, fresh=True, failure="auth")
 
@@ -35,7 +42,7 @@ class AccessEvidenceCLI(unittest.TestCase):
     def test_uncertain_requirements_is_charged_and_does_not_launch_planning(self):
         self.check_requirements_access(repaired=False, fresh=True, failure="uncertain")
 
-    def check_requirements_access(self, *, repaired, fresh=False, failure=None):
+    def check_requirements_access(self, *, repaired, fresh=False, failure=None, worktree=False):
         binary = self.root / "fixture-bin"
         shutil.copy2(HERE / "live_fixture_provider.py", binary / "codex-fixture")
         if repaired:
@@ -114,7 +121,14 @@ class AccessEvidenceCLI(unittest.TestCase):
             "0",
         )
         run = taskrun.TaskRun.start(
-            self.project, BRIEF, options=options, command=self.entry, env=self.env, timeout=180, cwd=self.root
+            self.project,
+            BRIEF,
+            options=options,
+            start_options=("--build-in-worktree",) if worktree else (),
+            command=self.entry,
+            env=self.env,
+            timeout=180,
+            cwd=self.root,
         )
         view = run.status()
         if not fresh:
@@ -134,6 +148,13 @@ class AccessEvidenceCLI(unittest.TestCase):
                 self.assertIn("provider_or_spending_guard", view["stop_reason"])
         else:
             self.assertEqual("approve_plan", view["needs"]["kind"], view.get("stop_reason"))
+        if worktree:
+            moved = Path(view["run_dir"])
+            self.assertEqual(self.project / ".autocode" / "worktrees", Path(view["workspace"]).parent)
+            self.assertNotEqual(run.run_dir.resolve(), moved.resolve(), "the run plans in its own worktree")
+            self.assertFalse((moved / "model-preflight").exists(), "the worktree probes nothing again")
+            attempts = view["usage"]["accounting"]["attempts"]
+            self.assertEqual(["demo/builder"], [row["model"] for row in attempts if row["stage"] == "model_preflight"])
         calls = [json.loads(line)["args"] for line in log.read_text().splitlines()]
         launches = [args for args in calls if args[:1] == ["exec"]]
         probe_models = []

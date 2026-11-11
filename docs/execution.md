@@ -514,6 +514,39 @@ name; the suite still runs once, and each run keeps the 900-second limit. When a
 runner cannot select the tests by name, or a repeat does not report a test, the
 single run stands as before and the record says so (`unrepeated`).
 
+### Flaky suite tests
+
+The suite comparison treats a test that passed on the original code and fails
+on the candidate as a regression. On a real project's suite that single
+comparison also catches a test that fails now and then whatever the change, so
+before it is judged, AutoCode rechecks it (`tools/autocode_suite_flakes.py`,
+#2942):
+
+- Only such a failure is rechecked, and only when both suite runs completed,
+  no due test case names it and no changed file mentions it. More than ten at
+  once are judged as regressions without a recheck.
+- The failing tests alone (selected by name, never the whole suite) run two
+  more times on the candidate. A test that fails every time stays a regression.
+- A test that passed again runs two more times on the original code. Only when
+  it fails there too is it **quarantined**: left out of the comparison as
+  neither preserved nor regressed. A test that passed every run on the original
+  code stays a regression, since the change may have made it flaky.
+- A rerun that did not report the test, or a runner that cannot select it,
+  never quarantines anything.
+
+The decision, every run of each rechecked test and the quarantine reason are
+kept as `suite_flakes` in the proof's `verification.json` and in the run's
+regression proof; a quarantine also adds a note and a review reason that the
+judging stages read. None of this is a question for the person.
+
+A test that failed in one proof and passed when the same source was proved
+again is not quarantined: it was not seen failing on the original code. The
+runner's blocking finding for that source stays open, and a Completion
+Reviewer that asks to complete is sent back once with that reason, so the
+Builder makes the change or the test reliable. A second request for the same
+source goes to the Investigator. The run never stops at the completion gate
+for it.
+
 When the project already has a coverage tool (`coverage.py`, `go test
 -coverprofile`, `c8`, or Vitest's coverage package), the proving-test command
 runs once more in that scratch tree to record line coverage

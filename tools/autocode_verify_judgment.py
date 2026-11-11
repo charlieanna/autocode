@@ -235,10 +235,13 @@ def judge_suite(
     kept_tests=(),
     untested=False,
     repaired=(),
+    quarantined=(),
 ):
     """Nothing that passed on base may fail, be skipped, be deselected or disappear (``kept_tests``: first_suite).
 
     ``repaired``: the base's failing tests that pass on the candidate (first_suite.repaired_evidence).
+    ``quarantined``: tests the flaky-test recheck showed failing on base too (autocode_suite_flakes); they
+    are neither a regression nor a preserved test.
     """
     if on_candidate["timed_out"]:
         fail.append("The project suite timed out on the candidate")
@@ -364,16 +367,17 @@ def judge_suite(
                 first_suite.no_base_evidence(untested and first_suite.no_base_suite(base_receipt), ran=False)
             )
     if candidate is not None and base_results is not None:
+        flaky = set(quarantined)
         if base_results.get("complete") and not base_receipt.get("timed_out"):
-            new = sorted(set(candidate["failed"]) - set(base_results["failed"]))
+            new = sorted(set(candidate["failed"]) - set(base_results["failed"]) - flaky)
         else:
             # The base run stopped early, so a test absent from its failures may simply
             # never have run: only a failure that was observed passing on base is a FAIL.
-            new = sorted(set(candidate["failed"]) & set(base_results["passed"]))
+            new = sorted(set(candidate["failed"]) & set(base_results["passed"]) - flaky)
         if new:
             fail.append("Tests that pass on base fail on the candidate: " + ", ".join(new[:20]))
         if candidate["complete"] and base_results["complete"]:
-            lost = sorted(set(base_results["passed"]) - set(candidate["passed"]) - set(new))
+            lost = sorted(set(base_results["passed"]) - set(candidate["passed"]) - set(new) - flaky)
             if lost:
                 fail.append(
                     "Tests that pass on base did not pass on the candidate (skipped, deselected, "

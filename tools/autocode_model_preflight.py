@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -50,6 +51,7 @@ try:
     from . import autocode_access_evidence as access_evidence
     from . import autocode_access_identity as access_identity
     from . import autocode_agent_env as agent_env
+    from . import autocode_build_worktree as build_worktree
     from . import autocode_builder_policy as builder_policy
     from . import autocode_cost as cost
     from . import autocode_preflight_attempts as attempts
@@ -66,6 +68,7 @@ except ImportError:
     import autocode_access_evidence as access_evidence
     import autocode_access_identity as access_identity
     import autocode_agent_env as agent_env
+    import autocode_build_worktree as build_worktree
     import autocode_builder_policy as builder_policy
     import autocode_cost as cost
     import autocode_preflight_attempts as attempts
@@ -188,12 +191,18 @@ def _classify(events_path: Path, *, withheld_env=()) -> tuple[str | None, str]:
     return status, message or status
 
 
-def bare(argv: list, env: dict) -> tuple[list, dict]:
+def bare(argv: list, env: dict, *, home: str | os.PathLike | None = None) -> tuple[list, dict]:
     """Run an OpenCode-family probe as ``PROBE_AGENT``: no tools, every permission denied, a one-line system prompt.
+
+    ``home``, an empty folder outside the project, replaces the launch's ``--dir``: OpenCode and Kilo add the
+    project's AGENTS.md to every request from that folder, and the probe needs none of it. AutoCode's own
+    42 KB AGENTS.md made each probe about 10,300 input tokens instead of about 600 (a live run, 2026-11-11).
 
     A launch that names no agent through an inline configuration (another tool) is left as it is."""
     if "--agent" not in argv[:-1]:
         return argv, env
+    if home is not None and "--dir" in argv[:-1]:
+        argv[argv.index("--dir") + 1] = str(home)
     for variable in CONFIG_VARIABLES:
         if variable not in env:
             continue
@@ -241,6 +250,7 @@ def probe(
     started = time.monotonic()
     launch_env = dict(os.environ)
     withheld_env = agent_env.withheld(launch_env)
+    home = tempfile.TemporaryDirectory(prefix="autocode-probe-")
     try:
         result = transport.execute(
             adapter=adapter,
@@ -257,7 +267,7 @@ def probe(
             supervised=True,
             checkpoint=checkpoint,
             deadline=deadline,
-            prepare=bare,
+            prepare=lambda argv, env: bare(argv, env, home=home.name),
             role=role,
         )
     except (processes.ProcessError, OSError) as error:
@@ -266,6 +276,8 @@ def probe(
             f"Model access preflight could not verify provider ownership for {model}: {error}. "
             f"Probe evidence: {directory}",
         ) from error
+    finally:
+        home.cleanup()
     events_path = directory / "events.jsonl"
     status: str | None
     if result.get("timed_out"):
@@ -523,9 +535,12 @@ def check(
     attempts.reconcile(runner, state, run_dir, checkpoint)
     marker = run_dir / "model-preflight.json"
     saved = _saved_receipts(marker)
+    # A run that moved into its task worktree keeps what it proved in the folder it came from (#3219):
+    # its probes and calls there were made on the same tool, and their files stay where they ran.
+    earlier = [directory for directory in (build_worktree.origin(state, run_dir),) if directory is not None]
     charged = [
         record
-        for record in attempts.records(state, run_dir)
+        for record in attempts.records(state, run_dir, earlier)
         if record.get("preflight_complete") and record.get("accounted") and record.get("preflight_outcome")
     ]
     receipts: list[tuple] = []
@@ -556,7 +571,7 @@ def check(
         # remain authoritative over earlier successful task calls.
         probed = {model: outcome for model, outcome in probed.items() if outcome.get("source") != "completed_stage"}
         for model, outcome in access_evidence.passed(
-            state.get("stages", []), identity, run_dir, equivalent=equivalent
+            state.get("stages", []), identity, run_dir, equivalent=equivalent, earlier_dirs=earlier
         ).items():
             probed.setdefault(model, outcome)
         # Preserve each relocated receipt's original binding on disk. Only calls
@@ -564,7 +579,9 @@ def check(
         current_probed = {
             model: outcome for model, outcome in current_probed.items() if outcome.get("source") != "completed_stage"
         }
-        for model, outcome in access_evidence.passed(state.get("stages", []), identity, run_dir).items():
+        for model, outcome in access_evidence.passed(
+            state.get("stages", []), identity, run_dir, earlier_dirs=earlier
+        ).items():
             current_probed.setdefault(model, outcome)
         publication.extend(
             entry for entry in saved if entry["identity"] in equivalent and entry["identity"] != identity

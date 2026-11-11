@@ -51,7 +51,7 @@ class ChangesetDeliveryCliTests(base.ChangesetCliTests):
         self.complete_both()
         here = str(self.run.run_dir)
         _, summary = self.json("status", "--run-dir", here)
-        self.assertTrue(summary["verification"]["done"], "no integration command named: each run's own gate")
+        self.assertFalse(summary["verification"]["done"], "two green runs do not show they agree")
 
         code, summary = self.json(
             "check-command", "--run-dir", here, "--in", "greet-history", "--", sys.executable, "-c", CHECK, "Hi, Ada"
@@ -107,6 +107,33 @@ class ChangesetDeliveryCliTests(base.ChangesetCliTests):
         self.assertFalse(summary["verification"]["done"])
         self.assertIsNone(summary["verification"]["waiver"], "the replaced check's waiver stays withdrawn")
         self.assertIsNotNone(summary["verification"]["next_command"])
+
+    def test_with_no_check_named_only_the_person_s_waiver_makes_the_set_done(self):
+        self.complete_both()
+        here = str(self.run.run_dir)
+        _, summary = self.json("status", "--run-dir", here)
+        verification = summary["verification"]
+        self.assertEqual(
+            ([], None, False, None),
+            (verification["waiting_on"], verification["check"], verification["done"], verification["next_command"]),
+        )
+        shown = self.changeset("status", "--run-dir", here).stdout
+        self.assertIn("nothing has checked them together", shown)
+        self.assertNotIn("Checked together: done", shown)
+        body = self.changeset("pr-body", "--run-dir", here, "--target", "project").stdout
+        self.assertIn("none was named, so nothing has checked these repositories together yet", body)
+
+        code, summary = self.json("waive", "--run-dir", here, "--reason", "Each side is tested against the schema.")
+        self.assertEqual(0, code, summary)
+        self.assertTrue(summary["verification"]["done"])
+        self.assertTrue(summary["verification"]["waiver"]["current"])
+        body = self.changeset("pr-body", "--run-dir", here, "--target", "greet-history").stdout
+        self.assertIn("waived by the person: Each side is tested against the schema.", body)
+
+        code, summary = self.json("check-command", "--run-dir", here, "--in", "project", "--", sys.executable, "-c", "")
+        self.assertEqual(0, code, summary)
+        self.assertFalse(summary["verification"]["done"], "the waiver did not accept the check named after it")
+        self.assertIsNone(summary["verification"]["waiver"])
 
     def test_a_failed_check_reopens_the_run_that_diverged(self):
         self.complete_both()

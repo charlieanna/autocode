@@ -11,7 +11,10 @@ it in ``open_findings``, and a correction task assigns it to the Builder (``acti
 
 A reviewer that asks to complete while the finding is open is sent back once for that source with
 SEND_BACK_NOTE (``send_back``); a second request for the same source pauses PAUSED_COMPLETION_REVIEW,
-which the Investigator takes (autocode_stuck_job.RETRYABLE), never a person question.
+which the Investigator takes (autocode_stuck_job.RETRYABLE), never a person question. The same holds
+when a test the original code passes failed on a source whose proof then passed (``intermittent``,
+#2942): the finding stays open, and the request is sent back with INTERMITTENT_NOTE instead of stopping
+at the completion gate.
 
 Only this module writes or closes ``runner`` findings marked ``regression_proof``. Imports nothing
 above the findings ledger; the caller passes whether the proof is owed and proven.
@@ -42,6 +45,17 @@ SEND_BACK_NOTE = (
     "The runner refused completion: its regression proof does not pass for this source, and its "
     "blocking finding stays open until the proof passes on new source. Return REWORK so the Builder "
     "can correct the change or its tests."
+)
+# The suite judgment's words for a test that passed on the original code and failed with the change
+# (autocode_verify_judgment.judge_suite): a proof that failed only for this on a source and then passed on the
+# same source saw that test fail intermittently with the change (#2942).
+REGRESSED = "Tests that pass on base fail on the candidate"
+INTERMITTENT_NOTE = (
+    "The runner refused completion: its regression proof of this source failed because a test that passes on "
+    "the original code failed with the change, and the same source then passed. A test that fails some of the "
+    "time with the change counts as flaky only when it also fails on the original code, which the runner did not "
+    "see, so its blocking finding stays open until the proof passes on new source. Return REWORK so the Builder "
+    "can make the change, or the test, reliable."
 )
 STOP = (
     "The Completion Reviewer asked again to complete while the runner's regression proof does not pass "
@@ -132,13 +146,27 @@ def reconcile(
     return row
 
 
-def send_back(state: RunState, revision):
+def intermittent(state: RunState, revision) -> bool:
+    """Whether an open proof finding failed this source only because a test the original code passes failed.
+
+    The caller asks once the proof of ``revision`` passes again: reconcile leaves such a finding open (a later
+    pass must not hide a failure that comes and goes), so without this route the completion gate stopped
+    the run on it at PAUSED_COMPLETION_GATE, a stop about AutoCode's own machinery.
+    """
+    return any(
+        revision in (row.get("failed_revisions") or []) and REGRESSED in (row.get("finding") or "")
+        for row in open_rows(state)
+    )
+
+
+def send_back(state: RunState, revision, note=SEND_BACK_NOTE):
     """The fields for a completion request refused while the proof finding is open.
 
-    The first time for this source the Completion Reviewer reviews again with SEND_BACK_NOTE; the
-    second pauses PAUSED_COMPLETION_REVIEW for the Investigator.
+    The first time for this source the Completion Reviewer reviews again with ``note`` (SEND_BACK_NOTE, or
+    INTERMITTENT_NOTE when the proof failed and then passed on it); the second pauses
+    PAUSED_COMPLETION_REVIEW for the Investigator.
     """
     if state.get("completion_sent_back") == revision:
         return run_status.pause({}, "PAUSED_COMPLETION_REVIEW", STOP)
     state["completion_sent_back"] = revision
-    return {"status": "RUNNING", "stop_reason": SEND_BACK_NOTE}
+    return {"status": "RUNNING", "stop_reason": note}

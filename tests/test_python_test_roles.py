@@ -516,6 +516,34 @@ class RoleReadCostTests(unittest.TestCase):
         reader.assert_not_called()
 
 
+class UndecodableSourceTests(unittest.TestCase):
+    """A real repository can hold Python 2 era files Python 3 cannot read (#2944: Docutils' sandbox has
+    Latin-1 bytes with no coding line). They are unparseable sources, never a crash of the whole run."""
+
+    def test_an_unreadable_product_file_makes_reach_uncertain_instead_of_stopping_the_run(self):
+        with tempfile.TemporaryDirectory() as root:
+            workspace = Path(root)
+            (workspace / "pkg").mkdir()
+            (workspace / "pkg/legacy.py").write_bytes(b"# caf\xe9 without a coding line\nimport os\n")
+            (workspace / "pkg/cookie.py").write_bytes(b"# coding: no-such-codec\nimport os\n")
+            (workspace / "pkg/latin.py").write_bytes(b"# -*- coding: latin-1 -*-\nNAME = 'caf\xe9'\n")
+            (workspace / "pkg/test_core.py").write_text(
+                "import unittest\n\nclass TestCore(unittest.TestCase):\n    def test_it(self):\n        pass\n"
+            )
+            snapshot = {name: "file" for name in ("pkg/legacy.py", "pkg/cookie.py", "pkg/latin.py", "pkg/test_core.py")}
+            roles = role_inventory.from_workspace(workspace, verify.is_test_path, snapshot=snapshot)
+        for path in ("pkg/legacy.py", "pkg/cookie.py", "pkg/latin.py"):
+            self.assertEqual(role_policy.PRODUCT, roles.role(path))
+        self.assertEqual(role_policy.AMBIGUOUS, roles.role("pkg/test_core.py"), "unknown imports prove nothing")
+
+    def test_a_declared_encoding_is_still_honoured_and_unreadable_bytes_are_kept(self):
+        latin = b"# coding: latin-1\nNAME = 'caf\xe9'\n"
+        self.assertEqual(latin.decode("latin-1"), role_inventory._text("a.py", latin))
+        self.assertEqual("x = 1  # caf\udce9\n", role_inventory._text("b.py", b"x = 1  # caf\xe9\n"))
+        with self.assertRaises(UnicodeDecodeError):
+            role_inventory._text("notes.txt", b"caf\xe9")
+
+
 class RoleProofFreshnessTests(unittest.TestCase):
     def test_old_policy_cannot_complete_even_when_all_other_proof_evidence_is_accepted(self):
         result = {"verdict": "PASS", "checks": {"suite": {}}, "case_tests": {}, "case_scope": []}

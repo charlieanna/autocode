@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_light_builder as light_builder
+    from . import autocode_output_cap_recovery as output_cap_recovery
     from . import autocode_plan_difficulty as plan_difficulty
     from . import autocode_repair_effort as repair_effort
     from . import autocode_requirements_triage as requirements_triage
@@ -44,6 +45,7 @@ try:
     from . import autocode_route_fit as route_fit
 except ImportError:
     import autocode_light_builder as light_builder
+    import autocode_output_cap_recovery as output_cap_recovery
     import autocode_plan_difficulty as plan_difficulty
     import autocode_repair_effort as repair_effort
     import autocode_requirements_triage as requirements_triage
@@ -148,6 +150,11 @@ def launch(state: RunState, stage, route_role, report_only, route: dict) -> tupl
         raised = plan_difficulty.decide(state, stage, route_role, report_only, configured, model=route.get("model"))
         lowered = decide(state, stage, route_role, report_only, configured, model=route.get("model"))
         decision = raised if raised and (raised.get("raised") or not lowered) else lowered
+        # A stage that spent its whole output limit on reasoning at a level keeps below it on that model
+        # (autocode_output_cap_recovery); that bound wins over a raise, which would only exhaust it again.
+        exhausted = output_cap_recovery.decide(state, stage, effort(decision, configured), model=route.get("model"))
+        if exhausted:
+            decision = {**exhausted, "ceiling": configured}
     level = effort(decision, configured)
     # A route answer moved the saved level to the nearest one its model offers (#3120): say so, beside
     # whichever rule set this launch's level, or as the choice itself when none did.
