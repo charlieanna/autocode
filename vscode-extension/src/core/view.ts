@@ -375,30 +375,42 @@ export interface RegistryList {
 
 /** `autocode registry list --json`, with the pointer fields a run list needs. */
 export function readRegistryList(raw: string): RegistryList {
-  const parsed = JSON.parse(raw) as Record<string, unknown>;
-  const rows = Array.isArray(parsed.runs) ? (parsed.runs as Record<string, unknown>[]) : [];
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    throw new Error("registry list did not return JSON");
+  }
+  const rows = Array.isArray(parsed.runs) ? (parsed.runs as unknown[]) : [];
   return {
     storageRoot: typeof parsed.storage_root === "string" ? parsed.storage_root : undefined,
-    runs: rows.map((row) => {
-      const nested = (row.diagnostic ?? {}) as Record<string, unknown>;
-      return {
-        id: String(row.id ?? ""),
-        workspace: String(row.workspace ?? ""),
-        runDir: String(row.run_dir ?? ""),
-        taskId: typeof row.task_id === "string" ? row.task_id : null,
-        availability: String(row.availability ?? "unknown"),
+    // Like a malformed action below, a row missing the pointers a client acts on is left
+    // out: one bad entry must not cost the person the whole list.
+    runs: rows.flatMap((row) => {
+      if (!row || typeof row !== "object") return [];
+      const record = row as Record<string, unknown>;
+      if (typeof record.id !== "string" || !record.id
+        || typeof record.workspace !== "string" || !record.workspace
+        || typeof record.run_dir !== "string" || !record.run_dir) return [];
+      const nested = (record.diagnostic ?? {}) as Record<string, unknown>;
+      return [{
+        id: record.id,
+        workspace: record.workspace,
+        runDir: record.run_dir,
+        taskId: typeof record.task_id === "string" ? record.task_id : null,
+        availability: String(record.availability ?? "unknown"),
         // An available record carries its current summary under `diagnostic`, not beside it;
         // a stale one carries only a `message` there. `docs/registry-api.md` names the fields
         // but not where they sit, so read either placement and never invent one.
-        status: firstString(row.status, nested.status),
-        phase: firstString(row.phase, nested.phase),
-        nextStage: firstString(row.next_stage, nested.next_stage),
-        title: firstString(row.title, nested.title),
-        updatedAt: firstString(row.updated_at, nested.updated_at),
-        diagnostic: nestedString(row.diagnostic, "message"),
-        archived: row.archived === true,
-        actions: registryActions(row.actions),
-      };
+        status: firstString(record.status, nested.status),
+        phase: firstString(record.phase, nested.phase),
+        nextStage: firstString(record.next_stage, nested.next_stage),
+        title: firstString(record.title, nested.title),
+        updatedAt: firstString(record.updated_at, nested.updated_at),
+        diagnostic: nestedString(record.diagnostic, "message"),
+        archived: record.archived === true,
+        actions: registryActions(record.actions),
+      }];
     }),
     diagnostics: Array.isArray(parsed.diagnostics) ? parsed.diagnostics.map(String) : [],
   };
