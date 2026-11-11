@@ -180,7 +180,7 @@ def for_proof(run, trees, on_candidate, comparable, helpers) -> list[str]:
     tests = suspects(on_candidate, comparable.get("receipt"), protected=named, changed_texts=texts)
     if not tests:
         return []
-    base_tree = []
+    base_tree: list = []
 
     def rerun(command, side, label):
         if side == "base" and not base_tree:
