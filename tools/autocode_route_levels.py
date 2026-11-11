@@ -15,10 +15,12 @@ from __future__ import annotations
 import json
 
 
-def _entries(listing):
-    """Yield (model id, metadata dict) for each model the listing describes with a JSON object."""
+def _scan(listing):
+    """``(entries, whole)``: (model id, metadata dict) for each model the listing describes with a JSON
+    object, and whether every JSON object the listing starts was read to its end."""
     decoder = json.JSONDecoder()
     remaining = listing.strip()
+    entries = []
     while remaining:
         model, separator, remaining = remaining.partition("\n")
         remaining = remaining.lstrip()
@@ -29,10 +31,26 @@ def _entries(listing):
         try:
             found, end = decoder.raw_decode(remaining)
         except ValueError:
-            break
+            return entries, False
         remaining = remaining[end:].lstrip()
         if "/" in model and isinstance(found, dict):
-            yield model.strip(), found
+            entries.append((model.strip(), found))
+    return entries, True
+
+
+def _entries(listing):
+    return _scan(listing)[0]
+
+
+def complete(listing):
+    """Whether the listing can be read to its end (#3078).
+
+    A listing cut off inside a model's metadata still yields every model before the cut, so it reads
+    as a shorter, plausible listing whose missing tail looks exactly like models with no variants. An
+    empty listing is not a complete one either. A model line with no metadata object is the older
+    plain format, not a cut; a cut that falls exactly between two models cannot be seen here.
+    """
+    return isinstance(listing, str) and bool(listing.strip()) and _scan(listing)[1]
 
 
 def parse(listing):
