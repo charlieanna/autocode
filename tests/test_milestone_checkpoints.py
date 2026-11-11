@@ -97,7 +97,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
                 self.run,
             )
 
-    def validate(self, statuses=None, verdict=None, flow_status=None):
+    def validate(self, statuses=None, verdict=None, flow_status=None, reported=(), dispositions=(), **record_extra):
         statuses = statuses or {"C1": "PASS", "C2": "PASS", "C3": "NOT_VERIFIED"}
         criterion_ids = m.scope(self.state)["acceptance_criteria"]
         passed = all(statuses.get(cid) == "PASS" for cid in criterion_ids)
@@ -126,7 +126,8 @@ class MilestoneCheckpointTests(unittest.TestCase):
             "verdict": verdict or ("PASS" if passed else "FAIL"),
             "checks_run": [check],
             "checks": [{"command": check, "exit_code": 0 if passed else 1, "evidence_ref": "event:check"}],
-            "findings": [],
+            "findings": list(reported),
+            "finding_dispositions": list(dispositions),
             "unverified_criteria": [cid for cid, status in statuses.items() if status == "NOT_VERIFIED"],
             "criterion_results": [
                 {"id": cid, "status": status, "evidence_refs": ["event:check"]} for cid, status in statuses.items()
@@ -168,6 +169,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
             "events": str(events),
             "output": str(events),
             "source_revision": s.snapshot(self.root)["revision"],
+            **record_extra,
         }
         runner.apply_result(self.state, "tester", value, record, self.root, self.run)
 
@@ -842,6 +844,104 @@ class MilestoneCheckpointTests(unittest.TestCase):
             self.assign(next_task=task)
         self.assertEqual("PAUSED_MILESTONE_REPLAN", self.state["status"])
         self.assertEqual("review_completion", self.state["next_stage"])
+
+    def open_finding_after_repaired_pass(self):
+        """A FAIL raises a Tester finding; a report-only repair of the passing report cannot close it (#3036)."""
+        defect = {"finding": "Empty input crashes", "severity": "high", "blocking": True, "evidence": "event:check"}
+        self.validate({"C1": "PASS", "C2": "FAIL"}, reported=[defect])
+        finding_id = findings.open_entries(self.state, "tester")[0]["id"]
+        closure = {"id": finding_id, "disposition": "resolved", "evidence": "event:check"}
+        with self.assertRaisesRegex(ValueError, finding_id):
+            # The malformed repair invents the closure the original report never made.
+            self.validate(flow_status="NOT_VERIFIED", dispositions=[closure], report_repaired=True)
+        self.validate(flow_status="NOT_VERIFIED", report_repaired=True)
+        self.assertEqual("PASS", self.state["validation"]["verdict"])
+        self.assertEqual([finding_id], [row["id"] for row in findings.open_entries(self.state, "tester")])
+        return finding_id, closure
+
+    def test_refused_advancement_sends_open_tester_findings_back_to_the_tester(self):
+        self.start()
+        finding_id, closure = self.open_finding_after_repaired_pass()
+        self.assign("M2")
+        self.assertEqual("M1", self.state["current_task"]["milestone_id"])
+        self.assertEqual("tester", self.state["next_stage"])
+        self.assertIn(finding_id, self.state["milestone_blocker"])
+        self.assertIn("only the Tester can close", self.state["milestone_blocker"])
+        self.assertEqual([finding_id], [row["id"] for row in findings.open_entries(self.state, "tester")])
+        self.assertEqual(1, m.progress(self.state)["rejected_advances"])
+        # The fresh Tester review settles its own finding, and the ordinary gate then advances.
+        self.validate(flow_status="NOT_VERIFIED", dispositions=[closure])
+        self.assertEqual([], findings.open_entries(self.state, "tester"))
+        m1_key = m.key(self.state)
+        self.assign("M2")
+        self.assertTrue(self.state["milestone_progress"][m1_key]["accepted"])
+        self.assertEqual("M2", self.state["current_task"]["milestone_id"])
+
+    def test_tester_recheck_is_bounded_and_never_closes_the_finding(self):
+        self.start()
+        finding_id, _ = self.open_finding_after_repaired_pass()
+        self.assign("M2")
+        self.assertEqual("tester", self.state["next_stage"])
+        # Another PASS receipt that again leaves the finding unsettled closes nothing, and the same
+        # source and findings are not sent back twice: the review loop keeps its bounded counter.
+        self.validate(flow_status="NOT_VERIFIED")
+        self.assign("M2")
+        self.assertEqual(
+            ("M1", "review_completion"), (self.state["current_task"]["milestone_id"], self.state["next_stage"])
+        )
+        self.assertEqual([finding_id], [row["id"] for row in findings.open_entries(self.state, "tester")])
+        self.assertEqual(2, m.progress(self.state)["rejected_advances"])
+        self.assertEqual(1, len(self.state["validator_rechecks"]))
+
+    def test_tester_findings_stay_with_the_reviewer_when_its_own_finding_or_a_failure_blocks(self):
+        self.start()
+        self.open_finding_after_repaired_pass()
+        held = copy.deepcopy(self.state)
+        # A blocking finding of the Completion Reviewer's own: that reviewer settles it first, and
+        # cannot close the Tester's finding by naming it.
+        findings.record_decision(
+            self.state,
+            {"findings": [{"severity": "high", "finding": "Usage text is wrong", "evidence": "review:usage"}]},
+            {"output": "m1-review.json"},
+        )
+        self.assign("M2")
+        self.assertEqual("review_completion", self.state["next_stage"])
+        self.assertEqual(1, len(findings.open_entries(self.state, "tester")))
+        # A Tester that reports the finding again in its passing report has given its current word.
+        self.state = held
+        tester_row = findings.open_entries(self.state, "tester")[0]
+        self.state["validation"] = {**self.state["validation"], "output": tester_row["last_reported_in"]}
+        self.assign("M2")
+        self.assertEqual("review_completion", self.state["next_stage"])
+        self.assertNotIn("validator_rechecks", self.state)
+
+    def test_review_only_request_held_by_open_tester_findings_goes_to_the_tester(self):
+        self.start(human=True)
+        finding_id, _ = self.open_finding_after_repaired_pass()
+        request = {
+            "kind": "permission",
+            "decision_needed": "Perform the C1 human review via the runner",
+            "impact": "The approved milestone requires human review",
+            "options": ["Review it"],
+            "proposed_delta": "No change to the approved goal, scope or product behavior.",
+        }
+        decision = {**self.decision(status="BLOCKED"), "findings": [], "user_request": request}
+        output = self.run / "review-only-held.json"
+        output.write_text(json.dumps(decision))
+        self.assertTrue(m.fresh_validation(self.state, s.snapshot(self.root)))
+        held = m.route_review_only_request(self.state, request, {"stage": "review_completion", "output": str(output)})
+        self.assertIsNone(held)
+        self.assertEqual(("RUNNING", "tester"), (self.state["status"], self.state["next_stage"]))
+        self.assertIn(finding_id, self.state["milestone_blocker"])
+        self.assertEqual([finding_id], [row["id"] for row in findings.open_entries(self.state, "tester")])
+
+    def test_failed_criterion_with_an_open_tester_finding_stays_with_the_reviewer(self):
+        self.start()
+        defect = {"finding": "Empty input crashes", "severity": "high", "blocking": True, "evidence": "event:check"}
+        self.validate({"C1": "PASS", "C2": "FAIL"}, reported=[defect])
+        self.assign("M2")
+        self.assertEqual("review_completion", self.state["next_stage"])
+        self.assertNotIn("validator_rechecks", self.state)
 
     def test_exhausted_budget_does_not_consume_a_replan_that_cannot_run(self):
         self.start()
