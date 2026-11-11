@@ -321,7 +321,9 @@ export class RunController {
   async changeset(view: StatusView, run: RunRef): Promise<ChangesetSummary | null> {
     const args = changesetStatusArgs(view, effective(view, run));
     if (!args) return null;
-    const result = await invoke(this.settings, args);
+    // Bounded like a status poll: Run details reads this every poll, so a wedged
+    // change-set read must fail and let the next tick retry, not freeze the card.
+    const result = await invoke(this.settings, args, {}, STATUS_TIMEOUT_MS);
     if (result.code !== 0) {
       try {
         readChangesetSummary(result.stdout);

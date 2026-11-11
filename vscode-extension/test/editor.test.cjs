@@ -303,6 +303,25 @@ test('connections delegates login using only the core offer and no shell text', 
   assert.ok(calls.every((args) => args.join(' ') === 'connections list --json'), 'login is not captured as a noninteractive call');
 });
 
+test('the connections list and check reads are bounded like a status poll', async (t) => {
+  const calls = [];
+  t.mock.method(cli, 'invoke', async (_settings, argv, _env, timeoutMs) => {
+    calls.push([argv, timeoutMs]);
+    return argv[1] === 'check'
+      ? { ...ok, stdout: JSON.stringify(connectionRows[0]) }
+      : { ...ok, stdout: JSON.stringify({ version: 1, connections: connectionRows }) };
+  });
+  const connections = new ConnectionsPanel(host.workspaceState);
+  t.after(() => connections.dispose());
+  await connections.show();
+  const panel = host.panels.at(-1);
+  panel.webview.receive({ type: 'action', provider: 'kilocode', action: 'check' });
+  await flush();
+  assert.ok(calls.some(([argv]) => argv[1] === 'check'), 'the check was read');
+  assert.ok(calls.every(([argv, ms]) => argv[0] === 'connections' && ms === 30000),
+    'a wedged connections read must fail and say so, not leave the panel dead: ' + JSON.stringify(calls));
+});
+
 test('connection switching restores Kilo routes and cannot reroute an existing chat', async (t) => {
   t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({ version: 1, connections: connectionRows }) }));
   host.config.set('provider', 'kilocode');
@@ -2032,6 +2051,20 @@ test('a chat in the folder itself starts only once the person confirms the warni
   ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
   assert.equal(start.mock.callCount(), 1);
   assert.deepEqual(start.mock.calls[0].arguments[5], ['--in-place']);
+});
+
+test('listing where a chat works is bounded like the stages list', async (t) => {
+  const calls = [];
+  t.mock.method(cli, 'invoke', async (_settings, argv, _env, timeoutMs) => {
+    calls.push([argv, timeoutMs]);
+    return argv[0] === 'worktrees' ? worktreeList() : { ...ok, stdout: JSON.stringify({ version: 1, stages: [] }) };
+  });
+  const ui = await openChat(t, null, false);
+  ui.chat.show(); await flush(); await flush();
+  const list = calls.find(([argv]) => argv[0] === 'worktrees');
+  assert.ok(list, 'the places were listed');
+  assert.equal(list[1], 60000,
+    'a wedged places list must fail and say so, not leave a first message waiting forever');
 });
 
 test('a chosen branch the fresh list no longer offers is not still claimed by the picker', async (t) => {
@@ -5405,6 +5438,16 @@ test('Run details shows the change set and approves only the set token it showed
   action().click(); await flush();
   assert.equal(launch.mock.callCount(), 1);
   assert.deepEqual(launch.mock.calls[0].arguments[1], ['changeset', 'approve', '--run-dir', run.runDir, '--set-token', 'set-2']);
+});
+
+test('the change set status read is bounded like a status poll', async (t) => {
+  const ownController = new RunController(host.log);
+  const launch = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify(changesetSummary('set-1')) }));
+  const view = { status: 'AWAITING_GOAL_APPROVAL', done: false,
+    scope: { linked: [{ changeset: 'changeset-1', target: 'b', role: 'member', workspace: '/b', run_dir: '/b/.autocode/runs/m' }] } };
+  await ownController.changeset(view, run);
+  assert.equal(launch.mock.calls[0].arguments[3], 30000,
+    'a wedged change-set read must fail and let the next poll retry, not freeze Run details');
 });
 
 // Stage meter, cost header, closing card, welcome and tab marks: the terminal chat's #2610 features.
