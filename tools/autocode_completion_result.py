@@ -180,11 +180,13 @@ def _reconcile_proof_finding(state: RunState, workspace):
     try:
         from . import autocode_proof_findings as proof_findings
         from . import autocode_proof_infrastructure as infrastructure
+        from . import autocode_proof_recognition as recognition
         from . import autocode_regression as regression
         from . import autocode_source_scope as source_scope
     except ImportError:
         import autocode_proof_findings as proof_findings
         import autocode_proof_infrastructure as infrastructure
+        import autocode_proof_recognition as recognition
         import autocode_regression as regression
         import autocode_source_scope as source_scope
     if not _proof_routing(state):
@@ -204,6 +206,7 @@ def _reconcile_proof_finding(state: RunState, workspace):
     # reviewer's to give in the review this precedes (#2474), and a missing one has its own Builder route
     # (autocode_changed_code_rework), so it must not open a proof finding the Builder cannot clear.
     proved = required and regression.complete(state, revision, all_due=False, require_changed_code=False)
+    settle_evidence = {}
     reason = "" if proved or not required else regression.rejection(state, all_due=False)
     if proved:
         settle_same_revision_ids.extend(
@@ -213,6 +216,22 @@ def _reconcile_proof_finding(state: RunState, workspace):
             and (row.get("scope") or {}).get("milestone_id") == current_milestone
             and infrastructure.disk_collection_failure(state, row, revision)
         )
+        # A refusal only because the old collector missed a passing unittest suite (#3037): settled
+        # with the superseded receipts named beside the fresh one, never by a report's claim.
+        for row in proof_findings.open_rows(state):
+            superseded = (
+                current_milestone
+                and (row.get("scope") or {}).get("milestone_id") == current_milestone
+                and row["id"] not in settle_same_revision_ids
+                and recognition.recognition_only(state, row, revision)
+            )
+            if superseded:
+                settle_same_revision_ids.append(row["id"])
+                settle_evidence[row["id"]] = (
+                    f"Runner regression proof passes on source {str(revision)[:12]}; it supersedes "
+                    + ", ".join(superseded)
+                    + ", which refused only because the collector did not recognize the passing unittest suite"
+                )
     proof_findings.reconcile(
         state,
         revision,
@@ -220,6 +239,7 @@ def _reconcile_proof_finding(state: RunState, workspace):
         proved=proved,
         reason=reason,
         settle_same_revision_ids=settle_same_revision_ids,
+        settle_evidence=settle_evidence,
     )
 
 
