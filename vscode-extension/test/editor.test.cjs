@@ -3392,6 +3392,41 @@ test('a saved step shows what that step itself changed', async (t) => {
   assert.ok(!text.includes('differ from this checkpoint'), 'a step view is not a compare');
 });
 
+test('a raise confirmation names the open dialog in the chat while it pends', async (t) => {
+  host.config.set('confirmPersonOnly', false);
+  const ownController = new RunController(host.log);
+  const ui = await openChat(t, heldCostView('cost:current'), run, { controller: ownController });
+  const field = ui.document.querySelector('[data-question="raise:max_cost_usd"]');
+  field.value = '5'; field.dispatchEvent(new ui.window.Event('input'));
+  let release;
+  t.mock.method(host.vscode.window, 'showWarningMessage', () => new Promise((resolve) => { release = resolve; }));
+  ui.document.querySelector('#raise-bound').click();
+  await flush();
+  const hint = () => ui.document.querySelector('#send-hint').textContent;
+  assert.ok(hint().includes('answer the dialog that opened'), `the chat names the open dialog: ${hint()}`);
+  assert.ok(hint().includes('Set the cost cap to $5'), `the hint is the dialog's own question: ${hint()}`);
+  release(undefined);
+  await flush(); await flush();
+  assert.ok(!hint().includes('answer the dialog that opened'), `the hint reverts once the dialog is answered: ${hint()}`);
+});
+
+test('a restore confirmation names the open dialog in the chat while it pends', async (t) => {
+  const ui = await openChat(t, checkpointView());
+  t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({
+    version: 1, checkpoint_id: 'cp-1', expected_token: 'tok-1', changed_files: ['app.txt'], patch: '', truncated: false,
+  }) }));
+  let release;
+  t.mock.method(host.vscode.window, 'showWarningMessage', () => new Promise((resolve) => { release = resolve; }));
+  ui.document.querySelector('[data-checkpoint-action="restore"]').click();
+  await flush(); await flush();
+  const hint = () => ui.document.querySelector('#send-hint').textContent;
+  assert.ok(hint().includes('answer the dialog that opened'), `the chat names the open dialog: ${hint()}`);
+  assert.ok(hint().includes('Restore'), `the hint is the dialog's own question: ${hint()}`);
+  release(undefined);
+  await flush(); await flush();
+  assert.ok(!hint().includes('answer the dialog that opened'), `the hint reverts once the dialog is answered: ${hint()}`);
+});
+
 for (const outcome of ['success', 'failure']) {
   test(`saved-code actions explain a pending chat command and recover after ${outcome}`, async (t) => {
     const ui = await openChat(t, checkpointView());

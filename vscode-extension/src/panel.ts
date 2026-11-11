@@ -639,12 +639,14 @@ export function numericRecoveryEffect(state: PanelState): string {
  * Ask the person to confirm a typed raise of the bound the view names now; false when declined.
  * An offer that changed since it was shown, or a number out of its bounds, is refused before asking.
  */
-export async function confirmRaise(state: PanelState, decisionContext: string | undefined, value: string): Promise<boolean> {
+export async function confirmRaise(state: PanelState, decisionContext: string | undefined, value: string,
+  onDialog?: (title: string) => void): Promise<boolean> {
   const input = state.boundRaise;
   if (!input || decisionContext !== state.decisionContext) {
     throw new ClientGap("The requested action changed; review it before continuing");
   }
   const title = raiseConfirmation(input, value);
+  onDialog?.(title);
   return (await vscode.window.showWarningMessage(title, { modal: true, detail: boundEffect(input) }, RAISE_LABEL)) === RAISE_LABEL;
 }
 
@@ -1931,7 +1933,9 @@ function updateComposer() {
   document.getElementById('send-message').textContent = 'Send ↑';
   const label = input ? input.label + (input.kind === 'resolver_response' ? '' : ' and continue') : 'Send message';
   document.getElementById('send-message').setAttribute('aria-label', label);
-  document.getElementById('send-hint').textContent = !chatEnvelope.selectedRun ? 'Message AutoCode'
+  document.getElementById('send-hint').textContent = chatEnvelope.state && chatEnvelope.state.confirming
+    ? chatEnvelope.state.confirming + ' — answer the dialog that opened'
+    : !chatEnvelope.selectedRun ? 'Message AutoCode'
     : unreadable ? 'Waiting for the status to read again. You can keep a draft here.'
     : pausing ? 'AutoCode pauses once this step is saved. You can keep a draft here.'
     : input ? (chatEnvelope.busy ? 'AutoCode is working on your last message. Keep your draft here and send it after.' : label)

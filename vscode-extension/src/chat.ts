@@ -683,8 +683,14 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       } else if (message.type === "raise") {
         // The raise resumes the run itself; nothing else is inferred from it.
         const value = message.value ?? "";
-        if (await confirmRaise(stateFor(view, run, this.controller), message.decisionContext, value)) {
-          await this.controller.raise(view, run, value);
+        try {
+          if (await confirmRaise(stateFor(view, run, this.controller), message.decisionContext, value,
+            (title) => { tab.confirming = title; this.post(); })) {
+            await this.controller.raise(view, run, value);
+          }
+        } finally {
+          tab.confirming = "";
+          this.post();
         }
       } else {
         const state = stateFor(view, run, this.controller);
@@ -814,12 +820,23 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       if (comparison.blocked_reason) throw new Error(comparison.blocked_reason);
       const label = (tab.status?.code_checkpoints?.rows ?? []).find((row) => row.id === checkpointId)?.label ?? checkpointId;
       const files = comparison.changed_files?.length ?? 0;
-      const proceed = await vscode.window.showWarningMessage(
-        `Restore "${label}" on a new branch?`,
-        { modal: true,
-          detail: `${files} file(s) differ from this checkpoint. The current branch and later work stay intact; every milestone needs fresh verification, and the new candidate stays paused until you resume it.` },
-        "Restore",
-      );
+      const question = `Restore "${label}" on a new branch?`;
+      // The dialog is the only place the question shows; name it in the chat while it
+      // pends, like the take path, so a parked dialog cannot read as a dead button.
+      tab.confirming = question;
+      this.post();
+      let proceed: string | undefined;
+      try {
+        proceed = await vscode.window.showWarningMessage(
+          question,
+          { modal: true,
+            detail: `${files} file(s) differ from this checkpoint. The current branch and later work stay intact; every milestone needs fresh verification, and the new candidate stays paused until you resume it.` },
+          "Restore",
+        );
+      } finally {
+        tab.confirming = "";
+        this.post();
+      }
       if (proceed !== "Restore") return;
       const requestId = await this.checkpointRequestId(key);
       const result = await this.controller.restoreCheckpoint(run, checkpointId, comparison.expected_token ?? "", requestId);
