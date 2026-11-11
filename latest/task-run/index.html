@@ -1863,6 +1863,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#worktrees-for-clients" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Worktrees for clients
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#run-modes-for-clients" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2756,6 +2767,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#worktrees-for-clients" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Worktrees for clients
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#run-modes-for-clients" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2876,7 +2898,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/5e27553c346a445f206e15ca166298fc54186a35/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/1f4957c8836d58a8526868d2dc030cf1903c18a2/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -4077,7 +4099,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/5e27553c346a445f206e15ca166298fc54186a35/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/1f4957c8836d58a8526868d2dc030cf1903c18a2/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -4846,7 +4868,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/5e27553c346a445f206e15ca166298fc54186a35/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/1f4957c8836d58a8526868d2dc030cf1903c18a2/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -6109,6 +6131,28 @@ marked <code>unavailable</code> against the run's other routes, <code>reset</cod
 --stage-model ROLE MODEL EFFORT</code>, filled the same way; it prints a sentence rather than the view, so
 a client reads the list again afterwards. A refused change exits 2 with the reason on stderr and
 saves nothing.</p>
+<h2 id="worktrees-for-clients">Worktrees for clients<a class="headerlink" href="#worktrees-for-clients" title="Permanent link">&para;</a></h2>
+<p>A chat changes files either in a worktree and branch of its own or in the person's folder, and a
+person should see which, and choose it for a new chat (owner request 2026-11-11). The status view's
+<code>worktree</code> says where a run works: <code>kind</code> is <code>worktree</code> (its own worktree and branch), <code>moving</code>
+(Requirements reads the person's folder; from the Planner on it works in its own worktree, on
+<code>moves_to_branch</code> when the person chose an existing branch, else a new one), <code>project</code> (a project
+AutoCode made for it) or <code>folder</code> (the person's folder itself, shared with their own edits and other
+chats); <code>path</code> is where files change, <code>branch</code> the branch there (null when detached), <code>folder</code> the
+person's folder, <code>existing_branch</code> whether it is a branch the person chose, and <code>label</code> and <code>sentence</code>
+the words a client shows. Null before the run has a workspace.</p>
+<p><code>autocode worktrees list --workspace FOLDER --json</code> returns, before a new chat starts, the version-1
+list: <code>folder</code>, <code>branch</code> (the folder's current branch), <code>default</code> (a place id), <code>places</code> and <code>active</code>
+(the chats working in the folder or its task worktrees: not finished, archived or moved, each with
+<code>title</code>, <code>run_dir</code>, <code>path</code>, <code>kind</code>, <code>branch</code>, <code>moves_to_branch</code> and <code>status</code>). Each place has <code>id</code>,
+<code>label</code> and <code>does</code>. <code>new_branch</code> and <code>folder</code> have <code>start_args</code> and <code>warning</code>; <code>branch</code> has
+<code>branches</code>, the local branches most recently committed first, each with <code>name</code>, <code>start_args</code> and
+<code>unavailable</code> (why it is not offered, with <code>start_args</code> null): a branch checked out in a worktree,
+the folder's own included, or one another chat will plan on. A folder that is not the top of a Git
+checkout with a commit lists only <code>folder</code>, which works there as every chat there does. A client
+shows the places, preselects <code>default</code>, passes the chosen place's (or branch's) <code>start_args</code>
+unchanged in place of its own placement flag, and, when that place has a <code>warning</code>, shows it and
+starts only once the person confirms. It reads the list again just before the start.</p>
 <h2 id="run-modes-for-clients">Run modes for clients<a class="headerlink" href="#run-modes-for-clients" title="Permanent link">&para;</a></h2>
 <p>A client that starts runs may offer a choice of how much planning a new run does
 before the person approves it. <code>autocode modes list --json</code> returns the

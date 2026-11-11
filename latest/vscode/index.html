@@ -1456,6 +1456,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Chat in the sidebar">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#where-a-chat-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where a chat works
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1872,6 +1889,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Chat in the sidebar">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#where-a-chat-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where a chat works
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1978,7 +2012,7 @@
 
 
 <h1 id="vs-code-extension">VS Code extension<a class="headerlink" href="#vs-code-extension" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/5e27553c346a445f206e15ca166298fc54186a35/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/1f4957c8836d58a8526868d2dc030cf1903c18a2/README.md">← Back to README</a></p>
 <p>Chat with AutoCode in the sidebar (issue #884). The extension starts the CLI,
 reads <code>--status</code> and <code>registry list --json</code>, and takes the actions the public
 <a href="../task-run/">task-run interface</a> names. It imports no runner internals and never
@@ -2006,6 +2040,32 @@ chats in this workspace; one the list no longer names, such as Quick plan,
 starts Full. A chat that has started keeps the flow it started with, so the
 chip shows only on a new chat. An AutoCode without run modes shows no chip and
 starts the full flow.</p>
+<h3 id="where-a-chat-works">Where a chat works<a class="headerlink" href="#where-a-chat-works" title="Permanent link">&para;</a></h3>
+<p>Each chat changes files on a branch of its own, so two chats never edit the same
+files. Before you send the first message, <strong>Where this chat works</strong> above the
+composer shows where the new chat will work; open it to choose:</p>
+<ul>
+<li><strong>New worktree and branch</strong> (the default): the chat talks with you in your
+  folder, then plans and builds in a worktree of its own under
+  <code>.autocode/worktrees/</code>, on a new <code>autocode/…</code> branch named from the task,
+  starting from your last commit. Your folder, your uncommitted edits and other
+  chats are not touched; review and merge the branch when it is done.</li>
+<li><strong>Existing branch</strong>: the same, on a local branch you pick, for example a
+  finished chat's branch to carry on. A branch that is checked out anywhere
+  (your folder included) or that another chat is about to use is greyed out with
+  the reason, so two chats never share a branch.</li>
+<li><strong>This folder</strong>: the chat changes your folder's files directly, on the branch
+  checked out there, as every chat did before. It shows a warning that your own
+  edits and other chats in the folder can conflict with it, naming the chats
+  working there now, and asks you to confirm when you send.</li>
+</ul>
+<p>Once the chat starts, its header always shows where it works (<strong>Own worktree ·
+branch autocode/…</strong> or <strong>Your folder · branch main</strong>), and <strong>Show details</strong> lists
+the worktree path, the branch and your folder. The choices come from
+<code>autocode worktrees list --json</code> and the header from the status view's
+<code>worktree</code> (<a href="../task-run/#worktrees-for-clients">Worktrees for clients</a>); the
+extension passes the chosen place's own flags unchanged. An AutoCode without the
+list starts chats in your folder, as before.</p>
 <p>In the full flow, new sidebar chats enable joint planning and the core's <code>--spec-first</code> flow.
 The Requirements agent answers your first message, whatever it is, and talks
 with you until it understands what you want done. A greeting or an off-topic
@@ -2029,7 +2089,7 @@ Markdown and code blocks for assistant replies. A fixed composer grows with your
 draft. New output follows the bottom until you scroll up or select text;
 <strong>Latest messages</strong> returns to the bottom. These composer and scrolling components
 are adapted from Kilo Code's open-source UI; the exact revision and attribution
-are in <a href="https://github.com/charlieanna/autocode/blob/5e27553c346a445f206e15ca166298fc54186a35/vscode-extension/THIRD_PARTY_NOTICES.md">THIRD_PARTY_NOTICES.md</a>.</p>
+are in <a href="https://github.com/charlieanna/autocode/blob/1f4957c8836d58a8526868d2dc030cf1903c18a2/vscode-extension/THIRD_PARTY_NOTICES.md">THIRD_PARTY_NOTICES.md</a>.</p>
 <p><strong>Models &amp; usage</strong> stays above the composer and starts expanded. <strong>Configured
 models</strong> lists every saved role assignment with its full model ID, provider and
 reasoning <strong>Variant</strong> (such as medium or high), even before that role runs.
@@ -2191,7 +2251,7 @@ conversation.</p>
 Requirements follow-up has passed a real Kilo/token-plan greeting conversation;
 full build/test/completion qualification remains outstanding. The earlier full
 task attempt stopped on a MiMo network failure before building.
-See the <a href="https://github.com/charlieanna/autocode/blob/5e27553c346a445f206e15ca166298fc54186a35/docs/bugs/2026-10-16-vscode-chat-qualification.md">qualification record</a>.
+See the <a href="https://github.com/charlieanna/autocode/blob/1f4957c8836d58a8526868d2dc030cf1903c18a2/docs/bugs/2026-10-16-vscode-chat-qualification.md">qualification record</a>.
 The jsdom tests alone establish neither editor-host nor live-provider compatibility.</p>
 <h2 id="settings">Settings<a class="headerlink" href="#settings" title="Permanent link">&para;</a></h2>
 <table>
