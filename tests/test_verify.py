@@ -3093,6 +3093,38 @@ class VerifyCase(unittest.TestCase):
             self.assertEqual([str(tree / "src"), str(tree), "/elsewhere"], env["PYTHONPATH"].split(os.pathsep))
             self.assertEqual("1", env["CI"])
 
+    def test_mapped_editable_package_runs_each_scratch_trees_own_bytes(self):
+        """#2988: an editable finder maps ``shop`` to the workspace's ``tools/``. The base
+        scratch tree must run the base bytes, so the new test fails there and passes on
+        the candidate; a broken candidate must fail."""
+        from tests.test_python_tests import EDITABLE_FINDER
+
+        old_test = "    def test_kept(self):\n        self.assertEqual(1, running({'a': 1})['a'])\n"
+        new_test = "    def test_running(self):\n        self.assertEqual('RUNNING', running({})['status'])\n"
+        header = "import unittest\n\nfrom shop.status import running\n\n\nclass Status(unittest.TestCase):\n"
+        project = self.project(
+            {
+                "pyproject.toml": '[tool.setuptools]\npackage-dir = {shop = "tools"}\n',
+                "tools/__init__.py": "",
+                "tools/status.py": "def running(state):\n    return state\n",
+                "tests/__init__.py": "",
+                "tests/test_status.py": header + old_test,
+            }
+        )
+        site = Path(project.temp.name) / "site"
+        site.mkdir()
+        (site / "sitecustomize.py").write_text(EDITABLE_FINDER.format(mapping={"shop": str(project.root / "tools")}))
+        candidate = "def running(state):\n    state['status'] = 'RUNNING'\n    return state\n"
+        project.write({"tools/status.py": candidate, "tests/test_status.py": header + old_test + new_test})
+        with mock.patch.dict(os.environ, {"PYTHONPATH": str(site)}):
+            result = project.verify()
+            self.assertEqual(verify.PASS, result["verdict"], result)
+            self.assertEqual(["tests.test_status.Status.test_running"], result["fail_to_pass"])
+            project.write({"tools/status.py": candidate.replace("'RUNNING'", "'BROKEN'")})
+            broken = project.verify()
+            self.assertEqual(verify.FAIL, broken["verdict"])
+            self.assertIn("'BROKEN'", broken["checks"]["regression_on_candidate"]["tail"])
+
     def test_a_parent_tests_package_cannot_shadow_the_fixture_tests(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
