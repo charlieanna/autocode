@@ -950,6 +950,43 @@ test('VS Code tree event replaces an initially empty sidebar after registry refr
   }
 });
 
+test('the Runs list puts the most recently active chats on top under Recent', async () => {
+  const listed = [
+    { id: 'old', workspace: '/alpha', runDir: '/alpha/.autocode/runs/20261001-old', availability: 'available',
+      status: 'COMPLETE', title: 'Old alpha chat', updatedAt: '2026-10-01T10:00:00Z' },
+    { id: 'idle', workspace: '/beta', runDir: '/beta/.autocode/runs/20261109-idle', availability: 'available',
+      status: 'COMPLETE', title: null, updatedAt: '2026-11-09T10:00:00Z' },
+    { id: 'today', workspace: '/alpha', runDir: '/alpha/.autocode/runs/20260901-today', availability: 'available',
+      status: 'AWAITING_GOAL_APPROVAL', title: 'Fix the login page', updatedAt: '2026-11-11T11:00:00Z' },
+    { id: 'gone', workspace: '/gamma', runDir: '/gamma/.autocode/runs/x', availability: 'workspace_missing',
+      diagnostic: 'Workspace no longer exists' },
+  ];
+  const provider = new RunsProvider({ list: async () => ({ runs: listed, diagnostics: [] }) });
+  const now = mock.method(Date, 'now', () => Date.parse('2026-11-11T12:00:00Z'));
+  try {
+    await provider.refresh();
+    const [recent, ...projects] = provider.getChildren();
+    assert.equal(recent.label, 'Recent');
+    assert.equal(provider.getTreeItem(recent).collapsibleState, 2);
+    const rows = provider.getChildren(recent);
+    assert.deepEqual(rows.map((row) => row.run.id), ['today', 'idle', 'old']);
+    assert.deepEqual(rows.map((row) => row.description), ['1h ago · alpha', '2d ago · beta', '2026-10-01 · alpha']);
+    assert.equal(rows[0].label, 'Fix the login page');
+    assert.equal(rows[1].label, '20261109-idle');
+    assert.equal(rows[0].id, 'recent:today');
+    // Projects follow, newest first and folded, each with its own chats newest first.
+    assert.deepEqual(projects.map((node) => node.label), ['alpha', 'beta', 'gamma']);
+    assert.ok(projects.every((node) => provider.getTreeItem(node).collapsibleState === 1));
+    const alpha = provider.getChildren(projects[0]);
+    assert.deepEqual(alpha.map((row) => row.run.id), ['today', 'old']);
+    assert.equal(alpha[0].id, 'today');
+    assert.equal(alpha[0].description, '1h ago · AWAITING_GOAL_APPROVAL');
+  } finally {
+    now.mock.restore();
+    provider.dispose();
+  }
+});
+
 function chatView(base = approvalView(), kind = 'feedback', context = 'chat-1') {
   return { ...base, chat: {
     context,

@@ -71,7 +71,8 @@ function editor() {
     },
     env: { clipboard: { writeText: async () => {}, readText: async () => '' } },
     StatusBarAlignment: { Left: 1 }, ViewColumn: { One: 1 }, ConfigurationTarget: { Global: 1, Workspace: 2 },
-    TreeItem: class {}, TreeItemCollapsibleState: { None: 0, Expanded: 2 },
+    TreeItem: class { constructor(label, collapsibleState) { this.label = label; this.collapsibleState = collapsibleState; } },
+    TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
     Uri: { file: (value) => value }, MarkdownString: class {}, ThemeIcon: class {}, ThemeColor: class {},
     EventEmitter: class {
       listeners = new Set();

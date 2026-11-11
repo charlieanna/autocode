@@ -58,7 +58,7 @@ BUCKETS = (NEEDS, WORKING, SETTLED, UNREADABLE)
 # A controller is doing work in these statuses; they need no person yet.
 WORKING_STATUSES = ("RUNNING", "DISCOVERING", "WAITING_FOR_USER")
 NAME_WIDTH = 52
-TITLE_LIMIT = 80  # a row's title: the first line of its task
+TITLE_LIMIT = registry.TITLE_LIMIT  # a row's title: the first line of its task
 STAMP = "%Y-%m-%dT%H:%M:%S"
 
 
@@ -100,8 +100,7 @@ def unreadable(run_dir: Path, workspace: Path, reason: str) -> dict:
 
 def title(task) -> str | None:
     """The first line of what the run was asked to do, bounded: how a client names the chat."""
-    first = next((line.strip().lstrip("#").strip() for line in str(task or "").splitlines() if line.strip()), "")
-    return (first[: TITLE_LIMIT - 1] + "…" if len(first) > TITLE_LIMIT else first) or None
+    return registry.title(task)
 
 
 def row(workspace: Path, run_dir: Path, now: float, changesets: dict[str, str] | None = None) -> dict:

@@ -340,6 +340,10 @@ export interface RegistryRun {
   status?: string | null;
   phase?: string | null;
   nextStage?: string | null;
+  /** The first line of the run's task: how a person recognizes the chat. */
+  title?: string | null;
+  /** When the run last wrote its checkpoint, as UTC ISO-8601 (`docs/registry-api.md`). */
+  updatedAt?: string | null;
   diagnostic?: string | null;
 }
 
@@ -369,6 +373,8 @@ export function readRegistryList(raw: string): RegistryList {
         status: firstString(row.status, nested.status),
         phase: firstString(row.phase, nested.phase),
         nextStage: firstString(row.next_stage, nested.next_stage),
+        title: firstString(row.title, nested.title),
+        updatedAt: firstString(row.updated_at, nested.updated_at),
         diagnostic: nestedString(row.diagnostic, "message"),
       };
     }),

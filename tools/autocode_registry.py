@@ -33,6 +33,8 @@ REGISTRY_VERSION = 1
 LOCK_TIMEOUT_SECONDS = 1.0
 DEFAULT_IMPORT_MAX_DEPTH = 3
 DEFAULT_IMPORT_DIRECTORY_BUDGET = 10_000
+TITLE_LIMIT = 80  # a listed run's title: the first line of its task
+UPDATED_AT = "%Y-%m-%dT%H:%M:%SZ"  # a listed run's last checkpoint write, in UTC
 
 
 class RegistryError(RuntimeError):
@@ -312,6 +314,12 @@ def _canonical_path(value: str) -> Path:
         raise RegistryError("path_unavailable", str(error)) from error
 
 
+def title(task: Any) -> str | None:
+    """The first line of what the run was asked to do, bounded: how a client names the chat."""
+    first = next((line.strip().lstrip("#").strip() for line in str(task or "").splitlines() if line.strip()), "")
+    return (first[: TITLE_LIMIT - 1] + "…" if len(first) > TITLE_LIMIT else first) or None
+
+
 def _checkpoint_summary(state: Any, workspace: Path) -> tuple[str, dict[str, Any]]:
     if not isinstance(state, dict):
         return "checkpoint_malformed", {"message": "Checkpoint must be an object"}
@@ -331,6 +339,7 @@ def _checkpoint_summary(state: Any, workspace: Path) -> tuple[str, dict[str, Any
         "next_stage": state.get("next_stage"),
         "task_id": _run_task_id(cast("RunState", state)),
         "checkpoint_version": version,
+        "title": title(state["task"]),
     }
 
 
@@ -353,7 +362,14 @@ def read_checkpoint(state_path: Path, workspace: Path) -> tuple[str, dict[str, A
     except (OSError, json.JSONDecodeError) as error:
         return "checkpoint_malformed", {"message": str(error)}
     availability, summary = _checkpoint_summary(state, workspace)
-    return availability, {**summary, "state": state} if availability == "available" else summary
+    if availability != "available":
+        return availability, summary
+    try:
+        # When the run last wrote its checkpoint: how a client finds the chats used most recently.
+        summary["updated_at"] = time.strftime(UPDATED_AT, time.gmtime(state_path.stat().st_mtime))
+    except OSError:
+        summary["updated_at"] = None
+    return availability, {**summary, "state": state}
 
 
 def _availability(
