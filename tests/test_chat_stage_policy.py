@@ -1,13 +1,18 @@
 """The terminal chat shows which planning path a bug-fix run took, from the status view's ``stage_policy`` alone
 (#1884 F2): a side-panel section and a /details block, nothing inferred and nothing offered as an action."""
 
+import os
+import tempfile
 import unittest
 
 import autocode_chat_panel as panel
 import autocode_chat_stage_policy as stage_policy
 
+from tools.providers import command
+
 from .test_chat_panel import view
 from .test_chat_tui import screen_ui
+from .test_command_provider import write_config
 
 COMPACT = {
     "version": 1,
@@ -303,6 +308,42 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual("Planner · gpt-6.1-sol · high", texts[1])
         self.assertEqual("Plan Reviewer · claude-opus-5-5 · high", texts[2])
         self.assertEqual("Completion Reviewer · claude-sonnet-5-5", texts[5], "no level saved: none shown")
+
+    def test_ac4_pipeline_plan_reviewer_row_shows_plan_reviewer_model(self):
+        # #3093 item 1 (guard; #3087 fixed the panel): a custom provider whose plan_reviewer row
+        # differs from its task_planner row shows the plan_reviewer model on the Plan Reviewer row.
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        previous = os.environ.get("XDG_CONFIG_HOME")
+        os.environ["XDG_CONFIG_HOME"] = temp.name
+
+        def restore_home():
+            if previous is None:
+                os.environ.pop("XDG_CONFIG_HOME", None)
+            else:
+                os.environ["XDG_CONFIG_HOME"] = previous
+
+        self.addCleanup(restore_home)
+        write_config(
+            temp.name,
+            "custom",
+            'name = "custom"\ncommand = ["tool", "{report}"]\n'
+            "[roles]\n"
+            'task_planner = { model = "m-plan", effort = "high" }\n'
+            'builder = { model = "demo", effort = "medium" }\n'
+            'tester = { model = "demo", effort = "high" }\n'
+            'completion = { model = "demo", effort = "medium" }\n'
+            'planner = { model = "m-plan", effort = "medium" }\n'
+            'plan_reviewer = { model = "m-pr", effort = "high" }\n',
+        )
+        provider = command.load("custom")
+        current = view()
+        current["routes"] = {
+            role: {"model": model, "reasoning_effort": provider.DEFAULT_REASONING_EFFORTS[role]}
+            for role, model in provider.DEFAULT_MODELS.items()
+        }
+        texts = [text for _mark, text in self.marks(current)]
+        self.assertEqual("Plan Reviewer · m-pr · high", texts[2])
 
     def test_a_row_shows_the_level_the_job_last_ran_at_over_the_saved_one(self):
         current = decided(*EARLY_APPROVAL)
