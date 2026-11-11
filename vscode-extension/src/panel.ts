@@ -1108,22 +1108,22 @@ function renderChatProgress(container, state) {
       list.appendChild(logLine(group));
     });
     container.appendChild(list);
-    return;
-  }
-  // What the running step does now: core-written display text, never proof that it worked.
-  const events = state.chat && Array.isArray(state.chat.activity)
-    ? state.chat.activity.filter((row) => row && typeof row.text === 'string' && row.text).slice(-6) : [];
-  if (events.length) {
-    const list = el('div', 'activity');
-    list.setAttribute('aria-label', 'What AutoCode is doing');
-    events.forEach((row) => {
-      const mark = row.status === 'failed' ? '✗' : (ACTIVITY_MARKS[row.kind] || '·');
-      const line = el('div', 'activity-row ' + (row.status || ''));
-      line.appendChild(el('span', 'activity-mark', mark));
-      line.appendChild(el('span', null, row.text));
-      list.appendChild(line);
-    });
-    container.appendChild(list);
+  } else {
+    // What the running step does now: core-written display text, never proof that it worked.
+    const events = state.chat && Array.isArray(state.chat.activity)
+      ? state.chat.activity.filter((row) => row && typeof row.text === 'string' && row.text).slice(-6) : [];
+    if (events.length) {
+      const list = el('div', 'activity');
+      list.setAttribute('aria-label', 'What AutoCode is doing');
+      events.forEach((row) => {
+        const mark = row.status === 'failed' ? '✗' : (ACTIVITY_MARKS[row.kind] || '·');
+        const line = el('div', 'activity-row ' + (row.status || ''));
+        line.appendChild(el('span', 'activity-mark', mark));
+        line.appendChild(el('span', null, row.text));
+        list.appendChild(line);
+      });
+      container.appendChild(list);
+    }
   }
   if (state.workingDiff) {
     const show = el('button', 'secondary', state.workingDiff.label);
