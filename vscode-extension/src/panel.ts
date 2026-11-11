@@ -748,6 +748,7 @@ const METER_STYLES = `
   .chat-model .head { display: flex; justify-content: space-between; gap: 6px; }
   .chat-model .now { opacity: .75; overflow-wrap: anywhere; }
   .chat-model.picked .now { opacity: 1; color: var(--vscode-textLink-foreground); }
+  .chat-model.checking .now { opacity: 1; font-style: italic; }
   .chat-model .pick { display: flex; gap: 4px; margin-top: 2px; }
   /* Not the form-wide width: 100%, which left the level the whole row and squeezed the model dropdown to nothing. */
   .chat-model select { min-width: 0; flex: 1 1 0; width: auto; margin-top: 0; max-width: 100%; background: var(--vscode-dropdown-background);
@@ -2143,14 +2144,20 @@ function renderChatModels(data) {
     : info.changeable ? 'Change a stage here for this chat only; Stage models still sets every other new chat.'
     : 'Update AutoCode to change these for one chat; Stage models sets them for new chats.'));
   info.stages.forEach((stage) => {
-    const row = el('div', 'chat-model' + (stage.picked ? ' picked' : ''));
+    const row = el('div', 'chat-model' + (stage.picked ? ' picked' : '') + (stage.checking ? ' checking' : ''));
     row.dataset.stage = stage.id;
     row.title = stage.does;
     const head = el('div', 'head');
     head.appendChild(el('span', 'label', stage.label));
-    head.appendChild(el('span', 'now', stage.now));
+    // The dropdowns already show the model and level: beside them, only where it comes from (or
+    // that the core is checking the pick). Without dropdowns the words are the only place it shows.
+    const dropdowns = info.changeable && stage.options.length > 0;
+    const now = el('span', 'now', stage.checking ? 'Checking…' : dropdowns ? stage.source : stage.now);
+    if (dropdowns) now.title = stage.now;
+    if (stage.checking) now.setAttribute('role', 'status');
+    head.appendChild(now);
     row.appendChild(head);
-    if (info.changeable && stage.options.length) {
+    if (dropdowns) {
       const pick = el('div', 'pick');
       const models = el('select', 'model'); models.setAttribute('aria-label', stage.label + ' model for this chat');
       const levels = el('select', 'level'); levels.setAttribute('aria-label', stage.label + ' reasoning level for this chat');
