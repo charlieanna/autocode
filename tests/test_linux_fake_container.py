@@ -3,8 +3,13 @@
 import contextlib
 import importlib.util
 import io
+import os
+import re
+import subprocess
 import sys
+import tempfile
 import unittest
+import venv
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +19,50 @@ assert SPEC and SPEC.loader
 linux_fake = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = linux_fake
 SPEC.loader.exec_module(linux_fake)
+
+IMAGE_SITE = "/opt/autocode-venv/lib/python3.11/site-packages"
+# The selector from #2955: it imports the compatibility shims as the installed autocode_cli package.
+PACKAGE_SELECTOR = (
+    "tests.test_architecture.ArchitectureTests.test_star_import_shims_preserve_consumer_compatibility_exports"
+)
+
+
+def checkout_package_hook():
+    """The image's import hook and the .pth line that loads it, exactly as the Dockerfile writes them."""
+    dockerfile = (ROOT / "scripts" / "linux-fake.Dockerfile").read_text()
+    module = re.search(r"^RUN cat > (\S+) <<'PY'\n(.*?)^PY$", dockerfile, re.MULTILINE | re.DOTALL)
+    loader = re.search(r"^RUN printf '([^']*)\\n' \\\n\s+> (\S+)$", dockerfile, re.MULTILINE)
+    assert module and loader, "the Dockerfile no longer writes the autocode_cli import hook in the expected shape"
+    return Path(module[1]), module[2], Path(loader[2]), loader[1] + "\n"
+
+
+class CheckoutRuntime:
+    """A real stdlib interpreter without this checkout's editable install, as the image's venv starts."""
+
+    def __init__(self, test_case):
+        temporary = tempfile.TemporaryDirectory(prefix="linux-fake-runtime-")
+        test_case.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        venv.EnvBuilder(with_pip=False).create(self.root / "venv")
+        self.python = str(self.root / "venv" / "bin" / "python")
+        self.site = Path(
+            subprocess.check_output(
+                [self.python, "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"], text=True
+            ).strip()
+        )
+        self.env = {key: value for key, value in os.environ.items() if not key.startswith("PYTHON")}
+
+    def install_hook(self, checkout):
+        module_path, source, loader_path, loader = checkout_package_hook()
+        mounted = f'CHECKOUT = "{linux_fake.CONTAINER_ROOT}"'
+        assert source.count(mounted) == 1, "the hook must map the package to the wrapper's mount point"
+        (self.site / module_path.name).write_text(source.replace(mounted, f"CHECKOUT = {str(checkout)!r}"))
+        (self.site / loader_path.name).write_text(loader)
+
+    def run(self, *arguments, cwd):
+        return subprocess.run(
+            [self.python, *arguments], cwd=cwd, env=self.env, capture_output=True, text=True, timeout=120
+        )
 
 
 class LinuxFakeContainerTests(unittest.TestCase):
@@ -127,6 +176,82 @@ class LinuxFakeContainerTests(unittest.TestCase):
         self.assertNotIn("${go_archive}.sha256", dockerfile)
         self.assertIn("ARG NODE_VERSION=22.18.0", dockerfile)
         self.assertIn("python3.11", dockerfile)
+
+
+class LinuxFakePackageImportTests(unittest.TestCase):
+    """#2955: the container's venv imports autocode_cli from the mounted checkout, as `pip install -e .` does."""
+
+    def test_the_hook_is_installed_into_the_image_venv_and_loaded_at_startup(self):
+        module_path, source, loader_path, loader = checkout_package_hook()
+        self.assertEqual(IMAGE_SITE, str(module_path.parent))
+        self.assertEqual(IMAGE_SITE, str(loader_path.parent))
+        self.assertEqual(".pth", loader_path.suffix)
+        self.assertEqual(f"import {module_path.stem}\n", loader)
+        self.assertIn(f'CHECKOUT = "{linux_fake.CONTAINER_ROOT}"', source)
+
+    def test_the_package_resolves_to_the_mounted_checkout_and_follows_its_uncommitted_changes(self):
+        runtime = CheckoutRuntime(self)
+        checkout = runtime.root / "checkout"
+        (checkout / "tools" / "units").mkdir(parents=True)
+        (checkout / "tools" / "__init__.py").write_text("")
+        (checkout / "tools" / "units" / "__init__.py").write_text("")
+        (checkout / "tools" / "units" / "review.py").write_text("NAME = 'review'\n")
+        shim = checkout / "tools" / "shim.py"
+        shim.write_text("VALUE = 'committed'\n")
+        probe = (
+            "import json, autocode_cli.shim as shim, autocode_cli.units.review as review; "
+            "print(json.dumps([shim.__file__, shim.VALUE, review.__file__, review.NAME]))"
+        )
+        elsewhere = runtime.root
+
+        missing = runtime.run("-I", "-c", probe, cwd=elsewhere)
+        self.assertNotEqual(0, missing.returncode)
+        self.assertIn("No module named 'autocode_cli'", missing.stderr)
+
+        runtime.install_hook(checkout)
+        imported = runtime.run("-I", "-c", probe, cwd=elsewhere)
+        self.assertEqual(0, imported.returncode, imported.stderr)
+        self.assertEqual(
+            f'["{shim}", "committed", "{checkout / "tools" / "units" / "review.py"}", "review"]',
+            imported.stdout.strip(),
+        )
+
+        shim.write_text("VALUE = 'uncommitted'\n")
+        edited = runtime.run("-I", "-c", probe, cwd=elsewhere)
+        self.assertEqual(0, edited.returncode, edited.stderr)
+        self.assertIn('"uncommitted"', edited.stdout)
+
+        # Nothing was installed: without the mounted checkout the package is absent, never a stale copy.
+        (checkout / "tools" / "__init__.py").unlink()
+        unmounted = runtime.run("-I", "-c", probe, cwd=elsewhere)
+        self.assertNotEqual(0, unmounted.returncode)
+        self.assertIn("No module named 'autocode_cli'", unmounted.stderr)
+
+    def test_the_issue_selector_passes_and_still_rejects_a_broken_compatibility_export(self):
+        runtime = CheckoutRuntime(self)
+        before = runtime.run("-m", "unittest", PACKAGE_SELECTOR, cwd=ROOT)
+        self.assertNotEqual(0, before.returncode)
+        self.assertIn("No module named 'autocode_cli'", before.stderr)
+
+        runtime.install_hook(ROOT)
+        passed = runtime.run("-m", "unittest", PACKAGE_SELECTOR, cwd=ROOT)
+        self.assertEqual(0, passed.returncode, passed.stderr)
+        self.assertIn("OK", passed.stderr)
+
+        # The same checkout with one shim that drops its star import: the selected test rejects it.
+        broken = runtime.root / "broken"
+        (broken / "tools").mkdir(parents=True)
+        for entry in (ROOT / "tools").iterdir():
+            if entry.name != "__pycache__":
+                (broken / "tools" / entry.name).symlink_to(entry)
+        (broken / "tools" / "autocode_opencode.py").unlink()
+        (broken / "tools" / "autocode_opencode.py").write_text("from .providers.opencode import launch  # noqa: F401\n")
+        runtime.install_hook(broken)
+        rejected = runtime.run("-m", "unittest", PACKAGE_SELECTOR, cwd=ROOT)
+        self.assertNotEqual(0, rejected.returncode)
+        self.assertIn(
+            "autocode_cli.autocode_opencode.DEFAULT_MODELS is a required compatibility export", rejected.stderr
+        )
 
 
 if __name__ == "__main__":
