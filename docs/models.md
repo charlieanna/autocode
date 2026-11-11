@@ -624,6 +624,15 @@ The status view's `needs` carries the same question as `needs.effort` (`question
 `--answer` records the level you name as your own choice. A level the model does not
 declare is refused with nothing saved. See [KiloCode](providers.md#kilocode).
 
+A level you chose belongs to the model you chose it for. When a stage stops on its model
+(quota, content filter and the like) and you answer `--answer route-ROLE=MODEL` with one of
+the models AutoCode offered, without a level, your saved level moves to the nearest level
+that model offers rather than refusing the answer (#3120): GLM 5.3 offers low, high and max,
+so a saved `medium` runs at `high`. The route assignment records the move and its reason as
+`effort`, and the stage's next launch records it as its `effort_choice` (`reason:
+"route_answer_fit"`, with your `saved` level and the `model`). A level named with the answer
+(`MODEL@LEVEL`) is exact and is still refused when the model does not offer it.
+
 ## When a role's quota runs out
 
 A provider that reports a used-up quota, usage limit or credits stops the stage with

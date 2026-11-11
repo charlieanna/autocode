@@ -110,6 +110,7 @@ def citation_after_clarification(fake, original, stage, data, trace):
                 "replace": text.replace(".autocode/state.json", "README.md"),
             },
             "untestable": "",
+            "project_notes": [],
         }
     value = original(stage, data)
     if stage != "draft_plan":

@@ -37,6 +37,7 @@ try:
     from . import autocode_controller_owner as controller_owner  # noqa: F401 - runner compatibility export
     from . import autocode_interaction_timing as interaction_timing
     from . import autocode_phase_timing as phase_timing
+    from . import autocode_prompt_bound as prompt_bound
     from . import autocode_route_advisory as route_advisory
     from .autocode_model_inventory import InvocationInventory
 except ImportError:
@@ -44,6 +45,7 @@ except ImportError:
     import autocode_controller_owner as controller_owner  # noqa: F401 - runner compatibility export
     import autocode_interaction_timing as interaction_timing
     import autocode_phase_timing as phase_timing
+    import autocode_prompt_bound as prompt_bound
     import autocode_route_advisory as route_advisory
     from autocode_model_inventory import InvocationInventory  # noqa: F401 - compatibility API supplied to invocation helpers
 
@@ -565,6 +567,10 @@ def run_role(
             )
         if image_preparation is not None and prompt != image_preparation.prompt:
             raise support.Paused("PAUSED_VISUAL_EVIDENCE", "Final native image prompt changed after isolation sealing")
+        oversized = prompt_bound.refusal(prompt, job=autocode_status.role_name(stage, state))
+        if oversized:
+            # Before the prompt file, the admission and every charge: nothing is spent on it (#3121).
+            raise support.Paused(prompt_bound.STATUS, oversized)
         prompt_file.write_text(prompt)
 
     record = {

@@ -228,6 +228,12 @@ a run instead; a `provider/model` id such as `openai/gpt-6-sol` runs it through 
 Codex run. Guidance goes into the retried stage's prompt: for planning, every planning stage until the
 plan is presented; otherwise that stage until it completes.
 
+The Investigator may also name up to three facts about the repository that the next task would
+otherwise pay to discover again (`project_notes`: a reproduce command, a flaky test, a build quirk).
+They are kept in the project's `.autocode/project-notes.json` only when its probe showed the diagnosed
+cause, with that observation as their receipt, and a later task's Requirements and Planner get them as
+advisory context ([Project notes](project-notes.md)).
+
 A retry is checked, not trusted. The Investigator states the diagnosed cause as a
 plain-English `example` ("Given the Planner's report cited `docs/bugs/cent-drift.json (see
 note)`; when the runner validated `code_refs`; then it rejected the path as missing") and,

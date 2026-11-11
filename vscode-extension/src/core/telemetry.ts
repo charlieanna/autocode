@@ -20,6 +20,8 @@ export interface Attempt {
   rejected?: boolean;
   runner_owned?: boolean;
   usage_basis?: string;
+  /** The level the attempt ran at; the launch route keeps the saved level (docs/task-run.md). */
+  reasoning_effort?: string | null;
   launch_route?: { model?: string; engine?: string; provider?: string | null; reasoning_effort?: string | null };
 }
 
@@ -174,7 +176,8 @@ export function telemetry(view: { cost?: BudgetCost | null; usage?: Usage | null
       // Human job names are supplied by the core, never a second client-side table.
       job: row.job || row.stage || "Stage not reported",
       model: row.model || route?.model || "Model not reported",
-      variant: route?.reasoning_effort || "Not reported",
+      // The level it ran at, not the saved route's: a small review runs below its saved ceiling.
+      variant: row.reasoning_effort || route?.reasoning_effort || "Not reported",
       provider: route?.provider || (engine === "opencode" ? view.provider : engine) || "Not reported",
     };
   };

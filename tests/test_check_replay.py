@@ -1,5 +1,6 @@
 """The runner re-runs the Validator's checks in a clean copy before a PASS counts."""
 
+import functools
 import json
 import shlex
 import subprocess
@@ -10,6 +11,7 @@ import venv
 from pathlib import Path
 from unittest.mock import patch
 
+import autocode_base_command as base_command
 import autocode_check_replay as check_replay
 import autocode_util as util
 import autocode_verify as verify
@@ -698,6 +700,157 @@ class ScratchReplayTests(unittest.TestCase):
     def test_a_command_naming_the_workspace_runs_against_the_copy(self):
         self.replay(f"cat {self.workspace}/new.txt && touch {self.workspace}/written-by-check.txt")
         self.assertFalse((self.workspace / "written-by-check.txt").exists(), "a replay never writes the workspace")
+
+
+# A repository-wide check, as `ruff check tools/ tests/ scenarios/` was in #3160: it reports every TODO left
+# in any text file and exits 1, naming the file and line.
+LINT = """\
+import pathlib, sys
+found = [
+    f"{path}:{number}: TODO left"
+    for path in sorted(pathlib.Path(".").rglob("*.txt"))
+    for number, line in enumerate(path.read_text().splitlines(), 1)
+    if "TODO" in line
+]
+print("\\n".join(found) or "All checks passed!")
+sys.exit(1 if found else 0)
+"""
+
+
+class BaseAttributionTests(unittest.TestCase):
+    """#3160: a planned check that fails identically on the base revision is the base's failure."""
+
+    COMMAND = "python3 lint.py"
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.workspace = Path(temp.name).resolve() / "project"
+        self.workspace.mkdir()
+        self.git("init", "-q")
+        (self.workspace / "lint.py").write_text(LINT)
+        self.run_dir = Path(temp.name) / "run"
+
+    def git(self, *args):
+        return subprocess.run(
+            ["git", "-C", str(self.workspace), *args], check=True, capture_output=True, text=True
+        ).stdout.strip()
+
+    def base(self, legacy):
+        (self.workspace / "legacy.txt").write_text(legacy)
+        self.git("add", ".")
+        self.git("-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qm", "base")
+        return self.git("rev-parse", "HEAD")
+
+    def replay(self, checks=(), *, base=None, planned=True, base_run=None, **options):
+        state = {"current_task": {"validation_plan": [f"`{self.COMMAND}`"] if planned else []}}
+        return check_replay.replay(
+            list(checks),
+            self.workspace,
+            self.run_dir,
+            {"output": "sol-01.json", "source_revision": "r"},
+            verify.scratch_run,
+            timeout=60,
+            approved_state=state,
+            base_run=base_run or (functools.partial(base_command.run, base=base) if base else None),
+            **options,
+        )
+
+    def test_a_planned_check_failing_identically_on_the_base_is_recorded_and_not_the_changes(self):
+        base = self.base("TODO: an old note, already on master\n")
+        (self.workspace / "feature.txt").write_text("the change: clean\n")
+
+        result = self.replay(base=base)
+
+        self.assertEqual("PASS", result["verdict"])
+        [row] = result["checks"]
+        self.assertEqual((self.COMMAND, 1, "approved-plan"), (row["command"], row["exit_code"], row["evidence_ref"]))
+        attribution = row["base_attribution"]
+        self.assertEqual("base", attribution["kind"])
+        self.assertIn("fails identically on the base revision", attribution["reason"])
+        self.assertEqual(1, attribution["base_exit_code"])
+        self.assertEqual("legacy.txt:1: TODO left\n", Path(attribution["base_output"]).read_text())
+        self.assertEqual(util.file_hash(Path(attribution["base_output"])), attribution["base_output_sha256"])
+        saved = json.loads(Path(result["receipt_path"]).read_text())
+        self.assertEqual("base", saved["checks"][0]["base_attribution"]["kind"])
+        pins = check_replay.evidence_pins(result)
+        self.assertEqual(attribution["base_output_sha256"], pins[attribution["base_output"]])
+        self.assertNotIn("scratch", self.git("worktree", "list", "--porcelain"), "both clean copies are removed")
+
+    def test_without_a_base_runner_the_same_failure_stays_the_changes(self):
+        self.base("TODO: an old note, already on master\n")
+        (self.workspace / "feature.txt").write_text("the change: clean\n")
+        with self.assertRaises(check_replay.PlannedCheckFailure):
+            self.replay()
+
+    def test_a_failure_the_change_brings_or_alters_is_the_changes(self):
+        for legacy, delivered, reason in (
+            ("clean\n", "TODO: the change's own\n", "passes on the base revision, so the change broke it"),
+            ("TODO: old\n", "TODO: the change's own\n", "its output differs"),
+        ):
+            with self.subTest(reason=reason):
+                self.setUp()
+                base = self.base(legacy)
+                (self.workspace / "feature.txt").write_text(delivered)
+                with self.assertRaises(check_replay.PlannedCheckFailure) as rejected:
+                    self.replay(base=base)
+                self.assertIn(reason, str(rejected.exception))
+                [receipt_path] = self.run_dir.glob("check-replay/*/replay.json")
+                saved = json.loads(receipt_path.read_text())
+                self.assertEqual("FAIL", saved["verdict"])
+                self.assertEqual("change", saved["checks"][0]["base_attribution"]["kind"])
+
+    def test_a_different_exit_on_the_base_is_the_changes(self):
+        base = self.base("TODO: old\n")
+        (self.workspace / "lint.py").write_text(LINT.replace("sys.exit(1 if", "sys.exit(3 if"))
+        with self.assertRaises(check_replay.PlannedCheckFailure) as rejected:
+            self.replay(base=base)
+        self.assertIn("exits 1 on the base revision, not 3", str(rejected.exception))
+
+    def test_only_a_planned_plain_command_is_compared_with_the_base(self):
+        base = self.base("TODO: old\n")
+        calls = []
+
+        def base_run(*args, **kwargs):
+            calls.append(kwargs["command"])
+            return base_command.run(*args, **kwargs, base=base)
+
+        # A Validator's own check must reproduce as reported, whatever the base does.
+        with self.assertRaises(ValueError) as rejected:
+            self.replay(
+                [{"command": self.COMMAND, "exit_code": 0, "evidence_ref": "event:a"}], planned=False, base_run=base_run
+            )
+        self.assertNotIsInstance(rejected.exception, check_replay.PlannedCheckFailure)
+        # A test runner's tests are judged by name (regression proof, preservation), never by the base's output.
+        (self.workspace / "test_old.py").write_text(
+            "import unittest\nclass T(unittest.TestCase):\n    def test_old(self):\n        self.fail('old')\n"
+        )
+        self.git("add", ".")
+        self.git("-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qm", "old failing test")
+        self.COMMAND = "python3 -m unittest test_old"
+        with self.assertRaises(check_replay.PlannedCheckFailure) as rejected:
+            self.replay(base_run=base_run)
+        self.assertNotIn("base revision", str(rejected.exception))
+        self.assertEqual([], calls)
+
+    def test_progressive_verification_keeps_every_failure_the_changes(self):
+        base = self.base("TODO: old\n")
+        context = {"required_checks": [{"id": "C1", "method": f"`{self.COMMAND}`"}]}
+        with self.assertRaises(check_replay.PlannedCheckFailure) as rejected:
+            self.replay(base=base, planned=False, progressive_context=context)
+        self.assertNotIn("base revision", str(rejected.exception))
+
+    def test_a_base_copy_that_cannot_be_prepared_leaves_the_failure_the_changes(self):
+        self.base("TODO: old\n")
+        with self.assertRaises(check_replay.PlannedCheckFailure) as rejected:
+            self.replay(base="0" * 40)
+        self.assertIn("The base revision could not be prepared to compare", str(rejected.exception))
+
+        def paused(*args, **kwargs):
+            raise util.Paused("PAUSED_VERIFICATION_UNCERTAIN", "cleanup unverified")
+
+        with self.assertRaises(util.Paused):
+            self.replay(base_run=paused)
 
 
 class CliTests(unittest.TestCase):

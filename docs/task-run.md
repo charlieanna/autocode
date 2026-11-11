@@ -1871,8 +1871,8 @@ applies to review findings, not the task's acceptance criteria. See [patch attri
 test, which side, its kind and the run outcomes), `unrepeated`, `next_step` when
 a test disagreed, and `note`; `null` when the proof did not repeat tests.
 `diff_coverage` is the same proof's line coverage of changed product hunks
-(`collected`, `tool`, `note`, `files`, `uncovered`, `unmeasured`); `null` when the
-proof did not record it. The raw coverage report alone grants no completion
+(`collected`, `tool`, `note`, `files`, `uncovered`, `unmeasured`, and
+`measured_lines` for the changed lines only); `null` when the proof did not record it. The raw coverage report alone grants no completion
 authority. Current task proofs combine authenticated producing receipts with
 mutation evidence in `verification.changed_code_evidence` (#2474).
 `mutation_check` is the same proof's mutation check (#699, #2474, see

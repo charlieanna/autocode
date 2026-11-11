@@ -52,6 +52,7 @@ OPERATOR_SUBCOMMANDS = (
     "arena",
     "unattended",
     "forget",
+    "notes",
 )
 
 STOP_NOTICE = """\
