@@ -2359,6 +2359,38 @@ test('a pending spend confirmation says in the chat that a dialog is open', asyn
   assert.ok(!ui.document.getElementById('app').textContent.includes('answer the dialog that opened'), 'the notice leaves with the dialog');
 });
 
+// A live chat showed "Here's what I understand..." as a message and then the same text again as a
+// raw block in the approval card under it (2026-11-11). review.summary is that question's own text.
+const understanding = 'Here’s what I understand. Does this match what you want?\n\nOutcome: Greet by name';
+function understandingView(messages) {
+  return { status: 'WAITING_FOR_USER', done: false,
+    needs: { kind: 'answer', resolver_token: 'review:exact', questions: [
+      { id: 'requirements-review-current', question: understanding, options: [], proposed_default: 'plan' },
+    ] },
+    next_command: `autocode --answer requirements-review-current=ANSWER --resolver-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { phase: 'requirements', context: 'review', input: null, messages, review: {
+      question_id: 'requirements-review-current', answer: 'plan', label: 'Approve understanding and prepare plan', summary: understanding,
+    } },
+  };
+}
+
+test('the Requirements understanding shows once: the thread holds it, the approval card does not repeat it', async (t) => {
+  const asked = [{ id: 'initial', role: 'user', text: 'greet by name' },
+    { id: 'requirements-question-abc123', role: 'assistant', text: understanding }];
+  const ui = await openChat(t, understandingView(asked));
+  const thread = ui.document.getElementById('messages').textContent;
+  assert.equal(thread.split('Outcome: Greet by name').length - 1, 1, 'the thread shows the understanding once');
+  assert.equal(ui.document.querySelector('#app pre.understanding'), null, 'the card does not repeat it');
+  assert.ok(!ui.document.getElementById('app').textContent.includes('Outcome: Greet by name'));
+  assert.ok(ui.document.querySelector('#take-action').textContent.includes('Approve understanding'), 'the approval is still offered');
+});
+
+test('the approval card shows the understanding when the thread does not hold it', async (t) => {
+  // An older core sent no requirements-question message: the card is then the only place it is shown.
+  const ui = await openChat(t, understandingView([{ id: 'initial', role: 'user', text: 'greet by name' }]));
+  assert.ok(ui.document.querySelector('#app pre.understanding').textContent.includes('Outcome: Greet by name'));
+});
+
 test('a send dropped for a stale chat key keeps the draft and says so', async (t) => {
   const ui = await openChat(t, chatView());
   ui.type('Do the thing');

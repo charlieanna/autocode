@@ -1328,7 +1328,13 @@ function render(state) {
         && (state.chat.review || state.needKind === 'continue')) {
       if (state.chat.review) {
         const review = state.chat.review;
-        if (review.summary) cardContent.appendChild(el('pre', 'understanding', review.summary));
+        // The thread already holds the Requirements question (docs/task-run.md: its id starts with
+        // requirements-question-), and this summary is that same text: a second copy here showed
+        // the whole understanding twice, the card's as a raw block. The card keeps it only when
+        // the thread does not show it.
+        const asked = (state.chat.messages || []).some((row) => !row.streaming
+          && String(row.id || '').indexOf('requirements-question-') === 0);
+        if (review.summary && !asked) cardContent.appendChild(el('pre', 'understanding', review.summary));
         const approve = el('button', null, review.label);
         approve.id = 'take-action';
         approve.disabled = state.taking || state.working || Boolean(state.unreadable);

@@ -36,7 +36,7 @@ class ChatProgressTests(unittest.TestCase):
         self.assertEqual("Builder working · task M1", lines[0])
         self.assertEqual("0 of 2 tasks done · 1 of 3 requirements checked (1 from earlier checks), 1 failed", lines[1])
         self.assertEqual(
-            "Recent steps: Planner attempt finished · Tester attempt needs correction · Builder attempt stopped",
+            "Recent steps: Planner finished · Tester answer not accepted · Builder stopped",
             lines[2],
         )
         self.assertNotIn("passed", " ".join(lines))
@@ -57,7 +57,7 @@ class ChatProgressTests(unittest.TestCase):
         ]
         self.public["progress"]["headline"] = "Requirements working"
         lines = progress.project(self.state, self.public)
-        self.assertEqual("Recent steps: Requirements attempt needs correction", lines[-2])
+        self.assertEqual("Recent steps: Requirements answer not accepted", lines[-2])
         self.assertEqual(
             "Why the last Requirements answer was not accepted: it listed R3, R4 as things you asked for, "
             "but you never wrote the words it quoted for them.",
@@ -68,6 +68,38 @@ class ChatProgressTests(unittest.TestCase):
         )
         lines = progress.project(self.state, self.public)
         self.assertFalse([line for line in lines if line.startswith("Why")], lines)
+
+    def test_a_retried_step_reads_as_one_step_with_its_earlier_attempts(self):
+        # The 2026-11-11 chat showed "Requirements attempt needs correction · Requirements attempt finished ·
+        # Requirements attempt finished": one step's answer, two report repairs and a confirmation, cut to
+        # the last three and each named the same, so nothing said what had happened or that it was done.
+        self.state["active_stage"] = None
+        self.public["progress"]["headline"] = "Next: Planner"
+        record = {"exit_code": 0, "finished_at": "2026-11-11T08:08:12Z"}
+        self.state["stages"] = [
+            {**record, "stage": "requirements_gather", "rejected": True},
+            {**record, "stage": "requirements_gather_report_repair", "rejected": True},
+            {**record, "stage": "requirements_gather_report_repair"},
+            {**record, "stage": "requirements_gather"},
+            {**record, "stage": "model_preflight", "runner_owned": True},
+        ]
+        self.assertEqual(
+            "Recent steps: Requirements finished on attempt 4 (2 earlier answers not accepted)",
+            progress.project(self.state, self.public)[-1],
+        )
+        self.state["stages"][3:] = [
+            {**record, "stage": "requirements_gather", "exit_code": 1},
+            {**record, "stage": "requirements_gather", "rejected": True},
+            {**record, "stage": "draft_plan"},
+            {**record, "stage": "builder", "exit_code": 1},
+            {**record, "stage": "builder"},
+        ]
+        self.assertEqual(
+            "Recent steps: Requirements answer not accepted on attempt 5 "
+            "(2 earlier answers not accepted, 1 earlier attempt stopped) · Planner finished · "
+            "Builder finished on attempt 2 (1 earlier attempt stopped)",
+            progress.project(self.state, self.public)[-1],
+        )
 
     def test_queued_finished_stopped_and_unknown_activity_are_distinct(self):
         for active, headline, kind, flags, expected in (
@@ -106,14 +138,14 @@ class ChatProgressTests(unittest.TestCase):
                 "exit_code": 0,
             },
         ]
-        self.assertEqual("Recent steps: Tester attempt finished", progress.project(self.state, self.public)[-1])
+        self.assertEqual("Recent steps: Tester finished", progress.project(self.state, self.public)[-1])
 
     def test_a_runner_owned_dispatch_with_no_exit_code_finished(self):
         # #1643: the Orchestrator's record carries no exit_code, and read as "attempt stopped" on a clean run.
         dispatch = {"stage": "orchestrator", "finished_at": "2026-10-19T08:03:00Z", "runner_owned": True}
         self.state["stages"] = [dispatch, {"stage": "builder", "finished_at": "2026-10-19T08:04:00Z"}]
         self.assertEqual(
-            "Recent steps: Orchestrator attempt finished · Builder attempt stopped",
+            "Recent steps: Orchestrator finished · Builder stopped",
             progress.project(self.state, self.public)[-1],
         )
 
