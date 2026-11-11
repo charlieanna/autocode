@@ -18,6 +18,36 @@ except ImportError:
     import autocode_util as util
 
 
+def builder_captures(state: RunState):
+    """Runner-recorded Builder source captures (before, after) for this plan, in attempt order."""
+    captures = []
+    root = Path(state["run_dir"]).resolve()
+    for record in state.get("stages", []):
+        if (
+            record.get("stage") != "builder"
+            or record.get("exit_code") != 0
+            or any(record.get(key) for key in ("report_only", "rejected", "abandoned", "timed_out"))
+            or record.get("contract_hash") != cast(dict, state["goal_contract"])["hash"]
+        ):
+            continue
+        try:
+            pair = []
+            for key in ("before_ref", "after_ref"):
+                path = Path(record[key])
+                if path.is_symlink() or not path.resolve().is_relative_to(root):
+                    raise ValueError("Builder capture lies outside the run directory")
+                snapshot = util.read(path)
+                if snapshot["revision"] != util.digest({"head": snapshot["head"], "files": snapshot["files"]}):
+                    raise ValueError("Builder capture identity is not its recorded source")
+                pair.append(snapshot)
+            before, after = pair
+            if record.get("source_revision") == after["revision"]:
+                captures.append((before, after))
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    return captures
+
+
 def builder_commits(state: RunState, workspace, current, git):
     """Return witnessed commits, refusing dirty trees, merges and external moves."""
     base, head = state.get("base_commit"), current["head"]
@@ -43,32 +73,12 @@ def builder_commits(state: RunState, workspace, current, git):
     if chain[-1] != head:
         raise ValueError(reason)
     witnessed: set[int] = set()
-    root = Path(state["run_dir"]).resolve()
-    for record in state.get("stages", []):
-        if (
-            record.get("stage") != "builder"
-            or record.get("exit_code") != 0
-            or any(record.get(key) for key in ("report_only", "rejected", "abandoned", "timed_out"))
-            or record.get("contract_hash") != cast(dict, state["goal_contract"])["hash"]
-        ):
-            continue
+    for before, after in builder_captures(state):
         try:
-            captures = []
-            for key in ("before_ref", "after_ref"):
-                path = Path(record[key])
-                if path.is_symlink() or not path.resolve().is_relative_to(root):
-                    raise ValueError(reason)
-                snapshot = util.read(path)
-                if snapshot["revision"] != util.digest({"head": snapshot["head"], "files": snapshot["files"]}):
-                    raise ValueError(reason)
-                captures.append(snapshot)
-            before, after = captures
-            if record.get("source_revision") != after["revision"]:
-                continue
             start, stop = chain.index(before["head"]), chain.index(after["head"])
-            witnessed.update(range(start + 1, stop + 1))
-        except (OSError, ValueError, KeyError, TypeError):
+        except ValueError:
             continue
+        witnessed.update(range(start + 1, stop + 1))
     if witnessed != set(range(1, len(chain))):
         raise ValueError(reason)
     return chain[1:]
