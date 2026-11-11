@@ -171,6 +171,26 @@ class StopExplanationTests(unittest.TestCase):
             stop_explanations.explain("PAUSED_TOOL", stop_reason=appeared)["what_it_means"],
         )
 
+    def test_a_source_discovery_stop_names_the_shared_roots_not_repository_access(self):
+        # #3073: a root another chat added stopped this one before any stage; the generic text sent the person
+        # to fix repository access or ownership, which were fine.
+        table = stop_explanations.TABLE["PAUSED_SOURCE_UNAVAILABLE"]
+        discovery = (
+            "Source discovery is incomplete: root_unavailable at /home/p/workspace. Configured source roots are "
+            "shared by every chat on this computer. To stop this root blocking tasks, run in a terminal, not in a "
+            "chat (where it would be read as a new request): `autocode registry roots remove /home/p/workspace`"
+        )
+        text = stop_explanations.explain("PAUSED_SOURCE_UNAVAILABLE", stop_reason=discovery)
+        self.assertIn("every chat on this computer shares", text["what_it_means"])
+        self.assertIn("not the cause", text["what_it_means"])
+        self.assertTrue(text["what_the_command_does"].startswith("Run the command the stop reason names"))
+        self.assertIn("not in the chat", text["what_the_command_does"])
+        self.assertNotIn("repository access or ownership, then", text["explanation"])
+        # A Git snapshot failure in the workspace keeps the table's access advice.
+        git = "Cannot snapshot source in /w: git ls-files failed: dubious ownership"
+        text = stop_explanations.explain("PAUSED_SOURCE_UNAVAILABLE", stop_reason=git)
+        self.assertEqual(table, (text["what_it_means"], text["what_the_command_does"]))
+
     def test_every_pause_state_in_the_table_has_three_parts(self):
         self.assertGreater(len(stop_explanations.TABLE), 50)
         for status, entry in stop_explanations.TABLE.items():
