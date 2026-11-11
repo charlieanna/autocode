@@ -68,6 +68,19 @@ CATEGORY_WORDS = {
     "protected_saved_limit": "a saved limit",
     "no_progress": "a stage that stopped making progress",
 }
+# The limit a bound stop names in the person's own sentence (#3145 shows a person only the sentences
+# that name no flag, so the advice naming --max-seconds cannot be what tells them which limit stopped).
+LIMIT_WORDS = {
+    "max_seconds": "active time",
+    "max_cost_usd": "cost",
+    "milestone_max_seconds": "milestone active time",
+    "planning_review_call_limit": "plan-review",
+}
+NAMED_CATEGORY_WORDS = {
+    "internal_default": "the {limit} limit AutoCode set by default",
+    "explicit_user_cap": "the {limit} limit you set",
+    "protected_saved_limit": "the saved {limit} limit",
+}
 MAX_PLANNING_RECOVERY_GRANTS = 2
 OPERATIONAL_INSTRUCTION = prompts.get("fragments/resolver-runtime/operational-instruction.md")
 
@@ -613,7 +626,11 @@ def record_operational_exhaustion(runner, state: RunState, run_dir, error, *, re
     ) + sum(bool(r.get("startup_recovery")) for r in state.get("stages", []))
     # Never "after 0 recoveries" (#511): with none recorded, say none ran.
     # The category stays in the evidence; the person reads what it means (#1815: "internal_default" did not say).
-    shown = CATEGORY_WORDS.get(category, category)
+    shown = (
+        NAMED_CATEGORY_WORDS[category].format(limit=LIMIT_WORDS[kind])
+        if kind in LIMIT_WORDS and category in NAMED_CATEGORY_WORDS
+        else CATEGORY_WORDS.get(category, category)
+    )
     decision = (
         f"AutoResolver could not resolve {shown} after {attempts} recorded operational "
         f"recover{'y' if attempts == 1 else 'ies'}. "

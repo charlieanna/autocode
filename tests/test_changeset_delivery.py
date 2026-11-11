@@ -73,6 +73,21 @@ class ChangesetDeliveryTests(unittest.TestCase):
         self.code.return_value = "changed-code"
         self.assertFalse(delivery.view(summary, record)["done"])
 
+    def test_no_named_check_is_done_only_by_a_waiver_of_its_absence(self):
+        summary, record = self.observe()
+        store.set_fields(record["id"], {"check": None})
+        summary, record = self.observe()
+        current = delivery.view(summary, record)
+        self.assertEqual((False, None), (current["done"], current["next_command"]))
+        self.assertIn("none was named", delivery.pr_body(summary, record, "api", []))
+
+        delivery.waive(summary, record, "The payload is unchanged.")
+        summary, record = self.observe()
+        self.assertTrue(delivery.view(summary, record)["done"])
+        self.assertIn("waived by the person: The payload is unchanged.", delivery.pr_body(summary, record, "api", []))
+        self.code.return_value = "changed-code"
+        self.assertFalse(delivery.view(summary, record)["done"], "the waiver accepted the code as it was")
+
     def test_replacing_the_command_or_target_withdraws_the_old_waiver(self):
         for target, command in (("api", ["critical-interface-check"]), ("history", ["critical-interface-check"])):
             with self.subTest(target=target, command=command):

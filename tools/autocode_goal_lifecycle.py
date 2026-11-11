@@ -61,6 +61,7 @@ try:
     from . import autocode_operational_change as operational_change
     from . import autocode_plan_chat as plan_chat
     from . import autocode_plan_retention as plan_retention
+    from . import autocode_plan_test_suite as plan_test_suite
     from . import autocode_planning_cycle as planning_cycle
     from . import autocode_progressive_state as progressive_state
     from . import autocode_proof_declarations as proof_declarations
@@ -115,6 +116,7 @@ except ImportError:
     import autocode_operational_change as operational_change
     import autocode_plan_chat as plan_chat
     import autocode_plan_retention as plan_retention
+    import autocode_plan_test_suite as plan_test_suite
     import autocode_planning_cycle as planning_cycle
     import autocode_progressive_state as progressive_state
     import autocode_proof_declarations as proof_declarations
@@ -266,6 +268,8 @@ def validate_body(state: RunState, body, *, ready=False, allow_legacy=False, ori
                 raise ValueError("Implementation milestones must cover every acceptance criterion")
         # A Go test the user asked for is proven only under its own name (#498), whatever a review accepted.
         native_test_names.check(state, body, origin=origin)
+        # Every planned test is one the proof's suite runs (#2889), known now rather than after a Builder round.
+        plan_test_suite.check(state, body, origin=origin)
     design_plan.validate((state.get("settings") or {}).get("design_manifest"), body, ready=ready)
 
 

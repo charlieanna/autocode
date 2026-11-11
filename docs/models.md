@@ -794,9 +794,17 @@ An authenticated terminal output-limit stop (`PAUSED_OUTPUT_CAP`) switches model
 own on a run that chose them automatically, as a quota stop does
 ([above](#when-a-roles-quota-runs-out)). Otherwise it asks for another model on the same
 engine with the existing availability and checker-independence rules.
-The answer retains the incomplete attempt and usage; continuation is explicit. Builder
-and Requirements never automatically retry this stop on the same model. See [Output cap](providers.md#output-cap)
+The answer retains the incomplete attempt and usage; continuation is explicit. See [Output cap](providers.md#output-cap)
 for cap settings and the existing bounded read-only report repair.
+
+Before it asks, AutoCode settles one kind of output-limit stop itself: an attempt that changed no
+source and spent almost all of its output on reasoning (a live Requirements attempt on MiMo 2.6 Pro
+at `medium` reasoned for 64,003 tokens and wrote nothing). The model is not at fault there, its level
+is, so the runner sets the attempt aside and runs the stage again on the same model at the highest
+level the model offers below the one it ran at. It records the move in the run's evidence and as the
+stage's `effort_choice`, the live log says so, and the stage keeps that level on that model for the
+rest of the run. Each level is lowered once, so a stage that runs out at the model's lowest level, a
+level typed as a flag, a long report and an attempt that changed source still ask as above.
 
 ## A parallel Builder stopped on its model
 

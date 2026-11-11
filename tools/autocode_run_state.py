@@ -248,6 +248,7 @@ KEYS: frozenset[str] = frozenset(
         "project_workspace",
         "prompts_hash",
         "reasoning_escalations",
+        "reasoning_exhaustion_recoveries",
         "reconciliation_notes",
         "recovery",
         "recovery_context",
@@ -345,7 +346,7 @@ class RunState(TypedDict, total=False):
     # in the conversation instead of leaving a client to infer it from workspace (#1908).
     workspace_bootstrap: dict
     project_memory: dict  # project_memory_lifecycle owns launch input/tags/publication; Requirements reads context
-    project_notes: dict  # project_notes_lifecycle owns the launch input; Requirements, Planner, Investigator read it
+    project_notes: dict  # project_notes_lifecycle owns the launch input and the completion path's notes; Requirements, Planner, Investigator read it
     run_dir: str  # this run's .autocode/runs/<id>
     status: str  # RUNNING / PAUSED_* / TASK_COMPLETE; written by the runner
     phase: str  # PLANNING / EXECUTING / ...; written by the runner
@@ -486,8 +487,9 @@ class RunState(TypedDict, total=False):
     builder_retry_key: Any
     # Plan and build in a task worktree (#3077, #3081): written only by autocode_build_worktree
     # (request at launch, move before the first stage that writes); read there by due/resolve/moved
-    # (the build loop, --run-dir loading, run listings), notice (autocode_chat_history) and the
-    # replay projection's moved_from (autocode_replay_view, #3085).
+    # (the build loop, --run-dir loading, run listings), notice (autocode_chat_history), the
+    # replay projection's moved_from (autocode_replay_view, #3085) and origin, where model preflight
+    # reads the access the run proved before it moved (autocode_model_preflight, #3219).
     build_worktree: Any
     changed_files: Any
     checked: Any
@@ -601,6 +603,9 @@ class RunState(TypedDict, total=False):
     progress_sequence: Any
     project_worked_in_place: Any
     reasoning_escalations: Any
+    # autocode_output_cap_recovery appends one row per reasoning-bound output stop it lowered (stage, model,
+    # from, to); its decide reads it at each launch through autocode_review_effort.launch.
+    reasoning_exhaustion_recoveries: list[dict]
     reconciliation_notes: Any
     recovery: Any
     recovery_context_archive: Any

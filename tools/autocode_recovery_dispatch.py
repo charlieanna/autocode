@@ -21,12 +21,14 @@ if TYPE_CHECKING:
 try:
     from . import autocode_job_failure as job_failure
     from . import autocode_network_retry as network_retry
+    from . import autocode_output_cap_recovery as output_cap_recovery
     from . import autocode_provider_recovery as provider_recovery
     from . import autocode_resolver_recovery as resolver_recovery
     from . import autocode_route_recovery as route_recovery
 except ImportError:
     import autocode_job_failure as job_failure
     import autocode_network_retry as network_retry
+    import autocode_output_cap_recovery as output_cap_recovery
     import autocode_provider_recovery as provider_recovery
     import autocode_resolver_recovery as resolver_recovery
     import autocode_route_recovery as route_recovery
@@ -58,6 +60,9 @@ RECOVERY_CHAIN = (
     # other quota stop falls through to the pause that asks the person (#184).
     ("route", _runtime_first(route_recovery, "recover")),
     ("truncated_review", _on_runtime("automatically_recover_truncated_review")),
+    # An attempt that spent its whole output limit on reasoning runs again one level lower on the same
+    # model, rather than asking the person for another model (live run, 2026-11-11).
+    ("reasoning_exhaustion", _runtime_first(output_cap_recovery, "recover")),
     ("capacity", _on_runtime("automatically_recover_capacity_stage")),
     ("timeout", _on_runtime("automatically_recover_timed_out_stage")),
     ("external_directory_denial", _on_runtime("automatically_recover_external_directory_denial")),

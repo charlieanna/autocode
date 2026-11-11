@@ -105,6 +105,32 @@ class ResolveTests(unittest.TestCase):
         self.assertIsNone(build_worktree.resolve(root, old, record), "a run that is not in that worktree")
         self.assertIsNone(build_worktree.resolve(root, old, {"build_worktree": {"state": "planning"}}))
 
+    def test_a_moved_run_reads_earlier_evidence_only_in_the_folder_that_says_it_moved_here(self):
+        root = checkout(self)
+        old, child = root / ".autocode" / "runs" / "r1", root / ".autocode" / "worktrees" / "t" / "r1"
+        old.mkdir(parents=True)
+        moved_run = {"build_worktree": {"state": "building", "moved_from": {"run_dir": str(old)}}}
+
+        def leave(run_dir):
+            record = {"state": "moved", "moved_to": {"workspace": str(child.parent), "run_dir": str(run_dir)}}
+            (old / "state.json").write_text(json.dumps({"build_worktree": record}))
+
+        self.assertIsNone(build_worktree.origin(moved_run, child), "a folder with no saved run")
+        leave(child)
+        self.assertEqual(old, build_worktree.origin(moved_run, child))
+        leave(root / "elsewhere")
+        self.assertIsNone(build_worktree.origin(moved_run, child), "the folder's run moved somewhere else")
+        leave(child)
+        self.assertIsNone(build_worktree.origin({"build_worktree": {"state": "planning"}}, child), "not moved")
+        relative = {"build_worktree": {"state": "building", "moved_from": {"run_dir": "runs/r1"}}}
+        self.assertIsNone(build_worktree.origin(relative, child), "only an absolute folder path")
+        (old / "state.json").rename(old / "saved.json")
+        (old / "state.json").symlink_to(old / "saved.json")
+        self.assertIsNone(build_worktree.origin(moved_run, child), "a folder record that is a link")
+        (old / "state.json").unlink()
+        (old / "state.json").write_text("{")
+        self.assertIsNone(build_worktree.origin(moved_run, child), "an unreadable folder record")
+
 
 class MoveTests(unittest.TestCase):
     def test_a_move_interrupted_after_its_worktree_was_made_finishes_in_that_worktree(self):
@@ -132,6 +158,8 @@ class MoveTests(unittest.TestCase):
         self.assertEqual(str(run_dir), child["build_worktree"]["moved_from"]["run_dir"])
         self.assertEqual({}, child["sessions"], "provider sessions belong to the folder they ran in")
         self.assertNotIn("launch_sources", child, "an in-place launch record does not hold in the worktree")
+        # Evidence earned before the move is read where it was made (#3219).
+        self.assertEqual(run_dir, build_worktree.origin(child, target["run_dir"]))
         parent = util.read(run_dir / "state.json")
         self.assertEqual(target, build_worktree.moved(parent))
         self.assertEqual(Path(target["run_dir"]), build_worktree.resolve(root, run_dir, parent)[1])

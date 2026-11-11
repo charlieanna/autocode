@@ -252,8 +252,10 @@ the displayed job retry token and issue a new token for the explicit retry.
 On a route that honors the setting, another recovery option is to request a larger limit,
 set the attempt aside with `--abandon-stage`, and `--resume-paused`. Model and provider
 limits still apply. Automatic report repair remains bounded to the existing read-only
-Tester and Completion Reviewer stages; Builder and Requirements never retry
-an output-limit stop automatically. Ambiguous or interrupted output remains uncertain.
+Tester and Completion Reviewer stages. An original attempt that spent its output on reasoning runs
+again one level lower on the same model, without a question
+([models](models.md#when-a-response-reaches-its-output-limit)); no other output-limit stop is retried
+automatically. Ambiguous or interrupted output remains uncertain.
 The cap-setting rules are in `tools/autocode_output_cap.py`. Ordinary Kilo 7.8.3 uses
 `KILO_EXPERIMENTAL_OUTPUT_TOKEN_MAX`, not the OpenCode variable. AutoCode sets that
 native variable to 64000. A valid Kilo-specific operator value wins; otherwise a

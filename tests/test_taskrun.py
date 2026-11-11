@@ -16,6 +16,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import autocode_action_authority as action_authority
+import autocode_capability_startup as capability_startup
 import autocode_captured_process as captured_process
 import autocode_goal_lifecycle as lifecycle
 import autocode_plan_file as plan_file
@@ -1903,6 +1904,12 @@ class TaskRunClientTests(unittest.TestCase):
 STUB_CLI = textwrap.dedent("""
     import json, os, pathlib, sys
     args = sys.argv[1:]
+    if os.environ.get("STUB_NOTICE"):
+        print(os.environ["STUB_NOTICE"], file=sys.stderr)
+    if os.environ.get("STUB_USAGE"):
+        print("usage: autocode [-h]", file=sys.stderr)
+        print("error: unrecognized arguments: --nope", file=sys.stderr)
+        sys.exit(2)
     workspace = pathlib.Path(args[args.index("--workspace") + 1])
     if "--restore" in args:
         print(json.dumps({"workspace": str(workspace), "run_dir": str(workspace / ".autocode" / "runs" / "two")}))
@@ -1976,6 +1983,24 @@ class TaskRunProcessTests(unittest.TestCase):
             taskrun.TaskRun.start(self.workspace, "A task", command=self.command, env={"STUB_REJECT": "1"})
         self.assertEqual(self.workspace / ".autocode" / "runs" / "one", raised.exception.run_dir)
         self.assertEqual(2, raised.exception.process.returncode)
+
+    def test_the_capability_drop_notice_is_not_a_refusal_or_hides_one(self):
+        # A privileged Linux host (a root container) re-executes the CLI, which first writes this notice
+        # to stderr. Read as a refusal, every start that stopped for input failed there.
+        notice = {"STUB_NOTICE": capability_startup.NOTICE}
+        run = taskrun.TaskRun.start(self.workspace, "A task", command=self.command, env=notice)
+        self.assertEqual(self.workspace / ".autocode" / "runs" / "one", run.run_dir)
+        self.assertEqual(2, run.last_advance.returncode)
+        run.advance()
+        with self.assertRaisesRegex(taskrun.TaskRunError, "exited 2: Input rejected: the run is busy"):
+            taskrun.TaskRun(
+                self.workspace, run.run_dir, command=self.command, env={**notice, "STUB_REJECT": "1"}
+            ).advance()
+        with self.assertRaisesRegex(taskrun.TaskRunError, "unrecognized arguments: --nope"):
+            # An advancing call, which accepts exit 2 as a stop unless the output says otherwise.
+            taskrun.TaskRun(
+                self.workspace, run.run_dir, command=self.command, env={**notice, "STUB_USAGE": "1"}
+            )._invoke("advance", "--no-chat", advancing=True)
 
     def test_a_call_that_cannot_run_is_a_task_run_error(self):
         run = taskrun.TaskRun(

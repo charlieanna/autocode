@@ -275,9 +275,10 @@ def detect(root, package, detect_in) -> PackageFramework | None:
 MANIFESTS = ("package.json", "go.mod", "Cargo.toml", "pyproject.toml", "setup.py", "setup.cfg", "Gemfile")
 
 
-def enclosing(root, tests, detect_in) -> PackageFramework | None:
+def enclosing(root, tests, detect_in, *, runs=None) -> PackageFramework | None:
     """The suite of the innermost project directory below ``root`` that holds every one of ``tests``
-    and runs them all, or None.
+    and runs them all, or None. ``runs(found)`` judges that instead of ``found.targeted(tests)``: before
+    the tests exist, a plan's check judges them by their kind (autocode_plan_test_suite).
 
     A run of the whole repository detects one suite at its root. When that suite cannot run the
     tests (a Node package inside a Python repository, 2026-11-11), the tests belong to the project
@@ -295,7 +296,7 @@ def enclosing(root, tests, detect_in) -> PackageFramework | None:
         if directory is None or not any((directory / name).is_file() for name in MANIFESTS):
             continue
         found = detect(root, package, detect_in)
-        if found is not None and found.targeted(tests):
+        if found is not None and (runs(found) if runs else found.targeted(tests)):
             return found
     return None
 

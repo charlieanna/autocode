@@ -67,6 +67,7 @@ try:
     from . import autocode_base_patch as operator_patch
     from . import autocode_changed_code_proof as changed_code
     from . import autocode_changed_code_trigger as changed_code_trigger
+    from . import autocode_companion_suites as companion_suites
     from . import autocode_component_plan as component_plan
     from . import autocode_diff_coverage as diff_coverage
     from . import autocode_focused_suite as focused_suite
@@ -96,6 +97,7 @@ except ImportError:
     import autocode_base_patch as operator_patch
     import autocode_changed_code_proof as changed_code
     import autocode_changed_code_trigger as changed_code_trigger
+    import autocode_companion_suites as companion_suites
     import autocode_component_plan as component_plan
     import autocode_diff_coverage as diff_coverage
     import autocode_focused_suite as focused_suite
@@ -141,6 +143,7 @@ SUMMARY_KEYS = (
     "case_scope",
     "unstable",
     "proof_stability",
+    "suite_flakes",
     "diff_coverage",
     "mutation_check",
     "follow_up_baseline",
@@ -510,18 +513,23 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
     detection.update(package_scope.detection(state.get("settings")))
     framework = framework or verify.detect_framework(workspace, python=python, **detection)
     unscoped = "package" not in detection and "test_root" not in detection
+    companions, companion_notes = [], []
     if base and unscoped and not command and not options.get("regression_command"):
         # Tests the root's suite cannot run are proven with the suite of the project around them, as in a
-        # --package run of that directory (autocode_package_scope.for_tests), when it holds every changed code file:
-        # a code change outside it keeps the root's suite, which still names what it cannot run.
+        # --package run of that directory (autocode_package_scope.for_tests). Every other project whose code
+        # changed and whose tests that suite cannot run, the root included, runs its own suite on the original
+        # code and with the change (autocode_companion_suites, #2889).
         changes = verify.changed_files(workspace, base, source_paths=source_scope.paths(state))
         roles = role_inventory.from_git(workspace, base, verify.is_test_path, changes=changes)
         tests = [path for path, change in changes.items() if roles.is_test(path) and change != "deleted"]
         detect = lambda directory: verify.detect_framework(directory, python=python)  # noqa: E731
-        nested = package_scope.for_tests(workspace, framework, tests, detect)
-        code = [path for path in changes if verify.is_code_path(path)]
-        if nested is not None and not package_scope.outside(nested.directory, code):
-            framework = nested
+        root_framework = framework
+        framework = package_scope.for_tests(workspace, framework, tests, detect) or framework
+        code = [path for path in changes if verify.is_code_path(path) and not roles.is_test(path)]
+        original_tests = [path for path in role_inventory.entries(workspace, base) if roles.is_test(path)]
+        companions, companion_notes = companion_suites.find(
+            workspace, framework, root_framework, code, original_tests, detect
+        )
     try:
         from . import autocode_replay_checks as recorded_checks
     except ImportError:
@@ -585,6 +593,11 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
         "cases_identity": util.digest(cases(state, all_due=all_due)),
         "preserve_only": preserve_only(state, all_due=all_due),
         "follow_up_baseline": turn_baseline,
+        **(
+            {"companion_suites": {companion_suites.label(at): found.to_dict() for at, found in companions}}
+            if companions
+            else {}
+        ),
     }
     if (
         saved.get("source_revision") == current
@@ -610,7 +623,17 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
             pass
     with runner_check.track(state, run_dir, STAGE, "Preparing regression checks", status.persist) as progress:
         proof = _prove(
-            state, workspace, run_dir, current, scope, progress, framework, execution_context, inputs, all_due=all_due
+            state,
+            workspace,
+            run_dir,
+            current,
+            scope,
+            progress,
+            framework,
+            execution_context,
+            inputs,
+            all_due=all_due,
+            companions=(companions, companion_notes),
         )
         proof["execution_context"] = execution_context
         if proof.get("path"):
@@ -630,11 +653,23 @@ def _prove(
     inputs,
     *,
     all_due=False,
+    companions=((), ()),
 ):
     kept: list = []  # the candidate tree verify() leaves for the mutation check (#699), removed here
     try:
         return _proving(
-            state, workspace, run_dir, current, scope, progress, framework, execution_context, inputs, kept, all_due
+            state,
+            workspace,
+            run_dir,
+            current,
+            scope,
+            progress,
+            framework,
+            execution_context,
+            inputs,
+            kept,
+            all_due,
+            companions=companions,
         )
     except verify.command_receipt.OwnershipUncertain:
         # The supervisor could not establish that every child stopped. Keep
@@ -647,8 +682,58 @@ def _prove(
                 verify.remove_tree(workspace, tree)
 
 
+def _protect_companions(proof, result, companions, workspace, base, out, kept, dependencies, patch, inputs, timeout):
+    """Run each other project's suite the change reaches on the original code and with it (#2889).
+
+    ``companions`` is autocode_companion_suites.find's (suites, notes). The change's run uses the candidate
+    tree verify() kept (``kept[-1]``); the original code's run is a fresh tree of ``base``, as the proof's
+    own baseline is. The receipts join the proof's checks, and a finding only ever lowers its verdict.
+    """
+    suites, notes = companions
+    proof["notes"] = [*(proof.get("notes") or []), *notes]
+    if not suites or not kept or not kept[-1].is_dir():
+        return
+    failures, unverified = [], []
+    for project, found in suites:
+        at, evidence = companion_suites.label(project), out / "companion" / (project.replace("/", "-") or "root")
+        on_base = verify.baseline(
+            workspace,
+            base,
+            evidence,
+            framework=found,
+            suite_command=found.suite,
+            dependencies_from=dependencies["dependencies_from"],
+            timeout=timeout,
+            base_patch=patch,
+            ignored_inputs=inputs,
+        )["receipt"]
+        on_change = verify.run_suite(found, found.suite, kept[-1], evidence, "suite-on-candidate", timeout=timeout)
+        result["checks"][f"companion_suite_on_base:{at}"] = on_base
+        result["checks"][f"companion_suite_on_candidate:{at}"] = on_change
+        failed, missing = companion_suites.judge(project, found.suite, on_base, on_change)
+        failures += failed
+        unverified += missing
+    proof["failures"] = [*(proof.get("failures") or []), *failures]
+    proof["unverified"] = [*(proof.get("unverified") or []), *unverified]
+    proof["verdict"] = companion_suites.verdict(
+        proof["verdict"], failures, unverified, fail=verify.FAIL, unverified_verdict=verify.UNVERIFIED
+    )
+
+
 def _proving(
-    state: RunState, workspace, run_dir, current, scope, progress, framework, execution_context, inputs, kept, all_due
+    state: RunState,
+    workspace,
+    run_dir,
+    current,
+    scope,
+    progress,
+    framework,
+    execution_context,
+    inputs,
+    kept,
+    all_due,
+    *,
+    companions=((), ()),
 ):
     started_at, started = util.now(), time.monotonic()
     base = base_commit(state, workspace)
@@ -808,6 +893,19 @@ def _proving(
             proof["notes"] = [*(proof.get("notes") or []), pending_tests.NOTE + ", ".join(ahead)]
         if operator:
             proof["review_reasons"] = [*(proof.get("review_reasons") or []), operator_patch.review_reason(operator)]
+        _protect_companions(
+            proof,
+            result,
+            companions,
+            workspace,
+            base,
+            out,
+            kept,
+            dependencies,
+            base_patch,
+            inputs,
+            suite_timeout(state),
+        )
         if fallback:
             proof["suite_fallback"] = fallback
             proof["notes"] = [*(proof.get("notes") or []), fallback["reason"]]
