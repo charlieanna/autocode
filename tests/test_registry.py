@@ -195,6 +195,21 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual("RUNNING", listed["runs"][0]["diagnostic"]["status"])
         self.assertEqual("run-task-id", listed["runs"][0]["task_id"])
 
+    def test_listing_names_each_run_and_when_it_last_wrote_its_checkpoint(self):
+        workspace, run, state = self.fixture("workspace")
+        state["task"] = "## Fix the login page\n\nIt hangs on submit."
+        (run / "state.json").write_text(json.dumps(state))
+        os.utime(run / "state.json", (1_700_000_000, 1_700_000_000))
+        registry.register_run(workspace, run, state)
+        summary = registry.listing()["runs"][0]["diagnostic"]
+        self.assertEqual("Fix the login page", summary["title"])
+        self.assertEqual("2023-11-14T22:13:20Z", summary["updated_at"])
+        self.assertNotIn("state", summary)
+        (run / "state.json").write_text("{")
+        stale = registry.listing()["runs"][0]
+        self.assertEqual("checkpoint_malformed", stale["availability"])
+        self.assertNotIn("updated_at", stale["diagnostic"])
+
     def test_forget_deleted_rechecks_run_recreated_while_waiting_for_registry_lock(self):
         workspace, run, state = self.fixture("workspace")
         registry.register_run(workspace, run, state)

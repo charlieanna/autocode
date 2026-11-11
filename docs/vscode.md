@@ -12,7 +12,9 @@ reads `state.json`.
 Open **AutoCode → Chat**, type a request, and press Enter. Shift+Enter adds a
 newline. Chat fills the sidebar, keeping the composer at the bottom. **New chat**
 starts another conversation; **History** switches to the Runs list so you can
-reopen one. **Back to Chat** returns to the current conversation and its draft.
+reopen one. Its **Recent** section lists the ten chats used most recently across
+every project, newest first, with how long ago each was active; each project's
+chats follow, folded, newest first. **Back to Chat** returns to the current conversation and its draft.
 The selected conversation and each unsent draft survive reopening VS Code.
 When the same workspace is open in multiple VS Code windows, each window keeps
 its own selected run and drafts, so switching tasks in one window does not

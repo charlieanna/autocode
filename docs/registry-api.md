@@ -33,8 +33,11 @@ task file. `location` returns `registry_version`, `storage_root`, `registry_path
 `exists`. `list` returns `registry_version`, `workspaces`, `runs`, and `diagnostics`.
 Run records contain stable canonical-path-derived `id`, `workspace_id`, `workspace`,
 `run_dir`, and `task_id` when the run-level checkpoint identity is available. Listings
-derive only a small current summary (`status`, `phase`, `next_stage`) from a valid referenced
-checkpoint.
+derive only a small current summary (`status`, `phase`, `next_stage`, `title`, `updated_at`) from
+a valid referenced checkpoint, under the run's `diagnostic` object. `title` is the first line of
+the run's task, at most 80 characters, or null; `updated_at` is when the checkpoint was last
+written, in UTC as `YYYY-MM-DDTHH:MM:SSZ`, so a client can list the most recently used chats
+first.
 
 Each listed run has an `availability` value. `available` includes that summary;
 `workspace_missing`, `workspace_invalid`, `checkpoint_missing`, `checkpoint_malformed`,

@@ -2,12 +2,16 @@
 
 import * as vscode from "vscode";
 import type { RunController } from "./controller";
+import { byLatest, recentRuns, relativeTime } from "./core/recent";
 import type { RegistryRun } from "./core/view";
 
 export interface WorkspaceNode {
   readonly kind: "workspace";
   label: string;
   runs: RunItem[];
+  /** The Recent section: the newest chats of every project, above the project groups. */
+  recent?: boolean;
+  collapsed?: boolean;
 }
 
 export type RunNode = WorkspaceNode | RunItem;
@@ -18,16 +22,21 @@ export class RunItem extends vscode.TreeItem {
   constructor(
     readonly run: RegistryRun,
     readonly workspace: string,
+    recent = false,
+    now = Date.now(),
   ) {
     super(labelFor(run), vscode.TreeItemCollapsibleState.None);
-    this.id = run.id;
+    // A run listed under Recent is also listed under its project; tree ids must differ.
+    this.id = recent ? `recent:${run.id}` : run.id;
     this.resourceUri = vscode.Uri.file(run.runDir);
-    this.description = describe(run);
+    this.description = describe(run, recent, now);
     this.tooltip = new vscode.MarkdownString(
       [
-        `**${run.workspace}**`,
+        `**${run.title ?? run.workspace}**`,
         "",
+        run.title ? `- project: \`${run.workspace}\`` : "",
         `- run: \`${run.runDir}\``,
+        run.updatedAt ? `- last active: ${new Date(run.updatedAt).toLocaleString()} (${relativeTime(run, now)})` : "",
         `- status: ${run.status ?? "unknown"}`,
         `- phase: ${run.phase ?? "unknown"}`,
         `- next stage: ${run.nextStage ?? "unknown"}`,
@@ -84,17 +93,31 @@ export class RunsProvider implements vscode.TreeDataProvider<RunNode> {
   }
 }
 
-function groupByWorkspace(runs: RegistryRun[]): RunNode[] {
-  const byWorkspace = new Map<string, RunItem[]>();
-  for (const run of runs) {
+/**
+ * Recent chats first, then each project's chats, newest first. Projects are ordered by
+ * their newest chat, and fold away under a Recent section so the latest chats are on top.
+ */
+function groupByWorkspace(runs: RegistryRun[], now = Date.now()): RunNode[] {
+  const byWorkspace = new Map<string, RegistryRun[]>();
+  for (const run of [...runs].sort(byLatest)) {
     const items = byWorkspace.get(run.workspace) ?? [];
-    items.push(new RunItem(run, run.workspace));
+    items.push(run);
     byWorkspace.set(run.workspace, items);
   }
   const nodes: RunNode[] = [];
-  for (const [workspace, items] of [...byWorkspace].sort((a, b) => countActive(b[1]) - countActive(a[1]))) {
-    items.sort((a, b) => (b.run.runDir > a.run.runDir ? 1 : -1));
-    nodes.push({ kind: "workspace", label: basename(workspace), runs: items });
+  const recent = recentRuns(runs);
+  if (recent.length > 0) {
+    const items = recent.map((run) => new RunItem(run, run.workspace, true, now));
+    nodes.push({ kind: "workspace", label: "Recent", recent: true, runs: items });
+  }
+  // Each project's runs are already newest first, so its first run is its latest activity.
+  for (const [workspace, items] of [...byWorkspace].sort((a, b) => byLatest(a[1][0]!, b[1][0]!))) {
+    nodes.push({
+      kind: "workspace",
+      label: basename(workspace),
+      collapsed: recent.length > 0,
+      runs: items.map((run) => new RunItem(run, run.workspace, false, now)),
+    });
   }
   if (nodes.length === 0) {
     nodes.push({
@@ -106,14 +129,12 @@ function groupByWorkspace(runs: RegistryRun[]): RunNode[] {
   return nodes;
 }
 
-function countActive(items: RunItem[]): number {
-  return items.filter((item) => item.run.availability === "available").length;
-}
-
 function workspaceItem(node: WorkspaceNode): vscode.TreeItem {
-  const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.Expanded);
-  item.description = `${node.runs.length}`;
-  item.iconPath = new vscode.ThemeIcon("folder");
+  const state = node.collapsed ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.Expanded;
+  const item = new vscode.TreeItem(node.label, state);
+  item.id = node.recent ? "recent" : `workspace:${node.runs[0]?.run.workspace ?? node.label}`;
+  item.description = node.recent ? "" : `${node.runs.length}`;
+  item.iconPath = new vscode.ThemeIcon(node.recent ? "history" : "folder");
   return item;
 }
 
@@ -143,6 +164,7 @@ function placeholder(error: unknown): RunItem {
 }
 
 function labelFor(run: RegistryRun): string {
+  if (run.availability === "available" && run.title) return trim(run.title, 60);
   if (run.availability === "available" || run.availability === "message") {
     const identity = run.status ?? run.availability;
     const short = run.runDir.split("/").filter(Boolean).slice(-1)[0] ?? "";
@@ -151,10 +173,13 @@ function labelFor(run: RegistryRun): string {
   return `${basename(run.workspace)} (${run.availability})`;
 }
 
-function describe(run: RegistryRun): string {
+function describe(run: RegistryRun, recent: boolean, now: number): string {
   if (run.availability !== "available") return run.diagnostic ?? "";
+  const when = relativeTime(run, now);
+  // Under Recent the project tells chats apart; under a project the status does.
   const stage = run.nextStage ? ` → ${run.nextStage}` : "";
-  return `${run.status ?? "unknown"}${stage}`;
+  const detail = recent ? basename(run.workspace) : `${run.status ?? "unknown"}${stage}`;
+  return when ? `${when} · ${detail}` : detail;
 }
 
 function contextFor(run: RegistryRun): string | undefined {

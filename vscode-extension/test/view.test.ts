@@ -156,6 +156,26 @@ test("readRegistryList reads the summary where the CLI actually puts it", () => 
   assert.equal(list.runs[0]!.phase, "PAUSED_OR_BLOCKED");
   assert.equal(list.runs[0]!.nextStage, "terra");
   assert.equal(list.runs[0]!.diagnostic, null);
+  assert.equal(list.runs[0]!.title, null);
+  assert.equal(list.runs[0]!.updatedAt, null);
+});
+
+test("readRegistryList reads each chat's title and last activity from its summary", () => {
+  const list = readRegistryList(
+    JSON.stringify({
+      runs: [
+        {
+          availability: "available",
+          diagnostic: { status: "COMPLETE", title: "Fix the login page", updated_at: "2026-11-11T00:06:21Z" },
+          id: "run-1",
+          run_dir: "/ws/.autocode/runs/20261111-000621-vscode-abc123",
+          workspace: "/ws",
+        },
+      ],
+    }),
+  );
+  assert.equal(list.runs[0]!.title, "Fix the login page");
+  assert.equal(list.runs[0]!.updatedAt, "2026-11-11T00:06:21Z");
 });
 
 test("an empty or odd registry payload still reads as no runs", () => {
