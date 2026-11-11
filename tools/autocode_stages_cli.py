@@ -17,6 +17,10 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_connected_engine as connected_engine
@@ -264,7 +268,7 @@ def _run(args) -> int:
         if not isinstance(state, dict):
             raise ValueError("its state.json is not a saved run")
         workspace = state.get("workspace") or args.workspace
-        current = run_stage_models.view(state, run_dir, workspace)
+        current = run_stage_models.view(cast("RunState", state), run_dir, workspace)
     except (OSError, ValueError) as error:
         print(f"autocode stages: {args.run_dir} cannot be read: {error}", file=sys.stderr)
         return 2
