@@ -372,7 +372,7 @@ export class RunPanel {
         return;
       }
       if (numeric || planning || (requiresConfirmation(view.needs ?? null) && confirmPersonOnly())) {
-        const button = numeric ? numericActionLabel(state) : planning?.label ?? "Take it anyway";
+        const button = numeric ? numericActionLabel(state) : planning?.label ?? "Continue";
         const proceed = await vscode.window.showWarningMessage(
           numeric ?? planning?.title ?? `AutoCode stopped this run for a person to decide (${view.needs?.kind}). Taking its named action applies your answer to that decision.`,
           { modal: true, detail: numeric ? numericRecoveryEffect(state) : planning?.detail ?? needsSummary(view) },
@@ -921,6 +921,8 @@ export function panelHtml(chat = false): string {
   .live-log .thought .fold-line { font-style: normal; }
   pre { white-space: pre-wrap; word-break: break-all; font-size: .76rem; background: var(--vscode-textCodeBlock-background);
         padding: 8px; border-radius: 4px; }
+  /* A saved-code or working diff can be thousands of lines: it scrolls inside the thread, never stretches it. */
+  pre.diff { max-height: 40vh; overflow: auto; }
   .gap, .notice { border-left: 3px solid var(--vscode-inputValidation-warningBorder, #cc8800);
                   background: var(--vscode-inputValidation-warningBackground, rgba(204,136,0,.12));
                   padding: 8px 10px; margin: 12px 0; font-size: .84rem; }
@@ -1147,7 +1149,7 @@ function renderChatProgress(container, state) {
     const files = (comparison.changed_files || []).length;
     const since = comparison.since === 'start' ? 'the run started' : 'the last saved step';
     container.appendChild(el('div', 'why', files + ' file(s) changed since ' + since + (comparison.truncated ? ' · diff truncated' : '')));
-    const patch = el('pre');
+    const patch = el('pre', 'diff');
     patch.textContent = comparison.patch || 'The Builder has not changed any files yet.';
     container.appendChild(patch);
   }
@@ -1464,8 +1466,8 @@ function render(state) {
       cardContent.appendChild(el('h2', null, 'No action the client can take'));
       const box = el('div', 'gap');
       box.appendChild(el('div', null,
-        'AutoCode named no action this client is allowed to take. That is a gap in the CLI or the '
-        + 'status view (#1012), not something the extension should work around.'));
+        'AutoCode named no action this client is allowed to take. That is a gap in AutoCode itself, '
+        + 'not something the extension should work around.'));
       box.appendChild(el('pre', null, state.gap));
       cardContent.appendChild(box);
     } else if (!state.done && state.needKind === 'continue' && state.working) {
@@ -1585,7 +1587,7 @@ function render(state) {
           box.appendChild(el('div', 'why', step
             ? files + ' file(s) changed in this step' + (comparison.truncated ? ' · diff truncated' : '')
             : files + ' file(s) differ from this checkpoint' + (comparison.truncated ? ' · diff truncated' : '')));
-          const patch = el('pre');
+          const patch = el('pre', 'diff');
           patch.textContent = comparison.patch || (step ? 'This step changed no files.' : 'The files match this checkpoint.');
           box.appendChild(patch);
         }
@@ -1732,8 +1734,8 @@ function render(state) {
     app.appendChild(el('h2', null, 'No action the client can take'));
     const box = el('div', 'gap');
     box.appendChild(el('div', null,
-      'AutoCode named no action this client is allowed to take. That is a gap in the CLI or the '
-      + 'status view (#1012), not something the extension should work around.'));
+      'AutoCode named no action this client is allowed to take. That is a gap in AutoCode itself, '
+      + 'not something the extension should work around.'));
     box.appendChild(el('pre', null, state.gap));
     app.appendChild(box);
   } else if (!state.done && !state.stopped) {
@@ -2114,7 +2116,7 @@ function renderTabs(data) {
 
 function renderChat(data) {
   const thread = document.getElementById('thread');
-  document.getElementById('engine-name').textContent = data.engine || 'opencode';
+  document.getElementById('engine-name').textContent = data.engine || 'OpenCode';
   // The core's run mode for this chat; only a chat that has not started offers one.
   document.getElementById('mode-picker').hidden = !data.mode;
   document.getElementById('mode-name').textContent = data.mode || '';

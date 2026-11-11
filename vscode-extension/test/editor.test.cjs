@@ -16,7 +16,7 @@ const { RunController } = host.load('controller.js');
 const { RunPanel, panelHtml, stateFor } = host.load('panel.js');
 const { ChatView } = host.load('chat.js');
 const { RunItem, RunsProvider } = host.load('runsView.js');
-const { activate, pickWorkspace, NO_FOLDER } = host.load('extension.js');
+const { activate, pickWorkspace, NO_FOLDER, confirmSpend } = host.load('extension.js');
 const { ConnectionsPanel, connectionsHtml } = host.load('connections.js');
 const { StagesPanel, stagesHtml, runStages } = host.load('stages.js');
 const { readStages, currentRoute } = host.load('core/stages.js');
@@ -399,7 +399,7 @@ test('a narrow sidebar hides the keyboard hint and lets the composer row wrap so
 test('engine chip shows the engine new chats will use and opens the picker', async (t) => {
   host.config.set('extraOptions', ['--engine', 'codex', '--max-cost-usd', '3']);
   const ui = await openChat(t, chatView());
-  assert.equal(ui.document.getElementById('engine-name').textContent, 'codex');
+  assert.equal(ui.document.getElementById('engine-name').textContent, 'Codex');
   const picker = t.mock.method(host.vscode.window, 'showQuickPick', async (items) => items.find((item) => item.engine === 'codex'));
   ui.document.getElementById('engine-picker').click();
   await flush();
@@ -518,6 +518,23 @@ test('stage models shows the core\'s refusal and lists without a backend when no
   panel.webview.receive({ type: 'set', stage: 'terra', model: 'sonnet', effort: 'low' }); await flush();
   assert.ok(panel.webview.messages.at(-1).error.includes('the Tester runs sonnet'));
   assert.equal(panel.webview.messages.at(-1).busy, false);
+});
+
+test('the stage models panel\'s reads are bounded like a status poll', async (t) => {
+  const calls = [];
+  t.mock.method(cli, 'invoke', async (_settings, argv, _env, timeoutMs) => {
+    calls.push([argv, timeoutMs]);
+    return { ...ok, stdout: JSON.stringify(stageView()) };
+  });
+  const stages = new StagesPanel();
+  t.after(() => stages.dispose());
+  await stages.show();
+  const panel = host.panels.at(-1);
+  panel.webview.receive({ type: 'set', stage: 'terra', model: 'sonnet', effort: 'low' });
+  await flush();
+  assert.ok(calls.some(([argv]) => argv[1] === 'set'), 'the set ran');
+  assert.ok(calls.every(([, ms]) => ms === 60000),
+    'a wedged stage read must fail and say so, not leave the panel dead: ' + JSON.stringify(calls));
 });
 
 test('a chat\'s own stage models list and change that run in its folder, and refuse while a stage works', async (t) => {
@@ -4588,7 +4605,7 @@ test('Run details guards against concurrent clicks during status and modal confi
   const modalCalled = [];
   t.mock.method(host.vscode.window, 'showWarningMessage', () => {
     modalCalled.push(Date.now());
-    return new Promise((resolve) => { resolveModal = () => resolve('Take it anyway'); });
+    return new Promise((resolve) => { resolveModal = () => resolve('Continue'); });
   });
 
   // First click: begins status check
@@ -4639,7 +4656,7 @@ test('Run details releases in-flight taking guard on cancellation or error (#154
   assert.equal(launch.mock.callCount(), 0, 'cancelled modal does not launch command');
 
   // Second attempt: user confirms modal -> taking guard was released, so click succeeds
-  modalResponse = 'Take it anyway';
+  modalResponse = 'Continue';
   panelUi.take().click();
   await flush();
   await flush();
@@ -4719,7 +4736,7 @@ test('picking an engine or configuring a registered provider immediately updates
   host.config.set('provider', '');
   host.config.set('extraOptions', []);
   const ui = await openChat(t, chatView());
-  assert.equal(ui.document.getElementById('engine-name').textContent, 'opencode');
+  assert.equal(ui.document.getElementById('engine-name').textContent, 'OpenCode');
 
   // Registered provider with no --engine displays the provider in #engine-name and QuickPick
   host.config.set('provider', 'kilo_glm_mimo_gpt');
@@ -4738,7 +4755,7 @@ test('picking an engine or configuring a registered provider immediately updates
   await flush();
 
   // Engine chip is immediately updated to codex without waiting for poll
-  assert.equal(ui.document.getElementById('engine-name').textContent, 'codex');
+  assert.equal(ui.document.getElementById('engine-name').textContent, 'Codex');
   assert.equal(host.config.get('extraOptions').includes('--engine'), true);
 
   // Subsequent click names Codex as current
@@ -4829,7 +4846,7 @@ test('Claude through Connections and Engine picker updates engine chip and setti
 
   // Chat view reflects claude engine
   const ui = await openChat(t, chatView());
-  assert.equal(ui.document.getElementById('engine-name').textContent, 'claude');
+  assert.equal(ui.document.getElementById('engine-name').textContent, 'Claude Code');
 
   // Picker names Claude Code as current
   let placeholder = '';
@@ -6094,4 +6111,50 @@ test('chat tabs are keyboard-reachable: arrows select and the close is a button'
   await flush();
   assert.ok(ui.sent.some((message) => message.type === 'close_tab' && message.tabKey === keyOf(beta)),
     'closing acts on that chat only');
+});
+// A rendered diff can be thousands of lines: it is bounded and scrolls inside the thread,
+// in both the Builder's working diff and a saved-code comparison.
+test('a long rendered diff is bounded and scrolls instead of stretching the thread', async (t) => {
+  const long = '--- greet.py\n+++ greet.py\n' + Array.from({ length: 500 }, (_, i) => '+line ' + i).join('\n');
+  const html = panelHtml(true);
+  assert.ok(/pre\.diff\s*\{[^}]*max-height/.test(html), 'the stylesheet bounds a rendered diff');
+
+  const working = ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--working'];
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    code_checkpoints: { rows: [], working: { id: 'working', label: 'Show what the Builder has changed so far', next_command: working } },
+    chat: { phase: null, context: 'live-step', input: null, messages: [], progress: ['Builder working'], activity: [] } };
+  const ui = await openChat(t, value);
+  t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({ since: 'start',
+    changed_files: ['greet.py'], patch: long, truncated: false }) }));
+  ui.document.querySelector('#working-diff').click();
+  await flush();
+  const live = ui.document.querySelector('#app pre.diff');
+  assert.ok(live, 'the working diff is marked as a diff');
+  assert.ok(live.textContent.includes('+line 499'), 'the whole patch stays reachable by scrolling');
+
+});
+
+test('a long saved-code comparison is bounded and scrolls like the working diff', async (t) => {
+  const long = '--- app.txt\n+++ app.txt\n' + Array.from({ length: 500 }, (_, i) => '+line ' + i).join('\n');
+  const saved = await openChat(t, checkpointView());
+  t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({ checkpoint_id: 'cp-1',
+    changed_files: ['app.txt'], patch: long, truncated: false }) }));
+  saved.document.querySelector('[data-checkpoint-action="compare"]').click();
+  await flush();
+  const compared = saved.document.querySelector('#app pre.diff');
+  assert.ok(compared, 'a saved-code comparison is marked as a diff');
+  assert.ok(compared.textContent.includes('+line 499'));
+});
+// The spend confirmation reads as a sentence whether the provider is named or the default (#1541 follow-up).
+test('the spend confirmation says "its default provider" instead of quoting the phrase', async (t) => {
+  const shown = [];
+  t.mock.method(host.vscode.window, 'showWarningMessage', async (title) => { shown.push(title); return 'Start it'; });
+  host.config.set('provider', '');
+  assert.equal(await confirmSpend(), true);
+  assert.ok(shown[0].includes('through its default provider?'), shown[0]);
+  assert.ok(!shown[0].includes('"its'), shown[0]);
+  host.config.set('provider', 'kilocode');
+  assert.equal(await confirmSpend(), true);
+  assert.ok(shown[1].includes('through provider "kilocode"?'), shown[1]);
 });
