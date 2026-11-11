@@ -5778,3 +5778,95 @@ class MiniDom {
     this.window = window;
   }
 }
+// Decision inputs that explain themselves: a typed number says why it cannot be taken yet,
+// the core's proposed default is preselected, and Enter sends what the button would.
+function choiceView() {
+  return { status: 'WAITING_FOR_USER', done: false,
+    needs: { kind: 'answer', questions: [{ id: 'q1', question: 'Include the migration test?',
+      options: ['Yes', 'No', 'Ask me later'], proposed_default: 'Yes' }] },
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --answer q1=ANSWER` };
+}
+
+for (const surface of ['chat', 'Run details']) {
+  test(`an out-of-range number says why beside its field in ${surface}`, async (t) => {
+    host.config.set('confirmPersonOnly', false);
+    const ownController = new RunController(host.log);
+    const ui = surface === 'chat' ? await openChat(t, totalTimeView(), run, { controller: ownController }) : await openPanel(t, totalTimeView(), undefined, ownController);
+    const input = ui.document.querySelector('[data-question="max_seconds"]');
+    const hint = () => input.parentElement.querySelector('.range-hint');
+    input.value = '3010'; input.dispatchEvent(new ui.window.Event('input'));
+    assert.equal(hint().textContent, 'Enter at least 3011');
+    assert.equal(ui.document.querySelector('#take-action').disabled, true);
+    input.value = '5400.5'; input.dispatchEvent(new ui.window.Event('input'));
+    assert.equal(hint().textContent, 'Enter a whole number');
+    input.value = '5400'; input.dispatchEvent(new ui.window.Event('input'));
+    assert.equal(hint().textContent, '');
+    assert.equal(ui.document.querySelector('#take-action').disabled, false);
+  });
+
+  test(`a proposed default is preselected and one click sends it in ${surface}`, async (t) => {
+    host.config.set('confirmPersonOnly', false);
+    const ownController = new RunController(host.log);
+    const ui = surface === 'chat' ? await openChat(t, choiceView(), run, { controller: ownController }) : await openPanel(t, choiceView(), undefined, ownController);
+    const select = ui.document.querySelector('[data-question="q1"]');
+    assert.ok(select, 'the choice renders');
+    assert.equal(select.tagName, 'SELECT');
+    assert.equal(select.value, 'Yes');
+    assert.equal(ui.document.querySelector('#take-action').disabled, false);
+    const launch = t.mock.method(cli, 'stream', async () => ok);
+    ui.document.querySelector('#take-action').click(); await flush();
+    assert.equal(launch.mock.callCount(), 1);
+    const args = launch.mock.calls[0].arguments[1];
+    assert.equal(args[args.indexOf('--answer') + 1], 'q1=Yes');
+    // A person can still choose otherwise: the preselection is a starting point, not an answer of ours.
+    await ui.poll(choiceView());
+    const again = t.mock.method(cli, 'stream', async () => ok);
+    const field = ui.document.querySelector('[data-question="q1"]');
+    field.value = 'No'; field.dispatchEvent(new ui.window.Event('change'));
+    ui.document.querySelector('#take-action').click(); await flush();
+    assert.equal(again.mock.callCount(), 1);
+    const resent = again.mock.calls[0].arguments[1];
+    assert.equal(resent[resent.indexOf('--answer') + 1], 'q1=No');
+  });
+
+  test(`Enter in an answer field takes the action only while its button could, in ${surface}`, async (t) => {
+    host.config.set('confirmPersonOnly', false);
+    const ownController = new RunController(host.log);
+    const ui = surface === 'chat' ? await openChat(t, totalTimeView(), run, { controller: ownController }) : await openPanel(t, totalTimeView(), undefined, ownController);
+    const input = ui.document.querySelector('[data-question="max_seconds"]');
+    const launch = t.mock.method(cli, 'stream', async () => ok);
+    const confirm = t.mock.method(host.vscode.window, 'showWarningMessage', async () => 'Set total and continue');
+    input.value = '3010'; input.dispatchEvent(new ui.window.Event('input'));
+    input.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await flush();
+    assert.equal(launch.mock.callCount(), 0, 'Enter must not take a number the button refuses');
+    input.value = '5400'; input.dispatchEvent(new ui.window.Event('input'));
+    input.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await flush();
+    assert.equal(launch.mock.callCount(), 1);
+    const args = launch.mock.calls[0].arguments[1];
+    assert.equal(args[args.indexOf('--max-seconds') + 1], '5400');
+  });
+}
+
+test('Enter in the bound-raise field raises through its named command when the number is in range', async (t) => {
+  host.config.set('confirmPersonOnly', false);
+  const ownController = new RunController(host.log);
+  const ui = await openPanel(t, heldCostView(), undefined, ownController);
+  const field = ui.document.querySelector('[data-question="raise:max_cost_usd"]');
+  const hint = () => field.parentElement.querySelector('.range-hint');
+  field.value = '2'; field.dispatchEvent(new ui.window.Event('input'));
+  assert.equal(hint().textContent, 'Enter at least 3');
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  const confirm = t.mock.method(host.vscode.window, 'showWarningMessage', async () => 'Raise limit and continue');
+  field.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  await flush();
+  assert.equal(launch.mock.callCount(), 0, 'Enter must not raise a number the button refuses');
+  field.value = '5'; field.dispatchEvent(new ui.window.Event('input'));
+  assert.equal(hint().textContent, '');
+  field.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  await flush();
+  assert.equal(launch.mock.callCount(), 1);
+  const args = launch.mock.calls[0].arguments[1];
+  assert.equal(args[args.indexOf('--max-cost-usd') + 1], '5');
+});
