@@ -520,6 +520,23 @@ test('stage models shows the core\'s refusal and lists without a backend when no
   assert.equal(panel.webview.messages.at(-1).busy, false);
 });
 
+test('the stage models panel\'s reads are bounded like a status poll', async (t) => {
+  const calls = [];
+  t.mock.method(cli, 'invoke', async (_settings, argv, _env, timeoutMs) => {
+    calls.push([argv, timeoutMs]);
+    return { ...ok, stdout: JSON.stringify(stageView()) };
+  });
+  const stages = new StagesPanel();
+  t.after(() => stages.dispose());
+  await stages.show();
+  const panel = host.panels.at(-1);
+  panel.webview.receive({ type: 'set', stage: 'terra', model: 'sonnet', effort: 'low' });
+  await flush();
+  assert.ok(calls.some(([argv]) => argv[1] === 'set'), 'the set ran');
+  assert.ok(calls.every(([, ms]) => ms === 60000),
+    'a wedged stage read must fail and say so, not leave the panel dead: ' + JSON.stringify(calls));
+});
+
 test('a chat\'s own stage models list and change that run in its folder, and refuse while a stage works', async (t) => {
   const runList = ['stages', 'list', '--run-dir', '/work/shop/.autocode/runs/r', '--json'];
   const set = ['--run-dir', '/work/shop/.autocode/runs/r', '--workspace', '/work/shop', '--stage-model', 'terra', 'MODEL', 'EFFORT'];
