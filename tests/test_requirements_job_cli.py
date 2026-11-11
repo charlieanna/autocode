@@ -179,6 +179,50 @@ class RequirementsNamesTheJobCliTests(unittest.TestCase):
         for machinery in ("--in-place", "worker", "cleanup"):
             self.assertNotIn(machinery, said.split("Another AutoCode task", 1)[1], machinery)
         self.assertFalse((project / "docs/decisions/metadata-cache.json").exists())
+        # The status says what the ready run waits for, so a client shows the wait rather than a bare
+        # Continue that finds the folder busy again (2026-11-11: "Next: Planner", then only Continue).
+        wait = view["checkout_wait"]
+        self.assertIsNotNone(wait, self.details(view))
+        self.assertEqual("20261109-230922-chat-b07586", Path(wait["run_dir"]).name)
+        self.assertEqual(
+            "Planner is waiting for this folder: another chat is working in it, and two chats would change "
+            "the same files at once. Nothing was changed.",
+            wait["text"],
+        )
+        self.assertEqual(wait["text"], view["chat"]["progress"][1], view["chat"]["progress"])
+        self.assertEqual("continue", view["needs"]["kind"], "the named action is still the plain continue")
+
+    def test_a_waiting_run_goes_on_with_its_named_continue_once_the_folder_is_free(self):
+        held = []
+
+        def hold(project):
+            lock = checkout_lock.exclusive(project, project / ".autocode" / "runs" / "20261109-230922-chat-b07586")
+            lock.__enter__()
+            held.append(lock)
+            self.addCleanup(lambda: held and held.pop().__exit__(None, None, None))
+
+        run, project = self.start("discuss-cache-choice", before=hold)
+        view = run.status()
+        for _ in range(4):
+            need = view.get("needs") or {}
+            if need.get("kind") != "answer":
+                break
+            question = need["questions"][0]
+            answer = (
+                view["chat"]["review"]["answer"]
+                if question["id"].startswith(REQUIREMENTS_REVIEW)
+                else question.get("proposed_default") or "No preference"
+            )
+            run.answer(question["id"], answer, resolver_token=need["resolver_token"])
+            view = run.advance()
+        self.assertIsNotNone(view["checkout_wait"], self.details(view))
+        held.pop().__exit__(None, None, None)
+        free = run.status()
+        self.assertIsNone(free["checkout_wait"], "nothing to wait for once the other run has let go")
+        self.assertEqual(view["next_command"], free["next_command"], "the same named continue")
+        after = run.advance()
+        self.assertEqual(1, self.ran(run, "discovery"), "the Planner ran on the one continue")
+        self.assertIsNone(after["checkout_wait"])
 
     def test_a_question_to_write_down_goes_from_requirements_into_the_full_pipeline(self):
         # Every change goes through the full pipeline (#3010). A discussion whose answer is to be written

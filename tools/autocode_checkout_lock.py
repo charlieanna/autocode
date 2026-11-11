@@ -88,6 +88,37 @@ def holder(workspace) -> dict:
         return {}
 
 
+def held_by_another(workspace, run_dir) -> dict | None:
+    """The other run holding the checkout now, read without taking the lock, or None.
+
+    For display only (a status read must not take the lock even for an instant, or a run launching
+    then would find it busy); ``exclusive`` alone decides who works. Held means the holder written
+    into the lock file is another run and its process is alive, or its workers still are."""
+    current = holder(workspace)
+    other = current.get("run_dir")
+    if not isinstance(other, str) or not other:
+        return None
+    try:
+        if Path(other).resolve() == Path(run_dir).resolve():
+            return None
+    except OSError:
+        return None
+    pid = current.get("pid")
+    alive = False
+    if type(pid) is int and pid > 0:
+        try:
+            os.kill(pid, 0)
+            alive = True
+        except PermissionError:
+            alive = True
+        except OSError:
+            alive = False
+    if not alive and not orphaned_workers(current):
+        return None
+    since = current.get("since")
+    return {"run_dir": other, "since": since if isinstance(since, str) else None}
+
+
 def orphaned_workers(previous):
     """A controller's flock can die before its provider; retain that ownership.
 

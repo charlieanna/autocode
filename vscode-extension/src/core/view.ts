@@ -217,6 +217,8 @@ export interface StatusView {
   scope?: { linked?: LinkedRun[] | null; [key: string]: unknown } | null;
   /** The pause the view offers while the run works (#1598); a client runs only its `next_command`. */
   pause?: { label?: string; effect?: string; requested?: boolean; next_command?: string[] | null } | null;
+  /** Ready to go on, but another run holds the folder its next step needs: display text, never authority. */
+  checkout_wait?: { run_dir?: string; since?: string | null; text?: string } | null;
   chat?: {
     messages: { id: string; role: string; text: string; streaming?: boolean }[];
     phase?: "requirements" | null;
@@ -441,11 +443,19 @@ export function progressLine(view: StatusView): string {
   return view.progress?.line || view.progress?.headline || view.status;
 }
 
-/** Live workflow work, or a checked live controller advancing a no-action boundary. */
+/** Live workflow work, a checked live controller advancing a no-action boundary, or a ready step waiting
+ * for another chat to leave its folder (`checkout_wait`): the client goes on with it, the person is not asked. */
 export function isWorking(view: StatusView): boolean {
   return ["supervised", "unsupervised"].includes(view.liveness?.kind ?? "")
+    || waitsForFolder(view)
     || (!view.done && view.needs?.kind === "continue" && view.controller?.kind === "running"
       && view.controller.checked === true && view.controller.alive === true);
+}
+
+/** Another run holds the folder this ready run's next step needs (the core's `checkout_wait`). */
+export function waitsForFolder(view: StatusView): boolean {
+  return !view.done && view.needs?.kind === "continue" && typeof view.checkout_wait?.text === "string"
+    && view.checkout_wait.text.length > 0;
 }
 
 /** Plain-language description of what the run is waiting for, from the view alone. */
@@ -464,6 +474,7 @@ export function needsSummary(view: StatusView, working?: boolean): string {
     case "planning_budget":
       return `a decision on more plan-review calls${need.reason ? `: ${need.reason}` : ""}`;
     case "continue":
+      if (waitsForFolder(view)) return view.checkout_wait!.text!;
       return active ? "a stage is currently running" : "nothing; the run can simply proceed";
     case "retry_job":
       return "inspection of a stopped workflow job";

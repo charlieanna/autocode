@@ -462,8 +462,12 @@ says which task is working there and exits with status 2, changing nothing. Run
 the same command again once the other run stops, or start the task without
 `--in-place` so it gets its own worktree. Answering, approving or giving feedback to
 a waiting run launches no agent and is not blocked. Requirements only reads the
-checkout, so it runs while another run holds it: a question Requirements answers
-itself finishes without waiting, and a change waits only when planning would start. AutoCode never merges branches;
+checkout, so it runs while another run holds it and never holds it itself: a question
+Requirements answers itself finishes without waiting, and a change waits only when planning
+would start. While a run is ready to go on but waits for another run to leave the checkout, its
+status view says so in `checkout_wait` (and in `chat.progress`); the VS Code chat keeps showing
+that wait instead of a Continue button, and takes the run's named continue once the checkout is
+free. AutoCode never merges branches;
 see [When a task finishes](#when-a-task-finishes) for committing and removing worktrees.
 
 See also: [Figma design](figma.md) · [Workflow](workflow.md)

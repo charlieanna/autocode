@@ -390,6 +390,8 @@ def view(
         "report_repair": report_repair_view.project(state, stale=stale_report_repair),
         # The pause a client may request while the run works (autocode_pause_offer, #1598); status supplies it.
         "pause": None,
+        # Another run holds the folder this ready run's next step needs (autocode_checkout_wait); status supplies it.
+        "checkout_wait": None,
     }
     # Work that belongs to another repository, and what the person left out of this run (#2066).
     result["scope"] = scope_question.view(
