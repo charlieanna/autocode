@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
 import { invoke, tail } from "./core/cli";
 import { backendArgs, currentRoute, fillSet, readStages, runListCommand, runRoute, type Stage, type StageRoute, type StageView } from "./core/stages";
+import { listKey, type StageListCache } from "./core/stage-cache";
 import { readSettings, routeKeyOf, type Settings } from "./settings";
 
 /**
@@ -79,9 +80,12 @@ export class StagesPanel implements vscode.Disposable {
   private error = "";
   private note = "";
 
+  /** `lists` is the new-chat list the chat shows: this panel opens on it and keeps what it reads there. */
+  constructor(private readonly lists?: StageListCache) {}
+
   async show(target?: RunStages): Promise<void> {
     this.target = target;
-    this.view = undefined; this.error = ""; this.note = "";
+    this.view = target ? undefined : this.lists?.peek(newChatCall().key); this.error = ""; this.note = "";
     if (this.panel) this.panel.reveal();
     else {
       const panel = vscode.window.createWebviewPanel("autocode.stages", "AutoCode Stage Models", vscode.ViewColumn.One, { enableScripts: true, localResourceRoots: [] });
@@ -103,12 +107,13 @@ export class StagesPanel implements vscode.Disposable {
   }
 
   private async refresh(): Promise<void> {
-    const settings = readSettings();
+    const call = newChatCall();
     const result = this.target
-      ? await invoke({ ...settings, cwd: this.target.cwd }, this.target.list)
-      : await invoke(inFolder(settings), ["stages", "list", "--json", ...backendArgs(settings.runOptions, routeKeyOf(settings))]);
+      ? await invoke({ ...readSettings(), cwd: this.target.cwd }, this.target.list)
+      : await invoke(call.settings, call.argv);
     if (result.code !== 0) throw new Error(tail(result));
     this.view = readStages(result.stdout);
+    if (!this.target) this.lists?.put(call.key, result.stdout);
     this.post();
   }
 
@@ -132,7 +137,11 @@ export class StagesPanel implements vscode.Disposable {
       if (result.code !== 0) throw new Error(tail(result));
       // A run's change prints a sentence, not the view: read the run's list again.
       if (target) await this.refresh();
-      else this.view = readStages(result.stdout);
+      else {
+        this.view = readStages(result.stdout);
+        // New chats show the saved choice: their list is read again in the background.
+        this.lists?.expire();
+      }
       this.note = target
         ? `This chat runs the ${stage.label} on ${message.model} at ${message.effort} from its next launch.`
         : message.type === "set"
@@ -141,6 +150,13 @@ export class StagesPanel implements vscode.Disposable {
     } catch (error) { this.error = error instanceof Error ? error.message : String(error); }
     finally { this.busy = false; this.post(); }
   }
+}
+
+/** The list new chats here read (`stages list --json`), where it runs, and its key in the shared cache. */
+export function newChatCall(): { settings: Settings; argv: string[]; key: string } {
+  const settings = inFolder(readSettings());
+  const argv = ["stages", "list", "--json", ...backendArgs(settings.runOptions, routeKeyOf(settings))];
+  return { settings, argv, key: listKey(settings.cwd, settings.command, settings.prefix, argv) };
 }
 
 export function stagesHtml(): string {
