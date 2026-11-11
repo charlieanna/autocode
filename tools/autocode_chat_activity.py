@@ -148,8 +148,7 @@ def item_event(row: dict, workspace) -> tuple[str, dict] | None:
         paths = [_relative(c["path"], workspace) for c in changes]
         verbs = [FILE_VERBS.get(str(c.get("kind")), "edited") for c in changes]
         return str(item["id"]), {**_edit(paths, verbs), "status": state}
-    if kind == "web_search":
-        found = _describe("websearch", {"query": item.get("query")}, workspace)
+    if kind == "web_search" and (found := _describe("websearch", {"query": item.get("query")}, workspace)):
         return str(item["id"]), {"kind": "tool", "text": found[0], "summary": found[1], "status": state}
     if kind in TOOL_ITEMS:
         name = item.get("name") or item.get("tool") or item.get("query")
