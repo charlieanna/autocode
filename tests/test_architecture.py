@@ -65,6 +65,8 @@ TANGLED: frozenset[str] = frozenset()
 # 2026-11-10: the --build-in-worktree flag's parser entry, and the --in-place it implies before --new-run-dir is
 # checked, raised autocode_args.py (#3077); the move itself lives in autocode_build_worktree.
 # 2026-11-08: triage application validation moved to autocode_requirements_triage, shrinking autopilot.py.
+# 2026-11-11: three fixes (#3187, #3194, #3200) left autocode_verify.py at 3014 lines; the failed-verification
+# summary for the Builder (feedback) moved to autocode_verify_result, which assembles the result it reads.
 MAX_LINES = {
     "autocode.py": 1830,
     "autocode_goals.py": 1404,
@@ -72,7 +74,7 @@ MAX_LINES = {
     "autopilot.py": 1392,
     "autocode_run_actions.py": 366,
     "autocode_args.py": 1038,
-    "autocode_verify.py": 3012,
+    "autocode_verify.py": 2998,
 }
 
 # Line counts of the largest functions, (module, function): lines. handle() was 946 lines before its
