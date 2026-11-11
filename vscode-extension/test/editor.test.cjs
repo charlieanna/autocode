@@ -4968,21 +4968,16 @@ test('a finished run with no follow-up offer says so instead of pointing at an a
   assert.equal(ui.document.getElementById('send-hint').textContent, 'This run is finished. Start a new chat with +.');
 });
 
-test('a new chat welcomes with what AutoCode does, and an example only fills the message box', async (t) => {
+test('a new chat welcomes with one short line and no example list', async (t) => {
   const ui = await openChat(t, null, false);
   const welcome = ui.document.getElementById('welcome');
   assert.ok(welcome, 'a new chat shows the welcome');
-  assert.match(welcome.textContent, /plans the change for your approval, builds it, and tests it independently/);
-  assert.match(welcome.textContent, /question about this code is answered without changing anything/);
+  assert.equal(welcome.querySelectorAll('p').length, 1, 'one line, not two paragraphs');
+  assert.match(welcome.textContent, /Describe a change, or ask about this code\. Changes are planned for your approval, then built and tested\./);
+  assert.doesNotMatch(welcome.textContent, /Try asking/);
+  assert.equal(welcome.querySelector('button'), null, 'no example requests to click');
   assert.equal(welcome.querySelector('.kinds'), null, 'every task takes one path, so there is no job picker');
-  const examples = [...welcome.querySelectorAll('button.example')];
-  assert.equal(examples.length, 3);
-  const launched = t.mock.method(cli, 'stream', async () => ok);
-  examples[1].click();
-  assert.equal(ui.document.getElementById('message').value, 'Add a --json option to the export command');
-  assert.equal(ui.document.getElementById('send-message').disabled, false);
-  await flush();
-  assert.equal(launched.mock.callCount(), 0, 'choosing an example starts nothing');
+  assert.equal(ui.document.getElementById('message').value, '');
   assert.equal(ui.document.getElementById('stages').hidden, true);
   assert.equal(ui.document.getElementById('run-cost').textContent, '');
 });
