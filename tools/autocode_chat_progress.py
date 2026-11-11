@@ -49,7 +49,7 @@ def project(state: RunState, public, *, finished=False, stopped=False) -> list[s
     turns = state.get("turns") or []
     since = turns[-1].get("at") if turns else None
     attempts = []
-    newest = None
+    newest: dict | None = None
     for record in state.get("stages") or []:
         if not isinstance(record, dict) or not record.get("finished_at"):
             continue
