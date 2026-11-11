@@ -1430,7 +1430,9 @@ test('composer model, variant and usage update on polling without losing the dra
   assert.equal(field.selectionStart, 5);
   assert.equal(details.open, false);
   ui.chat.show(); await flush();
-  assert.match(ui.document.querySelector('#model-info').textContent, /A new chat runs the models listed under This chat's models; they are listed here once it starts/);
+  assert.match(ui.document.querySelector('#model-info').textContent, /Nothing has run yet\. A new chat runs the models in Stage models\./,
+    'without a per-chat list the new chat names where its models come from');
+  assert.equal(ui.document.querySelector('#models-picker').hidden, true, 'no list, no Models chip');
   assert.match(ui.document.querySelector('#usage-summary').textContent, /Tokens not reported/);
 });
 
@@ -1738,6 +1740,107 @@ test('a new chat shows the stages it will run and changes one for itself alone b
     'the picks are checked again where the chat starts');
   assert.deepEqual(start.mock.calls[0].arguments[4], ['--builder-model', 'sonnet', '--builder-reasoning-effort', 'medium']);
   assert.equal(section.hidden, true, 'a started chat lists its own models in Models & usage');
+});
+
+/** Answer the Models chip's three steps: the stage, the model and the level, by label; record what was offered. */
+function pickInOrder(t, labels) {
+  const offered = [];
+  const picker = t.mock.method(host.vscode.window, 'showQuickPick', async (items, options) => {
+    offered.push({ labels: items.map((item) => item.label), placeHolder: options.placeHolder, items });
+    return items.find((item) => item.label === labels[offered.length - 1]);
+  });
+  return { offered, picker };
+}
+
+test('the chat box Models chip changes a new chat\'s model, not only its level, for that chat alone', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  const calls = [];
+  const ui = await openChat(t, null, false, { stages: (argv) => { calls.push(argv); return chatStageView(argv); } });
+  ui.chat.show(); await flush(); await flush();
+  const chip = ui.document.getElementById('models-picker');
+  assert.equal(chip.hidden, false, 'the chat box offers the models before the first message');
+  assert.equal(chip.disabled, false);
+  assert.equal(ui.document.getElementById('models-name').textContent, 'Models');
+  const rules = [...ui.document.styleSheets].flatMap((sheet) => [...sheet.cssRules]);
+  for (const selector of ['.chat-model select', '.chat-model select.level']) {
+    assert.equal(rules.find((rule) => rule.selectorText === selector).style.width, 'auto',
+      `${selector} must not take the form-wide width: 100%, which hid the model dropdown behind the level`);
+  }
+  assert.equal(ui.document.querySelector('#model-info').textContent,
+    "Nothing has run yet. Choose this chat's models with Models under the message box.");
+  assert.equal(ui.document.querySelector('#usage-breakdown').textContent, 'Tokens and cost are shown here once the chat starts.');
+  const { offered } = pickInOrder(t, ['Builder', 'sonnet', 'high']);
+  chip.click(); await flush(); await flush(); await flush();
+  assert.deepEqual(JSON.parse(JSON.stringify(ui.sent.at(-1))), { type: 'models' }, 'the webview names no command');
+  assert.deepEqual(offered[0].labels, ['Builder', 'Tester']);
+  assert.equal(offered[0].items[0].description, 'haiku at medium (default)');
+  assert.deepEqual(offered[1].labels, ['haiku', 'sonnet'], 'a model the core marks unavailable is not offered');
+  assert.equal(offered[1].items[0].description, 'current · claude');
+  assert.deepEqual(offered[2].labels, ['low', 'medium', 'high']);
+  assert.deepEqual(calls.at(-1), ['stages', 'list', '--json', '--backend', 'claude', '--chat-stage', 'builder', 'sonnet', 'high'],
+    'only the stage\'s own chat_set, filled with the pick');
+  assert.ok(calls.every((argv) => argv[1] === 'list'), 'nothing is saved to Stage models');
+  assert.equal(ui.document.getElementById('models-name').textContent, 'Models · 1 changed');
+  assert.equal(ui.document.querySelector('#chat-models [data-stage="builder"] .now').textContent, 'sonnet at high (this chat)');
+  const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
+  ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
+  assert.deepEqual(start.mock.calls[0].arguments[4], ['--builder-model', 'sonnet', '--builder-reasoning-effort', 'high']);
+});
+
+test('the chat box Models picker cancelled at any step changes nothing', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  const calls = [];
+  const ui = await openChat(t, null, false, { stages: (argv) => { calls.push(argv); return chatStageView(argv); } });
+  ui.chat.show(); await flush(); await flush();
+  const before = calls.length;
+  pickInOrder(t, ['Tester', 'sonnet']);
+  ui.document.getElementById('models-picker').click(); await flush(); await flush(); await flush();
+  assert.equal(calls.length, before, 'a cancelled level sends nothing');
+  assert.equal(ui.document.getElementById('models-name').textContent, 'Models');
+});
+
+/** A started chat's own list (`stages list --run-dir RUN --json`): its `set` is the run's `--stage-model`. */
+function runStageView(changeable = true) {
+  const option = (model, unavailable = null) => ({ model, levels: ['low', 'high'], family: null, context: null, account: null,
+    effort_choices: ['low', 'high'], unavailable });
+  const stage = (id, label, chosen, options) => ({ id, label, does: `${label} does its job.`, advice: '',
+    default: { model: 'gpt-5.6-terra', effort: 'low', offered: true }, chosen, options,
+    set: { next_command: ['--run-dir', run.runDir, '--workspace', run.workspace, '--stage-model', id, 'MODEL', 'EFFORT'] }, reset: null });
+  return { ...ok, stdout: JSON.stringify({ version: 1, backend: 'codex', label: 'Codex', options_stop: null, changeable,
+    reason: changeable ? null : 'A stage is working.', run_dir: run.runDir, stages: [
+      stage('builder', 'Builder', { model: 'gpt-5.6-terra', effort: 'high' }, [option('gpt-5.6-terra'), option('gpt-6-sol'), option('gpt-6', 'the Tester runs gpt-6')]),
+    ] }) };
+}
+
+test('a started chat changes a stage\'s model from the chat box between stages, through the list its view names', async (t) => {
+  const list = ['stages', 'list', '--run-dir', run.runDir, '--json'];
+  const routes = { builder: { job: 'Builder', model: 'gpt-5.6-terra', reasoning_effort: 'high', engine: 'codex' } };
+  const initial = { ...chatView(), routes, stage_models: { changeable: true, reason: null, next_command: list } };
+  const calls = [];
+  const sets = [];
+  // One stand-in for the CLI, set before the chat opens: the run's list and its `--stage-model` change.
+  t.mock.method(cli, 'invoke', async (settings, argv) => {
+    if (argv.includes('--stage-model')) { sets.push({ argv, cwd: settings.cwd }); return { ...ok, stdout: 'saved\n' }; }
+    calls.push({ argv, cwd: settings.cwd });
+    return argv[0] === 'stages' ? runStageView() : { ...ok, stdout: JSON.stringify({ version: 1, stages: [] }) };
+  });
+  const ui = await openChat(t, initial, run);
+  const chip = ui.document.getElementById('models-picker');
+  assert.equal(chip.hidden, false, 'a started chat offers its own models in the chat box');
+  assert.equal(chip.disabled, false);
+  const { offered } = pickInOrder(t, ['Builder', 'gpt-6-sol', 'low']);
+  chip.click(); await flush(); await flush(); await flush(); await flush();
+  assert.deepEqual(calls.at(-1), { argv: list, cwd: run.workspace }, 'the list the status view names, in the chat\'s folder');
+  assert.equal(offered[0].items[0].description, 'gpt-5.6-terra at high (this chat)');
+  assert.deepEqual(offered[1].labels, ['gpt-5.6-terra', 'gpt-6-sol']);
+  assert.deepEqual(sets, [{ argv: ['--run-dir', run.runDir, '--workspace', run.workspace, '--stage-model', 'builder', 'gpt-6-sol', 'low'], cwd: run.workspace }]);
+  assert.ok(host.notices.some((notice) => /Builder on gpt-6-sol at low from its next stage/.test(notice.message)));
+  const working = 'A stage is working. Pause the chat, or wait until it asks you something, to change its models.';
+  await ui.poll({ ...initial, stage_models: { changeable: false, reason: working, next_command: list } });
+  assert.equal(chip.disabled, true, 'only between stages');
+  assert.equal(chip.title, working, 'the core says why not');
+  await ui.poll({ ...initial, stage_models: null });
+  assert.equal(chip.hidden, true, 'an older core offers nothing to change');
 });
 
 test('a new chat drops a pick back to Stage models and starts with none', async (t) => {
