@@ -14,10 +14,11 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import autocode as runner
+import autocode_action_authority as action_authority
 import autocode_builder_policy as builder_policy
 import autocode_completion as completion_gate
 import autocode_configure
@@ -952,7 +953,8 @@ class RetrofitTest(unittest.TestCase):
         self.assertTrue(runner.prepare_planning_retry(self.state, self.run))
         self.assertEqual("revise_plan", self.state["next_stage"])
 
-    def test_saved_abandoned_completion_recovery_is_narrow(self):
+    def saved_abandoned_completion(self):
+        """A completion review abandoned, then rejected for missing evidence until it repeated."""
         current = self.valid_completion()
         abandoned = {
             "stage": "review_completion_report_repair",
@@ -995,6 +997,10 @@ class RetrofitTest(unittest.TestCase):
                 self.state["stages"].append(
                     {"stage": "resolver", "runner_owned": True, "decision": {"action": "retry"}}
                 )
+        return current, selected
+
+    def test_saved_abandoned_completion_recovery_is_narrow(self):
+        current, selected = self.saved_abandoned_completion()
         s.atomic_json(self.run / "state.json", self.state)
         saved = (self.run / "state.json").read_bytes()
         for override in (
@@ -1051,6 +1057,94 @@ class RetrofitTest(unittest.TestCase):
         reloaded = s.read(self.run / "state.json")
         runner.repeated_failure_resume_guard(reloaded, self.root)
         self.assertFalse(runner.prepare_abandoned_completion_revalidation(reloaded, self.run, self.root))
+
+    def test_abandoned_completion_recovery_judges_the_requests_retained_pause(self):
+        # #3020: an operational request published over the repeated failure is the run's status, and
+        # its retained pause comes to the recovery as an argument. The recovery re-authenticates that
+        # request, judges the pause it retained, and withdraws it only once the recovery is proven.
+        _, selected = self.saved_abandoned_completion()
+        self.assertTrue(
+            runner.resolver_runtime.record_operational_exhaustion(
+                runner, self.state, self.run, s.Paused("PAUSED_REPEATED_FAILURE", "Recovery exhausted")
+            )
+        )
+        self.assertEqual("escalate", runner.resolver_human.evaluate(self.state))
+        self.assertEqual("WAITING_FOR_USER", self.state["status"])
+        published = runner.resolver_human.current(self.state)
+        self.assertEqual("operational_exhaustion", published["scope"])
+        s.atomic_json(self.run / "state.json", self.state)
+        saved = (self.run / "state.json").read_bytes()
+        attempts = (
+            ("default caller", runner.prepare_abandoned_completion_revalidation, {}),
+            (
+                "a pause the request did not retain",
+                runner.prepare_abandoned_completion_revalidation,
+                {"origin": "PAUSED_STAGE_ABANDONED"},
+            ),
+            (
+                "no current request",
+                runner.prepare_abandoned_completion_revalidation,
+                {"origin": "PAUSED_REPEATED_FAILURE", "state": {"status": "PAUSED_REPEATED_FAILURE"}},
+            ),
+            (
+                "no current request",
+                runner.prepare_timeout_archived_completion,
+                {"origin": "PAUSED_REPEATED_FAILURE", "state": {"status": "PAUSED_REPEATED_FAILURE"}},
+            ),
+            (
+                "an unrecorded timeout recovery",
+                runner.prepare_timeout_archived_completion,
+                {"origin": "PAUSED_REPEATED_FAILURE"},
+            ),
+            (
+                "a recovery bound to no source",
+                runner.prepare_abandoned_completion_revalidation,
+                {"origin": "PAUSED_REPEATED_FAILURE", "state": {"recovery_context": {"attempt_id": selected}}},
+            ),
+        )
+        for label, recover, options in attempts:
+            with self.subTest(label, recover=recover.__name__):
+                options = dict(options)
+                state = {**copy.deepcopy(self.state), **options.pop("state", {})}
+                before = copy.deepcopy(state)
+                self.assertFalse(recover(state, self.run, self.root, **options))
+                self.assertEqual(before, state)
+                self.assertEqual(saved, (self.run / "state.json").read_bytes())
+        history = copy.deepcopy(self.state["failure_history"])
+
+        class Held(Exception):
+            pass
+
+        args = runner.cli_args.build_parser(None, runner.DEFAULT_ROLE_MODELS).parse_args(
+            ["--run-dir", str(self.run), "--resume-paused", "--no-chat"]
+        )
+        resume = Mock(wraps=runner)
+        resume.stale_report_repair.side_effect = Held  # Stop the resume right after the recovery.
+        with self.assertRaises(Held):
+            action_authority.settle(
+                resume, args, None, self.state, self.run / "state.json", self.run, self.root, Mock()
+            )
+        resume.prepare_abandoned_completion_revalidation.assert_called_once_with(
+            self.state, self.run, self.root, origin="PAUSED_REPEATED_FAILURE"
+        )
+        resume.prepare_timeout_archived_completion.assert_not_called()
+        note = self.state["reconciliation_notes"][-1]
+        self.assertEqual((selected, "PAUSED_REPEATED_FAILURE"), (note["attempt_id"], note["previous_status"]))
+        self.assertEqual(
+            ("PAUSED_STAGE_ABANDONED", "PAUSED_OR_BLOCKED", "tester"),
+            (self.state["status"], self.state["phase"], self.state["next_stage"]),
+        )
+        self.assertIn("Resume explicitly for fresh review", self.state["stop_reason"])
+        entry = self.state["resolver"]["human_escalations"][published["request_id"]]
+        self.assertEqual(
+            ("superseded", "Scoped completion-abandonment recovery was proven"),
+            (entry["status"], entry["superseded_reason"]),
+        )
+        self.assertEqual([], self.state["pending_questions"])
+        self.assertNotIn("user_request", self.state)
+        self.assertIsNone(runner.resolver_human.current(self.state))
+        self.assertEqual(history, self.state["failure_history"])
+        self.assertEqual(self.state, s.read(self.run / "state.json"))
 
     def test_missing_evidence_and_outside_project_rejected(self):
         for refs in ([], ["nope"], ["/etc/hosts"]):

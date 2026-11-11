@@ -18,6 +18,10 @@ Exceptions are already independently authenticated decisions supplied by the
 caller. They must name the exact gap, source, context, file hash and line, and
 carry accepted=True, a reason and evidence references. Their semantic adequacy
 belongs to that reviewer; nonempty prose alone never creates review authority.
+
+Line texts, when the caller read them from the exact measured bytes, put each
+obligation's own bounded source text beside its handle (#2977), so a reviewer
+judges the line the handle binds and a reason can be checked against it.
 """
 
 from __future__ import annotations
@@ -64,6 +68,39 @@ def _files(value, source_revision, proof_context):
         path = row["path"]
         result[path] = None if path in result else row
     return result
+
+
+# A changed line's text as a handoff shows it and a review decision quotes it: whitespace runs collapse
+# to one space and a long line keeps its first SOURCE_LINE_LIMIT characters (#2977).
+SOURCE_LINE_LIMIT = 200
+
+
+def quoted(text):
+    """The bounded, whitespace-normalized form of one source line, or of a decision's quote of it."""
+    return " ".join(text.split())[:SOURCE_LINE_LIMIT] if isinstance(text, str) else None
+
+
+def line_texts(data, digest, lines):
+    """{"sha256", "lines"}: the quoted text of each changed line in exactly these bytes.
+
+    Lines are numbered as the inventory numbers them (``str.splitlines`` over UTF-8 with
+    replacement). Returns None when the bytes are not the inventoried file.
+    """
+    if not isinstance(data, bytes) or hashlib.sha256(data).hexdigest() != digest:
+        return None
+    text = data.decode("utf-8", errors="replace").splitlines()
+    return {
+        "sha256": digest,
+        "lines": {str(line): quoted(text[line - 1]) for line in lines if type(line) is int and 0 < line <= len(text)},
+    }
+
+
+def _line_text(texts, path, digest, line):
+    entry = texts.get(path) if isinstance(texts, dict) else None
+    if not isinstance(entry, dict) or entry.get("sha256") != digest or not isinstance(entry.get("lines"), dict):
+        return None
+    value = entry["lines"].get(str(line))
+    return quoted(value) if isinstance(value, str) else None
 
 
 def gap_id(source_revision, proof_context, path, sha256, line):
@@ -171,6 +208,8 @@ def _exception(exceptions, obligation, source_revision, proof_context):
         not _same_context(row, source_revision, proof_context)
         or type(row.get("line")) is not int
         or any(row.get(key) != obligation[key] for key in ("path", "sha256", "line"))
+        # A decision that quoted its line must have quoted this one (#2977).
+        or ("source_line" in row and "source_line" in obligation and row["source_line"] != obligation["source_line"])
         or row.get("accepted") is not True
         or not _text(row.get("reason"))
         or not _texts(row.get("evidence"))
@@ -183,13 +222,15 @@ def _exception(exceptions, obligation, source_revision, proof_context):
     }
 
 
-def assess(inventory, coverage, mutation, *, source_revision, proof_context, exceptions=()):
+def assess(inventory, coverage, mutation, *, source_revision, proof_context, exceptions=(), texts=None):
     """Return deterministic PASS/UNVERIFIED, per-line obligations and chosen fallbacks.
 
     Empty, well-formed inventories have no executable obligation. Malformed or
     unknown inventories fail closed. A mutation-only fallback needs the same
     demonstrated test failures as normal mutation evidence, for each exact line;
-    collection success or an empty survivor list is never enough.
+    collection success or an empty survivor list is never enough. ``texts`` maps a
+    path to ``line_texts`` of its measured bytes; an obligation whose file hash it
+    pins carries that line's ``source_line``.
     """
     result = {
         "schema": 1,
@@ -237,6 +278,10 @@ def assess(inventory, coverage, mutation, *, source_revision, proof_context, exc
                 if ran
                 else "No measured execution or complete behavioral mutation evidence for this changed line.",
             }
+            source = _line_text(texts, path, digest, line)
+            if source is not None:
+                # The exact line the handle binds, beside it, for the reviewer who decides it (#2977).
+                obligation["source_line"] = source
             if not demonstrated:
                 decision = _exception(exceptions, obligation, source_revision, proof_context)
                 if decision is not None:

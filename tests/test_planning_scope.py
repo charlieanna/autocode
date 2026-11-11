@@ -82,6 +82,18 @@ class PlanningScopeTests(EpisodeCase):
                 self.assertNotIn("workspace_scope", self.state)
                 self.assertNotIn("goal_contract", self.state)
 
+    def test_a_sentence_cited_by_id_and_by_text_is_one_citation(self):
+        # #3119: the id and the verbatim text resolve to one quote. Refusing that
+        # as a repeat sent a report repair the model could not see how to fix.
+        report = copy.deepcopy(self.report)
+        report["contract"]["acceptance_criteria"][0]["sources"] = [
+            {"source_id": "task:0", "quote": "task:0#1"},
+            {"source_id": "task:0", "quote": self.state["task"]},
+        ]
+        self.apply("draft_plan", report)
+        self.assertEqual("PAUSED_SCOPE_DECISION", self.state["status"])
+        self.assertEqual([self.part], self.state["workspace_scope"]["external_parts"])
+
     def test_optional_field_and_guidance_reach_both_planner_stages(self):
         for stage in ("draft_plan", "revise_plan"):
             with self.subTest(stage=stage):

@@ -539,6 +539,23 @@ test('stage models shows the core\'s refusal and lists without a backend when no
   assert.equal(panel.webview.messages.at(-1).busy, false);
 });
 
+test('the stage models panel\'s reads are bounded like a status poll', async (t) => {
+  const calls = [];
+  t.mock.method(cli, 'invoke', async (_settings, argv, _env, timeoutMs) => {
+    calls.push([argv, timeoutMs]);
+    return { ...ok, stdout: JSON.stringify(stageView()) };
+  });
+  const stages = new StagesPanel();
+  t.after(() => stages.dispose());
+  await stages.show();
+  const panel = host.panels.at(-1);
+  panel.webview.receive({ type: 'set', stage: 'terra', model: 'sonnet', effort: 'low' });
+  await flush();
+  assert.ok(calls.some(([argv]) => argv[1] === 'set'), 'the set ran');
+  assert.ok(calls.every(([, ms]) => ms === 60000),
+    'a wedged stage read must fail and say so, not leave the panel dead: ' + JSON.stringify(calls));
+});
+
 test('a chat\'s own stage models list and change that run in its folder, and refuse while a stage works', async (t) => {
   const runList = ['stages', 'list', '--run-dir', '/work/shop/.autocode/runs/r', '--json'];
   const set = ['--run-dir', '/work/shop/.autocode/runs/r', '--workspace', '/work/shop', '--stage-model', 'terra', 'MODEL', 'EFFORT'];
@@ -1116,6 +1133,26 @@ test('registry rows carry the archived flag and only named cleanup actions', () 
   }]);
 });
 
+test('a malformed registry row is left out, never the whole list', () => {
+  const { readRegistryList } = host.load('core/view.js');
+  const list = readRegistryList(JSON.stringify({ runs: [
+    { id: 'r1', workspace: '/ws', run_dir: '/ws/.autocode/runs/r1', availability: 'available' },
+    null,
+    'junk',
+    { id: 'no-handle' },
+    { workspace: '/ws', run_dir: '/ws/.autocode/runs/no-id', availability: 'available' },
+    { id: 'r2', workspace: '/ws', run_dir: '/ws/.autocode/runs/r2', availability: 'available', title: 'Second chat' },
+  ], diagnostics: ['a note'] }));
+  assert.deepEqual(list.runs.map((row) => row.id), ['r1', 'r2'], 'one bad entry must not cost the person the list');
+  assert.equal(list.runs[1].title, 'Second chat');
+  assert.deepEqual(list.diagnostics, ['a note']);
+});
+
+test('a registry list that is not JSON says so, without parser jargon', () => {
+  const { readRegistryList } = host.load('core/view.js');
+  assert.throws(() => readRegistryList('not json'), /registry list did not return JSON/);
+});
+
 test('archived chats are marked and shown only when the list asks for them', async () => {
   const calls = [];
   const listed = [{
@@ -1256,12 +1293,19 @@ async function openChat(t, initial, selected = run, options = {}) {
   await flush();
   if (selected !== false) chat.show(selected);
   await flush();
+  // A poll cycle can take more than one flush to land (#2967). refresh() joins a cycle already
+  // reading, so a poll made while an older cycle reads would land that cycle's earlier fixture and
+  // miss the change the case just made. Wait, without starting a read, for every running cycle
+  // (including the one a tab switch queues behind it) before the case reads or polls.
+  assert.ok('refreshing' in chat, 'the chat still tracks its running poll cycle');
+  const settled = async () => { while (chat.refreshing) await chat.refreshing; };
+  await settled();
   t.after(() => { chat.dispose(); dom.window.close(); });
   return {
     chat, document: dom.window.document, window: dom.window, sent, saved,
     get webviewState() { return persisted; },
     setView(next) { value = next; },
-    async poll(next = value) { value = next; t.mock.timers.tick(5000); await flush(); await chat.refresh(); },
+    async poll(next = value) { value = next; await settled(); t.mock.timers.tick(5000); await flush(); await chat.refresh(); },
     async visible(visible) { view.visible = visible; visibility(); await flush(); },
     type(text) { const field = dom.window.document.querySelector('#message'); field.value = text; field.dispatchEvent(new dom.window.Event('input')); },
     submit() { dom.window.document.querySelector('#composer').dispatchEvent(new dom.window.Event('submit', { cancelable: true })); },
@@ -5057,6 +5101,33 @@ test('test_ac1_background_tab_need_notifies_once', async (t) => {
   assert.deepEqual(host.notices[0].items, ['Open chat']);
 });
 
+test('a chat poll reads the run as it is when polled, not through a read that began before (#2967)', async (t) => {
+  const own = new RunController(host.log);
+  const views = new Map([[alpha.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { controller: own, statusFor: (target) => views.get(target.runDir) });
+  // Hold one read open after it has taken the run's state, as a slow host's --status does.
+  const read = own.pollStatus;
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  let holding = true;
+  t.mock.method(own, 'pollStatus', async (target) => {
+    const view = await read.call(own, target);
+    if (holding) { holding = false; await held; }
+    return view;
+  });
+  const older = ui.chat.refresh();
+  await flush();
+  views.set(alpha.runDir, approveView('r1:abc'));
+  const polled = ui.poll();
+  await flush();
+  release();
+  await Promise.all([older, polled]);
+  assert.equal(host.notices.length, 1, 'the poll reads the approval made after the older read began');
+  assert.equal(host.notices[0].message, 'AutoCode: alpha is waiting for you - approval of the plan AutoCode displayed');
+  await ui.poll();
+  assert.equal(host.notices.length, 1, 'the approval is still announced once');
+});
+
 test('test_ac2_same_need_second_poll_does_not_repeat', async (t) => {
   const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
   const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
@@ -5448,6 +5519,28 @@ test('the change set status read is bounded like a status poll', async (t) => {
   await ownController.changeset(view, run);
   assert.equal(launch.mock.calls[0].arguments[3], 30000,
     'a wedged change-set read must fail and let the next poll retry, not freeze Run details');
+});
+
+test('a change-set action says it is working while the check runs', async (t) => {
+  host.config.set('confirmPersonOnly', false);
+  const ownController = new RunController(host.log);
+  t.mock.method(cli, 'invoke', async (_settings, args) => (args[0] === 'changeset'
+    ? { ...ok, stdout: JSON.stringify(changesetSummary('set-1')), stderr: '', rejected: false } : ok));
+  const view = { status: 'AWAITING_GOAL_APPROVAL', done: false,
+    scope: { linked: [{ changeset: 'changeset-1', target: 'b', role: 'member', workspace: '/b', run_dir: '/b/.autocode/runs/m' }] } };
+  const ui = await openPanel(t, view, undefined, ownController);
+  const action = () => ui.document.querySelector('#changeset-action');
+  assert.equal(action().disabled, false);
+  let release;
+  t.mock.method(cli, 'stream', () => new Promise((resolve) => { release = () => resolve(ok); }));
+  t.mock.method(host.vscode.window, 'showWarningMessage', async () => 'Approve all');
+  action().click();
+  await flush(); await flush();
+  assert.equal(action().disabled, true, 'the card says it is working while the check runs');
+  assert.ok(ui.document.body.textContent.includes('Change set'), 'the card stays on screen while it works');
+  release();
+  await flush(); await flush();
+  assert.equal(action().disabled, false, 'the card comes back when the check ends');
 });
 
 // Stage meter, cost header, closing card, welcome and tab marks: the terminal chat's #2610 features.
@@ -6024,4 +6117,75 @@ test('Enter in the bound-raise field raises through its named command when the n
   assert.equal(launch.mock.callCount(), 1);
   const args = launch.mock.calls[0].arguments[1];
   assert.equal(args[args.indexOf('--max-cost-usd') + 1], '5');
+});
+
+// The tab strip works from the keyboard: a roving tabindex, arrows (and Home/End) that select
+// the same chat a click selects, and a close that is a real button, which the host presses.
+test('chat tabs are keyboard-reachable: arrows select and the close is a button', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  ui.chat.show(beta);
+  await flush();
+  const tabs = () => [...ui.document.querySelectorAll('.chat-tab')];
+  const active = () => ui.document.querySelector('.chat-tab.active');
+  assert.equal(tabs().length, 2);
+  assert.equal(tabs()[1].tabIndex, 0, 'the selected tab holds the strip\'s place in the tab order');
+  assert.equal(tabs()[0].tabIndex, -1, 'the other tabs are reached with the arrow keys, not Tab');
+  const keyOf = (ref) => ref.workspace + '\n' + ref.runDir;
+  const selects = () => ui.sent.filter((message) => message.type === 'select_tab');
+
+  tabs()[1].focus();
+  tabs()[1].dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+  await flush();
+  assert.equal(selects().length, 1, 'the arrow selects exactly the chat a click would');
+  assert.equal(selects()[0].tabKey, keyOf(alpha));
+  assert.equal(ui.document.querySelectorAll('.chat-tab')[0].className, 'chat-tab active');
+  assert.equal(ui.document.activeElement, active(), 'a selection that rebuilds the strip keeps focus on it');
+
+  active().dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+  await flush();
+  assert.equal(selects()[1].tabKey, keyOf(beta), 'End selects the last chat');
+
+  const close = ui.document.querySelectorAll('.chat-tab')[1].querySelector('.close');
+  assert.equal(close.tagName, 'BUTTON', 'the close is a button, so the host can press it');
+  assert.equal(close.type, 'button');
+  assert.ok(close.getAttribute('aria-label').startsWith('Close chat '), 'the close names its chat');
+  close.click();
+  await flush();
+  assert.ok(ui.sent.some((message) => message.type === 'close_tab' && message.tabKey === keyOf(beta)),
+    'closing acts on that chat only');
+});
+// A rendered diff can be thousands of lines: it is bounded and scrolls inside the thread,
+// in both the Builder's working diff and a saved-code comparison.
+test('a long rendered diff is bounded and scrolls instead of stretching the thread', async (t) => {
+  const long = '--- greet.py\n+++ greet.py\n' + Array.from({ length: 500 }, (_, i) => '+line ' + i).join('\n');
+  const html = panelHtml(true);
+  assert.ok(/pre\.diff\s*\{[^}]*max-height/.test(html), 'the stylesheet bounds a rendered diff');
+
+  const working = ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--working'];
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    code_checkpoints: { rows: [], working: { id: 'working', label: 'Show what the Builder has changed so far', next_command: working } },
+    chat: { phase: null, context: 'live-step', input: null, messages: [], progress: ['Builder working'], activity: [] } };
+  const ui = await openChat(t, value);
+  t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({ since: 'start',
+    changed_files: ['greet.py'], patch: long, truncated: false }) }));
+  ui.document.querySelector('#working-diff').click();
+  await flush();
+  const live = ui.document.querySelector('#app pre.diff');
+  assert.ok(live, 'the working diff is marked as a diff');
+  assert.ok(live.textContent.includes('+line 499'), 'the whole patch stays reachable by scrolling');
+
+});
+
+test('a long saved-code comparison is bounded and scrolls like the working diff', async (t) => {
+  const long = '--- app.txt\n+++ app.txt\n' + Array.from({ length: 500 }, (_, i) => '+line ' + i).join('\n');
+  const saved = await openChat(t, checkpointView());
+  t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({ checkpoint_id: 'cp-1',
+    changed_files: ['app.txt'], patch: long, truncated: false }) }));
+  saved.document.querySelector('[data-checkpoint-action="compare"]').click();
+  await flush();
+  const compared = saved.document.querySelector('#app pre.diff');
+  assert.ok(compared, 'a saved-code comparison is marked as a diff');
+  assert.ok(compared.textContent.includes('+line 499'));
 });
