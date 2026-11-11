@@ -94,13 +94,16 @@ def _fields(literal: str):
     """``literal``'s fields in order (a placeholder, an alternation's values or a fixed word), its format
     markers (the characters other than letters, digits and spaces between them) and, for each gap between
     two fields, whether the template puts a space in it."""
-    fields, markers, spaced, word, space = [], [], [], "", False
+    fields: list[tuple[str, tuple[str, ...] | str]] = []
+    markers: list[str] = []
+    spaced: list[bool] = []
+    word, space = "", False
     for match in TOKEN.finditer(literal + " "):  # the trailing space ends a final word
         kind, token = match.lastgroup, match.group()
         if kind == "other" and token.isalnum():
             word += token
             continue
-        pending = [("word", word)] if word else []
+        pending: list[tuple[str, tuple[str, ...] | str]] = [("word", word)] if word else []
         word = ""
         if kind == "alternation":
             pending.append(("alternation", tuple(token.split("|"))))
