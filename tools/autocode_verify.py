@@ -79,6 +79,7 @@ try:
     from . import autocode_suite_definition_inputs as definition_inputs
     from . import autocode_suite_definition_policy as definition_policy
     from . import autocode_suite_definition_scan as definition_scan
+    from . import autocode_suite_flakes as suite_flakes
     from . import autocode_test_environment as test_env
     from . import autocode_test_role_inventory as role_inventory
     from . import autocode_test_root as test_roots
@@ -122,6 +123,7 @@ except ImportError:
     import autocode_suite_definition_inputs as definition_inputs
     import autocode_suite_definition_policy as definition_policy
     import autocode_suite_definition_scan as definition_scan
+    import autocode_suite_flakes as suite_flakes
     import autocode_test_environment as test_env
     import autocode_test_role_inventory as role_inventory
     import autocode_test_root as test_roots
@@ -2546,6 +2548,7 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
         kept_tests=proof.get("pass_to_pass") or (),
         untested=bool(base) and _untested_base(workspace, base),
         repaired=first_suite.repaired_evidence(proof, existing_failures, comparable, checks, on_candidate),
+        quarantined=suite_flakes.for_proof(run, trees, on_candidate, comparable, (make_tree, run_suite, remove_tree)),
     )
     judgment.judge_retained_runner(None if untyped else base_definition, comparable, fail, unverified)
     # make_tree copies ignored test files into both trees, so a guard could rest on a test base never held.

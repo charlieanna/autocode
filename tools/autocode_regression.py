@@ -143,6 +143,7 @@ SUMMARY_KEYS = (
     "case_scope",
     "unstable",
     "proof_stability",
+    "suite_flakes",
     "diff_coverage",
     "mutation_check",
     "follow_up_baseline",

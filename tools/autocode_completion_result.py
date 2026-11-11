@@ -249,17 +249,18 @@ def _send_back_unproven(state: RunState, current, record, regression_complete):
         from . import autocode_proof_findings as proof_findings
     except ImportError:
         import autocode_proof_findings as proof_findings
-    if (
-        record.get("stage") != "review_completion"
-        or not _proof_routing(state)
-        or not proof_findings.open_rows(state)
-        or regression_complete(state, current["revision"], all_due=False)
-    ):
+    if record.get("stage") != "review_completion" or not _proof_routing(state) or not proof_findings.open_rows(state):
         return None
+    note = proof_findings.SEND_BACK_NOTE
+    if regression_complete(state, current["revision"], all_due=False):
+        # A pass after a failure on the same source leaves the finding open; send it back, never stop (#2942).
+        if not proof_findings.intermittent(state, current["revision"]):
+            return None
+        note = proof_findings.INTERMITTENT_NOTE
     return {
         "next_stage": "review_completion",
         "iteration": state.get("iteration", 0) + 1,
-        **proof_findings.send_back(state, current["revision"]),
+        **proof_findings.send_back(state, current["revision"], note),
     }
 
 

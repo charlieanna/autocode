@@ -5,6 +5,7 @@ import autocode_completion_result as completion_result
 import autocode_proof_findings as proof_findings
 import autocode_regression as regression
 import autocode_source_scope as source_scope
+import autocode_verify_judgment as judgment
 import autocode_workflow as workflow
 
 REASON = "Completion rejected: this change has no passing regression proof for the current source (No regression test)"
@@ -152,6 +153,50 @@ class ProofFindingTests(unittest.TestCase):
 
         complete.assert_called_once_with(state, "r1", all_due=False)
         self.assertIsNone(sent_back)
+
+    def test_a_source_that_failed_a_suite_test_then_passed_is_sent_back_not_stopped_at_the_gate(self):
+        """#2942: one intermittent failure, then a passing replay of the same source."""
+        state = {"version": 3, "settings": {}, "regression_proof": {"source_revision": "r1", "path": "/run/p1.json"}}
+        flaky = "Completion rejected: this change has no passing regression proof for the current source ({}: t.A.test_tick)"
+        proof_findings.reconcile(
+            state, "r1", required=True, proved=False, reason=flaky.format(proof_findings.REGRESSED)
+        )
+        proof_findings.reconcile(state, "r1", required=True, proved=True)
+        self.assertTrue(proof_findings.intermittent(state, "r1"))
+        self.assertFalse(proof_findings.intermittent(state, "r2"))
+
+        def send_back():
+            with patch.object(workflow, "enabled", return_value=False):
+                return completion_result._send_back_unproven(
+                    state, {"revision": "r1"}, {"stage": "review_completion"}, lambda *_, **__: True
+                )
+
+        first = send_back()
+        self.assertEqual(
+            ("review_completion", "RUNNING", proof_findings.INTERMITTENT_NOTE),
+            (first["next_stage"], first["status"], first["stop_reason"]),
+        )
+        self.assertEqual("PAUSED_COMPLETION_REVIEW", send_back()["status"])
+        self.assertEqual(1, len(proof_findings.open_rows(state)))
+
+    def test_the_suite_judgment_still_words_a_regression_as_the_intermittent_route_reads_it(self):
+        fail = []
+        candidate = {
+            "exit_code": 1,
+            "timed_out": False,
+            "results_expected": True,
+            "results": {"complete": True, "passed": [], "failed": ["t.A.test_tick"], "skipped": [], "total": 1},
+        }
+        base = {
+            "health": "passing",
+            "receipt": {
+                "exit_code": 0,
+                "timed_out": False,
+                "results": {"complete": True, "passed": ["t.A.test_tick"], "failed": [], "skipped": [], "total": 1},
+            },
+        }
+        judgment.judge_suite(candidate, base, fail, [], [])
+        self.assertTrue(fail[0].startswith(proof_findings.REGRESSED), fail)
 
 
 if __name__ == "__main__":
