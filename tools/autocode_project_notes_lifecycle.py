@@ -158,7 +158,8 @@ def proposals(value: dict, shown: list[dict], entry: dict, *, run_dir) -> dict |
         "source_revision": entry.get("source_revision"),
         "recorded_at": entry.get("finished_at") or now(),
     }
-    kept, omitted = [], 0
+    kept: list[dict] = []
+    omitted = 0
     for row in rows[:MAX_PER_INVESTIGATION]:
         note = store.candidate(row.get("kind"), row.get("text"), receipt) if isinstance(row, dict) else None
         if note is None or any(note["id"] == other["id"] for other in kept):
@@ -211,7 +212,7 @@ def publish(path, state: RunState) -> bool:
 
 def learned(state: RunState) -> list[dict]:
     """The notes this run wrote to the project, oldest first."""
-    rows = []
+    rows: list[dict] = []
     for entry in state.get("stuck_investigations") or []:
         record = entry.get("project_notes") if isinstance(entry, dict) else None
         if isinstance(record, dict) and record.get("status") == "written":
