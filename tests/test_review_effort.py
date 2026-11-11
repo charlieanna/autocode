@@ -39,6 +39,14 @@ def decide(state, stage, role, configured="high", report_only=False):
     return review_effort.decide(state, stage, role, report_only, configured, model=route["model"])
 
 
+def triage_state():
+    """A fresh joint default-flow run whose first Requirements pass is the triage pass (#2940)."""
+    state = run_state()
+    state["settings"].update(requirements_triage=True, joint_planning=True)
+    state["settings"]["roles"]["requirements"] = {"model": MIMO, "reasoning_effort": "high"}
+    return state
+
+
 class DecideTests(unittest.TestCase):
     def test_a_small_clear_tasks_plan_review_runs_one_level_below_the_saved_level(self):
         for stage in ("review_plan", "finalize_plan"):
@@ -180,6 +188,56 @@ class LaunchTests(unittest.TestCase):
             review_effort.note(choice),
         )
 
+    def test_a_repair_of_the_triage_pass_keeps_the_repair_bound_and_its_reason(self):
+        # #2940 review: the runner launches a repair under the original stage name, and the triage
+        # pass stays due until a report is accepted, so the triage floor used to replace the repair
+        # bound and its reason. MiMo offers low, medium and high: the repair of a saved high runs
+        # at medium; the triage pass itself runs at the floor, low.
+        state = triage_state()
+        route = state["settings"]["roles"]["requirements"]
+        level, choice = review_effort.launch(state, "requirements_gather", "requirements", True, route)
+        self.assertEqual(("medium", "format_repair", True), (level, choice["reason"], choice["lowered"]))
+        level, choice = review_effort.launch(state, "requirements_gather", "requirements", False, route)
+        self.assertEqual(("low", "requirements_triage"), (level, choice["reason"]))
+
+
+class RouteAnswerFitTests(unittest.TestCase):
+    """A route answer moved the saved level to the offered model's nearest level: the launch says so (#3120)."""
+
+    def moved(self, role, effort="high", saved="medium", model=GLM):
+        state = run_state()
+        state["settings"]["roles"][role] = {"model": model, "reasoning_effort": effort}
+        state["settings"]["effort_fits"] = {
+            role: {"from": saved, "to": effort, "reason": "route_answer", "model": model}
+        }
+        return state, state["settings"]["roles"][role]
+
+    def test_a_stage_no_other_rule_considers_records_the_move_as_its_choice(self):
+        state, route = self.moved("requirements")
+        level, choice = review_effort.launch(state, "requirements_gather", "requirements", False, route)
+        self.assertEqual(
+            ("high", "route_answer_fit", "medium", GLM), (level, choice["reason"], choice["saved"], choice["model"])
+        )
+        self.assertEqual(
+            f"Running at high: {GLM} does not offer medium, so this stage runs at high, the nearest level it offers.",
+            review_effort.note(choice),
+        )
+        self.assertIsNone(review_effort.note({"reason": "route_answer_fit"}), "no text: nothing to say")
+
+    def test_a_review_keeps_its_own_rule_and_carries_the_move_beside_it(self):
+        state, route = self.moved("tester")
+        state["workflow"]["clarity"] = "vague"
+        level, choice = review_effort.launch(state, "tester", "tester", False, route)
+        self.assertEqual(("high", "not_small_clear"), (level, choice["reason"]))
+        self.assertEqual(("high", "medium"), (choice["route_answer_fit"]["level"], choice["route_answer_fit"]["saved"]))
+
+    def test_a_launch_on_another_model_or_level_records_no_move(self):
+        state, route = self.moved("requirements", model=MIMO)
+        state["settings"]["effort_fits"]["requirements"]["model"] = GLM
+        self.assertEqual(
+            ("high", None), review_effort.launch(state, "requirements_gather", "requirements", False, route)
+        )
+
 
 class RunnerLaunchTests(unittest.TestCase):
     def test_a_format_repair_launches_below_the_saved_level_and_records_why(self):
@@ -222,6 +280,42 @@ class RunnerLaunchTests(unittest.TestCase):
             )
             self.assertEqual("high", record["launch_route"]["reasoning_effort"], "the saved route stays the ceiling")
             self.assertEqual("high", state["settings"]["roles"]["planner"]["reasoning_effort"])
+
+    def test_the_runner_records_a_triage_pass_repair_as_a_format_repair(self):
+        # #2940 review: a fresh run's malformed first Requirements report is repaired under
+        # requirements_gather while the triage pass is still due; the repair launches at the repair
+        # bound and its recorded effort_choice says it is a repair, not the triage pass.
+        import autocode as runner
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            schema = root / "schema.json"
+            schema.write_text('{"type": "object", "properties": {}}')
+            state = triage_state()
+            state.update(version=2, next_stage="requirements_gather")
+            state["settings"].update(engine="opencode", provider="kilocode")
+            with mock.patch.object(
+                runner.provider_launch, "prepare", return_value=(["provider"], {}, {}, {})
+            ) as prepare:
+                _result, record = runner.run_role(
+                    role="requirements",
+                    prompt="Repair the rejected report's format",
+                    sandbox="read-only",
+                    workspace=root,
+                    run_dir=root / "run",
+                    state=state,
+                    schema=schema,
+                    model=MIMO,
+                    allow_write=False,
+                    dry_run=True,
+                    report_only=True,
+                )
+            self.assertEqual("medium", prepare.call_args.kwargs["effort"])
+            choice = record["effort_choice"]
+            self.assertEqual(
+                ("medium", "high", True, "format_repair"),
+                (choice["level"], choice["ceiling"], choice["lowered"], choice["reason"]),
+            )
 
     def test_the_runner_launches_a_small_clear_review_below_its_ceiling_and_records_why(self):
         import autocode as runner

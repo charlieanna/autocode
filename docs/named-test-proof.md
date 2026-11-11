@@ -385,6 +385,22 @@ directories as `changed_code_inputs.installed_dependencies` (#3164). The gate's 
 names the first 40 open lines and counts the rest; every line stays in `obligations`. Empty survivor lists and the old six-site sample never prove that
 all changed lines were tested.
 
+A handle only names a line; it cannot show that the reason under it is about
+that line. An accepted S6 report (#2977) put the reason for one line under the
+handle of another: the handles resolved, so the gate passed lines no reason
+described. Each gap the Tester decides therefore carries `source_line`, the text
+of its exact line read from the measured bytes (whitespace runs collapsed to one
+space, at most 200 characters), and each decision quotes it back in its own
+`source_line`. A decision whose quote is another line's text is returned for
+report repair, before clean verification runs and again when the decisions are
+bound, with each handle's quoted and actual line; a repaired report is held to
+the same check. The final report shows each line beside its reason, so the
+reviewers judge the reason against the line it covers. A matching quote proves
+only that the reason names its own line; whether the reason is adequate stays
+the independent reviewers' judgment. A line whose bytes could not be read
+carries no text and binds by its handle alone, and a report offered before this
+check binds without a quote.
+
 A PASS that omits an offered Tester decision for a line with no mutation
 outcome is returned for report repair before clean verification commands run.
 This early check uses the current source and offered gap bindings; missing or

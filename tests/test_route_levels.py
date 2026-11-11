@@ -54,6 +54,23 @@ class RouteLevelsTests(unittest.TestCase):
         self.assertEqual({"opencode/big-pickle": []}, levels.parse(listing))
         self.assertEqual({}, levels.metadata("openai/example\n{broken"))
 
+    def test_a_listing_cut_off_inside_a_model_is_not_complete(self):
+        # #3078: the kept answer ended mid-object; parse still found every model before the cut, so the
+        # missing tail read as models with no variants.
+        whole = (
+            'openai/example\n{\n  "variants": {"low": {}, "high": {}}\n}\n'
+            'zai-coding-plan/glm-5.3\n{\n  "cost": {"input": 0, "output": 0},\n  "variants": {"high": {}}\n}\n'
+        )
+        cut = whole[: whole.rindex('"output": 0')] + '"output": 0,'
+        self.assertTrue(levels.complete(whole))
+        self.assertEqual({"openai/example": ["high", "low"]}, levels.parse(cut))
+        self.assertFalse(levels.complete(cut))
+        self.assertFalse(levels.complete("openai/example\n{broken"))
+        self.assertFalse(levels.complete("  \n"))
+        self.assertFalse(levels.complete(None))
+        # The older plain listing has no metadata objects to cut.
+        self.assertTrue(levels.complete("openai/example\nzai/example\n"))
+
     def test_escalation_cannot_add_an_account_or_an_unsupported_level(self):
         settings = {
             "route_selection": {"candidates": {"builder": [{"model": "plan/model", "levels": ["low", "high"]}]}}

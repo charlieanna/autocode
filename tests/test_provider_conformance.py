@@ -391,7 +391,7 @@ class ProbeLaunchRoleTests(unittest.TestCase):
             self.assertIsInstance(caught.exception.__cause__, kilocode_probe.KiloProbeTimeout)
             child.assert_not_called()
             checks = json.loads((self.root / directory / "model-free-setup.json").read_text())["checks"]
-            self.assertEqual([30, 60], [row["timeout_seconds"] for row in checks])
+            self.assertEqual([60, 60], [row["timeout_seconds"] for row in checks])
             self.assertEqual(["timed_out", "timed_out"], [row["outcome"] for row in checks])
             self.assertFalse((self.root / directory / "launch.json").exists())
 

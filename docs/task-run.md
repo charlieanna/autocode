@@ -134,6 +134,15 @@ log hashes and supervision receipts, and refuses any actual failing test name,
 mixed error or stale scope. Reviewer findings still require that reviewer
 to resolve or retract them; no product edit is manufactured for an environment
 repair, and no completion or approval follows from this reconciliation alone.
+The same holds when every earlier failed proof of that source refused only
+because the old collector chose another parser for a plain `python -m unittest`
+suite (#3037): each exited zero with no parsed results and its sole refusal is
+the unbounded base suite definition. The core re-reads those owned, intact logs
+with the unittest parser and requires complete passes with no failure, skip or
+collection error, the same source, base and case scope as a fresh passing proof
+in the current approved contract, the same suite command apart from `-v`, and
+the same passing suite inventory. The settled finding names the superseded
+receipts beside the fresh one; the old receipts are kept unchanged.
 
 At a settled shared-cost stop, `needs.kind=budget` names the current finite cap,
 known accumulated spend, accounting completeness, `minimum_cap_usd`, and its own
@@ -1488,6 +1497,14 @@ contract or scope is refused. A model change alone cannot authorize a call, and 
 rejected combined change saves no settings. Clients continue to use only named
 view actions; this operator control does not add a client-side route override.
 
+When the provider refused the Resolver's retry (quota or a content filter), the stop
+asks for a model instead, and no scoped retry is involved (#3159): `--abandon-stage
+ATTEMPT`, then `--resume-paused --resolver-model MODEL` records the usual route
+assignment, and the incident's binding treats the model, its effort and their origins
+as that one assignment. A call the provider stopped with no response ran no experiment,
+so AutoCode's own retry of the held incident is still there for the named model. A held
+Resolver change the CLI cannot take now names why, never a retry it would refuse.
+
 ### What went wrong (`recoveries`)
 
 `view.recovery` describes a stop. `view.recoveries` is the history of what went wrong while the
@@ -1854,8 +1871,8 @@ applies to review findings, not the task's acceptance criteria. See [patch attri
 test, which side, its kind and the run outcomes), `unrepeated`, `next_step` when
 a test disagreed, and `note`; `null` when the proof did not repeat tests.
 `diff_coverage` is the same proof's line coverage of changed product hunks
-(`collected`, `tool`, `note`, `files`, `uncovered`, `unmeasured`); `null` when the
-proof did not record it. The raw coverage report alone grants no completion
+(`collected`, `tool`, `note`, `files`, `uncovered`, `unmeasured`, and
+`measured_lines` for the changed lines only); `null` when the proof did not record it. The raw coverage report alone grants no completion
 authority. Current task proofs combine authenticated producing receipts with
 mutation evidence in `verification.changed_code_evidence` (#2474).
 `mutation_check` is the same proof's mutation check (#699, #2474, see
@@ -2389,7 +2406,11 @@ A `resolver_scope` of `operational_exhaustion` or `blocker` means Resolver
 stopped the run because it could not continue safely (for example, the
 run time limit was reached). That question is for a person who has looked at
 the run; a caller must not answer it with a proposed default. Its `action` is
-the response command. A `blocker` is often a decision about the approved
+the response command. Its `questions` hold only the sentences meant for that
+person: the operator advice AutoResolver saves with the request (flags, a
+token's environment variable, `autocode resume`) stays in the saved request and
+`stop_reason`, and an option's "with `--flag`" clause is dropped, so a client
+can show the question as written (#3145). A `blocker` is often a decision about the approved
 contract (a criterion Resolver proved contradictory): the response is retained
 as information and never edits the contract, so after it the run holds and
 `needs.reason` names the path that applies such a decision, `--edit-goal
@@ -2999,6 +3020,18 @@ marked `unavailable` against the run's other routes, `reset` and `file` null, an
 a client reads the list again afterwards. A refused change exits 2 with the reason on stderr and
 saves nothing.
 
+At a pause the person requested while the approved plan is being built, the status view's
+`implementation_discrepancy` lets them say where the code departs from that plan without revising it
+(#3045). `offer` is null unless a report may be sent now; otherwise it has `label`, `effect` and
+`next_command`, the argument array `--workspace WS --run-dir RUN --review-token TOKEN
+--report-discrepancy MESSAGE` with `MESSAGE` replaced by the person's text and `TOKEN` the approved
+plan's. `reports` lists every saved report (`id`, `text`, `at`, `contract_token`, `task_id`,
+`milestone_id`, `source_revision`, and `current`, true while it is bound to the current plan
+revision). The whole field is null when there is neither. A report keeps the plan approved and the
+run paused; the Tester of that task and the Completion Reviewer read it as an allegation to check
+against the approved plan when the person resumes, and it never approves, accepts, closes a finding
+or changes a limit. A change to the plan itself stays `--feedback`.
+
 ## Worktrees for clients
 
 A chat changes files either in a worktree and branch of its own or in the person's folder, and a
@@ -3019,7 +3052,10 @@ list: `folder`, `branch` (the folder's current branch), `default` (a place id), 
 `branches`, the local branches most recently committed first, each with `name`, `start_args` and
 `unavailable` (why it is not offered, with `start_args` null): a branch checked out in a worktree,
 the folder's own included, or one another chat will plan on. A folder that is not the top of a Git
-checkout with a commit lists only `folder`, which works there as every chat there does. A client
+checkout with a commit lists only `folder`, which works there as every chat there does. When that
+folder is outside Git but holds Git checkouts among its children or grandchildren, a chat there works
+in a new, empty private project, so `folder` has a `warning` naming those checkouts and saying to
+start the chat in the one to change (#2066). A client
 shows the places, preselects `default`, passes the chosen place's (or branch's) `start_args`
 unchanged in place of its own placement flag, and, when that place has a `warning`, shows it and
 starts only once the person confirms. It reads the list again just before the start.

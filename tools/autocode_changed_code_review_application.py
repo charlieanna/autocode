@@ -7,6 +7,7 @@ grants authority from an unverified model citation.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -52,6 +53,7 @@ def preflight(state: RunState, validation, record, *, passing_claim):
     and the post-replay evidence binding in ``accept``.
     """
     report_repair_queue.require_executed_passes(validation, passing_claim=passing_claim)
+    require_exact_lines(state, validation, record)
     require_tester_decisions(state, validation, record)
 
 
@@ -97,6 +99,20 @@ def accept(state: RunState, validation, record, workspace=None, *, pin):
     )
 
 
+def require_exact_lines(state: RunState, value, record):
+    """Return a report whose decision quotes another line than its handle binds (#2977).
+
+    Checked before clean replay, and again when the decisions are bound; a repaired report is held
+    to it too, since the repair is how the Tester corrects the drift.
+    """
+    assessment = (state.get("regression_proof") or {}).get("changed_code_evidence") or {}
+    if assessment.get("source_revision") != record.get("source_revision"):
+        return
+    mismatches = review.misquoted(assessment, value.get(review.FIELD))
+    if mismatches:
+        raise ValueError(review.misquote_message(mismatches))
+
+
 # Listed in the error the Tester's report repair receives; the rest are in the offered gap_id enum.
 LISTED_GAPS = 40
 
@@ -126,15 +142,17 @@ def require_tester_decisions(state: RunState, value, record):
     )
     if not gaps:
         return
+    # Each line's text is listed too: the repair handoff carries this error, not the proof's rows (#2977).
     listed = ", ".join(
         f"{row['handle'] + ' ' if row.get('handle') else ''}{row['path']}:{row['line']} ({row['gap_id']})"
+        + (f" {json.dumps(row['source_line'])}" if isinstance(row.get("source_line"), str) else "")
         for row in gaps[:LISTED_GAPS]
     )
     more = f", and {len(gaps) - LISTED_GAPS} more in the gap_id enum" if len(gaps) > LISTED_GAPS else ""
     raise ValueError(
         "The PASS leaves changed lines that no added test can mark tested, because they have no "
         f"mutation outcome: {listed}{more}. Give one changed_code_exceptions decision for each, with its "
-        "handle (such as L12) as gap_id: accept "
+        "handle (such as L12) as gap_id and the quoted text of that line as source_line: accept "
         "with the concrete reason the tests cover the line, or reject with the test it still needs. "
         f"The lines and their tests are in {(state.get('regression_proof') or {}).get('path')}."
     )

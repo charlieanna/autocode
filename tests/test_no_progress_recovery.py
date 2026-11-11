@@ -201,25 +201,26 @@ class NoProgressBoundTests(unittest.TestCase):
     def test_the_published_advice_is_the_command_that_admits_the_builder(self):
         """#448: the advice said to send information and then resume, and that resume holds.
 
-        The request, its question in the status view and the stop reason name the bound
-        instead; following them literally, in the documented `autocode resume` form, reaches
-        the Builder.
+        The request and the stop reason name the bound instead; following them literally, in
+        the documented `autocode resume` form, reaches the Builder. The status view's question
+        is shown to a person, so it names no command at all (#3145).
         """
         held, request = self.hold()
         view = self.view()
         self.assertEqual("operational_exhaustion", view["needs"]["resolver_scope"])
-        for text in (
-            held["user_request"]["decision_needed"],
-            view["needs"]["questions"][0]["question"],
-            view["stop_reason"],
-        ):
+        question = view["needs"]["questions"][0]
+        for text in (question["question"], *question["options"]):
+            self.assertNotIn("--", text)
+            self.assertNotIn("autocode resume", text)
+        self.assertIn("Acknowledge the pause", question["options"])
+        for text in (held["user_request"]["decision_needed"], view["stop_reason"]):
             self.assertIn("autocode resume --no-progress-limit N with N above the retained count of 3 ", text)
             self.assertNotIn("--resolver-response", text)
             self.assertNotIn("--grant-recovery", text)
             # The saved limit is the count, so reasserting it is refused; the advice does not offer it.
             self.assertNotIn("saved limit", text)
         self.assertIn(
-            "Acknowledge the pause with autocode resume --no-progress-limit N", view["needs"]["questions"][0]["options"]
+            "Acknowledge the pause with autocode resume --no-progress-limit N", held["user_request"]["options"]
         )
         self.launch(["resume", *self.args, "--no-progress-limit", "4", "--unit", "autoplanner"], 0)
         resumed = self.assert_admitted_without_new_allowance(held)

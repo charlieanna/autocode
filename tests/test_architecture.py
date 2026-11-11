@@ -65,8 +65,9 @@ TANGLED: frozenset[str] = frozenset()
 # 2026-11-10: the --build-in-worktree flag's parser entry, and the --in-place it implies before --new-run-dir is
 # checked, raised autocode_args.py (#3077); the move itself lives in autocode_build_worktree.
 # 2026-11-08: triage application validation moved to autocode_requirements_triage, shrinking autopilot.py.
-# 2026-11-11: product_files leaves out installed dependencies (#3164); the rule lives in autocode_dependency_dirs,
-# and its import and one condition raised autocode_verify.py from 3010 to 3013 lines.
+# 2026-11-11: #3200 and #3194 raised autocode_verify.py to 3014 lines without raising its limit. product_files
+# then left out installed dependencies (#3164); the rule lives in autocode_dependency_dirs, and its import and one
+# condition raised autocode_verify.py by 3 more lines, to 3017.
 MAX_LINES = {
     "autocode.py": 1830,
     "autocode_goals.py": 1404,
@@ -74,7 +75,7 @@ MAX_LINES = {
     "autopilot.py": 1392,
     "autocode_run_actions.py": 366,
     "autocode_args.py": 1038,
-    "autocode_verify.py": 3013,
+    "autocode_verify.py": 3017,
 }
 
 # Line counts of the largest functions, (module, function): lines. handle() was 946 lines before its
@@ -122,7 +123,6 @@ STATUS_WRITERS = frozenset(
         "autocode_checkpoint_continuation",
         "autocode_classification_recovery",
         "autocode_dependency",
-        "autocode_design_check_job",
         "autocode_design_intake",
         "autocode_design_revision",
         "autocode_dispatch",

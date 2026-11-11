@@ -53,12 +53,15 @@ def open_rows(state: RunState):
     return [row for row in findings_ledger.open_entries(state, SOURCE) if row.get(MARK)]
 
 
-def reconcile(state: RunState, revision, *, required, proved, reason="", settle_same_revision_ids=()):
+def reconcile(
+    state: RunState, revision, *, required, proved, reason="", settle_same_revision_ids=(), settle_evidence=None
+):
     """Open, refresh or close the proof finding for the source a judge is about to review; returns the open row.
 
     ``required`` and ``proved`` are autocode_regression.required/complete for final completion, and
     ``reason`` its rejection. Only a proof of ``revision`` opens one; a proved source the finding has
-    not failed on closes it, as does a contract that no longer owes a proof.
+    not failed on closes it, as does a contract that no longer owes a proof. ``settle_evidence`` maps a
+    settled id to its resolution evidence when the caller's exception names more than the new receipt.
     """
     at = util.now()
     rows = open_rows(state)
@@ -78,7 +81,8 @@ def reconcile(state: RunState, revision, *, required, proved, reason="", settle_
                     resolved_in=proof.get("path")
                     if required
                     else "The approved contract no longer owes a regression proof",
-                    resolution_evidence=f"Runner regression proof passes on source {str(revision)[:12]}"
+                    resolution_evidence=(settle_evidence or {}).get(row.get("id"))
+                    or f"Runner regression proof passes on source {str(revision)[:12]}"
                     if required
                     else "The approved contract no longer owes a regression proof",
                 )

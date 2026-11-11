@@ -1,19 +1,23 @@
 """AutoCode's own scoped retry of a held incident runs on the saved routes, and a person is no longer
-stopped at the hold to reroute it (#2485)."""
+stopped at the hold to reroute it (#2485). When the provider refuses that retry, the model the stop
+asks for is taken the way the stop names it (#3159)."""
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
 from harness import catalog
-from harness.driver import default_autocode, fake_setup
+from harness.driver import DriveError, default_autocode, fake_setup
 from harness.project import materialize
 
 from .test_rework_cli import SavedRoutesDriver
 
+REFUSED, NAMED = "gpt-6-astra", "gpt-5.6-terra"  # the Resolver's saved model, and the one a person names
+
 
 class ResolverRetryRouteCLI(unittest.TestCase):
-    def test_autocodes_own_retry_of_the_held_incident_takes_no_route_change(self):
+    def driver(self, **env_extra):
         scratch = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.addCleanup(scratch.cleanup)
         root = Path(scratch.name).resolve()
@@ -21,6 +25,7 @@ class ResolverRetryRouteCLI(unittest.TestCase):
         flags, env = fake_setup(scenario, root, scenario.reference)
         (root / "config").mkdir()
         env["XDG_CONFIG_HOME"] = str(root / "config")
+        env.update(env_extra)
         # This scenario escalates the Builder before holding. Reuse the driver
         # that does not reapply starting model flags on every saved-run call.
         driver = SavedRoutesDriver(
@@ -32,6 +37,10 @@ class ResolverRetryRouteCLI(unittest.TestCase):
             max_steps=40,
             timeout_seconds=240,
         )
+        return scenario, root, driver
+
+    def test_autocodes_own_retry_of_the_held_incident_takes_no_route_change(self):
+        scenario, root, driver = self.driver()
         before = driver.drive(scenario.brief)
         # The repeat held the Resolver, then the Builder; AutoCode took the one scoped retry of each itself
         # (the grant a person used to give with --resume-paused --retry-failed-stage), on the saved routes
@@ -73,6 +82,74 @@ class ResolverRetryRouteCLI(unittest.TestCase):
         self.assertEqual(before["status"], after["status"])
         self.assertEqual(before["routes"], after["routes"])
         self.assertEqual(before_trace, (root / "rework-trace.jsonl").read_text().splitlines())
+
+    def test_the_model_named_after_setting_a_refused_retry_aside_runs_it(self):
+        # As in #3093's run: AutoCode's own scoped retry of the held Resolver is refused by the
+        # provider's content filter, and the stop offers --abandon-stage, then --resume-paused
+        # --resolver-model MODEL. Both steps must be taken, and the Resolver must run on MODEL.
+        scenario, root, driver = self.driver(SCENARIO_FAKE_REFUSE_RESOLVER=REFUSED)
+        # The fake refuses every Resolver call on the saved model, so the driver's resume makes no progress.
+        with self.assertRaises(DriveError):
+            driver.drive(scenario.brief)
+        stopped = driver.state()
+        attempt = "002/resolver-01"
+        self.assertEqual("resolve", stopped["active_stage"]["stage"])
+        self.assertIn(f"--abandon-stage {attempt}, then --resume-paused --resolver-model MODEL", stopped["stop_reason"])
+        self.assertTrue(stopped["resolution_request"]["novelty_hold"], "the Resolver was held before its retry")
+        self.assertEqual(
+            [("autocode", "resolve")], [(g["actor"], g["stage"]) for g in stopped["failure_retry_authorizations"]]
+        )
+        driver.flags = []
+
+        def call(name, *args):
+            result = driver.call(name, *args)
+            self.assertNotIn("nothing was saved", result.stdout + result.stderr, (name, result.stdout[-2000:]))
+            return result
+
+        self.assertEqual(0, call("abandon", "--abandon-stage", attempt).returncode)
+        # A change the held packet cannot take as a route assignment names no retry the run would refuse.
+        # The driver raises on argparse's usage error, carrying the CLI's refusal; a host whose CLI first
+        # notes a capability drop on stderr hands the refusal back as the call's own stderr instead.
+        before_refusal = (driver.run_dir / "state.json").read_bytes()
+        try:
+            refused = driver.call("effort-only", "--resume-paused", "--resolver-reasoning-effort", "medium")
+        except DriveError as error:
+            refusal = str(error)
+        else:
+            self.assertEqual(2, refused.returncode)
+            refusal = refused.stderr
+        self.assertIn(
+            "A held Resolver's model changes only with its scoped retry, which cannot be given now "
+            "(Scoped recovery retry requires its no-progress hold); nothing was saved",
+            refusal,
+        )
+        self.assertNotIn("requires --resume-paused --retry-failed-stage", refusal)
+        self.assertEqual(before_refusal, (driver.run_dir / "state.json").read_bytes())
+        call("reroute", "--resume-paused", "--resolver-model", NAMED, "--resolver-reasoning-effort", "medium")
+        calls = [json.loads(line) for line in (root / "resolver-calls.jsonl").read_text().splitlines()]
+        self.assertEqual([(REFUSED, True), (NAMED, False)], [(row["model"], row["refused"]) for row in calls])
+        state = driver.state()
+        resolvers = [row for row in state["stages"] if row.get("stage") == "resolve"]
+        self.assertEqual(NAMED, resolvers[-1]["command"][resolvers[-1]["command"].index("--model") + 1])
+        # The refused call returned nothing, so AutoCode's one retry was still there for the named model,
+        # and the packet's binding took the assignment, its effort and its origins as no change.
+        self.assertEqual(
+            [("automatic", "explicit_retry")] * 2,
+            [(row["recovery_novelty"]["grant_kind"], row["recovery_novelty"]["reason"]) for row in resolvers],
+        )
+        self.assertEqual(
+            [("resolver", REFUSED, NAMED, "resume_flag", attempt)],
+            [
+                (row["role"], row["from"], row["to"], row["via"], row["attempt_id"])
+                for row in driver.view()["route_assignments"]
+            ],
+        )
+        # The run goes on from the Resolver's answer; the set-aside attempt's question is never asked again.
+        after = driver.until_stopped()
+        self.assertNotIn(after["status"], ("PAUSED_CONTENT_FILTER", "PAUSED_STALE_HANDOFF", "WAITING_FOR_USER"))
+        self.assertNotIn("content filter", json.dumps(after["needs"]))
+        later = [row["stage"] for row in driver.state()["stages"][len(state["stages"]) - 1 :]]
+        self.assertIn("investigate_stuck", later, "the run continued past the Resolver")
 
 
 if __name__ == "__main__":

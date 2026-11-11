@@ -16,7 +16,13 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from goal_fixtures import body, greeting_changed_code_reasons, seed_greeting_workspace, write_greeting_source
+from goal_fixtures import (
+    body,
+    greeting_changed_code_reasons,
+    quote_changed_lines,
+    seed_greeting_workspace,
+    write_greeting_source,
+)
 
 _NUMBER = re.compile(r"\d+(?:\.\d+)*")
 _NEGATION = re.compile(r"\b(?:must not|never|do not|don't|cannot|can't|not|no)\b", re.I)
@@ -722,7 +728,7 @@ elif stage == "tester":
         "finding_dispositions": [],
     }
     if "changed_code_exceptions" in schema.get("properties", {}):
-        result["changed_code_exceptions"] = greeting_changed_code_reasons(data)
+        result["changed_code_exceptions"] = quote_changed_lines(data, greeting_changed_code_reasons(data))
 else:
     complete = stage == "review_completion"
     result = {

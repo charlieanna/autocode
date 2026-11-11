@@ -318,13 +318,52 @@ def finish(tool, report_path, tree, diff_text) -> dict:
             executed, missing = parse_coverage_json(json.loads(path.read_text()), tree)
     except (OSError, ValueError, TypeError, AttributeError):
         return skipped(f"the {tool} report could not be read; diff coverage was not collected")
+    result = intersect(hunks(diff_text), executed, missing)
+    measured = {
+        name: {"executed": sorted(executed.get(name, ())), "missing": sorted(missing.get(name, ()))}
+        for name in executed.keys() | missing.keys()
+    }
     return {
         "collected": True,
         "tool": tool,
         "note": None,
-        "measured_lines": {
-            name: {"executed": sorted(executed.get(name, ())), "missing": sorted(missing.get(name, ()))}
-            for name in sorted(executed.keys() | missing.keys())
-        },
-        **intersect(hunks(diff_text), executed, missing),
+        "measured_lines": changed_lines(measured, result["files"]),
+        **result,
     }
+
+
+def changed_lines(measured, files) -> dict:
+    """``measured_lines`` kept for the changed product lines only: those in ``files``' hunks (#3121).
+
+    A coverage report measures every file the proving tests loaded. On a large repository that is
+    megabytes (1838 files, about 6 MB), and every stage that reads the proof, the Resolver included,
+    was handed all of it. The full report stays at ``report_path``.
+    """
+    if not isinstance(measured, dict):
+        return {}
+    kept = {}
+    for item in files if isinstance(files, list) else ():
+        path = item.get("path") if isinstance(item, dict) else None
+        rows = measured.get(path) if isinstance(path, str) else None
+        if not isinstance(rows, dict):
+            continue
+        lines = {
+            number
+            for hunk in item.get("hunks") or ()
+            if isinstance(hunk, dict) and type(hunk.get("start")) is int and type(hunk.get("end")) is int
+            for number in range(hunk["start"], hunk["end"] + 1)
+        }
+        kept[path] = {
+            key: [number for number in rows.get(key) or () if number in lines] for key in ("executed", "missing")
+        }
+    return dict(sorted(kept.items()))
+
+
+def bounded(coverage):
+    """A copy of a saved ``diff_coverage`` whose ``measured_lines`` holds only the changed lines.
+
+    For a proof saved before #3121, which recorded every measured file; a newer one is unchanged.
+    """
+    if not isinstance(coverage, dict) or "measured_lines" not in coverage:
+        return coverage
+    return {**coverage, "measured_lines": changed_lines(coverage["measured_lines"], coverage.get("files"))}

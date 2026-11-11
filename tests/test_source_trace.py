@@ -281,6 +281,33 @@ class ReadyGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "dropped a literal"):
             self.ready(draft)
 
+    def test_a_worked_example_that_renders_a_cited_format_differently_is_refused(self):
+        # #2941: the 2026-10-01 false completion kept the template quoted and wrote `1 buy milk open`.
+        # The add command beside it fills in its own literal from another sentence, not the list format.
+        brief = (
+            "`todo.py add TEXT` appends a to-do and exits 0. "
+            "`todo.py list` prints every to-do as `ID TEXT [open|done]` and exits 0."
+        )
+        records = [{"id": "task:0", "kind": "task", "text": brief}]
+
+        def draft(listed):
+            text = (
+                "Given `todo.py add buy milk` and `todo.py add water plants done` ran, when `todo.py list` runs, "
+                f"then stdout starts with `{listed}` and it exits 0"
+            )
+            return body(
+                [criterion("C2", text, [brief])],
+                required_behaviors=["list prints every to-do as `ID TEXT [open|done]`"],
+            )
+
+        self.ready(draft("1 buy milk [open]"), records=records)
+        with self.assertRaisesRegex(
+            ValueError,
+            r"Criteria citing task:0 have worked examples that disagree with a literal the source states: "
+            r"C2 writes `1 buy milk open` for `ID TEXT \[open\|done\]` \(fill the literal in keeping its brackets",
+        ):
+            self.ready(draft("1 buy milk open"), records=records)
+
     def test_ticket_title_keeps_coverage_and_values_without_repeating_tracking_digits(self):
         title = "DTI-12398: Incomplete INames EPP history"
         values = "Preserve domain 232027272 and result codes 1000 and 2304."
@@ -571,6 +598,48 @@ class ReadyGateTests(unittest.TestCase):
             self.ready(draft, out)
 
 
+class ListMarkerTests(unittest.TestCase):
+    """A numbered list marker is not a requirement sentence (#3118)."""
+
+    TASK = (
+        "Fix the panel.\n"
+        "1. The panel lists 2 stage groups.\n"
+        "2. The panel hid reasoning levels.\n"
+        "3. Version 2 docs stay as they are."
+    )
+
+    def test_list_items_trace_with_or_without_their_markers(self):
+        records = [{"id": "task:0", "text": self.TASK}]
+        out = wrapper(
+            out_of_scope=[
+                {"source_id": "task:0", "quote": "Version 2 docs stay as they are.", "reason": "Docs are unchanged"}
+            ]
+        )
+        for quotes in (
+            ["Fix the panel.", "1. The panel lists 2 stage groups.", "2. The panel hid reasoning levels."],
+            ["Fix the panel.", "The panel lists 2 stage groups.", "The panel hid reasoning levels."],
+        ):
+            with self.subTest(quotes=quotes):
+                draft = body([criterion("AC1", "The panel lists 2 stage groups and shows reasoning levels.", quotes)])
+                trace.check_citations(draft, records)
+                # Before the fix the markers were sentences: '2.' was both covered (the cited "2 stage
+                # groups") and out of scope ("Version 2 docs"), and '1.' and '3.' were neither.
+                trace.check_ready(draft, records, out)
+
+    def test_the_item_text_itself_still_needs_coverage(self):
+        records = [{"id": "task:0", "text": self.TASK}]
+        out = wrapper(
+            out_of_scope=[
+                {"source_id": "task:0", "quote": "Version 2 docs stay as they are.", "reason": "Docs are unchanged"}
+            ]
+        )
+        draft = body(
+            [criterion("AC1", "The panel lists 2 stage groups.", ["Fix the panel.", "The panel lists 2 stage groups."])]
+        )
+        with self.assertRaisesRegex(ValueError, "neither cited nor out of scope: 'The panel hid reasoning levels.'"):
+            trace.check_ready(draft, records, out)
+
+
 class SentenceWordBoundaryTests(unittest.TestCase):
     def test_excluding_context_does_not_also_exclude_a_branch_label(self):
         context = "This qualification runs parallel Builders and Orchestrator integration."
@@ -680,10 +749,28 @@ class SentenceIdTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, r"without quoting it verbatim \(no such sentence id\)"):
             trace.check_citations(draft, self.records)
 
-    def test_two_ids_for_one_sentence_are_the_duplicate_citation_they_resolve_to(self):
+    def test_two_names_for_one_sentence_merge_into_one_citation(self):
+        # #3119: an id and the sentence's text, or one id twice, are one citation, not a refused repeat.
+        for quotes in (["task:0#2", self.SECOND], [self.SECOND, "task:0#2"], ["task:0#2", "task:0#2"]):
+            with self.subTest(quotes=quotes):
+                self.assertEqual([self.SECOND], self.resolved(*quotes))
+        self.assertEqual([self.SECOND, self.FIRST], self.resolved("task:0#2", "task:0#1", self.SECOND))
         draft = body([criterion("C1", "A criterion", ["task:0#2", self.SECOND])])
         trace.resolve_sentence_ids(draft, self.records)
-        with self.assertRaisesRegex(ValueError, "twice"):
+        trace.check_citations(draft, self.records)
+
+    def test_only_well_formed_repeats_merge(self):
+        extra = {"source_id": "task:0", "quote": self.SECOND, "note": "x"}
+        draft = body([criterion("C1", "A criterion", ["task:0#2"])])
+        draft["acceptance_criteria"][0]["sources"].append(extra)
+        trace.resolve_sentence_ids(draft, self.records)
+        self.assertEqual(2, len(draft["acceptance_criteria"][0]["sources"]))
+        with self.assertRaisesRegex(ValueError, "hold only source_id and quote"):
+            trace.check_citations(draft, self.records)
+
+    def test_an_unresolved_repeat_is_still_refused(self):
+        draft = body([criterion("C1", "A criterion", [self.SECOND, self.SECOND])])
+        with self.assertRaisesRegex(ValueError, "twice with one quote"):
             trace.check_citations(draft, self.records)
 
 

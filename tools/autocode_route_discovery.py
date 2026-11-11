@@ -190,7 +190,8 @@ def _listing(provider, workspace, env, checked=None):
     if command not in (["opencode", "models"], ["kilo", "models"]):
         return {}, {}
     try:
-        listing = _run([*command, "--verbose"], name, workspace, env, 30, checked)
+        # A listing cut off before its end is not kept for the next check to trust (#3078).
+        listing = _run([*command, "--verbose"], name, workspace, env, 30, checked, complete=route_levels.complete)
     except RuntimeError:
         # Older tools may lack verbose metadata. Qualification evidence remains
         # the fallback; an unreadable optional listing never invents new levels.
@@ -215,13 +216,14 @@ def _checked_environment(provider, env):
     return prepare(env) if callable(prepare) else None
 
 
-def _run(command, name, workspace, env, timeout_seconds, checked=None):
+def _run(command, name, workspace, env, timeout_seconds, checked=None, *, complete=None):
     try:
         result = env_prep.preflight_run(
             command,
             checked if checked is not None else env_prep.snapshot_environment(env),
             cwd=workspace,
             require_executable=env is not None,
+            complete=complete,
             capture_output=True,
             text=True,
             timeout=timeout_seconds,
