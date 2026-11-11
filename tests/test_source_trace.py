@@ -281,6 +281,33 @@ class ReadyGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "dropped a literal"):
             self.ready(draft)
 
+    def test_a_worked_example_that_renders_a_cited_format_differently_is_refused(self):
+        # #2941: the 2026-10-01 false completion kept the template quoted and wrote `1 buy milk open`.
+        # The add command beside it fills in its own literal from another sentence, not the list format.
+        brief = (
+            "`todo.py add TEXT` appends a to-do and exits 0. "
+            "`todo.py list` prints every to-do as `ID TEXT [open|done]` and exits 0."
+        )
+        records = [{"id": "task:0", "kind": "task", "text": brief}]
+
+        def draft(listed):
+            text = (
+                "Given `todo.py add buy milk` and `todo.py add water plants done` ran, when `todo.py list` runs, "
+                f"then stdout starts with `{listed}` and it exits 0"
+            )
+            return body(
+                [criterion("C2", text, [brief])],
+                required_behaviors=["list prints every to-do as `ID TEXT [open|done]`"],
+            )
+
+        self.ready(draft("1 buy milk [open]"), records=records)
+        with self.assertRaisesRegex(
+            ValueError,
+            r"Criteria citing task:0 have worked examples that disagree with a literal the source states: "
+            r"C2 writes `1 buy milk open` for `ID TEXT \[open\|done\]` \(fill the literal in keeping its brackets",
+        ):
+            self.ready(draft("1 buy milk open"), records=records)
+
     def test_ticket_title_keeps_coverage_and_values_without_repeating_tracking_digits(self):
         title = "DTI-12398: Incomplete INames EPP history"
         values = "Preserve domain 232027272 and result codes 1000 and 2304."

@@ -352,7 +352,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       })),
       session: this.sessionCost(),
       activeKey: this.activeKey,
-      engine: engineOf(readSettings()),
+      // The chip names the engine the way its own picker does ("Codex", not "codex").
+      engine: ENGINE_LABELS[engineOf(readSettings()) as Engine] ?? engineOf(readSettings()),
       // Only a chat that has not started chooses a mode; a run keeps the flow it started with.
       mode: !tab.run && this.modes ? chosenMode(this.modes, this.modeChoice)?.label ?? null : null,
       state: tab.run && tab.status

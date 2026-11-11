@@ -1488,6 +1488,14 @@ contract or scope is refused. A model change alone cannot authorize a call, and 
 rejected combined change saves no settings. Clients continue to use only named
 view actions; this operator control does not add a client-side route override.
 
+When the provider refused the Resolver's retry (quota or a content filter), the stop
+asks for a model instead, and no scoped retry is involved (#3159): `--abandon-stage
+ATTEMPT`, then `--resume-paused --resolver-model MODEL` records the usual route
+assignment, and the incident's binding treats the model, its effort and their origins
+as that one assignment. A call the provider stopped with no response ran no experiment,
+so AutoCode's own retry of the held incident is still there for the named model. A held
+Resolver change the CLI cannot take now names why, never a retry it would refuse.
+
 ### What went wrong (`recoveries`)
 
 `view.recovery` describes a stop. `view.recoveries` is the history of what went wrong while the
@@ -3035,7 +3043,10 @@ list: `folder`, `branch` (the folder's current branch), `default` (a place id), 
 `branches`, the local branches most recently committed first, each with `name`, `start_args` and
 `unavailable` (why it is not offered, with `start_args` null): a branch checked out in a worktree,
 the folder's own included, or one another chat will plan on. A folder that is not the top of a Git
-checkout with a commit lists only `folder`, which works there as every chat there does. A client
+checkout with a commit lists only `folder`, which works there as every chat there does. When that
+folder is outside Git but holds Git checkouts among its children or grandchildren, a chat there works
+in a new, empty private project, so `folder` has a `warning` naming those checkouts and saying to
+start the chat in the one to change (#2066). A client
 shows the places, preselects `default`, passes the chosen place's (or branch's) `start_args`
 unchanged in place of its own placement flag, and, when that place has a `warning`, shows it and
 starts only once the person confirms. It reads the list again just before the start.

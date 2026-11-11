@@ -385,6 +385,48 @@ class QuotaRouteTests(unittest.TestCase):
         state["settings"]["roles"]["tester"]["model"] = "gpt-6-nova"  # not named at a quota stop
         self.assertNotEqual(bound, resolver_recovery._binding(state, "rev"))
 
+    def test_a_model_flag_keeps_a_recovery_packet_binding_with_its_effort_and_origins(self):
+        # --tester-model and --tester-reasoning-effort at the stop also save the effort and that both are
+        # the person's choice; the packet binding takes all of it as the one route assignment (#3159).
+        state = self.state()
+        bound = resolver_recovery._binding(state, "rev")
+        previous = state["settings"]
+        changed = json.loads(json.dumps(previous))
+        changed["roles"]["tester"].update(model="gpt-6-luna", reasoning_effort="medium")
+        changed["route_origins"] = {"tester": "user_explicit"}
+        changed["effort_origins"] = {"tester": "user_explicit"}
+        [record] = quota_route.record_resume_change(
+            state, previous, changed, failure_status=support.failure_status, at="t"
+        )
+        self.assertEqual(
+            {
+                "reasoning_effort": {"from": None, "to": "medium"},
+                "route_origins": {"from": None, "to": "user_explicit", "present": False, "section_present": False},
+                "effort_origins": {"from": None, "to": "user_explicit", "present": False, "section_present": False},
+            },
+            record["settings_change"],
+        )
+        state["settings"] = changed
+        self.assertEqual(bound, resolver_recovery._binding(state, "rev"))
+        # Another role's origin, or an effort the flags did not set, is still a change the binding sees.
+        state["settings"]["route_origins"]["builder"] = "user_explicit"
+        self.assertNotEqual(bound, resolver_recovery._binding(state, "rev"))
+        del state["settings"]["route_origins"]["builder"]
+        state["settings"]["roles"]["tester"]["reasoning_effort"] = "high"
+        self.assertNotEqual(bound, resolver_recovery._binding(state, "rev"))
+        # An origin that was already saved is put back to its saved value, keeping its section.
+        state = self.state()
+        state["settings"].update(route_origins={"tester": "runner_default"}, effort_origins={"builder": "x"})
+        bound = resolver_recovery._binding(state, "rev")
+        changed = json.loads(json.dumps(state["settings"]))
+        changed["roles"]["tester"]["model"] = "gpt-6-luna"
+        changed["route_origins"]["tester"] = changed["effort_origins"]["tester"] = "user_explicit"
+        quota_route.record_resume_change(
+            state, state["settings"], changed, failure_status=support.failure_status, at="t"
+        )
+        state["settings"] = changed
+        self.assertEqual(bound, resolver_recovery._binding(state, "rev"))
+
     def test_resume_change_is_recorded_only_for_the_quota_stopped_role(self):
         state = self.state()
         previous = state["settings"]
