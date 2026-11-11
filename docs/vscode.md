@@ -343,6 +343,16 @@ starts, AutoCode checks the picks again and the run starts with them; once it ha
 started they are listed under Models & usage like any started chat's models
 ([Changing a new chat's models](models.md#changing-a-new-chats-models)).
 
+The list is shown at once. Listing the models a backend offers takes a few
+seconds on OpenCode or Kilo, so the extension keeps the latest list for each
+folder and backend in the workspace and shows it as soon as a chat opens, then
+reads it again in the background when it is more than a minute old, after a
+restart, or after a Stage models save; the fresh list replaces it in every new
+chat that has no picks of its own. Only a folder and backend never listed before
+shows "Reading the stages…" first. A chat with picks of its own reads its own
+list, and every pick is checked again where the chat starts, so a list shown from
+the cache never decides what a run uses.
+
 The **Models** chip under the message box does the same from the chat box: choose
 a stage, then one of the models AutoCode offers it, then a level. On a new chat it
 changes that chat's pick (the chip counts the stages changed); on a started chat it
