@@ -1,7 +1,8 @@
 """Durable, evidence-cited notes about a repository, kept between runs (#2943).
 
 A run that gets stuck often pays to discover a fact about the repository: how to reproduce a
-failure, which test flakes, which quirk the build has. ``.autocode/project-notes.json`` keeps
+failure, which test flakes, which quirk the build has. A completed run's own proofs can show one
+too: a test that failed and then passed on the same code. ``.autocode/project-notes.json`` keeps
 those facts for the next task in the same project, so it does not pay for them again.
 
 A note is advisory context, the same standing as documentation a person maintains: it never
@@ -44,8 +45,10 @@ MAX_SHORT = 160
 MAX_CONTEXT_BYTES = 8192
 # What a note is about. "other" keeps a useful fact that fits none of the rest.
 KINDS = ("reproduce_command", "test_command", "flaky_test", "build_quirk", "ownership", "other")
-# The stages that may write a note: the Investigator with a passing probe, or a person's correction.
-WRITERS = ("investigate_stuck", "person")
+# The stages that may write a note: the Investigator with a passing probe, the runner's regression
+# proofs of a completed run (a test that failed and then passed on the same source), or a person's
+# correction.
+WRITERS = ("investigate_stuck", "regression_proof", "person")
 NOTE_FIELDS = frozenset({"id", "kind", "text", "receipt", "retraction"})
 RECEIPT_FIELDS = frozenset({"run", "stage", "investigation", "observation", "source_revision", "recorded_at"})
 RETRACTION_FIELDS = frozenset({"at", "reason", "replaced_by"})
@@ -79,8 +82,8 @@ def _check_receipt(receipt):
         not isinstance(receipt["run"], str) or RUN_PATTERN.fullmatch(receipt["run"]) is None
     ):
         raise _error()
-    if (receipt["stage"] == "investigate_stuck") != (receipt["run"] is not None):
-        raise _error()  # an Investigator's note names its run; a person's correction names none
+    if (receipt["stage"] == "person") == (receipt["run"] is not None):
+        raise _error()  # a run's note names its run; a person's correction names none
     _text(receipt["investigation"], MAX_SHORT, nullable=True)
     _text(receipt["observation"], MAX_OBSERVATION)
     _text(receipt["source_revision"], MAX_SHORT, nullable=True)
