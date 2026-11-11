@@ -92,11 +92,13 @@ interface ChatTab {
   placeChoice?: PlaceChoice;
   /** Set while `stages` is the list every new chat here shares (no picks of its own): its cache key. */
   sharedStages?: string;
+  /** While a confirmation dialog is open: its title, so the chat says what it waits for. */
+  confirming: string;
 }
 
 function newTab(key: string, run?: RunRef): ChatTab {
   return { key, run, error: "", readError: "", pendingBrief: "", starting: false, launching: false, startingLabel: "", comparisons: new Map(),
-    stagesError: "", stagesBusy: false, placesError: "" };
+    stagesError: "", stagesBusy: false, placesError: "", confirming: "" };
 }
 
 function tabName(tab: ChatTab): string {
@@ -337,7 +339,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       // Only a chat that has not started chooses a mode; a run keeps the flow it started with.
       mode: !tab.run && this.modes ? chosenMode(this.modes, this.modeChoice)?.label ?? null : null,
       state: tab.run && tab.status
-        ? { ...stateFor(tab.status, tab.run, this.controller, busy), unreadable: Boolean(tab.readError) } : null,
+        ? { ...stateFor(tab.status, tab.run, this.controller, busy), unreadable: Boolean(tab.readError), confirming: tab.confirming || null } : null,
       chatStages: tab.run ? null : chatStagesFor(tab),
       chatPlace: tab.run ? null : chatPlaceFor(tab),
       models: modelsChip(tab),
@@ -648,6 +650,17 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     if (message.type === "new") { if (!this.active.starting) this.show(); return; }
     if (message.type !== "send" && message.type !== "take" && message.type !== "raise") return;
     const tab = this.active;
+    if (message.type === "send" && typeof message.text === "string" && message.text.trim()
+      && (message.runKey !== tab.key || tab.starting || this.busy.has(tab.key))) {
+      // A dropped send must never look like it was taken: the person's text stays in the
+      // composer, and the chat says why nothing happened.
+      const why = tab.starting || this.busy.has(tab.key)
+        ? "AutoCode is still working on your last message; send this again in a moment."
+        : "This chat changed before your message was sent; send it again.";
+      tab.error = why;
+      this.post();
+      return;
+    }
     if (message.runKey !== tab.key || tab.starting || this.busy.has(tab.key)) return;
     if (!tab.run) {
       if (message.type === "send" && typeof message.text === "string" && message.text.trim()) await this.start(tab, message.text);
@@ -678,10 +691,20 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
         const planning = planningSpendConfirmation(view, message.answers ?? {});
         if (numeric || planning || (requiresConfirmation(view.needs ?? null) && vscode.workspace.getConfiguration("autocode").get("confirmPersonOnly", true))) {
           const button = numeric ? numericActionLabel(state) : planning?.label ?? "Continue";
-          const answer = await vscode.window.showWarningMessage(
-            numeric ?? planning?.title ?? (state.actionLabel ? `${state.actionLabel}?` : "Continue AutoCode?"), { modal: true,
-              detail: numeric ? numericRecoveryEffect(state) : planning?.detail ?? state.actionEffect ?? view.chat?.notice ?? "Open Run details to review what needs attention before continuing." }, button,
-          );
+          // The dialog is the only place the question shows: say in the chat that one is open,
+          // or a dialog that misses the person's attention reads as a dead button.
+          tab.confirming = numeric ?? planning?.title ?? (state.actionLabel ? `${state.actionLabel}?` : "Continue AutoCode?");
+          this.post();
+          let answer: string | undefined;
+          try {
+            answer = await vscode.window.showWarningMessage(
+              tab.confirming, { modal: true,
+                detail: numeric ? numericRecoveryEffect(state) : planning?.detail ?? state.actionEffect ?? view.chat?.notice ?? "Open Run details to review what needs attention before continuing." }, button,
+            );
+          } finally {
+            tab.confirming = "";
+            this.post();
+          }
           if (answer !== button) return;
         }
         await this.controller.take(view, run, message.answers ?? {}, message.token ?? null);
@@ -694,6 +717,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       else void vscode.window.showErrorMessage(`AutoCode (${run.runDir}): ${messageOf(error)}`);
     } finally {
       this.busy.delete(key);
+      tab.confirming = "";
       this.actions.changed();
       await this.refresh();
     }
