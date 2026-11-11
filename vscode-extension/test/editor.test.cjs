@@ -5461,6 +5461,28 @@ test('Run details shows the change set and approves only the set token it showed
   assert.deepEqual(launch.mock.calls[0].arguments[1], ['changeset', 'approve', '--run-dir', run.runDir, '--set-token', 'set-2']);
 });
 
+test('a change-set action says it is working while the check runs', async (t) => {
+  host.config.set('confirmPersonOnly', false);
+  const ownController = new RunController(host.log);
+  t.mock.method(cli, 'invoke', async (_settings, args) => (args[0] === 'changeset'
+    ? { ...ok, stdout: JSON.stringify(changesetSummary('set-1')), stderr: '', rejected: false } : ok));
+  const view = { status: 'AWAITING_GOAL_APPROVAL', done: false,
+    scope: { linked: [{ changeset: 'changeset-1', target: 'b', role: 'member', workspace: '/b', run_dir: '/b/.autocode/runs/m' }] } };
+  const ui = await openPanel(t, view, undefined, ownController);
+  const action = () => ui.document.querySelector('#changeset-action');
+  assert.equal(action().disabled, false);
+  let release;
+  t.mock.method(cli, 'stream', () => new Promise((resolve) => { release = () => resolve(ok); }));
+  t.mock.method(host.vscode.window, 'showWarningMessage', async () => 'Approve all');
+  action().click();
+  await flush(); await flush();
+  assert.equal(action().disabled, true, 'the card says it is working while the check runs');
+  assert.ok(ui.document.body.textContent.includes('Change set'), 'the card stays on screen while it works');
+  release();
+  await flush(); await flush();
+  assert.equal(action().disabled, false, 'the card comes back when the check ends');
+});
+
 // Stage meter, cost header, closing card, welcome and tab marks: the terminal chat's #2610 features.
 function meteredView(extra = {}) {
   const tried = (stage, job, more = {}) => ({
