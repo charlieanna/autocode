@@ -282,7 +282,17 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         )
     supervision_state = public_view.get("liveness", {})
     lost_supervisor = supervision_state.get("kind") in ("unsupervised", "interrupted")
-    if active and not active.get("finished_at"):
+    # A provider that stopped normally with a finished result, while its supervision owner and the
+    # birth-bound controller are alive, is being saved by that controller: its keeper exits with the
+    # provider, so a stopped keeper there is not lost supervision (#3031). A lost owner or controller,
+    # an interruption, an abnormal cleanup or an unfinished result still is.
+    finalizing = bool(
+        active_finished
+        and supervision_state.get("kind") == "stopped"
+        and (supervision_state.get("owner") or {}).get("alive") is True
+        and (owner or {}).get("kind") == "running"
+    )
+    if active and not active.get("finished_at") and not finalizing:
         lost_supervisor = lost_supervisor or any(
             supervision_state.get(key, {}).get("checked") and supervision_state[key].get("alive") is False
             for key in ("owner", "keeper")
