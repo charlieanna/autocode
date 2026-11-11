@@ -121,9 +121,17 @@ export async function readStatus<T>(options: CliOptions, workspace: string, runD
   return parse(result.stdout);
 }
 
-/** The most useful line a failed call said. */
+/**
+ * The most useful line a failed call said.
+ *
+ * A refused argument comes back from argparse as a usage line and `autocode: error: WHY`. A person
+ * reads only the why, so the usage line and the prefix are dropped; the core's words are kept.
+ */
 export function tail(result: CliResult): string {
   const text = (result.stderr || result.stdout || "").trim();
   if (!text) return `autocode exited ${result.code}`;
-  return text.split("\n").slice(-6).join("\n");
+  const lines = text.split("\n")
+    .filter((line) => !/^usage: /.test(line))
+    .map((line) => line.replace(/^[\w.-]+: error: /, ""));
+  return (lines.length ? lines : text.split("\n")).slice(-6).join("\n");
 }

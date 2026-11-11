@@ -1609,6 +1609,36 @@ test('while a new run is still starting the chat says what it is doing, not that
   assert.equal(ui.document.querySelector('#chat-error').textContent, '', 'a start in progress is not a read error');
 });
 
+test('a run its own start has not saved yet is starting, not a status notice, until the start returns', async (t) => {
+  // A core older than its launch note (#3079), or a read before the core reserves the directory,
+  // refuses --status for the chat's own run while its first message is still starting it.
+  const unsaved = `usage: autocode [TASK] [OPTIONS]\nautocode: error: --run-dir ${run.runDir} has no state.json. A saved run is PROJECT/.autocode/runs/RUN`;
+  const ui = await openChat(t, null, false, { statusFor: () => { throw new Error(unsaved); } });
+  let finish;
+  t.mock.method(controller, 'start', async (workspace, brief, created) => {
+    created(run);
+    return new Promise((resolve, reject) => { finish = { resolve, reject }; });
+  });
+  ui.type('any bugs?'); ui.submit(); await flush(); await flush();
+  await ui.poll(); await flush();
+  const app = () => ui.document.querySelector('#app').textContent;
+  assert.ok(app().includes('Starting the run…'), app());
+  assert.ok(!app().includes('has no state.json'), 'the first message shows no refused status read');
+  assert.equal(ui.document.querySelector('#chat-error').textContent, '');
+  // The start's own failure is still the person's to read once its command returns.
+  finish.reject(new Error('AutoCode stopped before it saved the run:\nno engine is connected'));
+  await flush(); await flush(); await flush();
+  assert.ok(ui.document.querySelector('#chat-error').textContent.includes('no engine is connected'));
+});
+
+test('a refused command shows the core\'s reason without the argparse usage line', () => {
+  const refused = { code: 2, stdout: '', rejected: false,
+    stderr: 'usage: autocode [TASK] [OPTIONS]\nautocode: error: --run-dir /ws/.autocode/runs/x has no state.json' };
+  assert.equal(cli.tail(refused), '--run-dir /ws/.autocode/runs/x has no state.json');
+  assert.equal(cli.tail({ code: 1, stdout: '', stderr: 'Run: /ws\nsomething failed', rejected: false }), 'Run: /ws\nsomething failed');
+  assert.equal(cli.tail({ code: 2, stdout: '', stderr: 'usage: autocode [TASK] [OPTIONS]', rejected: false }), 'usage: autocode [TASK] [OPTIONS]');
+});
+
 test('Full chat starts a greeting without the spend dialog when the core defers it to planning', async (t) => {
   const modes = structuredClone(RUN_MODES); modes.modes[0].spendConfirmation = 'planning';
   t.mock.method(controller, 'modes', async () => modes);
