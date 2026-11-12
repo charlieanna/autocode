@@ -16,6 +16,18 @@ and `autocode runs --all` run inside a project read that project's registry as w
 reported as a `project_registry_unreadable` diagnostic. With `AUTOCODE_HOME` set they
 read only that registry.
 
+So that every project's chats are listed from any folder, a task that takes its
+project's registry also records the project's root in a per-user project index,
+`~/.autocode/projects.json` (`{"version": 1, "projects": [...]}`). It names projects
+only; it holds no run. With `AUTOCODE_HOME` unset, `registry list` and
+`autocode runs --all` read the registry of every recorded project as well. A recorded
+project whose registry is gone is skipped, and dropped when the index is next written.
+Writing the index is best effort and never stops a task. Set
+`AUTOCODE_PROJECT_INDEX_HOME` to keep the index elsewhere (isolated installations and
+tests). The in-process `listing()` that change sets and coordination use to find
+registered projects does not read the index: a project is authorized for linking only
+by `registry add` or `registry import`.
+
 The browser application should invoke these commands as argument arrays, without a
 shell, using the same environment as the runner:
 

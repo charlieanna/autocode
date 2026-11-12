@@ -5487,6 +5487,27 @@ test('test_ac3_new_need_notifies_again', async (t) => {
   assert.equal(host.notices[1].message, 'AutoCode: alpha is waiting for you - 2 question(s)');
 });
 
+test('a stopped run that needs nothing from the person never says it is waiting for them', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  views.set(alpha.runDir, {
+    status: 'PAUSED', done: false, needs: { kind: 'continue' },
+    controller: { kind: 'ready', checked: true, alive: false },
+    progress: { line: 'Tester ready', needs_you: 'nothing needed from you' },
+  });
+  await ui.poll();
+  views.set(alpha.runDir, {
+    status: 'WAITING', done: false, needs: { kind: 'dependency' },
+    progress: { needs_you: 'nothing needed from you until the other run delivers' },
+  });
+  await ui.poll();
+  assert.deepEqual(host.notices.map((notice) => notice.message), [
+    'AutoCode: alpha stopped. Nothing is needed from you; open the chat to continue it.',
+    'AutoCode: alpha is waiting for another run to deliver. Nothing is needed from you.',
+  ]);
+  for (const notice of host.notices) assert.doesNotMatch(notice.message, /waiting for you/);
+});
+
 test('test_ac4_done_notifies_once_with_outcome', async (t) => {
   const views = new Map([[alpha.runDir, workingView()]]);
   const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
@@ -5676,7 +5697,7 @@ test('test_ac19_idle_continue_need_notifies_once', async (t) => {
   views.set(alpha.runDir, { status: 'PAUSED', done: false, needs: { kind: 'continue' } });
   await ui.poll();
   assert.equal(host.notices.length, 1);
-  assert.equal(host.notices[0].message, 'AutoCode: alpha is waiting for you - nothing; the run can simply proceed');
+  assert.equal(host.notices[0].message, 'AutoCode: alpha stopped. Nothing is needed from you; open the chat to continue it.');
   await ui.poll();
   assert.equal(host.notices.length, 1);
 });
@@ -5758,7 +5779,7 @@ for (const [label, controllerState] of [
     assert.equal(host.notices.length, 0);
     await ui.poll({ ...preflight, controller: controllerState });
     assert.equal(host.notices.length, 1, 'stopped or unverified ownership is not work');
-    assert.match(host.notices[0].message, /waiting for you - nothing needed from you$/);
+    assert.equal(host.notices[0].message, 'AutoCode: alpha stopped. Nothing is needed from you; open the chat to continue it.');
     const take = ui.document.querySelector('#take-action');
     assert.equal(take.textContent, 'Continue');
     assert.equal(take.disabled, false);

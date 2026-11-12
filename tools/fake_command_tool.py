@@ -510,6 +510,8 @@ if stage == "investigate_stuck" and data.get("builder_failure"):
         untestable="" if execution else "This is not the configured missing-output fault.",
         failure_class="execution" if execution else "unknown",
         failure_id=failure["failure_id"],
+        # A strict-schema engine requires every Investigator field, this one included (#3213).
+        project_notes=[],
     )
 elif stage == "investigate_stuck":
     result = {
@@ -523,6 +525,7 @@ elif stage == "investigate_stuck":
         "probe": "",
         "counterexample": {"file": "", "find": "", "replace": ""},
         "untestable": "",
+        "project_notes": [],
     }
 elif stage == "requirements_gather":
     draft = body(questions=not data["saved_answers"], human=False)
