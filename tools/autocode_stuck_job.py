@@ -731,12 +731,18 @@ def apply(
     if not retry:
         restore(state, request, annotate(state, request["status"], request["reason"]))
         return None
-    if request.get("pending_report_repair"):
+    pending = request.get("pending_report_repair")
+    if pending and repairs_saved_report(request, value, pending):
+        # The rejected report is kept and repaired once more under the guidance, instead of a fresh
+        # attempt redoing everything the earlier repairs already fixed and failing anew (#2066 rerun).
+        state["pending_report_repair"] = {**pending, "attempts": pending["attempts"] - 1}
+        entry["retry_as"] = "report_repair"
+    elif pending:
         state.setdefault("report_repair_archive", []).append(
             {
                 "at": now(),
                 "reason": "Superseded by a stuck-stage investigation's retry",
-                "repair": request["pending_report_repair"],
+                "repair": pending,
             }
         )
     grant_one_attempt(state, request)
@@ -762,6 +768,26 @@ def apply(
         }
     )
     return None
+
+
+def repairs_saved_report(request: dict, value: dict, pending: dict) -> bool:
+    """Whether the Investigator's retry repairs the stage's saved rejected report rather than starting over.
+
+    Only a rejected answer whose cause the Investigator puts in the report itself (``stage_output``),
+    when the stage already has a report-only repair of that same stage on record: one more repair of
+    that report, with the guidance in its prompt, is the smallest retry. Any other cause, or no saved
+    repair, runs the stage again as before.
+    """
+    original = pending.get("original")
+    attempts = pending.get("attempts")
+    return (
+        request.get("status") == "PAUSED_INVALID_OUTPUT"
+        and value.get("cause") == "stage_output"
+        and isinstance(original, dict)
+        and original.get("stage") == request.get("stage")
+        and type(attempts) is int
+        and attempts >= 1
+    )
 
 
 def restore(state: RunState, request: dict, reason: str) -> None:
@@ -854,9 +880,22 @@ def abandon(state: RunState, error: str) -> tuple[str, str]:
 
 def with_guidance(state: RunState, stage: str, request):
     """Reuse applicable corrections; expired advice never renews its spent identity."""
-    current = state.get("stuck_investigation") or {}
     if stage == STAGE:
         return request
+    block = guidance(state, stage)
+    if not block:
+        return request
+    head, marker, tail = request.prompt.partition("CURRENT HANDOFF DATA\n")
+    return replace(request, prompt=head + block + marker + tail if marker else request.prompt + block)
+
+
+def guidance(state: RunState, stage: str) -> str:
+    """The corrections and Investigator guidance that apply to ``stage``'s next request, or ``""``.
+
+    A stage request and a report-only repair of that stage read the same text."""
+    current = state.get("stuck_investigation") or {}
+    if stage == STAGE:
+        return ""
     active = (
         current.get("in_force")
         and recovery_binding.applies(state, current, current.get("stage", ""))
@@ -880,10 +919,7 @@ def with_guidance(state: RunState, stage: str, request):
             "\nINVESTIGATOR GUIDANCE (takes precedence over earlier guidance on conflict). "
             f"Diagnosis: {current['diagnosis']}\nFollow this guidance on this attempt: {current['guidance']}\n"
         )
-    if not block:
-        return request
-    head, marker, tail = request.prompt.partition("CURRENT HANDOFF DATA\n")
-    return replace(request, prompt=head + block + marker + tail if marker else request.prompt + block)
+    return block
 
 
 def planning_lessons(state: RunState) -> list[dict]:

@@ -194,7 +194,7 @@ read-only `investigate_stuck` stage (`tools/autocode_stuck_job.py`) instead of s
 
 | Pause | After the Investigator |
 | --- | --- |
-| `PAUSED_REPEATED_FAILURE`, `PAUSED_INVALID_OUTPUT` | retry runs the stage once more; its failure history stays, so the same failure again extends the run of identical failures and a different one starts a new run (a spent report repair is archived). A Resolver repair's Builder retry continues from the in-scope work the rejected attempt kept, and is the one attempt recovery novelty admits for it ([Evidence-bound repair](execution.md#evidence-bound-repair)) |
+| `PAUSED_REPEATED_FAILURE`, `PAUSED_INVALID_OUTPUT` | retry runs the stage once more; its failure history stays, so the same failure again extends the run of identical failures and a different one starts a new run. When the cause is in the rejected report itself and the stage already had a report-only repair, the retry repairs that saved report once more with the Investigator's guidance instead of drafting the stage again; otherwise a spent report repair is archived and the stage runs afresh. A Resolver repair's Builder retry continues from the in-scope work the rejected attempt kept, and is the one attempt recovery novelty admits for it ([Evidence-bound repair](execution.md#evidence-bound-repair)) |
 | `PAUSED_PLANNING_BUDGET` | retry grants one more review round (two calls from the challenge, one from the final review). A total you chose in this run with `--planning-review-call-limit` is never investigated or raised: the pause comes straight back to you (#3094) |
 | `PAUSED_NO_PROGRESS` | retry allows one more implementation batch |
 | `PAUSED_COMPLETION_REVIEW` | retry asks the Completion Reviewer once more |
