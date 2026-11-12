@@ -519,6 +519,51 @@ class ApplyTests(unittest.TestCase):
         self.assertTrue(state["stuck_investigation"]["in_force"])
         self.assertEqual("retried", state["stuck_investigations"][0]["outcome"])
 
+    def saved_repair(self):
+        return {
+            "attempts": 2,
+            "original": {"stage": "draft_plan", "rejection_reason": "missing delegated_decisions"},
+            "latest_rejected": {"stage": "draft_plan_report_repair", "rejection_reason": "drops a brief literal"},
+            "error": "The contract drops literals the user's brief states: `autocode registry roots`",
+        }
+
+    def test_a_rejected_report_is_repaired_once_more_under_the_guidance_not_redrafted(self):
+        # #2066 rerun: two repairs had fixed every error but one brief literal; the Investigator named the
+        # exact fix, and the fresh draft that replaced the repaired report failed anew and paused the run.
+        state = self.investigated(
+            "PAUSED_INVALID_OUTPUT", stage="draft_plan", pending_report_repair=self.saved_repair()
+        )
+        self.assertNotIn("pending_report_repair", state)  # still set aside while the Investigator runs
+        stuck.apply(state, report(), {"output": "o"}, state["workspace"])
+        self.assertEqual({**self.saved_repair(), "attempts": 1}, state["pending_report_repair"])
+        self.assertNotIn("report_repair_archive", state)
+        self.assertEqual(("RUNNING", "PLANNING", "draft_plan"), (state["status"], state["phase"], state["next_stage"]))
+        entry = state["stuck_investigations"][0]
+        self.assertEqual(("retried", "report_repair"), (entry["outcome"], entry["retry_as"]))
+        # The repair's prompt carries the same guidance a fresh request would.
+        block = stuck.guidance(state, "draft_plan")
+        self.assertIn("INVESTIGATOR GUIDANCE", block)
+        self.assertIn(report()["guidance"], block)
+
+    def test_only_a_report_cause_on_a_saved_repair_of_the_same_stage_keeps_the_report(self):
+        for name, status, value, repair in (
+            ("environment cause", "PAUSED_INVALID_OUTPUT", report(cause="environment"), self.saved_repair()),
+            ("repeated failure", "PAUSED_REPEATED_FAILURE", report(), self.saved_repair()),
+            ("no repair yet", "PAUSED_INVALID_OUTPUT", report(), {**self.saved_repair(), "attempts": 0}),
+            (
+                "another stage's repair",
+                "PAUSED_INVALID_OUTPUT",
+                report(),
+                {**self.saved_repair(), "original": {"stage": "revise_plan"}},
+            ),
+        ):
+            with self.subTest(name):
+                state = self.investigated(status, stage="draft_plan", pending_report_repair=copy.deepcopy(repair))
+                stuck.apply(state, value, {"output": "o"}, state["workspace"])
+                self.assertNotIn("pending_report_repair", state)
+                self.assertEqual(repair, state["report_repair_archive"][-1]["repair"])
+                self.assertNotIn("retry_as", state["stuck_investigations"][0])
+
     def test_the_route_exists_only_while_the_investigator_runs(self):
         state = self.investigated("PAUSED_REPEATED_FAILURE")
         state["settings"]["roles"][stuck.ROUTE] = {

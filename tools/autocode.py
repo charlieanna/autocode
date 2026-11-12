@@ -1071,6 +1071,7 @@ def _execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
         )
         + jobs.repair_rules(original["stage"])
         + context_instruction
+        + stuck_repair_context.guidance(state, original["stage"])
         + "CURRENT HANDOFF DATA\n"
         + json.dumps(
             {
