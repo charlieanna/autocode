@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { telemetry, usageDisplay, type Quantity, type Usage } from "../src/core/telemetry";
+import { usageDisplay, type BudgetCost, type Quantity, type Usage } from "../src/core/telemetry";
 
 const quantity = (value: number, complete = true): Quantity => ({
   value: complete ? value : null, known: value, complete, known_items: 1,
@@ -44,84 +44,21 @@ test("older structured token views retain estimated cost when reported subtotal 
   assert.ok(!display.cost.includes("$0.00"));
 });
 
-test("model and variant come from the actual attempt, and a retained finished attempt is historical", () => {
-  const view = { done: false, provider: "kilocode", usage: { accounting: { attempts: [{
-    model: "xiaomi-token-plan-sgp/mimo-v2.6-pro", active: true,
-    launch_route: { model: "older-route", reasoning_effort: "high", engine: "opencode" },
-  }] } } };
-  assert.deepEqual(telemetry(view).models, [{ job: "Stage not reported", model: "xiaomi-token-plan-sgp/mimo-v2.6-pro", variant: "high", provider: "kilocode" }]);
-  assert.equal(telemetry(view).modelLabel, "Current attempt");
-  const usage: Usage = view.usage;
-  usage.accounting!.attempts![0]!.finished_at = "2026-10-17T00:51:55Z";
-  assert.equal(telemetry({ ...view, usage }).modelLabel, "Last used");
-});
-
-test("parallel models remain visible and missing variants are not invented", () => {
-  const result = telemetry({ done: false, usage: { accounting: {
-    attempts: [
-      { model: "model-a", active: true, launch_route: { reasoning_effort: "medium" } },
-      { model: "model-b", active: true },
-      { model: "not-a-model", active: true, runner_owned: true },
-    ], parallel_workers_pending: ["M1"],
-  } } });
-  assert.equal(result.modelLabel, "Current attempts");
-  assert.deepEqual(result.models.map((row) => row.variant), ["medium", "Not reported"]);
-  assert.match(result.details.at(-1)!.value, /do not include all live worker usage/);
-});
-
 test("completed known zero tokens are distinct from unknown usage", () => {
   assert.equal(usageDisplay({ accounting: { tokens: { input_tokens: quantity(0), output_tokens: quantity(0) } } }).tokens, "0 tokens");
   assert.equal(usageDisplay().tokens, "Tokens not reported");
 });
 
-test("all configured roles are visible before launch, including shared models and missing variants", () => {
-  const display = telemetry({ done: false, provider: "kilocode", routes: {
-    requirements: { job: "Requirements", model: "zai/glm", engine: "opencode", reasoning_effort: "medium" },
-    terra: { job: "Builder", model: "xiaomi/mimo", provider: "kilocode", reasoning_effort: "high" },
-    sol: { job: "Tester", model: "zai/glm", engine: "opencode" },
-    completion: { job: "Completion Reviewer", model: "other", provider: "claude" },
-  } });
-  assert.deepEqual(display.configuredModels.map((row) => [row.job, row.model, row.variant, row.provider]), [
-    ["Requirements", "zai/glm", "medium", "kilocode"], ["Builder", "xiaomi/mimo", "high", "kilocode"],
-    ["Tester", "zai/glm", "Not reported", "kilocode"], ["Completion Reviewer", "other", "Not reported", "claude"],
-  ]);
-  assert.deepEqual(display.models, []);
-  assert.deepEqual(display.stagesUsed, []);
-});
-
-test("stage history retains every used model and variant independently of future route assignments", () => {
-  const result = telemetry({ done: false, routes: { terra: { job: "Builder", model: "future-model" } }, usage: { accounting: { attempts: [
-    { job: "Job recognizer", model: "small", finished_at: "t" },
-    { job: "Builder", model: "old", launch_route: { reasoning_effort: "medium" }, finished_at: "t" },
-    { job: "Builder", model: "old", launch_route: { reasoning_effort: "medium" }, interrupted: true },
-    { job: "Builder", model: "new", launch_route: { reasoning_effort: "high" }, active: true },
-    { job: "Tester", model: "tester", launch_route: { reasoning_effort: "high" }, active: true, finished_at: "t" },
-    { model: "runner", runner_owned: true },
-  ] } } });
-  assert.deepEqual(result.stagesUsed.map((row) => [row.job, row.model, row.variant, row.attempts, row.active]), [
-    ["Job recognizer", "small", "Not reported", 1, false], ["Builder", "old", "medium", 2, false],
-    ["Builder", "new", "high", 1, true], ["Tester", "tester", "high", 1, false],
-  ]);
-  assert.equal(result.models[0]!.model, "new");
-  assert.equal(result.configuredModels[0]!.model, "future-model");
-});
-
-
-test("models used names the level each attempt ran at, not the saved route's ceiling", () => {
-  // A live chat listed its Plan Reviewer at high while the stage table, from the same view, said medium.
-  const result = telemetry({ done: true, usage: { accounting: { attempts: [
-    { job: "Plan Reviewer", model: "mimo", reasoning_effort: "medium", launch_route: { reasoning_effort: "high" }, finished_at: "t" },
-    { job: "Builder", model: "mimo", launch_route: { reasoning_effort: "high" }, finished_at: "t" },
-  ] } } });
-  assert.deepEqual(result.stagesUsed.map((row) => [row.job, row.variant]), [["Plan Reviewer", "medium"], ["Builder", "high"]]);
-  assert.equal(result.models[0]!.variant, "high");
+test("parallel workers still pending say the totals leave out live worker usage", () => {
+  const display = usageDisplay({ accounting: { parallel_workers_pending: ["M1"] } });
+  assert.match(display.details.at(-1)!.value, /do not include all live worker usage/);
 });
 
 test("cap accounting is primary while the distinct historical estimate stays secondary", () => {
   const view = { done: false, cost: { spent_usd: 1.966683, cap_usd: 2, complete: false, unpriced_stages: 10 },
     usage: { accounting: { cost: { historical_estimated_usd: quantity(1.5335513, false) } } } };
   const before = structuredClone(view);
-  const display = telemetry(view);
+  const display = usageDisplay(view.usage, view.cost);
   assert.equal(display.cost, "Cost counted toward cap: at least $1.97 / $2.00 cap (partial; 10 unpriced stages)");
   assert.equal(display.details[0]?.label, "Cost counted toward cap");
   assert.equal(display.details.find((row) => row.label === "Historical cost estimate")?.value, "$1.53 (partial)");
@@ -147,13 +84,12 @@ test("budget cost distinguishes known zero, unknown, partial and missing cap fie
       expected: "Cost counted toward cap: at least $0.2500 · cap not reported (partial; 1 unpriced stage)" },
   ];
   for (const row of cases) {
-    const view = { done: false, cost: row.cost };
-    assert.equal(telemetry(view).cost, row.expected);
+    assert.equal(usageDisplay(null, row.cost as BudgetCost).cost, row.expected);
   }
 });
 
 test("older cores without cap accounting keep the explicitly historical display", () => {
-  const view = { done: false, usage: { accounting: { cost: { historical_estimated_usd: quantity(1.53, false) } } } };
-  assert.equal(telemetry(view).cost, "$1.53 (partial) historical est.");
-  assert.equal(telemetry({ done: false }).cost, "Cost not reported");
+  const usage: Usage = { accounting: { cost: { historical_estimated_usd: quantity(1.53, false) } } };
+  assert.equal(usageDisplay(usage).cost, "$1.53 (partial) historical est.");
+  assert.equal(usageDisplay().cost, "Cost not reported");
 });

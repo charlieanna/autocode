@@ -1477,9 +1477,9 @@ test('chat drafts survive polling, hidden view restoration and switching runs', 
   assert.equal(ui.document.activeElement, field);
   assert.equal(field.selectionStart, 2);
   await ui.visible(false);
-  ui.setView({ ...chatView(), usage: { tokens: 20 } });
+  ui.setView({ ...chatView(), cost: { spent_usd: 0.2, cap_usd: null, complete: true, unpriced_stages: 0 } });
   await ui.visible(true);
-  assert.ok(ui.document.body.textContent.includes('20 tokens'));
+  assert.match(ui.document.querySelector('#run-cost').textContent, /\$0\.20/, 'the restored view shows the latest read');
   ui.chat.show({ workspace: '/other', runDir: '/other/run' }); await flush();
   assert.equal(field.value, '');
   ui.type('other run draft');
@@ -1518,113 +1518,55 @@ test('separate VS Code windows keep independent selected tasks and drafts', asyn
   assert.equal(second.document.querySelector('#message').value, 'Draft for the second VS Code window');
 });
 
-test('composer model, variant and usage update on polling without losing the draft or open breakdown', async (t) => {
+test('models and usage are shown once, in the run header, with no second section above the composer', async (t) => {
   const q = (value) => ({ value, known: value, complete: true, known_items: 1 });
-  const initial = { ...chatView(), provider: 'kilocode', usage: { accounting: {
-    attempts: [{ model: 'zai-coding-plan/glm-5.3', active: true,
-      launch_route: { engine: 'opencode', reasoning_effort: 'medium' } }],
+  const initial = headerView({ provider: 'kilocode', routes: {
+    builder: { job: 'Builder', model: 'zai-coding-plan/glm-5.3', reasoning_effort: 'medium', engine: 'opencode' },
+  }, usage: { accounting: {
+    attempts: [{ job: 'Builder', model: 'zai-coding-plan/glm-5.3', active: true, launch_route: { engine: 'opencode', reasoning_effort: 'medium' } }],
     tokens: { input_tokens: q(1000), output_tokens: q(200), cached_input_tokens: q(500), reasoning_output_tokens: q(80) },
     cost: { historical_estimated_usd: q(0.05) },
-  } } };
+  } } });
   const ui = await openChat(t, initial);
+  for (const id of ['telemetry', 'usage-details', 'model-info', 'usage-breakdown']) {
+    assert.equal(ui.document.getElementById(id), null, `no #${id}: the run header is the one place for models and usage`);
+  }
+  assert.equal(ui.document.querySelector('#composer').previousElementSibling.id, 'chat-models', 'nothing between the chat settings and the composer');
   ui.type('Keep my unsent feedback');
-  const field = ui.document.querySelector('#message');
-  field.focus(); field.setSelectionRange(5, 10);
-  const details = ui.document.querySelector('#usage-details');
-  assert.equal(details.open, false, 'model details start collapsed');
-  assert.match(ui.document.querySelector('#model-info').textContent, /Variant: medium.*zai-coding-plan\/glm-5.3.*Provider: kilocode/);
-  assert.match(ui.document.querySelector('#usage-summary').textContent, /1,200 tokens.*\$0.0500.*est\./);
+  ui.document.querySelector('#header-toggle').click();
+  const section = (id) => ui.document.querySelector(`#header-details [data-section="${id}"]`).textContent;
+  // What the bottom section listed is here: the saved routes, the attempts' models and levels, tokens by kind and the historical estimate.
+  assert.match(section('routes'), /Builder: zai-coding-plan\/glm-5\.3 · medium/);
+  assert.match(section('usage'), /zai-coding-plan\/glm-5\.3 · medium/);
+  assert.match(section('usage'), /Cache reads \(in input\): 500.*Reasoning \(in output\): 80/);
+  assert.match(section('usage'), /Historical comparison estimate: \$0\.05/);
   const next = structuredClone(initial);
-  next.usage.accounting.attempts[0] = { model: 'xiaomi-token-plan-sgp/mimo-v2.6-pro<script>bad()</script>', active: true,
-    launch_route: { engine: 'opencode', reasoning_effort: 'high' } };
   next.usage.accounting.tokens.output_tokens = q(400);
   await ui.poll(next);
-  assert.match(ui.document.querySelector('#usage-summary').textContent, /1,400 tokens/);
-  assert.match(ui.document.querySelector('#model-info').textContent, /Variant: high/);
-  assert.equal(ui.document.querySelector('#model-info script'), null);
-  assert.equal(ui.document.activeElement, field);
-  assert.equal(field.value, 'Keep my unsent feedback');
-  assert.equal(field.selectionStart, 5);
-  assert.equal(details.open, false);
-  ui.chat.show(); await flush();
-  assert.match(ui.document.querySelector('#model-info').textContent, /Nothing has run yet\. A new chat runs the models in Stage models\./,
-    'without a per-chat list the new chat names where its models come from');
-  assert.equal(ui.document.querySelector('#models-picker').hidden, true, 'no list, no Models chip');
-  assert.match(ui.document.querySelector('#usage-summary').textContent, /Tokens not reported/);
-});
-
-test('all configured jobs render before use and polling keeps historical models separate', async (t) => {
-  const initial = { ...chatView(), provider: 'kilocode', routes: {
-    requirements: { job: 'Requirements', model: 'zai/glm', reasoning_effort: 'medium', engine: 'opencode' },
-    plan_reviewer: { job: 'Plan Reviewer', model: 'xiaomi/mimo', reasoning_effort: 'high', engine: 'opencode' },
-    terra: { job: 'Builder', model: 'xiaomi/mimo', reasoning_effort: 'medium', engine: 'opencode' },
-    sol: { job: 'Tester', model: 'zai/glm', reasoning_effort: 'high', engine: 'opencode' },
-    completion: { job: 'Completion Reviewer', model: 'zai/glm', reasoning_effort: 'medium', engine: 'opencode' },
-  } };
-  const ui = await openChat(t, initial);
-  assert.deepEqual([...ui.document.querySelectorAll('#configured-models .model-job')].map((node) => node.textContent),
-    ['Requirements', 'Plan Reviewer', 'Builder', 'Tester', 'Completion Reviewer']);
-  // A started chat keeps its routes: the section says so, so a Stage models change is not expected here.
-  assert.equal(ui.document.querySelector('#configured-models .model-caption').textContent, "This chat's models");
-  assert.match(ui.document.querySelector('#configured-models .model-note').textContent, /Fixed when this chat started; a change in Stage models applies to new chats/);
-  assert.match(ui.document.querySelector('#model-summary').textContent, /5 configured roles/);
-  assert.equal(ui.document.querySelector('#used-models'), null);
-  ui.type('Keep my draft while all models update');
-  const disclosure = ui.document.querySelector('#usage-details');
-  disclosure.open = false;
-  disclosure.dispatchEvent(new ui.window.Event('toggle'));
-  const next = structuredClone(initial);
-  next.routes.terra.model = 'next-model<script>bad()</script>';
-  next.usage = { accounting: { attempts: [{ job: 'Builder', model: 'xiaomi/mimo', active: true,
-    launch_route: { provider: 'kilocode', reasoning_effort: 'high' } }] } };
-  await ui.poll(next);
-  assert.match(ui.document.querySelector('#configured-models').textContent, /next-model<script>/);
-  assert.match(ui.document.querySelector('#used-models').textContent, /BuilderVariant: highxiaomi\/mimo.*Active/);
-  assert.match(ui.document.querySelector('#model-summary').textContent, /Builder · mimo · high.*5 configured roles/);
-  assert.equal(ui.document.querySelector('#configured-models script'), null);
-  assert.equal(disclosure.open, false);
-  assert.equal(ui.document.querySelector('#message').value, 'Keep my draft while all models update');
+  assert.match(section('usage'), /Output: 400/);
+  assert.equal(ui.document.querySelector('#message').value, 'Keep my unsent feedback');
 });
 
 test('a started chat offers to change its own models only between stages, through the list its view names', async (t) => {
   const list = ['stages', 'list', '--run-dir', run.runDir, '--json'];
   const routes = { builder: { job: 'Builder', model: 'gpt-5.6-terra', reasoning_effort: 'medium', engine: 'codex' } };
-  const initial = { ...chatView(), routes, stage_models: { changeable: true, reason: null, next_command: list } };
+  const initial = headerView({ routes, stage_models: { changeable: true, reason: null, next_command: list } });
   const ui = await openChat(t, initial);
-  const change = ui.document.querySelector('#configured-models #change-stage-models');
-  assert.ok(change, 'the chat offers the change beside its own models');
+  const change = ui.document.querySelector('#change-stage-models');
+  assert.equal(change.closest('#header-links').id, 'header-links', 'the chat offers the change beside the models it changes');
+  assert.equal(change.hidden, false);
   assert.equal(change.disabled, false);
-  assert.match(ui.document.querySelector('#configured-models .model-note').textContent, /until you change one here/);
+  assert.equal(change.textContent, "Change this chat's models");
   const opened = t.mock.method(host.vscode.commands, 'executeCommand', async () => {});
   change.click(); await flush();
   assert.deepEqual(JSON.parse(JSON.stringify(ui.sent.at(-1))), { type: 'stage_models' }, 'the webview names no command');
   assert.deepEqual(JSON.parse(JSON.stringify(opened.mock.calls.at(-1).arguments)), ['autocode.stages', { list, cwd: run.workspace }]);
   const working = 'A stage is working. Pause the chat, or wait until it asks you something, to change its models.';
   await ui.poll({ ...initial, stage_models: { changeable: false, reason: working, next_command: list } });
-  assert.equal(ui.document.querySelector('#change-stage-models').disabled, true);
-  assert.ok(ui.document.querySelector('#configured-models').textContent.includes(working), 'the core says why not');
+  assert.equal(change.disabled, true);
+  assert.equal(change.title, working, 'the core says why not');
   await ui.poll({ ...initial, stage_models: null });
-  assert.equal(ui.document.querySelector('#change-stage-models'), null, 'an older core offers nothing to change');
-});
-
-test('model details remember expansion across polling, draft edits and webview recreation', async (t) => {
-  const ui = await openChat(t, chatView());
-  const disclosure = ui.document.querySelector('#usage-details');
-  assert.equal(disclosure.open, false);
-  for (const open of [true, false]) {
-    disclosure.open = open;
-    disclosure.dispatchEvent(new ui.window.Event('toggle'));
-    ui.type('Keep both the draft and my display preference');
-    await ui.poll({ ...chatView(), usage: { tokens: 42 } });
-    assert.equal(disclosure.open, open);
-    assert.equal(ui.webviewState.modelDetailsOpen, open);
-    assert.ok(Object.values(ui.webviewState.drafts).includes('Keep both the draft and my display preference'));
-    const restored = new JSDOM(panelHtml(true), { runScripts: 'outside-only' });
-    restored.window.acquireVsCodeApi = () => ({ getState: () => ui.webviewState, setState() {}, postMessage() {} });
-    restored.window.eval(restored.window.document.querySelector('script').textContent);
-    assert.equal(restored.window.document.querySelector('#usage-details').open, open);
-    restored.window.close();
-  }
+  assert.equal(change.hidden, true, 'an older core offers nothing to change');
 });
 
 function headerView(extra = {}) {
@@ -1748,7 +1690,7 @@ test('the run header folds to one summary line and stays folded across polling, 
   const fold = ui.document.querySelector('#header-collapse');
   const shown = (id) => ui.window.getComputedStyle(ui.document.getElementById(id)).display !== 'none';
   assert.equal(header.classList.contains('collapsed'), false, 'the overview starts unfolded');
-  assert.deepEqual(['header-body', 'header-brief'].map(shown), [true, false]);
+  assert.deepEqual(['header-body', 'header-brief', 'header-model'].map(shown), [true, false, false]);
   assert.equal(fold.getAttribute('aria-expanded'), 'true');
   assert.equal(fold.getAttribute('aria-controls'), 'header-body');
   for (const id of ['pipeline', 'header-place', 'header-facts', 'header-toggle']) {
@@ -1765,6 +1707,9 @@ test('the run header folds to one summary line and stays folded across polling, 
   assert.equal(ui.document.querySelector('#header-label').textContent, 'Working');
   assert.equal(ui.document.querySelector('#header-sentence').textContent, 'Builder working.');
   assert.equal(ui.document.querySelector('#header-brief').textContent, '27m44s · $2.50', 'the one line carries the run\'s total time and cost');
+  assert.equal(shown('header-model'), true);
+  assert.equal(ui.document.querySelector('#header-model').textContent, 'opus<img src=x onerror=bad()>', 'and the working stage\'s model, as text');
+  assert.equal(header.querySelector('img'), null);
   // A new read, a run that now needs the person, keeps the fold and updates the line.
   let envelope = null;
   ui.window.addEventListener('message', (event) => { if (event.data && event.data.type === 'chat') envelope = event.data; });
@@ -1952,7 +1897,7 @@ test('a new chat shows the stages it will run and changes one for itself alone b
   assert.deepEqual(calls.at(-1), ['stages', 'list', '--json', '--backend', 'claude', '--chat-stage', 'builder', 'sonnet', 'medium'],
     'the picks are checked again where the chat starts');
   assert.deepEqual(start.mock.calls[0].arguments[4], ['--builder-model', 'sonnet', '--builder-reasoning-effort', 'medium']);
-  assert.equal(section.hidden, true, 'a started chat lists its own models in Models & usage');
+  assert.equal(section.hidden, true, 'a started chat lists its own models in the run header');
 });
 
 /** Answer the Models chip's two steps: the stage, then the model and level ("model · level"), by label; record what was offered. */
@@ -1979,9 +1924,6 @@ test('the chat box Models chip changes a new chat\'s model, not only its level, 
     assert.equal(rules.find((rule) => rule.selectorText === selector).style.width, 'auto',
       `${selector} must not take the form-wide width: 100%, which hid the model dropdown behind the level`);
   }
-  assert.equal(ui.document.querySelector('#model-info').textContent,
-    "Nothing has run yet. Choose this chat's models with Models under the message box.");
-  assert.equal(ui.document.querySelector('#usage-breakdown').textContent, 'Tokens and cost are shown here once the chat starts.');
   const { offered } = pickInOrder(t, ['Builder', 'sonnet · high']);
   chip.click(); await flush(); await flush(); await flush();
   assert.deepEqual(JSON.parse(JSON.stringify(ui.sent.at(-1))), { type: 'models' }, 'the webview names no command');
@@ -5497,24 +5439,20 @@ test('cap-counted cost renders above historical cost and polling retains its unk
     usage: { accounting: { cost: { historical_estimated_usd: { value: null, known: 1.5335513, complete: false, known_items: 15 } } } } };
   const ui = await openChat(t, initial);
   ui.type('Keep this unsent feedback');
-  const summary = () => ui.document.querySelector('#usage-summary').textContent;
-  const details = ui.document.querySelector('#usage-breakdown');
-  assert.match(summary(), /Cost counted toward cap: at least \$1\.97 \/ \$2\.00 cap \(partial; 10 unpriced stages\)/);
-  assert.ok(!summary().includes('$1.53'), 'the cap uses its own accounting, not the historical subtotal');
-  const rows = [...details.querySelectorAll('.telemetry-row')].map((row) => row.textContent);
-  assert.match(rows[0], /^Cost counted toward cap/);
-  assert.ok(rows.findIndex((row) => row.startsWith('Historical cost estimate')) > 0);
-  assert.match(details.textContent, /Historical cost estimate\$1\.53 \(partial\)/);
+  ui.document.querySelector('#header-toggle').click();
+  const lines = () => [...ui.document.querySelectorAll('#header-details [data-section="usage"] .detail-line')].map((node) => node.textContent);
+  assert.match(lines()[0], /^Accounted so far: \$1\.97 \(10 unpriced/);
+  assert.ok(lines().indexOf('Historical comparison estimate: $1.53 known') > 0, 'the historical estimate stays apart from the cap accounting');
+  assert.ok(lines().includes('Spending cap: $2.00'));
   const next = structuredClone(initial);
   next.cost.spent_usd = null;
   await ui.poll(next);
-  assert.match(summary(), /Cost counted toward cap: unknown \/ \$2\.00 cap/);
-  assert.ok(!summary().includes('$0.00'));
+  assert.match(lines()[0], /^Accounted so far: unknown/);
   assert.equal(ui.document.querySelector('#message').value, 'Keep this unsent feedback');
   delete next.cost;
   await ui.poll(next);
-  assert.match(summary(), /\$1\.53 \(partial\) historical est\./);
-  assert.ok(!summary().includes('no configured cap'), 'an older core missing cost does not mean a free or uncapped run');
+  assert.ok(lines().includes('Historical comparison estimate: $1.53 known'));
+  assert.ok(!lines().some((line) => line.startsWith('Spending cap')), 'an older core missing cost does not mean a free or uncapped run');
 });
 
 function changesetSummary(token) {

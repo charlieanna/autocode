@@ -463,6 +463,20 @@ test("cost and usage restate the core's accounting, tokens, time and attempts as
     "  Planner: claude-sonnet-5-5 → claude-opus-5-5; plan review blocked",
     "  Outcome: accepted",
   ]);
+  // The core's historical comparison, which only the removed Models & usage section used to show.
+  const historical = section(runHeader(view({ usage: { accounting: { cost: {
+    historical_estimated_usd: { value: null, known: 1.5335513, complete: false, known_items: 15 } } } } }), STARTED), "usage");
+  assert.ok(historical?.lines.includes("  Historical comparison estimate: $1.53 known"), historical?.lines.join("\n"));
+  assert.ok(!section(runHeader(working(), STARTED), "usage")?.lines.some((line) => line.includes("Historical")),
+    "no estimate, no line");
+  // The cap line says only what `cost` says: an older core without it claims neither a cap nor none.
+  const cap = (cost?: Record<string, unknown>) => section(runHeader(view({ ...(cost ? { cost } : {}), usage: { tokens: 10 } }), STARTED), "usage")
+    ?.lines.find((line) => line.includes("Spending cap"));
+  assert.equal(cap(), undefined);
+  assert.equal(cap({ spent_usd: 1, cap_usd: null }), "  Spending cap: none");
+  assert.equal(cap({ spent_usd: 1, cap_usd: 0 }), "  Spending cap: none");
+  assert.equal(cap({ spent_usd: 1 }), "  Spending cap: not reported");
+  assert.equal(cap({ spent_usd: 1, cap_usd: 2 }), "  Spending cap: $2.00");
   // A view with no accounting or routes shows neither section.
   assert.equal(section(runHeader(view()), "usage"), undefined);
   assert.equal(section(runHeader(view()), "routes"), undefined);
