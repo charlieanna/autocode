@@ -40,6 +40,7 @@ try:
     from . import autocode_run_records as records
     from . import autocode_run_status as run_status
     from . import autocode_stage_stalls as stage_stalls
+    from . import autocode_stale_handoff as stale_handoff
     from . import autocode_support as support
     from . import autocode_validation_recovery as validation_recovery
     from . import autocode_workflow as workflow
@@ -62,6 +63,7 @@ except ImportError:
     import autocode_run_records as records
     import autocode_run_status as run_status
     import autocode_stage_stalls as stage_stalls
+    import autocode_stale_handoff as stale_handoff
     import autocode_support as support
     import autocode_validation_recovery as validation_recovery
     import autocode_workflow as workflow
@@ -452,6 +454,7 @@ def automatically_recover_capacity_stage(state: RunState, run_dir, workspace, er
         "changed_files": record["changed_files"],
         "events": record["events"],
         "source_snapshot": record["after_ref"],
+        "launch_binding": stale_handoff.preserved_launch_binding(record),
         "next_stage": next_stage,
         "retry_number": retry_number,
         "capacity_error": support.terminal_failure_reason(record["events"]) or "Selected model is at capacity",
@@ -751,6 +754,10 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
         "changed_files": record["changed_files"],
         "events": record["events"],
         "source_snapshot": record["after_ref"],
+        # What the failed attempt actually used at its launch, copied from its record:
+        # never recomputed from then-current values, which would bless drift that landed
+        # before this admission (issue #3288).
+        "launch_binding": stale_handoff.preserved_launch_binding(record),
         "next_stage": next_stage,
         "instruction": "This timed-out request was archived after its workers stopped. Inspect retained "
         "partial work and evidence before continuing; do not treat it as a completed report. "
@@ -887,6 +894,7 @@ def automatically_recover_external_directory_denial(state: RunState, run_dir, wo
         "changed_files": record["changed_files"],
         "events": record["events"],
         "source_snapshot": record["after_ref"],
+        "launch_binding": stale_handoff.preserved_launch_binding(record),
         "next_stage": next_stage,
         "instruction": f"The prior request was stopped by OpenCode's external_directory permission. "
         f"The exact workspace root is {workspace}. Use source-relative shell paths there; "
