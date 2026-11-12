@@ -25,6 +25,9 @@ const { engineOf, routeKeyOf, spendTarget, sanitizeRoutes, readSettings, applyEn
 let controller = new RunController(host.log);
 const run = { workspace: '/ws', runDir: '/ws/.autocode/runs/test' };
 const ok = { code: 0, stdout: '', stderr: '', rejected: false };
+/** What an AutoCode without the `worktrees` command answers: its main parser takes the word as the task. */
+const noPlaceList = { code: 2, stdout: '', rejected: true,
+  stderr: 'usage: autocode [TASK] [OPTIONS]\nautocode: error: unrecognized arguments: list. If this was the task, put all of it in quotes' };
 
 function totalTimeView(token = 'time:current') {
   return {
@@ -1256,7 +1259,7 @@ async function openChat(t, initial, selected = run, options = {}) {
     const stages = options.stages || (() => ({ ...ok, stdout: JSON.stringify({ version: 1, stages: [] }) }));
     // Where a new chat works: unless the case supplies a list, an AutoCode without one answers, so the
     // chat starts in the folder as it did before and no external `autocode worktrees` subprocess is raced.
-    const worktrees = options.worktrees || (() => ({ ...ok, code: 2, stdout: '', stderr: 'unknown command' }));
+    const worktrees = options.worktrees || (() => ({ ...noPlaceList }));
     // A copy loaded from TypeScript sources has read-only module namespaces: the mock cannot be
     // installed there, and the chat then reads the missing external `autocode` as unavailable.
     try {
@@ -2117,6 +2120,30 @@ test('a chat in the folder itself starts only once the person confirms the warni
   ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
   assert.equal(start.mock.callCount(), 1);
   assert.deepEqual(start.mock.calls[0].arguments[5], ['--in-place']);
+});
+
+test('a chat whose places could not be read does not start in the folder', async (t) => {
+  // Live run, 2026-11-12 (#3267): a second chat's place list failed while another run was busy, and the chat
+  // started with --in-place on the folder's own branch, without the confirmation that place requires.
+  let answer = () => ({ ...ok, code: 1, stderr: 'autocode did not answer within 60 s' });
+  const ui = await openChat(t, null, false, { worktrees: (argv) => answer(argv) });
+  ui.chat.show(); await flush(); await flush();
+  const note = () => ui.document.querySelector('#chat-place .chat-place-note').textContent;
+  assert.match(note(), /could not be read: autocode did not answer within 60 s/);
+  assert.doesNotMatch(note(), /works in your folder/);
+  const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
+  ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
+  assert.equal(start.mock.callCount(), 0, 'nothing starts, least of all in the folder');
+  assert.match(ui.document.querySelector('#chat-error').textContent, /could not be read, so it was not started: autocode did not answer/);
+  // A refusal by the command itself is not an AutoCode without the command either.
+  answer = () => ({ ...ok, code: 2, rejected: true, stderr: 'usage: autocode worktrees list [-h]\nautocode worktrees list: error: unrecognized arguments: --x' });
+  ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
+  assert.equal(start.mock.callCount(), 0);
+  // Once the list answers, the same message starts on a branch of its own.
+  answer = () => worktreeList();
+  ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
+  assert.equal(start.mock.callCount(), 1);
+  assert.deepEqual(start.mock.calls[0].arguments[5], ['--build-in-worktree']);
 });
 
 test('listing where a chat works is bounded like the stages list', async (t) => {
