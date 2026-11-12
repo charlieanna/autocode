@@ -19,14 +19,34 @@ except ImportError:
     import autocode_python_packaging as packaging
     import autocode_python_tests as python_tests
 
-VERSION = 3
+VERSION = 4
 PRODUCT, TEST, AMBIGUOUS = "product", "test", "ambiguous"
 TEST_DIRS = frozenset({"tests", "__tests__", "__snapshots__", "testdata", "test_data"})
 
 
-def _test_tree(path):
+ROOT_TEST_DIRS = frozenset({"test", "spec"})
+
+
+def _packages(paths):
+    """Directories that are regular Python packages (they hold an ``__init__.py``)."""
+    return frozenset(str(PurePosixPath(path).parent) for path in paths if PurePosixPath(path).name == "__init__.py")
+
+
+def _test_tree(path, packages=frozenset()):
+    """A path under a test directory.
+
+    ``tests/`` and the like count at any depth. ``test/`` and ``spec/`` count where they would be a top-level
+    import name: at the repository root, or directly under a directory that is not a Python package, such as
+    a project kept one directory down (``docutils/test/`` beside ``docutils/docutils/``, #2944). Inside a
+    package (``django/test/``) they stay a possible product subpackage.
+    """
     parts = PurePosixPath(path).parts
-    return any(part in TEST_DIRS for part in parts[:-1]) or (len(parts) > 1 and parts[0] in ("test", "spec"))
+    if any(part in TEST_DIRS for part in parts[:-1]):
+        return True
+    return any(
+        parts[index] in ROOT_TEST_DIRS and (index == 0 or "/".join(parts[:index]) not in packages)
+        for index in range(len(parts) - 1)
+    )
 
 
 def _declares(source):
@@ -181,7 +201,10 @@ def _classify(paths, read, hint, ownership, links, *, original_tests=None):
         endpoint = _endpoint(path, paths, links)
         return read(endpoint) if endpoint is not None else ""
 
-    potential = {p for p in paths if p.endswith(".py") and hint(p) and not _test_tree(p) and not ownership.contains(p)}
+    packages = _packages(paths)
+    potential = {
+        p for p in paths if p.endswith(".py") and hint(p) and not _test_tree(p, packages) and not ownership.contains(p)
+    }
     reached, dynamic = _runtime_reach(paths, source, hint, ownership, potential)
     runtime_targets = {_endpoint(path, paths, links) for path in paths if ownership.contains(path) or path in reached}
     oracle_targets = {
@@ -199,7 +222,7 @@ def _classify(paths, read, hint, ownership, links, *, original_tests=None):
         if not path.endswith(".py") or not hint(path):
             result[path] = TEST if hint(path) else PRODUCT
             continue
-        test_root = _test_tree(path) or PurePosixPath(path).name == "conftest.py"
+        test_root = _test_tree(path, packages) or PurePosixPath(path).name == "conftest.py"
         if test_root and not (ownership.contains(path) or path in reached):
             result[path] = TEST
             continue

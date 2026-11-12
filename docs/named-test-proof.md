@@ -514,7 +514,11 @@ A test-like filename alone does not make a shipped Python module an oracle. The 
 uses the original Git tree, including its launch commit's dirty and untracked inputs,
 to read literal setuptools package and module lists and ordinary literal imports.
 Original product ownership keeps those bytes on the base side of a regression proof.
-Dedicated test roots and supported test declarations keep test authority; mixed or
+Dedicated test roots and supported test declarations keep test authority. A test root is
+a `tests/`-style directory at any depth, or a `test/` or `spec/` directory at the repository
+root or directly under a directory that is not a Python package (a project kept one directory
+down, such as Docutils' `docutils/test/` beside its `docutils/docutils/` package); a `test/`
+inside a package (`django/test/`) may be a shipped subpackage and is not a root. Mixed or
 unresolved changed roles remain unverified without executing proof commands. Dynamic
 build configuration is not interpreted, and candidate packaging cannot relabel the
 original product. Original top-level assertions with a literal `import unittest`

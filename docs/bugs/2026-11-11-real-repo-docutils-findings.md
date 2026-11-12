@@ -18,7 +18,7 @@ cannot import such a file either. `_text` now keeps the bytes as surrogate escap
 cannot decode them or the coding cookie names no codec, so the file is an unparseable source, as
 the role policy already handles (`tests.test_python_test_roles.UndecodableSourceTests`).
 
-## 2. Every test outside a top-level `test/` is ambiguous (open)
+## 2. Every test outside a top-level `test/` is ambiguous (fixed)
 
 With that fixed, the run stops at `PAUSED_INVALID_OUTPUT`: "Python product/test ownership is
 ambiguous for changed path docutils/test/test_parsers/test_rst/test_directives/
@@ -32,8 +32,28 @@ in `tools/autocode_python_test_roles.py` combine:
   whole reach uncertain, so a declared test outside a test tree is never classified TEST. The
   `sandbox/` has 98 Python 2 files that do not parse.
 
-Either change alone makes both files TEST (checked by patching each rule on the delivered project).
-Both touch how protected oracles are chosen: a nested `test/` may be a product package, and a parse
-failure may be newer syntax than AutoCode's interpreter reads, so neither is changed here. The
-scenario records this as its `known_failure` until the policy is decided. A run stopped here is a
-machinery stop, which AGENTS.md counts as a defect, not a person's question.
+A run stopped here is a machinery stop, which AGENTS.md counts as a defect, not a person's question.
+
+The second rule alone cannot be relaxed: Docutils' own product loads parsers, readers, writers and
+languages by computed name (`importlib.import_module(name)`, five modules), which keeps runtime reach
+uncertain with or without `sandbox/`, and a parse failure may be newer syntax than AutoCode's
+interpreter reads. The first rule now counts `test/` and `spec/` as a test tree where they would be a
+top-level import name: at the repository root, as before, or directly under a directory that is not a
+Python package (no `__init__.py`). `docutils/test/` sits beside the `docutils/docutils/` package under
+a plain project directory, so it is a test tree; a `test/` inside a package, such as Django's shipped
+`django/test/`, still is not, and packaging ownership still wins over the tree. On the pinned Docutils
+tree the change moves 158 test modules from ambiguous to test (in `docutils/test/`, `docutils/tools/test/`
+and `sandbox/`) and changes no other role. The role policy is version 4, so a proof from version 3 is run
+again. The scenario's `known_failure` is removed
+(`tests.test_python_test_roles.NestedProjectTestTreeTests`).
+
+## 3. An unchanged file of unknown role stopped the proof (fixed)
+
+With the suite classified, the scripted run stopped at the same `PAUSED_INVALID_OUTPUT`, now for
+`sandbox/enhancement-proposals/settings-API/test_cf_parser.py`, a file nobody changed. The regression
+proof listed the original tests for the companion suites (#2889) by asking the role of every file in
+the repository with the call that refuses an ambiguous changed path, and seven unchanged `sandbox/`
+test files still have no provable role. The proof now counts the original tests the way the protected
+inventory does: a test-like path stays a test unless it is proven original product, so an unknown one
+stays protected and only a changed file of unknown role stops a run
+(`tests.test_test_cases.FeatureProofTests.test_an_unchanged_file_of_unknown_role_does_not_stop_the_proof`).

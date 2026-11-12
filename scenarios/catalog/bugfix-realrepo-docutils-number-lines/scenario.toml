@@ -18,9 +18,6 @@ commit = "54f4d615a7608d6b0bee7dec43a5be1543d4e456"
 
 [run]
 timeout_minutes = 120
-known_failure = """The run stops at PAUSED_INVALID_OUTPUT: the Python test-role policy calls every test under \
-docutils/test/ ambiguous, because test/ counts as a test tree only at the repository root and sandbox/'s 98 \
-unparseable Python 2 files make runtime reach uncertain (docs/bugs/2026-11-11-real-repo-docutils-findings.md)."""
 
 [fake]
 check = "cd docutils/test && python3 alltests.py"
