@@ -44,6 +44,27 @@ class TotalsTests(unittest.TestCase):
         self.assertEqual({"task_planner", "runner", "tester", "builder"}, set(totals["by_role"]))
         self.assertEqual(0.5, totals["by_role"]["builder"]["reported_usd"])
 
+    def test_cost_by_job_names_the_job_a_route_did(self):
+        # The Plan Reviewer can run on the task_planner route, so by_role files its cost under the
+        # route; by_job names the job on screen, as the cost breakdown does.
+        state = {
+            "stages": [
+                stage("review_plan", "task_planner", "claude-haiku", cost=0.12),
+                stage("plan_task", "task_planner", "claude-haiku", cost=0.03),
+                stage("builder", "builder", "claude-haiku", cost=0.5),
+                stage("builder_report_repair", "builder", "claude-haiku", cost=0.01),
+            ]
+        }
+        totals = usage.summary(state)
+        self.assertEqual(0.15, totals["by_role"]["task_planner"]["reported_usd"])
+        self.assertEqual({"Plan Reviewer", "Planner", "Builder"}, set(totals["by_job"]))
+        self.assertEqual(0.12, totals["by_job"]["Plan Reviewer"]["reported_usd"])
+        self.assertEqual(1, totals["by_job"]["Plan Reviewer"]["stages"])
+        self.assertEqual(0.03, totals["by_job"]["Planner"]["reported_usd"])
+        self.assertEqual(
+            (2, 0.51), (totals["by_job"]["Builder"]["stages"], totals["by_job"]["Builder"]["reported_usd"])
+        )
+
     def test_a_run_whose_every_stage_has_a_cost_is_complete_until_a_stage_is_active(self):
         state = {
             "stages": [

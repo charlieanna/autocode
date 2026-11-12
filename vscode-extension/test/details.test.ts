@@ -469,6 +469,11 @@ test("cost and usage restate the core's accounting, tokens, time and attempts as
   assert.ok(historical?.lines.includes("  Historical comparison estimate: $1.53 known"), historical?.lines.join("\n"));
   assert.ok(!section(runHeader(working(), STARTED), "usage")?.lines.some((line) => line.includes("Historical")),
     "no estimate, no line");
+  // Beside the dated price-table estimate it would be a second, different price for the same tokens.
+  const priced = section(runHeader(view({ cost: { spent_usd: 0.41, estimated_usd: 0.41, complete: true },
+    usage: { accounting: { cost: { historical_estimated_usd: { value: 0.38, known: 0.38, complete: true, known_items: 6 } } } } }), STARTED), "usage");
+  assert.ok(priced?.lines.includes("  Price-table estimate: $0.41"), priced?.lines.join("\n"));
+  assert.ok(!priced?.lines.some((line) => line.includes("Historical")), priced?.lines.join("\n"));
   // The cap line says only what `cost` says: an older core without it claims neither a cap nor none.
   const cap = (cost?: Record<string, unknown>) => section(runHeader(view({ ...(cost ? { cost } : {}), usage: { tokens: 10 } }), STARTED), "usage")
     ?.lines.find((line) => line.includes("Spending cap"));
