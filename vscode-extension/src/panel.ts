@@ -1304,9 +1304,12 @@ function renderHeader(data) {
     item.appendChild(el('td', 'mark', step.state === 'working' && step.why ? '↻' : step.mark));
     const route = step.state === 'skipped' ? 'skipped' : [step.model, step.level].filter(Boolean).join(' ');
     const name = el('td', 'name', step.label);
-    if (step.attempts > 1) {
-      // A small count; the words are its tooltip and Show details. Amber when an attempt failed.
-      const badge = el('span', 'runs' + (step.failed ? ' failed' : ''), '×' + step.attempts);
+    if (step.attempts > 1 || step.repairs) {
+      // A small count of the stage's own launches, and its report repairs apart (a repair only rewrote a
+      // rejected report); the words are its tooltip and Show details. Amber when an attempt failed.
+      const count = [step.attempts > 1 ? '×' + step.attempts : '', step.repairs ? '+' + step.repairs + (step.repairs > 1 ? ' repairs' : ' repair') : '']
+        .filter(Boolean).join(' ');
+      const badge = el('span', 'runs' + (step.failed ? ' failed' : ''), count);
       badge.title = step.runs;
       badge.setAttribute('aria-label', step.runs);
       name.appendChild(badge);

@@ -4,17 +4,22 @@ The status view's ``run_metrics``: a client shows it as it is (the terminal chat
 so a person can see where a run could cost less and what AutoCode did beyond one model building
 the change. Every figure is read from parts of the view that are already public:
 
-- ``cost.breakdown.by_stage`` for spend by job, and ``usage.accounting`` for tokens and attempts;
-- ``efficiency.by_category`` for report repairs;
+- ``cost.breakdown.by_stage`` for spend by job and for report repairs, and ``usage.accounting`` for
+  tokens, attempts and each job's time;
 - ``recoveries`` and ``evidence`` (findings, regression proof, clean replay, mutation check) for
   what the checking stages produced.
 
 ``single_model`` compares with the Builder's own spend, a stand-in for one model doing the task
 alone: the Builder is the stage that writes the change. It is not a measured single-model run,
-and ``basis`` says so. An amount a source does not know stays ``None``; a known part is never
-shown as a whole (``complete``).
+and ``basis`` says so. The rest is split into planning and everything else, so a cheap Builder
+does not make "checking" look like most of the run (#3268). An amount a source does not know stays
+``None``; a known part is never shown as a whole (``complete``).
+
+A report repair (a stage that only rewrites a rejected report) is another attempt at the stage it
+repairs, never another run of that job: ``repeated_jobs`` counts the two apart.
 
 Pure function over the view being built: no file access, no state, imports nothing from AutoCode.
+The caller passes the stage categories (``autocode_efficiency.category``) that name planning.
 """
 
 from __future__ import annotations
@@ -75,7 +80,32 @@ def _failed(row: dict) -> bool:
     )
 
 
-def _by_job(cost: dict, total) -> list[dict]:
+def _repair(row: dict) -> bool:
+    """A report repair: an attempt the core records against the stage it repairs (``original_stage``)."""
+    original = row.get("original_stage")
+    return bool(original) and original != row.get("stage")
+
+
+def _attempts(accounting: dict) -> list[dict]:
+    return _rows(accounting.get("attempts"))
+
+
+def _seconds(attempts: list[dict], stages: list) -> tuple[float | None, bool]:
+    """The summed run time of a job's own stages' attempts, and whether every one reported it."""
+    total, complete, seen = 0.0, True, False
+    for row in attempts:
+        if row.get("stage") not in stages:
+            continue
+        seen = True
+        seconds = _money(row.get("duration_seconds"))
+        if seconds is None or row.get("active"):
+            complete = False
+        else:
+            total += seconds
+    return (round(total, 3), complete) if seen else (None, False)
+
+
+def _by_job(cost: dict, total, attempts: list[dict]) -> list[dict]:
     jobs: dict[str, dict] = {}
     for row in _rows(_mapping(cost.get("breakdown")).get("by_stage")):
         job = str(row.get("job") or row.get("stage") or "Other")
@@ -90,11 +120,20 @@ def _by_job(cost: dict, total) -> list[dict]:
             entry["spent_usd"] += spent
         if row.get("complete") is not True:
             entry["complete"] = False
-    result = [
-        {**entry, "spent_usd": round(entry["spent_usd"], 6), "share": _share(entry["spent_usd"], total)}
-        for entry in jobs.values()
-        if entry["attempts"] or entry["spent_usd"]
-    ]
+    result = []
+    for entry in jobs.values():
+        if not (entry["attempts"] or entry["spent_usd"]):
+            continue
+        seconds, seconds_complete = _seconds(attempts, entry["stages"])
+        result.append(
+            {
+                **entry,
+                "spent_usd": round(entry["spent_usd"], 6),
+                "share": _share(entry["spent_usd"], total),
+                "seconds": seconds,
+                "seconds_complete": seconds_complete,
+            }
+        )
     return sorted(result, key=lambda row: -row["spent_usd"])
 
 
@@ -120,18 +159,33 @@ def _tokens(accounting: dict) -> dict:
     return result
 
 
-def _waste(accounting: dict, efficiency: dict) -> dict:
-    attempts = [row for row in _rows(accounting.get("attempts")) if not row.get("runner_owned")]
+def _report_repair_spend(cost: dict) -> tuple[float | None, bool]:
+    """What report repairs cost, from the same stage costs as every other figure here (``spent_usd``)."""
+    total, complete = 0.0, True
+    for row in _rows(_mapping(cost.get("breakdown")).get("by_stage")):
+        if not str(row.get("stage") or "").endswith("_report_repair"):
+            continue
+        spent = _money(row.get("spent_usd"))
+        if spent is None:
+            complete = False
+        else:
+            total += spent
+        if row.get("complete") is not True:
+            complete = False
+    return round(total, 6), complete
+
+
+def _waste(accounting: dict, cost: dict) -> dict:
+    attempts = [row for row in _attempts(accounting) if not row.get("runner_owned")]
     failed = [row for row in attempts if _failed(row) and not row.get("active")]
     amounts = [_quantity(row.get("attributed_reported_usd")) for row in failed]
     counts: dict[str, dict] = {}
     for row in attempts:
         job = str(row.get("job") or row.get("stage") or "Other")
-        entry = counts.setdefault(job, {"job": job, "attempts": 0})
+        entry = counts.setdefault(job, {"job": job, "attempts": 0, "runs": 0, "report_repairs": 0})
         entry["attempts"] += 1
-    repair, repair_complete = _quantity(
-        _mapping(_mapping(efficiency.get("by_category")).get("report_repair")).get("reported_usd")
-    )
+        entry["report_repairs" if _repair(row) else "runs"] += 1
+    repair, repair_complete = _report_repair_spend(cost)
     return {
         "failed_attempts": len(failed),
         "failed_usd": round(sum(amount or 0 for amount, _ in amounts), 6),
@@ -170,30 +224,54 @@ def _produced(view: dict) -> dict:
     }
 
 
-def project(view: dict) -> dict:
-    """``run_metrics`` from the cost, usage, efficiency, recoveries and evidence already in ``view``."""
+def _planning_spend(cost: dict, category) -> float | None:
+    """The planning stages' spend (Requirements, Planner, Plan Reviewer), or ``None`` without categories."""
+    if category is None:
+        return None
+    amounts = [
+        _money(row.get("spent_usd"))
+        for row in _rows(_mapping(cost.get("breakdown")).get("by_stage"))
+        if category(row) == "planning"
+    ]
+    return round(sum(amount for amount in amounts if amount is not None), 6)
+
+
+def project(view: dict, *, category=None) -> dict:
+    """``run_metrics`` from the cost, usage, recoveries and evidence already in ``view``.
+
+    ``category`` names a stage row's spend category (``autocode_efficiency.category``); without it the
+    planning split is unknown (``None``)."""
     cost = _mapping(view.get("cost"))
     accounting = _mapping(_mapping(view.get("usage")).get("accounting"))
-    efficiency = _mapping(view.get("efficiency"))
     total = _money(cost.get("spent_usd"))
-    by_job = _by_job(cost, total)
+    by_job = _by_job(cost, total, _attempts(accounting))
     builder = [
         _money(row.get("spent_usd"))
         for row in _rows(_mapping(cost.get("breakdown")).get("by_stage"))
         if row.get("stage") == BUILDER_STAGE
     ]
     builder_usd = round(sum(amount for amount in builder if amount is not None), 6) if builder else None
+    planning_usd = _planning_spend(cost, category)
+    other_usd = (
+        round(max(total - (builder_usd or 0) - planning_usd, 0), 6)
+        if total is not None and planning_usd is not None
+        else None
+    )
     return {
         "schema": SCHEMA,
         "spent_usd": total,
         "complete": cost.get("complete") is True,
         "by_job": by_job,
         "tokens": _tokens(accounting),
-        "waste": _waste(accounting, efficiency),
+        "waste": _waste(accounting, cost),
         "single_model": {
             "builder_usd": builder_usd,
             "builder_share": _share(builder_usd, total),
             "checking_usd": round(total - builder_usd, 6) if total is not None and builder_usd is not None else None,
+            "planning_usd": planning_usd,
+            "planning_share": _share(planning_usd, total),
+            "other_usd": other_usd,
+            "other_share": _share(other_usd, total),
             "basis": BASIS,
             "produced": _produced(view),
         },

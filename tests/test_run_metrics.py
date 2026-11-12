@@ -4,6 +4,7 @@ import unittest
 
 import autocode_chat_panel as panel
 import autocode_chat_spend as spend
+import autocode_efficiency as efficiency
 import autocode_run_metrics as run_metrics
 import autocode_run_view as run_view
 
@@ -32,16 +33,19 @@ def attempt(stage, job, usd, *, exit_code=0, rejected=False, complete=True, **ex
 
 
 def view():
-    """A finished bug fix: the Builder ran twice (its first attempt was rejected), then the checks passed."""
+    """A finished bug fix: the Planner drafted once, the Builder ran twice (its first attempt was rejected),
+    the Tester's report was repaired once, then the checks passed."""
     return {
         "cost": {
             "spent_usd": 2.0,
             "complete": True,
             "breakdown": {
                 "by_stage": [
+                    stage("draft_plan", "Planner", 0.2),
                     stage("builder", "Builder", 0.5, runs=2),
-                    stage("review_completion", "Completion Reviewer", 1.0),
-                    stage("tester", "Tester", 0.5),
+                    stage("review_completion", "Completion Reviewer", 0.8),
+                    stage("tester", "Tester", 0.4),
+                    stage("tester_report_repair", "Tester (report repair)", 0.1),
                     stage("regression_proof", "Regression Proof", 0.0),
                 ]
             },
@@ -56,17 +60,21 @@ def view():
                     "output_tokens": quantity(50),
                 },
                 "attempts": [
-                    attempt("builder", "Builder", 0.2, rejected=True),
-                    attempt("builder", "Builder", 0.3),
-                    attempt("tester", "Tester", 0.5),
-                    attempt("review_completion", "Completion Reviewer", 1.0),
-                    attempt("regression_proof", "Regression Proof", 0.0, runner_owned=True),
+                    attempt("draft_plan", "Planner", 0.2, duration_seconds=100.0),
+                    attempt("builder", "Builder", 0.2, rejected=True, duration_seconds=30.0),
+                    attempt("builder", "Builder", 0.3, duration_seconds=60.0),
+                    attempt("tester", "Tester", 0.4, duration_seconds=40.0),
+                    # The core records a repair against the stage it repairs, under that stage's job.
+                    attempt("tester_report_repair", "Tester", 0.1, original_stage="tester", duration_seconds=20.0),
+                    attempt("review_completion", "Completion Reviewer", 0.8, duration_seconds=50.0),
+                    attempt("regression_proof", "Regression Proof", 0.0, runner_owned=True, duration_seconds=5.0),
                 ],
             }
         },
         "efficiency": {
             "criteria": {"requested": 3, "accepted": 3},
-            "by_category": {"report_repair": {"reported_usd": quantity(0.1)}},
+            # Only what a provider itself reported (none here): report repairs are priced like every other stage.
+            "by_category": {"report_repair": {"reported_usd": quantity(0, complete=False)}},
         },
         "recoveries": [{"id": "r1", "kind": "builder_sent_back"}],
         "evidence": {
@@ -82,9 +90,28 @@ class RunMetricsTests(unittest.TestCase):
     def test_spend_by_job_is_costliest_first_with_its_share_of_the_run(self):
         metrics = run_metrics.project(view())
         self.assertEqual(
-            [("Completion Reviewer", 1.0, 0.5, 1), ("Builder", 0.5, 0.25, 2), ("Tester", 0.5, 0.25, 1)],
+            [("Completion Reviewer", 0.8, 0.4, 1), ("Builder", 0.5, 0.25, 2), ("Tester", 0.4, 0.2, 1)],
             [(row["job"], row["spent_usd"], row["share"], row["attempts"]) for row in metrics["by_job"][:3]],
         )
+
+    def test_each_job_carries_its_own_stages_time_and_a_running_one_is_not_complete(self):
+        jobs = {row["job"]: row for row in run_metrics.project(view())["by_job"]}
+        self.assertEqual(
+            {
+                "Builder": (90.0, True),
+                "Tester": (40.0, True),
+                "Tester (report repair)": (20.0, True),
+                "Planner": (100.0, True),
+            },
+            {
+                job: (jobs[job]["seconds"], jobs[job]["seconds_complete"])
+                for job in ("Builder", "Tester", "Tester (report repair)", "Planner")
+            },
+        )
+        running = view()
+        running["usage"]["accounting"]["attempts"][2].update(active=True, duration_seconds=None)
+        builder = next(row for row in run_metrics.project(running)["by_job"] if row["job"] == "Builder")
+        self.assertEqual((30.0, False), (builder["seconds"], builder["seconds_complete"]))
 
     def test_token_split_names_new_input_cache_writes_and_reads(self):
         tokens = run_metrics.project(view())["tokens"]
@@ -122,7 +149,10 @@ class RunMetricsTests(unittest.TestCase):
                 "failed_attempts": 1,
                 "failed_usd": 0.2,
                 "failed_usd_complete": True,
-                "repeated_jobs": [{"job": "Builder", "attempts": 2}],
+                "repeated_jobs": [
+                    {"job": "Builder", "attempts": 2, "runs": 2, "report_repairs": 0},
+                    {"job": "Tester", "attempts": 2, "runs": 1, "report_repairs": 1},
+                ],
                 "report_repair_usd": 0.1,
                 "report_repair_complete": True,
             },
@@ -131,13 +161,17 @@ class RunMetricsTests(unittest.TestCase):
 
     def test_a_failed_attempt_with_unknown_cost_is_counted_but_not_called_complete(self):
         unknown = view()
-        unknown["usage"]["accounting"]["attempts"][0] = attempt("builder", "Builder", None, exit_code=1)
+        unknown["usage"]["accounting"]["attempts"][1] = attempt("builder", "Builder", None, exit_code=1)
         waste = run_metrics.project(unknown)["waste"]
         self.assertEqual((1, 0.0, False), (waste["failed_attempts"], waste["failed_usd"], waste["failed_usd_complete"]))
 
     def test_the_builder_stands_in_for_one_model_beside_what_the_checking_produced(self):
         single = run_metrics.project(view())["single_model"]
         self.assertEqual((0.5, 0.25, 1.5), (single["builder_usd"], single["builder_share"], single["checking_usd"]))
+        self.assertEqual(
+            (None, None, None, None),
+            tuple(single[key] for key in ("planning_usd", "planning_share", "other_usd", "other_share")),
+        )
         self.assertIn("not a measured single-model run", single["basis"])
         self.assertEqual(
             {
@@ -155,6 +189,18 @@ class RunMetricsTests(unittest.TestCase):
             },
             single["produced"],
         )
+
+    def test_planning_is_named_apart_from_checking_with_the_cores_stage_categories(self):
+        # "Builder 18% · checking 82%" counted Requirements and the Planner as checking (#3268).
+        single = run_metrics.project(view(), category=efficiency.category)["single_model"]
+        self.assertEqual(
+            (0.2, 0.1, 1.3, 0.65),
+            tuple(single[key] for key in ("planning_usd", "planning_share", "other_usd", "other_share")),
+        )
+
+    def test_the_status_view_names_planning_apart(self):
+        state = {"status": "RUNNING"}
+        self.assertIn("planning_share", run_view.view(state)["run_metrics"]["single_model"])
 
     def test_a_run_with_no_builder_yet_has_no_stand_in(self):
         early = view()
@@ -197,24 +243,28 @@ class RunMetricsTests(unittest.TestCase):
 
 
 class SpendDisplayTests(unittest.TestCase):
-    def public(self):
+    def public(self, category=efficiency.category):
         result = view()
-        result["run_metrics"] = run_metrics.project(result)
+        result["run_metrics"] = run_metrics.project(result, category=category)
         return result
 
-    def test_the_panel_shows_the_builder_share_costliest_jobs_cache_and_waste(self):
+    def test_the_panel_shows_the_cost_split_costliest_jobs_cache_and_waste(self):
         section = next(section for section in panel.sections(self.public()) if section.title == "Spend")
-        self.assertEqual("Builder 25% · checking 75%", section.summary)
+        self.assertEqual("Cost: Builder 25% · planning 10% · checking and other 65%", section.summary)
         self.assertEqual(
             [
-                "Completion Reviewer $1.00 · 50%",
-                "Builder $0.50 · 25%, 2 runs",
-                "Tester $0.50 · 25%",
+                "Completion Reviewer $0.80 · 40% of cost · 50s",
+                "Builder $0.50 · 25% of cost · 1m30s, 2 runs",
+                "Tester $0.40 · 20% of cost · 40s",
                 "Cache reads 70% of input, cache writes 20%",
-                "1 failed attempt $0.20; ran again: Builder ×2",
+                "1 failed attempt $0.20; ran again: Builder ×2; report repairs: Tester ×1",
             ],
             [row.text for row in section.rows],
         )
+
+    def test_without_a_planning_split_the_rest_is_everything_else(self):
+        section = next(section for section in panel.sections(self.public(category=None)) if section.title == "Spend")
+        self.assertEqual("Cost: Builder 25% · everything else 75%", section.summary)
 
     def test_spend_lists_every_job_the_tokens_and_what_the_checking_bought(self):
         text = panel.text("/spend", self.public(), panel.StageLog())
@@ -223,7 +273,7 @@ class SpendDisplayTests(unittest.TestCase):
             "Where the money went: $2.00",
             "  Tokens: input 1.0k, new 100, cache write 200, cache read 700, output 50",
             "  Report repairs $0.10",
-            "  Builder $0.50 (25%); planning and checking $1.50",
+            "  Builder $0.50 (25%); planning $0.20, checking and other $1.30",
             "  What that bought: 3/3 criteria accepted; 2 tests fail before, pass after; 1 check rerun clean; "
             "1/2 broken lines caught; 1 blocking review finding; 1 problem handled",
         ):

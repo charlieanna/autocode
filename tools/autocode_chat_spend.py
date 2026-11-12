@@ -48,6 +48,31 @@ def _counted(count: int, one: str, many: str) -> str:
     return f"{count} {one if count == 1 else many}"
 
 
+def _duration(seconds) -> str:
+    if not _number(seconds):
+        return ""
+    whole = int(seconds)
+    if whole < 60:
+        return f"{whole}s"
+    if whole < 3600:
+        return f"{whole // 60}m{whole % 60:02d}s"
+    return f"{whole // 3600}h{whole % 3600 // 60:02d}m"
+
+
+def _cost_split(single: dict) -> str | None:
+    """The short line: what share of the cost (never of the time) went to the Builder, planning and the rest."""
+    if not _number(single.get("builder_share")):
+        return None
+    if _number(single.get("planning_share")) and _number(single.get("other_share")):
+        return (
+            f"Cost: Builder {_percent(single['builder_share'])} · planning {_percent(single['planning_share'])}"
+            f" · checking and other {_percent(single['other_share'])}"
+        )
+    return (
+        f"Cost: Builder {_percent(single['builder_share'])} · everything else {_percent(1 - single['builder_share'])}"
+    )
+
+
 def _metrics(view: dict | None) -> dict:
     metrics = _mapping(_mapping(view).get("run_metrics"))
     return metrics if metrics.get("schema") == 1 else {}
@@ -61,7 +86,11 @@ def _job_line(row: dict) -> str:
     attempts = row.get("attempts")
     again = f", {attempts} runs" if type(attempts) is int and attempts > 1 else ""
     known = "" if row.get("complete") is True else " (known part)"
-    return f"{row.get('job')} {_money(row.get('spent_usd'))}{known} · {_percent(row.get('share'))}{again}"
+    took = _duration(row.get("seconds"))
+    if took and row.get("seconds_complete") is not True:
+        took += " so far"
+    took = f" · {took}" if took else ""
+    return f"{row.get('job')} {_money(row.get('spent_usd'))}{known} · {_percent(row.get('share'))} of cost{took}{again}"
 
 
 def _cache_line(tokens: dict) -> str | None:
@@ -80,9 +109,19 @@ def _waste_line(waste: dict) -> str:
     else:
         known = "" if waste.get("failed_usd_complete") is True else " known"
         line = f"{failed} failed attempt{'' if failed == 1 else 's'} {_money(waste.get('failed_usd'))}{known}"
+    # A report repair rewrites a rejected report; it is not another run of the job (#3268 follow-up).
     repeated = _rows(waste.get("repeated_jobs"))
-    if repeated:
-        line += "; ran again: " + ", ".join(f"{row.get('job')} ×{row.get('attempts')}" for row in repeated)
+    runs = [(row.get("job"), row.get("runs", row.get("attempts"))) for row in repeated]
+    again = [f"{job} ×{count}" for job, count in runs if type(count) is int and count > 1]
+    repaired = [
+        f"{row.get('job')} ×{row['report_repairs']}"
+        for row in repeated
+        if type(row.get("report_repairs")) is int and row["report_repairs"]
+    ]
+    if again:
+        line += "; ran again: " + ", ".join(again)
+    if repaired:
+        line += "; report repairs: " + ", ".join(repaired)
     return line
 
 
@@ -111,10 +150,9 @@ def compact(view: dict | None) -> tuple[str, list[str]] | None:
     if not _spent(metrics):
         return None
     single = _mapping(metrics.get("single_model"))
-    if _number(single.get("builder_share")):
-        summary = f"Builder {_percent(single['builder_share'])} · checking {_percent(1 - single['builder_share'])}"
-    else:
-        summary = f"{_money(metrics.get('spent_usd'))} across {len(_rows(metrics.get('by_job')))} jobs"
+    summary = (
+        _cost_split(single) or f"{_money(metrics.get('spent_usd'))} across {len(_rows(metrics.get('by_job')))} jobs"
+    )
     entries = [_job_line(row) for row in _rows(metrics.get("by_job"))[:TOP_JOBS] if _number(row.get("spent_usd"))]
     if cache := _cache_line(_mapping(metrics.get("tokens"))):
         entries.append(cache.capitalize())
@@ -151,10 +189,12 @@ def details(view: dict | None) -> str:
         lines.append(f"  Report repairs {_money(waste['report_repair_usd'])}")
     single = _mapping(metrics.get("single_model"))
     lines.append("Compared with one model building it alone")
-    lines.append(
-        f"  Builder {_money(single.get('builder_usd'))} ({_percent(single.get('builder_share'))}); "
-        f"planning and checking {_money(single.get('checking_usd'))}"
+    rest = (
+        f"planning {_money(single['planning_usd'])}, checking and other {_money(single.get('other_usd'))}"
+        if _number(single.get("planning_usd"))
+        else f"everything else {_money(single.get('checking_usd'))}"
     )
+    lines.append(f"  Builder {_money(single.get('builder_usd'))} ({_percent(single.get('builder_share'))}); {rest}")
     checked = _checked(_mapping(single.get("produced")))
     lines.append("  What that bought: " + ("; ".join(checked) if checked else "nothing recorded yet"))
     if isinstance(single.get("basis"), str):

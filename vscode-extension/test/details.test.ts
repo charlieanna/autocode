@@ -141,20 +141,21 @@ test("what went wrong lists every recovery with what AutoCode did, as /why does"
 });
 
 test("spend restates run_metrics as /spend does, and says nothing before anything is spent", () => {
+  // METRICS is an older core's shape: no planning split, job time or report-repair counts.
   const header = runHeader(view({ run_metrics: METRICS }))!;
-  assert.equal(spendSummary(view({ run_metrics: METRICS })), "Builder 60% · checking 40%");
-  assert.ok(header.facts.includes("Builder 60% · checking 40%"));
+  assert.equal(spendSummary(view({ run_metrics: METRICS })), "Cost: Builder 60% · everything else 40%");
+  assert.ok(header.facts.includes("Cost: Builder 60% · everything else 40%"));
   assert.deepEqual(section(header, "spend")!.lines, [
     "Where the money went: $2.50",
-    "  Builder $1.50 · 60%, 2 runs",
-    "  Planner $1.00 (known part) · 40%",
+    "  Builder $1.50 · 60% of cost, 2 runs",
+    "  Planner $1.00 (known part) · 40% of cost",
     "  Tokens: input 1.2M, new 300.0k, cache write 10.0k, cache read 900.0k, output 4.2k",
     "  Cache reads 75% of input, cache writes 1%",
     "Spent again",
     "  1 failed attempt $0.30; ran again: Builder ×2",
     "  Report repairs $0.05",
     "Compared with one model building it alone",
-    "  Builder $1.50 (60%); planning and checking $1.00",
+    "  Builder $1.50 (60%); everything else $1.00",
     "  What that bought: 2/3 criteria accepted; 1 test fails before, pass after; 3/4 broken lines caught; 2 problems handled",
     "  The Builder's spend stands in for one model building it alone.",
   ]);
@@ -163,6 +164,29 @@ test("spend restates run_metrics as /spend does, and says nothing before anythin
   assert.equal(section(runHeader(view()), "spend"), undefined);
   assert.equal(spendSummary(view({ run_metrics: { ...METRICS, schema: 2 } })), null, "an unknown schema is not guessed at");
   assert.deepEqual(runHeader(view())!.facts, []);
+});
+
+test("the spend line says it is cost, names planning apart, and counts report repairs apart from runs (#3268)", () => {
+  // Live, 2026-11-12: "Builder 4% · checking 96%" read as a split of the time, and counted planning as checking.
+  const metrics = {
+    ...METRICS,
+    by_job: [
+      { job: "Builder", attempts: 2, spent_usd: 1.5, complete: true, share: 0.6, seconds: 90, seconds_complete: true },
+      { job: "Planner", attempts: 1, spent_usd: 1, complete: true, share: 0.4, seconds: 222.4, seconds_complete: false },
+    ],
+    waste: { ...METRICS.waste, repeated_jobs: [
+      { job: "Builder", attempts: 2, runs: 2, report_repairs: 0 },
+      { job: "Tester", attempts: 4, runs: 2, report_repairs: 2 },
+    ] },
+    single_model: { ...METRICS.single_model, planning_usd: 0.75, planning_share: 0.3, other_usd: 0.25, other_share: 0.1 },
+  };
+  const shown = view({ run_metrics: metrics });
+  assert.equal(spendSummary(shown), "Cost: Builder 60% · planning 30% · checking and other 10%");
+  const lines = section(runHeader(shown)!, "spend")!.lines;
+  assert.ok(lines.includes("  Builder $1.50 · 60% of cost · 1m30s, 2 runs"), lines.join("\n"));
+  assert.ok(lines.includes("  Planner $1.00 · 40% of cost · 3m42s so far"), lines.join("\n"));
+  assert.ok(lines.includes("  1 failed attempt $0.30; ran again: Builder ×2, Tester ×2; report repairs: Tester ×2"), lines.join("\n"));
+  assert.ok(lines.includes("  Builder $1.50 (60%); planning $0.75, checking and other $0.25"), lines.join("\n"));
 });
 
 test("verification shows once the run has finished, from the core's own gate", () => {
@@ -371,9 +395,10 @@ test("a stage that launched more than once counts its attempts and failures, and
   assert.deepEqual([single.attempts, single.runs], [1, ""]);
 });
 
-test("a report repair joins the stage it repairs on one row, not an extra row of its own", () => {
+test("a report repair joins the stage it repairs on one row, counted apart from the stage's own runs", () => {
   // The meter groups a repair under the stage it repairs (original_stage); the table must land
-  // both attempts on that stage's row, with the repair's own job name or not.
+  // both attempts on that stage's row, with the repair's own job name or not. A repair only rewrote a
+  // rejected report, so "Planner ×9" must not count repairs as runs (live, 2026-11-12: "Tester ×4" was 2 + 2).
   const repaired = working({
     pipeline: [step("plan_reviewer", "Plan Reviewer", "ran"), step("builder", "Builder", "working")],
     usage: { accounting: { attempts: [
@@ -382,10 +407,21 @@ test("a report repair joins the stage it repairs on one row, not an extra row of
     ] } },
   });
   const steps = pipelineSteps(repaired, STARTED);
-  assert.deepEqual(steps.map((row) => [row.label, row.attempts, row.failed, row.runs]), [
-    ["Plan Reviewer", 2, 1, "2 attempts, 1 failed"],
-    ["Builder", 0, 0, ""],
+  assert.deepEqual(steps.map((row) => [row.label, row.attempts, row.failed, row.repairs, row.runs]), [
+    ["Plan Reviewer", 1, 0, 1, "1 report repair"],
+    ["Builder", 0, 0, 0, ""],
   ]);
+  const twice = working({
+    pipeline: [step("tester", "Tester", "ran")],
+    usage: { accounting: { attempts: [
+      attempt("write_acceptance_tests", "Tester"),
+      attempt("tester", "Tester", { rejected: true }),
+      attempt("tester_report_repair", "Tester", { original_stage: "tester", rejected: true }),
+      attempt("tester_report_repair", "Tester", { original_stage: "tester" }),
+    ] } },
+  });
+  assert.deepEqual(pipelineSteps(twice, STARTED).map((row) => [row.attempts, row.failed, row.repairs, row.runs]),
+    [[2, 1, 2, "2 attempts, 1 failed, 2 report repairs"]]);
 });
 
 test("a job the pipeline does not list, such as the model preflight, gets its own row where it ran", () => {
