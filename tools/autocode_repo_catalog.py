@@ -514,7 +514,8 @@ def _remote_row(entry: dict[str, Any]) -> dict[str, Any]:
     pinned = entry.get("pinned_commit") or None
     return {
         "name": name,
-        "url": _github_url(name),
+        # A hand-edited entry without a name has no GitHub address to show.
+        "url": _github_url(name) if isinstance(name, str) else None,
         "ref": entry.get("ref"),
         "cloned": bool(path and pinned),
         "path": path,
@@ -631,6 +632,9 @@ def clone_remote(name: str) -> dict[str, Any]:
     if entry is None:
         raise CatalogError(f"Remote {selected} is not on the operator-approved allowlist")
     ref = entry.get("ref")
+    if not isinstance(ref, str) or not ref:
+        # `remotes add` always records one; only a hand-edited catalog lacks it.
+        raise CatalogError(f"Remote {selected} has no branch recorded; add it again with its --ref")
     target = storage_root() / MANAGED_CLONES / Path(*selected.split("/"))
     if target.is_dir():
         if entry.get("path") and entry.get("pinned_commit"):

@@ -371,6 +371,20 @@ class RemotesCatalogTests(unittest.TestCase):
             self.assertEqual(commit, entry["pinned_commit"])
             self.assertIn(str(clone), self.repository_paths())
 
+    def test_a_hand_edited_remote_without_a_name_or_branch_is_shown_and_refused_plainly(self):
+        with self.catalog_home() as home:
+            (home / "source-catalog.json").write_text(
+                json.dumps(
+                    {"version": 1, "roots": [], "repositories": [], "remotes": [{"name": OWNER_NAME}, {"ref": "main"}]}
+                )
+            )
+            # Listed by name, so the nameless entry ("None") comes first.
+            self.assertEqual([None, GITHUB_URL], [row["url"] for row in self.remotes_entries()])
+            code, output = self.clone_owner()
+            self.assert_source_catalog_error(code, output)
+            self.assertIn("has no branch recorded", output)
+            self.assertFalse(self.managed_clone(home).exists())
+
     def test_g1_legacy_catalog_keeps_loading(self):
         standalone = self.git_repo(self.root / "standalone")
         common = subprocess.run(
