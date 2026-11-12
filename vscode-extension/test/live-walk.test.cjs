@@ -533,3 +533,137 @@ test('walk: the status line keeps its liveness without the poll interval, and go
   await waitFor(() => statusText.includes('$5') && !statusText.includes('stale'), 30000);
   assert.ok(statusText.includes('$5'), 'the line recovers: ' + statusText);
 });
+
+test("walk: two runs racing on one project see each other's work, and a restore leaves the tree alone", { skip }, async (t) => {
+  const { root, builder, restore } = buildWorkspace();
+  claimSupervision(builder);
+  // One project, one tree: A (the saved step) changed greet.py, B (the Builder) wrote helper.py.
+  fs.writeFileSync(path.join(root, 'greet.py'), "print('A changed this')\n");
+  fs.writeFileSync(path.join(root, 'helper.py'), "print('B wrote this')\n");
+  const ui = await openWalkChat(t, root, restore);
+  const text = () => ui.document.querySelector('#app').textContent;
+
+  // A's compare against its saved step names BOTH runs' work: one tree, every diff sees it all.
+  ui.document.querySelector('[data-checkpoint-action="compare"]').click();
+  await waitFor(() => text().includes('+print'));
+  assert.ok(text().includes('helper.py'), "A's changes since its checkpoint include B's file: " + text().slice(-200));
+
+  // B's own diff, in its tab, names A's work just the same.
+  ui.chat.show({ workspace: root, runDir: builder });
+  await ui.chat.refresh();
+  const show = await waitFor(() => {
+    const btn = ui.document.querySelector('#working-diff');
+    return btn && !btn.disabled ? btn : false;
+  });
+  assert.ok(show, "B's diff is offered while it works");
+  show.click();
+  await waitFor(() => text().includes('+print'));
+  assert.ok(text().includes('greet.py') || text().includes("A changed this"),
+    "B's changes so far include A's file: " + text().slice(-200));
+
+  // A restores while B builds: the candidate lands on its own branch and the tree stays put.
+  ui.chat.show({ workspace: root, runDir: restore });
+  await ui.chat.refresh();
+  await waitFor(() => {
+    const btn = ui.document.querySelector('[data-checkpoint-action="restore"]');
+    return btn && !btn.disabled ? btn : false;
+  });
+  let release;
+  t.mock.method(host.vscode.window, 'showWarningMessage', () => new Promise((resolve) => { release = resolve; }));
+  ui.document.querySelector('[data-checkpoint-action="restore"]').click();
+  await waitFor(() => release);
+  release('Restore');
+  await waitFor(() => text().includes('Restored on a new branch'));
+  const branches = execFileSync('git', ['-C', root, 'branch', '--list'], { encoding: 'utf8' });
+  assert.ok(branches.includes('autocode/checkpoint-'), 'the candidate is on its own branch: ' + branches.trim());
+  const head = execFileSync('git', ['-C', root, 'branch', '--show-current'], { encoding: 'utf8' }).trim();
+  assert.equal(head, 'master', "the restore leaves the shared checkout where it was: B's tree is untouched");
+  assert.ok(fs.existsSync(path.join(root, 'helper.py')), "B's file survives the restore");
+});
+
+test('walk: closing a chat mid-run leaves the run working and the chat comes back to it', { skip }, async (t) => {
+  const { root, builder, paused } = buildWorkspace();
+  claimSupervision(builder);
+  const events = path.join(builder, 'events.jsonl');
+  const row = (item) => JSON.stringify({ type: 'item.updated', item }) + '\n';
+  fs.writeFileSync(events, row({ type: 'command_execution', id: 'c1', command: 'python3 -m unittest -q', status: 'running' }));
+  const statePath = path.join(builder, 'state.json');
+  const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  state.active_stage.events = events;
+  fs.writeFileSync(statePath, JSON.stringify(state));
+  host.config.set('cliPath', CLI);
+  host.config.set('cliArgs', [SCRIPT]);
+  let statusText = '';
+  const mockStatus = {
+    show() {}, hide() {}, dispose() {},
+    get text() { return statusText; }, set text(val) { statusText = val; },
+    tooltip: undefined, command: undefined,
+  };
+  t.mock.method(host.vscode.window, 'createStatusBarItem', () => mockStatus);
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+  const chat = host.providers.get('autocode.chat');
+  let receive;
+  const webview = {
+    html: '', options: {},
+    onDidReceiveMessage: (callback) => { receive = callback; },
+    postMessage: async (data) => { webview.deliver?.(data); return true; },
+  };
+  const shell = { visible: true, webview, onDidChangeVisibility: () => {}, onDidDispose() {} };
+  t.after(() => { chat.dispose(); });
+  chat.resolveWebviewView(shell);
+  const dom = new JSDOM(webview.html, { runScripts: 'outside-only' });
+  t.after(() => dom.window.close());
+  // The webview keeps its own state (drafts) the way VS Code does.
+  let saved = {};
+  dom.window.acquireVsCodeApi = () => ({
+    postMessage: (message) => receive(message),
+    getState: () => saved,
+    setState: (value) => { saved = value; },
+  });
+  webview.deliver = (data) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
+  dom.window.eval(dom.window.document.querySelector('script').textContent);
+  await flush();
+
+  await host.commands.get('autocode.openRun')({ workspace: root, runDir: builder });
+  const text = () => dom.window.document.querySelector('#app').textContent;
+  await waitFor(() => text().includes('python3 -m unittest -q'), 30000);
+  await waitFor(() => statusText.includes('AutoCode'), 30000);
+  // An unsent draft in the composer.
+  const field = dom.window.document.querySelector('#message');
+  field.value = 'A draft that was never sent';
+  field.dispatchEvent(new dom.window.Event('input'));
+  await flush();
+  // A fresh chat as the second tab: switching to it keeps the status line on the run the
+  // closed tab showed (a tab with a run of its own would take the line with it).
+  await host.commands.get('autocode.startRun')();
+  await waitFor(() => dom.window.document.querySelectorAll('.chat-tab').length === 2, 30000);
+  const closes = dom.window.document.querySelectorAll('.chat-tab .close');
+  closes[0].click();
+  await waitFor(() => dom.window.document.querySelectorAll('.chat-tab').length === 1, 30000);
+  assert.equal(dom.window.document.querySelectorAll('.chat-tab .close').length, 0,
+    'the last tab offers no close button when there is nothing to close');
+
+  // The run works on with no chat open on it: its log grows and its numbers move.
+  fs.appendFileSync(events, row({ type: 'command_execution', id: 'c2', command: 'python3 -m pytest -q', status: 'done' }));
+  const state2 = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  state2.inherited_spend = { usd: 7 };
+  fs.writeFileSync(statePath, JSON.stringify(state2));
+  // The window's status line keeps following the run the chat closed.
+  await waitFor(() => statusText.includes('$7'), 30000);
+  assert.ok(statusText.includes('$7'), 'the status line keeps following the closed chat\'s run: ' + statusText);
+
+  // Reopening comes back to everything that survived.
+  await host.commands.get('autocode.openRun')({ workspace: root, runDir: builder });
+  await waitFor(() => text().includes('python3 -m pytest -q'), 30000);
+  assert.ok(text().includes('python3 -m pytest -q'), "the work done while the tab was closed is there on reopening");
+  const reopened = dom.window.document.querySelector('#message');
+  assert.equal(reopened.value, 'A draft that was never sent', 'the unsent draft survives the close');
+  await waitFor(() => {
+    const btn = dom.window.document.querySelector('#working-diff');
+    return btn && !btn.disabled ? btn : false;
+  }, 30000);
+  assert.ok(dom.window.document.querySelector('#working-diff'), "the run's named diff is still offered");
+});
