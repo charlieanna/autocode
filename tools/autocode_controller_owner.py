@@ -316,7 +316,7 @@ def inspect(state: RunState, run_dir, workspace, *, run_locked=False, checkout_l
                     completed_stage=_completed_stage(state, run_dir),
                 )
                 return result
-    except (OSError, ValueError, TypeError, KeyError, OverflowError, processes.ProcessError) as error:
+    except (OSError, ValueError, TypeError, AttributeError, KeyError, OverflowError, processes.ProcessError) as error:
         result["reason"] = f"Controller ownership could not be inspected: {error}"
         return result
 
@@ -347,6 +347,33 @@ def project(state: RunState, inspection):
     )
     run_status.pause(shown, STATUS if inspection["kind"] == "ended" else "PAUSED_PROCESS_CHECK", reason)
     return shown
+
+
+def display(state: RunState, inspection):
+    """The one display rule for a saved checkpoint in the run inventory: its status and action (#3287).
+
+    A positively lost controller displays the controller-exit pause exactly where project() above
+    concludes it, with that pause's resume, as the run's own --status does. Everything else keeps the
+    saved claim: unknown or busy ownership, a live controller, a mid-flight uncertain attempt or active
+    runner check the projection will not settle, a saved non-RUNNING boundary, and a deliberate ready
+    handoff (#2332). That handoff is not a lost controller: it keeps RUNNING with its continue action,
+    as its --status view does, and ``ready_handoff`` marks it so the inventory lists it as Ready to
+    continue. A client goes on through consecutive ready boundaries while the status view reads
+    RUNNING, so showing the pause there would stop it after one. ``action_state`` is the state whose
+    need and next command the viewer shows. Read-only: nothing here persists a projection.
+    """
+    saved = state.get("status")
+    if saved == "RUNNING" and (inspection or {}).get("kind") == "ready":
+        return {"status": saved, "action_state": state, "ready_handoff": True}
+    if (
+        saved == "RUNNING"
+        and not (state.get("active_stage") and not (inspection or {}).get("completed_stage"))
+        and not state.get("active_runner_check")
+    ):
+        projected = project(state, inspection)
+        if projected is not state and projected.get("status") == STATUS:
+            return {"status": STATUS, "action_state": projected, "ready_handoff": False}
+    return {"status": saved, "action_state": state, "ready_handoff": False}
 
 
 def reconcile(state: RunState, run_dir, workspace, persist, *, checkout_locked=False):
