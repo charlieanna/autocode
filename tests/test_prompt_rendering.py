@@ -598,6 +598,14 @@ class RenderedPromptTests(unittest.TestCase):
                     self.assertTrue(rendered.startswith(instruction), name)
                 self.assertEqual(before, state, "rendering must not change authority or saved context")
 
+    def test_requirements_confirms_its_summary_once_not_again_as_a_question(self):
+        """The #2066 live run asked "Is that correct?" as an open question, then AutoCode asked for
+        the same confirmation of the summary: two confirmations and a second paid Requirements pass."""
+        for name, text in rendered_cases().items():
+            if name.startswith("planning/requirements_gather/"):
+                with self.subTest(case=name):
+                    self.assertIn('Never also put that confirmation ("Is that correct?") in\nopen_questions', text)
+
     def test_every_fixed_stage_rendering_matches_its_reviewed_bytes(self):
         expected = json.loads(FIXTURES.read_text())
         actual = rendered_cases()
