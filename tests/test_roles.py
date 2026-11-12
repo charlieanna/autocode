@@ -31,6 +31,34 @@ class OneListOfNames(unittest.TestCase):
         self.assertEqual("Unlisted Stage", status.role_name("unlisted_stage"))
         self.assertNotIn("unlisted_stage", roles.STAGE_JOB)
 
+    def test_a_legacy_stage_code_reads_as_its_jobs_name_not_its_old_code(self):
+        # A run saved before the stage rename (#3010) still records astra/terra/sol codes;
+        # the status view must read them through autocode_names, never title-case the code
+        # back onto the screen ("Astra Discovery", "Terra", "Sol" in a live VS Code chat, 2026-11-12).
+        import autocode_names as names
+
+        expected = {
+            "astra_discovery": "Planner",
+            "astra_challenge": "Plan Reviewer",
+            "glm_revise": "Planner",
+            "astra_finalize": "Plan Reviewer",
+            "terra": "Builder",
+            "sol": "Tester",
+            "astra_review": "Completion Reviewer",
+        }
+        for old, name in expected.items():
+            with self.subTest(old=old):
+                self.assertEqual(name, roles.screen_name(old))
+                self.assertEqual(name, roles.screen_name(old + "_report_repair"))
+                self.assertEqual(name, status.role_name(old))
+        for old, new in names.STAGES.items():
+            with self.subTest(old=old, new=new):
+                self.assertIsNotNone(roles.job_for_stage(old), old)
+                self.assertEqual(roles.screen_name(new), roles.screen_name(old))
+                self.assertIn(roles.screen_name(old), roles.SCREEN.values())
+                for word in ("astra", "terra", "glm", "sol"):
+                    self.assertNotIn(word, roles.screen_name(old).lower().split(), old)
+
     def test_stages_the_runner_queues_have_job_names(self):
         # Written as next_stage by AutoResolver diagnosis and the --planning-v2 flow (#29 shows them).
         for stage, name in {
