@@ -186,10 +186,33 @@ class ChangedCodeTriggerTests(unittest.TestCase):
         (self.root / "calc.py").write_text("def answer():\n    return 2\n")
         run_dir = self.root / ".autocode" / "runs" / "r1"
         run_dir.mkdir(parents=True)
+        self.state["next_stage"] = "builder"
         with mock.patch.object(trigger.verify, "changed_files", side_effect=trigger.verify.changed_files) as compared:
-            regression.before_review(self.state, "requirements_gather", str(self.root), str(run_dir))
+            regression.before_review(self.state, None, str(self.root), str(run_dir))
         self.assertEqual(1, compared.call_count)
         self.assertEqual(trigger.UNMEASURABLE, self.state["changed_code_fallback"]["reason"])
+
+    def test_a_planning_stage_waits_for_the_comparison(self):
+        # Before Requirements answered "hi" in a large repository (2026-11-12), the comparison and its
+        # test-role inventory took about 12 s; a planning stage only reads, and the evidence it refreshes
+        # is recomputed before every review, so it is not computed there at all.
+        (self.root / "calc.py").write_text("def answer():\n    return 2\n")
+        run_dir = self.root / ".autocode" / "runs" / "r1"
+        run_dir.mkdir(parents=True)
+        for stage, next_stage in (
+            ("requirements_gather", None),
+            ("requirements_gather_report_repair", None),
+            ("draft_plan", None),
+            ("review_plan", None),
+            (None, "requirements_gather"),
+            (None, "plan_task"),
+        ):
+            with self.subTest(stage=stage, next_stage=next_stage):
+                state = {**self.state, "next_stage": next_stage}
+                with mock.patch.object(trigger.verify, "changed_files") as compared:
+                    regression.before_review(state, stage, str(self.root), str(run_dir))
+                compared.assert_not_called()
+                self.assertNotIn("changed_code_fallback", state)
 
     def test_an_unreadable_workspace_keeps_the_obligation(self):
         self.assertIsNone(trigger.unmeasurable({**self.state, "workspace": str(self.root / "missing")}))
