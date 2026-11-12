@@ -75,7 +75,7 @@ class ApprovalAfterSourceChangeCLITests(unittest.TestCase):
         )
         # The view now names the step that re-checks the plan, which a client takes without asking.
         rechecking = self.view()
-        self.assertEqual(("RUNNING", "continue"), (rechecking["status"], rechecking["needs"]["kind"]))
+        self.assertEqual(("PAUSED_CONTROLLER_EXIT", "continue"), (rechecking["status"], rechecking["needs"]["kind"]))
 
         self.assertTrue(rechecking["next_command"].endswith("--no-chat"), rechecking["next_command"])
         continued = self.cli("--run-dir", str(self.run_dir), "--no-chat")

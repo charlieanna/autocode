@@ -542,7 +542,7 @@ class ControllerExitCliTests(unittest.TestCase):
         )
         waiting = run.status()
         approved = run.approve_plan(waiting["needs"]["token"])
-        self.assertEqual("RUNNING", approved["status"], approved)
+        self.assertEqual("PAUSED_CONTROLLER_EXIT", approved["status"], approved)
         self.assertEqual("ready", approved["controller"]["kind"])
         attempts = approved["usage"]["accounting"]["attempts"]
         checkpoint = (run.run_dir / "state.json").read_bytes()
@@ -564,7 +564,7 @@ class ControllerExitCliTests(unittest.TestCase):
         self.assertEqual(2, rejected.returncode, rejected.stderr)
         self.assertIn("Input rejected:", rejected.stderr)
         unchanged = run.status()
-        self.assertEqual("RUNNING", unchanged["status"], unchanged)
+        self.assertEqual("PAUSED_CONTROLLER_EXIT", unchanged["status"], unchanged)
         self.assertEqual("ready", unchanged["controller"]["kind"])
         self.assertEqual(2, unchanged["controller"]["receipt"]["exit_code"])
         self.assertEqual(approved["approved_contract"], unchanged["approved_contract"])

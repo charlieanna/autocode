@@ -10,9 +10,11 @@ Discovery has two scopes. By default the current project's
 registered and a crashed run whose pointer is stale. ``--all`` walks the per-user
 registry instead, so every project the person has run appears.
 
-A row reports what a run last saved. Unlike that run's own ``--status``, nothing
-here inspects a supervised process, so a stage hung mid-flight still reads as
-working: use ``--status`` on one run when the question is whether it is alive.
+A row projects the same controller-exit display the run's own ``--status`` shows,
+read-only (#3287): a controller positively gone reads as the pause with its
+resume, and a deliberate ready handoff keeps ``Ready to continue``, while unknown
+or busy ownership keeps the saved claim. Use ``--status`` on one run for its full
+detail.
 """
 
 from __future__ import annotations
@@ -146,8 +148,16 @@ def _row(workspace: Path, run_dir: Path, now: float, changesets, *, checkpoint) 
     if build_worktree.moved(state):
         # Planned here and moved to its own task worktree to build: its row is that worktree's run.
         return {"run_dir": str(run_dir), "moved": True}
+    shown_status, action_state, handoff = state.get("status"), state, False
+    if state.get("status") == "RUNNING":
+        # One shared display rule over a read-only controller inspection (#3287): a positively lost
+        # controller displays the controller-exit pause and its resume; a deliberate ready handoff
+        # displays the pause and keeps its continue action. Unknown, busy, live or mid-flight
+        # ownership keeps the saved claim. Nothing here writes, signals or reconciles a run.
+        displayed = controller_owner.display(state, controller_owner.inspect(state, run_dir, workspace))
+        shown_status, action_state, handoff = displayed["status"], displayed["action_state"], displayed["ready_handoff"]
     try:
-        shown = run_view.action(state, run_dir=run_dir, workspace=workspace)
+        shown = run_view.action(action_state, run_dir=run_dir, workspace=workspace)
     except (KeyError, TypeError, AttributeError, ValueError) as error:
         # A checkpoint another version wrote: the row still has to be shown.
         return {
@@ -159,7 +169,7 @@ def _row(workspace: Path, run_dir: Path, now: float, changesets, *, checkpoint) 
     need = shown["needs"] or {}
     public = {
         **shown,
-        "status": state.get("status"),
+        "status": shown_status,
         "done": state.get("status") in run_view.COMPLETE and replay_view.completion_policy(state)["completion_allowed"],
     }
     projected = attention.project(
@@ -169,7 +179,7 @@ def _row(workspace: Path, run_dir: Path, now: float, changesets, *, checkpoint) 
     reason = None
     bucket = _bucket(need.get("kind"), state.get("status"))
     ready = False
-    if bucket == WORKING and command and controller_owner.ready_for(state, run_dir):
+    if bucket == WORKING and command and handoff:
         # Saved by an answer, approval or follow-up and left for the person to continue: nothing runs
         # it, so it needs them, not patience (#2332).
         bucket, ready = NEEDS, True
@@ -187,7 +197,7 @@ def _row(workspace: Path, run_dir: Path, now: float, changesets, *, checkpoint) 
         "bucket": bucket,
         "ready_to_continue": ready,
         "availability": availability,
-        "status": state.get("status"),
+        "status": shown_status,
         "needs": need.get("kind"),
         "attention": attention_status.observed(projected),
         "needs_reason": need.get("reason"),

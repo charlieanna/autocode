@@ -99,7 +99,7 @@ class NoProgressBoundTests(unittest.TestCase):
         """
         _, resumed = self.saved()
         view = self.view()
-        self.assertEqual(("RUNNING", "builder"), (view["status"], view["next_stage"]))
+        self.assertEqual(("PAUSED_CONTROLLER_EXIT", "builder"), (view["status"], view["next_stage"]))
         self.assertIsNone(human.current(resumed))
         self.assertEqual(3, resumed["no_progress_batches"])
         self.assertEqual(limit, resumed["settings"]["limits"]["no_progress_batches"])

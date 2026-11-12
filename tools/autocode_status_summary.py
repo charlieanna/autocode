@@ -22,6 +22,9 @@ STATES = (NEEDS_YOU, WORKING, DONE, STOPPED)
 LABELS = {NEEDS_YOU: "Needs you", WORKING: "Working", DONE: "Done", STOPPED: "Stopped"}
 # A controller does the work in these statuses; the person is not yet asked for anything.
 WORKING_STATUSES = ("RUNNING", "DISCOVERING", "WAITING_FOR_USER")
+# Statuses a deliberate ready handoff displays while it keeps its continue action: the saved RUNNING
+# claim, and the controller-exit pause the shared display rule projects it to (#2332, #3287).
+READY_CONTINUE_STATUSES = ("RUNNING", "PAUSED_CONTROLLER_EXIT")
 # Needs a run continues past on its own, or that another run answers.
 NOT_A_PERSON = (None, "continue", "dependency")
 NOTHING_NEEDED = "nothing needed from you"  # the progress view's needs_you when no one is waited on
@@ -60,7 +63,7 @@ def project(view: dict, *, stale: bool = False, completion_current=None, next_ac
         state = NEEDS_YOU
         reason = asked if asked and asked != NOTHING_NEEDED else need.get("reason") or view.get("pause_category_label")
         sentence = _sentence(str(reason or status.replace("_", " ").lower()).capitalize())
-    elif status == "RUNNING" and (view.get("controller") or {}).get("kind") == "ready" and command:
+    elif status in READY_CONTINUE_STATUSES and (view.get("controller") or {}).get("kind") == "ready" and command:
         # The controller exited on purpose after a saved answer, approval or follow-up: the run moves
         # only when someone runs the command, so "Working" would have the person wait for nothing (#2332).
         state = NEEDS_YOU

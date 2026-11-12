@@ -195,7 +195,7 @@ class AcceptanceRecoveryCliTests(AcceptanceRecoveryFixture, unittest.TestCase):
         self.assertIn("--resume-paused", before["next_command"])
         after = self.run.resume_paused()
         self.assertEqual(identity.token(self.approved), after["approved_contract"]["token"])
-        self.assertEqual("RUNNING", after["status"])
+        self.assertEqual("PAUSED_CONTROLLER_EXIT", after["status"])
         self.assertIn(after["next_stage"], ("builder", "orchestrator"))
         self.assertFalse(after["done"])
         self.assertEqual(before["approvals"], after["approvals"])

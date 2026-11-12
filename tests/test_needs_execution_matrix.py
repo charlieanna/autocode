@@ -437,7 +437,7 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         self.assertIn("--planning-review-call-limit", before["progress"]["needs_you"])
         after = self.run.feedback("Keep the scope; simplify the plan before another review")
         self.assertEqual("continue", after["needs"]["kind"])
-        self.assertEqual("RUNNING", after["status"])
+        self.assertEqual("PAUSED_CONTROLLER_EXIT", after["status"])
         self.assertIsNone(after.get("approved_contract"))
         self.assertEqual("draft_plan", after["next_stage"])
         self.provider.assert_not_called()

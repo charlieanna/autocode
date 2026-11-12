@@ -166,7 +166,7 @@ class RequirementsNamesTheJobCliTests(unittest.TestCase):
             )
             run.answer(question["id"], answer, resolver_token=need["resolver_token"])
             view = run.advance()
-        self.assertEqual("RUNNING", view["status"], self.details(view))
+        self.assertEqual("PAUSED_CONTROLLER_EXIT", view["status"], self.details(view))
         self.assertNotEqual("requirements_gather", view["next_stage"], self.details(view))
         self.assertEqual(1, self.ran(run, "requirements-gather"), "Requirements ran while the checkout was held")
         self.assertEqual(0, self.ran(run, "discovery"), "nothing is planned while another run holds the checkout")

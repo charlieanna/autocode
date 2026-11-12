@@ -128,7 +128,7 @@ class DependencyFlowTests(unittest.TestCase):
 
         def observe_delivery(path):
             delivered = receive(path)
-            self.assertEqual("RUNNING", delivered["status"], delivered)
+            self.assertEqual("PAUSED_CONTROLLER_EXIT", delivered["status"], delivered)
             self.assertEqual("continue", delivered["needs"]["kind"], delivered)
             self.assertEqual("ready", delivered["controller"]["kind"], delivered)
             self.assertEqual(0, delivered["controller"]["receipt"]["exit_code"])

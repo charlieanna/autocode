@@ -1,8 +1,8 @@
 """`autocode wait`: block until one saved run reaches the person, the end, or loses its controller.
 
-`autocode runs` answers "which run needs me now" once, from what each run last saved;
-this command is its blocking form, and it closes the gap a saved checkpoint cannot:
-every second it also inspects, read-only, whether a controller still owns the run.
+`autocode runs` answers "which run needs me now" once, read-only; this command is
+its blocking form: every second it also re-reads the checkpoint and inspects,
+read-only, whether a controller still owns the run.
 `autocode events --follow` streams how a run got where it is; this says only when to
 look. Nothing here starts, resumes or changes a run.
 

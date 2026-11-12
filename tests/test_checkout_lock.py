@@ -128,7 +128,15 @@ class InPlaceRunTests(unittest.TestCase):
             )
             self.assertFalse((self.project / "greet.py").exists())
             status = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)
-            self.assertEqual("RUNNING", status["status"])
+            self.assertEqual(
+                "PAUSED_CONTROLLER_EXIT",
+                status["status"],
+                {
+                    "controller": status["view"]["controller"],
+                    "active_stage": (status.get("active_stage") or {}).get("stage"),
+                    "runner_check": bool(status.get("runner_check_workers")),
+                },
+            )
             self.assertEqual("ready", status["view"]["controller"]["kind"], status)
             self.assertEqual(2, status["view"]["controller"]["receipt"]["exit_code"])
         # The same kind of command, once the other run has stopped, simply continues.

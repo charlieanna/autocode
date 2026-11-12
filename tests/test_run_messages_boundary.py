@@ -228,7 +228,7 @@ class MessageBoundaryTests(unittest.TestCase):
 
     def test_controller_keeps_acknowledged_message_handoff_ready_for_continue(self):
         view = self.controller_boundary()
-        self.assertEqual("RUNNING", view["status"])
+        self.assertEqual("PAUSED_CONTROLLER_EXIT", view["status"])
         self.assertEqual("requirements_gather", view["next_stage"])
         self.assertEqual("continue", view["needs"]["kind"])
         self.assertNotIn("--resume-paused", view["next_command"])
@@ -282,7 +282,7 @@ class MessageBoundaryTests(unittest.TestCase):
         view = taskrun.TaskRun(
             self.workspace, self.run, command=[sys.executable, str(ROOT / "tools/autocode.py")]
         ).status()
-        self.assertEqual("RUNNING", view["status"])
+        self.assertEqual("PAUSED_CONTROLLER_EXIT", view["status"])
         self.assertEqual("continue", view["needs"]["kind"])
         self.assertEqual("requirements_gather", view["next_stage"], "Requirements answers the message next")
         self.assertNotIn("--resume-paused", view["next_command"])
@@ -320,7 +320,7 @@ class MessageBoundaryTests(unittest.TestCase):
         view = taskrun.TaskRun(
             self.workspace, self.run, command=[sys.executable, str(ROOT / "tools/autocode.py")]
         ).status()
-        self.assertEqual(("RUNNING", "requirements_gather"), (view["status"], view["next_stage"]))
+        self.assertEqual(("PAUSED_CONTROLLER_EXIT", "requirements_gather"), (view["status"], view["next_stage"]))
         self.assertEqual("continue", view["needs"]["kind"])
         self.assertNotIn("--resume-paused", view["next_command"])
         saved = json.loads(self.path.read_text())
