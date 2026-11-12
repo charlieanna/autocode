@@ -3110,6 +3110,29 @@ test('chat shows the running step\'s activity and the live diff the view names (
   assert.ok(!text().includes('+print(1)'), 'a diff of an ended step is not left on screen');
 });
 
+test('a finished checkpoint action re-enables its buttons before the next read lands', async (t) => {
+  const ui = await openChat(t, checkpointView());
+  t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({
+    version: 1, checkpoint_id: 'cp-1', expected_token: 'checkpoint-v1:t', changed_files: ['app.txt'],
+    patch: '+x', truncated: false,
+  }) }));
+  let calls = 0;
+  let release;
+  // The compare's own status read answers; the read the follow-up refresh makes stays out.
+  t.mock.method(controller, 'status', () => {
+    calls++;
+    if (calls === 1) return Promise.resolve(structuredClone(checkpointView()));
+    return new Promise((resolve) => { release = () => resolve(structuredClone(checkpointView())); });
+  });
+  ui.document.querySelector('[data-checkpoint-action="compare"]').click();
+  await flush(); await flush();
+  const restore = ui.document.querySelector('[data-checkpoint-action="restore"]');
+  assert.equal(restore.disabled, false,
+    'the step\'s buttons come back when the action ends, without waiting for the next read');
+  release();
+  await flush();
+});
+
 test('the live diff the view names is offered while the Builder streams its log', async (t) => {
   const working = ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--working'];
   const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },

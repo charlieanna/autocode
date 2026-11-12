@@ -87,7 +87,48 @@ function buildWorkspace() {
     inherited_spend: { usd: 2.37 },
     recovery: { token: 'cost:current', category: 'paused' },
   }));
-  return { root, stream, builder, paused };
+  const restore = run('restore');
+  writeRestoreRun(root, restore);
+  return { root, stream, builder, paused, restore };
+}
+
+
+/** A run paused at a person's request, with one saved step whose receipt matches the real tree. */
+function writeRestoreRun(root, runDir) {
+  const tools = path.dirname(SCRIPT);
+  execFileSync(CLI, ['-c', `
+import datetime, hashlib, json, pathlib, secrets, subprocess, sys
+sys.path.insert(0, ${JSON.stringify(tools)})
+from autocode_code_checkpoints import tree_files
+from autocode_util import digest
+root = ${JSON.stringify(root)}
+run = ${JSON.stringify(runDir)}
+seed = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+body = {"task_id": "t1", "summary": "Build it", "open_blocking_questions": False, "acceptance_criteria": []}
+contract = {"task_id": "t1", "revision": 1, "body": body, "origin": {"kind": "chat"}}
+contract["hash"] = digest({k: contract[k] for k in ("task_id", "revision", "body")})
+token = f"r{contract['revision']}:{contract['hash']}"
+approval = {"kind": "goal_approval", "token": token, "actor": "user_cli"}
+contract["approval_status"] = "approved"
+contract["approval_event"] = approval
+receipt = {"id": "cp-1", "commit": seed, "run_dir": run, "contract_hash": contract["hash"],
+           "source": {"head": seed, "files": tree_files(root, seed)}}
+path = pathlib.Path(run, "cp-1.json")
+path.write_text(json.dumps(receipt))
+state = {
+  "version": 3, "task": "Build a greeting CLI", "workspace": root,
+  "status": "PAUSED_REQUESTED", "iteration": 1, "sessions": {}, "stages": [], "history": [],
+  "user_events": [approval], "turns": [], "next_stage": "builder",
+  "created_at": "2026-11-11T08:00:00Z", "settings": {"provider": "fake", "engine": "opencode"},
+  "goal_contract": contract,
+  "code_checkpoints": [{
+    "id": "cp-1", "label": "Fixture step", "at": "2026-11-11T08:30:00Z", "changed_files": ["greet.py"],
+    "available": True, "receipt": str(path), "receipt_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+    "commit": seed, "recorded_check": {"verdict": "PASS"},
+  }],
+}
+pathlib.Path(run, "state.json").write_text(json.dumps(state, indent=2))
+`], { stdio: 'pipe' });
 }
 
 /** A live controller receipt for a run, so the view's liveness says a stage really works. */
@@ -244,4 +285,76 @@ test('walk: archiving and deleting a chat run the named registry commands and st
   assert.equal(statusVisible, false, 'the status line stops following a chat that no longer exists');
   const gone = (await controller.list()).runs.find((row) => row.runDir.endsWith('paused'));
   assert.equal(gone, undefined, 'the deleted chat is gone from the real registry');
+});
+
+test('walk: a saved step compares for real and its restore is named, confirmed and taken', { skip }, async (t) => {
+  const { root, restore } = buildWorkspace();
+  const ui = await openWalkChat(t, root, restore);
+  const compare = ui.document.querySelector('[data-checkpoint-action="compare"]');
+  assert.ok(compare, 'the saved step offers its compare');
+  compare.click();
+  // Wait for the compare's own diff (the row's counts appear without it).
+  await waitFor(() => ui.document.querySelector('#app').textContent.includes('+print'));
+  // The buttons re-render when the action ends; click the live, enabled one.
+  await waitFor(() => {
+    const btn = ui.document.querySelector('[data-checkpoint-action="restore"]');
+    return Boolean(btn && !btn.disabled);
+  });
+  const restoreBtn = ui.document.querySelector('[data-checkpoint-action="restore"]');
+  assert.ok(restoreBtn && !restoreBtn.disabled, 'the saved step offers its restore');
+  let release;
+  t.mock.method(host.vscode.window, 'showWarningMessage', (question, _options, button) => {
+    assert.match(question, /Restore "Fixture step"/, 'the dialog names the step');
+    return new Promise((resolve) => { release = (answer) => resolve(answer); });
+  });
+  restoreBtn.click();
+  await waitFor(() => release);
+  assert.ok(release, 'the restore confirmation opened');
+  const hint = () => ui.document.querySelector('#send-hint').textContent;
+  assert.ok(hint().includes('answer the dialog that opened'), `the chat names the open dialog: ${hint()}`);
+  const before = execFileSync('git', ['-C', root, 'branch', '--list'], { encoding: 'utf8' });
+  release('Restore');
+  const done = await waitFor(() => ui.document.querySelector('#app').textContent.includes('Restored on a new branch'));
+  if (!done) console.error('DEBUG app tail:', ui.document.querySelector('#app').textContent.slice(-400), '| errors:', host.errors);
+  const after = execFileSync('git', ['-C', root, 'branch', '--list'], { encoding: 'utf8' });
+  if (after === before) console.error('DEBUG branches:', JSON.stringify(after));
+  assert.notEqual(after, before, 'the restore put the saved step on a real branch');
+});
+
+test('walk: closing a chat mid-reply returns every poll to the ordinary interval', { skip }, async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const { root, stream, paused } = buildWorkspace();
+  fs.appendFileSync(path.join(stream, 'events.jsonl'),
+    JSON.stringify({ type: 'text', part: { id: 1, text: '{"assistant_reply": "Who will"}' } }) + '\n');
+  const ui = await openWalkChat(t, root, stream);
+  ui.chat.show({ workspace: root, runDir: paused });
+  // Real reads take wall-clock seconds; drain on the call count, never on a mocked timer.
+  const cli = host.load('core/cli.js');
+  const counted = t.mock.method(cli, 'readStatus');
+  const reads = () => counted.mock.callCount();
+  const drain = async (ok, ms = 20000) => {
+    const until = Date.now() + ms;
+    while (!ok() && Date.now() < until) await new Promise((resolve) => setImmediate(resolve));
+    return ok();
+  };
+  // The reply grows again: an unchanged extract would quiet the pace back to the ordinary
+  // interval after a few reads, which is the core's rule, not the bug being walked here.
+  fs.appendFileSync(path.join(stream, 'events.jsonl'),
+    JSON.stringify({ type: 'text', part: { id: 1, text: '{"assistant_reply": "Who will use it?"} ' } }) + '\n');
+  await drain(() => false, 1500);
+  const start = reads();
+  t.mock.timers.tick(250);
+  await drain(() => reads() > start);
+  assert.ok(reads() > start, 'a growing reply polls at the streaming pace');
+  // The streaming chat's tab is closed while its reply still grows.
+  [...ui.document.querySelectorAll('.chat-tab .close')][0].click();
+  await drain(() => false, 1500);           // let the close settle and the pending tick land
+  t.mock.timers.tick(250); await drain(() => false, 1500);
+  const settled = reads();
+  t.mock.timers.tick(250);
+  await drain(() => false, 1500);
+  assert.equal(reads(), settled, 'a closed chat must not hold every poll at the streaming pace');
+  t.mock.timers.tick(5000);
+  await drain(() => reads() > settled);
+  assert.ok(reads() > settled, 'the ordinary interval still polls the chat that is open');
 });
