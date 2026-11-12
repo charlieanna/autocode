@@ -67,6 +67,8 @@ def classify_unchanged_attempt(data):
         "untestable": "The unchanged report is evidence of no progress, not proof of a cause that would make a retry succeed.",
         "failure_class": "unknown",
         "failure_id": failure["failure_id"],
+        # A strict-schema engine requires every Investigator field, this one included (#3213).
+        "project_notes": [],
     }
 
 
