@@ -59,20 +59,6 @@ def _duration(seconds) -> str:
     return f"{whole // 3600}h{whole % 3600 // 60:02d}m"
 
 
-def _cost_split(single: dict) -> str | None:
-    """The short line: what share of the cost (never of the time) went to the Builder, planning and the rest."""
-    if not _number(single.get("builder_share")):
-        return None
-    if _number(single.get("planning_share")) and _number(single.get("other_share")):
-        return (
-            f"Cost: Builder {_percent(single['builder_share'])} · planning {_percent(single['planning_share'])}"
-            f" · checking and other {_percent(single['other_share'])}"
-        )
-    return (
-        f"Cost: Builder {_percent(single['builder_share'])} · everything else {_percent(1 - single['builder_share'])}"
-    )
-
-
 def _metrics(view: dict | None) -> dict:
     metrics = _mapping(_mapping(view).get("run_metrics"))
     return metrics if metrics.get("schema") == 1 else {}
@@ -144,15 +130,26 @@ def _checked(produced: dict) -> list[str]:
     return parts
 
 
+def share_line(single: dict) -> str:
+    """The Builder's share of the cost (never of the time) beside planning and checking (#3268);
+    "everything else" from an older core."""
+    builder = f"Cost: Builder {_percent(single['builder_share'])}"
+    planning, review = single.get("planning_share"), single.get("review_share")
+    if not (_number(planning) and _number(review)):
+        return f"{builder} · everything else {_percent(1 - single['builder_share'])}"
+    return builder + (f" · planning {_percent(planning)}" if planning else "") + f" · checking {_percent(review)}"
+
+
 def compact(view: dict | None) -> tuple[str, list[str]] | None:
     """The side panel's Spend section: the Builder's share, the costliest jobs, cache use and waste."""
     metrics = _metrics(view)
     if not _spent(metrics):
         return None
     single = _mapping(metrics.get("single_model"))
-    summary = (
-        _cost_split(single) or f"{_money(metrics.get('spent_usd'))} across {len(_rows(metrics.get('by_job')))} jobs"
-    )
+    if _number(single.get("builder_share")):
+        summary = share_line(single)
+    else:
+        summary = f"{_money(metrics.get('spent_usd'))} across {len(_rows(metrics.get('by_job')))} jobs"
     entries = [_job_line(row) for row in _rows(metrics.get("by_job"))[:TOP_JOBS] if _number(row.get("spent_usd"))]
     if cache := _cache_line(_mapping(metrics.get("tokens"))):
         entries.append(cache.capitalize())
@@ -189,12 +186,14 @@ def details(view: dict | None) -> str:
         lines.append(f"  Report repairs {_money(waste['report_repair_usd'])}")
     single = _mapping(metrics.get("single_model"))
     lines.append("Compared with one model building it alone")
-    rest = (
-        f"planning {_money(single['planning_usd'])}, checking and other {_money(single.get('other_usd'))}"
-        if _number(single.get("planning_usd"))
-        else f"everything else {_money(single.get('checking_usd'))}"
+    lines.append(
+        f"  Builder {_money(single.get('builder_usd'))} ({_percent(single.get('builder_share'))}); "
+        + (
+            f"planning {_money(single['planning_usd'])}; checking {_money(single.get('review_usd'))}"
+            if _number(single.get("planning_usd"))
+            else f"planning and checking {_money(single.get('checking_usd'))}"
+        )
     )
-    lines.append(f"  Builder {_money(single.get('builder_usd'))} ({_percent(single.get('builder_share'))}); {rest}")
     checked = _checked(_mapping(single.get("produced")))
     lines.append("  What that bought: " + ("; ".join(checked) if checked else "nothing recorded yet"))
     if isinstance(single.get("basis"), str):

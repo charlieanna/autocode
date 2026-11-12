@@ -771,6 +771,7 @@ def run_role(
                 activity=activity,
                 activity_checkpoint=activity_checkpoint,
                 startup_grace=min(5, tool_timeout or 5),
+                stop_requested=lambda: interventions.stop_now_requested(run_dir),
                 **({"on_root": on_root} if native is not None else {}),
             )
         except KeyboardInterrupt:

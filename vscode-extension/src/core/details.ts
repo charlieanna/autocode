@@ -376,10 +376,12 @@ export function spendSummary(view: Row): string | null {
   if (!metrics) return null;
   const single = mapping(metrics.single_model);
   if (isNumber(single.builder_share) && single.builder_share <= 1) {
-    if (isNumber(single.planning_share) && isNumber(single.other_share)) {
-      return `Cost: Builder ${percent(single.builder_share)} · planning ${percent(single.planning_share)} · checking and other ${percent(single.other_share)}`;
+    // Planning is named apart from checking (#3268); an older core gives no split, so the rest is "everything else".
+    const builder = `Cost: Builder ${percent(single.builder_share)}`;
+    if (!isNumber(single.planning_share) || !isNumber(single.review_share)) {
+      return `${builder} · everything else ${percent(1 - single.builder_share)}`;
     }
-    return `Cost: Builder ${percent(single.builder_share)} · everything else ${percent(1 - single.builder_share)}`;
+    return `${builder}${single.planning_share ? ` · planning ${percent(single.planning_share)}` : ""} · checking ${percent(single.review_share)}`;
   }
   return `${money(metrics.spent_usd)} across ${rows(metrics.by_job).length} jobs`;
 }
@@ -401,10 +403,9 @@ function spendSection(view: Row): DetailSection | null {
   if (isNumber(waste.report_repair_usd) && waste.report_repair_usd) lines.push(`  Report repairs ${money(waste.report_repair_usd)}`);
   const single = mapping(metrics.single_model);
   lines.push("Compared with one model building it alone");
-  const rest = isNumber(single.planning_usd)
-    ? `planning ${money(single.planning_usd)}, checking and other ${money(single.other_usd)}`
-    : `everything else ${money(single.checking_usd)}`;
-  lines.push(`  Builder ${money(single.builder_usd)} (${percent(single.builder_share)}); ${rest}`);
+  lines.push(`  Builder ${money(single.builder_usd)} (${percent(single.builder_share)}); ${isNumber(single.planning_usd)
+    ? `planning ${money(single.planning_usd)}; checking ${money(single.review_usd)}`
+    : `planning and checking ${money(single.checking_usd)}`}`);
   const bought = checked(mapping(single.produced));
   lines.push(`  What that bought: ${bought.length ? bought.join("; ") : "nothing recorded yet"}`);
   if (text(single.basis)) lines.push(`  ${text(single.basis)}.`);

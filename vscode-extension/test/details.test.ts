@@ -143,6 +143,7 @@ test("what went wrong lists every recovery with what AutoCode did, as /why does"
 test("spend restates run_metrics as /spend does, and says nothing before anything is spent", () => {
   // METRICS is an older core's shape: no planning split, job time or report-repair counts.
   const header = runHeader(view({ run_metrics: METRICS }))!;
+  // METRICS has no planning split, as an older core's view: the rest is "everything else", not "checking" (#3268).
   assert.equal(spendSummary(view({ run_metrics: METRICS })), "Cost: Builder 60% · everything else 40%");
   assert.ok(header.facts.includes("Cost: Builder 60% · everything else 40%"));
   assert.deepEqual(section(header, "spend")!.lines, [
@@ -155,7 +156,7 @@ test("spend restates run_metrics as /spend does, and says nothing before anythin
     "  1 failed attempt $0.30; ran again: Builder ×2",
     "  Report repairs $0.05",
     "Compared with one model building it alone",
-    "  Builder $1.50 (60%); everything else $1.00",
+    "  Builder $1.50 (60%); planning and checking $1.00",
     "  What that bought: 2/3 criteria accepted; 1 test fails before, pass after; 3/4 broken lines caught; 2 problems handled",
     "  The Builder's spend stands in for one model building it alone.",
   ]);
@@ -166,27 +167,15 @@ test("spend restates run_metrics as /spend does, and says nothing before anythin
   assert.deepEqual(runHeader(view())!.facts, []);
 });
 
-test("the spend line says it is cost, names planning apart, and counts report repairs apart from runs (#3268)", () => {
-  // Live, 2026-11-12: "Builder 4% · checking 96%" read as a split of the time, and counted planning as checking.
-  const metrics = {
-    ...METRICS,
-    by_job: [
-      { job: "Builder", attempts: 2, spent_usd: 1.5, complete: true, share: 0.6, seconds: 90, seconds_complete: true },
-      { job: "Planner", attempts: 1, spent_usd: 1, complete: true, share: 0.4, seconds: 222.4, seconds_complete: false },
-    ],
-    waste: { ...METRICS.waste, repeated_jobs: [
-      { job: "Builder", attempts: 2, runs: 2, report_repairs: 0 },
-      { job: "Tester", attempts: 4, runs: 2, report_repairs: 2 },
-    ] },
-    single_model: { ...METRICS.single_model, planning_usd: 0.75, planning_share: 0.3, other_usd: 0.25, other_share: 0.1 },
-  };
-  const shown = view({ run_metrics: metrics });
-  assert.equal(spendSummary(shown), "Cost: Builder 60% · planning 30% · checking and other 10%");
-  const lines = section(runHeader(shown)!, "spend")!.lines;
-  assert.ok(lines.includes("  Builder $1.50 · 60% of cost · 1m30s, 2 runs"), lines.join("\n"));
-  assert.ok(lines.includes("  Planner $1.00 · 40% of cost · 3m42s so far"), lines.join("\n"));
-  assert.ok(lines.includes("  1 failed attempt $0.30; ran again: Builder ×2, Tester ×2; report repairs: Tester ×2"), lines.join("\n"));
-  assert.ok(lines.includes("  Builder $1.50 (60%); planning $0.75, checking and other $0.25"), lines.join("\n"));
+test("spend names planning apart from the checking after it (#3268)", () => {
+  // The #2066 run read "Builder 18% · checking 82%", though Requirements and the Planner were $2.1 of $3.1.
+  const split = { ...METRICS, single_model: { ...METRICS.single_model, builder_usd: 0.56, builder_share: 0.18,
+    checking_usd: 2.54, planning_usd: 2.1, review_usd: 0.44, planning_share: 0.68, review_share: 0.14 } };
+  assert.equal(spendSummary(view({ run_metrics: split })), "Cost: Builder 18% · planning 68% · checking 14%");
+  assert.ok(section(runHeader(view({ run_metrics: split }))!, "spend")!.lines
+    .includes("  Builder $0.56 (18%); planning $2.10; checking $0.44"));
+  const noPlanning = { ...split, single_model: { ...split.single_model, planning_usd: 0, planning_share: 0, review_usd: 2.54, review_share: 0.82 } };
+  assert.equal(spendSummary(view({ run_metrics: noPlanning })), "Cost: Builder 18% · checking 82%", "no planning spend, no planning part");
 });
 
 test("verification shows once the run has finished, from the core's own gate", () => {

@@ -1933,7 +1933,14 @@ when no stage runs or the running stage cannot be priced. It is not part of `spe
 check. A client showing spend so far adds it to `spent_usd` and to the running stage's row, as a
 floor, so a run on its first stage does not read as nothing spent while its tokens climb.
 `usage.cost_usd` keeps the frozen comparison rates its reports are bound to,
-so its `estimated` can differ from `cost.estimated_usd`.
+so its `estimated` can differ from `cost.estimated_usd`. Those rates price every input token at the
+input rate, cached or not, so on a run whose input is mostly cache reads `usage.cost_usd.estimated`
+is about twice `cost.spent_usd` (#3268: $26.30 against $12.40). It is a comparison figure: the run's
+cost is `cost.spent_usd`, and a client that shows one cost shows that.
+
+`run_metrics.single_model` splits what is not the Builder's into `planning_usd` (Requirements,
+Planner and Plan Reviewer) and `review_usd` (testing, review, proof and recovery), with
+`planning_share` and `review_share` of `spent_usd`; `checking_usd` stays their sum (#3268).
 
 `cost.breakdown` groups that same finished-stage ledger in three alternative ways:
 `by_stage`, `by_process_outcome` (`completed`, `failed`, `interrupted`, `unknown`) and
@@ -1975,9 +1982,8 @@ ran more than once, each with all its `attempts` split into `runs` of the job an
 attempts that only rewrote a rejected report (`original_stage` names the stage they repair), and
 `report_repair_usd`, the report-repair stages' spend from `cost.breakdown.by_stage`, the same prices
 as every other figure here); and `single_model`: the Builder's `builder_usd` and
-`builder_share`, the rest as `checking_usd`, that rest split into `planning_usd` and `planning_share`
-(the stages `efficiency` categorizes as planning: Requirements, the Planner and the Plan Reviewer)
-and `other_usd` and `other_share` (checking, report repairs and everything else; #3268), a `basis`
+`builder_share`, the rest as `checking_usd`, that rest split into `planning_usd` and `review_usd`
+with their `planning_share` and `review_share` (above; #3268), a `basis`
 saying the Builder's spend is a stand-in for
 one model building the change alone and not a measured run, and `produced`, counts from the run's
 own evidence (criteria requested and accepted, regression-proof verdict and fail-to-pass tests,

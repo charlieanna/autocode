@@ -98,7 +98,11 @@ itself (for example with the exhausted bound's flag or `--grant-recovery`) relea
 before applying the batch, so nothing is held then. `--retry-builder` is not such an
 acknowledgement here: it is checked only after the batch is applied, so the batch is
 applied under the held pause, the retry is not applied, and you send it again with
-`--resume-paused`. `--pause-after-stage` and the existing
+`--resume-paused`. A pause submitted with `--now` (#3263) does not wait for the running step: the stage
+supervisor checks the inbox once a second, ends the provider as at a time limit (kind `person`), keeps
+its partial work and logs as a timed-out attempt is kept, and the pause then applies at that boundary
+with the reason "Stopped by you…"; resuming runs the step again. The status view offers it as
+`view.pause.stop_now` when the run's runner records `supports_stop_now`. `--pause-after-stage` and the existing
 run-local `pause-requested` file continue to stop at saved boundaries. `--status` is
 read-only and adds `interventions` with inspector versus recorded-runner capability,
 pending IDs/count, pause intent, applied receipts, inbox errors and blocked conditions.

@@ -168,10 +168,6 @@ class RunMetricsTests(unittest.TestCase):
     def test_the_builder_stands_in_for_one_model_beside_what_the_checking_produced(self):
         single = run_metrics.project(view())["single_model"]
         self.assertEqual((0.5, 0.25, 1.5), (single["builder_usd"], single["builder_share"], single["checking_usd"]))
-        self.assertEqual(
-            (None, None, None, None),
-            tuple(single[key] for key in ("planning_usd", "planning_share", "other_usd", "other_share")),
-        )
         self.assertIn("not a measured single-model run", single["basis"])
         self.assertEqual(
             {
@@ -190,17 +186,27 @@ class RunMetricsTests(unittest.TestCase):
             single["produced"],
         )
 
-    def test_planning_is_named_apart_from_checking_with_the_cores_stage_categories(self):
-        # "Builder 18% · checking 82%" counted Requirements and the Planner as checking (#3268).
-        single = run_metrics.project(view(), category=efficiency.category)["single_model"]
-        self.assertEqual(
-            (0.2, 0.1, 1.3, 0.65),
-            tuple(single[key] for key in ("planning_usd", "planning_share", "other_usd", "other_share")),
-        )
+    def test_planning_is_named_apart_from_the_checking_after_it(self):
+        # #3268: "Builder 18% · checking 82%" counted Requirements and the Planner ($2.1 of $3.1) as checking.
+        planned = view()
+        planned["cost"]["breakdown"]["by_stage"] += [
+            stage("requirements_gather", "Requirements", 0.4),
+            stage("draft_plan", "Planner", 1.2),
+            stage("review_plan", "Plan Reviewer", 0.4),
+        ]
+        planned["cost"]["spent_usd"] = 4.0
+        single = run_metrics.project(planned)["single_model"]
+        self.assertEqual((0.5, 3.5), (single["builder_usd"], single["checking_usd"]))
+        # view() already has a $0.20 Planner.
+        self.assertEqual((2.2, 1.3), (single["planning_usd"], single["review_usd"]))
+        self.assertEqual((0.55, 0.325), (single["planning_share"], single["review_share"]))
+        planned["run_metrics"] = run_metrics.project(planned)
+        self.assertEqual("Cost: Builder 12% · planning 55% · checking 32%", spend.compact(planned)[0])
+        self.assertIn("  Builder $0.50 (12%); planning $2.20; checking $1.30", spend.details(planned).splitlines())
 
-    def test_the_status_view_names_planning_apart(self):
-        state = {"status": "RUNNING"}
-        self.assertIn("planning_share", run_view.view(state)["run_metrics"]["single_model"])
+    def test_a_view_from_an_older_core_says_everything_else_not_checking(self):
+        older = {"run_metrics": {"schema": 1, "spent_usd": 2.0, "by_job": [], "single_model": {"builder_share": 0.25}}}
+        self.assertEqual("Cost: Builder 25% · everything else 75%", spend.compact(older)[0])
 
     def test_a_run_with_no_builder_yet_has_no_stand_in(self):
         early = view()
@@ -208,6 +214,7 @@ class RunMetricsTests(unittest.TestCase):
         early["cost"]["spent_usd"] = 0.1
         single = run_metrics.project(early)["single_model"]
         self.assertEqual((None, None, None), (single["builder_usd"], single["builder_share"], single["checking_usd"]))
+        self.assertEqual((None, None), (single["planning_usd"], single["review_usd"]))
 
     def test_budget_exhausted_mutants_do_not_inflate_the_reported_work(self):
         partial = view()
@@ -243,14 +250,14 @@ class RunMetricsTests(unittest.TestCase):
 
 
 class SpendDisplayTests(unittest.TestCase):
-    def public(self, category=efficiency.category):
+    def public(self):
         result = view()
-        result["run_metrics"] = run_metrics.project(result, category=category)
+        result["run_metrics"] = run_metrics.project(result)
         return result
 
     def test_the_panel_shows_the_cost_split_costliest_jobs_cache_and_waste(self):
         section = next(section for section in panel.sections(self.public()) if section.title == "Spend")
-        self.assertEqual("Cost: Builder 25% · planning 10% · checking and other 65%", section.summary)
+        self.assertEqual("Cost: Builder 25% · planning 10% · checking 65%", section.summary)
         self.assertEqual(
             [
                 "Completion Reviewer $0.80 · 40% of cost · 50s",
@@ -262,10 +269,6 @@ class SpendDisplayTests(unittest.TestCase):
             [row.text for row in section.rows],
         )
 
-    def test_without_a_planning_split_the_rest_is_everything_else(self):
-        section = next(section for section in panel.sections(self.public(category=None)) if section.title == "Spend")
-        self.assertEqual("Cost: Builder 25% · everything else 75%", section.summary)
-
     def test_spend_lists_every_job_the_tokens_and_what_the_checking_bought(self):
         text = panel.text("/spend", self.public(), panel.StageLog())
         self.assertEqual(spend.details(self.public()), text)
@@ -273,7 +276,7 @@ class SpendDisplayTests(unittest.TestCase):
             "Where the money went: $2.00",
             "  Tokens: input 1.0k, new 100, cache write 200, cache read 700, output 50",
             "  Report repairs $0.10",
-            "  Builder $0.50 (25%); planning $0.20, checking and other $1.30",
+            "  Builder $0.50 (25%); planning $0.20; checking $1.30",
             "  What that bought: 3/3 criteria accepted; 2 tests fail before, pass after; 1 check rerun clean; "
             "1/2 broken lines caught; 1 blocking review finding; 1 problem handled",
         ):

@@ -11,15 +11,13 @@ the change. Every figure is read from parts of the view that are already public:
 
 ``single_model`` compares with the Builder's own spend, a stand-in for one model doing the task
 alone: the Builder is the stage that writes the change. It is not a measured single-model run,
-and ``basis`` says so. The rest is split into planning and everything else, so a cheap Builder
-does not make "checking" look like most of the run (#3268). An amount a source does not know stays
+and ``basis`` says so. An amount a source does not know stays
 ``None``; a known part is never shown as a whole (``complete``).
 
 A report repair (a stage that only rewrites a rejected report) is another attempt at the stage it
 repairs, never another run of that job: ``repeated_jobs`` counts the two apart.
 
 Pure function over the view being built: no file access, no state, imports nothing from AutoCode.
-The caller passes the stage categories (``autocode_efficiency.category``) that name planning.
 """
 
 from __future__ import annotations
@@ -28,6 +26,9 @@ import math
 
 SCHEMA = 1
 BUILDER_STAGE = "builder"
+# The jobs that decide what to build, named apart from the checking after it (#3268): "checking 82%"
+# once counted Requirements and the Planner too.
+PLANNING_JOBS = frozenset({"Requirements", "Planner", "Plan Reviewer"})
 BASIS = (
     "The Builder's spend stands in for one model doing the task alone; "
     "it is not a measured single-model run of this task"
@@ -224,23 +225,8 @@ def _produced(view: dict) -> dict:
     }
 
 
-def _planning_spend(cost: dict, category) -> float | None:
-    """The planning stages' spend (Requirements, Planner, Plan Reviewer), or ``None`` without categories."""
-    if category is None:
-        return None
-    amounts = [
-        _money(row.get("spent_usd"))
-        for row in _rows(_mapping(cost.get("breakdown")).get("by_stage"))
-        if category(row) == "planning"
-    ]
-    return round(sum(amount for amount in amounts if amount is not None), 6)
-
-
-def project(view: dict, *, category=None) -> dict:
-    """``run_metrics`` from the cost, usage, recoveries and evidence already in ``view``.
-
-    ``category`` names a stage row's spend category (``autocode_efficiency.category``); without it the
-    planning split is unknown (``None``)."""
+def project(view: dict) -> dict:
+    """``run_metrics`` from the cost, usage, recoveries and evidence already in ``view``."""
     cost = _mapping(view.get("cost"))
     accounting = _mapping(_mapping(view.get("usage")).get("accounting"))
     total = _money(cost.get("spent_usd"))
@@ -251,10 +237,10 @@ def project(view: dict, *, category=None) -> dict:
         if row.get("stage") == BUILDER_STAGE
     ]
     builder_usd = round(sum(amount for amount in builder if amount is not None), 6) if builder else None
-    planning_usd = _planning_spend(cost, category)
-    other_usd = (
-        round(max(total - (builder_usd or 0) - planning_usd, 0), 6)
-        if total is not None and planning_usd is not None
+    checking_usd = round(total - builder_usd, 6) if total is not None and builder_usd is not None else None
+    planning_usd = (
+        round(sum(row["spent_usd"] for row in by_job if row["job"] in PLANNING_JOBS), 6)
+        if checking_usd is not None
         else None
     )
     return {
@@ -267,11 +253,12 @@ def project(view: dict, *, category=None) -> dict:
         "single_model": {
             "builder_usd": builder_usd,
             "builder_share": _share(builder_usd, total),
-            "checking_usd": round(total - builder_usd, 6) if total is not None and builder_usd is not None else None,
+            "checking_usd": checking_usd,
+            # checking_usd split (#3268): Requirements, Planner and Plan Reviewer, then everything else.
             "planning_usd": planning_usd,
+            "review_usd": round(max(checking_usd - planning_usd, 0), 6) if planning_usd is not None else None,
             "planning_share": _share(planning_usd, total),
-            "other_usd": other_usd,
-            "other_share": _share(other_usd, total),
+            "review_share": _share(checking_usd - planning_usd, total) if planning_usd is not None else None,
             "basis": BASIS,
             "produced": _produced(view),
         },

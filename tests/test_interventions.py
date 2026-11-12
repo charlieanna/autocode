@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode_interventions as interventions
+import autocode_stop as stop
 import autocode_support as support
 
 from tests.test_util_windows import FakeMsvcrt
@@ -140,6 +141,53 @@ class InterventionTests(unittest.TestCase):
         payload = json.loads(inspected.stdout)
         self.assertEqual("pending_only", payload["consumer"])
         self.assertEqual(["feedback-1", "pause-1"], [item["id"] for item in payload["requests"]])
+
+    def test_a_pause_that_stops_now_is_queued_seen_by_the_supervisor_and_applied_with_a_plain_reason(self):
+        # #3263: Stop used to wait for the running step to finish, up to its hour-long limit.
+        self.assertFalse(interventions.stop_now_requested(self.run))
+        interventions.submit(self.workspace, self.run, request_id="later", kind="pause", text="")
+        self.assertFalse(interventions.stop_now_requested(self.run), "a boundary pause lets the step finish")
+        result = self.cli(
+            "submit",
+            "--workspace",
+            str(self.workspace),
+            "--run-dir",
+            str(self.run),
+            "--request-id",
+            "now",
+            "--kind",
+            "pause",
+            "--now",
+            "--json",
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIs(True, json.loads(result.stdout)["receipt"]["now"])
+        self.assertTrue(interventions.stop_now_requested(self.run))
+        with self.assertRaisesRegex(interventions.InterventionError, "different payload"):
+            interventions.submit(self.workspace, self.run, request_id="now", kind="pause", text="")
+        with self.assertRaisesRegex(interventions.InterventionError, "Only a pause can end the current step now"):
+            interventions.submit(self.workspace, self.run, request_id="f", kind="feedback", text="x", now=True)
+
+        state = json.loads(self.state_path.read_text())
+        consumed = interventions.consume(
+            self.run,
+            state,
+            write_state=lambda: support.atomic_json(self.state_path, state),
+            apply_feedback=lambda *_: None,
+        )
+        stop.boundary_effects(state, consumed, lambda: "at")
+        self.assertEqual("PAUSED_INTERVENTION", state["status"])
+        self.assertEqual(stop.STOPPED_NOW_REASON, state["stop_reason"])
+        self.assertIn("Stopped by you", state["stop_reason"])
+        self.assertFalse(interventions.stop_now_requested(self.run))
+
+    def test_an_unreadable_inbox_holds_no_stop_now(self):
+        (self.run / interventions.INBOX_NAME).write_text("{not json")
+        self.assertFalse(interventions.stop_now_requested(self.run))
+        (self.run / interventions.INBOX_NAME).write_text(
+            json.dumps({"version": 1, "requests": [{"id": "s", "kind": "stop", "now": True}]})
+        )
+        self.assertFalse(interventions.stop_now_requested(self.run), "only a pause carries now")
 
     def test_idempotent_retry_and_conflict_do_not_change_history(self):
         first = interventions.submit(self.workspace, self.run, request_id="same", kind="feedback", text="Original")

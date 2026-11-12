@@ -447,7 +447,7 @@ def view(
     )
     # Where the spend went, what was spent again, and what the checking stages produced,
     # read from the cost, usage, efficiency, recoveries and evidence above (display only).
-    result["run_metrics"] = autocode_run_metrics.project(result, category=autocode_efficiency.category)
+    result["run_metrics"] = autocode_run_metrics.project(result)
     # The six pipeline jobs, each with where it stands, its route's model and level and its spend, read from
     # the routes, stage decisions and run metrics above, so a client shows the pipeline without a job table.
     result["pipeline"] = stage_pipeline.project(state, result)

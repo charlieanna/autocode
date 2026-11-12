@@ -138,9 +138,11 @@ While a run works, **Pause** takes the place of **Send**; Send stays beside it
 when the run also takes a message. Pause lets the current step finish and save,
 then the run pauses with nothing lost, and **Continue** resumes it where it
 paused. Until then the button reads **Pausing after this step…**. The button
-appears only when the status view names the pause (`view.pause`); a cancelled
-mid-step model call is not offered, and the run's terminal Stop stays outside
-the chat.
+appears only when the status view names the pause (`view.pause`). **Stop now**
+beside it, when the view names `view.pause.stop_now`, ends the running step at
+once instead of letting it finish: nothing more is spent on it, its partial work
+and logs are kept, the run pauses ("Stopped by you"), and **Continue** runs that
+step again. The run's terminal Stop stays outside the chat.
 
 **Saved code changes** offers only the comparisons and restores named by the
 core. While this chat waits for one of its commands to finish, those buttons
@@ -178,7 +180,7 @@ the stage's name (or beside a stage that has not run yet), and below 340 pixels
 the tokens column gives way to time and cost. Under the table, a line says what
 the working stage is doing now (`reading files`, `running a command`), then where
 the chat works, then how the cost (not the time) splits between the Builder, planning and
-checking (`Cost: Builder 4% · planning 28% · checking and other 69%`) and
+checking (`Cost: Builder 4% · planning 28% · checking 68%`) and
 how many things went wrong. **Show details** unfolds the same
 reading as the terminal chat's `/details`, `/why` and `/spend`: where the run
 is; each stage's whole route and attempts (`4 attempts, 3 failed`, and why the

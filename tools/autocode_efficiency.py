@@ -202,11 +202,6 @@ def _time(value):
         return None
 
 
-def category(row):
-    """The spend category of one stage or attempt row (``CATEGORIES``): ``run_metrics`` uses it to name planning."""
-    return _category(row)
-
-
 def _category(row):
     # A saved run's rows may name stages this runtime no longer runs (autocode_workflows.RETIRED_STAGES):
     # they keep their categories so its efficiency stays readable.
