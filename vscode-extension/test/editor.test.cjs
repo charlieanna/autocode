@@ -6423,6 +6423,21 @@ function offDefaultChoiceView() {
   return view;
 }
 
+test('while an answer is being saved the chat says so, not that AutoCode waits for you', async (t) => {
+  host.config.set('confirmPersonOnly', false);
+  const ownController = new RunController(host.log);
+  const ui = await openChat(t, choiceView(), run, { controller: ownController });
+  const prompt = () => ui.document.querySelector('.action-prompt').textContent;
+  assert.equal(prompt(), 'AutoCode is waiting for you');
+  let finish;
+  t.mock.method(cli, 'stream', () => new Promise((resolve) => { finish = () => resolve(ok); }));
+  ui.document.querySelector('#take-action').click(); await flush(); await flush();
+  assert.equal(typeof finish, 'function', 'the answer is being saved');
+  assert.equal(ui.document.querySelector('#take-action').textContent, 'Working…');
+  assert.equal(prompt(), 'Sending your answer. AutoCode goes on as soon as it is saved.');
+  finish(); await flush(); await flush();
+});
+
 for (const surface of ['chat', 'Run details']) {
   test(`an out-of-range number says why beside its field in ${surface}`, async (t) => {
     host.config.set('confirmPersonOnly', false);
