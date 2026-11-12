@@ -6415,6 +6415,14 @@ function choiceView() {
     next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --answer q1=ANSWER` };
 }
 
+function offDefaultChoiceView() {
+  const view = choiceView();
+  view.needs.questions[0] = { id: 'q1', question: 'Report an existing clone or refuse?',
+    options: ['Report it', 'Keep the refusal'],
+    proposed_default: 'Report the verifiable clone instead of refusing, because the task says an existing clone is reported' };
+  return view;
+}
+
 for (const surface of ['chat', 'Run details']) {
   test(`an out-of-range number says why beside its field in ${surface}`, async (t) => {
     host.config.set('confirmPersonOnly', false);
@@ -6430,6 +6438,21 @@ for (const surface of ['chat', 'Run details']) {
     input.value = '5400'; input.dispatchEvent(new ui.window.Event('input'));
     assert.equal(hint().textContent, '');
     assert.equal(ui.document.querySelector('#take-action').disabled, false);
+  });
+
+  test(`a proposed default worded apart from every option is still offered and preselected in ${surface}`, async (t) => {
+    host.config.set('confirmPersonOnly', false);
+    const ownController = new RunController(host.log);
+    const view = offDefaultChoiceView();
+    const ui = surface === 'chat' ? await openChat(t, view, run, { controller: ownController }) : await openPanel(t, view, undefined, ownController);
+    const select = ui.document.querySelector('[data-question="q1"]');
+    const fallback = view.needs.questions[0].proposed_default;
+    assert.deepEqual([...select.options].map((option) => option.value).filter(Boolean), ['Report it', 'Keep the refusal', fallback]);
+    assert.equal(select.value, fallback, 'the core accepts its own default, so the client preselects it');
+    const launch = t.mock.method(cli, 'stream', async () => ok);
+    ui.document.querySelector('#take-action').click(); await flush();
+    const args = launch.mock.calls[0].arguments[1];
+    assert.equal(args[args.indexOf('--answer') + 1], `q1=${fallback}`);
   });
 
   test(`a proposed default is preselected and one click sends it in ${surface}`, async (t) => {

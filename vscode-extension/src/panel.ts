@@ -596,9 +596,21 @@ function describe(
     questionId: open.questionId,
     kind: open.kind,
     text: question?.question ?? (asksModel && route ? `Name the model ${route.role} continues on` : open.questionId),
-    options: asksModel ? [...(route?.candidates ?? [])] : [...(question?.options ?? [])],
+    options: asksModel ? [...(route?.candidates ?? [])] : offeredLabels(question),
     suggested: asksModel ? null : (question?.proposed_default ?? null),
   };
+}
+
+/**
+ * The answers a question with options accepts, as the core reads them (`autocode_answer_options.labels`):
+ * its options, and its proposed default when that is not one of them. A default worded apart from every
+ * option could not be preselected or chosen, so the person had to pick an option the default did not name.
+ */
+function offeredLabels(question: Question | undefined): string[] {
+  const options = (question?.options ?? []).filter((label) => typeof label === "string" && label.trim());
+  const fallback = question?.proposed_default;
+  if (options.length && typeof fallback === "string" && fallback.trim() && !options.includes(fallback)) options.push(fallback);
+  return options;
 }
 
 /** Only the core-named Requirements answer starts paid planning; corrections stay conversational. */

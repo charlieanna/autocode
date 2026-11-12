@@ -70,6 +70,19 @@ class ProgressLineTests(unittest.TestCase):
         shown = progress_view.progress(planned, accepted=[], stage="Planner", needs=run_view.needs(planned))
         self.assertEqual("Next: Planner", shown["headline"])
 
+    def test_a_runner_check_between_stages_is_named_not_the_next_job(self):
+        """While the runner checks the saved work between the Builder and the Tester, the headline
+        said "Next: Tester" for the whole check (2026-11-11 live run on #3233)."""
+        saved = state(
+            active_stage=None, active_runner_check={"stage": "regression", "summary": "Running the Tester's tests"}
+        )
+        view = project(saved, stage="Tester")
+        self.assertEqual("Running the Tester's tests", view["headline"])
+        self.assertEqual("Tester", view["stage"], "the next job stays known")
+        self.assertTrue(view["line"].startswith("Running the Tester's tests · "))
+        idle = project(state(active_stage=None), stage="Tester")
+        self.assertEqual("Next: Tester", idle["headline"], "with no check running the next job is named")
+
     def test_a_finished_run(self):
         saved = state(
             status="TASK_COMPLETE",

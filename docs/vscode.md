@@ -303,11 +303,13 @@ The jsdom tests alone establish neither editor-host nor live-provider compatibil
 | `autocode.pollSeconds` | `5` | Seconds between read-only status updates. |
 | `autocode.confirmPersonOnly` | `true` | Ask before acting on a pause the run stopped for a person. |
 
-Each status update is a new `autocode` process, which reads the whole workspace once
-before answering. On a large project, set `AUTOCODE_SOURCE_HOST=1` in the environment
-the editor starts the CLI with, so the updates share one warm snapshot helper; see
-[Execution](execution.md#who-approved) just above "Who approved" for what it does and
-keeps.
+Each status update is a new `autocode` process, which would otherwise read the whole
+workspace once before answering: 13–27 s on a 12.5k-file project, past the 30 s status
+bound, so the update fails instead of showing the run. The extension starts every CLI
+call with `AUTOCODE_SOURCE_HOST=1`, so the updates share one warm snapshot helper
+instead. Setting `AUTOCODE_SOURCE_HOST=0` in the environment the editor starts in turns
+it off; see [Execution](execution.md#who-approved) just above "Who approved" for what
+the helper does and keeps.
 
 ## Remaining scope
 
