@@ -1790,6 +1790,10 @@ reusable conventions actually answered by a person, observed model routes, and
 the names of pause states that needed a person. Unknown facts remain null.
 It writes after the completed checkpoint and evidence; learning cannot approve
 a task, change its verified result, or make completion fail.</p>
+<p>Facts a run pays to discover about the repository, such as how to reproduce a
+failure, which the Investigator finds, or which test flakes, which a completed run's
+own proofs show, are kept separately, each with the receipt of the observation that
+produced it. See <a href="../project-notes/">Project notes</a>.</p>
 <h2 id="reusing-an-answer">Reusing an answer<a class="headerlink" href="#reusing-an-answer" title="Permanent link">&para;</a></h2>
 <p>Requirements can tag its own question IDs as project conventions. Before saving
 one, the runner joins the exact question to the issued clarification, the actual

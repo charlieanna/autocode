@@ -1900,7 +1900,7 @@
 
 
 <h1 id="work-that-spans-several-repositories">Work that spans several repositories<a class="headerlink" href="#work-that-spans-several-repositories" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/43b932bb09a596c51a34f289e907bece7901e924/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/33d81db6004a108e76574780c144be26d1121a44/README.md">← Back to README</a></p>
 <p>One AutoCode run changes one repository. Its workspace is one Git tree. The
 checkpoints, diffs, protected tests and the Builder's declared changes are all
 bounded to that tree, and a Builder write outside it is treated as a fault.</p>
@@ -2033,8 +2033,9 @@ the existing participant gates still govern continuation.</p>
   command, execution target, member runs and their code; a change to any of those withdraws it.
   Replacing the check also clears its previous waiver. A concurrent record change refuses an
   old result instead of attaching it to a new check. A failed check can reopen the run that
-  diverged, or you can waive that check with a reason. <code>autocode changeset pr-body</code> writes the section each
-  pull request carries, with the merge order
+  diverged, or you can waive that check with a reason. Until a check passes or you waive it, the
+  set is not done: with no check named, its status says nothing has checked the runs together.
+  <code>autocode changeset pr-body</code> writes the section each pull request carries, with the merge order
   (<a href="../task-run/#checking-the-set-together-and-delivering-it">Checking the set together</a>).</li>
 <li><strong>The terminal chat shows the change set.</strong> Its side panel lists the linked runs, and
   <code>/changeset</code> shows every run and asks before approving the plans together or running the
@@ -2048,8 +2049,10 @@ the existing participant gates still govern continuation.</p>
   that same repository (<a href="../task-lanes/">Parallel tasks and components</a>). It
   cannot drive two existing sibling repositories.</li>
 <li><strong>A parent folder is not a multi-repository workspace.</strong> If you start AutoCode
-  in a plain folder that holds several repositories, it creates a new, empty
-  project under that folder instead of working in them. If the parent is itself a
+  in a plain folder that holds several repositories, it works in a new, empty
+  private project instead of in them. The terminal chat adds such a folder as a
+  source folder for discovery; VS Code warns before a chat starts there, naming
+  the checkouts, so you can open the one to change instead. If the parent is itself a
   Git repository with the services as nested repositories or submodules, changes
   inside them appear to the parent only as a gitlink, so its diffs and test
   checks do not see them. Treat both as unsupported.</li>
@@ -2199,7 +2202,7 @@ discover an arbitrary service dependency.</p>
 <p>These are focused regressions, not one live, end-to-end multi-service production
 trial. Bounded live Kilo MiMo/GLM TUI attempts on 2026-10-27 discovered all three
 fixture repositories but stopped on planning/report validation before builds,
-joint testing or real PR publication. See the <a href="https://github.com/charlieanna/autocode/blob/43b932bb09a596c51a34f289e907bece7901e924/docs/bugs/2181-live-tui-coordination.md#final-bounded-result-2026-10-27">retained qualification evidence</a>
+joint testing or real PR publication. See the <a href="https://github.com/charlieanna/autocode/blob/33d81db6004a108e76574780c144be26d1121a44/docs/bugs/2181-live-tui-coordination.md#final-bounded-result-2026-10-27">retained qualification evidence</a>
 and <a href="https://github.com/charlieanna/autocode/issues/2208">remaining convergence issue #2208</a>.
 Live end-to-end delivery is not yet verified. The current implementation also has these limits:</p>
 <ul>
@@ -2220,13 +2223,13 @@ Live end-to-end delivery is not yet verified. The current implementation also ha
   one consolidated approval for member plans and the joint-test plan. A plain
   parent folder is not itself a multi-repository run; configure it as a local
   source root for automatic discovery.</li>
-<li>In the manual change-set API, without a named integration command, <code>verification.done</code> means all individual
-  runs completed. It does <strong>not</strong> prove the producer and consumer agree. Name the
-  check before treating the overall bug as resolved.</li>
-<li>Manual change-set approval binds member plans; automatic coordination binds
-  member and joint-test plans together. A separately versioned shared-interface
-  contract and the remaining guided onboarding work are tracked in
-  <a href="https://github.com/charlieanna/autocode/issues/2066">#2066</a>.</li>
+<li>In the manual change-set API, a set with no named integration command is not done until you
+  name one or waive it with a reason: separate green runs do not prove the producer and consumer
+  agree.</li>
+<li>There is no separately versioned shared-interface document. The two sides' agreement is checked
+  where it can fail: by the integration command in a manual change set, and by the joint-test plan
+  and its fail-before/pass-after regression in automatic coordination. Manual set approval binds
+  the member plans; automatic coordination binds the member and joint-test plans together.</li>
 </ul>
 <h2 id="the-manual-workflow">The manual workflow<a class="headerlink" href="#the-manual-workflow" title="Permanent link">&para;</a></h2>
 <p>Without a change set, coordinate the repositories yourself:</p>

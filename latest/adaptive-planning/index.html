@@ -2016,6 +2016,16 @@ planned; your feedback changes that plan. Three checks keep the shortcut safe:</
    your feedback.</li>
 </ol>
 <p>You still approve the revised plan.</p>
+<p>Your change is a new review round. A small clear brief otherwise shares one review
+allowance across its planning cycles (#1564), and before #3094 a revision you asked
+for inherited the spent allowance and paused for a raise before anyone reviewed it.
+Now the first cycle after your feedback gets a fresh allowance on top of the calls
+already charged, at the same reduced depth, and records <code>feedback_renewal</code> (the
+feedback, the calls used and the allowance before and after) on the planning record.
+Usage is never erased. It happens once per piece of feedback; a restart inside the
+same revision carries the allowance as before. A total you chose with
+<code>--planning-review-call-limit</code> stays a total, and a correction to a plan you already
+approved keeps its own bounded review round.</p>
 <h2 id="comparing-it-with-todays-pipeline">Comparing it with today's pipeline<a class="headerlink" href="#comparing-it-with-todays-pipeline" title="Permanent link">&para;</a></h2>
 <p><code>scenarios/run.py plan-compare</code> plans each request in <code>scenarios/planning.toml</code>
 twice, once with today's pipeline and once with <code>--adaptive-planning</code>. Each run

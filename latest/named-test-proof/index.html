@@ -2123,7 +2123,11 @@ change the verdict, and nothing is installed into the project.</p>
 assertion scripts do not currently provide named proof. A direct supported
 targeted command can accompany an existing package-script suite. If the project
 cannot use a supported runner, settle that compatibility blocker during planning;
-do not downgrade an approved named criterion to prose to make a run finish.</p>
+do not downgrade an approved named criterion to prose to make a run finish. A
+draft whose test files the proof's suite would never run, such as RSpec specs in
+a repository whose root suite is Node, is refused when it is drafted unless one
+directory with its own suite holds them all (see the monorepo packages section of
+<a href="../workflow/">workflow</a>), so the Planner settles it before a Builder runs.</p>
 <h2 id="junit-xml-from-other-test-runners">JUnit XML from other test runners<a class="headerlink" href="#junit-xml-from-other-test-runners" title="Permanent link">&para;</a></h2>
 <p>Use <code>--test-report junit:RELATIVE_PATH</code> with an explicit <code>--test-command</code> to
 attribute Java, Kotlin, .NET, Rust or Ruby tests through their runner's JUnit
@@ -2312,8 +2316,27 @@ Tester can record that specific reason against the current offered gap ID and
 pin its source/test/check evidence. Each obligation also carries a short handle
 (<code>L1</code>, <code>L2</code>, … in inventory order), which the offer accepts beside the full ID and
 the runner maps to the same exact line, so a model never retypes 64-hex IDs. An unavailable tool alone is not a blanket
-exception. Empty survivor lists and the old six-site sample never prove that
+exception. Installed dependencies (a file under any <code>node_modules</code>, <code>.venv</code> or <code>venv</code>
+directory) are third-party code, not changed product lines, even in a project that does
+not ignore them: the runner leaves them out of the inventory and records their count and
+directories as <code>changed_code_inputs.installed_dependencies</code> (#3164). The gate's reason
+names the first 40 open lines and counts the rest; every line stays in <code>obligations</code>. Empty survivor lists and the old six-site sample never prove that
 all changed lines were tested.</p>
+<p>A handle only names a line; it cannot show that the reason under it is about
+that line. An accepted S6 report (#2977) put the reason for one line under the
+handle of another: the handles resolved, so the gate passed lines no reason
+described. Each gap the Tester decides therefore carries <code>source_line</code>, the text
+of its exact line read from the measured bytes (whitespace runs collapsed to one
+space, at most 200 characters), and each decision quotes it back in its own
+<code>source_line</code>. A decision whose quote is another line's text is returned for
+report repair, before clean verification runs and again when the decisions are
+bound, with each handle's quoted and actual line; a repaired report is held to
+the same check. The final report shows each line beside its reason, so the
+reviewers judge the reason against the line it covers. A matching quote proves
+only that the reason names its own line; whether the reason is adequate stays
+the independent reviewers' judgment. A line whose bytes could not be read
+carries no text and binds by its handle alone, and a report offered before this
+check binds without a quote.</p>
 <p>A PASS that omits an offered Tester decision for a line with no mutation
 outcome is returned for report repair before clean verification commands run.
 This early check uses the current source and offered gap bindings; missing or

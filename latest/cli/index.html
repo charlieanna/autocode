@@ -2354,7 +2354,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/43b932bb09a596c51a34f289e907bece7901e924/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/33d81db6004a108e76574780c144be26d1121a44/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2478,8 +2478,12 @@ controls. Role/model selection is in <a href="../models/">Models</a>; provider s
 <td>Clear only the learned project record; keep explicit configuration, saved runs and evidence. See <a href="../project-memory/">Project memory</a>.</td>
 </tr>
 <tr>
+<td><code>autocode notes [list\|retract\|correct] [NOTE] [--text TEXT] [--reason TEXT] [--all] [--workspace PATH] [--json]</code></td>
+<td>See and correct what earlier runs learned about the repository, each note with the receipt of the observation that produced it. <code>list</code> (the default) shows the active notes (<code>--all</code> adds retracted ones); <code>retract NOTE</code> marks one wrong, so it is not learned again; <code>correct NOTE --text TEXT</code> replaces its text with yours. <code>--json</code> is the view clients read, each note with its <code>retract</code> and <code>correct</code> argument arrays. A new task reads the notes; a running task keeps its own. See <a href="../project-notes/">Project notes</a>.</td>
+</tr>
+<tr>
 <td><code>autocode worktrees [list] [--workspace FOLDER] [--json]</code></td>
-<td>Where a new chat in the folder may work: a new worktree and branch named from the task (the default), an existing local branch, or the folder itself on its current branch. Each place names the start flags a client passes unchanged (<code>--build-in-worktree</code>, <code>--build-in-worktree --worktree-branch NAME</code>, <code>--in-place</code>); a branch checked out in a worktree, or one another chat will plan on, is listed as unavailable with the reason, and the folder carries a warning naming the other chats working there. Reads only. See <a href="../task-run/#worktrees-for-clients">Worktrees for clients</a>.</td>
+<td>Where a new chat in the folder may work: a new worktree and branch named from the task (the default), an existing local branch, or the folder itself on its current branch. Each place names the start flags a client passes unchanged (<code>--build-in-worktree</code>, <code>--build-in-worktree --worktree-branch NAME</code>, <code>--in-place</code>); a branch checked out in a worktree, or one another chat will plan on, is listed as unavailable with the reason, and the folder carries a warning naming the other chats working there, or, for a folder outside Git, the checkouts it holds that a chat there would not change. Reads only. See <a href="../task-run/#worktrees-for-clients">Worktrees for clients</a>.</td>
 </tr>
 <tr>
 <td><code>autocode clean-worktrees [--yes] [--json]</code></td>
@@ -2580,7 +2584,7 @@ they do not represent charges.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/43b932bb09a596c51a34f289e907bece7901e924/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/33d81db6004a108e76574780c144be26d1121a44/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -2859,6 +2863,10 @@ not approve a plan or start a model.</p>
 <tr>
 <td><code>--follow-up '…'</code></td>
 <td>Say the next thing to a finished run ("Fix them." after a review): the run starts at Requirements again, which names the new job, and continues in the same run directory. Finished runs only (<code>TASK_COMPLETE</code>); any other run exits 2 unchanged. After a design review, the reply revises that review: the Architect keeps every concern under its id, keeps a settled one as resolved with what settled it, and adds the revision to <code>revisions</code> in <code>review/design-review.json</code> (<a href="#replying-to-a-design-review">Replying to a design review</a>). After a design turn, "Build it." builds that design as approved: it is checked against the code first (<code>check_design</code>). The message is saved as feedback that planning can cite for requested contract changes; the new plan still needs approval.</td>
+</tr>
+<tr>
+<td><code>--report-discrepancy '…' --review-token TOKEN</code></td>
+<td>At a pause you requested while the approved plan is being built, say where the code departs from that plan without revising it (#3045). <code>TOKEN</code> is the approved plan's token (<code>-</code> reads <code>AUTOCODE_REVIEW_TOKEN</code>). The report is saved bound to that token, the current task and the source revision; the plan stays approved, the run stays paused, and the same text is kept once. When you resume, the Tester of that task and the Completion Reviewer read it as an allegation to check against the approved plan: one that confirms it reports a finding and the Builder repairs it within the plan. It never approves, accepts, closes a finding, grants a retry or changes a limit. Refused without an approved plan and a current task, at any other pause or with anything else waiting, for another plan's token, or with empty text; a refusal exits 2 and saves nothing. To change the plan itself use <code>--feedback</code>. The status view's <code>implementation_discrepancy</code> names the action and lists the reports.</td>
 </tr>
 <tr>
 <td><code>--stage-model STAGE MODEL EFFORT</code></td>
@@ -3198,7 +3206,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/43b932bb09a596c51a34f289e907bece7901e924/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/33d81db6004a108e76574780c144be26d1121a44/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3430,6 +3438,11 @@ criteria or approval. Saved runs retain their original snapshot.
 <code>autocode doctor</code> shows the record and setting sources. <code>autocode forget</code> clears
 only the learned file. See <a href="../project-memory/">Project memory</a> for provenance,
 sharing, the versioned schema and the two-run behavior.</p>
+<p>What a run's Investigator learns about the repository (how to reproduce a failure,
+which test flakes, a build quirk) is kept in <code>.autocode/project-notes.json</code>, each
+note with its receipt, and given to the next task's Requirements and Planner as
+advisory context. <code>autocode notes</code> lists, retracts and corrects them. See
+<a href="../project-notes/">Project notes</a>.</p>
 <h3 id="advanced-run-inputs">Advanced run inputs<a class="headerlink" href="#advanced-run-inputs" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -3654,6 +3667,11 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 <td><code>autocode forget</code></td>
 <td><code>--workspace</code>, <code>--json</code></td>
 <td>Clear the selected project's learned record only; configuration and saved runs remain.</td>
+</tr>
+<tr>
+<td><code>autocode notes</code></td>
+<td><code>--text</code>, <code>--reason</code>, <code>--all</code>, <code>--workspace</code>, <code>--json</code></td>
+<td>For <code>correct</code>, the note's new text; for <code>retract</code>, why it is wrong (optional); for <code>list</code>, include retracted notes; the project or task worktree (default: cwd); print JSON for a client.</td>
 </tr>
 <tr>
 <td><code>autocode models</code></td>
@@ -4243,7 +4261,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/43b932bb09a596c51a34f289e907bece7901e924/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/33d81db6004a108e76574780c144be26d1121a44/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,

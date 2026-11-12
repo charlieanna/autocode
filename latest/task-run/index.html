@@ -2898,7 +2898,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/43b932bb09a596c51a34f289e907bece7901e924/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/33d81db6004a108e76574780c144be26d1121a44/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3021,7 +3021,16 @@ its disk was full. The core checks owned receipt chronology, matching source,
 log hashes and supervision receipts, and refuses any actual failing test name,
 mixed error or stale scope. Reviewer findings still require that reviewer
 to resolve or retract them; no product edit is manufactured for an environment
-repair, and no completion or approval follows from this reconciliation alone.</p>
+repair, and no completion or approval follows from this reconciliation alone.
+The same holds when every earlier failed proof of that source refused only
+because the old collector chose another parser for a plain <code>python -m unittest</code>
+suite (#3037): each exited zero with no parsed results and its sole refusal is
+the unbounded base suite definition. The core re-reads those owned, intact logs
+with the unittest parser and requires complete passes with no failure, skip or
+collection error, the same source, base and case scope as a fresh passing proof
+in the current approved contract, the same suite command apart from <code>-v</code>, and
+the same passing suite inventory. The settled finding names the superseded
+receipts beside the fresh one; the old receipts are kept unchanged.</p>
 <p>At a settled shared-cost stop, <code>needs.kind=budget</code> names the current finite cap,
 known accumulated spend, accounting completeness, <code>minimum_cap_usd</code>, and its own
 <code>next_command</code> argument array. Terminal chat shows these, fills only its
@@ -4099,7 +4108,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/43b932bb09a596c51a34f289e907bece7901e924/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/33d81db6004a108e76574780c144be26d1121a44/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -4448,6 +4457,13 @@ usage and spent allowances remain intact; changing another role, engine, source,
 contract or scope is refused. A model change alone cannot authorize a call, and a
 rejected combined change saves no settings. Clients continue to use only named
 view actions; this operator control does not add a client-side route override.</p>
+<p>When the provider refused the Resolver's retry (quota or a content filter), the stop
+asks for a model instead, and no scoped retry is involved (#3159): <code>--abandon-stage
+ATTEMPT</code>, then <code>--resume-paused --resolver-model MODEL</code> records the usual route
+assignment, and the incident's binding treats the model, its effort and their origins
+as that one assignment. A call the provider stopped with no response ran no experiment,
+so AutoCode's own retry of the held incident is still there for the named model. A held
+Resolver change the CLI cannot take now names why, never a retry it would refuse.</p>
 <h3 id="what-went-wrong-recoveries">What went wrong (<code>recoveries</code>)<a class="headerlink" href="#what-went-wrong-recoveries" title="Permanent link">&para;</a></h3>
 <p><code>view.recovery</code> describes a stop. <code>view.recoveries</code> is the history of what went wrong while the
 run carried on by itself: a list, oldest first and at most the newest 20, built by
@@ -4868,13 +4884,13 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/43b932bb09a596c51a34f289e907bece7901e924/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/33d81db6004a108e76574780c144be26d1121a44/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
 <code>diff_coverage</code> is the same proof's line coverage of changed product hunks
-(<code>collected</code>, <code>tool</code>, <code>note</code>, <code>files</code>, <code>uncovered</code>, <code>unmeasured</code>); <code>null</code> when the
-proof did not record it. The raw coverage report alone grants no completion
+(<code>collected</code>, <code>tool</code>, <code>note</code>, <code>files</code>, <code>uncovered</code>, <code>unmeasured</code>, and
+<code>measured_lines</code> for the changed lines only); <code>null</code> when the proof did not record it. The raw coverage report alone grants no completion
 authority. Current task proofs combine authenticated producing receipts with
 mutation evidence in <code>verification.changed_code_evidence</code> (#2474).
 <code>mutation_check</code> is the same proof's mutation check (#699, #2474, see
@@ -5550,7 +5566,11 @@ run is waiting for:</p>
 stopped the run because it could not continue safely (for example, the
 run time limit was reached). That question is for a person who has looked at
 the run; a caller must not answer it with a proposed default. Its <code>action</code> is
-the response command. A <code>blocker</code> is often a decision about the approved
+the response command. Its <code>questions</code> hold only the sentences meant for that
+person: the operator advice AutoResolver saves with the request (flags, a
+token's environment variable, <code>autocode resume</code>) stays in the saved request and
+<code>stop_reason</code>, and an option's "with <code>--flag</code>" clause is dropped, so a client
+can show the question as written (#3145). A <code>blocker</code> is often a decision about the approved
 contract (a criterion Resolver proved contradictory): the response is retained
 as information and never edits the contract, so after it the run holds and
 <code>needs.reason</code> names the path that applies such a decision, <code>--edit-goal
@@ -5770,8 +5790,10 @@ is the monotonic coordination-record revision used to reject stale record mutati
   AutoCode's own excluded) match the recorded evidence. Historical results and waivers without
   the check identity remain readable but are not current; run the check again or record a fresh
   explicit waiver rather than inferring approval for an unknown command.</li>
-<li><code>done</code> is true once every run is complete and either no command was named, a current result
-  passed, or a current waiver exists.</li>
+<li><code>done</code> is true once every run is complete and either a current result passed or a current
+  waiver exists. With no command named, completed runs alone do not make the set done: separate
+  green runs do not show the producer and consumer agree. Name a check, or waive it with a reason;
+  clients say so while <code>check</code> is null and <code>waiting_on</code> is empty.</li>
 <li><code>merge_order</code> and <code>next_command</code> (the <code>verify</code> argument array, while a check is due).</li>
 </ul>
 <p>The summary's additive <code>record_revision</code> identifies the inspected change-set record. Changing
@@ -5787,8 +5809,9 @@ asks for fresh inspection.</p>
   the producer's checkout. This is where the shared interface is checked. Naming a command
   clears both the previous result and its waiver, including when changing only the target.</li>
 <li><code>changeset verify --run-dir RUN</code> runs it. A check that changes a workspace does not pass.</li>
-<li><code>changeset waive --run-dir RUN --reason TEXT</code> records a waiver for the named check, current
-  member runs and code. It grants no waiver for a replacement check.</li>
+<li><code>changeset waive --run-dir RUN --reason TEXT</code> records a waiver for the named check (or for
+  having none), current member runs and code. It grants no waiver for a replacement check or for
+  a check named after it.</li>
 <li><code>changeset reopen --run-dir RUN --target TARGET [--message TEXT]</code> sends that run a
   follow-up, by default the failed check's command and output.</li>
 <li><code>changeset order --run-dir RUN TARGET...</code> sets the merge order. By default the source
@@ -6132,6 +6155,17 @@ marked <code>unavailable</code> against the run's other routes, <code>reset</cod
 --stage-model ROLE MODEL EFFORT</code>, filled the same way; it prints a sentence rather than the view, so
 a client reads the list again afterwards. A refused change exits 2 with the reason on stderr and
 saves nothing.</p>
+<p>At a pause the person requested while the approved plan is being built, the status view's
+<code>implementation_discrepancy</code> lets them say where the code departs from that plan without revising it
+(#3045). <code>offer</code> is null unless a report may be sent now; otherwise it has <code>label</code>, <code>effect</code> and
+<code>next_command</code>, the argument array <code>--workspace WS --run-dir RUN --review-token TOKEN
+--report-discrepancy MESSAGE</code> with <code>MESSAGE</code> replaced by the person's text and <code>TOKEN</code> the approved
+plan's. <code>reports</code> lists every saved report (<code>id</code>, <code>text</code>, <code>at</code>, <code>contract_token</code>, <code>task_id</code>,
+<code>milestone_id</code>, <code>source_revision</code>, and <code>current</code>, true while it is bound to the current plan
+revision). The whole field is null when there is neither. A report keeps the plan approved and the
+run paused; the Tester of that task and the Completion Reviewer read it as an allegation to check
+against the approved plan when the person resumes, and it never approves, accepts, closes a finding
+or changes a limit. A change to the plan itself stays <code>--feedback</code>.</p>
 <h2 id="worktrees-for-clients">Worktrees for clients<a class="headerlink" href="#worktrees-for-clients" title="Permanent link">&para;</a></h2>
 <p>A chat changes files either in a worktree and branch of its own or in the person's folder, and a
 person should see which, and choose it for a new chat (owner request 2026-11-11). The status view's
@@ -6150,7 +6184,10 @@ list: <code>folder</code>, <code>branch</code> (the folder's current branch), <c
 <code>branches</code>, the local branches most recently committed first, each with <code>name</code>, <code>start_args</code> and
 <code>unavailable</code> (why it is not offered, with <code>start_args</code> null): a branch checked out in a worktree,
 the folder's own included, or one another chat will plan on. A folder that is not the top of a Git
-checkout with a commit lists only <code>folder</code>, which works there as every chat there does. A client
+checkout with a commit lists only <code>folder</code>, which works there as every chat there does. When that
+folder is outside Git but holds Git checkouts among its children or grandchildren, a chat there works
+in a new, empty private project, so <code>folder</code> has a <code>warning</code> naming those checkouts and saying to
+start the chat in the one to change (#2066). A client
 shows the places, preselects <code>default</code>, passes the chosen place's (or branch's) <code>start_args</code>
 unchanged in place of its own placement flag, and, when that place has a <code>warning</code>, shows it and
 starts only once the person confirms. It reads the list again just before the start.</p>
