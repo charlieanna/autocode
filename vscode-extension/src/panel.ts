@@ -2072,15 +2072,21 @@ function updateComposer() {
   pauseButton.textContent = pausing ? 'Pausing after this step…' : 'Pause';
   pauseButton.setAttribute('aria-label', pause ? (pausing ? 'Pausing after this step' : pause.label) : 'Pause');
   pauseButton.title = pause && pause.effect ? pause.effect : '';
+  // A message the view takes while the run works is saved for the next stage boundary (#3259): the
+  // stage this window drives does not hold it, and it continues nothing itself.
+  const live = Boolean(input && input.kind === 'message');
+  const messaging = Boolean(chatEnvelope.messaging);
   document.getElementById('send-message').hidden = Boolean(pause) && !input;
-  document.getElementById('send-message').disabled = chatEnvelope.busy || !allowed || (Boolean(pause) && !input) || !document.getElementById('message').value.trim();
+  document.getElementById('send-message').disabled = (chatEnvelope.busy && !live) || messaging || !allowed || (Boolean(pause) && !input) || !document.getElementById('message').value.trim();
   document.getElementById('send-message').textContent = 'Send ↑';
-  const label = input ? input.label + (input.kind === 'resolver_response' ? '' : ' and continue') : 'Send message';
+  const label = input ? input.label + (input.kind === 'resolver_response' || live ? '' : ' and continue') : 'Send message';
   document.getElementById('send-message').setAttribute('aria-label', label);
   document.getElementById('send-hint').textContent = chatEnvelope.state && chatEnvelope.state.confirming
     ? chatEnvelope.state.confirming + ' — answer the dialog that opened'
     : !chatEnvelope.selectedRun ? 'Message AutoCode'
     : unreadable ? 'Waiting for the status to read again. You can keep a draft here.'
+    : messaging ? 'Saving your message…'
+    : live ? 'AutoCode is working. A message you send now is read after the current step.'
     : pausing ? 'AutoCode pauses once this step is saved. You can keep a draft here.'
     : input ? (chatEnvelope.busy ? 'AutoCode is working on your last message. Keep your draft here and send it after.' : label)
     : (chatEnvelope.busy || (chatEnvelope.state && chatEnvelope.state.working)) ? 'AutoCode is working. You can keep a draft here.'

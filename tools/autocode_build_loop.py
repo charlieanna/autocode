@@ -366,6 +366,11 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         except runner.ReportRepairQueued:
             return runner.orchestrator.SKIP
         except support.Paused as error:
+            if interventions.pending_admission_pause(error.status, str(error)) and not current.get("active_stage"):
+                # A message or pause accepted after this command's boundary check and before the launch's
+                # admission (#3259): nothing launched, so this is still a boundary. Take it here, as the
+                # boundary check would have, rather than stopping to ask the person to continue.
+                consume_boundary(current)
             if getattr(runner, "native_calls", None) is not None:
                 raise  # Retained native attempts grant no automatic recovery.
             fired = recovery_dispatch.recover(runner, current, run_dir, workspace, error)
