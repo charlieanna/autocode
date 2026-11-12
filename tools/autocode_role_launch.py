@@ -30,6 +30,7 @@ try:
     from . import autocode_job_failure as job_failure
     from . import autocode_output_cap as output_cap
     from . import autocode_output_policy as output_policy
+    from . import autocode_partial_work as partial_work
     from . import autocode_planning as planning
     from . import autocode_progressive_state as progressive_state
     from . import autocode_provider_auth as provider_auth
@@ -56,6 +57,7 @@ except ImportError:
     import autocode_job_failure as job_failure
     import autocode_output_cap as output_cap
     import autocode_output_policy as output_policy
+    import autocode_partial_work as partial_work
     import autocode_planning as planning
     import autocode_progressive_state as progressive_state
     import autocode_provider_auth as provider_auth
@@ -270,6 +272,8 @@ def admit_launch(
     progressive_state.admit_attempt(state, record, before)
     job_failure.admit(state, record, workspace)
     classification_recovery.admit(state, record, workspace)
+    if original_stage == "builder" and not report_only and not record.get("dry_run"):
+        partial_work.capture_start(record, before, workspace, run_dir, state=state)
     return native_prepared
 
 

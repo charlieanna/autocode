@@ -445,7 +445,7 @@ class RunState(TypedDict, total=False):
     orchestration_batch: dict | None  # a parallel Builder batch
     parent_run: str | None  # the parent of a child run
     progressive: dict | None  # progressive-planning record
-    milestone_progress: dict  # per-milestone progress (autocode_milestones)
+    milestone_progress: dict  # autocode_milestones writes; partial_work reads accepted scopes to retire pending source
 
     # --- others (see KEYS for the full set) ---
     workflow: dict  # workflows.begin/apply/pin write the recognition record; absent before recognition

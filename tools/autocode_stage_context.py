@@ -116,6 +116,14 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
         execution_engine=stage_roles.engine_for(state["settings"], stage_roles.role_for(state, stage)),
     )
     if stage == "builder":
+        try:
+            from . import autocode_partial_work as partial_work
+        except ImportError:
+            import autocode_partial_work as partial_work
+        if not (base["recovery_context"] or {}).get("partial_work") and (
+            retained := partial_work.pending(state, current["revision"])
+        ):
+            base["retained_partial_work"] = retained
         base["builder_artifact_policy"] = {
             "evidence_directory": (state.get("recovery_context") or {}).get("diagnostic_directory")
             or str(Path(state_path).parent / "evidence"),

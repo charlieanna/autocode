@@ -26,6 +26,7 @@ try:
     from . import autocode_failures as failures
     from . import autocode_interventions as interventions
     from . import autocode_job_failure as job_failure
+    from . import autocode_partial_work as partial_work
     from . import autocode_permission_recovery as permission_recovery
     from . import autocode_planning as planning
     from . import autocode_process as processes
@@ -49,6 +50,7 @@ except ImportError:
     import autocode_failures as failures
     import autocode_interventions as interventions
     import autocode_job_failure as job_failure
+    import autocode_partial_work as partial_work
     import autocode_permission_recovery as permission_recovery
     import autocode_planning as planning
     import autocode_process as processes
@@ -766,6 +768,16 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
         "checks, or fix the identified stall. Preserve all acceptance checks; do not replay the same "
         "task under unchanged limits. Do not extend limits or reset budgets without authorization.",
     }
+    if semantic_stage == "builder" and record.get("timeout_kind", "stage") == "stage" and not record.get("report_only"):
+        recovery["partial_work"] = partial_work.recovery(record, before, after, workspace, run_dir)
+        recovery["instruction"] += (
+            " The partial_work packet records capture availability and, when available, the stopped Builder's "
+            "source delta and deletions. "
+            "Continue from the retained workspace, review that delta and its deletions, and repair it rather "
+            "than restart the implementation. A truncated patch requires inspecting the named retained tree. "
+            "An unavailable capture is an evidence gap to retain and report, never verified source. "
+            "This packet is unverified source, not a completed report or passing test evidence."
+        )
     if record.get("timeout_kind") == "person":
         # The person ended the attempt (#3263); nothing timed out, so the next one keeps its plan and limits.
         recovery["instruction"] = (
