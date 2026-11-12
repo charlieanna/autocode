@@ -12,6 +12,27 @@ import autocode_source_snapshot as source
 import autocode_util as util
 
 
+class InventoryExcludedTests(unittest.TestCase):
+    def test_client_editor_settings_are_not_project_source(self):
+        self.assertTrue(util.inventory_excluded(".vscode/settings.json"))
+        self.assertTrue(util.inventory_excluded(".vscode/extensions.json"))
+        self.assertTrue(util.inventory_excluded(".vscode/tasks.json"))
+
+    def test_editor_settings_directory_is_excluded_but_vscode_in_a_different_path_is_not(self):
+        self.assertTrue(util.inventory_excluded(".vscode/settings.json"))
+        self.assertFalse(util.inventory_excluded("src/.vscode/settings.json"))
+        self.assertFalse(util.inventory_excluded("foo.vscode"))
+
+    def test_existing_exclusions_are_unchanged(self):
+        self.assertTrue(util.inventory_excluded(".autocode/state.json"))
+        self.assertTrue(util.inventory_excluded(".autocode-ui/cache.txt"))
+        self.assertTrue(util.inventory_excluded("pkg/__pycache__/module.cpython-313.pyc"))
+        self.assertTrue(util.inventory_excluded("module.cpython-313.pyc"))
+        self.assertFalse(util.inventory_excluded("src/main.py"))
+        self.assertFalse(util.inventory_excluded(".github/workflows/ci.yml"))
+        self.assertFalse(util.inventory_excluded("README.md"))
+
+
 class SelectedSourceSnapshotTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

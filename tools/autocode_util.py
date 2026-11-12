@@ -635,7 +635,11 @@ def use_snapshot_service(service) -> None:
 
 def inventory_excluded(name: str) -> bool:
     """Whether a workspace name is outside the checked source inventory: run state and Python bytecode caches."""
-    return name.startswith((".autocode/", ".autocode-ui/")) or "/__pycache__/" in f"/{name}" or name.endswith(".pyc")
+    return (
+        name.startswith((".autocode/", ".autocode-ui/", ".vscode/"))
+        or "/__pycache__/" in f"/{name}"
+        or name.endswith(".pyc")
+    )
 
 
 def snapshot(workspace, nested=False, unborn_ok=True):
