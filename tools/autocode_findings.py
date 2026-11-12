@@ -103,7 +103,8 @@ def recheck_by_validator(state: RunState, value, source_revision):
     closing report was repaired, its findings stayed open, and every Completion Owner COMPLETE was
     rejected until the run stopped. The run goes back to the Validator for a fresh review only when its
     latest validation passed and did not report these findings again: a FAIL, or a finding raised in
-    that same report, is the Validator's current word and the gate refuses completion as before. At
+    that same report, is the Validator's current word and the gate refuses completion as before, unless
+    that FAIL judged a failed proof the runner has since settled as a flaky test (#2942). At
     most once per source revision and set of findings; ``validator_rechecks`` records each (_recheck_due).
     """
     if value.get("status") not in ("COMPLETE", "TASK_COMPLETE"):
@@ -136,14 +137,16 @@ def milestone_recheck_by_tester(state: RunState, blocking, source_revision) -> l
 def _recheck_due(state: RunState, rows, source_revision) -> bool:
     """Record one fresh Tester review of ``rows`` on ``source_revision``; False when it is not owed.
 
-    It is owed when the Tester's latest validation passed without reporting these findings again,
-    and not yet asked for this source and set of findings. ``validator_rechecks`` (read only here)
+    It is owed when the Tester's latest validation passed without reporting these findings again, or
+    when its FAIL judged a proof the runner has since settled as a flake (_judged_a_settled_flake), and
+    not yet asked for this source and set of findings. ``validator_rechecks`` (read only here)
     bounds it for both the completion and the milestone gate.
     """
     validation = state.get("validation") or {}
-    if validation.get("verdict") != "PASS" or any(
-        row.get("last_reported_in") == validation.get("output") for row in rows
-    ):
+    if (
+        validation.get("verdict") != "PASS"
+        or any(row.get("last_reported_in") == validation.get("output") for row in rows)
+    ) and not _judged_a_settled_flake(state, validation, rows, source_revision):
         return False
     key = {"source_revision": source_revision, "findings": sorted(row["id"] for row in rows)}
     asked = state.setdefault("validator_rechecks", [])
@@ -151,6 +154,41 @@ def _recheck_due(state: RunState, rows, source_revision) -> bool:
         return False
     asked.append(key)
     return True
+
+
+def _judged_a_settled_flake(state: RunState, validation, rows, source_revision) -> bool:
+    """Whether the Tester's FAIL on this source judged a failed proof the runner has since settled as a flake.
+
+    A pre-existing suite test that fails once makes the runner's first proof of a source FAIL; the Tester,
+    reviewing in between, reports that as a blocking finding; the runner's next proof of the same source
+    passes and settles its own finding as a flaky test (autocode_proof_findings.flake_settled, #2942). The
+    Tester's FAIL then rested on a proof that is no longer the run's word, but only the Tester can close its
+    finding, so without a fresh review the completion gate stopped the run on it (live Kilo run,
+    2026-11-12). It is owed only when the latest validation is of this source, the current proof of this
+    source passes, a runner proof finding was settled as a flake by that proof, and every one of ``rows``
+    was last reported before that settlement: a Tester that reports them again after it keeps its word.
+    The ``regression_proof`` and ``flaky_revisions`` keys are written by autocode_proof_findings.
+    """
+    proof = state.get("regression_proof") or {}
+    if (
+        validation.get("source_revision") != source_revision
+        or proof.get("source_revision") != source_revision
+        or proof.get("verdict") != "PASS"
+    ):
+        return False
+    settled = [
+        str(row.get("resolved_at") or "")
+        for row in state.get("findings_ledger", [])
+        if row.get("source") == "runner"
+        and row.get("regression_proof")
+        and row.get("status") == "resolved"
+        and source_revision in (row.get("flaky_revisions") or {})
+        and row.get("resolved_in") == proof.get("path")
+        and row.get("resolved_at")
+    ]
+    return bool(settled) and all(
+        row.get("last_reported_at") and str(row["last_reported_at"]) < min(settled) for row in rows
+    )
 
 
 def blocking_for_milestone(state: RunState, current_scope) -> list:

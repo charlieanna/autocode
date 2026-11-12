@@ -551,6 +551,14 @@ that reason, so the Builder makes the change or the test reliable. A second
 request for the same source goes to the Investigator. The run never stops at
 the completion gate for it.
 
+A Tester that reviewed between the two proofs may report the failed proof as
+its own blocking finding, which only the Tester can close. When the runner then
+settles its finding as a flaky test, that Tester FAIL rested on a proof that is
+no longer the run's word, so a Completion Reviewer that asks to complete sends
+the run back to the Tester once for that source instead of stopping at the
+completion gate. A Tester that reports the finding again after the settlement,
+or a current proof that fails, keeps the refusal.
+
 When the project already has a coverage tool (`coverage.py`, `go test
 -coverprofile`, `c8`, or Vitest's coverage package), the proving-test command
 runs once more in that scratch tree to record line coverage
