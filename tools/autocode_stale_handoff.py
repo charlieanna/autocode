@@ -48,8 +48,15 @@ except ImportError:
 
 STATUS = "PAUSED_STALE_HANDOFF"
 DECISION_EVENT = "stale_handoff_drift"
+DISCARD_EVENT = "stale_handoff_discarded"
+PAUSED = "stale_handoff_paused"
 BINDING_KEYS = ("contract_hash", "contract_revision", "task_id", "source_revision", "settings_hash", "scope")
 UNBOUND = "launch_binding"
+# Budgets the run itself extends between a failed attempt and its relaunch: after a stage timeout,
+# AutoResolver may raise the default stage timeout (autocode_default_budget_runtime.recover). Like the
+# ceilings the established binding already leaves out, a budget is not the source, task, settings,
+# contract or scope a relaunch acts on.
+RUN_EXTENDED_LIMITS = ("stage_timeout_seconds",)
 
 
 def _snapshot(ref):
@@ -60,6 +67,20 @@ def _snapshot(ref):
     return value if isinstance(value, dict) and isinstance(value.get("files"), dict) else None
 
 
+def _comparable(state: RunState):
+    """``state`` with the budgets the run extends itself left out of the settings it binds."""
+    settings = state.get("settings")
+    limits = settings.get("limits") if isinstance(settings, dict) else None
+    if (
+        not isinstance(settings, dict)
+        or not isinstance(limits, dict)
+        or not any(key in limits for key in RUN_EXTENDED_LIMITS)
+    ):
+        return state
+    kept = {key: value for key, value in limits.items() if key not in RUN_EXTENDED_LIMITS}
+    return {**state, "settings": {**copy.deepcopy(settings), "limits": kept}}
+
+
 def capture_launch_binding(state: RunState, record, before) -> None:
     """Record the source, task, settings, contract and scope this launch actually used.
 
@@ -68,7 +89,7 @@ def capture_launch_binding(state: RunState, record, before) -> None:
     then-current values after drift.
     """
     record["launch_binding"] = {
-        **resolver_recovery._binding(state, before["revision"]),
+        **resolver_recovery._binding(_comparable(state), before["revision"]),
         "scope": resolver_recovery._scope(state),
     }
 
@@ -112,7 +133,7 @@ def _settings_hold(bound, state: RunState, revision) -> bool:
         "source_revision": revision,
         "settings_hash": bound.get("settings_hash"),
     }
-    return resolver_recovery._holds(projected, state, revision)
+    return resolver_recovery._holds(projected, _comparable(state), revision)
 
 
 def _drift(bound, state: RunState, current):
@@ -151,6 +172,11 @@ def _refuse(state: RunState, record, bound, moved, run_dir) -> None:
             "Stale handoff before relaunch: changed outside the run since the failed attempt's launch: "
             + ", ".join(moved)
         )
+    context = state.get("recovery_context")
+    if isinstance(context, dict):
+        # The pause is the decision; a person who resumes past it discards this stale handoff
+        # (autocode_stop_explanations), so the next relaunch is not refused again on the same binding.
+        context[PAUSED] = records.attempt_id(record)
     state.setdefault("user_events", []).append(
         {
             "kind": DECISION_EVENT,
@@ -183,6 +209,21 @@ def admit_relaunch(state: RunState, record, workspace, run_dir) -> None:
     context = state.get("recovery_context")
     if not isinstance(context, dict):
         return
+    if context.get(PAUSED):
+        # The run paused on this handoff and was resumed past the pause: the stale handoff is
+        # discarded, as the pause's explanation says. Record that decision once, then launch.
+        if not context.get(DISCARD_EVENT):
+            context[DISCARD_EVENT] = util.now()
+            state.setdefault("user_events", []).append(
+                {
+                    "kind": DISCARD_EVENT,
+                    "actor": "runner",
+                    "at": context[DISCARD_EVENT],
+                    "attempt_id": records.attempt_id(record),
+                    "paused_attempt_id": context[PAUSED],
+                }
+            )
+        return
     if UNBOUND in context:
         bound = context[UNBOUND]
     else:
@@ -190,13 +231,13 @@ def admit_relaunch(state: RunState, record, workspace, run_dir) -> None:
         # Only the trusted recovery ledger establishes that this is a relaunch;
         # admission-time source/settings must never supply its launch authority.
         attempt = context.get("attempt_id")
-        histories = (
-            "automatic_timeout_recoveries",
-            "automatic_capacity_recoveries",
-            "automatic_permission_recoveries",
+        ledgers = (
+            state.get("automatic_timeout_recoveries") or [],
+            state.get("automatic_capacity_recoveries") or [],
+            state.get("automatic_permission_recoveries") or [],
         )
         if not attempt or not any(
-            row.get("attempt_id") == attempt for name in histories for row in state.get(name, [])
+            isinstance(row, dict) and row.get("attempt_id") == attempt for ledger in ledgers for row in ledger
         ):
             return
         original = next((row for row in state.get("stages", []) if records.attempt_id(row) == attempt), None)

@@ -326,6 +326,64 @@ class StaleHandoffBoundaryTests(unittest.TestCase):
         (self.root / "README.md").write_text("d1")
         self.assert_stale_pause(state, role="builder")
 
+    def test_run_extended_stage_timeout_is_not_settings_drift(self):
+        """AutoResolver's own stage-timeout extension after the timeout is not drift; a person's route is."""
+        state = self.fresh_state()
+        state["settings"]["limits"] = {"stage_timeout_seconds": 3600}
+        attempt, before = self.admit_original(state, role="tester")
+        self.admit_timeout_recovery(state, attempt, before)
+        # What autocode_default_budget_runtime.recover writes once the timed-out attempt shows progress.
+        state["settings"]["limits"]["stage_timeout_seconds"] = 7200
+        rerouted = copy.deepcopy(state)
+        rerouted["settings"]["roles"]["tester"]["model"] = "model-named-by-person"
+        self.admit_relaunch(state, role="tester")
+        self.assert_stale_pause(rerouted, role="tester")
+
+    def resume_past_stale_pause(self, drift):
+        """Pause on ``drift``, resume, and relaunch: --resume-paused keeps the recovery note."""
+        state = self.fresh_state()
+        attempt, before = self.admit_original(state, role="tester")
+        row = self.admit_timeout_recovery(state, attempt, before)
+        drift(state, attempt, row)
+        self.assert_stale_pause(state, role="tester")
+        state["status"] = "RUNNING"
+        self.admit_relaunch(state, role="tester", iteration=7)
+        discarded = [event for event in state["user_events"] if event.get("kind") == "stale_handoff_discarded"]
+        self.assertEqual(1, len(discarded), "the core records that the resumed run discarded the handoff")
+        self.assertEqual("006/tester-01", discarded[0]["paused_attempt_id"])
+
+    def test_resume_past_a_source_stale_pause_discards_the_handoff(self):
+        """--resume-paused discards the stale handoff, as its explanation says; it is not refused again."""
+        self.resume_past_stale_pause(lambda state, attempt, row: (self.root / "README.md").write_text("d1"))
+
+    def test_resume_past_a_legacy_unbound_pause_discards_the_handoff(self):
+        """A run saved before launch bindings is never left unable to continue."""
+        self.resume_past_stale_pause(self.strip_legacy_keys)
+
+    def test_rejected_relaunch_keeps_its_own_builder_work(self):
+        """A relaunched Builder set aside with its edits is still the run's own work for the next attempt."""
+        state = self.fresh_state()
+        attempt, before = self.admit_original(state, role="builder")
+        (self.root / "stock.py").write_text("s1")
+        self.admit_timeout_recovery(state, attempt, before)
+        relaunch = self.admit_relaunch(state, role="builder", iteration=6)
+        base = Path(relaunch["output"]).with_suffix("")
+        start = source_scope.snapshot(self.root, state, base_snapshot=support.snapshot)
+        support.atomic_json(base.with_suffix(".before.json"), start)
+        (self.root / "stock.py").write_text("s2")
+        (self.root / "tests/test_stock.py").write_text("t2")
+        left = source_scope.snapshot(self.root, state, base_snapshot=support.snapshot)
+        support.atomic_json(base.with_suffix(".after.json"), left)
+        base.with_suffix(".json").write_text("{}")
+        relaunch.update(
+            before_ref=str(base.with_suffix(".before.json")), after_ref=str(base.with_suffix(".after.json"))
+        )
+        records.archive_rejected_stage(state, self.run, relaunch, "report rejected")
+        self.assertIn("recovery_context", state, "a rejected attempt does not retire the recovery note")
+        self.admit_relaunch(state, role="builder", iteration=7)
+        (self.root / "README.md").write_text("d1")
+        self.assert_stale_pause(state, role="builder", iteration=8)
+
     def test_ac4_stale_pause_decision_recorded_in_saved_state(self):
         state = self.fresh_state()
         attempt, before = self.admit_original(state, role="tester")
