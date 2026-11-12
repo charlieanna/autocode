@@ -121,6 +121,11 @@ def progress(
     elif stage and state.get("active_stage"):
         writing_first = _mapping(state.get("active_stage")).get("stage") == TESTS_FIRST_STAGE
         headline = f"{stage} writing tests first" if writing_first else f"{stage} working"
+    elif _mapping(state.get("active_runner_check")).get("summary"):
+        # Between two stages the runner checks the saved work itself (the Tester's tests, the
+        # regression proof). Naming the next job there showed "Next: Tester" for minutes while
+        # the runner was busy, as if nothing were running.
+        headline = str(state["active_runner_check"]["summary"])
     elif _unchosen(state):
         # A new run's first save holds the default next stage until the run chooses its first one,
         # a moment later; naming it put "Next: Planner" ahead of Requirements in the chat's log.
