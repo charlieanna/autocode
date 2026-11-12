@@ -382,7 +382,7 @@ def _own_error(case: dict, file: str, source: str, run: dict) -> str:
         if not (found and found.group(1) in classes):
             found = _UNDEFINED_NAME.search(block)
             frames = [a or b for a, b in _FRAME.findall(block[: found.start()])] if found else []
-            if not (frames and Path(frames[-1]).name == Path(file).name):
+            if not (found and frames and Path(frames[-1]).name == Path(file).name):
                 continue
         return (
             f"{case['id']}: {case['test_name']} in {file} fails on its own line, not on the product: "
