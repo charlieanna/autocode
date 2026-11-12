@@ -84,6 +84,7 @@ PAUSE_BUDGET_KIND = {
     "PAUSED_MILESTONE_BUDGET": "milestone_max_seconds",
     "PAUSED_MILESTONE_STALLED": "milestone_max_replans",
     "PAUSED_NO_PROGRESS": "no_progress_batches",
+    "PAUSED_PLANNING_CALL_LIMIT": "planning_calls",
 }
 # The explicit flags that change each exhaustible bound (a subset of autocode_configure.BUDGET_ARGUMENTS).
 BUDGET_FLAGS = {
@@ -93,6 +94,7 @@ BUDGET_FLAGS = {
     "milestone_max_seconds": ("max_milestone_seconds",),
     "milestone_max_replans": ("max_milestone_replans",),
     "no_progress_batches": ("no_progress_limit",),
+    "planning_calls": ("max_planning_calls",),
 }
 # The one semantic checkpoint an answered blocker's contract decision may hold (#2434): the
 # Resolver's own pause. Every other pause a blocker can arise at — budget, output, context,

@@ -32,6 +32,7 @@ try:
     from . import autocode_milestones as milestones
     from . import autocode_model_preflight as model_preflight
     from . import autocode_planning as planning
+    from . import autocode_planning_calls as planning_calls
     from . import autocode_progressive_state as progressive
     from . import autocode_recovery_dispatch as recovery_dispatch
     from . import autocode_regression as regression
@@ -58,6 +59,7 @@ except ImportError:
     import autocode_milestones as milestones
     import autocode_model_preflight as model_preflight
     import autocode_planning as planning
+    import autocode_planning_calls as planning_calls
     import autocode_progressive_state as progressive
     import autocode_recovery_dispatch as recovery_dispatch
     import autocode_regression as regression
@@ -212,6 +214,9 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
                 "PAUSED_COST_LIMIT",
                 f"Spend so far {cost.usd(reached[0])} reached the {cost.usd(reached[1])} cost cap at stage boundary",
             )
+        # So is the cap on planning's model calls (owner decision 2026-11-12), checked before a planning call.
+        if calls := planning_calls.reached(current):
+            raise support.Paused(planning_calls.STATUS, planning_calls.stop_reason(*calls))
         classifying = (
             current.get("next_stage") == "investigate_stuck"
             and (current.get("stuck_investigation") or {}).get("mode") == "builder_failure"

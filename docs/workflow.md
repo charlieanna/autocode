@@ -429,6 +429,14 @@ spending review calls on cycles that end the same way. `--resume-paused` runs on
 `--feedback` restarts from requirements (in an adaptive run, from the Planner when a plan is shown
 for approval) and renews the allowance.
 
+Across all of that, planning as a whole has one cap: a new run makes at most 20 planning model calls
+(Requirements, the Planner and the Plan Reviewer, with their report repairs and the Investigator's
+calls about a planning stage) between your answers and feedback. Every call counts, a timed-out or
+rejected one too, and a restarted cycle keeps the count; your next answer or feedback starts it again.
+At the cap the run pauses at `PAUSED_PLANNING_CALL_LIMIT` before the next planning call, and only you
+raise the cap (`--resume-paused --max-planning-calls N`) or remove it (`0`). See
+[Planning-call cap](execution.md#planning-call-cap).
+
 The default workflow uses OpenCode for every role. The Plan Reviewer, Builder, Tester,
 and Completion Reviewer use OpenCode's current ChatGPT OAuth connection; the Requirements Gatherer
 and Planner use separate sessions on the Z.ai connection by default. Changing

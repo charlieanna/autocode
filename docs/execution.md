@@ -1068,6 +1068,32 @@ restoring never renews the cap.
 completion summary ends with the same line. The status view's `cost` field holds the numbers
 ([Task run](task-run.md#status-view)); [Cost reporting](cost-reporting.md) explains the bases.
 
+## Planning-call cap
+
+Planning has a cap of its own, in model calls rather than money: an approved plan took a median of 9
+planning calls and at most 25 in November 2026, while a planning loop that keeps failing can spend
+far more before any other limit stops it. Owner decision 2026-11-12.
+
+- **What counts.** Each model call that Requirements, the Planner or the Plan Reviewer makes, including
+  their report-only repairs and each Investigator call about a planning stage. A call that timed out or
+  whose answer was rejected counts too. Calls the runner makes itself, and the Planner that plans a
+  milestone's tasks during building, do not.
+- **What starts the count again.** Only your own new input: an answer to a question, plan feedback, or a
+  message. A planning restart (a new review cycle, a deferred approval) keeps the count, and so does a
+  resume. The status view's `planning_calls` shows `used`, `cap` and `renewed_at`, the time of the input
+  that last started the count.
+- **When it pauses.** A new run's cap is 20 calls (`--max-planning-calls N` or `max-planning-calls = N` in
+  the [project settings](cli.md#project-settings) sets another; `0` means none). The cap is checked at the
+  stage boundary, after the money cap, before a planning call launches. Once the count reaches it, the run
+  stops with `PAUSED_PLANNING_CALL_LIMIT`, in the *your decision* category, before that call.
+- **How it continues.** As at the money cap, only you decide: `autocode resume --max-planning-calls M` (or
+  `--resume-paused --max-planning-calls M`) with `M` above the count, or `0` for no cap. Plan feedback at the
+  pause starts the count again and redrafts the plan. A plain resume or a restated exhausted cap leaves the run
+  paused. AutoCode never raises this cap itself: `--autoresolver-managed-limits` does not delegate it, and
+  AutoResolver's one-time doubling of default budgets never applies to it.
+
+A run saved before the cap existed has none until you set one.
+
 ## Open findings
 
 The runner keeps one list of reviewer findings in `state.json` under

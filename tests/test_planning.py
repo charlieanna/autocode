@@ -19,6 +19,7 @@ import autocode_goals as goals
 import autocode_milestones as milestones
 import autocode_opencode as oc
 import autocode_planning as planning
+import autocode_planning_calls as planning_calls
 import autocode_planning_cycle as cycle
 import autocode_support as support
 import autocode_verifier_independence as verifier_independence
@@ -1458,6 +1459,35 @@ class JointFlow(unittest.TestCase):
         self.assertIn("--resolver-token -", result.stdout)
         # #2958: the route a person copies names the run; its token is read back, never printed.
         self.assertNotIn(state["resolver_human_request"]["request_token"], result.stdout)
+
+    def test_planning_pauses_at_its_call_cap_and_continues_only_when_the_person_changes_it(self):
+        # Owner decision 2026-11-12. After the answer this flow makes four planning calls (draft, review,
+        # revise, finalize) with no input between them, so a cap of 2 stops it before the third.
+        self.prepare()
+        self.launch(["Build a greeting tool", "--no-chat", "--max-planning-calls", "2"], 2)
+        run, state = self.saved()
+        self.assertEqual("WAITING_FOR_USER", state["status"])
+        self.assertEqual(2, planning_calls.used(state), "Requirements and the Planner's question")
+        self.launch(["--run-dir", str(run), "--answer", "Q1=CLI"], 0)
+        self.launch(["--run-dir", str(run), "--no-chat"], 2)
+        _, paused = self.saved()
+        self.assertEqual(planning_calls.STATUS, paused["status"], paused.get("stop_reason"))
+        self.assertEqual(2, planning_calls.used(paused), "the answer started the count again; none past the cap")
+        launched = [row for row in paused["stages"] if not row.get("runner_owned")]
+        self.assertEqual(4, len(launched))
+        # A plain resume and the reached cap restated leave it paused, and launch nothing.
+        for restated in ((), ("--max-planning-calls", "2")):
+            with self.subTest(restated=restated):
+                self.launch(["--run-dir", str(run), "--resume-paused", *restated, "--no-chat"], 2)
+                _, held = self.saved()
+                self.assertEqual(planning_calls.STATUS, held["status"])
+                self.assertEqual(launched, [row for row in held["stages"] if not row.get("runner_owned")])
+        # Removing the cap is the person's decision: planning finishes and the plan waits for approval.
+        self.launch(["--run-dir", str(run), "--resume-paused", "--max-planning-calls", "0", "--no-chat"], 2)
+        _, done = self.saved()
+        self.assertEqual("AWAITING_GOAL_APPROVAL", done["status"], done.get("stop_reason"))
+        self.assertEqual(4, planning_calls.used(done))
+        self.assertEqual(0, done["settings"]["limits"]["planning_calls"])
 
     def test_opencode_planning_approval_then_implementation_and_validation(self):
         run, state = self.draft()

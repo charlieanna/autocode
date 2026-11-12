@@ -40,6 +40,7 @@ try:
     from . import autocode_pause_command as pause_command
     from . import autocode_plan_difficulty as plan_difficulty
     from . import autocode_planner_routes as planner_routes
+    from . import autocode_planning_calls as planning_calls
     from . import autocode_quota_route as quota_route
     from . import autocode_requirements_review as requirements_review
     from . import autocode_requirements_triage as requirements_triage
@@ -74,6 +75,7 @@ except ImportError:
     import autocode_pause_command as pause_command
     import autocode_plan_difficulty as plan_difficulty
     import autocode_planner_routes as planner_routes
+    import autocode_planning_calls as planning_calls
     import autocode_providers
     import autocode_quota_route as quota_route
     import autocode_requirements_review as requirements_review
@@ -118,7 +120,24 @@ BUDGET_ARGUMENTS = {
     "no_progress_batches": ("no_progress_limit",),
     "milestone_max_seconds": ("max_milestone_seconds",),
     "milestone_max_replans": ("max_milestone_replans",),
+    planning_calls.KEY: (planning_calls.DEST,),
 }
+# The person's own spending caps: AutoResolver never manages or raises them (#721; planning calls,
+# owner decision 2026-11-12).
+PERSON_CAPS = ("max_cost_usd", planning_calls.KEY)
+# Each flag a saved run takes as a new limit, and the settings.limits key it sets.
+SAVED_LIMIT_FLAGS = (
+    ("max_iterations", "iteration_ceiling"),
+    ("legacy_iteration_ceiling", "iteration_ceiling"),
+    ("max_seconds", "max_seconds"),
+    ("max_cost_usd", "max_cost_usd"),
+    ("max_stage_seconds", "stage_timeout_seconds"),
+    ("max_idle_seconds", "idle_timeout_seconds"),
+    ("max_tool_seconds", "tool_timeout_seconds"),
+    ("no_progress_limit", "no_progress_batches"),
+    ("max_findings_per_task", "max_findings_per_task"),
+    (planning_calls.DEST, planning_calls.KEY),
+)
 
 
 def cost_cap(text):
@@ -144,9 +163,9 @@ def budget_origins(args):
     delegated = getattr(args, "autoresolver_managed_limits", False)
     return {
         kind: (
-            # A money cap is never delegated: AutoResolver may not manage or raise it (#721).
+            # A spending cap is never delegated: AutoResolver may not manage or raise it (#721).
             "resolver_delegated"
-            if delegated and kind != "max_cost_usd"
+            if delegated and kind not in PERSON_CAPS
             else "user_explicit"
             if any(flag in explicit for flag in flags)
             else "runner_default"
@@ -593,17 +612,7 @@ def _configure_saved(
         settings["context_soft_tokens"] = args.context_soft_tokens
     if args.rotate_after_input_tokens is not None:
         settings["rotation_after_input_tokens"] = args.rotate_after_input_tokens
-    for flag, name in (
-        ("max_iterations", "iteration_ceiling"),
-        ("legacy_iteration_ceiling", "iteration_ceiling"),
-        ("max_seconds", "max_seconds"),
-        ("max_cost_usd", "max_cost_usd"),
-        ("max_stage_seconds", "stage_timeout_seconds"),
-        ("max_idle_seconds", "idle_timeout_seconds"),
-        ("max_tool_seconds", "tool_timeout_seconds"),
-        ("no_progress_limit", "no_progress_batches"),
-        ("max_findings_per_task", "max_findings_per_task"),
-    ):
+    for flag, name in SAVED_LIMIT_FLAGS:
         selected = getattr(args, flag, None)
         if selected is not None:
             settings.setdefault("limits", {})[name] = selected
@@ -765,6 +774,12 @@ def _new_run_limits(args, state: RunState):
         "no_progress_batches": args.no_progress_limit if args.no_progress_limit is not None else 3,
         "max_findings_per_task": getattr(args, "max_findings_per_task", None),
         "automatic_retries": 0,
+        # The cap on planning's model calls (owner decision 2026-11-12); 0 means none.
+        planning_calls.KEY: (
+            getattr(args, planning_calls.DEST, None)
+            if getattr(args, planning_calls.DEST, None) is not None
+            else planning_calls.DEFAULT
+        ),
         # Saved only when set: no cost cap by default, and never a runner default (#721).
         **({"max_cost_usd": args.max_cost_usd} if getattr(args, "max_cost_usd", None) is not None else {}),
     }

@@ -21,6 +21,7 @@ import autocode_args
 import autocode_client_actions as actions
 import autocode_command_inputs as command_inputs
 import autocode_configure
+import autocode_pause_authority as pause_authority
 import autocode_run_view as run_view
 import autocode_support as support
 
@@ -64,7 +65,13 @@ def paused(status, **more):
         "current_task": {"id": "T1", "milestone_id": "M1", "contract_hash": CONTRACT["hash"]},
         "milestone_progress": {KEY: {"seconds": 5500, "replans": 1}},
         "settings": {
-            "limits": {"max_seconds": 2700, "max_cost_usd": 2.0, "iteration_ceiling": 5, "no_progress_batches": 3},
+            "limits": {
+                "max_seconds": 2700,
+                "max_cost_usd": 2.0,
+                "iteration_ceiling": 5,
+                "no_progress_batches": 3,
+                "planning_calls": 2,
+            },
             "budget_origins": {key: "user_explicit" for key in ("max_seconds", "max_cost_usd", "iteration_ceiling")},
             "roles": {},
             "milestone_checkpoints": {"enabled": True, "max_seconds": 5400, "max_replans": 1, "stalled_reviews": 3},
@@ -159,6 +166,8 @@ class EveryPauseNumberIsDescribed(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             run_dir = Path(temporary)
             for status, (identity, flag, *_rest) in command_inputs.BOUNDS.items():
+                if not pause_authority.operational(status):
+                    continue  # The person's own cap, which AutoResolver never holds (planning calls)
                 state = paused(status, run_dir=str(run_dir))
                 error = support.Paused(status, state["stop_reason"])
                 self.assertTrue(runner.resolver_runtime.record_operational_exhaustion(runner, state, run_dir, error))
@@ -177,6 +186,7 @@ class EveryPauseNumberIsDescribed(unittest.TestCase):
             "PAUSED_MILESTONE_BUDGET": 5501,  # 5400 s budget, 5500 s counted
             "PAUSED_MILESTONE_STALLED": 2,  # one replan allowed and used
             "PAUSED_NO_PROGRESS": 4,  # limit 3, three unchanged batches
+            "PAUSED_PLANNING_CALL_LIMIT": 3,  # cap 2, no call counted in this fixture
         }
         for status, minimum in cases.items():
             with self.subTest(status=status):
@@ -197,6 +207,20 @@ class EveryPauseNumberIsDescribed(unittest.TestCase):
         for action in ("--resume-paused --retry-failed-stage", "--feedback 'WHAT TO CHANGE'", "--explain"):
             self.assertIsNone(command_inputs.project(state, {"kind": "resume", "action": action}, None))
         self.assertIsNone(command_inputs.project(state, {"kind": "resume", "route": {"question_id": "q"}}, None))
+
+
+class ThePlanningCallCapIsThePersons(unittest.TestCase):
+    def test_autoresolver_never_holds_it_and_the_view_names_its_raise_directly(self):
+        status = "PAUSED_PLANNING_CALL_LIMIT"
+        self.assertFalse(pause_authority.operational(status))
+        with tempfile.TemporaryDirectory() as temporary:
+            state = paused(status, run_dir=temporary)
+            error = support.Paused(status, state["stop_reason"])
+            self.assertFalse(
+                runner.resolver_runtime.record_operational_exhaustion(runner, state, Path(temporary), error)
+            )
+        view = run_view.view(state, run_dir=RUN, workspace=WORKSPACE)
+        self.assertEqual("--resume-paused --max-planning-calls N", view["needs"]["action"])
 
 
 class ClientTablesMatchTheCore(unittest.TestCase):

@@ -1700,6 +1700,7 @@ budget pause names is described, with the same row shape:
 | `PAUSED_TIME_LIMIT` | `max_seconds` | `--max-seconds` | Total active time (seconds) | `elapsed`: active seconds |
 | `PAUSED_COST_LIMIT` | `max_cost_usd` | `--max-cost-usd` | Cost cap (whole USD) | known spend in USD |
 | `PAUSED_ITERATION_LIMIT` | `max_iterations` | `--max-iterations` | Total iterations | the current iteration |
+| `PAUSED_PLANNING_CALL_LIMIT` | `max_planning_calls` | `--max-planning-calls` | Planning model calls since your last answer or feedback | planning calls counted |
 | `PAUSED_MILESTONE_TIME_LIMIT`, `PAUSED_MILESTONE_BUDGET` | `max_milestone_seconds` | `--max-milestone-seconds` | Milestone active time (seconds) | the milestone's counted seconds |
 | `PAUSED_MILESTONE_STALLED` | `max_milestone_replans` | `--max-milestone-replans` | Milestone replans | replans used |
 | `PAUSED_NO_PROGRESS` (its unchanged-batch bound only) | `no_progress_limit` | `--no-progress-limit` | Unchanged implementation batches allowed | unchanged batches counted |
@@ -1937,6 +1938,13 @@ so its `estimated` can differ from `cost.estimated_usd`. Those rates price every
 input rate, cached or not, so on a run whose input is mostly cache reads `usage.cost_usd.estimated`
 is about twice `cost.spent_usd` (#3268: $26.30 against $12.40). It is a comparison figure: the run's
 cost is `cost.spent_usd`, and a client that shows one cost shows that.
+
+`planning_calls` counts planning's model calls against the cap on them ([Planning-call
+cap](execution.md#planning-call-cap)): `used` (calls by Requirements, the Planner and the Plan Reviewer,
+their report repairs and Investigator calls about a planning stage, since the person's last answer or
+feedback), `cap` (the saved `--max-planning-calls`, or null for none) and `renewed_at` (when that answer
+or feedback was given, or null before any). At the cap the run pauses `PAUSED_PLANNING_CALL_LIMIT`
+before the next planning call, and `needs.action` is `--resume-paused --max-planning-calls N`.
 
 `run_metrics.single_model` splits what is not the Builder's into `planning_usd` (Requirements,
 Planner and Plan Reviewer) and `review_usd` (testing, review, proof and recovery), with
