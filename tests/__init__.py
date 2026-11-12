@@ -66,6 +66,14 @@ if USER_CONFIG_MARKER not in os.environ:
     _config_home = tempfile.mkdtemp(prefix="autocode-test-config-")
     os.environ[USER_CONFIG_MARKER] = os.environ["XDG_CONFIG_HOME"] = _config_home
     os.environ.pop("AUTOCODE_PROVIDER", None)
+    # A chat starts every process with AUTOCODE_SOURCE_CATALOG_HOME naming the
+    # person's shared source catalog, and that name wins over AUTOCODE_HOME.
+    # Tests isolate the catalog with their own AUTOCODE_HOME, so a suite run from
+    # a chat (a self-build's Tester) or a shell that exported it added each
+    # test's temporary folder to the person's catalog as a source root. Once the
+    # folder was gone every new chat on that computer stopped at Requirements with
+    # root_unavailable. A test that needs the variable sets it itself.
+    os.environ.pop("AUTOCODE_SOURCE_CATALOG_HOME", None)
 
     def _remove_user_config_home(path=_config_home, owner=os.getpid()):
         if os.getpid() == owner:  # not a forked test process exiting
