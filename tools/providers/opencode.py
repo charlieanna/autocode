@@ -11,11 +11,13 @@ from __future__ import annotations
 
 try:
     from .. import autocode_changed_code_review as changed_code_review
+    from .. import autocode_leaked_markup_report as leaked_markup
     from .. import autocode_native_locators as native_locators
     from .. import autocode_prompts as prompts
     from .. import autocode_publish_guard as publish_guard
 except ImportError:
     import autocode_changed_code_review as changed_code_review
+    import autocode_leaked_markup_report as leaked_markup
     import autocode_native_locators as native_locators
     import autocode_prompts as prompts
     import autocode_publish_guard as publish_guard
@@ -746,6 +748,8 @@ def final_report(path, *, recover_wrapped=False, response_path=None):
         # Retain only the completed assistant message, not tool output or earlier
         # turns, even when its JSON is malformed and parsing below must reject it.
         Path(response_path).write_text(final)
+    # The exact raw message is retained above, so a refusal below never loses evidence.
+    leaked_markup.refuse(final)
     report = None
     try:
         report = json.loads(final)

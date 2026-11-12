@@ -40,11 +40,13 @@ from pathlib import Path
 
 try:
     from . import autocode_cmd_only_report as cmd_only
+    from . import autocode_leaked_markup_report as leaked_markup
     from . import autocode_providers as providers
     from . import autocode_support as support
     from .autocode_run_records import stage_supports_sessions
 except ImportError:
     import autocode_cmd_only_report as cmd_only
+    import autocode_leaked_markup_report as leaked_markup
     import autocode_providers as providers
     import autocode_support as support
     from autocode_run_records import stage_supports_sessions
@@ -66,7 +68,7 @@ def session_for(state: RunState, pending, route_role=None) -> str | None:
     error = pending.get("error") or original.get("rejection_reason") or ""
     if pending.get("attempts") or pending.get("correction_attempted"):
         return None
-    if cmd_only.matches(error):
+    if cmd_only.matches(error) or leaked_markup.matches(error):
         if original.get("engine") not in ("opencode", "codex"):
             return None
     elif original.get("engine") != "opencode" or not error.startswith(FORMAT_ERROR) or original.get("planning"):
@@ -102,6 +104,8 @@ def same_route(state: RunState, original, route_role=None) -> bool:
 def prompt(error: str) -> str:
     if cmd_only.matches(error):
         return cmd_only.CORRECTION
+    if leaked_markup.matches(error):
+        return leaked_markup.CORRECTION
     return (
         prompts.get("fragments/format-correction/prompt-02.md")
         + error[:200]
