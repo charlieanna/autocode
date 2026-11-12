@@ -1,11 +1,12 @@
 {
-  "as_of": "2026-11-09",
+  "as_of": "2026-11-12",
   "currency": "USD",
   "basis": "Standard list price per million text tokens for metered API use, read from each provider's own pricing pages. Not an invoice: a subscription or coding-plan route is billed by its plan, so its row is the metered API price of the same model. Updated by pull request.",
   "models": {
     "openai/gpt-6-sol": {
       "input": 2.0,
       "cached_input": 0.2,
+      "cache_write": 2.5,
       "output": 10.0,
       "source": "https://developers.openai.com/api/docs/models/gpt-6-sol",
       "retrieved": "2026-10-14",
@@ -14,6 +15,7 @@
     "openai/gpt-6-astra": {
       "input": 10.0,
       "cached_input": 1.0,
+      "cache_write": 12.5,
       "output": 50.0,
       "source": "https://developers.openai.com/api/docs/models/gpt-6-astra",
       "retrieved": "2026-10-14",
@@ -22,6 +24,7 @@
     "openai/gpt-6-luna": {
       "input": 0.1,
       "cached_input": 0.01,
+      "cache_write": 0.125,
       "output": 0.5,
       "source": "https://developers.openai.com/api/docs/models/gpt-6-luna",
       "retrieved": "2026-10-14",
@@ -38,6 +41,7 @@
     "openai/gpt-5.6-terra": {
       "input": 2.0,
       "cached_input": 0.2,
+      "cache_write": 2.5,
       "output": 12.0,
       "source": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
       "retrieved": "2026-10-14",
@@ -126,6 +130,7 @@
     "kilo/anthropic/claude-opus-5.5": {
       "input": 4.0,
       "cached_input": 0.2,
+      "cache_write": 5.0,
       "output": 20.0,
       "source": "https://kilo.ai/models/anthropic-claude-opus-5-5",
       "retrieved": "2026-10-14",
@@ -134,6 +139,7 @@
     "claude-opus-5-5": {
       "input": 4.0,
       "cached_input": 0.2,
+      "cache_write": 5.0,
       "output": 20.0,
       "source": "https://platform.claude.com/docs/en/about-claude/pricing",
       "retrieved": "2026-10-14",
@@ -142,6 +148,7 @@
     "claude-sonnet-5-5": {
       "input": 2.0,
       "cached_input": 0.1,
+      "cache_write": 2.5,
       "output": 10.0,
       "source": "https://platform.claude.com/docs/en/about-claude/pricing",
       "retrieved": "2026-10-14",
@@ -150,6 +157,7 @@
     "claude-haiku-4-5-20251001": {
       "input": 1.0,
       "cached_input": 0.1,
+      "cache_write": 1.25,
       "output": 5.0,
       "source": "https://platform.claude.com/docs/en/about-claude/pricing",
       "retrieved": "2026-10-14",
@@ -158,6 +166,7 @@
     "anthropic/claude-opus-5-5": {
       "input": 4.0,
       "cached_input": 0.2,
+      "cache_write": 5.0,
       "output": 20.0,
       "source": "https://platform.claude.com/docs/en/about-claude/pricing",
       "retrieved": "2026-10-14",
@@ -166,6 +175,7 @@
     "anthropic/claude-sonnet-5-5": {
       "input": 2.0,
       "cached_input": 0.1,
+      "cache_write": 2.5,
       "output": 10.0,
       "source": "https://platform.claude.com/docs/en/about-claude/pricing",
       "retrieved": "2026-10-14",
@@ -174,6 +184,7 @@
     "anthropic/claude-haiku-4-5": {
       "input": 1.0,
       "cached_input": 0.1,
+      "cache_write": 1.25,
       "output": 5.0,
       "source": "https://platform.claude.com/docs/en/about-claude/pricing",
       "retrieved": "2026-10-14",
@@ -182,6 +193,7 @@
     "kilo/anthropic/claude-opus-5-5": {
       "input": 4.0,
       "cached_input": 0.2,
+      "cache_write": 5.0,
       "output": 20.0,
       "source": "https://kilo.ai/models/anthropic-claude-opus-5-5",
       "retrieved": "2026-10-14",
@@ -195,9 +207,10 @@
       "note": "GoCode catalog, gocode models --filter gpt-6.1-sol. The route publishes input_usd_per_mtok=2 and output_usd_per_mtok=10; no cache discount is assumed. This is a conservative route estimate, not an invoice."
     },
     "anthropic/claude-fable-5-1": {
-      "input": 3.0,
-      "output": 15.0,
-      "cached_input": 0.15,
+      "input": 10.0,
+      "cached_input": 0.25,
+      "cache_write": 12.5,
+      "output": 50.0,
       "source": "https://platform.claude.com/docs/en/about-claude/pricing",
       "retrieved": "2026-11-09",
       "note": "Claude Fable 5.1 (mid-tier, between Sonnet and Opus)"
@@ -211,20 +224,67 @@
       "note": "GPT-6.1 Sol (same rate as gpt-6.1-sol without prefix)"
     },
     "claude-fable-5-1": {
-      "input": 3.0,
-      "output": 15.0,
-      "cached_input": 0.15,
+      "input": 10.0,
+      "cached_input": 0.25,
+      "cache_write": 12.5,
+      "output": 50.0,
       "source": "https://platform.claude.com/docs/en/about-claude/pricing",
       "retrieved": "2026-11-09",
       "note": "Claude Fable 5.1 (mid-tier, between Sonnet and Opus)"
     },
     "kilo/anthropic/claude-fable-5-1": {
-      "input": 3.0,
-      "output": 15.0,
-      "cached_input": 0.15,
-      "source": "https://kilo.ai/models/anthropic-claude-fable-5-1",
-      "retrieved": "2026-11-09",
-      "note": "Claude Fable 5.1 via Kilo gateway"
+      "input": 10.0,
+      "cached_input": 0.25,
+      "cache_write": 12.5,
+      "output": 50.0,
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "retrieved": "2026-11-03",
+      "note": "Kilo Gateway route of Claude Fable 5.1 at Anthropic's rates (Kilo charges them with no markup). Corrected from 3/15/0.15."
+    },
+    "kilo/anthropic/claude-fable-5.1": {
+      "input": 10.0,
+      "cached_input": 0.25,
+      "cache_write": 12.5,
+      "output": 50.0,
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "retrieved": "2026-11-03",
+      "note": "Kilo Gateway's own id for Claude Fable 5.1. Kilo Gateway route of Claude Fable 5.1 at Anthropic's rates (Kilo charges them with no markup). Corrected from 3/15/0.15."
+    },
+    "kilo/anthropic/claude-sonnet-5.5": {
+      "input": 2.0,
+      "cached_input": 0.1,
+      "cache_write": 2.5,
+      "output": 10.0,
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "retrieved": "2026-11-03",
+      "note": "Kilo Gateway's id for Claude Sonnet 5.5, at Anthropic's rates (Kilo charges them with no markup). Recorded as kilo/anthropic/claude-sonnet-5.5 by a live Kilo run on 2026-11-11, which had no rate."
+    },
+    "claude-fable-5-2": {
+      "input": 8.0,
+      "cached_input": 0.2,
+      "cache_write": 10.0,
+      "output": 40.0,
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "retrieved": "2026-11-03",
+      "note": "Anthropic list price of Claude Fable 5.2: 8/40, cache reads 0.20, 5-minute cache writes 10.00."
+    },
+    "anthropic/claude-fable-5-2": {
+      "input": 8.0,
+      "cached_input": 0.2,
+      "cache_write": 10.0,
+      "output": 40.0,
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "retrieved": "2026-11-03",
+      "note": "Route alias of claude-fable-5-2. Anthropic list price of Claude Fable 5.2: 8/40, cache reads 0.20, 5-minute cache writes 10.00."
+    },
+    "kilo/anthropic/claude-fable-5.2": {
+      "input": 8.0,
+      "cached_input": 0.2,
+      "cache_write": 10.0,
+      "output": 40.0,
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "retrieved": "2026-11-03",
+      "note": "Kilo Gateway's id for Claude Fable 5.2, at Anthropic's rates (Kilo charges them with no markup)."
     }
   }
 }

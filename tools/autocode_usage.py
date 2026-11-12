@@ -215,6 +215,11 @@ def stage_rows(state: RunState, estimator=None):
                     if all(value is not None for value in values):
                         tokens[key] = sum(values)
                         fallback_used = True
+        # Cache writes bill above the input rate on Anthropic models; the stage's totals do not carry
+        # their count, so it comes from the requests when every one of them reports it.
+        writes = [_count(_dict(_dict(item).get("tokens")).get("cache_write_tokens")) for item in requests]
+        if requests and _count(tokens.get("cache_write_tokens")) is None and None not in writes:
+            tokens["cache_write_tokens"] = sum(writes)
         request_cost_partial = False
         if record.get("runner_owned") is True and record.get("engine") == "runner":
             cost, basis = 0.0, "runner"

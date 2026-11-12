@@ -110,6 +110,69 @@ class PriceTableTests(unittest.TestCase):
                 self.assertAlmostEqual(prices.estimate(existing, tokens), prices.estimate(alias + "#high", tokens))
         self.assertAlmostEqual(3.72, prices.estimate("anthropic/claude-opus-5-5#high", tokens))
 
+    def test_claude_fable_and_kilo_gateway_ids_carry_anthropics_list_price(self):
+        # Fable 5.1 was priced at 3/15/0.15, under a third of Anthropic's 10/50/0.25; a live Kilo run
+        # on 2026-11-11 recorded Kilo Gateway's dotted Sonnet id with no rate at all.
+        for model, expected in (
+            ("claude-fable-5-1", (10.0, 0.25, 12.5, 50.0)),
+            ("anthropic/claude-fable-5-1#high", (10.0, 0.25, 12.5, 50.0)),
+            ("kilo/anthropic/claude-fable-5-1", (10.0, 0.25, 12.5, 50.0)),
+            ("kilo/anthropic/claude-fable-5.1", (10.0, 0.25, 12.5, 50.0)),
+            ("anthropic/claude-fable-5-2", (8.0, 0.2, 10.0, 40.0)),
+            ("kilo/anthropic/claude-fable-5.2", (8.0, 0.2, 10.0, 40.0)),
+            ("kilo/anthropic/claude-sonnet-5.5", (2.0, 0.1, 2.5, 10.0)),
+            ("anthropic/claude-sonnet-5-5", (2.0, 0.1, 2.5, 10.0)),
+            ("anthropic/claude-opus-5-5", (4.0, 0.2, 5.0, 20.0)),
+        ):
+            with self.subTest(model=model):
+                row = prices.rate(model)
+                self.assertEqual(
+                    expected, tuple(row[key] for key in ("input", "cached_input", "cache_write", "output"))
+                )
+
+    def test_cache_writes_are_priced_at_the_cache_write_rate_when_their_count_is_known(self):
+        # The live request a Kilo run sent to Claude Sonnet 5.5 on 2026-11-11: 4 fresh input tokens,
+        # 842 written to the cache, 9 output. Kilo reported $0.002203, Anthropic's list price.
+        tokens = {"input_tokens": 846, "cached_input_tokens": 0, "cache_write_tokens": 842, "output_tokens": 9}
+        self.assertAlmostEqual(0.002203, prices.estimate("anthropic/claude-sonnet-5-5", tokens))
+        # Without a write count, or with one that does not fit beside the reads, writes are input.
+        flat = (846 * 2.0 + 9 * 10.0) / 1e6
+        for written in (None, -1, 900, True):
+            with self.subTest(written=written):
+                self.assertAlmostEqual(
+                    flat, prices.estimate("anthropic/claude-sonnet-5-5", {**tokens, "cache_write_tokens": written})
+                )
+        # A row without a cache-write rate prices writes as input.
+        row = prices.rate("zai-coding-plan/glm-5.3")
+        self.assertNotIn("cache_write", row)
+        self.assertAlmostEqual(
+            (846 * row["input"] + 9 * row["output"]) / 1e6, prices.estimate("zai-coding-plan/glm-5.3", tokens)
+        )
+
+    def test_a_stage_without_a_reported_cost_prices_its_requests_cache_writes(self):
+        request = {
+            "identity": ["session", "part"],
+            "reported_cost_usd": None,
+            "tokens": {"input_tokens": 846, "cached_input_tokens": 0, "cache_write_tokens": 842, "output_tokens": 9},
+        }
+        record = {
+            "stage": "builder",
+            "model": "anthropic/claude-sonnet-5-5",
+            "metrics": {
+                "provider_tokens": {"input_tokens": 846, "cached_input_tokens": 0, "output_tokens": 9},
+                "request_context": {"accounting": {"complete": True, "requests": [request]}},
+            },
+        }
+        (row,) = usage.stage_rows({"stages": [record]}, estimator=prices.estimate)
+        self.assertEqual("estimated", row["basis"])
+        self.assertAlmostEqual(0.002203, row["cost_usd"])
+        # One request without a write count leaves the writes at the input rate.
+        record["metrics"]["request_context"]["accounting"]["requests"].append(
+            {**request, "identity": ["session", "other"], "tokens": {"input_tokens": 0, "output_tokens": 0}}
+        )
+        (row,) = usage.stage_rows({"stages": [record]}, estimator=prices.estimate)
+        self.assertAlmostEqual((846 * 2.0 + 9 * 10.0) / 1e6, row["cost_usd"])
+
     def test_mimo_flash_on_the_token_plan_route_is_priced(self):
         # Live Kilo runs on 2026-10-19 and 10-21 recorded this route's tokens with no rate.
         tokens = {"input_tokens": 1_000_000, "cached_input_tokens": 600_000, "output_tokens": 100_000}
