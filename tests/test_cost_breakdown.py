@@ -283,12 +283,12 @@ class BillingBreakdownTests(unittest.TestCase):
         groups = {row["billing"]: row for row in cost.view(state)["breakdown"]["by_billing"]}
         self.assertEqual({"subscription": 3}, {key: row["stages"] for key, row in groups.items()})
 
-    def test_every_subscription_login_discovery_knows_is_billed_as_one(self):
+    def test_every_login_discovery_knows_is_billed_as_discovery_bills_it(self):
         # Discovery and the billing table name the same accounts; a login added to one alone
-        # would show its stages as unknown billing.
+        # would show its stages as unknown billing. OpenAI's billing follows its login mode.
         for account, (prefixes, billing) in route_discovery.OPENCODE_ROUTES.items():
-            if billing != "subscription":
+            if billing == "by-mode":
                 continue
             for prefix in prefixes.split():
                 with self.subTest(account=account, prefix=prefix):
-                    self.assertEqual("subscription", role_route.billing(prefix + "some-model"))
+                    self.assertEqual(billing, role_route.billing(prefix + "some-model"))

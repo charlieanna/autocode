@@ -83,6 +83,7 @@ PLANS = {
     "xiaomi-token-plan-sgp": ("Xiaomi Token Plan (Singapore)", "subscription"),
     "mimo-token-plan": ("Xiaomi Token Plan", "subscription"),
     "alibaba-token-plan": ("Alibaba Token Plan", "subscription"),
+    "anthropic": ("Anthropic API", "pay per token"),
     "github-copilot": ("GitHub Copilot", "subscription"),
     "zai": ("Z.AI API", "pay per token"),
     "opencode": ("OpenCode Zen", "pay per token"),

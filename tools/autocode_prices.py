@@ -1,8 +1,8 @@
 """The dated price table (tools/autocode_prices.json): what a model's tokens cost, per million.
 
 Each row names a model the way a stage records it (`provider/model` for OpenCode and Kilo routes),
-its input, output and, where the provider publishes one, cached-input price in USD per million
-tokens, the page it came from and the date it was read. Rows change by pull request only.
+its input, output and, where the provider publishes them, cached-input and cache-write prices in USD
+per million tokens, the page it came from and the date it was read. Rows change by pull request only.
 
 A row may keep the rates it replaced in `history`: each entry has the same fields plus `until`,
 the UTC date from which it no longer applies, in ascending order. A stage is priced at the entry
@@ -28,7 +28,7 @@ from functools import lru_cache
 from pathlib import Path
 
 PATH = Path(__file__).with_name("autocode_prices.json")
-RATES = ("input", "output", "cached_input")
+RATES = ("input", "output", "cached_input", "cache_write")
 
 
 def _rate(value, where):
@@ -61,8 +61,9 @@ def _rates(row, where):
         if not isinstance(row.get(key), str) or not row[key]:
             raise ValueError(f"{where}: {key} is required")
     prices = {key: _rate(row[key], f"{where}.{key}") for key in ("input", "output")}
-    if row.get("cached_input") is not None:
-        prices["cached_input"] = _rate(row["cached_input"], f"{where}.cached_input")
+    for key in ("cached_input", "cache_write"):
+        if row.get(key) is not None:
+            prices[key] = _rate(row[key], f"{where}.{key}")
     return {**prices, "source": row["source"], "retrieved": row["retrieved"]}
 
 
@@ -142,8 +143,10 @@ def estimate(model, tokens, at=None):
     Input and output counts are inclusive: input includes cache reads and writes, output includes
     reasoning. Cache reads are priced at the cached-input rate when the row has one and the read
     count is known and within the input count; otherwise every input token is priced at the input
-    rate. Cache writes are priced at the input rate, and a per-request long-context premium is not
-    visible in a stage's totals, so this is an estimate that can run below the provider's bill.
+    rate. Cache writes are priced at the row's cache-write rate (Anthropic's is 1.25 times input)
+    when it has one and their count is known and fits beside the reads; otherwise at the input rate.
+    A per-request long-context premium is not visible in a stage's totals, so this is an estimate
+    that can run below the provider's bill.
     """
     row = rate(model, at)
     tokens = tokens if isinstance(tokens, dict) else {}
@@ -151,6 +154,13 @@ def estimate(model, tokens, at=None):
     if row is None or inp is None or out is None:
         return None
     cached = _count(tokens.get("cached_input_tokens"))
-    if "cached_input" in row and cached is not None and cached <= inp:
-        return ((inp - cached) * row["input"] + cached * row["cached_input"] + out * row["output"]) / 1e6
-    return (inp * row["input"] + out * row["output"]) / 1e6
+    cached = cached if "cached_input" in row and cached is not None and cached <= inp else 0
+    written = _count(tokens.get("cache_write_tokens"))
+    written = written if "cache_write" in row and written is not None and cached + written <= inp else 0
+    fresh = inp - cached - written
+    return (
+        fresh * row["input"]
+        + cached * row.get("cached_input", 0)
+        + written * row.get("cache_write", 0)
+        + out * row["output"]
+    ) / 1e6
