@@ -132,6 +132,8 @@ def _explanation(status, role, recorded=True):
         "An unchanged resume cannot repair the contract.",
         "PAUSED_RATE_LIMIT": "The provider temporarily refused more requests.",
         "PAUSED_PROVIDER_CAPACITY": "The provider could not accept the request with its current capacity.",
+        "PAUSED_ACCEPTANCE_TESTS": "Before building, the Tester's tests did not behave on today's code as the "
+        "approved plan says.",
         "PAUSED_CONTENT_FILTER": "The provider's content filter refused the response. The same model is likely to refuse it again; another model is needed.",
     }
     if status in exact:

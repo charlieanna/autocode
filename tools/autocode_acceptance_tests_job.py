@@ -221,15 +221,23 @@ def _check_rows(value: dict, cases: list[dict], *, shared_names=()) -> None:
         raise ValueError(f"Shared case bindings must report the same function and file, not copies: {sorted(split)}")
 
 
+DISAGREE = "The Tester found the approved plan and the code disagree, before any building: "
+DISAGREE_END = ". --feedback revises the plan."
+
+
 def _pause(state: RunState, rows: list[str]) -> None:
-    run_status.pause(
-        state,
-        PAUSE,
-        "The Tester found the approved plan and the code disagree, before any building: "
-        + "; ".join(rows)
-        + ". --feedback revises the plan.",
-        next_stage=STAGE,
-    )
+    run_status.pause(state, PAUSE, DISAGREE + "; ".join(rows) + DISAGREE_END, next_stage=STAGE)
+
+
+def finding(reason) -> str:
+    """What the Tester found at its plan-and-code disagreement stop, from the reason _pause saved; "" otherwise.
+
+    The chat states it, so the person answering the stop knows which case disagrees and why (live run,
+    2026-11-11: the chat said only that the Tester stopped and to inspect a reason it never showed)."""
+    reason = str(reason or "")
+    if reason.startswith(DISAGREE) and reason.endswith(DISAGREE_END):
+        return reason[len(DISAGREE) : -len(DISAGREE_END)]
+    return ""
 
 
 def reproduction_ids(state: RunState) -> set[str]:
