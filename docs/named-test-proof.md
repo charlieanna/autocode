@@ -46,8 +46,16 @@ add one; no person is asked. A base holding only documents, manifests, data file
 extensionless text note has no behavior to preserve at all.
 An exit code or a printed `PASS test_c1_example` is not enough to identify which
 case ran. AutoCode currently attributes tests from Python unittest/pytest, Go,
-Node's built-in `node:test` runner, Vitest 4, and an explicitly configured
+Node's built-in `node:test` runner, Vitest 4, RSpec, and an explicitly configured
 JUnit XML report from another test runner.
+
+RSpec needs no added gem: a plain `rspec` or `bundle exec rspec` command also runs
+RSpec's built-in JSON formatter, writing to a file in the proof's evidence while the
+progress output stays on the screen. Each example is named `FILE::FULL DESCRIPTION`,
+the file relative to where RSpec ran, so `test: test_grades_case_insensitively` names
+`it "test_grades_case_insensitively"` inside any `describe`. A spec file that fails to
+load runs no example and is reported as `FILE::[collection]`. A command that already
+writes its own output file (`--out`) or reads another options file is left as it is.
 
 A literal Go check with an explicit empty selector (`go test -run '^$' ./...`)
 may validate compilation in a plan. Its exit must be zero, but it supplies no
@@ -282,7 +290,8 @@ Runner setup examples (configure unique test names matching the named criteria):
   `target/nextest/ci/junit.xml`. JUnit output is configured in the profile,
   not with a `--junit` command flag.
   [Nextest JUnit configuration](https://nexte.st/docs/machine-readable/junit/).
-- **Ruby / RSpec:** include `rspec_junit_formatter` in the project's bundle and
+- **Ruby / RSpec:** a plain `bundle exec rspec` needs none of this (see above).
+  To use JUnit XML instead, include `rspec_junit_formatter` in the project's bundle and
   run `bundle exec rspec --format RspecJunitFormatter --out junit.xml`; use
   `junit:junit.xml`. Keep the formatter in the same dependency group as RSpec.
   [Formatter usage](https://github.com/sj26/rspec_junit_formatter).

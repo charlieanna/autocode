@@ -1265,7 +1265,7 @@ def check_cases(
         if proof["verdict"] == verify.PASS:
             proof["unverified"] = list(proof.get("unverified") or []) + [
                 "The English test cases could not be matched to tests: the test run reported no per-test results. "
-                "Use a supported named-test runner (unittest/pytest, Go, or node:test via node --test). "
+                "Use a supported named-test runner (unittest/pytest, Go, node:test via node --test, or RSpec). "
                 "Printed PASS labels and package-script summaries are not named proof; keep the existing "
                 "assertions and suite, and register each approved case with the supported runner."
             ]

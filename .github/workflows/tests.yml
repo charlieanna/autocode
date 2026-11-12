@@ -160,6 +160,12 @@ jobs:
         run: |
           sudo env AUTOCODE_TEST_PRIVILEGED_STARTUP=1 .venv/bin/python -m unittest tests.test_capability_startup.LinuxCapabilityStartupTests tests.test_demo
 
+      - name: Install RSpec for the RSpec proof tests
+        if: runner.os == 'Linux' && needs.scope.outputs.suite == 'true'
+        # tests.test_package_scope.PolyglotSuite proves a fix with a real `bundle exec rspec` (#2889);
+        # it skips where Bundler or RSpec is missing. The runner image ships Ruby and Bundler.
+        run: sudo gem install rspec -v 3.13.2 --no-document
+
       - name: Prepare pinned Java scenario dependencies
         if: needs.scope.outputs.scenarios == 'true'
         run: |

@@ -64,6 +64,7 @@ try:
     from . import autocode_junit_first_suite as junit_first
     from . import autocode_junit_proof as junit_proof
     from . import autocode_junit_tests as junit_tests
+    from . import autocode_named_reporters as reporters
     from . import autocode_node_tests as node_tests
     from . import autocode_package_scope as package_scope
     from . import autocode_product_diff_stats as product_stats
@@ -108,6 +109,7 @@ except ImportError:
     import autocode_junit_first_suite as junit_first
     import autocode_junit_proof as junit_proof
     import autocode_junit_tests as junit_tests
+    import autocode_named_reporters as reporters
     import autocode_node_tests as node_tests
     import autocode_package_scope as package_scope
     import autocode_product_diff_stats as product_stats
@@ -775,8 +777,8 @@ def run_command(
 
 
 def _with_results(framework, command, xml_path, tree=None):
-    if node_tests.command_words(command):
-        return node_tests.instrument(command, xml_path)
+    if instrumented := reporters.instrument(command, xml_path):
+        return instrumented
     if vitest_tests.command_words(command, tree):
         return vitest_tests.instrument(command, xml_path, tree)
     if framework and framework.name == "pytest" and " -m pytest" in command:
@@ -795,7 +797,7 @@ def expects_results(framework, command, tree=None):
     """True when this command, run by the runner, must yield per-test results."""
     if framework is not None and framework.name == "junit":
         return bool(command)
-    if node_tests.command_words(command):
+    if reporters.extension(command):
         return True
     if vitest_tests.command_words(command, tree):
         return True
@@ -826,8 +828,8 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
     Node and Vitest report as a collection error executed and is judged like any
     other failing test, so it is not in ``uncollected``.
     """
-    if str(xml_path).endswith(".node.jsonl"):
-        return node_tests.results(xml_path)
+    if read := reporters.reader(xml_path):
+        return read(xml_path)
     if str(xml_path).endswith(".vitest.json"):
         return vitest_tests.results(xml_path, tree)
     if not framework or not framework.per_test or framework.name in ("node", "vitest"):
@@ -1594,12 +1596,8 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_
         )
     package, command = package_scope.split(framework, command)  # a package's suite runs from its directory
     root = Path(tree) / package if package else tree
-    extension = (
-        "node.jsonl"
-        if node_tests.command_words(command)
-        else "vitest.json"
-        if vitest_tests.command_words(command, root)
-        else "junit.xml"
+    extension = reporters.extension(command) or (
+        "vitest.json" if vitest_tests.command_words(command, root) else "junit.xml"
     )
     xml = Path(evidence_dir) / f"{label}.{extension}"
     if native_execution is not None:
