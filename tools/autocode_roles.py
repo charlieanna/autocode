@@ -14,6 +14,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+try:
+    from . import autocode_names as names
+except ImportError:
+    import autocode_names as names
+
 # The canonical planning stage lists (units/autoplanner.py runs them). Every
 # module that asks "is this a planning stage?" asks here; private copies have
 # diverged before (issue #1124). tests/test_planning_stages.py enforces it.
@@ -162,7 +167,9 @@ def base_stage(stage: str) -> str:
 
 def job_for_stage(stage: str, state: Mapping[str, Any] | None = None) -> str | None:
     """Job key for a stage code name, or None when the stage is unknown."""
-    key = base_stage(stage)
+    # A run saved before the stage rename (#3010) still records astra/terra/sol codes;
+    # read them through autocode_names, never by spelling the code on screen.
+    key = names.stage(base_stage(stage))
     job = STAGE_JOB.get(key)
     if job is None:
         return None
@@ -180,4 +187,4 @@ def screen_name(stage: str, state: Mapping[str, Any] | None = None) -> str:
     job = job_for_stage(stage, state)
     if job is not None:
         return SCREEN[job]
-    return base_stage(stage).replace("_", " ").title()
+    return names.stage(base_stage(stage)).replace("_", " ").title()

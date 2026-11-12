@@ -51,6 +51,16 @@ export const STATUS_TIMEOUT_MS = 30_000;
 /** A stage list lists the backend's models: seconds on OpenCode. After this the read fails and says so. */
 export const STAGES_TIMEOUT_MS = 60_000;
 
+/** Each call is a new process that re-hashes the whole workspace; the warm host (#1707) keeps that off the poll loop. */
+function launchEnv(explicit: Record<string, string>): NodeJS.ProcessEnv {
+  const merged: NodeJS.ProcessEnv = { ...process.env, ...explicit };
+  // Windows file times prove nothing about content, so the core never reuses a hash there.
+  if (process.platform !== "win32" && merged.AUTOCODE_SOURCE_HOST === undefined) {
+    merged.AUTOCODE_SOURCE_HOST = "1";
+  }
+  return merged;
+}
+
 export function stream(
   options: CliOptions,
   args: string[],
@@ -63,7 +73,7 @@ export function stream(
   return new Promise((resolve, reject) => {
     const child = spawn(file, argv, {
       cwd: options.cwd,
-      env: { ...process.env, ...(options.env ?? {}), ...env },
+      env: launchEnv({ ...(options.env ?? {}), ...env }),
       shell: false,
     });
     let stdout = "";

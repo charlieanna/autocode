@@ -85,6 +85,7 @@ class StatusSummaryTests(unittest.TestCase):
                 result = summary.project(complete, completion_current=unverified)
                 self.assertEqual("stopped", result["state"])
                 self.assertIn("not shown as delivered", result["sentence"])
+                self.assertEqual("autocode --follow-up TEXT", result["next_command"])
 
     def test_a_running_checkpoint_nothing_supervises_is_stopped_not_working(self):
         result = summary.project(

@@ -22,7 +22,9 @@ their requested behavior requires it. Do not perform a fresh broad repository
 tour on each conversational reply. Keep the structured fields minimal while
 clarifying, with empty acceptance_tests until there is enough information.
 When the outcome of a change is clear, summarize what you understand in {confirmation_target} and
-ask whether it is correct. Do not imply that this approves an execution plan. A question is
+ask whether it is correct there. Never also put that confirmation ("Is that correct?") in
+open_questions: AutoCode shows your summary for confirmation itself, so the person would be asked
+twice. Do not imply that this approves an execution plan. A question is
 not confirmed first: answer it as discuss, below.
 In job, name the one job the user wants done; it labels the run and is never said to the user:
 build (make or change something), bugfix (fix a reported misbehavior: "fix", "figure out
