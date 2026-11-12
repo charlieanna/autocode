@@ -131,6 +131,32 @@ pathlib.Path(run, "state.json").write_text(json.dumps(state, indent=2))
 `], { stdio: 'pipe' });
 }
 
+
+/** A supervised Builder: live owner/keeper/provider processes and the supervision record naming them. */
+function claimSupervision(runDir) {
+  const tools = path.dirname(SCRIPT);
+  execFileSync(CLI, ['-c', `
+import datetime, json, pathlib, secrets, subprocess, sys
+sys.path.insert(0, ${JSON.stringify(tools)})
+import autocode_process as processes
+run = ${JSON.stringify(runDir)}
+def spawn():
+    p = subprocess.Popen(["sleep", "300"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return processes.identity(processes.process_table({p.pid})[p.pid])
+owner, keeper, provider = spawn(), spawn(), spawn()
+now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+receipt = {"schema": 1, "nonce": secrets.token_hex(16), "owner": owner, "keeper": keeper, "provider": provider,
+           "phase": "armed", "cause": None, "cleanup_error": None, "observed_at": now,
+           "processes": [owner, keeper, provider]}
+path = pathlib.Path(run, "supervision.json")
+path.write_text(json.dumps(receipt))
+state = json.loads(pathlib.Path(run, "state.json").read_text())
+state["active_stage"]["supervision"] = {"schema": 1, "nonce": receipt["nonce"], "receipt": str(path),
+                                        "owner": owner, "keeper": keeper, "provider": provider}
+pathlib.Path(run, "state.json").write_text(json.dumps(state, indent=2))
+`], { stdio: 'pipe' });
+}
+
 /** A live controller receipt for a run, so the view's liveness says a stage really works. */
 function claimController(runDir) {
   const tools = path.dirname(SCRIPT);
@@ -357,4 +383,35 @@ test('walk: closing a chat mid-reply returns every poll to the ordinary interval
   t.mock.timers.tick(5000);
   await drain(() => reads() > settled);
   assert.ok(reads() > settled, 'the ordinary interval still polls the chat that is open');
+});
+
+test("walk: the Builder's live log streams and its named diff is still offered", { skip }, async (t) => {
+  const { root, builder } = buildWorkspace();
+  claimSupervision(builder);
+  const events = path.join(builder, 'events.jsonl');
+  const row = (item) => JSON.stringify({ type: 'item.updated', item }) + '\n';
+  fs.writeFileSync(events,
+    row({ type: 'command_execution', id: 'c1', command: 'python3 -m unittest -q', status: 'done' })
+    + row({ type: 'file_change', id: 'f1', changes: [{ path: path.join(root, 'greet.py'), kind: 'edit' }], status: 'done' }));
+  const statePath = path.join(builder, 'state.json');
+  const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  state.active_stage.events = events;
+  fs.writeFileSync(statePath, JSON.stringify(state));
+  const ui = await openWalkChat(t, root, builder);
+  const text = () => ui.document.querySelector('#app').textContent;
+  await waitFor(() => text().includes('python3 -m unittest -q'));
+  assert.ok(text().includes('edited greet.py'), 'the log shows what the Builder did: ' + text().slice(0, 200));
+  assert.ok(text().includes('Builder'), 'the log names its agent');
+  // The point of the walk: the named diff is offered WHILE the log streams (the log once
+  // took the early return that skipped the diff offer entirely).
+  const show = ui.document.querySelector('#working-diff');
+  assert.ok(show, "the Builder's named diff is offered while its log streams");
+  // The log grows while it works.
+  fs.appendFileSync(events, row({ type: 'tool_call', id: 't1', name: 'Read', arguments: { path: 'greet.py' }, status: 'running' }));
+  await ui.chat.refresh();
+  await waitFor(() => text().includes('Read greet.py'));
+  assert.ok(text().includes('reading files'), 'the header says what it does now');
+  show.click();
+  await waitFor(() => text().includes('+print'));
+  assert.ok(text().includes("+print('hello, world')"), 'the diff is the real change against the checked-out commit');
 });
