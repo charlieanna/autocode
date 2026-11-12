@@ -1974,7 +1974,8 @@ switched on and no model is called.</p>
 <ul>
 <li><strong>Status view.</strong> <code>usage</code> in the view (<code>autocode --run-dir RUN --status</code>, <a href="../task-run/">Task run</a>)
   holds the run's totals so far: stages, tokens, <code>cost_usd</code> (<code>reported</code>, <code>estimated</code>, <code>complete</code>),
-  <code>unknown_stages</code> and the same by role. <code>cost</code> holds the spend at current list prices against the
+  <code>unknown_stages</code>, and the same by the route that ran each stage (<code>by_role</code>) and by the job it did
+  (<code>by_job</code>, the names on screen: one route can run several jobs). <code>cost</code> holds the spend at current list prices against the
   run's money cap, and <code>--status</code> prints it as one <code>Cost: ...</code> line on stderr (below).
   <code>escalations</code> prices each escalation's attempts the same way and says how it ended, so a run shows
   what each climb cost and whether it helped (<a href="../task-run/#status-view">status view</a>).</li>
@@ -1991,8 +1992,9 @@ frozen comparison rates in <code>autocode_usage.REFERENCE_PRICES</code>, and onl
 (today GLM-5.3 on the Z.AI coding plan and MiMo v2.6 Pro on the Xiaomi token plan); anything else is
 <strong>unknown, not zero</strong>. <code>complete</code> is false while a stage has no cost or is still running, so a total
 is then a floor. Stages the runner executes itself (the regression proof, the orchestrator) cost
-nothing. Any other model, such as an OpenAI route, has no comparison estimate until a rate is added
-there; the status view's <code>cost</code> field prices it from the dated table below instead.</p>
+nothing, and so does a model access probe the provider refused outright (no credits, a rejected
+login) before answering any request. Any other model, such as an OpenAI route, has no comparison
+estimate until a rate is added there; the status view's <code>cost</code> field prices it from the dated table below instead.</p>
 <p>Parallel Builders are counted once, in their parent. A worker run keeps no ledger of its own: when a
 batch finishes, the parent copies each worker's finished stages, cost included, into its own record
 (<code>autocode_dispatch.account_workers</code>), so the parent's row holds them. While a batch is still running its
