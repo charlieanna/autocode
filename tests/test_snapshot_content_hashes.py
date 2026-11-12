@@ -235,13 +235,41 @@ class SnapshotContentHashTests(unittest.TestCase):
         self.assertEqual(util.file_hash(path), value)
         self.assertEqual({}, kept)
 
-    def test_only_the_most_recent_workspaces_are_remembered(self):
+    def test_a_polled_workspace_outlives_a_batch_of_other_workspaces(self):
+        """A chat reads its own workspace every few seconds while a shared host serves other jobs (#3308).
+
+        Twelve other workspaces is more than the count-of-eight bound this replaces, but every
+        root here fits inside the entry budget, so the polled one is not forgotten.
+        """
         hashes = util.ContentHashes(self.clock.wall_ns, self.clock.monotonic_ns)
-        for index in range(hashes.ROOTS + 1):
+        polled = {("dev", slot): f"h{slot}" for slot in range(100)}
+        epoch = hashes.begin("/chat")[2]
+        hashes.finish("/chat", polled, epoch)
+        for index in range(12):  # what the host is asked for between two of the chat's polls
+            epoch = hashes.begin(f"/job{index}")[2]
+            hashes.finish(f"/job{index}", {(index, slot): "h" for slot in range(100)}, epoch)
+        self.assertEqual(polled, hashes.begin("/chat")[0])
+
+    def test_the_entry_budget_forgets_the_least_recently_snapshotted_workspaces(self):
+        """The budget still bounds memory, or a machine running a hundred jobs would grow without end."""
+        hashes = util.ContentHashes(self.clock.wall_ns, self.clock.monotonic_ns)
+        hashes.ENTRY_BUDGET = 25
+        for index in range(4):  # 40 entries in total, so the two oldest roots are dropped
             epoch = hashes.begin(f"/w{index}")[2]
-            hashes.finish(f"/w{index}", {("identity", index): "hash"}, epoch)
+            hashes.finish(f"/w{index}", {(index, slot): "h" for slot in range(10)}, epoch)
         self.assertEqual({}, hashes.begin("/w0")[0])
-        self.assertEqual({("identity", hashes.ROOTS): "hash"}, hashes.begin(f"/w{hashes.ROOTS}")[0])
+        self.assertEqual({}, hashes.begin("/w1")[0])
+        self.assertEqual(10, len(hashes.begin("/w2")[0]))
+        self.assertEqual(10, len(hashes.begin("/w3")[0]))
+
+    def test_a_workspace_larger_than_the_budget_is_still_remembered(self):
+        """Evicting down to nothing would make every snapshot of it pay to forget the one before."""
+        hashes = util.ContentHashes(self.clock.wall_ns, self.clock.monotonic_ns)
+        hashes.ENTRY_BUDGET = 0
+        big = {("dev", slot): "h" for slot in range(10)}
+        epoch = hashes.begin("/big")[2]
+        hashes.finish("/big", big, epoch)
+        self.assertEqual(big, hashes.begin("/big")[0])
 
 
 if __name__ == "__main__":

@@ -526,14 +526,19 @@ class ContentHashes:
     times back, so nothing there proves the bytes unchanged: ``REUSE`` is off and
     every snapshot reads every file.
 
-    Hashes stay in this process and only for the last ``ROOTS`` workspaces
-    snapshotted; a file on disk would let any process that can write the workspace
+    Hashes stay in this process, at most ``ENTRY_BUDGET`` of them, dropped a workspace at
+    a time oldest first; a file on disk would let any process that can write the workspace
     change what a snapshot reports. Hash values are unchanged: sha256 of the bytes.
     """
 
     SETTLE_NS = 10 * 10**9
     CLOCK_TOLERANCE_NS = 10**9
-    ROOTS = 8
+    # Remembered hashes are bounded by how many there are, not by how many workspaces hold them.
+    # A count of eight workspaces is passed by a machine running a dozen jobs, and once it is, the
+    # workspace a chat polls every few seconds is read from disk again for every status view
+    # (#3308). One entry costs about 300 bytes here, so this is a cap of roughly 60 MB -- twice
+    # what eight large checkouts already took under the count, which is the range meant to stay warm.
+    ENTRY_BUDGET = 200_000
     REUSE = os.name != "nt"
 
     def __init__(self, wall_ns=time.time_ns, monotonic_ns=time.monotonic_ns):
@@ -563,8 +568,10 @@ class ContentHashes:
             if epoch != self._epoch:
                 return  # the clock jumped after this snapshot began: keep nothing from it
             self._roots[root] = kept
-            while len(self._roots) > self.ROOTS:
-                del self._roots[next(iter(self._roots))]
+            # Never evict down to nothing: a single project larger than the budget is still worth
+            # remembering, or every snapshot of it would pay to forget the one before.
+            while len(self._roots) > 1 and sum(map(len, self._roots.values())) > self.ENTRY_BUDGET:
+                self._roots.pop(next(iter(self._roots)))
 
     @staticmethod
     def content(path, info, known, kept, settled_before):
