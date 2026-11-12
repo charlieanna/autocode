@@ -299,6 +299,7 @@ def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: d
     named = [{**case, "test_name": case.get("test_name") or rows[case["id"]]["test_name"]} for case in cases]
     passed = test_cases.match_cases(named, results.get("passed") or [])
     failed = test_cases.match_cases(named, results.get("failed") or [])
+    skipped = test_cases.match_cases(named, results.get("skipped") or [])
     # A bug's reproduction must run and fail; a file that cannot load is no reproduction (autocode_proof_seam).
     unloadable = bool(results.get("collection_errors")) and not test_cases.bugfix(state)
     verdicts, wrong = {}, []
@@ -310,7 +311,11 @@ def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: d
             verdicts[case["id"]] = "passes" if passed[case["id"]] else ""
             if not passed[case["id"]]:
                 needs_execution = True
-                wrong.append(_guard_not_passing(case, rows[case["id"]]["file"], run, results))
+                wrong.append(
+                    _skipped(case, rows[case["id"]]["file"], run)
+                    if skipped[case["id"]]
+                    else _guard_not_passing(case, rows[case["id"]]["file"], run, results)
+                )
         elif case["id"] in inherited and passed[case["id"]]:
             verdicts[case["id"]] = "already passes"
         elif case["id"] in already:
@@ -323,6 +328,9 @@ def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: d
             verdicts[case["id"]] = "fails"
         elif unloadable and test_cases.named_in(case["test_name"], source):
             verdicts[case["id"]] = "cannot load"
+        elif skipped[case["id"]]:
+            needs_execution = True
+            wrong.append(_skipped(case, rows[case["id"]]["file"], run))
         else:
             needs_execution = True
             wrong.append(_not_run(case, rows[case["id"]]["file"], source, run, results))
@@ -350,6 +358,20 @@ def _guard_not_passing(case: dict, file: str, run: dict, results: dict) -> str:
         f"{wrong}: it never ran, because {file} cannot load on today's code{cause}. A file that holds a "
         "guard must load before the Builder starts: import what the product does not have yet inside the new "
         "tests that use it, not at the top of the file, or put the new tests in a file of their own"
+    )
+
+
+def _skipped(case: dict, file: str, run: dict) -> str:
+    """Why a test the command collected and then skipped proves nothing, so the Tester can replace it (#3261).
+
+    A test that skips on this host (a platform or dependency condition) neither fails nor passes here, and no
+    rewrite of the same skipped test changes that: the retry needs a test that runs under the runner's command."""
+    command = run.get("command") or "the project's test command"
+    return (
+        f"{case['id']}: {case['test_name']} in {file} was collected and then skipped by the runner's command "
+        f"`{command}` on this host, so it proved nothing. A skipped test neither fails nor passes: write a test "
+        "for this case that runs here (test the behavior through code this host can run, without the skip "
+        "condition), or report the case in cannot_write with the reason it cannot run on this host"
     )
 
 

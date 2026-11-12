@@ -811,6 +811,65 @@ class RunnerCollectionTests(unittest.TestCase):
             )
             self.assertEqual("builder", state["next_stage"])
 
+    def test_a_skipped_test_goes_back_to_the_tester_named_as_skipped(self):
+        # Live run, 2026-11-12 (#3261): four cases were tested through code that only runs on Linux, so on a
+        # Mac their tests skipped. The runner called each "did not collect it; write the test so that command
+        # runs it", which the Tester could not act on, and the same round repeated for two hours.
+        import autocode_acceptance_tests_job as job
+        import autocode_verify as verify
+
+        with tempfile.TemporaryDirectory() as root:
+            workspace, evidence = Path(root) / "workspace", Path(root) / "evidence"
+            workspace.mkdir()
+            evidence.mkdir()
+            (workspace / "textkit.py").write_text("def word_count(text):\n    return len(text.split())\n")
+            guard = "    def test_counts_words(self):\n        self.assertEqual(2, word_count('a b'))\n"
+            new_test = (
+                "    def test_t1_counts_characters(self):\n        from textkit import char_count\n\n"
+                "        self.assertEqual(3, char_count('a b'))\n"
+            )
+            head = "import unittest\n\nfrom textkit import word_count\n\n\nclass TextTests(unittest.TestCase):\n"
+            skip = '    @unittest.skipIf(True, "needs another host")\n'
+            test_file = workspace / "test_textkit.py"
+            test_file.write_text(head + guard)
+            git = ["git", "-C", str(workspace), "-c", "user.name=t", "-c", "user.email=t@t"]
+            for args in (("init", "-q"), ("add", "-A"), ("commit", "-qm", "base")):
+                subprocess.run([*git, *args], check=True)
+            state = approved({"G1": "guard: test_counts_words", "T1": "test: test_t1_counts_characters"}, task="t")
+            acceptance.route(state)
+            value = {
+                "tests": [
+                    {"case_id": "G1", "test_name": "test_counts_words", "file": "test_textkit.py"},
+                    {"case_id": "T1", "test_name": "test_t1_counts_characters", "file": "test_textkit.py"},
+                ],
+                "cannot_write": [],
+                "already_passing": [],
+            }
+            record = {"output": str(evidence / "tester.json"), "changed_files": ["test_textkit.py"]}
+
+            def run_tests(files):
+                return verify.scratch_run(workspace, evidence / "acceptance-proof", tests=files)
+
+            # Both the new test and the guard skip on this host.
+            test_file.write_text(head + skip + guard + "\n" + skip + new_test)
+            job.apply(state, dict(value), record, workspace, run_tests=run_tests, evidence_dir=evidence)
+            self.assertEqual(("RUNNING", job.STAGE), (state["status"], state["next_stage"]))
+            [feedback] = job.packet(state)["runner_feedback"]
+            for case, name in (("G1", "test_counts_words"), ("T1", "test_t1_counts_characters")):
+                self.assertIn(f"{case}: {name} in test_textkit.py was collected and then skipped", feedback)
+            self.assertIn("write a test for this case that runs here", feedback)
+            self.assertNotIn("did not collect it", feedback)
+            self.assertNotIn("does not pass on today's code", feedback)
+            self.assertFalse(acceptance.receipts(state))
+
+            # The retry the feedback asks for: the same tests without the skip.
+            test_file.write_text(head + guard + "\n" + new_test)
+            job.apply(state, dict(value), record, workspace, run_tests=run_tests, evidence_dir=evidence)
+            self.assertEqual(
+                {"G1": "passes", "T1": "fails"}, next(iter(acceptance.receipts(state).values()))["results"]
+            )
+            self.assertEqual("builder", state["next_stage"])
+
     def test_unconfigured_pytest_acceptance_is_collected_and_really_fails_before_building(self):
         import subprocess
         from unittest.mock import patch
