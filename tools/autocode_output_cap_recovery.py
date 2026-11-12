@@ -18,6 +18,12 @@ a stage that exhausts its limit at the model's lowest level pauses as before.
 
 The model is never changed here; that stays the person's (autocode_quota_route). Imports only
 lower-level modules; the runtime is passed in, keeping this below the controller.
+
+Whether the model offers a lower level is normally answered by the listing a launch records. A
+run on a default route records none (``_list_review_ceilings`` reads only stage-choice routes,
+#3316), so at the stop ``recover`` reads the tool's own listing for the stopped model once,
+records it beside any other, and proceeds; a listing that still will not read leaves the pause
+standing exactly as before.
 """
 
 from __future__ import annotations
@@ -89,6 +95,39 @@ def _offered(settings, model) -> list | None:
     return sorted(set(listed) | set(route_fit.certified_for(settings, model)), key=route_fit.SCALE.index)
 
 
+def _provider_module(settings: dict):
+    """The provider facade this run's own routes used, or None. Never a model request."""
+    name = (settings or {}).get("provider") or (settings or {}).get("engine")
+    if not isinstance(name, str) or not name:
+        return None
+    try:
+        from . import autocode_providers as providers
+    except ImportError:
+        import autocode_providers as providers
+    try:
+        return providers.resolve(name)
+    except Exception:  # noqa: BLE001 - an unresolvable provider leaves the pause standing
+        return None
+
+
+def _listed_levels(provider_mod, workspace, model) -> list | None:
+    """The levels the tool's own listing declares for ``model``, read once; None when it has no
+    readable listing (its own bound applies, #3313). Never a model request."""
+    if provider_mod is None:
+        return None
+    try:
+        from . import autocode_route_discovery as discovery
+    except ImportError:
+        import autocode_route_discovery as discovery
+    try:
+        for row in discovery.discover(provider_mod, Path(workspace)).get("candidates") or []:
+            if row.get("model") == model and isinstance(row.get("levels"), list):
+                return [level for level in row["levels"] if level in route_fit.SCALE] or None
+    except Exception:  # noqa: BLE001 - an unreadable optional listing never blocks this decision
+        return None
+    return None
+
+
 def _reasoning_bound(record) -> dict | None:
     """The attempt's output and reasoning token counts when nearly all of its output was reasoning."""
     events = record.get("events")
@@ -119,6 +158,16 @@ def recover(runtime, state: RunState, run_dir, workspace, error) -> bool:
         return False  # a level the person typed stays exact
     level = record.get("reasoning_effort")
     offered = _offered(settings, model)
+    # A default route's run records no listing at launch (#3316); read the tool's own answer
+    # for this one model now and keep it, so the rest of the run knows it too.
+    settings_dict = state.get("settings")
+    if (
+        not offered
+        and isinstance(settings_dict, dict)
+        and (levels := _listed_levels(_provider_module(settings), workspace, model))
+    ):
+        settings_dict.setdefault(route_fit.DECLARED, {})[model] = levels
+        offered = _offered(settings_dict, model)
     if level not in route_fit.SCALE or not offered:
         return False
     lower = [value for value in offered if route_fit.SCALE.index(value) < route_fit.SCALE.index(level)]

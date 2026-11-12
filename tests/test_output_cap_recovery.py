@@ -114,6 +114,42 @@ class ReasoningExhaustionTests(unittest.TestCase):
         # Another stage on the same model keeps its level.
         self.assertIsNone(recovery.decide(saved, "draft_plan", "medium", model=MIMO))
 
+    def test_a_default_route_run_reads_the_listing_it_needs_at_the_stop(self):
+        # #3316: a run whose levels came from a default route records no listing at launch, so
+        # nothing knows the model offers a lower level until the stop reads the tool's listing.
+        state = self.state(origin="runner_default")
+        del state["settings"]["declared_variants"]
+        provider = object()
+        with mock.patch.object(recovery, "_provider_module", return_value=provider):
+            with mock.patch.object(recovery, "_listed_levels", return_value=["low", "medium", "high"]) as listed:
+                self.assertEqual(
+                    "reasoning_exhaustion",
+                    dispatch.recover(self.runtime, state, self.root, self.root, STOP),
+                )
+                listed.assert_called_once_with(provider, self.root, MIMO)
+        saved = json.loads((self.root / "state.json").read_text())
+        [row] = saved[recovery.KEY]
+        self.assertEqual(("medium", "low"), (row["from"], row["to"]))
+        # The read answer is kept for the rest of the run, beside a launch's own listing.
+        self.assertEqual(["low", "medium", "high"], saved["settings"]["declared_variants"][MIMO])
+
+    def test_a_listing_that_will_not_read_leaves_the_pause_standing(self):
+        state = self.state(origin="runner_default")
+        del state["settings"]["declared_variants"]
+        before = json.dumps(state, sort_keys=True)
+        with mock.patch.object(recovery, "_provider_module", return_value=object()):
+            with mock.patch.object(recovery, "_listed_levels", return_value=None):
+                self.assertFalse(recovery.recover(self.runtime, state, self.root, self.root, STOP))
+        self.assertEqual(before, json.dumps(state, sort_keys=True))
+
+    def test_a_recorded_listing_is_not_read_again(self):
+        with mock.patch.object(recovery, "_listed_levels", return_value=["low", "medium", "high"]) as listed:
+            self.assertEqual(
+                "reasoning_exhaustion",
+                dispatch.recover(self.runtime, self.state(), self.root, self.root, STOP),
+            )
+            listed.assert_not_called()
+
     def test_the_pause_stands_when_a_lower_level_would_not_help_or_is_not_autocodes_to_choose(self):
         long_report = self.root / "long-report.jsonl"
         long_report.write_text(
