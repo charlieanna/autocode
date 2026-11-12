@@ -36,6 +36,19 @@ export interface WorktreeList {
 export const NEW_BRANCH = "new_branch";
 export const LEGACY_PLACEMENT = ["--in-place"] as const;
 
+/** The read failed because this AutoCode has no `worktrees` command, not because the list could not be read. */
+export class NoPlaceList extends Error {}
+
+/**
+ * Whether a failed `worktrees list` came from an AutoCode without the command: its main parser takes
+ * `worktrees` as the task and refuses `list` (exit 2, `unrecognized arguments`). Any other failure (a
+ * timeout, a crash, a refusal by the command itself) is not that, and must not put a chat in the folder.
+ */
+export function lacksPlaceList(result: { code: number | null; stderr: string }): boolean {
+  return result.code === 2 && /^usage: /m.test(result.stderr) && result.stderr.includes("unrecognized arguments")
+    && !/^usage: \S+ worktrees\b/m.test(result.stderr);
+}
+
 const text = (value: unknown): string => (typeof value === "string" ? value : "");
 const textOrNull = (value: unknown): string | null => (typeof value === "string" && value ? value : null);
 
