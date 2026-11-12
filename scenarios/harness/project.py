@@ -44,7 +44,11 @@ def materialize(seed: Path, project: Path, *overlays: Path, npm_setup: bool = Fa
     git(project, "init", "-q", "-b", "main")
     git(project, "config", "user.name", PERSON_NAME)
     git(project, "config", "user.email", PERSON_EMAIL)
-    git(project, "add", "-A")
+    # Every seed file is committed, even one the seed's own ignore rules match: a real repository tracks
+    # such files (Docutils' test/functional/output/README.rst keeps the directory its suite writes into), and
+    # a seed commit without them is not the repository it pins (#2944). Those rules still keep what a run
+    # writes later out of the change.
+    git(project, "add", "-A", "--force")
     git(project, *NO_MAINTENANCE, "commit", "-q", "--allow-empty", "-m", "Scenario seed")
     for overlay in overlays:
         shutil.copytree(overlay, project, dirs_exist_ok=True, ignore=IGNORED)

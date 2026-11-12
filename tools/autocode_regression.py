@@ -527,7 +527,13 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
         root_framework = framework
         framework = package_scope.for_tests(workspace, framework, tests, detect) or framework
         code = [path for path in changes if verify.is_code_path(path) and not roles.is_test(path)]
-        original_tests = [path for path in role_inventory.entries(workspace, base) if roles.is_test(path)]
+        # Every original file, changed or not: one whose role cannot be proven stays protected, as in the
+        # protected-test inventory (autocode_verify), instead of stopping the proof as a changed one does.
+        original_tests = [
+            path
+            for path in role_inventory.entries(workspace, base)
+            if verify.is_test_path(path) and roles.protected(path)
+        ]
         companions, companion_notes = companion_suites.find(
             workspace, framework, root_framework, code, original_tests, detect
         )

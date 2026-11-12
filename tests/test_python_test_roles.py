@@ -507,6 +507,66 @@ class PinnedRolePolicyTests(unittest.TestCase):
                 result.is_test(path)
 
 
+class NestedProjectTestTreeTests(unittest.TestCase):
+    """A real repository can keep its project one directory down (#2944: Docutils keeps its package in
+    ``docutils/docutils/`` and its suite in ``docutils/test/``), beside old code Python 3 cannot parse and
+    product code that imports modules by computed name, so reach is uncertain and only the test tree can
+    show that the suite is the suite."""
+
+    CASE = PinnedRolePolicyTests.CASE
+
+    def roles(self, sources, candidates=None):
+        return role_policy.build(sources, sources.__getitem__, verify.is_test_path, candidates=candidates)
+
+    def project(self):
+        return {
+            "proj/pyproject.toml": '[project]\nname = "proj"\n',
+            "proj/proj/__init__.py": "",
+            "proj/proj/readers.py": "import importlib\ndef load(name):\n    return importlib.import_module(name)\n",
+            "proj/test/__init__.py": "",
+            "proj/test/support.py": "import proj\n",
+            "proj/test/test_parsers/__init__.py": "",
+            "proj/test/test_parsers/test_include.py": self.CASE,
+            "sandbox/old/legacy.py": 'print "Python 2"\n',
+        }
+
+    def test_a_suite_in_test_beside_a_project_one_level_down_is_test(self):
+        added = "proj/test/test_parsers/test_include_number_lines.py"
+        roles = self.roles(self.project(), candidates={added: self.CASE})
+        self.assertTrue(roles.is_test("proj/test/test_parsers/test_include.py"))
+        self.assertTrue(roles.is_test(added))
+        self.assertTrue(roles.protected("proj/test/test_parsers/test_include.py"))
+        self.assertFalse(roles.is_test("proj/proj/readers.py"))
+
+    def test_test_inside_a_package_stays_a_possible_product_subpackage(self):
+        sources = {
+            "pkg/__init__.py": "",
+            "pkg/loader.py": "import importlib\ndef load(name):\n    return importlib.import_module(name)\n",
+            "pkg/test/__init__.py": "",
+            "pkg/test/test_helpers.py": self.CASE,
+            "nested/pkg/__init__.py": "",
+            "nested/pkg/test/test_helpers.py": self.CASE,
+        }
+        roles = self.roles(sources)
+        for path in ("pkg/test/test_helpers.py", "nested/pkg/test/test_helpers.py"):
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, "ambiguous"):
+                roles.is_test(path)
+
+    def test_a_nested_test_directory_the_packaging_ships_is_not_a_test(self):
+        sources = self.project()
+        sources["pyproject.toml"] = '[tool.setuptools]\npackages = ["proj.test", "proj.test.test_parsers"]\n'
+        roles = self.roles(sources)
+        with self.assertRaisesRegex(ValueError, "ambiguous"):
+            roles.is_test("proj/test/test_parsers/test_include.py")
+
+    def test_a_candidate_that_makes_the_parent_a_package_cannot_keep_its_added_test(self):
+        added = "proj/test/test_parsers/test_include_number_lines.py"
+        roles = self.roles(self.project(), candidates={added: self.CASE, "proj/__init__.py": ""})
+        self.assertTrue(roles.is_test("proj/test/test_parsers/test_include.py"), "original roles are frozen")
+        with self.assertRaisesRegex(ValueError, "ambiguous"):
+            roles.is_test(added)
+
+
 class RoleReadCostTests(unittest.TestCase):
     def test_unowned_dedicated_test_roots_need_no_source_or_ast_reads(self):
         sources = {f"tests/test_{index}.py": "# helper or test body\n" for index in range(500)}
@@ -558,7 +618,7 @@ class RoleProofFreshnessTests(unittest.TestCase):
             mock.patch.object(regression.changed_code, "ready", return_value=True),
         ):
             self.assertFalse(regression.complete(state, "current"))
-            for previous_policy in (1, 2):
+            for previous_policy in (1, 2, 3):
                 proof["execution_context"] = {"test_role_policy": previous_policy}
                 self.assertFalse(regression.complete(state, "current"))
             proof["execution_context"] = {"test_role_policy": role_policy.VERSION}

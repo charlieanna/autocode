@@ -106,6 +106,21 @@ class PinnedSeedTests(unittest.TestCase):
         (project / "output/report.txt").write_text("written by the suite\n")
         self.assertEqual("", git(project, "status", "--porcelain"), "the repository's own ignore rules apply")
 
+    def test_a_file_the_repository_tracks_inside_an_ignored_directory_stays_in_the_seed_commit(self):
+        # Docutils tracks test/functional/output/README.rst under its ignored output/*, so the directory its
+        # suite writes into exists in every checkout. A seed commit without it was a different repository:
+        # AutoCode's clean copies of it lacked the directory and the suite failed there (#2944).
+        (self.source / "output").mkdir()
+        (self.source / "output/README").write_text("The suite writes here.\n")
+        git(self.source, "add", "-f", "output/README")
+        pinned = commit_all(self.source, "keep output/")
+        with patch.dict("os.environ", {pinned_seed.CACHE_ENV: str(self.cache)}):
+            project = materialize(self.catalog_entry(commit=pinned).seed, self.root / "run" / "project")
+        self.assertIn("output/README", git(project, "ls-files").splitlines())
+        self.assertEqual("", git(project, "status", "--porcelain", "--ignored"), "everything in the seed is committed")
+        (project / "output/report.txt").write_text("written by the suite\n")
+        self.assertEqual("", git(project, "status", "--porcelain"), "the repository's own ignore rules still apply")
+
     def test_an_unreachable_seed_skips_the_scenario_like_a_missing_toolchain(self):
         with patch.dict("os.environ", {pinned_seed.CACHE_ENV: str(self.cache)}):
             scenario = self.catalog_entry(commit=UNKNOWN)
