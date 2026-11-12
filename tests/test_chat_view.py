@@ -206,6 +206,40 @@ class ChatViewTests(unittest.TestCase):
         self.assertIn("the Tester's tests did not behave on today's code", view["recovery"]["what_happened"])
         self.assertNotIn("stopped before starting another step", view["chat"]["notice"])
 
+    def test_yes_at_the_testers_pause_resumes_and_typed_words_revise_the_plan(self):
+        # Live Kilo run, 2026-11-12: "y" at "Continue? [y/N], or type what to change" took the named
+        # `--feedback 'WHAT TO CHANGE'`, so Requirements got that placeholder as plan feedback, answered
+        # it, and the Tester's tests never ran again.
+        from tests.test_chat_client import RUN, WORKSPACE, ScriptedChat
+
+        reason = (
+            "The runner could not establish the approved pre-build proof: no test named test_paris in "
+            "backend/tests/test_grader.py ran. Resume explicitly to correct the tests and execute a fresh proof, "
+            "or use --feedback to revise the plan. A report-only repair cannot change test files or rerun proof."
+        )
+        disagreement = (
+            "The Tester found the approved plan and the code disagree, before any building: "
+            "AC1 already works: it passed. --feedback revises the plan."
+        )
+        for stop in (reason, disagreement):
+            state = {
+                "status": "PAUSED_ACCEPTANCE_TESTS",
+                "next_stage": "write_acceptance_tests",
+                "stop_reason": stop,
+                "task": "Fix the grader",
+            }
+            shown = run_view.view(state, workspace=WORKSPACE, run_dir=RUN)
+            for reply, taken in (
+                ("y", ["--resume-paused"]),
+                ("Accept Paris in any letter case", ["--feedback", "Accept Paris in any letter case"]),
+            ):
+                with self.subTest(stop=stop[:30], reply=reply):
+                    client = ScriptedChat(shown, {"status": "TASK_COMPLETE", "done": True}, replies=[reply])
+                    client.converse()
+                    self.assertEqual([taken], client.taken)
+                    self.assertIn("Continue? [y/N], or type what to change", client.text())
+                    self.assertNotIn("WHAT TO CHANGE", json.dumps(client.taken))
+
     def test_a_stop_with_no_recorded_reason_says_so_and_offers_to_continue(self):
         view = run_view.view(
             {"status": "PAUSED_FUTURE_REASON", "next_stage": "builder"}, workspace=Path("/ws"), run_dir=Path("/run")

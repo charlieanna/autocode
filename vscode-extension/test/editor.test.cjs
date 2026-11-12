@@ -1795,6 +1795,104 @@ test('a greeting waits for Requirements to answer instead of a canned reply', as
   assert.ok(ui.document.querySelector('#app').textContent.includes('Thinking…'));
 });
 
+for (const statusUnavailable of [false, true]) {
+  test(`a first message automatically starts Requirements${statusUnavailable ? ' after an unavailable initial status' : ''}`, async (t) => {
+    const text = 'what does this project do?';
+    const reply = 'AutoCode plans coding tasks, implements them and checks the results.';
+    const ready = { status: 'RUNNING', done: false, phase: 'DISCOVERING', next_stage: 'requirements_gather', iteration: 1,
+      needs: { kind: 'continue' }, progress: { headline: 'Next: Requirements' },
+      chat: { phase: 'requirements', context: 'first-message', input: null,
+        messages: [{ id: 'first', role: 'user', text }], progress: ['Next: Requirements'] } };
+    const ui = await openChat(t, null, false);
+    t.mock.method(controller, 'start', async (_workspace, brief, created) => {
+      assert.equal(brief, text);
+      created(run);
+      ui.setView(ready);
+      return run;
+    });
+    const status = controller.status;
+    let unavailable = statusUnavailable;
+    t.mock.method(controller, 'status', async (target) => {
+      if (unavailable) { unavailable = false; throw new Error('Initial status temporarily unavailable'); }
+      return status.call(controller, target);
+    });
+    const take = t.mock.method(controller, 'take', async (view, target) => {
+      assert.equal(view.needs.kind, 'continue');
+      assert.deepEqual(target, run);
+      ui.setView({ ...ready, status: 'WAITING_FOR_USER', needs: { kind: 'answer',
+        questions: [{ id: 'requirements-question', question: 'What would you like to work on?', options: [] }] },
+      chat: { ...ready.chat, progress: [], messages: [...ready.chat.messages, { id: 'reply', role: 'assistant', text: reply }] } });
+      return ok;
+    });
+    ui.type(text); ui.submit();
+    await flush(); await flush();
+    await ui.poll();
+    assert.equal(take.mock.callCount(), 1, 'Requirements must start without a Continue click');
+    assert.ok(ui.document.querySelector('#messages').textContent.includes(reply), 'Requirements handles the first message');
+    await ui.poll();
+    assert.equal(take.mock.callCount(), 1, 'a Requirements question must still wait for the person');
+  });
+}
+
+for (const statusUnavailable of [false, true]) {
+  test(`a first-message continuation refusal is visible and never automatically retried${statusUnavailable ? ' after status recovery' : ''}`, async (t) => {
+    const ui = await openChat(t, null, false);
+    const text = 'what does this project do?';
+    const ready = { status: 'RUNNING', done: false, next_stage: 'requirements_gather', needs: { kind: 'continue' },
+      progress: { headline: 'Next: Requirements' }, chat: { context: 'first-message', input: null,
+        messages: [{ id: 'first', role: 'user', text }], progress: ['Next: Requirements'] } };
+    t.mock.method(controller, 'start', async (_workspace, _brief, created) => {
+      created(run);
+      ui.setView(ready);
+      return run;
+    });
+    const status = controller.status;
+    let unavailable = statusUnavailable;
+    t.mock.method(controller, 'status', async (target) => {
+      if (unavailable) { unavailable = false; throw new Error('Initial status temporarily unavailable'); }
+      return status.call(controller, target);
+    });
+    const take = t.mock.method(controller, 'take', async () => { throw new Error('AutoCode rejected the Requirements launch'); });
+    ui.type(text); ui.submit();
+    await flush(); await flush();
+    await ui.poll();
+    assert.match(ui.document.querySelector('#chat-error').textContent, /rejected the Requirements launch/);
+    assert.deepEqual(ui.chat.run, run, 'a launch refusal must not discard the saved chat');
+    assert.ok(ui.document.querySelector('#messages').textContent.includes(text));
+    await ui.poll();
+    assert.equal(take.mock.callCount(), 1, 'a rejected action must not be replayed by polling');
+  });
+}
+
+for (const [label, boundary] of [
+  ['a working Requirements stage', workingView()],
+  ['a Requirements question', { status: 'WAITING_FOR_USER', done: false, needs: { kind: 'answer', questions: [] } }],
+  ['plan approval', approvalView()],
+  ['a finished chat', { status: 'TASK_COMPLETE', done: true, needs: { kind: 'done' } }],
+]) {
+  test(`a recovered first-message status respects ${label} and clears its pending continuation`, async (t) => {
+    const ui = await openChat(t, null, false);
+    t.mock.method(controller, 'start', async (_workspace, _brief, created) => {
+      created(run);
+      ui.setView(boundary);
+      return run;
+    });
+    const status = controller.status;
+    let unavailable = true;
+    t.mock.method(controller, 'status', async (target) => {
+      if (unavailable) { unavailable = false; throw new Error('Initial status temporarily unavailable'); }
+      return status.call(controller, target);
+    });
+    const take = t.mock.method(controller, 'take', async () => ok);
+    ui.type('what does this project do?'); ui.submit();
+    await flush(); await flush();
+    await ui.poll();
+    assert.equal(take.mock.callCount(), 0, 'startup recovery must not take this boundary');
+    await ui.poll({ status: 'RUNNING', done: false, needs: { kind: 'continue' } });
+    assert.equal(take.mock.callCount(), 0, 'startup authority must not survive its first observed boundary');
+  });
+}
+
 const RUN_MODES = {
   defaultId: 'full',
   modes: [

@@ -132,6 +132,127 @@ pathlib.Path(run, "state.json").write_text(json.dumps(state, indent=2))
 }
 
 
+/** The walk's own provider config: a scripted tool whose reports bind to real capture receipts. */
+function writeWalkProvider() {
+  const xdg = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'walk-xdg-')));
+  const providers = path.join(xdg, 'autocode', 'providers');
+  fs.mkdirSync(providers, { recursive: true });
+  const tools = path.dirname(SCRIPT);
+  const wrapper = path.join(xdg, 'walk_provider.py');
+  fs.writeFileSync(wrapper, String.raw`#!/usr/bin/env python3
+"""Walk provider: fake_codex's reports, with checks bound to real capture receipts."""
+import json, shlex, subprocess, sys
+from pathlib import Path
+
+FAKE = ${JSON.stringify(path.join(tools, 'fake_codex.py'))}
+AUTOCODE = ${JSON.stringify([CLI, SCRIPT])}
+args = sys.argv[1:]
+report_path = Path(args[args.index("-o") + 1])
+proc = subprocess.run([sys.executable, FAKE, *args], capture_output=True, text=True)
+sys.stdout.write(proc.stdout)
+sys.stderr.write(proc.stderr)
+if proc.returncode != 0 or not report_path.exists():
+    raise SystemExit(proc.returncode)
+report = json.loads(report_path.read_text())
+workspace = Path.cwd()
+receipts = {}
+n = 0
+for check in report.get("checks") or []:
+    ref = check.get("evidence_ref")
+    if not (isinstance(ref, str) and ref.startswith("event:")):
+        continue
+    command = check.get("command")
+    if not command:
+        continue
+    if command not in receipts:
+        n += 1
+        out = workspace / ".autocode" / "evidence" / f"walk-check-{n}.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        cap = subprocess.run([*AUTOCODE, "capture", "--output", str(out), "--", *shlex.split(command)],
+                             capture_output=True, text=True, cwd=workspace)
+        if cap.returncode != 0 or not out.exists():
+            sys.stderr.write("capture failed: " + cap.stderr[-400:] + "\n")
+            raise SystemExit(1)
+        receipts[command] = out
+    receipt = json.loads(receipts[command].read_text())
+    check["evidence_ref"] = str(receipts[command].relative_to(workspace))
+    check["exit_code"] = receipt["exit_code"]
+    check["command"] = shlex.join(receipt["command"])
+
+def rewrite(value):
+    if isinstance(value, dict):
+        return {k: rewrite(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [rewrite(v) for v in value]
+    if value == "event:check" and receipts:
+        return str(next(iter(receipts.values())).relative_to(workspace))
+    return value
+
+report = rewrite(report)
+report_path.write_text(json.dumps(report))
+`);
+  const roles = {
+    task_planner: 'fake/plan', planner: 'fake/plan', plan_reviewer: 'fake/review',
+    builder: 'fake/build', tester: 'fake/test', completion: 'fake/complete',
+  };
+  const toml = ['name = "fake"', 'output = "report_file"',
+    `command = ${JSON.stringify([CLI, wrapper, '--output-schema', '{schema}', '-o', '{report}', '--model', '{model}', '-'])}`,
+    '', '[roles]'];
+  for (const [role, model] of Object.entries(roles)) toml.push(`${role} = { model = "${model}", effort = "medium" }`);
+  fs.writeFileSync(path.join(providers, 'fake.toml'), toml.join('\n') + '\n');
+  return { xdg, roles };
+}
+
+/** A run paused at a person's request, in the full shape a resume's build loop reads. */
+function writeResumeRun(root, xdg, roles) {
+  const runDir = path.join(root, '.autocode', 'runs', 'resume');
+  fs.mkdirSync(runDir, { recursive: true });
+  const tools = path.dirname(SCRIPT);
+  execFileSync(CLI, ['-c', `
+import json, os, pathlib, subprocess, sys
+sys.path.insert(0, ${JSON.stringify(tools)})
+from autocode_util import digest, criteria_definition
+from autocode_providers import resolve
+import goal_fixtures
+root = ${JSON.stringify(root)}
+run = ${JSON.stringify(runDir)}
+seed = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+body = goal_fixtures.body()
+contract = {"task_id": "t1", "revision": 1, "body": body, "origin": {"kind": "chat"}}
+contract["hash"] = digest({k: contract[k] for k in ("task_id", "revision", "body")})
+approval = {"kind": "goal_approval", "token": f"r1:{contract['hash']}", "actor": "user_cli"}
+contract.update(approval_status="approved", approval_event=approval)
+acceptance = [{"id": row["id"], "criterion": row["criterion"], "status": "unverified", "evidence": ""}
+              for row in body["acceptance_criteria"]]
+roles = ${JSON.stringify(roles)}
+provider = resolve("fake")
+ident = provider.local_settings(pathlib.Path(os.path.realpath(root)))
+state = {
+  "version": 3, "task": "Build a greeting CLI", "workspace": os.path.realpath(root),
+  "status": "PAUSED_REQUESTED", "iteration": 1, "sessions": {}, "stages": [], "history": [],
+  "user_events": [approval], "turns": [], "next_stage": "builder", "created_at": "2026-11-11T08:00:00Z",
+  "current_task": {"id": "t1", "milestone_id": "M1", "kind": "build",
+                   "affected_paths": ["greet.py", "test_greeting.py"],
+                   "requirements": ["Print Hello, NAME for a nonempty name"],
+                   "acceptance_criteria": ["C1"],
+                   "validation_plan": ["Execute greeting and invalid-input regression checks"]},
+  "acceptance_criteria": acceptance,
+  "criteria_revision": digest(criteria_definition(acceptance)),
+  "settings": {
+    "provider": "fake", "engine": "opencode",
+    "roles": {r: {"model": m, "reasoning_effort": "medium"} for r, m in roles.items()},
+    "limits": {"iteration_ceiling": 20, "max_seconds": 3600, "max_cost_usd": 2.0,
+               "idle_timeout_seconds": 300, "tool_timeout_seconds": 1800, "no_progress_batches": 3},
+    "transport_identity": ident, "transport_identities": {"fake": ident},
+  },
+  "goal_contract": contract, "code_checkpoints": [], "contract_history": [], "planning_history": [],
+}
+pathlib.Path(run, "state.json").write_text(json.dumps(state, indent=2))
+`], { stdio: 'pipe', env: { ...process.env, XDG_CONFIG_HOME: xdg } });
+  return runDir;
+}
+
+
 /** A supervised Builder: live owner/keeper/provider processes and the supervision record naming them. */
 function claimSupervision(runDir) {
   const tools = path.dirname(SCRIPT);
@@ -340,10 +461,8 @@ test('walk: a saved step compares for real and its restore is named, confirmed a
   assert.ok(hint().includes('answer the dialog that opened'), `the chat names the open dialog: ${hint()}`);
   const before = execFileSync('git', ['-C', root, 'branch', '--list'], { encoding: 'utf8' });
   release('Restore');
-  const done = await waitFor(() => ui.document.querySelector('#app').textContent.includes('Restored on a new branch'));
-  if (!done) console.error('DEBUG app tail:', ui.document.querySelector('#app').textContent.slice(-400), '| errors:', host.errors);
+  await waitFor(() => ui.document.querySelector('#app').textContent.includes('Restored on a new branch'));
   const after = execFileSync('git', ['-C', root, 'branch', '--list'], { encoding: 'utf8' });
-  if (after === before) console.error('DEBUG branches:', JSON.stringify(after));
   assert.notEqual(after, before, 'the restore put the saved step on a real branch');
 });
 
@@ -666,4 +785,153 @@ test('walk: closing a chat mid-run leaves the run working and the chat comes bac
     return btn && !btn.disabled ? btn : false;
   }, 30000);
   assert.ok(dom.window.document.querySelector('#working-diff'), "the run's named diff is still offered");
+});
+
+test('walk: pausing a working chat stops the run and shows its pause card', { skip }, async (t) => {
+  const { root, builder } = buildWorkspace();
+  claimSupervision(builder);
+  const statePath = path.join(builder, 'state.json');
+  const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  state.intervention_capability = { supported: true };
+  fs.writeFileSync(statePath, JSON.stringify(state));
+  host.config.set('cliPath', CLI);
+  host.config.set('cliArgs', [SCRIPT]);
+  let statusText = '';
+  const mockStatus = {
+    show() {}, hide() {}, dispose() {},
+    get text() { return statusText; }, set text(val) { statusText = val; },
+    tooltip: undefined, command: undefined,
+  };
+  t.mock.method(host.vscode.window, 'createStatusBarItem', () => mockStatus);
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+  const chat = host.providers.get('autocode.chat');
+  let receive;
+  const webview = {
+    html: '', options: {},
+    onDidReceiveMessage: (callback) => { receive = callback; },
+    postMessage: async (data) => { webview.deliver?.(data); return true; },
+  };
+  const shell = { visible: true, webview, onDidChangeVisibility: () => {}, onDidDispose() {} };
+  t.after(() => { chat.dispose(); });
+  chat.resolveWebviewView(shell);
+  const dom = new JSDOM(webview.html, { runScripts: 'outside-only' });
+  t.after(() => dom.window.close());
+  let saved = {};
+  dom.window.acquireVsCodeApi = () => ({
+    postMessage: (message) => receive(message),
+    getState: () => saved,
+    setState: (value) => { saved = value; },
+  });
+  webview.deliver = (data) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
+  dom.window.eval(dom.window.document.querySelector('script').textContent);
+  await flush();
+
+  await host.commands.get('autocode.openRun')({ workspace: root, runDir: builder });
+  const text = () => dom.window.document.querySelector('#app').textContent;
+  const pause = dom.window.document.querySelector('#pause-run');
+  await waitFor(() => !pause.hidden && pause.textContent === 'Pause', 30000);
+  assert.ok(!pause.hidden, 'the working chat offers its Pause');
+
+  // The person pauses: the real intervention lands in the run's inbox.
+  pause.click();
+  await waitFor(() => dom.window.document.querySelector('#pause-run').textContent === 'Pausing after this step…', 30000);
+  assert.ok(true, 'the chat says the pause waits for the step to be saved');
+
+  // The step ends at the boundary — the write a controller makes when a step finishes.
+  const state2 = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  delete state2.active_stage;
+  state2.status = 'PAUSED_REQUESTED';
+  fs.writeFileSync(statePath, JSON.stringify(state2));
+  await waitFor(() => text().includes('Paused as you asked'), 30000);
+  assert.ok(text().includes('Paused as you asked'), 'the run stops and shows its pause card: ' + text().slice(0, 200));
+  const resume = dom.window.document.querySelector('#take-action');
+  assert.ok(resume && !resume.disabled, 'the pause card offers its Resume');
+
+  // A clean requested pause resumes without a second dialog, and runs the run's own command.
+  let dialog = 0;
+  t.mock.method(host.vscode.window, 'showWarningMessage', () => { dialog++; return Promise.resolve('Continue'); });
+  resume.click();
+  const error = () => dom.window.document.querySelector('#chat-error').textContent;
+  await waitFor(() => error().includes('provider config'), 30000);
+  assert.equal(dialog, 0, 'the Resume needs no confirmation dialog of its own');
+  assert.ok(error().includes('provider config'), 'the resume runs the named command: ' + error());
+});
+
+test('walk: the resume after a pause brings the run back to work', { skip }, async (t) => {
+  const { root } = buildWorkspace();
+  const { xdg, roles } = writeWalkProvider();
+  process.env.XDG_CONFIG_HOME = xdg;
+  t.after(() => { delete process.env.XDG_CONFIG_HOME; });
+  const runDir = writeResumeRun(root, xdg, roles);
+  const statePath = path.join(runDir, 'state.json');
+  const state = () => JSON.parse(fs.readFileSync(statePath, 'utf8'));
+
+  host.config.set('cliPath', CLI);
+  host.config.set('cliArgs', [SCRIPT]);
+  let statusText = '';
+  const mockStatus = {
+    show() {}, hide() {}, dispose() {},
+    get text() { return statusText; }, set text(val) { statusText = val; },
+    tooltip: undefined, command: undefined,
+  };
+  t.mock.method(host.vscode.window, 'createStatusBarItem', () => mockStatus);
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+  const chat = host.providers.get('autocode.chat');
+  let receive;
+  const webview = {
+    html: '', options: {},
+    onDidReceiveMessage: (callback) => { receive = callback; },
+    postMessage: async (data) => { webview.deliver?.(data); return true; },
+  };
+  const shell = { visible: true, webview, onDidChangeVisibility: () => {}, onDidDispose() {} };
+  t.after(() => { chat.dispose(); });
+  chat.resolveWebviewView(shell);
+  const dom = new JSDOM(webview.html, { runScripts: 'outside-only' });
+  t.after(() => dom.window.close());
+  let saved = {};
+  dom.window.acquireVsCodeApi = () => ({
+    postMessage: (message) => receive(message),
+    getState: () => saved,
+    setState: (value) => { saved = value; },
+  });
+  webview.deliver = (data) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
+  dom.window.eval(dom.window.document.querySelector('script').textContent);
+  await flush();
+
+  await host.commands.get('autocode.openRun')({ workspace: root, runDir });
+  const text = () => dom.window.document.querySelector('#app').textContent;
+
+  // The paused run's card offers its Resume.
+  const resume = () => dom.window.document.querySelector('#take-action');
+  await waitFor(() => resume() && !resume().disabled, 30000);
+  assert.ok(resume() && !resume().disabled, 'the paused chat offers its Resume: ' + text().slice(0, 200));
+
+  // The person resumes: the named command runs with no confirmation dialog of its own.
+  let dialog = 0;
+  t.mock.method(host.vscode.window, 'showWarningMessage', () => { dialog++; return Promise.resolve('Continue'); });
+  resume().click();
+
+  // The run comes back to work: its state leaves the pause and the Builder starts.
+  await waitFor(() => state().status !== 'PAUSED_REQUESTED', 120000);
+  assert.notEqual(state().status, 'PAUSED_REQUESTED', 'the resume takes the run out of its pause');
+  assert.equal(dialog, 0, 'the Resume needs no confirmation dialog of its own');
+
+  // The work happens for real: the Builder writes the greeting into the workspace.
+  await waitFor(() => fs.readFileSync(path.join(root, 'greet.py'), 'utf8').includes('Hello, '), 180000);
+  assert.ok(fs.readFileSync(path.join(root, 'greet.py'), 'utf8').includes('Hello, '),
+    'the run came back and did its work: ' + fs.readFileSync(path.join(root, 'greet.py'), 'utf8'));
+
+  // The action lands where the work stops: a person's gate, with the stages it ran recorded.
+  await waitFor(() => /^(PAUSED_|WAITING_FOR_USER)/.test(state().status), 180000);
+  const done = state();
+  assert.ok(/^(PAUSED_|WAITING_FOR_USER)/.test(done.status),
+    'the run stops at a person-facing gate, not in a silent state: ' + done.status);
+  assert.ok((done.stages || []).some((row) => row.stage === 'builder'),
+    "the Builder's stage ran: " + JSON.stringify((done.stages || []).map((row) => row.stage)));
 });

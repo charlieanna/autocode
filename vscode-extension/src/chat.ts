@@ -81,6 +81,7 @@ interface ChatTab {
   pendingBrief: string;
   starting: boolean;
   launching: boolean;
+  continuePending?: boolean;
   /** What a run's start is doing before its first status view, in the core's words (#3079). */
   startingLabel: string;
   /** Compare results this tab already holds, by checkpoint id. */
@@ -562,7 +563,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
           const before = tab.status;
           if (this.tabs.includes(tab)) {
             this.announce(tab, status);
-            void this.continueAfterWait(tab, before, status);
+            void this.continueWhenReady(tab, before, status);
           }
         } catch (error) {
           if (error instanceof RunStarting) {
@@ -780,8 +781,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
    * stopping after the first left the person a bare Continue to press. A run waiting for another chat to leave
    * its folder (`checkout_wait`) is left to the poll, which continues it once the folder is free.
    */
-  private async advanceAfterInput(run: RunRef): Promise<void> {
-    let view = await this.controller.status(run);
+  private async advanceAfterInput(run: RunRef, initial?: StatusView): Promise<void> {
+    let view = initial ?? await this.controller.status(run);
     for (let taken = 0; taken < ADVANCE_LIMIT; taken += 1) {
       if (view.done || view.needs?.kind !== "continue" || isWorking(view)) return;
       // After the first, only a running run's ready boundary is gone on with; a stop is the person's to see.
@@ -793,21 +794,19 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     }
   }
 
-  /**
-   * The run waited for another chat to leave its folder and now no longer does: take its named continue,
-   * the one the person's own action had started. Without this the chat dropped its progress card for a
-   * bare Continue that the person had to press until the folder happened to be free (2026-11-11).
-   */
-  private async continueAfterWait(tab: ChatTab, before: StatusView | undefined, now: StatusView): Promise<void> {
-    if (!before || !waitsForFolder(before) || waitsForFolder(now) || !tab.run) return;
-    if (now.done || now.needs?.kind !== "continue" || isWorking(now) || this.busy.has(tab.key) || tab.starting) return;
+  // A failed startup read or a held folder must not lose the first message's automatic continuation.
+  private async continueWhenReady(tab: ChatTab, before: StatusView | undefined, now: StatusView): Promise<void> {
+    if (!tab.run || (!tab.continuePending && (!before || !waitsForFolder(before)))) return;
+    if (waitsForFolder(now) || this.busy.has(tab.key) || tab.starting) return;
+    tab.continuePending = false;
+    if (now.done || now.needs?.kind !== "continue" || isWorking(now)) return;
     const run = tab.run;
     const key = tab.key;
     this.busy.add(key);
     tab.error = "";
     this.post();
     try {
-      await this.advanceAfterInput(run);
+      await this.advanceAfterInput(run, now);
     } catch (error) {
       if (this.activeKey === key) tab.error = messageOf(error);
       else void vscode.window.showErrorMessage(`AutoCode (${run.runDir}): ${messageOf(error)}`);
@@ -1060,16 +1059,19 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
         }
       }, mode?.startArgs, stageArgs, placement);
       if (allocatedRun) {
+        tab.continuePending = true;
+        let view: StatusView;
         try {
-          const view = await this.controller.status(allocatedRun);
-          if (this.sequence === launchSequence && this.active.key === allocatedKey) {
-            this.active.status = view;
-            this.active.pendingBrief = "";
-          }
-          await this.advanceAfterInput(allocatedRun);
+          view = await this.controller.status(allocatedRun);
         } catch {
-          // Status read failure handled on next poll
+          return;
         }
+        if (this.sequence === launchSequence && this.active.key === allocatedKey) {
+          this.active.status = view;
+          this.active.pendingBrief = "";
+        }
+        tab.continuePending = false;
+        await this.advanceAfterInput(allocatedRun, view);
       }
     } catch (error) {
       const errMessage = messageOf(error);
