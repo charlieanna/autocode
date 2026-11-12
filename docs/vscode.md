@@ -397,7 +397,10 @@ The **Models** chip under the message box does the same from the chat box: choos
 a stage, then one of the models AutoCode offers it, then a level. On a new chat it
 changes that chat's pick (the chip counts the stages changed); on a started chat it
 changes that chat's own stage from its next launch, through the list the chat's
-status names, and is greyed out with the reason while a stage is working. A model
+status names. While a stage is working it is greyed out as "Models · after this
+stage", with the core's reason on hover, and it comes back between stages; on a new
+chat it reads "Models · loading…" while the backend's models are read and
+"Models · starting…" once the first message starts the chat. A model
 the stage may not run beside the others is not offered, and AutoCode checks the
 pick again either way. An AutoCode without per-chat models shows no chip.
 

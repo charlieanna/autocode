@@ -1208,15 +1208,18 @@ function modelsChip(tab: ChatTab): { label: string; disabled: boolean; title: st
     if (!tab.stages?.chat || !tab.stages.stages.length) return null;
     const picked = tab.stages.stages.filter((stage) => stage.chat).length;
     if (tab.stagesPick) return { label: "Models · checking…", disabled: true, title: "Checking this chat's pick" };
-    return { label: picked ? `Models · ${picked} changed` : "Models", disabled: tab.starting || tab.stagesBusy,
+    // A greyed-out chip says why on its face, not only on hover: it was a dead "Models" button.
+    if (tab.starting) return { label: "Models · starting…", disabled: true, title: "This chat is starting with the models it shows" };
+    if (tab.stagesBusy) return { label: "Models · loading…", disabled: true, title: "Reading the models this backend offers" };
+    return { label: picked ? `Models · ${picked} changed` : "Models", disabled: false,
       title: "Change a stage's model and reasoning level for this chat only" };
   }
   const offer = tab.status?.stage_models;
   if (!offer || !runListCommand(offer.next_command)) return null;
   if (tab.modelsBusy) return { label: `Models · ${tab.modelsBusy}`, disabled: true, title: tab.modelsBusy };
-  return { label: "Models", disabled: !offer.changeable,
-    title: offer.changeable ? "Change a stage's model and reasoning level for this chat from its next stage"
-      : offer.reason ?? "This chat's models cannot change now." };
+  // The core offers a change only between stages (`stage_models`); its reason is the tooltip.
+  if (!offer.changeable) return { label: "Models · after this stage", disabled: true, title: offer.reason ?? "This chat's models cannot change now." };
+  return { label: "Models", disabled: false, title: "Change a stage's model and reasoning level for this chat from its next stage" };
 }
 
 function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error); }
