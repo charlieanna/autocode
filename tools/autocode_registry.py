@@ -982,11 +982,9 @@ def delete_run(workspace: str | Path, run_dir: str | Path, confirmed: bool = Fal
 
 
 def cli(argv: list[str]) -> int:
-    if argv and argv[0] in ("roots", "repositories"):
+    if argv and argv[0] in ("roots", "repositories", "remotes"):
         family, *tail = argv
-        if family == "roots":
-            return source_catalog.cli(tail)
-        return source_catalog.cli(["repositories", *tail])
+        return source_catalog.cli(tail if family == "roots" else [family, *tail])
     parser = argparse.ArgumentParser(description="Read the per-user Autocode run registry")
     subcommands = parser.add_subparsers(dest="operation", required=True)
     for operation in ("location", "list"):
