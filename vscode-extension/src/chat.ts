@@ -907,6 +907,10 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       void this.view?.webview.postMessage({ type: "checkpoint_compare", runKey: key, checkpoint: checkpointId, error: messageOf(error) });
     } finally {
       this.busy.delete(key);
+      // The action is over: say so at once. The result message re-rendered with the state
+      // that still said it was taking, and until this post the step's buttons stayed
+      // disabled and swallowed clicks, for as long as the next status read took.
+      this.post();
       this.actions.changed();
       await this.refresh();
     }
