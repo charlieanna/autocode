@@ -29,6 +29,10 @@ the candidate, with these limits:
   run by another class. A failing test elsewhere that only shares the name does not;
 - a node:test file that spawns another test runner is refused here as everywhere.
 
+A guard whose test belongs to another project of the repository, which the proof's suite
+cannot run, is matched against that project's own suite, run on its file on the original code
+and with the change (see the monorepo packages section of `docs/workflow.md`).
+
 When the change edits no test file, the guards are matched against the base suite's own
 pass-to-pass, by the case id as well as by exact name, so a guard may name several tests; one
 of them failing beside a test it matched breaks the guard.

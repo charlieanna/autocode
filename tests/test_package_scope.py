@@ -829,6 +829,74 @@ class NestedPackage(unittest.TestCase):
             sorted(label for label in proof["checks"] if label.startswith("companion")),
         )
 
+    @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm run the package suite")
+    def test_a_guard_on_a_root_test_is_credited_by_the_root_suite_when_the_package_proves_the_fix(self):
+        # A live Kilo run (2026-11-11) proved its fix with one project's suite while a guard named a test of
+        # the other: the proof looked for it only in its own suite and failed twice, then sent the Builder back.
+        project = nested_project(self)
+        project.write(
+            {f"{WEB}/test/greet.test.cjs": NESTED_TEST, f"{WEB}/src/greet.js": "exports.greet = () => 'hello';\n"}
+        )
+        state = bugfix_state(project, package=None)
+        state["goal_contract"]["body"]["acceptance_criteria"] = [
+            {"id": "C1", "criterion": "It says hello", "verification_method": "test: test_greets"},
+            {"id": "C2", "criterion": "The root still works", "verification_method": "guard: test_root"},
+        ]
+        with tempfile.TemporaryDirectory() as run_dir:
+            proof = regression.prove(state, project.root, Path(run_dir))
+        self.assertEqual((verify.PASS, WEB), (proof["verdict"], proof["framework"]["directory"]), proof)
+        self.assertEqual(["tests.test_root::test_root"], proof["case_tests"]["C2"], proof)
+        root = verify.detect_framework(project.root, python=sys.executable)
+        command = root.targeted(["tests/test_root.py"])
+        self.assertIn(
+            f"The guards' tests in tests/test_root.py are in the repository root, whose tests the proof's suite "
+            f"`cd {WEB} && npm test --silent` cannot run, so `{command}` ran them on the original code and with "
+            "the change",
+            proof["notes"],
+        )
+        for label in ("companion_guards_on_base:.", "companion_guards_on_candidate:."):
+            self.assertTrue(proof["checks"][label]["command"].startswith(command), proof["checks"][label])
+            self.assertEqual(0, proof["checks"][label]["exit_code"])
+        self.assertEqual(
+            {".": command}, {k: v["command"] for k, v in proof["execution_context"]["companion_guards"].items()}
+        )
+
+    @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm run the package suite")
+    def test_a_guard_on_a_package_test_is_credited_by_the_package_suite_when_the_root_proves_the_fix(self):
+        project = nested_project(self, extra={**ROOT_HELPER, f"{WEB}/test/old.test.cjs": OLD_WEB_TEST})
+        fix = {
+            "helper.py": "VALUE = 2\n",
+            "tests/test_root.py": "import sys, pathlib\nsys.path.insert(0, str(pathlib.Path(__file__).parents[1]))\n"
+            "import helper\n\ndef test_root():\n    assert helper.VALUE == 2\n",
+        }
+        state = bugfix_state(project, package=None)
+        state["goal_contract"]["body"]["acceptance_criteria"] = [
+            {"id": "C1", "criterion": "VALUE is 2", "verification_method": "test: test_root"},
+            {"id": "C2", "criterion": "The greeting still says hi", "verification_method": "guard: test_old"},
+        ]
+        project.write(fix)
+        with tempfile.TemporaryDirectory() as run_dir:
+            proof = regression.prove(state, project.root, Path(run_dir))
+        self.assertIsNone(proof["framework"].get("directory"), "the root's suite runs the proving test")
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual(["test/old.test.cjs::test_old"], proof["case_tests"]["C2"], proof)
+        self.assertEqual(
+            [f"companion_guards_on_base:{WEB}", f"companion_guards_on_candidate:{WEB}"],
+            sorted(label for label in proof["checks"] if label.startswith("companion")),
+            "no code in the package changed: only the guard's own test file runs there",
+        )
+        # The guard's test failing with the change is never credited.
+        project.write({f"{WEB}/src/greet.js": "exports.greet = () => 'hello';\n"})
+        with tempfile.TemporaryDirectory() as run_dir:
+            proof = regression.prove(state, project.root, Path(run_dir))
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertEqual([], proof["case_tests"]["C2"], proof)
+        self.assertIn(
+            "Preserve case C2: The greeting still says hi has no test named test_old that passes both with the "
+            "change and on the original code",
+            proof["failures"],
+        )
+
     def test_enclosing_needs_tests_below_the_root(self):
         project = nested_project(self)
         detect = lambda directory: verify.detect_framework(directory, python=sys.executable)  # noqa: E731
