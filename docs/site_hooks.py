@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import runpy
+import sys
 from pathlib import Path
 from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
@@ -66,7 +67,14 @@ def on_page_markdown(markdown, page, config, **kwargs):
     extension = config.extra["source_links"]
     extension.source = Path(page.file.abs_src_path)
     if page.file.src_uri == "roles.md":
-        roles = runpy.run_path(str(Path(config.docs_dir).parent / "tools" / "autocode_roles.py"))
+        tools = str(Path(config.docs_dir).parent / "tools")
+        # autocode_roles imports its sibling modules by name (autocode_names since #3305), as the
+        # runtime does with tools/ on the path; the docs build has no such path of its own.
+        sys.path.insert(0, tools)
+        try:
+            roles = runpy.run_path(str(Path(tools) / "autocode_roles.py"))
+        finally:
+            sys.path.remove(tools)
         rows = ["| Stage in code | Job on screen |", "| --- | --- |"]
         rows += [f"| `{stage}` | {roles['screen_name'](stage)} |" for stage in roles["STAGE_JOB"]]
         markdown = markdown.replace("<!-- canonical-role-table -->", "\n".join(rows))
