@@ -284,3 +284,48 @@ def own_repair_source(stages, packet, bound_revision, current) -> bool:
     return all(
         files.get(name) in (before.get(name), after.get(name)) for name in files.keys() | before.keys() | after.keys()
     )
+
+
+def own_recovery_source(stages, bound_revision, current) -> bool:
+    """Whether every file of ``current`` holds its bound content or what this run's own Builder attempts left.
+
+    The per-file definition of ``own_repair_source``, generalized from packet membership to the
+    stage-level recovery's own Builder attempts: the chain that starts at ``bound_revision``, the
+    revision the preserved launch binding names. An attempt joins the chain when its before-snapshot
+    is at the bound revision or at the after-snapshot revision of an attempt already in it, so a
+    relaunch that was itself set aside (a rejected report keeps its edits and the recovery note)
+    still counts as the run's own work. Each file must hold either its bound content, from the
+    first such attempt's before-snapshot, or what the latest such attempt left, from its
+    after-snapshot; Git HEAD must be the one both snapshots recorded. An edit made while an attempt
+    ran is in its after-snapshot and counts as that attempt's own, and a file the runner's own cleanup
+    removed holds its bound content again. Anything else is external drift.
+    """
+    attempts, reached = [], {bound_revision}
+    for row in stages:
+        if (
+            row.get("rolled_back")
+            or (row.get("original_stage") or row.get("stage")) != assignment.BUILDER
+            or row.get("report_only")
+            or row.get("dry_run")
+        ):
+            continue
+        start = _snapshot(row.get("before_ref"))
+        if isinstance(start, dict) and start.get("revision") in reached:
+            attempts.append(row)
+            left = _snapshot(row.get("after_ref"))
+            if left is not None and left.get("revision"):
+                reached.add(left["revision"])
+    if not attempts:
+        return False
+    start, left = _snapshot(attempts[0].get("before_ref")), _snapshot(attempts[-1].get("after_ref"))
+    if (
+        start is None
+        or left is None
+        or start.get("revision") != bound_revision
+        or not current.get("head") == start.get("head") == left.get("head")
+    ):
+        return False
+    files, before, after = current.get("files") or {}, start["files"], left["files"]
+    return all(
+        files.get(name) in (before.get(name), after.get(name)) for name in files.keys() | before.keys() | after.keys()
+    )

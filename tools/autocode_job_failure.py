@@ -30,6 +30,7 @@ try:
     from . import autocode_context_window as context_window
     from . import autocode_investigation_workspace as investigation_workspace
     from . import autocode_job_deadline as job_deadline
+    from . import autocode_job_provider_retry as provider_retry
     from . import autocode_job_source as source
     from . import autocode_jobs as jobs
     from . import autocode_provider_auth as provider_auth
@@ -43,6 +44,7 @@ except ImportError:
     import autocode_context_window as context_window
     import autocode_investigation_workspace as investigation_workspace
     import autocode_job_deadline as job_deadline
+    import autocode_job_provider_retry as provider_retry
     import autocode_job_source as source
     import autocode_jobs as jobs
     import autocode_provider_auth as provider_auth
@@ -54,6 +56,7 @@ except ImportError:
     import autocode_util as util
 
 RETRY_ACTION = "--resume-paused --retry-failed-stage --job-retry-token TOKEN"
+DENIAL = re.compile(r"permission requested: external_directory\b")
 PAUSES = ("PAUSED_JOB_FAILURE", "PAUSED_STAGE_ABANDONED")
 # A stop about the model, not the work: a person may name another model for the job (#463).
 _ROUTE_STOPS = {
@@ -144,7 +147,8 @@ def _reason(runtime, record, error):
         r"(?:(?:Error|SQLiteError|SQLITE_BUSY|SQLITE_LOCKED):\s*)?database(?: table)? is locked\.?", diagnostic, re.I
     ):
         return "startup_lock", role + ": provider database is locked"
-    if "external_directory" in raw:
+    # OpenCode's own denial line, not any mention: a Tester reading AutoCode's source sees the word (#3233 rerun).
+    if DENIAL.search(raw):
         return "external_directory", role + ": external-directory permission denied"
     if status == "PAUSED_RATE_LIMIT":
         return "rate_limit", role + ": provider rate limit"
@@ -183,6 +187,8 @@ def _reason(runtime, record, error):
     auth = provider_auth.reason(path)
     if auth and getattr(error, "status", None) != "PAUSED_UNCERTAIN_STAGE":
         return "provider_auth", f"{role}: {auth}"
+    if message := provider_retry.provider_error(raw):
+        return provider_retry.KIND, f"{role}: the provider returned an error on {model} ({message})"
     return "exit", f"{role}: provider exited {record.get('exit_code')} without a terminal report; {error or ''}"
 
 
@@ -349,9 +355,16 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
     )
     if not extension and kind == "timeout" and (spent := job_deadline.used(state, stage)):
         reason = failure["reason"] = reason + ". " + job_deadline.exhausted(roles.screen_name(stage), spent)
-    if extension:
-        # A hard stage deadline is machinery, not a question about models (#2605): retry with a longer one.
-        _extend_deadline(state, run_dir, failure, extension)
+    retry = None if extension else provider_retry.plan(state, failure, abandoned=abandoned)
+    if not retry and kind == provider_retry.KIND and provider_retry.used(state, stage):
+        reason = failure["reason"] = reason + ". " + provider_retry.exhausted(roles.screen_name(stage))
+    if extension or retry:
+        # A hard stage deadline (#2605) or a provider's API error is machinery, not a question about
+        # models: retry on a longer deadline, or once more as it was.
+        if extension:
+            _extend_deadline(state, run_dir, failure, extension)
+        else:
+            _retry_provider_error(state, run_dir, failure, retry)
         runtime.write_json(Path(run_dir) / "state.json", state)
         for artifact in originals:
             artifact.unlink(missing_ok=True)
@@ -413,6 +426,41 @@ def _extend_deadline(state: RunState, run_dir, failure, extension):
             "previous_token": previous_token,
             "token": failure["job_retry_token"],
             "changes": {"stage_timeout_seconds": {"from": extension["from"], "to": extension["to"]}},
+            "reason": decided,
+        }
+    )
+    state["job_retry_authorization"] = {
+        "token": failure["job_retry_token"],
+        "stage": failure["stage"],
+        "consumed": False,
+    }
+    run_status.running(state, "EXECUTING", next_stage=failure["stage"])
+
+
+def _retry_provider_error(state: RunState, run_dir, failure, retry):
+    """Authorize the one exact retry of a job its provider stopped with an API error, on the same route."""
+    previous_token = failure["job_retry_token"]
+    failure["job_retry_token"] = "jr:" + util.digest(
+        {
+            "run": str(run_dir),
+            "attempt": failure["attempt_id"],
+            "previous": previous_token,
+            "source": failure["source_identity"],
+            "configuration": failure["configuration"],
+            "provider_error_retry": retry["retry"],
+        }
+    )
+    decided = provider_retry.reason(roles.screen_name(failure["stage"]), retry)
+    failure.update(automatic_provider_error_retry=copy.deepcopy(retry), reason=failure["reason"] + ". " + decided)
+    state.setdefault("user_events", []).append(
+        {
+            "kind": provider_retry.EVENT,
+            "actor": "runner",
+            "at": util.now(),
+            "stage": failure["stage"],
+            "attempt_id": failure["attempt_id"],
+            "previous_token": previous_token,
+            "token": failure["job_retry_token"],
             "reason": decided,
         }
     )

@@ -272,5 +272,213 @@ class FinalizingHandoffTests(unittest.TestCase):
                 self.assert_abandoned(self.render(controller=self.CONTROLLER_RUNNING, liveness=liveness))
 
 
+class ProjectedControllerPauseTests(unittest.TestCase):
+    """#3287: `runs` and the run's own --status display one controller-exit projection, read-only."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="projected-pause-")
+        self.addCleanup(temporary.cleanup)
+        self.workspace = Path(temporary.name).resolve()
+        (self.workspace / ".git").mkdir()
+        self.harness = ConsistentSampleTests("test_an_unchanged_checkpoint_is_inspected_once")
+
+    def persist(self, path, state):
+        import autocode_controller_owner as owners
+        import autocode_util as util
+
+        util.atomic_json(path, state)
+        owners.checkpoint(path, state)
+
+    def make_run(self, name):
+        import autocode_util as util
+
+        run_dir = self.workspace / ".autocode" / "runs" / name
+        run_dir.mkdir(parents=True)
+        state = {
+            "version": 3,
+            "task": f"build {name}",
+            "workspace": str(self.workspace),
+            "status": "RUNNING",
+            "iteration": 1,
+            "sessions": {},
+            "next_stage": "builder",
+            "stages": [],
+            "phase": "BUILDING",
+        }
+        util.atomic_json(run_dir / "state.json", state)
+        return run_dir
+
+    def exit_ready(self, run_dir):
+        """The controller exits deliberately at this exact checkpoint: a ready receipt (#2332)."""
+        import autocode_controller_owner as owners
+        import autocode_util as util
+
+        state = util.read(run_dir / "state.json")
+        with util.run_lock(run_dir), owners.Owner(state, run_dir, self.persist) as owner:
+            owner.result(0, ready=True)
+
+    def exit_gone(self, run_dir):
+        """A receipt whose recorded controller matches no live process-table row (#3287)."""
+        import autocode_controller_owner as owners
+        import autocode_util as util
+
+        self.exit_ready(run_dir)
+        receipt = util.read(run_dir / owners.FILE)
+        receipt.update(disposition="running", exit_code=None, exited_at=None)
+        util.atomic_json(run_dir / owners.FILE, receipt)
+
+    def render_view(self, run_dir):
+        """The run's own --status view, rendered through this module's sample harness."""
+        import autocode_controller_owner as owners
+        import autocode_process as processes
+        import autocode_util as util
+
+        real_inspect = owners.inspect
+
+        def inspect(state, run_dir_arg, workspace, **_):
+            with patch.object(processes, "process_table", return_value={}):
+                return real_inspect(state, run_dir_arg, self.workspace)
+
+        return self.harness.render(util.read(run_dir / "state.json"), run_dir, inspect)
+
+    def render_envelope(self, run_dir):
+        import autocode as runner
+        import autocode_process as processes
+        import autocode_status_command as command
+        import autocode_util as util
+
+        output = io.StringIO()
+        args = SimpleNamespace(inspect_evidence=False, run_dir=str(run_dir), engine=None, explain=False)
+        with (
+            patch.object(processes, "process_table", return_value={}),
+            patch.object(runner.milestones, "summary", return_value={"accepted_milestones": []}),
+            patch.object(runner.dependency, "export", return_value={}),
+            patch.object(runner, "intervention_metadata", return_value={}),
+            redirect_stdout(output),
+            redirect_stderr(io.StringIO()),
+        ):
+            command.render(runner, util.read(run_dir / "state.json"), args, self.workspace, run_dir)
+        return json.loads(output.getvalue())
+
+    def test_ready_handoff_keeps_running_in_the_real_envelope(self):
+        """A client goes on through consecutive ready boundaries while the view reads RUNNING (#2332).
+
+        The VS Code chat's advance after a person's action stops at the first status that is not
+        RUNNING, so a ready handoff shown as a controller-exit pause left a bare Continue.
+        """
+        run = self.make_run("envelope-ready")
+        self.exit_ready(run)
+        before = (run / "state.json").read_bytes()
+        payload = self.render_envelope(run)
+        self.assertEqual(("RUNNING", "RUNNING"), (payload["status"], payload["view"]["status"]))
+        self.assertEqual("ready", payload["view"]["controller"]["kind"])
+        self.assertEqual("continue", payload["view"]["needs"]["kind"])
+        self.assertFalse(payload["human_request_authorized"])
+        self.assertEqual(before, (run / "state.json").read_bytes())
+
+    def test_lost_controller_pause_survives_the_real_human_authority_envelope(self):
+        run = self.make_run("envelope-gone")
+        self.exit_gone(run)
+        before = (run / "state.json").read_bytes()
+        payload = self.render_envelope(run)
+        self.assertEqual("PAUSED_CONTROLLER_EXIT", payload["status"])
+        self.assertEqual(payload["status"], payload["view"]["status"])
+        self.assertIn("--resume-paused", payload["view"]["next_command"])
+        self.assertEqual(before, (run / "state.json").read_bytes())
+
+    def test_other_human_authority_status_projections_are_preserved(self):
+        import autocode_util as util
+
+        run = self.make_run("envelope-unissued")
+        saved = util.read(run / "state.json")
+        saved["status"] = "WAITING_FOR_USER"
+        util.atomic_json(run / "state.json", saved)
+        payload = self.render_envelope(run)
+        self.assertEqual("RESOLVER_PENDING", payload["status"])
+        self.assertEqual("WAITING_FOR_USER", payload["saved_status"])
+        self.assertFalse(payload["human_request_authorized"])
+
+    def test_ac3_runs_and_status_agree_on_the_projected_pause(self):
+        import autocode_process as processes
+        import autocode_run_view as run_view
+        import autocode_runs_command as runs
+        import autocode_status_summary as status_summary
+        import autocode_util as util
+
+        dead = self.make_run("dead")
+        self.exit_gone(dead)
+        ready = self.make_run("ready")
+        self.exit_ready(ready)
+
+        dead_view = self.render_view(dead)
+        self.assertEqual("PAUSED_CONTROLLER_EXIT", dead_view["status"])
+        self.assertEqual("resume", dead_view["needs"]["kind"])
+        self.assertIn("--resume-paused", dead_view["next_command"])
+        with patch.object(processes, "process_table", return_value={}):
+            dead_row = next(item for item in runs.rows(self.workspace) if item["name"] == "dead")
+        self.assertEqual(dead_view["status"], dead_row["status"])
+        self.assertIn("--resume-paused", dead_row["next_command"])
+
+        ready_saved = util.read(ready / "state.json")
+        ready_view = self.render_view(ready)
+        self.assertEqual("RUNNING", ready_view["status"])
+        self.assertEqual("continue", ready_view["needs"]["kind"])
+        self.assertEqual("ready", ready_view["controller"]["kind"])
+        self.assertEqual(
+            run_view.action(ready_saved, run_dir=ready, workspace=ready.parent)["next_command"],
+            ready_view["next_command"],
+        )
+        self.assertEqual(
+            "Needs you: Saved and ready to continue; nothing runs it until you do.",
+            status_summary.text(ready_view["summary"]).splitlines()[0],
+        )
+        ready_row = next(item for item in runs.rows(self.workspace) if item["name"] == "ready")
+        self.assertEqual(ready_view["status"], ready_row["status"])
+
+    def test_ac4_inventory_and_status_write_nothing(self):
+        import contextlib
+
+        import autocode_runs_command as runs
+
+        dead = self.make_run("dead")
+        self.exit_gone(dead)
+        ready = self.make_run("ready")
+        self.exit_ready(ready)
+
+        def snapshot():
+            return {
+                str(path): path.read_bytes()
+                for run in (dead, ready)
+                for path in sorted(run.rglob("*"))
+                if path.is_file()
+            }
+
+        before = snapshot()
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            code = runs.cli(["--workspace", str(self.workspace), "--json"])
+            self.render_view(dead)
+            self.render_view(ready)
+        self.assertEqual(0, code)
+        self.assertEqual(before, snapshot(), "the inventory and --status are display-only")
+
+    def test_ac9_action_payloads_keep_the_ready_status_and_continue(self):
+        import autocode_run_view as run_view
+        import autocode_util as util
+
+        ready = self.make_run("ready")
+        self.exit_ready(ready)
+        saved = util.read(ready / "state.json")
+        view = self.render_view(ready)
+        self.assertEqual("RUNNING", view["status"])
+        self.assertEqual("continue", view["needs"]["kind"])
+        self.assertEqual("ready", view["controller"]["kind"])
+        self.assertEqual(0, view["controller"]["receipt"]["exit_code"])
+        self.assertEqual(
+            run_view.action(saved, run_dir=ready, workspace=ready.parent)["next_command"],
+            view["next_command"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
