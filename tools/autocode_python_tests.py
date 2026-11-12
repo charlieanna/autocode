@@ -13,7 +13,8 @@ except ImportError:
     import autocode_test_setup as test_setup
 
 COLLECTION_ERROR = re.compile(r"unittest\.loader\.(_FailedTest|ModuleImportFailure)|^::")
-UNITTEST_HEADER = re.compile(r"^(\w+) \(([\w.-]+)\)")
+# A test method, or a module unittest skipped at import: "pkg.mod (unittest.loader.ModuleSkipped.pkg.mod)" (#2944).
+UNITTEST_HEADER = re.compile(r"^(\w+|[\w.]+(?= \(unittest\.loader\.ModuleSkipped\.)) \(([\w.-]+)\)")
 UNITTEST_STATUS = re.compile(r"\.\.\. (ok|FAIL|ERROR|skipped|expected failure|unexpected success)\b")
 UNITTEST_BARE_STATUS = re.compile(r"(ok|FAIL|ERROR|expected failure|unexpected success)|skipped( .*)?")
 UNITTEST_FIXTURES = frozenset({"setUpClass", "tearDownClass", "setUpModule", "tearDownModule"})

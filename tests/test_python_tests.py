@@ -1,6 +1,7 @@
 import os
 import shlex
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -272,6 +273,36 @@ class UnittestResultParserTests(unittest.TestCase):
         self.assertEqual([], results["failed"])
         self.assertEqual([], results["skipped"])
         self.assertFalse(results["complete"])
+
+    def test_a_module_skipped_at_import_and_a_skipped_subtest_are_named(self):
+        # Docutils skips a whole module when an optional package is missing (#2944); unittest names it
+        # ``pkg.mod (unittest.loader.ModuleSkipped.pkg.mod)`` and counts it in "Ran", so an unread line left
+        # the base suite incomplete and its preservation unproven.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = Path(tmp) / "suite"
+            suite.mkdir()
+            (suite / "__init__.py").write_text("")
+            (suite / "test_optional.py").write_text("import unittest\nraise unittest.SkipTest('needs extras')\n")
+            (suite / "test_cases.py").write_text(
+                "import unittest\n\nclass Case(unittest.TestCase):\n"
+                "    def test_ok(self):\n        pass\n\n"
+                "    def test_variants(self):\n"
+                "        with self.subTest(id='markdown'):\n            self.skipTest('no markdown parser')\n"
+            )
+            run = subprocess.run(
+                [sys.executable, "-m", "unittest", "discover", "-v", "-s", "suite", "-t", "."],
+                cwd=tmp,
+                capture_output=True,
+                text=True,
+            )
+        results = unittest_results(run.stdout + run.stderr)
+        self.assertEqual(3, results["total"], run.stderr)
+        self.assertEqual(["suite.test_cases.Case.test_ok"], results["passed"])
+        self.assertEqual(
+            ["suite.test_cases.Case.test_variants", "unittest.loader.ModuleSkipped.suite.test_optional"],
+            results["skipped"],
+        )
+        self.assertTrue(results["complete"], results)
 
     def test_ensure_python_shim_links_only_python_and_verifies_target_and_owner(self):
         with tempfile.TemporaryDirectory() as tmp:
