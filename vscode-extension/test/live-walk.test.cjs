@@ -415,3 +415,65 @@ test("walk: the Builder's live log streams and its named diff is still offered",
   await waitFor(() => text().includes('+print'));
   assert.ok(text().includes("+print('hello, world')"), 'the diff is the real change against the checked-out commit');
 });
+
+test('walk: a CLI that dies mid-reply leaves the reply standing, says why, and recovers', { skip }, async (t) => {
+  const { root, stream } = buildWorkspace();
+  fs.appendFileSync(path.join(stream, 'events.jsonl'),
+    JSON.stringify({ type: 'text', part: { id: 1, text: '{"assistant_reply": "Who will"}' } }) + '\n');
+  host.config.set('cliPath', CLI);
+  host.config.set('cliArgs', [SCRIPT]);
+  let statusVisible = false;
+  const mockStatus = { show() { statusVisible = true; }, hide() { statusVisible = false; }, dispose() {},
+    text: '', tooltip: '', command: undefined };
+  t.mock.method(host.vscode.window, 'createStatusBarItem', () => mockStatus);
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+  const chat = host.providers.get('autocode.chat');
+  let receive;
+  const webview = {
+    html: '', options: {},
+    onDidReceiveMessage: (callback) => { receive = callback; },
+    postMessage: async (data) => { webview.deliver?.(data); return true; },
+  };
+  const shell = { visible: true, webview, onDidChangeVisibility: () => {}, onDidDispose() {} };
+  t.after(() => { chat.dispose(); });
+  chat.resolveWebviewView(shell);
+  const dom = new JSDOM(webview.html, { runScripts: 'outside-only' });
+  t.after(() => dom.window.close());
+  dom.window.acquireVsCodeApi = () => ({ postMessage: (message) => receive(message), getState: () => undefined, setState() {} });
+  webview.deliver = (data) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
+  dom.window.eval(dom.window.document.querySelector('script').textContent);
+  await flush();
+
+  await host.commands.get('autocode.openRun')({ workspace: root, runDir: stream });
+  const text = () => dom.window.document.querySelector('#app').textContent;
+  const live = () => dom.window.document.querySelector('#messages .message.streaming .message-content');
+  await waitFor(() => live() && live().textContent === 'Who will');
+  await waitFor(() => statusVisible);
+  assert.ok(mockStatus.text.includes('AutoCode'), 'the status line follows the chat: ' + mockStatus.text);
+
+  // The CLI dies mid-reply: the run's state stops reading (a half-written state.json).
+  const statePath = path.join(stream, 'state.json');
+  const saved = fs.readFileSync(statePath, 'utf8');
+  fs.writeFileSync(statePath, '{ not json');
+  await waitFor(() => text().includes('read the latest status'), 30000);
+  assert.ok(text().includes('I couldn'), 'the chat says it could not read the status');
+  assert.equal(live().textContent, 'Who will', 'the reply that was arriving is left standing');
+  const take = dom.window.document.querySelector('#take-action');
+  const diff = dom.window.document.querySelector('#working-diff');
+  assert.ok((!take || take.disabled) && (!diff || diff.disabled), 'actions are paused while the status cannot be read');
+  await waitFor(() => mockStatus.text.includes('status unavailable'), 30000);
+  assert.ok(mockStatus.text.includes('status unavailable'), 'the status line says so too: ' + mockStatus.text);
+
+  // The CLI comes back: the reply resumes growing and both surfaces recover.
+  fs.writeFileSync(statePath, saved);
+  fs.appendFileSync(path.join(stream, 'events.jsonl'),
+    JSON.stringify({ type: 'text', part: { id: 1, text: '{"assistant_reply": "Who will use it?"} ' } }) + '\n');
+  await waitFor(() => live() && live().textContent.startsWith('Who will use it?'), 30000);
+  assert.ok(!text().includes('read the latest status'), 'the notice clears when the status reads again');
+  await waitFor(() => statusVisible && !mockStatus.text.includes('status unavailable'), 30000);
+  assert.ok(mockStatus.text.includes('AutoCode'), 'the status line is back on the run: ' + mockStatus.text);
+});
+
