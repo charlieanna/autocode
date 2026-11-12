@@ -1966,7 +1966,7 @@
 
 
 <h1 id="registry-apis">Registry APIs<a class="headerlink" href="#registry-apis" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/1f11c9fdfb8f4b5e608d874bf7bf401c8f0d3a64/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/41f4f417347e05c804896ca1507a6d9a069d7052/README.md">← Back to README</a></p>
 <p>Autocode automatically records every real new run and ordinary resumed run before a
 provider can start. The registry is a small per-user pointer index, not a copy of
 <code>state.json</code>, logs, prompts, credentials, or provider configuration. It is stored at
@@ -1979,6 +1979,17 @@ and <code>autocode runs --all</code> run inside a project read that project's re
 <code>~/.autocode</code>; a run in both is listed once, and an unreadable project registry is
 reported as a <code>project_registry_unreadable</code> diagnostic. With <code>AUTOCODE_HOME</code> set they
 read only that registry.</p>
+<p>So that every project's chats are listed from any folder, a task that takes its
+project's registry also records the project's root in a per-user project index,
+<code>~/.autocode/projects.json</code> (<code>{"version": 1, "projects": [...]}</code>). It names projects
+only; it holds no run. With <code>AUTOCODE_HOME</code> unset, <code>registry list</code> and
+<code>autocode runs --all</code> read the registry of every recorded project as well. A recorded
+project whose registry is gone is skipped, and dropped when the index is next written.
+Writing the index is best effort and never stops a task. Set
+<code>AUTOCODE_PROJECT_INDEX_HOME</code> to keep the index elsewhere (isolated installations and
+tests). The in-process <code>listing()</code> that change sets and coordination use to find
+registered projects does not read the index: a project is authorized for linking only
+by <code>registry add</code> or <code>registry import</code>.</p>
 <p>The browser application should invoke these commands as argument arrays, without a
 shell, using the same environment as the runner:</p>
 <pre><code class="language-text">[&quot;autocode&quot;, &quot;registry&quot;, &quot;location&quot;, &quot;--json&quot;]
