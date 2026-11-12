@@ -1141,3 +1141,115 @@ test("walk: an edit sent mid-walk is taken up by the run at its next boundary", 
   assert.ok(/Message saved/.test(state().stop_reason || ''),
     'the run says the message is saved for its conversation: ' + state().stop_reason);
 });
+
+
+test('walk: two windows on one workspace keep their own drafts and serialize their actions', { skip }, async (t) => {
+  const { root, restore } = buildWorkspace();
+  host.config.set('cliPath', CLI);
+  host.config.set('cliArgs', [SCRIPT]);
+  const bars = [];
+  t.mock.method(host.vscode.window, 'createStatusBarItem', () => {
+    const bar = { show() {}, hide() {}, dispose() {}, text: '', tooltip: undefined, command: undefined };
+    bars.push(bar);
+    return bar;
+  });
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
+  const wsState = host.workspaceState;   // windows on one workspace share this
+  const openWindow = (store) => {
+    const context = { subscriptions: [], workspaceState: wsState };
+    activate(context);
+    const chat = host.providers.get('autocode.chat');
+    let receive;
+    const webview = {
+      html: '', options: {},
+      onDidReceiveMessage: (callback) => { receive = callback; },
+      postMessage: async (data) => { webview.deliver?.(data); return true; },
+    };
+    const shell = { visible: true, webview, onDidChangeVisibility: () => {}, onDidDispose() {} };
+    chat.resolveWebviewView(shell);
+    const dom = new JSDOM(webview.html, { runScripts: 'outside-only' });
+    // Each window keeps its own webview state (drafts), as VS Code does.
+    dom.window.acquireVsCodeApi = () => ({
+      postMessage: (message) => receive(message),
+      getState: () => store.state,
+      setState: (value) => { store.state = value; },
+    });
+    webview.deliver = (data) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
+    dom.window.eval(dom.window.document.querySelector('script').textContent);
+    return { context, chat, dom };
+  };
+
+  const storeA = { state: {} };
+  const storeB = { state: {} };
+  const a = openWindow(storeA);
+  const b = openWindow(storeB);
+  t.after(() => { a.context.subscriptions.forEach((item) => item.dispose?.()); b.context.subscriptions.forEach((item) => item.dispose?.()); });
+  t.after(() => { a.dom.window.close(); b.dom.window.close(); });
+
+  // Per-window drafts: the same workspace, two windows, two private composers.
+  await a.chat.show({ workspace: root, runDir: restore });
+  await a.chat.refresh();
+  await b.chat.show({ workspace: root, runDir: restore });
+  await b.chat.refresh();
+  const fieldA = a.dom.window.document.querySelector('#message');
+  const fieldB = b.dom.window.document.querySelector('#message');
+  fieldA.value = 'Window A draft';
+  fieldA.dispatchEvent(new a.dom.window.Event('input'));
+  fieldB.value = 'Window B draft';
+  fieldB.dispatchEvent(new b.dom.window.Event('input'));
+  await flush();
+  assert.equal(fieldA.value, 'Window A draft');
+  assert.equal(fieldB.value, 'Window B draft', 'each window keeps its own draft');
+
+  // Both windows watch the run: two status lines, each its own.
+  await waitFor(() => bars.length >= 2 && bars.every((bar) => bar.text.includes('AutoCode')), 30000);
+
+  // Both windows act on the same run at once: the run lock serializes them, and the shared
+  // workspaceState gives both the same request id, so only one candidate can be created.
+  const requests = [];
+  const cli = host.load('core/cli.js');
+  const realInvoke = cli.invoke;
+  t.mock.method(cli, 'invoke', (options, argv, env, timeoutMs) => {
+    if (argv[0] === 'checkpoint' && argv.includes('--restore')) requests.push(argv[argv.indexOf('--request-id') + 1]);
+    return realInvoke(options, argv, env, timeoutMs);
+  });
+  // The CLI is made slow so the two restores overlap on the run lock.
+  const slow = path.join(root, 'slow-cli.sh');
+  fs.writeFileSync(slow, '#!/bin/sh\nsleep 2\nexec "$@"\n');
+  fs.chmodSync(slow, 0o755);
+  host.config.set('cliPath', slow);
+  host.config.set('cliArgs', [CLI, SCRIPT]);
+  let releaseA, releaseB;
+  t.mock.method(host.vscode.window, 'showWarningMessage', (question) => {
+    assert.match(question, /Restore "Fixture step"/);
+    return new Promise((resolve) => {
+      if (!releaseA) releaseA = resolve;
+      else releaseB = resolve;
+    });
+  });
+  const restoreBtn = (dom) => dom.window.document.querySelector('[data-checkpoint-action="restore"]');
+  await waitFor(() => restoreBtn(a.dom) && !restoreBtn(a.dom).disabled, 30000);
+  restoreBtn(a.dom).click();
+  await waitFor(() => Boolean(releaseA), 30000);
+  restoreBtn(b.dom).click();
+  await waitFor(() => Boolean(releaseB), 30000);
+  releaseA('Restore');
+  releaseB('Restore');
+  // One window's restore lands; the other is refused by the run lock, and both say so.
+  const errA = () => a.dom.window.document.querySelector('#chat-error').textContent;
+  const errB = () => b.dom.window.document.querySelector('#chat-error').textContent;
+  const appA = () => a.dom.window.document.querySelector('#app').textContent;
+  const appB = () => b.dom.window.document.querySelector('#app').textContent;
+  await waitFor(() => (appA().includes('Restored on a new branch') || errA().includes('run lock'))
+    && (appB().includes('Restored on a new branch') || errB().includes('run lock')), 60000);
+  const wonA = appA().includes('Restored on a new branch');
+  const wonB = appB().includes('Restored on a new branch');
+  assert.equal(wonA !== wonB, true, 'exactly one window restores; the other is refused by the run lock');
+  const loser = wonA ? appB() : appA();
+  assert.ok(loser.includes('run lock'), 'the refused window says why: ' + loser.slice(-200));
+  assert.equal(requests.length, 2, 'both windows named their restore');
+  assert.equal(requests[0], requests[1], 'both carried the same request id: the workspace state is shared');
+  const branches = execFileSync('git', ['-C', root, 'branch', '--list'], { encoding: 'utf8' })
+    .split('\n').filter((line) => line.includes('autocode/checkpoint-'));
+  assert.equal(branches.length, 1, 'one candidate branch, never two: ' + branches.join(' | '));
+});
