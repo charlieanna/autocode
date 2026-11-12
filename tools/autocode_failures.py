@@ -28,6 +28,11 @@ except ImportError:
 
 
 REPEAT_THRESHOLD = 3
+# Rejected attempts at one source, whatever their errors, after which AutoCode stops retrying the stage
+# itself (autocode_rejection_retry). Alternating errors never reach REPEAT_THRESHOLD; this bounds them.
+EPISODE_LIMIT = 4
+# The end of a rejected answer's pause reason (autocode.reject_completed_stage); dropped once AutoCode stops retrying.
+REJECTED_RESUME = "Resume explicitly with autocode resume to retry with a fresh request."
 PROBE_BYTES = 262_144
 
 
@@ -201,6 +206,30 @@ def recent_rejection(state: RunState, stage):
             continue
         return None  # a later outcome for this stage ended the rejection episode
     return entry
+
+
+def episode_rejections(state: RunState, stage) -> list[dict]:
+    """The rejected attempts of ``stage`` since its last other outcome, newest first, at the newest one's source.
+
+    Unlike a streak, a changed error does not end this run of failures: a stage that alternates between two
+    rejected answers keeps adding to it. Any later outcome of the stage that the ledger did not count (an
+    accepted report, an archived timeout) ends it, as in ``recent_rejection``, and so does an attempt at another
+    source. A report-only repair is part of the attempt it repairs, so it is not counted as one. Reads only.
+    """
+    rows: list[dict] = []
+    revision = None
+    for row in reversed(state.get("stages") or []):
+        if _owner(row) != stage or row.get("runner_owned"):
+            continue
+        if not row.get("failure_key"):
+            break
+        if row.get("report_only"):
+            continue
+        if rows and row.get("source_revision") != revision:
+            break
+        revision = row.get("source_revision")
+        rows.append(row)
+    return rows
 
 
 def episode(state: RunState, stage) -> dict | None:

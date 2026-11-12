@@ -343,7 +343,7 @@ def reject_completed_stage(state: RunState, run_dir, record, error):
     message = f"Completed {record['stage']} output was rejected ({error}); attempt archived. " + (
         "Consecutive attempts at this source failed with the same error; inspect the saved output probe and fix the cause before retrying."
         if repeated
-        else "Resume explicitly with autocode resume to retry with a fresh request."
+        else failures.REJECTED_RESUME
     )
     status = "PAUSED_REPEATED_FAILURE" if repeated else "PAUSED_INVALID_OUTPUT"
     run_status.pause(state, status, message, paused_at=now())
