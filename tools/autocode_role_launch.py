@@ -42,6 +42,7 @@ try:
     from . import autocode_source_diff as source_diff
     from . import autocode_source_scope as source_scope
     from . import autocode_stage_stops as stage_stops
+    from . import autocode_stale_handoff as stale_handoff
     from . import autocode_status
     from . import autocode_support as support
     from . import autocode_visual_profile as visual_profile
@@ -67,6 +68,7 @@ except ImportError:
     import autocode_source_diff as source_diff
     import autocode_source_scope as source_scope
     import autocode_stage_stops as stage_stops
+    import autocode_stale_handoff as stale_handoff
     import autocode_status
     import autocode_support as support
     import autocode_visual_profile as visual_profile
@@ -215,6 +217,7 @@ def admit_launch(
 
     It runs inside the intervention admission, before the stage becomes active: a refusal here starts nothing.
     """
+    stale_handoff.capture_launch_binding(state, record, before)
     native_prepared = (
         native.prepare_writer_launch(
             state, before, record, worker_context, command, environment, native_isolation, report_only=report_only
@@ -258,6 +261,7 @@ def admit_launch(
             **({"scope_authority": native.context.factory.scope_authority} if native is not None else {}),
         )
     resolver_recovery.admit_dispatch(state, record, workspace, run_dir, retry_authorization=retry_authorization)
+    stale_handoff.admit_relaunch(state, record, workspace, run_dir)
     if joint_stage and not report_only:
         planning.charge(state, original_stage, record=record, workspace=workspace)
         if fallback_route:
