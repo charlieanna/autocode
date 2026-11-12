@@ -643,9 +643,11 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       this.post(true);
       // The stages first: they show from the cache at once, and a read does not wait on the modes.
       this.ensureChatStages(this.active);
+      // Restored conversations must not wait for the new-chat mode list or the next poll.
+      void this.refresh();
       await this.loadModes();
       if (!this.active.run && !this.active.places) void this.loadPlaces(this.active);
-      await this.refresh();
+      this.post();
       return;
     }
     if (message.type === "refresh") { await this.refresh(); return; }
