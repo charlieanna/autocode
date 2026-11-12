@@ -1996,6 +1996,9 @@ the candidate, with these limits:</p>
   run by another class. A failing test elsewhere that only shares the name does not;</li>
 <li>a node:test file that spawns another test runner is refused here as everywhere.</li>
 </ul>
+<p>A guard whose test belongs to another project of the repository, which the proof's suite
+cannot run, is matched against that project's own suite, run on its file on the original code
+and with the change (see the monorepo packages section of <code>docs/workflow.md</code>).</p>
 <p>When the change edits no test file, the guards are matched against the base suite's own
 pass-to-pass, by the case id as well as by exact name, so a guard may name several tests; one
 of them failing beside a test it matched breaks the guard.</p>
@@ -2430,7 +2433,11 @@ source as test prerequisites.</p>
 uses the original Git tree, including its launch commit's dirty and untracked inputs,
 to read literal setuptools package and module lists and ordinary literal imports.
 Original product ownership keeps those bytes on the base side of a regression proof.
-Dedicated test roots and supported test declarations keep test authority; mixed or
+Dedicated test roots and supported test declarations keep test authority. A test root is
+a <code>tests/</code>-style directory at any depth, or a <code>test/</code> or <code>spec/</code> directory at the repository
+root or directly under a directory that is not a Python package (a project kept one directory
+down, such as Docutils' <code>docutils/test/</code> beside its <code>docutils/docutils/</code> package); a <code>test/</code>
+inside a package (<code>django/test/</code>) may be a shipped subpackage and is not a root. Mixed or
 unresolved changed roles remain unverified without executing proof commands. Dynamic
 build configuration is not interpreted, and candidate packaging cannot relabel the
 original product. Original top-level assertions with a literal <code>import unittest</code>
