@@ -6465,6 +6465,70 @@ test('a long saved-code comparison is bounded and scrolls like the working diff'
   assert.ok(compared, 'a saved-code comparison is marked as a diff');
   assert.ok(compared.textContent.includes('+line 499'));
 });
+
+// A patch inherited the generic pre's break-all, which is for unspaced JSON and command blobs:
+// it broke diff lines mid-identifier and mid-indentation, so the code could not be read.
+test('a rendered diff wraps at words instead of breaking mid-token', () => {
+  const rule = /pre\.diff\s*\{([^}]*)\}/.exec(panelHtml(true))[1];
+  assert.match(rule, /word-break:\s*normal/, 'a patch line is not broken at an arbitrary character');
+  assert.match(rule, /overflow-wrap:\s*break-word/, 'a token too long for the sidebar still splits rather than stretching the thread');
+});
+
+// A rendered patch was one grey monospace block: its added and removed lines were told apart only
+// by their first character, and the ---/+++ headers that introduce a file were indistinguishable
+// from a removed and an added line.
+const COLOR_PATCH = [
+  'diff --checkpoint greet.py',
+  '--- checkpoint/greet.py',
+  '+++ current/greet.py',
+  '@@ -1,2 +1,3 @@',
+  ' import sys',
+  '-print(1)',
+  '+print(2)',
+  '+print(3)',
+].join('\n');
+
+/** The block's runs of like lines: each run's kind and its text. */
+function diffRuns(pre) {
+  return [...pre.children].map((span) => [span.className, span.textContent]);
+}
+
+test('the working diff colors each kind of patch line', async (t) => {
+  const working = ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--working'];
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    code_checkpoints: { rows: [], working: { id: 'working', label: 'Show what the Builder has changed so far', next_command: working } },
+    chat: { phase: null, context: 'live-step', input: null, messages: [], progress: ['Builder working'], activity: [] } };
+  const ui = await openChat(t, value);
+  t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({ since: 'start',
+    changed_files: ['greet.py'], patch: COLOR_PATCH, truncated: false }) }));
+  ui.document.querySelector('#working-diff').click();
+  await flush();
+  const live = ui.document.querySelector('#app pre.diff');
+  assert.equal(live.textContent, COLOR_PATCH, 'coloring leaves the patch the core sent unchanged');
+  assert.deepEqual(diffRuns(live), [
+    ['file', 'diff --checkpoint greet.py\n--- checkpoint/greet.py\n+++ current/greet.py'],
+    ['hunk', '@@ -1,2 +1,3 @@'],
+    ['', ' import sys'],
+    ['del', '-print(1)'],
+    ['add', '+print(2)\n+print(3)'],
+  ], 'each kind of line is named, and a file header is not a removed line');
+  const html = panelHtml(true);
+  assert.ok(/pre\.diff \.add\s*\{/.test(html), 'the stylesheet colors an added line');
+  assert.ok(/pre\.diff \.del\s*\{/.test(html), 'the stylesheet colors a removed line');
+});
+
+test('a saved-code comparison colors its patch like the working diff', async (t) => {
+  const saved = await openChat(t, checkpointView());
+  t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({ checkpoint_id: 'cp-1',
+    changed_files: ['greet.py'], patch: COLOR_PATCH, truncated: false }) }));
+  saved.document.querySelector('[data-checkpoint-action="compare"]').click();
+  await flush(); await flush();
+  const compared = saved.document.querySelector('#app pre.diff');
+  assert.equal(compared.textContent, COLOR_PATCH, 'coloring leaves the patch the core sent unchanged');
+  assert.deepEqual(diffRuns(compared).map((row) => row[0]), ['file', 'hunk', '', 'del', 'add'],
+    'the other diff the client renders is colored too');
+});
 // The spend confirmation reads as a sentence whether the provider is named or the default (#1541 follow-up).
 test('the spend confirmation says "its default provider" instead of quoting the phrase', async (t) => {
   const shown = [];
