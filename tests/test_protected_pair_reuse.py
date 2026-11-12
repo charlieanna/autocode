@@ -81,7 +81,9 @@ class ProtectedPairReuse(unittest.TestCase):
         self.assertTrue(contracts.approved(self.state))
 
     def scratch_run(self, workspace, directory, **kwargs):
-        if kwargs.get("command") == self.command:
+        # The pair runs the bound suite narrowed to the changed test module (replayed_command).
+        pair = guard.replay_command(self.command, ["tests/test_shipping.py"], self.project)
+        if kwargs.get("command") == pair:
             self.launches.append("original" if kwargs.get("files") else "candidate")
         return verify.scratch_run(workspace, directory, **kwargs)
 

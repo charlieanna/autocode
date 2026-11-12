@@ -29,7 +29,7 @@ except ImportError:
 import copy
 import json
 import uuid
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 try:
     from . import autocode_command_receipt as command_receipt
@@ -38,6 +38,7 @@ try:
     from . import autocode_protected_paths as paths
     from . import autocode_protected_store as store
     from . import autocode_python_test_roles as test_roles
+    from . import autocode_python_tests as python_tests
     from . import autocode_superseded_tests as superseded_tests
     from . import autocode_test_role_correction as role_correction
     from . import autocode_test_role_inventory as role_inventory
@@ -50,6 +51,7 @@ except ImportError:
     import autocode_protected_paths as paths
     import autocode_protected_store as store
     import autocode_python_test_roles as test_roles
+    import autocode_python_tests as python_tests
     import autocode_superseded_tests as superseded_tests
     import autocode_test_role_correction as role_correction
     import autocode_test_role_inventory as role_inventory
@@ -278,8 +280,34 @@ def context(settings, affected_paths=(), state: RunState | None = None, *, curre
     return result | {"instruction": instruction}
 
 
+def replay_command(command, changed, workspace):
+    """The bound original-suite command narrowed to the changed test modules, or ``command`` unchanged.
+
+    The pair exists to prove that a changed protected test did not weaken an original assertion:
+    only the changed files differ between the candidate and the original overlay, and unchanged
+    originals use the ordinary independent gates. Running the whole bound suite twice for that
+    could not finish on a large repository (1,518 test files under a 900-second replay limit), and
+    both halves timed out identically. So a Python suite is narrowed to the changed test modules,
+    through the same ``Invocation.targeted`` the regression proof uses. The whole suite still runs
+    when that cannot be shown safe: a changed file that is not a test module (a conftest, a helper,
+    a data file), a deleted or replaced test, or a command that is not one Python test runner.
+    """
+    invocation = python_tests.parse(command)
+    names = sorted(changed)
+    if invocation is None or not names:
+        return command
+    for name in names:
+        if not python_tests.TEST_MODULE.match(PurePosixPath(name).name):
+            return command
+        try:
+            path_in(workspace, name)  # a deleted test, or one replaced by a link, keeps the whole suite
+        except (OSError, ValueError):
+            return command
+    return invocation.targeted(names) or command
+
+
 def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=None):
-    """Run the original suite on the candidate and with the original tests overlaid.
+    """Run the changed original tests on the candidate and with the original tests overlaid.
 
     ``run_check(label, execute, policy=..., accepted_failure=...)`` lets the caller schedule each run
     under its own obligation (#3040); ``execute(directory)`` performs it. Whatever it returns, the
@@ -316,16 +344,19 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
         )
     else:
         replaced = superseded_tests.approved(state)
+        command = replay_command(record["command"], changed, workspace)
+        if command != record["command"]:
+            result["replayed_command"] = command
         policy = {
             "binding_hash": record["binding_hash"],
-            "command": record["command"],
+            "command": command,
             "changed_tests": sorted(changed),
             "superseded": _listed(replaced, changed),
         }
 
         def run(label, **overlays):
             def execute(folder):
-                return scratch_run(workspace, folder, command=record["command"], timeout=timeout, **overlays)
+                return scratch_run(workspace, folder, command=command, timeout=timeout, **overlays)
 
             if run_check is None:
                 return execute(directory / label)

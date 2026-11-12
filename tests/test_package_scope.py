@@ -477,8 +477,15 @@ class PackageSuite(unittest.TestCase):
                 command, receipt = self.replay(project, prefix.strip("/"), candidate)
                 self.assertEqual(bool(prefix), command.startswith("cd packages/calc && "), command)
                 for side in ("candidate", "original"):
-                    self.assertEqual(0, receipt[side]["exit_code"])
-                    self.assertEqual("Test command reported only skipped tests", receipt[side]["error"])
+                    if prefix:
+                        self.assertEqual(0, receipt[side]["exit_code"])
+                        self.assertEqual("Test command reported only skipped tests", receipt[side]["error"])
+                    else:
+                        # At the root the pair names the changed module (replayed_command), and unittest cannot
+                        # load a module whose import skips: refused as a load failure instead.
+                        self.assertTrue(receipt["replayed_command"].endswith("unittest -v test_calc.py"), receipt)
+                        self.assertEqual(1, receipt[side]["exit_code"])
+                        self.assertIn("SkipTest: product disabled", receipt[side]["tail"])
 
     def test_a_package_replay_where_go_reports_no_test_is_refused(self):
         if shutil.which("go") is None:

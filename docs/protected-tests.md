@@ -27,7 +27,14 @@ tests, is refused. See [Monorepo packages](workflow.md#monorepo-packages).
 When an existing test is edited, deleted, renamed or replaced, a passing
 independent validation must also pass the retained original suite against the
 current implementation. Both candidate and original executions happen in
-separate source copies. A weakened candidate test cannot replace a failing
+separate source copies. A Python suite (unittest or pytest) runs only the
+changed test modules in both copies, with the bound command's own options, and
+the receipt records that command as `replayed_command`; the binding keeps the
+whole suite. The whole suite runs instead when any changed file is not a test
+module (a `conftest.py`, a helper or data file), when a changed test was deleted
+or replaced by a link, or when the command is not a single Python test runner.
+The whole suite of a large repository cannot finish twice in the replay's time
+limit, and only the changed files differ between the two copies. A weakened candidate test cannot replace a failing
 original assertion. New coverage remains allowed and is executed alongside
 the candidate suite. If no suite command was available when the inventory was
 bound, changed tests remain unverified until an explicit user revision supplies
@@ -58,7 +65,7 @@ the person:
   because Go reports a package, not a file.
 - The criterion's named test must still pass the [regression proof](named-test-proof.md):
   it fails on the original code and passes with the change.
-- The original suite still runs whole. Its failure is accepted only when the
+- The original suite still runs as above. Its failure is accepted only when the
   runner reported complete per-test results (unittest, pytest, Go, `node:test` or
   Vitest), nothing failed to collect, and every failing test is a listed one in a
   file the change edited. Any other failing original test, a crash, a timeout or

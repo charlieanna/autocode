@@ -98,6 +98,31 @@ class OriginalOracleTests(unittest.TestCase):
         self.assertIn("Ran 2 tests", result["candidate"]["tail"])
         self.assertIn("Ran 1 test", result["original"]["tail"])
 
+    def test_the_pair_runs_only_the_changed_test_modules(self):
+        # An unchanged original that cannot pass here belongs to the ordinary gates, not to this pair: the
+        # whole bound suite of a large repository could not finish in the replay limit (#2066 rerun).
+        (self.project / "test_other.py").write_text(
+            "import unittest\nclass Other(unittest.TestCase):\n    def test_other(self):\n        self.fail('ran')\n"
+        )
+        self.command = shlex.join([sys.executable, "-m", "unittest", "discover", "-v"])
+        self.state = {"settings": {}}
+        self.configure(self.new_args)
+        (self.project / "test_layout.py").write_text(
+            ORIGINAL + "\n    def test_positive(self):\n        self.assertGreater(height(), 0)\n"
+        )
+        (self.project / "layout.py").write_text("def height():\n    return 40\n")
+        result = self.execute()
+        self.assertEqual("PASS", result["verdict"], result)
+        self.assertEqual(["test_layout.py"], result["changed_tests"])
+        self.assertEqual(
+            shlex.join([sys.executable, "-m", "unittest", "-v", "test_layout.py"]), result["replayed_command"]
+        )
+        self.assertIn("Ran 2 tests", result["candidate"]["tail"])
+        self.assertIn("Ran 1 test", result["original"]["tail"])
+        self.assertNotIn("test_other", result["candidate"]["tail"] + result["original"]["tail"])
+        # The binding keeps the whole suite; only this replay is narrowed.
+        self.assertEqual(self.command, self.binding["command"])
+
     def test_automatic_original_gate_collects_nested_members_without_root_marker(self):
         (self.project / "test_layout.py").unlink()
         nested = self.project / "repos/a-1/tests/test_layout.py"
@@ -360,6 +385,44 @@ class HandoffBoundTests(unittest.TestCase):
         self.assertNotIn("assigned_total", shown)
         self.assertNotIn("inventory_path, under files", shown["instruction"])
         self.assertEqual({}, guard.context({"protected_tests": record}, ["src"])["assigned_tests"])
+
+
+class ReplayCommandTests(unittest.TestCase):
+    """Which bound suites the protected-test pair narrows to the changed test modules."""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name).resolve()
+        (self.root / "tests").mkdir()
+        (self.root / "tests/test_catalog.py").write_text("def test_x():\n    pass\n")
+        (self.root / "tests/conftest.py").write_text("")
+        self.pytest = "/venv/bin/python -m pytest -q -p no:cacheprovider --continue-on-collection-errors"
+
+    def test_a_python_suite_runs_the_changed_test_modules_with_its_options(self):
+        self.assertEqual(
+            self.pytest + " tests/test_catalog.py",
+            guard.replay_command(self.pytest, ["tests/test_catalog.py"], self.root),
+        )
+        self.assertEqual(
+            "python3 -m unittest -v tests/test_catalog.py",
+            guard.replay_command("python3 -m unittest discover -v", ["tests/test_catalog.py"], self.root),
+        )
+
+    def test_the_whole_suite_runs_when_narrowing_is_not_shown_safe(self):
+        (self.root / "tests/test_link.py").symlink_to("test_catalog.py")
+        for command, changed in (
+            (self.pytest, ["tests/conftest.py"]),
+            (self.pytest, ["tests/test_catalog.py", "tests/conftest.py"]),
+            (self.pytest, ["tests/test_gone.py"]),
+            (self.pytest, ["tests/test_link.py"]),
+            (self.pytest, []),
+            ("npm test", ["tests/test_catalog.py"]),
+            ("cd pkg && python -m pytest", ["tests/test_catalog.py"]),
+            (self.pytest + " --unknown-option value", ["tests/test_catalog.py"]),
+        ):
+            with self.subTest(command=command, changed=changed):
+                self.assertEqual(command, guard.replay_command(command, changed, self.root))
 
 
 if __name__ == "__main__":
