@@ -1944,6 +1944,36 @@ test('the chat box Models chip changes a new chat\'s model, not only its level, 
   assert.deepEqual(start.mock.calls[0].arguments[4], ['--builder-model', 'sonnet', '--builder-reasoning-effort', 'high']);
 });
 
+test('a new chat\'s Models chip says why it is greyed out: reading the backend\'s models, then starting', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  const waiting = [];
+  let hang = false;
+  const ui = await openChat(t, null, false, { stages: (argv) => (hang
+    ? new Promise((resolve) => { waiting.push(() => resolve(chatStageView(argv))); }) : chatStageView(argv)) });
+  ui.chat.show(); await flush(); await flush();
+  const chip = ui.document.getElementById('models-picker');
+  const label = () => ui.document.getElementById('models-name').textContent;
+  pickInOrder(t, ['Builder', 'sonnet · high']);
+  chip.click(); await flush(); await flush(); await flush();
+  assert.equal(label(), 'Models · 1 changed');
+  // The chat's own list is read again (a slow backend): the chip says so rather than going dead.
+  hang = true;
+  ui.window.acquireVsCodeApi().postMessage({ type: 'chat_stages' }); await flush(); await flush();
+  assert.equal(waiting.length, 1);
+  assert.equal(chip.disabled, true);
+  assert.equal(label(), 'Models · loading…');
+  assert.equal(chip.title, 'Reading the models this backend offers');
+  waiting.shift()(); await flush(); await flush(); await flush();
+  assert.equal(chip.disabled, false);
+  assert.equal(label(), 'Models · 1 changed');
+  // The first message starts the chat; until its run exists the picks are fixed.
+  t.mock.method(controller, 'start', async () => new Promise(() => {}));
+  ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
+  assert.equal(chip.disabled, true);
+  assert.equal(label(), 'Models · starting…');
+  assert.equal(chip.title, 'This chat is starting with the models it shows');
+});
+
 test('the chat box Models picker cancelled at any step changes nothing', async (t) => {
   host.config.set('extraOptions', ['--engine', 'claude']);
   const calls = [];
@@ -1996,7 +2026,12 @@ test('a started chat changes a stage\'s model from the chat box between stages, 
   const working = 'A stage is working. Pause the chat, or wait until it asks you something, to change its models.';
   await ui.poll({ ...initial, stage_models: { changeable: false, reason: working, next_command: list } });
   assert.equal(chip.disabled, true, 'only between stages');
+  assert.equal(ui.document.getElementById('models-name').textContent, 'Models · after this stage',
+    'a greyed-out chip says when it comes back, not only on hover');
   assert.equal(chip.title, working, 'the core says why not');
+  await ui.poll(initial);
+  assert.equal(chip.disabled, false, 'between stages again');
+  assert.equal(ui.document.getElementById('models-name').textContent, 'Models');
   await ui.poll({ ...initial, stage_models: null });
   assert.equal(chip.hidden, true, 'an older core offers nothing to change');
 });
