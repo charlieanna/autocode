@@ -197,7 +197,9 @@ class ActivityRuntimeTests(unittest.TestCase):
                 run = self.run / kind
                 observed = []
 
-                def wait(child, hard_limit, checkpoint, *, activity, activity_checkpoint, startup_grace):
+                def wait(
+                    child, hard_limit, checkpoint, *, activity, activity_checkpoint, startup_grace, stop_requested=None
+                ):
                     self.assertEqual(20, hard_limit)
                     self.assertEqual(5, startup_grace)
                     checkpoint([])
@@ -268,7 +270,7 @@ class ActivityRuntimeTests(unittest.TestCase):
         def monitor(*args, **kwargs):
             return ActivityMonitor(*args, clock=lambda: clock[0], **kwargs)
 
-        def wait(child, hard_limit, checkpoint, *, activity, activity_checkpoint, startup_grace):
+        def wait(child, hard_limit, checkpoint, *, activity, activity_checkpoint, startup_grace, stop_requested=None):
             checkpoint([])
             activity_checkpoint(activity.poll())
             clock[0] = 181
