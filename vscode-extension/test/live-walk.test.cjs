@@ -935,3 +935,100 @@ test('walk: the resume after a pause brings the run back to work', { skip }, asy
   assert.ok((done.stages || []).some((row) => row.stage === 'builder'),
     "the Builder's stage ran: " + JSON.stringify((done.stages || []).map((row) => row.stage)));
 });
+
+test('walk: a paused chat survives a reload, and resuming runs the run\'s own command', { skip }, async (t) => {
+  const { root, restore } = buildWorkspace();
+  host.config.set('cliPath', CLI);
+  host.config.set('cliArgs', [SCRIPT]);
+  let statusText = '';
+  const mockStatus = {
+    show() {}, hide() {}, dispose() {},
+    get text() { return statusText; }, set text(val) { statusText = val; },
+    tooltip: undefined, command: undefined,
+  };
+  t.mock.method(host.vscode.window, 'createStatusBarItem', () => mockStatus);
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
+  const wsState = host.workspaceState;
+  let saved = {};
+  const openWindow = () => {
+    const context = { subscriptions: [], workspaceState: wsState };
+    activate(context);
+    const chat = host.providers.get('autocode.chat');
+    let receive;
+    const webview = {
+      html: '', options: {},
+      onDidReceiveMessage: (callback) => { receive = callback; },
+      postMessage: async (data) => { webview.deliver?.(data); return true; },
+    };
+    const shell = { visible: true, webview, onDidChangeVisibility: () => {}, onDidDispose() {} };
+    chat.resolveWebviewView(shell);
+    const dom = new JSDOM(webview.html, { runScripts: 'outside-only' });
+    // The webview's own state (drafts, tabs) persists across a reload, as VS Code keeps it.
+    dom.window.acquireVsCodeApi = () => ({
+      postMessage: (message) => receive(message),
+      getState: () => saved,
+      setState: (value) => { saved = value; },
+    });
+    webview.deliver = (data) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
+    dom.window.eval(dom.window.document.querySelector('script').textContent);
+    return { context, chat, dom };
+  };
+
+  const first = openWindow();
+  t.after(() => first.context.subscriptions.forEach((item) => item.dispose?.()));
+  t.after(() => first.dom.window.close());
+  await first.dom.window.acquireVsCodeApi().postMessage({ type: 'ready' });
+  await first.chat.show({ workspace: root, runDir: restore }), await first.chat.refresh();
+  const text = () => first.dom.window.document.querySelector('#app').textContent;
+  await waitFor(() => text().includes('Fixture step'), 30000);
+  await waitFor(() => statusText.includes('AutoCode'), 30000);
+  const field = first.dom.window.document.querySelector('#message');
+  field.value = 'A draft that must survive the reload';
+  field.dispatchEvent(new first.dom.window.Event('input'));
+  await flush();
+  first.dom.window.document.querySelector('[data-checkpoint-action="compare"]').click();
+  await waitFor(() => text().includes('+print'), 30000);
+  assert.ok(text().includes('diff --checkpoint'), 'the compare card is open before the reload');
+
+  // The window reloads: the extension and the webview are torn down and rebuilt.
+  first.context.subscriptions.forEach((item) => item.dispose?.());
+  first.dom.window.close();
+  const second = openWindow();
+  t.after(() => second.context.subscriptions.forEach((item) => item.dispose?.()));
+  t.after(() => second.dom.window.close());
+  await second.dom.window.acquireVsCodeApi().postMessage({ type: 'ready' });
+  const text2 = () => second.dom.window.document.querySelector('#app').textContent;
+  await waitFor(() => text2().includes('Fixture step'), 30000);
+  assert.ok(text2().includes('Fixture step'), "the paused chat's card comes back after the reload");
+  assert.equal(second.dom.window.document.querySelector('#message').value, 'A draft that must survive the reload',
+    'the unsent draft survives the reload');
+  await waitFor(() => statusText.includes('AutoCode'), 30000);
+  assert.ok(statusText.includes('AutoCode'), 'the status line comes back on the restored chat: ' + statusText);
+  assert.ok(!text2().includes('diff --checkpoint'),
+    'the cached comparison does not survive: a stale restore token is never reused');
+
+  // Restore re-compares for itself before it asks, on a token of its own.
+  let asked;
+  let releaseRestore;
+  t.mock.method(host.vscode.window, 'showWarningMessage', (question) => {
+    asked = String(question);
+    return new Promise((resolve) => { releaseRestore = resolve; });
+  });
+  second.dom.window.document.querySelector('[data-checkpoint-action="restore"]').click();
+  await waitFor(() => text2().includes('diff --checkpoint'), 30000);
+  await waitFor(() => Boolean(releaseRestore), 30000);
+  assert.match(asked, /Restore "Fixture step"/, 'the restore asks after re-comparing, on a fresh token');
+  releaseRestore(undefined);   // declined: this walk is about the state, not a second restore
+  await flush(); await flush();
+
+  // Resuming runs the run's own named command; on a host without that provider, the CLI says so
+  // and the chat reports it — the resume is the run's, not the client's, to complete.
+  const take = second.dom.window.document.querySelector('#take-action');
+  assert.ok(take && !take.disabled, 'the paused chat still offers its named action after the reload');
+  t.mock.method(host.vscode.window, 'showWarningMessage', () => Promise.resolve('Continue'));
+  take.click();
+  const error = () => second.dom.window.document.querySelector('#chat-error').textContent;
+  await waitFor(() => error().includes('provider config'), 30000);
+  assert.ok(error().includes('provider config'),
+    'the resume runs the named command and reports this host\'s refusal: ' + error());
+});
