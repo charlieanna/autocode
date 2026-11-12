@@ -31,6 +31,24 @@ class RequirementsChatTests(unittest.TestCase):
                 self.assertIn("quote it exactly as saved and ask the user to confirm what they want", rendered)
                 self.assertIn("Never state or guess a cause in how it was typed, sent or received", rendered)
 
+    def test_a_question_about_the_project_is_answered_not_turned_into_a_task_question(self):
+        """2026-11-12: asked "what does this project do?" in a VS Code chat, Requirements weighed the
+        discuss rule against the spec-first small-talk rule (which listed "an off-topic question" and
+        said to make no claims about the workspace) and asked what to build instead of answering. A
+        question about the project is discuss in every run, and the small-talk rule excludes it."""
+        for schema in ({"properties": {"assistant_reply": {}}}, {"properties": {}}):
+            rendered = " ".join(requirements_prompt.render(prompts.get("requirements-gather.md"), schema).split())
+            with self.subTest(conversational=bool(schema["properties"])):
+                self.assertIn(
+                    '("what does this project do?", "how does login work?") is discuss in every run', rendered
+                )
+                self.assertIn("including spec_first, never small talk", rendered)
+                self.assertIn("asks for nothing and asks nothing about the workspace", rendered)
+                self.assertNotIn("off-topic question)", rendered)
+                self.assertIn("is the change's job: answer the question in", rendered)
+        intro = " ".join(prompts.get("fragments/autoplanner/requirements-conversation.md").split())
+        self.assertIn("answer it from the source; do not ask what they want built instead", intro)
+
     def test_malformed_active_or_repair_stage_has_no_streamed_reply(self):
         for active in (None, "builder", ["requirements_gather"], True, 42):
             for repair in (False, True):
