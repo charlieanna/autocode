@@ -1878,15 +1878,15 @@
 
 
 <h1 id="a-pinned-reliability-campaign-declaration">A pinned reliability campaign declaration<a class="headerlink" href="#a-pinned-reliability-campaign-declaration" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/e0be2a0b5f8bbb6035c8379a31bb10ed306c1672/arena/campaign.json"><code>arena/campaign.json</code></a> is the <strong>PLANNED</strong> first
+<p><a href="https://github.com/charlieanna/autocode/blob/44b15958c554001d69b7f0b7c293a508a185dfb7/arena/campaign.json"><code>arena/campaign.json</code></a> is the <strong>PLANNED</strong> first
 protocol slice of <a href="https://github.com/charlieanna/autocode/issues/634">#634</a>.
 It declares 13 tasks and two repetitions each: 26 scheduled rows. It contains
 no run results, and no campaign has been executed for it. It is a measurement
 specification, not a command accepted by the current Arena or scenario CLI.
-<a href="https://github.com/charlieanna/autocode/blob/e0be2a0b5f8bbb6035c8379a31bb10ed306c1672/tools/reliability_ledger.py"><code>tools/reliability_ledger.py</code></a> checks a
+<a href="https://github.com/charlieanna/autocode/blob/44b15958c554001d69b7f0b7c293a508a185dfb7/tools/reliability_ledger.py"><code>tools/reliability_ledger.py</code></a> checks a
 published attempt ledger against it and reports the portfolio
 (<a href="#attempt-ledger-and-portfolio-report">below</a>), and
-<a href="https://github.com/charlieanna/autocode/blob/e0be2a0b5f8bbb6035c8379a31bb10ed306c1672/tools/reliability_import.py"><code>tools/reliability_import.py</code></a> fills ledger
+<a href="https://github.com/charlieanna/autocode/blob/44b15958c554001d69b7f0b7c293a508a185dfb7/tools/reliability_import.py"><code>tools/reliability_import.py</code></a> fills ledger
 rows from scenario and Arena result records
 (<a href="#importing-native-results">below</a>). Automatic execution and fresh holdout
 rotation remain separate work in #634.</p>
