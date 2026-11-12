@@ -54,11 +54,11 @@ no spend.
 The case is `bugfix-realrepo-docutils-number-lines`: the whole Docutils repository
 (191,000 lines of Python, 94,000 of them the project with a suite of about 2,300
 cases) at the parent of upstream's fix for `:number-lines: 0` on "include". Its first
-scripted run found two scale defects no fixture reached: a crash at start on Python
-files that are not UTF-8 and a test-role rule that left every Docutils test
-ambiguous (both fixed), and a root suite that collects the repository's broken
-`sandbox/` tests, which leaves the regression proof unverified, the scenario's
-recorded known failure ([findings](docs/bugs/2026-11-11-real-repo-docutils-findings.md)). It has not yet run
+scripted runs found scale defects no fixture reached: a crash at start on Python
+files that are not UTF-8, a test-role rule that left every Docutils test
+ambiguous, and a root suite that collected the repository's broken `sandbox/`
+tests; all are fixed and its scripted run completes
+([findings](docs/bugs/2026-11-11-real-repo-docutils-findings.md)). It has not yet run
 live.
 
 For each case record:

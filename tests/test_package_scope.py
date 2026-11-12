@@ -920,6 +920,61 @@ POLYGLOT = {
 POLYGLOT_SPEC = "backend/spec/requests/grader_spec.rb"
 
 
+SIDE_BY_SIDE = {
+    "README.rst": "Two projects side by side, as in Docutils (#2944).\n",
+    "proj/pyproject.toml": '[project]\nname = "proj"\n',
+    "proj/calc.py": "def add(a, b):\n    return a + b\n",
+    "proj/tests/test_calc.py": "import sys, pathlib\nsys.path.insert(0, str(pathlib.Path(__file__).parents[1]))\n"
+    "import calc\n\ndef test_adds():\n    assert calc.add(1, 2) == 3\n",
+    "sandbox/tests/test_old.py": 'print "a Python 2 experiment"\n',
+}
+
+
+class SideBySideProjects(unittest.TestCase):
+    """A root with no manifest is no project of its own: tests inside a project are its own suite's (#2944)."""
+
+    def detect(self, directory):
+        return verify.detect_framework(directory, python=sys.executable)
+
+    def project(self, extra=None):
+        project = Project({**SIDE_BY_SIDE, **(extra or {})})
+        self.addCleanup(project.close)
+        return project
+
+    def test_the_project_around_the_tests_supplies_the_suite_even_when_the_roots_could_run_them(self):
+        project = self.project()
+        root = self.detect(project.root)
+        tests = ["proj/tests/test_calc.py"]
+        self.assertTrue(root.targeted(tests), "the root's pytest collects the test, and sandbox/ with it")
+        found = package_scope.for_tests(project.root, root, tests, self.detect)
+        self.assertEqual(("proj", "pytest"), (found.directory, found.name))
+        self.assertTrue(found.suite.startswith("cd proj && "), found.suite)
+        self.assertIsNone(package_scope.for_tests(project.root, root, ["sandbox/tests/test_old.py"], self.detect))
+
+    def test_a_root_with_its_own_manifest_keeps_its_suite(self):
+        project = self.project({"pyproject.toml": '[project]\nname = "root"\n'})
+        root = self.detect(project.root)
+        self.assertIsNone(package_scope.for_tests(project.root, root, ["proj/tests/test_calc.py"], self.detect))
+
+    def test_a_fix_inside_the_project_is_proven_without_the_neighbours_broken_tests(self):
+        project = self.project()
+        project.write(
+            {
+                "proj/calc.py": "def add(a, b):\n    return a + b\n\n\ndef sub(a, b):\n    return a - b\n",
+                "proj/tests/test_calc.py": SIDE_BY_SIDE["proj/tests/test_calc.py"]
+                + "\n\ndef test_subtracts():\n    assert calc.sub(3, 1) == 2\n",
+            }
+        )
+        state = bugfix_state(project, package=None)
+        state["goal_contract"]["body"]["acceptance_criteria"] = [
+            {"id": "C1", "criterion": "It subtracts", "verification_method": "test: test_subtracts"}
+        ]
+        with tempfile.TemporaryDirectory() as run_dir:
+            proof = regression.prove(state, project.root, Path(run_dir))
+        self.assertEqual((verify.PASS, "proj"), (proof["verdict"], proof["framework"]["directory"]), proof)
+        self.assertEqual(["tests.test_calc::test_subtracts"], proof["fail_to_pass"], proof)
+
+
 class PolyglotSuite(unittest.TestCase):
     """A proving test the detected suite cannot hold is a selection problem, never 'passes on base' (#2889)."""
 

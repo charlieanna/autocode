@@ -303,12 +303,21 @@ def enclosing(root, tests, detect_in, *, runs=None) -> PackageFramework | None:
 
 def for_tests(root, framework, tests, detect_in) -> PackageFramework | None:
     """The suite of the project around ``tests`` when ``framework``, detected at the root, runs none of
-    them (``enclosing``), else None. A Node package's tests in a Python repository were handed to the
-    root's pytest, which cannot run them, and the run paused (2026-11-11)."""
+    them, or when the root is no project of its own (``enclosing``), else None. A Node package's tests in a
+    Python repository were handed to the root's pytest, which cannot run them, and the run paused
+    (2026-11-11). A repository whose root has no manifest holds projects side by side: Docutils keeps its
+    project in ``docutils/`` beside old experiments in ``sandbox/``, and the root's suite collected those
+    too, whose Python 2 modules never load, so preservation could not be shown (#2944)."""
     tests = sorted(tests)
-    if not tests or (framework is not None and framework.targeted(tests)):
+    if not tests:
+        return None
+    if framework is not None and framework.targeted(tests) and _is_project(Path(root)):
         return None
     return enclosing(root, tests, detect_in)
+
+
+def _is_project(directory: Path) -> bool:
+    return any((directory / name).is_file() for name in MANIFESTS)
 
 
 def link_node_modules(tree, roots) -> None:

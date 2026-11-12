@@ -70,23 +70,39 @@ catalog seed directory held an ignored file, so only pinned real-repository seed
 (`scenarios.test_pinned_seed`). AutoCode was right to refuse: the check did not pass from a clean
 checkout of the project it was given.
 
-## 5. The root suite collects `sandbox/` (open)
+## 5. The root suite collected `sandbox/` (fixed)
 
 With those fixed, the scripted run (`--out` outside this checkout, so pytest's root is not this
-repository's own `pyproject.toml`) reaches a regression proof that is `UNVERIFIED`: AutoCode runs the suite
-it detects at the repository root, which collects `sandbox/`'s Python 2 test modules, and they fail to
+repository's own `pyproject.toml`) reached a regression proof that was `UNVERIFIED`: AutoCode ran the suite
+it detected at the repository root, which collected `sandbox/`'s Python 2 test modules, and they failed to
 collect on the original code and with the change alike, so "the base suite has collection errors;
-preservation is unproven". Run as `--package docutils/` (an experiment, not the case's setup), the same
-proof passes. Choosing the Docutils project's own suite for a change that lies wholly inside it, or
-accepting collection errors the original code has identically, is a decision on the evidence gate and is
-not made here; the scenario records this as its `known_failure`.
+preservation is unproven". The owner chose, on 2026-11-12, to prove such a change with the project's own
+suite: a repository root with no manifest is no project, so tests inside a directory with its own
+manifest run with that directory's suite even when the root's suite could also run them
+(`autocode_package_scope.for_tests`, `tests.test_package_scope.SideBySideProjects`). Code changed outside
+that project is still checked by the root's suite as a companion (#2889).
 
-Two smaller things the same runs showed:
+## 6. A module unittest skips at import was not read (fixed)
 
-- One `sandbox/` module with module-level `def test_*` functions makes AutoCode choose pytest for the whole
-  repository, and on a host whose Python lacks pytest every suite command fails with "No module named
-  pytest". The runs above installed pytest on the host.
-- With `--package docutils/`, the scripted run then stops at `PAUSED_BUILDER_CLASSIFICATION` for two
-  lines of upstream's fix in `body.py` (the option table entry and `startline = 1`) that the delivered
-  test does not check; the scripted Tester gives no reason for them (AGENTS.md, "A fake provider in a test
-  is a Tester too").
+Proven with `docutils/`'s own suite on a host whose Python has no pytest (`python3 -m unittest discover
+-v`), the results were still incomplete: Docutils skips two modules when an optional package is missing,
+and unittest reports each as `test.test_parsers.test_recommonmark
+(unittest.loader.ModuleSkipped.test.test_parsers.test_recommonmark) ... skipped`, which the result reader
+did not recognize, so 466 named outcomes against "Ran 468" left the base suite incomplete. The reader now
+reads that line as a skipped test (`tests.test_python_tests.UnittestResultParserTests`).
+
+## 7. Upstream's test left two changed lines untested (fixed in the reference)
+
+The changed-code gate then asked for evidence for two lines of upstream's fix in `body.py`, the option
+table entry and `startline = 1`: their mutants survived upstream's regression test, which never runs the
+"code" directive or an included `:code:` without a start value. The gate was right (AutoCode delivers no
+untested code), so the scenario's reference adds those two cases to the delivered test; the oracle's
+controls are unchanged.
+
+With all of this, the scripted run completes: `TASK_COMPLETE`, oracle 14/14
+(`scenarios/run.py run bugfix-realrepo-docutils-number-lines --fake`, Linux cloud container, no pytest
+on the host, 2026-11-12), and the scenario has no known failure.
+
+One smaller finding remains: one `sandbox/` module with module-level `def test_*` functions makes
+AutoCode choose pytest for a suite detected at the repository root, even when pytest cannot be imported.
+Now that `docutils/` has its own suite this no longer reaches the case.

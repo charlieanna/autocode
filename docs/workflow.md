@@ -851,6 +851,11 @@ sit inside one directory below the root that has its own manifest (`package.json
 `go.mod`, `Cargo.toml`, `pyproject.toml`, `setup.py`, `setup.cfg` or `Gemfile`) and
 a suite detected there runs them, they run with that suite from that directory, as
 if the run had named it with `--package`. The innermost such directory wins.
+When the repository root has no manifest of its own, it is no project: such a
+directory's suite runs its tests even when the root's suite could also run them,
+so a project kept beside others (Docutils' `docutils/` beside old experiments in
+`sandbox/`) is not proven with a root suite that also collects its neighbours'
+tests (#2944).
 When no such directory runs them and the root suite's runner chooses tests by
 kind (pytest, unittest, Node, Go, Jest, Vitest, Mocha or RSpec) and runs none of
 the changed tests, the proof is unverified and names the tests and the suite that

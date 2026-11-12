@@ -43,6 +43,19 @@ class IncludeNumberLinesTestCase(unittest.TestCase):
         self.assertEqual(['1', '2', '3', '4'],
                          line_numbers('   :number-lines:\n'))
 
+    def test_default_start_value_for_included_code(self):
+        self.assertEqual(['1', '2', '3', '4'],
+                         line_numbers('   :number-lines:\n', ':code:'))
+
+    def test_start_value_zero_for_code_directive(self):
+        source = '.. code::\n   :number-lines: 0\n\n   alpha\n   beta\n'
+        doctree = publish_doctree(source,
+                                  settings_overrides={'warning_stream': ''})
+        self.assertEqual(['0', '1'],
+                         [node.astext().strip()
+                          for node in doctree.findall(nodes.inline)
+                          if 'ln' in node['classes']])
+
 
 if __name__ == '__main__':
     unittest.main()
