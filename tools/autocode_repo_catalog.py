@@ -508,8 +508,7 @@ def _remote_entry(document: dict[str, Any], name: str) -> dict[str, Any] | None:
     return next((row for row in document["remotes"] if isinstance(row, dict) and row.get("name") == name), None)
 
 
-def _remote_row(entry: dict[str, Any]) -> dict[str, Any]:
-    name = entry.get("name")
+def _remote_row(name: str, entry: dict[str, Any]) -> dict[str, Any]:
     path = entry.get("path") or None
     pinned = entry.get("pinned_commit") or None
     return {
@@ -568,13 +567,20 @@ def remove_remote(name: str) -> dict[str, Any]:
 def list_remotes() -> dict[str, Any]:
     """List the operator-approved remote allowlist and what is already cloned."""
     document = _read()
-    entries = sorted(
-        (row for row in document["remotes"] if isinstance(row, dict)), key=lambda row: str(row.get("name"))
-    )
+    # A row without a name names no repository: leave that row out, never the whole list.
+    entries: list[tuple[str, dict[str, Any]]] = []
+    for row in document["remotes"]:
+        if not isinstance(row, dict):
+            continue
+        name = row.get("name")
+        if not isinstance(name, str):
+            continue
+        entries.append((name, row))
+    entries.sort(key=lambda named: named[0])
     return {
         "operation": "remotes-list",
         "catalog": str(catalog_path()),
-        "remotes": [_remote_row(row) for row in entries],
+        "remotes": [_remote_row(name, row) for name, row in entries],
     }
 
 
@@ -631,6 +637,9 @@ def clone_remote(name: str) -> dict[str, Any]:
     if entry is None:
         raise CatalogError(f"Remote {selected} is not on the operator-approved allowlist")
     ref = entry.get("ref")
+    # Nothing to clone with: say so rather than hand `git clone --branch` a non-branch.
+    if not isinstance(ref, str) or not ref.strip():
+        raise CatalogError(f"Remote {selected} has no stored ref to clone")
     target = storage_root() / MANAGED_CLONES / Path(*selected.split("/"))
     if target.is_dir():
         if entry.get("path") and entry.get("pinned_commit"):
