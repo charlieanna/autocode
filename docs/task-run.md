@@ -1933,7 +1933,14 @@ when no stage runs or the running stage cannot be priced. It is not part of `spe
 check. A client showing spend so far adds it to `spent_usd` and to the running stage's row, as a
 floor, so a run on its first stage does not read as nothing spent while its tokens climb.
 `usage.cost_usd` keeps the frozen comparison rates its reports are bound to,
-so its `estimated` can differ from `cost.estimated_usd`.
+so its `estimated` can differ from `cost.estimated_usd`. Those rates price every input token at the
+input rate, cached or not, so on a run whose input is mostly cache reads `usage.cost_usd.estimated`
+is about twice `cost.spent_usd` (#3268: $26.30 against $12.40). It is a comparison figure: the run's
+cost is `cost.spent_usd`, and a client that shows one cost shows that.
+
+`run_metrics.single_model` splits what is not the Builder's into `planning_usd` (Requirements,
+Planner and Plan Reviewer) and `review_usd` (testing, review, proof and recovery), with
+`planning_share` and `review_share` of `spent_usd`; `checking_usd` stays their sum (#3268).
 
 `cost.breakdown` groups that same finished-stage ledger in three alternative ways:
 `by_stage`, `by_process_outcome` (`completed`, `failed`, `interrupted`, `unknown`) and
