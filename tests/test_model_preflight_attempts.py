@@ -213,6 +213,67 @@ class ModelPreflightAttemptTests(unittest.TestCase):
         self.assertEqual(0, view["unpriced_stages"])
         self.assertTrue(view["complete"])
 
+    def test_a_probe_the_provider_refused_before_any_request_costs_nothing_and_leaves_cost_complete(self):
+        # A Kilo Gateway account without credits answers the probe with HTTP 402 and records no step,
+        # no tokens and no cost (live run, 2026-11-11). Nothing was billed, so the refusal is not an
+        # unpriced stage that would leave the run's total a floor ("+") for good.
+        def refused(**kwargs):
+            directory = kwargs["directory"]
+            directory.mkdir(parents=True, exist_ok=True)
+            error = {
+                "type": "error",
+                "sessionID": "probe",
+                "error": {
+                    "name": "APIError",
+                    "data": {
+                        "message": "Paid Model - Credits Required",
+                        "statusCode": 402,
+                        "isRetryable": False,
+                        "responseBody": '{"error":{"type":"usage_limit_exceeded","balance":0}}',
+                    },
+                },
+            }
+            (directory / "events.jsonl").write_text(json.dumps(error) + "\n")
+            kwargs["checkpoint"](self.ownership(directory))
+            self.seconds += 2
+            return {
+                "exit_code": 1,
+                "timed_out": False,
+                "metrics": support.event_metrics(directory / "events.jsonl"),
+            }
+
+        with patch.object(preflight.transport, "execute", side_effect=refused):
+            with self.assertRaises(support.Paused) as stopped:
+                self.check()
+        self.assertEqual("PAUSED_BUDGET", stopped.exception.status)
+        self.state = json.loads(self.state_path.read_text())
+        view = cost.view(self.state)
+        self.assertEqual(0, view["unpriced_stages"])
+        self.assertEqual(0, view["breakdown"]["unpriced"]["usage_missing"])
+        self.assertTrue(view["complete"])
+        self.assertEqual(0, view["spent_usd"])
+        [row] = usage.stage_rows(self.state)
+        self.assertEqual(("refused", 0.0), (row["basis"], row["cost_usd"]))
+
+    def test_a_refused_probe_that_recorded_usage_keeps_its_usage(self):
+        # The refusal is free only when no request was answered: a probe whose events carry a step
+        # is priced from it like any other.
+        def refused_after_a_step(**kwargs):
+            directory = kwargs["directory"]
+            rows = self.write_events(directory)
+            rows.append({"type": "error", "error": {"data": {"message": "usage_limit_exceeded", "statusCode": 402}}})
+            (directory / "events.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+            kwargs["checkpoint"](self.ownership(directory))
+            self.seconds += 2
+            return {"exit_code": 1, "timed_out": False, "metrics": support.event_metrics(directory / "events.jsonl")}
+
+        with patch.object(preflight.transport, "execute", side_effect=refused_after_a_step):
+            with self.assertRaises(support.Paused):
+                self.check()
+        self.state = json.loads(self.state_path.read_text())
+        [row] = usage.stage_rows(self.state)
+        self.assertEqual(("reported", 0.03), (row["basis"], row["cost_usd"]))
+
     def test_interruption_retains_partial_cost_and_time_before_pausing(self):
         def interrupted(**kwargs):
             self.write_events(kwargs["directory"], partial=True)

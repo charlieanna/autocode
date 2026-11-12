@@ -7,7 +7,8 @@ switched on and no model is called.
 
 - **Status view.** `usage` in the view (`autocode --run-dir RUN --status`, [Task run](task-run.md))
   holds the run's totals so far: stages, tokens, `cost_usd` (`reported`, `estimated`, `complete`),
-  `unknown_stages` and the same by role. `cost` holds the spend at current list prices against the
+  `unknown_stages`, and the same by the route that ran each stage (`by_role`) and by the job it did
+  (`by_job`, the names on screen: one route can run several jobs). `cost` holds the spend at current list prices against the
   run's money cap, and `--status` prints it as one `Cost: ...` line on stderr (below).
   `escalations` prices each escalation's attempts the same way and says how it ended, so a run shows
   what each climb cost and whether it helped ([status view](task-run.md#status-view)).
@@ -24,8 +25,9 @@ frozen comparison rates in `autocode_usage.REFERENCE_PRICES`, and only for the m
 (today GLM-5.3 on the Z.AI coding plan and MiMo v2.6 Pro on the Xiaomi token plan); anything else is
 **unknown, not zero**. `complete` is false while a stage has no cost or is still running, so a total
 is then a floor. Stages the runner executes itself (the regression proof, the orchestrator) cost
-nothing. Any other model, such as an OpenAI route, has no comparison estimate until a rate is added
-there; the status view's `cost` field prices it from the dated table below instead.
+nothing, and so does a model access probe the provider refused outright (no credits, a rejected
+login) before answering any request. Any other model, such as an OpenAI route, has no comparison
+estimate until a rate is added there; the status view's `cost` field prices it from the dated table below instead.
 
 Parallel Builders are counted once, in their parent. A worker run keeps no ledger of its own: when a
 batch finishes, the parent copies each worker's finished stages, cost included, into its own record
