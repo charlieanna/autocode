@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_cmd_only_report as cmd_only
+    from . import autocode_leaked_markup_report as leaked_markup
     from . import autocode_opencode as opencode
     from . import autocode_report_syntax as report_syntax
     from . import autocode_requirements_triage as requirements_triage
@@ -28,6 +29,7 @@ try:
     from .providers import claude as claude_provider
 except ImportError:
     import autocode_cmd_only_report as cmd_only
+    import autocode_leaked_markup_report as leaked_markup
     import autocode_opencode as opencode
     import autocode_report_syntax as report_syntax
     import autocode_requirements_triage as requirements_triage
@@ -295,9 +297,12 @@ def recovered_timeout_attempt(record, stage_completed):
 
 def repair_report_instruction(pending):
     """State the stricter source-only rule when the original output was cut off, and that a
-    shell command returned as the report holds nothing to repair (autocode_cmd_only_report)."""
+    shell command returned as the report holds nothing to repair (autocode_cmd_only_report),
+    and the same for leaked transport markup (autocode_leaked_markup_report)."""
     if cmd_only.matches(pending.get("error")):
         return cmd_only.REPAIR_INSTRUCTION
+    if leaked_markup.matches(pending.get("error")):
+        return leaked_markup.REPAIR_INSTRUCTION
     truncated = bool(
         (pending.get("original") or {}).get("truncated_output")
         or (pending.get("latest_rejected") or {}).get("truncated_output")
