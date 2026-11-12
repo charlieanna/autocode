@@ -2322,7 +2322,7 @@
 
 
 <h1 id="workflow-planning-approval-and-handoffs">Workflow: planning, approval, and handoffs<a class="headerlink" href="#workflow-planning-approval-and-handoffs" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/cde4dbd3421028d177d4c85a6b2db75b2aab85cd/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/0f2caad36ad075d844321326782df17b9e60d37d/README.md">← Back to README</a></p>
 <p>This page covers the end-to-end conversation flow: how a rough idea becomes an
 approved plan, how that plan is implemented and reviewed, and what Autopilot
 coordinates along the way.</p>
@@ -2575,6 +2575,19 @@ diagnosis and the <code>--retry-builder</code> operator flag, as the row above r
 the stage, at the same source, failed with the same error and left the same kind of output
 (<code>tools/autocode_failures.py</code>). Different problems that happen to share an exception type,
 such as missing responses to different concerns, pause as <code>PAUSED_INVALID_OUTPUT</code>.</p>
+<p>A stage whose answers keep being rejected for different reasons, say two answers each fixing
+what the other broke, never repeats one error, so it never counts as a repeated failure. AutoCode
+bounds it itself instead of asking you to resume (<code>tools/autocode_rejection_retry.py</code>). It counts
+every rejected attempt of the stage at one source, whatever the error, until the stage returns an
+accepted report; a report-only repair belongs to the attempt it repairs. After the Investigator's
+retry of a <code>PAUSED_INVALID_OUTPUT</code> is rejected again, AutoCode runs the stage again itself, up to
+four rejected attempts, and records each retry with the rejection (<code>automatic_retries</code> on its
+<code>failure_history</code> entry, shown in the status view's <code>recoveries</code>). At four the Investigator looks
+once more, at the whole run of rejections, within the run's investigation budget. If its retry is
+rejected too, or the budget is spent, the run stops with what it tried and the errors it saw,
+without offering another retry. A planning stage's next attempt sees the latest rejection
+(<code>prior_rejection</code>). An Investigator that says only you can answer keeps that question, and an
+exact repeat keeps its <code>PAUSED_REPEATED_FAILURE</code> rules.</p>
 <p>The Investigator runs at high effort on a model different from the stuck stage's: in <code>kilocode</code>
 runs the first of the run's own direct routes (Plan Reviewer, Planner, Requirements, Completion,
 Tester, Builder) outside the stuck stage's model family, never a <code>kilo/</code> gateway route; otherwise
@@ -2604,7 +2617,8 @@ shows the cause; the runner makes it in another scratch tree and the probe must 
 there, so a probe that passes whatever the files say retries nothing (#1769). The
 probe's receipt, with its counterexample's exit code, is recorded with the investigation.</p>
 <p>Bounds: one investigation per distinct stage and pause on one source revision (the same
-problem after the source changed is a new one), and per run three or one per milestone of the
+problem after the source changed is a new one; a rejected answer AutoCode retried up to its limit
+gets one more, above), and per run three or one per milestone of the
 approved plan, whichever is more (<code>settings.stuck_investigation.max_calls_per_run</code>; 0 turns it
 off). A stage that stops twice on unchanged source without a valid report, even when a review
 re-issues it in between, pauses as a repeated failure and reaches the Investigator. A Builder
@@ -3046,7 +3060,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   root, normally the package (<code>test_greet.TestGreet.test_x</code>), and a node:test file there that runs another test runner is still not named
   proof (#380). A feature that adds the first Go module in the package, on a
   base with no Go project, is not held to a base Go suite that cannot exist,
-  as at the root (<a href="https://github.com/charlieanna/autocode/blob/cde4dbd3421028d177d4c85a6b2db75b2aab85cd/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
+  as at the root (<a href="https://github.com/charlieanna/autocode/blob/0f2caad36ad075d844321326782df17b9e60d37d/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
 <li>Only the package's existing tests are retained as
   <a href="../protected-tests/">original test gates</a>, with the package suite as their
   command unless <code>--test-command</code> gives one, so a large repository does not bind
@@ -3124,7 +3138,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   also leaves a change outside the package <code>UNVERIFIED</code>, because the package
   suite never ran it.</p>
 <p>The <code>feature-monorepo-package</code> scenario
-(<a href="https://github.com/charlieanna/autocode/blob/cde4dbd3421028d177d4c85a6b2db75b2aab85cd/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
+(<a href="https://github.com/charlieanna/autocode/blob/0f2caad36ad075d844321326782df17b9e60d37d/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
 one package of a two-package repository with <code>--package</code> and the scripted
 model. Its reference completes; its broken variant, which also edits the other
 package, stops with each of those files named in the open <code>runner</code> finding.
@@ -3433,7 +3447,7 @@ it is generated from the front matter so reviewers can read the plan.</p>
 holds it. A plan read back from the file has the same goal hash as the run's. The scenario runner
 (<code>scenarios/run.py</code>) checks this at every plan approval its catalog runs reach: it exports the plan
 and reads the file back with <code>--check</code> before it approves the plan
-(<a href="https://github.com/charlieanna/autocode/blob/cde4dbd3421028d177d4c85a6b2db75b2aab85cd/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
+(<a href="https://github.com/charlieanna/autocode/blob/0f2caad36ad075d844321326782df17b9e60d37d/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
 committing it approves nothing. Text that looks like a credential is masked before the file is
 written, with the same policy as <code>autocode bundle</code>; the export then says that the file's goal hash
 differs from the run's.</p>
