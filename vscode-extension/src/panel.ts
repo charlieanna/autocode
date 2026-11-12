@@ -1139,6 +1139,15 @@ function logLine(group) {
   return line;
 }
 
+// What the strip beside the action says. While the person's answer is being saved the button reads
+// "Working…"; the strip said "AutoCode is waiting for you" beside it for as long as that took (75 s on
+// a loaded host in the #2066 run), so the click looked unanswered.
+function actionPrompt(state) {
+  if (state.confirming) return state.confirming + ' — answer the dialog that opened';
+  if (state.taking) return 'Sending your answer. AutoCode goes on as soon as it is saved.';
+  return 'AutoCode is waiting for you';
+}
+
 function renderChatProgress(container, state) {
   if (state.meter && state.meter.struggling) {
     const warn = el('div', 'struggling', '⚠ ' + state.meter.struggling);
@@ -1487,9 +1496,7 @@ function render(state) {
         approve.addEventListener('click', () => vscode.postMessage({ type: 'take',
           answers: { [review.question_id]: review.answer }, token: null,
           runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
-        strip.appendChild(el('span', 'action-prompt', state.confirming
-          ? state.confirming + ' — answer the dialog that opened'
-          : 'AutoCode is waiting for you'));
+        strip.appendChild(el('span', 'action-prompt', actionPrompt(state)));
         strip.appendChild(approve);
       } else if (state.needKind === 'continue' && state.working) {
         renderChatProgress(cardContent, state);
@@ -1499,7 +1506,7 @@ function render(state) {
         resume.disabled = Boolean(state.unreadable);
         resume.addEventListener('click', () => vscode.postMessage({ type: 'take', answers: {}, token: null,
           runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
-        strip.appendChild(el('span', 'action-prompt', 'AutoCode is waiting for you'));
+        strip.appendChild(el('span', 'action-prompt', actionPrompt(state)));
         strip.appendChild(resume);
       }
       if (cardContent.childNodes.length > 0) app.appendChild(card);
@@ -1633,9 +1640,7 @@ function render(state) {
         vscode.postMessage({ type: 'take', answers: { ...answers }, token: state.token || null,
           runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext });
       });
-      strip.appendChild(el('span', 'action-prompt', state.confirming
-        ? state.confirming + ' — answer the dialog that opened'
-        : 'AutoCode is waiting for you'));
+      strip.appendChild(el('span', 'action-prompt', actionPrompt(state)));
       strip.appendChild(take);
       const again = el('button', 'secondary', 'Refresh');
       again.addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
