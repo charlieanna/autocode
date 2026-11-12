@@ -940,14 +940,22 @@ test('walk: a paused chat survives a reload, and resuming runs the run\'s own co
   const { root, restore } = buildWorkspace();
   host.config.set('cliPath', CLI);
   host.config.set('cliArgs', [SCRIPT]);
-  let statusText = '';
-  const mockStatus = {
-    show() {}, hide() {}, dispose() {},
-    get text() { return statusText; }, set text(val) { statusText = val; },
-    tooltip: undefined, command: undefined,
-  };
-  t.mock.method(host.vscode.window, 'createStatusBarItem', () => mockStatus);
+  // One status item per window: a shared one lets the first window's text (or a late
+  // read landing after its dispose) satisfy the second window's assertions.
+  const statusItems = [];
+  t.mock.method(host.vscode.window, 'createStatusBarItem', () => {
+    const item = { show() {}, hide() {}, dispose() {}, text: '', tooltip: undefined, command: undefined };
+    statusItems.push(item);
+    return item;
+  });
   t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
+  const compares = [];
+  const realCompare = RunController.prototype.compareCheckpoint;
+  t.mock.method(RunController.prototype, 'compareCheckpoint', async function (run, checkpointId) {
+    const comparison = await realCompare.call(this, run, checkpointId);
+    compares.push(comparison);
+    return comparison;
+  });
   const wsState = host.workspaceState;
   let saved = {};
   const openWindow = () => {
@@ -981,7 +989,8 @@ test('walk: a paused chat survives a reload, and resuming runs the run\'s own co
   await first.chat.show({ workspace: root, runDir: restore }), await first.chat.refresh();
   const text = () => first.dom.window.document.querySelector('#app').textContent;
   await waitFor(() => text().includes('Fixture step'), 30000);
-  await waitFor(() => statusText.includes('AutoCode'), 30000);
+  await waitFor(() => statusItems[0].text.includes('AutoCode'), 30000);
+  assert.ok(statusItems[0].text.includes('AutoCode'), 'the status line follows the opened chat: ' + statusItems[0].text);
   const field = first.dom.window.document.querySelector('#message');
   field.value = 'A draft that must survive the reload';
   field.dispatchEvent(new first.dom.window.Event('input'));
@@ -1002,12 +1011,12 @@ test('walk: a paused chat survives a reload, and resuming runs the run\'s own co
   assert.ok(text2().includes('Fixture step'), "the paused chat's card comes back after the reload");
   assert.equal(second.dom.window.document.querySelector('#message').value, 'A draft that must survive the reload',
     'the unsent draft survives the reload');
-  await waitFor(() => statusText.includes('AutoCode'), 30000);
-  assert.ok(statusText.includes('AutoCode'), 'the status line comes back on the restored chat: ' + statusText);
+  await waitFor(() => statusItems[1].text.includes('AutoCode'), 30000);
+  assert.ok(statusItems[1].text.includes('AutoCode'), 'the status line comes back on the restored chat: ' + statusItems[1].text);
   assert.ok(!text2().includes('diff --checkpoint'),
-    'the cached comparison does not survive: a stale restore token is never reused');
+    'the cached comparison card does not survive the reload');
 
-  // Restore re-compares for itself before it asks, on a token of its own.
+  // Restore re-compares for itself before it asks.
   let asked;
   let releaseRestore;
   t.mock.method(host.vscode.window, 'showWarningMessage', (question) => {
@@ -1017,7 +1026,8 @@ test('walk: a paused chat survives a reload, and resuming runs the run\'s own co
   second.dom.window.document.querySelector('[data-checkpoint-action="restore"]').click();
   await waitFor(() => text2().includes('diff --checkpoint'), 30000);
   await waitFor(() => Boolean(releaseRestore), 30000);
-  assert.match(asked, /Restore "Fixture step"/, 'the restore asks after re-comparing, on a fresh token');
+  assert.match(asked, /Restore "Fixture step"/, 'the restore asks after re-comparing');
+  assert.equal(compares.length, 2, 'the restore after the reload re-compares instead of reusing the cached comparison');
   releaseRestore(undefined);   // declined: this walk is about the state, not a second restore
   await flush(); await flush();
 
