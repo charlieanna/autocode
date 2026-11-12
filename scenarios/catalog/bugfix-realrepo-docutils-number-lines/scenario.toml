@@ -18,6 +18,9 @@ commit = "54f4d615a7608d6b0bee7dec43a5be1543d4e456"
 
 [run]
 timeout_minutes = 120
+known_failure = """The regression proof stays UNVERIFIED: the suite AutoCode detects at the repository root collects \
+sandbox/'s Python 2 tests, which fail to collect on the original code and with the change, so preservation is unproven \
+(docs/bugs/2026-11-11-real-repo-docutils-findings.md, section 5)."""
 
 [fake]
 check = "cd docutils/test && python3 alltests.py"
