@@ -97,6 +97,7 @@ class ReviewRecheckTests(unittest.TestCase):
             ({"test_role_policy": 0}, {}),
             ({"test_role_policy": 1}, {}),
             ({"test_role_policy": 2}, {}),
+            ({"test_role_policy": 3}, {}),
             ({"test_role_policy": True}, {}),
             (
                 {"test_role_policy": role_policy.VERSION, "protected_test_binding": "old"},

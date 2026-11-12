@@ -29,6 +29,10 @@ the candidate, with these limits:
   run by another class. A failing test elsewhere that only shares the name does not;
 - a node:test file that spawns another test runner is refused here as everywhere.
 
+A guard whose test belongs to another project of the repository, which the proof's suite
+cannot run, is matched against that project's own suite, run on its file on the original code
+and with the change (see the monorepo packages section of `docs/workflow.md`).
+
 When the change edits no test file, the guards are matched against the base suite's own
 pass-to-pass, by the case id as well as by exact name, so a guard may name several tests; one
 of them failing beside a test it matched breaks the guard.
@@ -514,7 +518,11 @@ A test-like filename alone does not make a shipped Python module an oracle. The 
 uses the original Git tree, including its launch commit's dirty and untracked inputs,
 to read literal setuptools package and module lists and ordinary literal imports.
 Original product ownership keeps those bytes on the base side of a regression proof.
-Dedicated test roots and supported test declarations keep test authority; mixed or
+Dedicated test roots and supported test declarations keep test authority. A test root is
+a `tests/`-style directory at any depth, or a `test/` or `spec/` directory at the repository
+root or directly under a directory that is not a Python package (a project kept one directory
+down, such as Docutils' `docutils/test/` beside its `docutils/docutils/` package); a `test/`
+inside a package (`django/test/`) may be a shipped subpackage and is not a root. Mixed or
 unresolved changed roles remain unverified without executing proof commands. Dynamic
 build configuration is not interpreted, and candidate packaging cannot relabel the
 original product. Original top-level assertions with a literal `import unittest`

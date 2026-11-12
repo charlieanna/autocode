@@ -845,6 +845,17 @@ class FeatureProofTests(unittest.TestCase):
         self.assertEqual(proof["case_tests"], artifact["case_tests"])
         self.assertEqual(["C2"], artifact["case_scope"])
 
+    def test_an_unchanged_file_of_unknown_role_does_not_stop_the_proof(self):
+        # A real repository keeps old files whose role cannot be proven (#2944: seven in Docutils' sandbox/).
+        # Unchanged, they stay protected like tests; only a changed one of unknown role stops a run.
+        project = Project({**SEED, "mystery_tests.py": "VALUE = 1\n"})
+        self.addCleanup(project.close)
+        project.write(FEATURE)
+        run_dir = Path(tempfile.mkdtemp(prefix="feature-proof-"))
+        proof = regression.prove(feature_state(project, [ORDINARY, EXAMPLE]), project.root, run_dir)
+        self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual({"C2": ["test_calc.CalcTests.test_c2_subtracts"]}, proof["case_tests"])
+
     def test_an_example_without_its_test_fails_the_proof_and_is_named(self):
         missing = {
             **EXAMPLE,
@@ -1643,3 +1654,61 @@ class RegressionProofCitationTests(unittest.TestCase):
             self.assertEqual([support.file_hash(proof_path)], list(pins.values()))
             with self.assertRaisesRegex(ValueError, "cite a project file path"):
                 support.evidence_hashes(["regression_proof PASS revision"], workspace, run_dir)
+
+
+class OtherProjectGuardTests(unittest.TestCase):
+    """A guard whose test belongs to another project's suite (#2889)."""
+
+    GUARDED = {"id": "C4", "kind": "preserve", "text": "it adds", "test_name": "test_c4_adds"}
+    OTHER = {
+        "passing": ["frontend/calc.test.mjs::test_c4_adds"],
+        "failing": [],
+        "complete": True,
+        "framework": "node",
+        "where": "the repository root",
+        "command": "node --test frontend/calc.test.mjs",
+        "guards": ["test_c4_adds"],
+    }
+
+    def checked(self, cases, others):
+        proof = {"verdict": "PASS", "failures": [], "unverified": [], "fail_to_pass": [], "pass_to_pass": []}
+        regression.check_cases(proof, cases, others=others)
+        return proof
+
+    def test_a_guard_rests_on_its_test_in_another_projects_suite(self):
+        proof = self.checked([self.GUARDED], [self.OTHER])
+        self.assertEqual(("PASS", {"C4": self.OTHER["passing"]}), (proof["verdict"], proof["case_tests"]), proof)
+        self.assertEqual(
+            [
+                "Preserve case C4's test frontend/calc.test.mjs::test_c4_adds passed on the original code and with "
+                "the change in the suite of the repository root (`node --test frontend/calc.test.mjs`), which the "
+                "proof's suite cannot run"
+            ],
+            proof["notes"],
+        )
+        # Without it the guard is refuted, as before.
+        self.assertEqual("FAIL", self.checked([self.GUARDED], [])["verdict"])
+
+    def test_a_failing_variant_there_breaks_the_guard(self):
+        broken = {**self.OTHER, "failing": ["frontend/calc.test.mjs::test_c4_adds"]}
+        proof = self.checked([self.GUARDED], [broken])
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertIn(
+            "has a test named after it that fails: frontend/calc.test.mjs::test_c4_adds", proof["failures"][0]
+        )
+
+    def test_a_run_there_that_did_not_finish_leaves_only_its_guards_unproven(self):
+        unfinished = {**self.OTHER, "passing": [], "complete": False}
+        elsewhere = {"id": "C5", "kind": "preserve", "text": "it subtracts", "test_name": "test_c5_subtracts"}
+        proof = self.checked([self.GUARDED, elsewhere], [unfinished])
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertEqual(1, len(proof["failures"]), proof["failures"])
+        self.assertIn("test_c5_subtracts", proof["failures"][0])
+        self.assertEqual(
+            [
+                "Preserve case C4: it adds: the other project's suite that runs its test timed out or did not report "
+                "every test, so its test test_c4_adds is not shown to pass before and after the change"
+            ],
+            proof["unverified"],
+        )
+        self.assertEqual("UNVERIFIED", self.checked([self.GUARDED], [unfinished])["verdict"])

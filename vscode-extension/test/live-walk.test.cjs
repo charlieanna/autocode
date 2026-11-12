@@ -2,9 +2,10 @@
 // every read and action a real subprocess. Set AUTOCODE_WALK_CLI (the interpreter) and
 // AUTOCODE_WALK_SCRIPT (tools/autocode.py of a checkout) to run it; it is skipped otherwise.
 //
-// The three flows the walk covers are the ones only a live chat can prove together: a reply
-// that starts streaming after a finished-only thread, the running Builder's live diff, and a
-// confirmation dialog that parks while a person answers it elsewhere.
+// The flows the walk covers are the ones only a live chat can prove together: a reply
+// that starts streaming after a finished-only thread, the running Builder's live diff, a
+// confirmation dialog that parks while a person answers it elsewhere, and the registry's own
+// archive and delete over real runs.
 const assert = require('node:assert/strict');
 const { test, afterEach, mock } = require('node:test');
 const { execFileSync } = require('node:child_process');
@@ -21,6 +22,8 @@ const skip = !CLI || !SCRIPT ? 'set AUTOCODE_WALK_CLI and AUTOCODE_WALK_SCRIPT t
 const host = editor();
 const { RunController } = host.load('controller.js');
 const { ChatView } = host.load('chat.js');
+const { RunItem } = host.load('runsView.js');
+const { activate } = host.load('extension.js');
 
 // The sealed goal contract the Builder leg works under: contract_identity.sealed() of this body.
 const SEALED = 'a391f94a2611978d74b9dacc0df7a4c1f1a03f3a084aebbc19cbb2096c763066';
@@ -189,4 +192,56 @@ test('walk: a confirmation that parks names itself in the chat until it is answe
   release(undefined);
   await flush(); await flush();
   assert.ok(!hint().includes('answer the dialog that opened'), `the hint reverts once the dialog is answered: ${hint()}`);
+});
+
+test('walk: archiving and deleting a chat run the named registry commands and stop the status line', { skip }, async (t) => {
+  const { root, stream } = buildWorkspace();
+  const home = path.join(root, 'registry-home');
+  process.env.AUTOCODE_HOME = home;
+  t.after(() => { delete process.env.AUTOCODE_HOME; });
+  execFileSync(CLI, [SCRIPT, 'registry', 'import', root], { env: process.env, stdio: 'pipe' });
+  host.config.set('cliPath', CLI);
+  host.config.set('cliArgs', [SCRIPT]);
+  const controller = new RunController(host.log);
+  const first = await controller.list();
+  // A running chat has no cleanup to name (the core refuses it); the paused one does.
+  const pausedRow = first.runs.find((row) => row.runDir.endsWith('paused'));
+  assert.ok(pausedRow, 'the imported chat is in the real registry list');
+  assert.ok((pausedRow.actions || []).some((a) => a.id === 'archive'), 'the registry names its cleanup');
+  assert.equal((first.runs.find((row) => row.runDir.endsWith('builder')) || {}).actions?.length || 0, 0,
+    'a running chat offers no cleanup');
+
+  // Archive: the exact command the row named, and the list reflects it.
+  await controller.registryAction({ workspace: pausedRow.workspace, runDir: pausedRow.runDir },
+    pausedRow.actions.find((a) => a.id === 'archive'));
+  // The default list hides archived chats; the archived list marks them.
+  assert.equal((await controller.list()).runs.find((row) => row.runDir.endsWith('paused')), undefined,
+    'an archived chat is hidden from the default list');
+  const after = await controller.list(true);
+  const archived = after.runs.find((row) => row.runDir.endsWith('paused'));
+  assert.equal(archived && archived.archived, true, 'the archived list marks it');
+
+  // Delete through the extension's own cleanup: its confirmation, the real command, and the
+  // status line that must stop naming a chat that no longer exists.
+  let statusVisible = false;
+  const mockStatus = { show() { statusVisible = true; }, hide() { statusVisible = false; }, dispose() {},
+    text: '', tooltip: '', command: undefined };
+  t.mock.method(host.vscode.window, 'createStatusBarItem', () => mockStatus);
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+  const deleteRow = archived;
+  const item = new RunItem(deleteRow, deleteRow.workspace);
+  await host.commands.get('autocode.openRun')(item);
+  await waitFor(() => statusVisible);
+  assert.equal(statusVisible, true, 'the status line follows the opened chat');
+  t.mock.method(host.vscode.window, 'showWarningMessage', async (question, _options, button) => {
+    assert.match(question, /Delete the chat/, 'the delete asks first');
+    return button;
+  });
+  await host.commands.get('autocode.deleteRun')(item);
+  await waitFor(() => !statusVisible);
+  assert.equal(statusVisible, false, 'the status line stops following a chat that no longer exists');
+  const gone = (await controller.list()).runs.find((row) => row.runDir.endsWith('paused'));
+  assert.equal(gone, undefined, 'the deleted chat is gone from the real registry');
 });
