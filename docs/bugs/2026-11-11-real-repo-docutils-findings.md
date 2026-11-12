@@ -103,6 +103,20 @@ With all of this, the scripted run completes: `TASK_COMPLETE`, oracle 14/14
 (`scenarios/run.py run bugfix-realrepo-docutils-number-lines --fake`, Linux cloud container, no pytest
 on the host, 2026-11-12), and the scenario has no known failure.
 
+## First live run
+
+`scenarios/run.py run bugfix-realrepo-docutils-number-lines --profile claude-tiers
+--i-authorize-live-model-spend --timeout-minutes 120` (2026-11-12, Linux cloud container, no pytest on the
+host, AutoCode `17a3d0c` plus this change): **PASS**, `TASK_COMPLETE`, oracle 14/14. Requirements and the
+Planner ran on Sonnet 5.5, the Plan Reviewer, Completion Reviewer, Resolver and Investigator on Opus 5.5, the
+Builder on Haiku 4.5, the Tester on Sonnet 5.5, all at medium. 506 s wall time, $2.75 reported
+(2.52 M input tokens, 1.95 M of them cached, 38.7 k output), one plan approval and no other person
+action. The proof ran `docutils/`'s own suite (`cd docutils && python3 -m unittest discover -v`). The first
+Completion Reviewer sent the run back once: the Builder's guard test did not cover an included `:code:`
+with a start of 7, which the agreed criteria named; the Resolver and Investigator settled it as a test-only
+repair and the second round passed. The Builder fixed both `or 1` sites and wrote its own regression test
+(`test_number_lines_start.py`); every changed line was mutation-killed.
+
 One smaller finding remains: one `sandbox/` module with module-level `def test_*` functions makes
 AutoCode choose pytest for a suite detected at the repository root, even when pytest cannot be imported.
 Now that `docutils/` has its own suite this no longer reaches the case.
