@@ -29,10 +29,12 @@ from pathlib import Path
 try:
     from . import autocode_cost as cost
     from . import autocode_interaction_timing as interaction_timing
+    from . import autocode_planning_calls as planning_calls
     from . import autocode_roles as roles
 except ImportError:
     import autocode_cost as cost
     import autocode_interaction_timing as interaction_timing
+    import autocode_planning_calls as planning_calls
     import autocode_roles as roles
 
 try:
@@ -175,6 +177,13 @@ REASSERTABLE_BOUNDS = (
         "no_progress_limit",
         "no_progress_batches",
         "Operator explicitly resumed with a no-progress limit above the retained count",
+    ),
+    (
+        planning_calls.STATUS,
+        planning_calls.KEY,
+        planning_calls.DEST,
+        planning_calls.used,
+        "Operator explicitly resumed with a planning-call cap above the calls so far",
     ),
 )
 
@@ -598,8 +607,8 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
     if args.run_dir and args.autoresolver_managed_limits:
         origins = settings.setdefault("budget_origins", {})
         for kind in runner.BUDGET_ARGUMENTS:
-            # A money cap is the person's alone: AutoResolver never manages or raises it (#721).
-            if origins.get(kind) == "user_explicit" and kind != "max_cost_usd":
+            # A spending cap is the person's alone: AutoResolver never manages or raises it (#721).
+            if origins.get(kind) == "user_explicit" and kind not in runner.PERSON_CAPS:
                 origins[kind] = "resolver_delegated"
     # A new checkpoint must exist before it is registered, so a failed registry
     # update leaves the same run directory available for an explicit retry.

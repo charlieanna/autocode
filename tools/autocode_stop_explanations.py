@@ -135,6 +135,12 @@ TABLE: dict[str, tuple[str, str]] = {
         "One stage exceeded its time limit.",
         "--resume-paused retries the stage; --max-stage-seconds raises the cap.",
     ),
+    "PAUSED_PLANNING_CALL_LIMIT": (
+        "Planning (Requirements, the Planner and the Plan Reviewer) made as many model calls since your last answer "
+        "or feedback as the cap allows; no planning call launches past it.",
+        "--resume-paused --max-planning-calls N with a higher cap (or 0 for none) continues; your answer or plan "
+        "feedback starts the count again. AutoCode never raises it.",
+    ),
     "PAUSED_ITERATION_LIMIT": (
         "The run used its iteration allowance.",
         "--resume-paused --max-iterations N continues.",

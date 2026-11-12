@@ -247,6 +247,7 @@ SCHEMA_DIR = Path(__file__).resolve().parent / "autocode-schemas"
 DEFAULT_ROLE_MODELS = autocode_configure.DEFAULT_ROLE_MODELS
 DEFAULT_ENGINE = autocode_configure.DEFAULT_ENGINE
 BUDGET_ARGUMENTS = autocode_configure.BUDGET_ARGUMENTS
+PERSON_CAPS = autocode_configure.PERSON_CAPS
 check_subscription = autocode_configure.check_subscription
 iteration_limit_reached = build_loop.iteration_limit_reached
 

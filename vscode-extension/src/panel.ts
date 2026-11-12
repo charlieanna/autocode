@@ -42,6 +42,7 @@ const BOUND_WORDING: Record<string, [(total: string) => string, string]> = {
   max_milestone_seconds: [(total) => `Set the milestone's active time to ${total} seconds and continue?`, "the milestone's active time"],
   max_milestone_replans: [(total) => `Allow ${total} milestone replans and continue?`, "the milestone replan limit"],
   no_progress_limit: [(total) => `Allow ${total} unchanged implementation batches and continue?`, "the unchanged-batch limit"],
+  max_planning_calls: [(total) => `Allow ${total} planning model calls and continue?`, "the planning-call cap"],
 };
 
 export interface PanelState {
@@ -2069,6 +2070,8 @@ function numericHelp(input) {
   if (input.id === 'max_milestone_replans') return 'Replans allowed: ' + input.current + '. Replans used: '
     + input.used + '. Enter at least ' + input.minimum + '.';
   if (input.id === 'no_progress_limit') return 'Unchanged batches allowed: ' + input.current + '. Counted: '
+    + input.used + '. Enter at least ' + input.minimum + '.';
+  if (input.id === 'max_planning_calls') return 'Planning-call cap: ' + input.current + '. Calls since your last answer: '
     + input.used + '. Enter at least ' + input.minimum + '.';
   return 'Saved total: ' + input.current + ' seconds. Active time used: ' + input.elapsed
     + ' seconds. Enter a total of at least ' + input.minimum + ' seconds.';

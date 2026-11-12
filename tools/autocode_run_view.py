@@ -66,6 +66,7 @@ try:
     from . import autocode_plan_file as plan_file
     from . import autocode_plan_file_origin as plan_file_origin
     from . import autocode_plan_retention as plan_retention
+    from . import autocode_planning_calls as planning_calls
     from . import autocode_planning_review_usage as review_usage
     from . import autocode_progressive_plan as progressive_rules
     from . import autocode_project_notes_lifecycle as project_notes
@@ -130,6 +131,7 @@ except ImportError:
     import autocode_plan_file as plan_file
     import autocode_plan_file_origin as plan_file_origin
     import autocode_plan_retention as plan_retention
+    import autocode_planning_calls as planning_calls
     import autocode_planning_review_usage as review_usage
     import autocode_progressive_plan as progressive_rules
     import autocode_project_notes_lifecycle as project_notes
@@ -353,6 +355,9 @@ def view(
         # Spend against the person's money cap at the dated price table (autocode_cost, #721), and what
         # the running stage has spent so far (`running_usd`), from the live accounting above.
         "cost": cost.view(state, accounting=usage_summary["accounting"]),
+        # Planning's model calls since the person's last answer or feedback, against the cap on them
+        # (autocode_planning_calls, owner decision 2026-11-12): `cap` is null when the run has none.
+        "planning_calls": planning_calls.view(state),
         # How the struggles behind the run's escalations and Builder retries ended, as the runner
         # stamped them (autocode_route_ladder): `passed` once the run completed on work a validation
         # passed or moved on from it, `paused` at a retry-limit pause, `open` while unresolved.
@@ -1508,6 +1513,9 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             # review cannot release this bound either, so this command comes first (#486).
             need["action"] = "--resume-paused --no-progress-limit N"
             need["no_progress_batches"] = state.get("no_progress_batches", 0)
+        if status == planning_calls.STATUS and "action" not in need:
+            # A plain resume holds here: only a cap above the calls counted, or 0, continues, as at the cost cap.
+            need["action"] = f"--resume-paused {planning_calls.FLAG} N"
         # A recovery novelty hold before its request is published (RESOLVER_PENDING) re-holds on a
         # plain resume; its one admissible continuation is the explicit scoped retry (#1770).
         retry = recovery_limits.scoped_retry(state)

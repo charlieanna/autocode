@@ -2,7 +2,7 @@
 
 Each finite number a pause leaves to a person is described here (#2044): the
 planning-review allowance, the recovery grant, and every exhaustible bound a
-budget pause names in BOUNDS (active time, cost cap, iterations, milestone time,
+budget pause names in BOUNDS (active time, cost cap, iterations, planning calls, milestone time,
 milestone replans, unchanged batches). A bound is described wherever it holds
 the run: at its own pause, after AutoResolver published its operational
 request, and while held information names the raise. Where `next_command` is
@@ -23,6 +23,7 @@ try:
     from . import autocode_cost as cost
     from . import autocode_milestone_scope as milestone_scope
     from . import autocode_pause_authority as pause_authority
+    from . import autocode_planning_calls as planning_calls
     from . import autocode_planning_review_usage as review_usage
     from . import autocode_recovery_accounting as accounting
     from . import autocode_recovery_limits as recovery_limits
@@ -30,6 +31,7 @@ except ImportError:
     import autocode_cost as cost
     import autocode_milestone_scope as milestone_scope
     import autocode_pause_authority as pause_authority
+    import autocode_planning_calls as planning_calls
     import autocode_planning_review_usage as review_usage
     import autocode_recovery_accounting as accounting
     import autocode_recovery_limits as recovery_limits
@@ -80,6 +82,10 @@ def _iterations(state: RunState):
     return _limits(state).get("iteration_ceiling"), state.get("iteration")
 
 
+def _planning_calls(state: RunState):
+    return planning_calls.cap(state), planning_calls.used(state)
+
+
 def _milestone_seconds(state: RunState):
     return _checkpoints(state).get("max_seconds"), _milestone_row(state).get("seconds", 0)
 
@@ -107,6 +113,13 @@ BOUNDS = {
     "PAUSED_TIME_LIMIT": _TIME,
     "PAUSED_COST_LIMIT": ("max_cost_usd", "--max-cost-usd", "Cost cap (whole USD)", "used", _cost),
     "PAUSED_ITERATION_LIMIT": ("max_iterations", "--max-iterations", "Total iterations", "used", _iterations),
+    planning_calls.STATUS: (
+        "max_planning_calls",
+        planning_calls.FLAG,
+        "Planning model calls since your last answer or feedback",
+        "used",
+        _planning_calls,
+    ),
     "PAUSED_MILESTONE_TIME_LIMIT": _MILESTONE_SECONDS,
     "PAUSED_MILESTONE_BUDGET": _MILESTONE_SECONDS,
     "PAUSED_MILESTONE_STALLED": (

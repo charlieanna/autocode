@@ -77,6 +77,7 @@ try:
     from . import autocode_failures as failures
     from . import autocode_model_identity as model_identity
     from . import autocode_planning_advice as recovery_binding
+    from . import autocode_planning_calls as planning_calls
     from . import autocode_progressive_state as progressive
     from . import autocode_project_notes_lifecycle as project_notes
     from . import autocode_recovery_accounting as recovery_accounting
@@ -93,6 +94,7 @@ except ImportError:
     import autocode_failures as failures
     import autocode_model_identity as model_identity
     import autocode_planning_advice as recovery_binding
+    import autocode_planning_calls as planning_calls
     import autocode_progressive_state as progressive
     import autocode_project_notes_lifecycle as project_notes
     import autocode_recovery_accounting as recovery_accounting
@@ -133,7 +135,13 @@ PUBLISHED = frozenset({"PAUSED_TIMEOUT_RECOVERY"})
 # Investigator (#1949): the classification stays queued under that pause, whose own control (a raise,
 # --accept-transport-change) lets it run, and no classification is spent.
 BOUNDARY_LIMITS = frozenset(
-    {"PAUSED_TIME_LIMIT", "PAUSED_COST_LIMIT", "PAUSED_ITERATION_LIMIT", "PAUSED_TRANSPORT_CHANGED"}
+    {
+        "PAUSED_TIME_LIMIT",
+        "PAUSED_COST_LIMIT",
+        "PAUSED_ITERATION_LIMIT",
+        planning_calls.STATUS,
+        "PAUSED_TRANSPORT_CHANGED",
+    }
 )
 PLANNING = roles.ALL_PLANNING_STAGES
 # Diagnosticians are never themselves investigated.
@@ -967,6 +975,7 @@ def retire(state: RunState, status: str | None = None) -> None:
             "PAUSED_TIME_LIMIT",
             "PAUSED_COST_LIMIT",
             "PAUSED_ITERATION_LIMIT",
+            planning_calls.STATUS,
         }
         and current.get("in_force")
         and recovery_binding.applies(state, current, current.get("stage", ""))

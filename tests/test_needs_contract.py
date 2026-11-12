@@ -147,6 +147,7 @@ _PERSON_INT = frozenset(
     {
         "--planning-review-call-limit",
         "--no-progress-limit",
+        "--max-planning-calls",
         "--max-seconds",
         "--max-idle-seconds",
         "--max-cost-usd",

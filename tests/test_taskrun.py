@@ -158,6 +158,7 @@ class RunViewTests(unittest.TestCase):
                 "dependency",
                 "usage",
                 "cost",
+                "planning_calls",
                 "request_context",
                 "output_transport",
                 "direct_rework_assignments",

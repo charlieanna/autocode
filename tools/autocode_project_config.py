@@ -84,6 +84,7 @@ BUDGETS = (
     "max-idle-seconds",
     "max-tool-seconds",
     "no-progress-limit",
+    "max-planning-calls",
     "max-milestone-seconds",
     "max-milestone-replans",
     "max-milestone-stalled-reviews",
