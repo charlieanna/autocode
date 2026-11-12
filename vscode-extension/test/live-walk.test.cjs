@@ -667,3 +667,76 @@ test('walk: closing a chat mid-run leaves the run working and the chat comes bac
   }, 30000);
   assert.ok(dom.window.document.querySelector('#working-diff'), "the run's named diff is still offered");
 });
+
+test('walk: pausing a working chat stops the run and shows its pause card', { skip }, async (t) => {
+  const { root, builder } = buildWorkspace();
+  claimSupervision(builder);
+  const statePath = path.join(builder, 'state.json');
+  const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  state.intervention_capability = { supported: true };
+  fs.writeFileSync(statePath, JSON.stringify(state));
+  host.config.set('cliPath', CLI);
+  host.config.set('cliArgs', [SCRIPT]);
+  let statusText = '';
+  const mockStatus = {
+    show() {}, hide() {}, dispose() {},
+    get text() { return statusText; }, set text(val) { statusText = val; },
+    tooltip: undefined, command: undefined,
+  };
+  t.mock.method(host.vscode.window, 'createStatusBarItem', () => mockStatus);
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+  const chat = host.providers.get('autocode.chat');
+  let receive;
+  const webview = {
+    html: '', options: {},
+    onDidReceiveMessage: (callback) => { receive = callback; },
+    postMessage: async (data) => { webview.deliver?.(data); return true; },
+  };
+  const shell = { visible: true, webview, onDidChangeVisibility: () => {}, onDidDispose() {} };
+  t.after(() => { chat.dispose(); });
+  chat.resolveWebviewView(shell);
+  const dom = new JSDOM(webview.html, { runScripts: 'outside-only' });
+  t.after(() => dom.window.close());
+  let saved = {};
+  dom.window.acquireVsCodeApi = () => ({
+    postMessage: (message) => receive(message),
+    getState: () => saved,
+    setState: (value) => { saved = value; },
+  });
+  webview.deliver = (data) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
+  dom.window.eval(dom.window.document.querySelector('script').textContent);
+  await flush();
+
+  await host.commands.get('autocode.openRun')({ workspace: root, runDir: builder });
+  const text = () => dom.window.document.querySelector('#app').textContent;
+  const pause = dom.window.document.querySelector('#pause-run');
+  await waitFor(() => !pause.hidden && pause.textContent === 'Pause', 30000);
+  assert.ok(!pause.hidden, 'the working chat offers its Pause');
+
+  // The person pauses: the real intervention lands in the run's inbox.
+  pause.click();
+  await waitFor(() => dom.window.document.querySelector('#pause-run').textContent === 'Pausing after this step…', 30000);
+  assert.ok(true, 'the chat says the pause waits for the step to be saved');
+
+  // The step ends at the boundary — the write a controller makes when a step finishes.
+  const state2 = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  delete state2.active_stage;
+  state2.status = 'PAUSED_REQUESTED';
+  fs.writeFileSync(statePath, JSON.stringify(state2));
+  await waitFor(() => text().includes('Paused as you asked'), 30000);
+  assert.ok(text().includes('Paused as you asked'), 'the run stops and shows its pause card: ' + text().slice(0, 200));
+  const resume = dom.window.document.querySelector('#take-action');
+  assert.ok(resume && !resume.disabled, 'the pause card offers its Resume');
+
+  // A clean requested pause resumes without a second dialog, and runs the run's own command.
+  let dialog = 0;
+  t.mock.method(host.vscode.window, 'showWarningMessage', () => { dialog++; return Promise.resolve('Continue'); });
+  resume.click();
+  const error = () => dom.window.document.querySelector('#chat-error').textContent;
+  await waitFor(() => error().includes('provider config'), 30000);
+  assert.equal(dialog, 0, 'the Resume needs no confirmation dialog of its own');
+  assert.ok(error().includes('provider config'), 'the resume runs the named command: ' + error());
+});
