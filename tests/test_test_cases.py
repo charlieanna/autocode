@@ -845,6 +845,17 @@ class FeatureProofTests(unittest.TestCase):
         self.assertEqual(proof["case_tests"], artifact["case_tests"])
         self.assertEqual(["C2"], artifact["case_scope"])
 
+    def test_an_unchanged_file_of_unknown_role_does_not_stop_the_proof(self):
+        # A real repository keeps old files whose role cannot be proven (#2944: seven in Docutils' sandbox/).
+        # Unchanged, they stay protected like tests; only a changed one of unknown role stops a run.
+        project = Project({**SEED, "mystery_tests.py": "VALUE = 1\n"})
+        self.addCleanup(project.close)
+        project.write(FEATURE)
+        run_dir = Path(tempfile.mkdtemp(prefix="feature-proof-"))
+        proof = regression.prove(feature_state(project, [ORDINARY, EXAMPLE]), project.root, run_dir)
+        self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual({"C2": ["test_calc.CalcTests.test_c2_subtracts"]}, proof["case_tests"])
+
     def test_an_example_without_its_test_fails_the_proof_and_is_named(self):
         missing = {
             **EXAMPLE,
