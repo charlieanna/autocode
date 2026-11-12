@@ -1900,7 +1900,7 @@
 
 
 <h1 id="work-that-spans-several-repositories">Work that spans several repositories<a class="headerlink" href="#work-that-spans-several-repositories" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/a9f5ec247bee8630bd3545ee61a679989782496e/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/e85ccf5bc993208e48ae6454456f1cff6096a5c7/README.md">← Back to README</a></p>
 <p>One AutoCode run changes one repository. Its workspace is one Git tree. The
 checkpoints, diffs, protected tests and the Builder's declared changes are all
 bounded to that tree, and a Builder write outside it is treated as a fault.</p>
@@ -1944,9 +1944,15 @@ identifying the delivery base, a GitHub <code>origin</code>, Git push authentica
 <code>gh auth login</code>, <code>GITHUB_TOKEN</code> or <code>GH_TOKEN</code> for PR creation. <code>/repos</code> shows
 authentication readiness. Before creating a worktree, AutoCode checks repository
 write access and that the local baseline matches the remote delivery branch.
-Missing checkouts must be made available before their work starts. Discovery is
-bounded to configured roots and standalone registrations; it does not clone
-remotes or search the whole disk.</p>
+Missing checkouts can be brought onto disk before their work starts. The operator
+lists the GitHub repository in the shared catalog's allowlist (<code>autocode registry
+remotes add OWNER/NAME --ref BRANCH</code>) and confirms it once with <code>autocode registry
+remotes clone OWNER/NAME</code>: AutoCode clones <code>https://github.com/OWNER/NAME.git</code>
+(credentials from Git's own credential helper or gh) into the catalog's managed
+<code>clones/OWNER/NAME</code>, checks out the allowlisted ref, records the resolved commit
+as the pinned base and registers the clone like any registered checkout. Discovery
+is bounded to configured roots and standalone registrations; nothing clones on its
+own during a run, and discovery does not search the whole disk.</p>
 <p>The Investigator traces the symptom through code. Grounded repository names
 resolve against registered directory, GitHub or package names. A unique match is
 selected automatically; ambiguity or missing access stops for your input.
@@ -2202,14 +2208,17 @@ discover an arbitrary service dependency.</p>
 <p>These are focused regressions, not one live, end-to-end multi-service production
 trial. Bounded live Kilo MiMo/GLM TUI attempts on 2026-10-27 discovered all three
 fixture repositories but stopped on planning/report validation before builds,
-joint testing or real PR publication. See the <a href="https://github.com/charlieanna/autocode/blob/a9f5ec247bee8630bd3545ee61a679989782496e/docs/bugs/2181-live-tui-coordination.md#final-bounded-result-2026-10-27">retained qualification evidence</a>
+joint testing or real PR publication. See the <a href="https://github.com/charlieanna/autocode/blob/e85ccf5bc993208e48ae6454456f1cff6096a5c7/docs/bugs/2181-live-tui-coordination.md#final-bounded-result-2026-10-27">retained qualification evidence</a>
 and <a href="https://github.com/charlieanna/autocode/issues/2208">remaining convergence issue #2208</a>.
 Live end-to-end delivery is not yet verified. The current implementation also has these limits:</p>
 <ul>
 <li>Discovery inventories repositories beneath configured roots and standalone
   registrations. The model still has to ground each repository's role in the
-  ticket and source files; AutoCode does not search the whole disk or clone
-  missing repositories.</li>
+  ticket and source files; AutoCode does not search the whole disk. A repository
+  that is not cloned locally reaches disk only through the operator's allowlist
+  and one person-confirmed clone (<code>autocode registry remotes add OWNER/NAME --ref
+  BRANCH</code>, then <code>autocode registry remotes clone OWNER/NAME</code>); nothing clones
+  missing repositories on its own.</li>
 <li>Automatic coordination currently supports owned terminal chats on Linux and
   local Git repositories containing ordinary files. Symlinks, submodules and
   <code>durable_local</code> coordination are refused explicitly; saved execution policies
