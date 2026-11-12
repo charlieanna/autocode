@@ -12,6 +12,7 @@ import * as vscode from "vscode";
 import { realpath } from "node:fs/promises";
 import { invoke, readStatus, stream, tail, STATUS_TIMEOUT_MS, type CliResult } from "./core/cli";
 import { LEGACY_PLACEMENT, placementArgs } from "./core/worktrees";
+import { freshRunDir } from "./core/run-dir";
 import {
   applyDecisions,
   boundOffer,
@@ -539,14 +540,6 @@ export interface CheckpointRestoreResult {
  */
 function effective(view: StatusView, run: RunRef): { workspace: string; runDir: string } {
   return { workspace: view.workspace ?? run.workspace, runDir: view.run_dir ?? run.runDir };
-}
-
-/** AutoCode's own run-directory shape, under the workspace's runs directory. */
-function freshRunDir(workspace: string): string {
-  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-").replace(/-/g, "").slice(0, 8);
-  const time = new Date().toTimeString().slice(0, 8).replace(/:/g, "");
-  const random = Math.random().toString(16).slice(2, 8);
-  return `${workspace}/.autocode/runs/${stamp}-${time}-vscode-${random}`;
 }
 
 function summarize(brief: string): string {
