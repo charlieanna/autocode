@@ -4385,7 +4385,10 @@ test('a live message runs only the exact named grammar, and a refusal keeps the 
   const changed = liveMessageView();
   changed.chat.input.next_command = changed.chat.input.next_command.replace('--kind message', '--kind feedback');
   const ui = await openChat(t, changed);
-  const submit = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: '{"accepted": true}' }));
+  // One mock only, its answer switched by this flag: stacked t.mock.method layers on the same
+  // function restore in creation order, leaving the second-to-last mock live in the next test.
+  let accepted = true;
+  const submit = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({ accepted }) }));
   ui.type('Also strip whitespace');
   ui.submit();
   await flush(); await flush();
@@ -4393,7 +4396,7 @@ test('a live message runs only the exact named grammar, and a refusal keeps the 
   assert.match(ui.document.querySelector('#chat-error').textContent, /Unsupported live message action/);
   assert.equal(ui.document.querySelector('#message').value, 'Also strip whitespace');
   await ui.poll(liveMessageView());
-  t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: '{"accepted": false}' }));
+  accepted = false;
   ui.submit();
   await flush(); await flush();
   assert.match(ui.document.querySelector('#chat-error').textContent, /did not save the message/);
