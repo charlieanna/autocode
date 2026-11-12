@@ -4314,6 +4314,65 @@ test('Pause stays beside Send when the working run also takes a message (#1598)'
   assert.equal(ui.document.querySelector('#send-message').hidden, false);
 });
 
+// #3259: while a stage ran, Send stayed disabled for the whole stage (this chat held the run busy), and
+// the view's own `message` offer was refused even once it was not. A message is saved for the next
+// boundary at once, beside the running stage, and starts nothing itself.
+function liveMessageView(extra = {}) {
+  return { ...pauseView(), chat: { context: 'live-1', phase: 'requirements',
+    messages: [{ id: 'u1', role: 'user', text: 'Add farewell' }],
+    input: { kind: 'message', label: 'Send message',
+      next_command: `autocode intervention submit --workspace ${run.workspace} --run-dir ${run.runDir} --request-id REQUEST_ID --kind message --text MESSAGE --json` } },
+  ...extra };
+}
+
+test('a message typed while this chat\'s own stage runs is saved for the next boundary (#3259)', async (t) => {
+  host.config.set('confirmPersonOnly', false);
+  const idle = { status: 'RUNNING', done: false, liveness: { kind: 'unknown' }, needs: { kind: 'continue' },
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}` };
+  const ui = await openChat(t, idle);
+  const stage = t.mock.method(cli, 'stream', () => new Promise(() => {}));
+  ui.document.querySelector('#take-action').click();
+  await flush();
+  await ui.poll(liveMessageView());
+  const send = () => ui.document.querySelector('#send-message');
+  ui.type('Also strip whitespace');
+  assert.equal(send().hidden, false);
+  assert.equal(send().disabled, false, 'the stage this chat drives does not hold the message');
+  assert.equal(send().getAttribute('aria-label'), 'Send message', 'a saved message continues nothing itself');
+  assert.match(ui.document.querySelector('#send-hint').textContent, /read after the current step/);
+  const submit = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: '{"accepted": true, "operation": "submit"}' }));
+  ui.submit(); ui.submit();
+  await flush(); await flush(); await flush();
+  const sends = submit.mock.calls.map((call) => call.arguments[1]).filter((argv) => argv[0] === 'intervention');
+  assert.equal(sends.length, 1, 'a second Enter while saving is ignored');
+  const argv = sends[0];
+  assert.deepEqual(argv.slice(0, 6), ['intervention', 'submit', '--workspace', run.workspace, '--run-dir', run.runDir]);
+  assert.match(argv[7], /^message-[0-9a-f]{16}$/, 'each message gets its own request id');
+  assert.deepEqual([argv[6], ...argv.slice(8)], ['--request-id', '--kind', 'message', '--text', 'Also strip whitespace', '--json']);
+  assert.equal(ui.document.querySelector('#message').value, '', 'the saved message leaves the composer');
+  assert.equal(stage.mock.callCount(), 1, 'no second stage was started for the message');
+  assert.equal(ui.document.querySelector('#chat-error').textContent, '');
+});
+
+test('a live message runs only the exact named grammar, and a refusal keeps the draft (#3259)', async (t) => {
+  const changed = liveMessageView();
+  changed.chat.input.next_command = changed.chat.input.next_command.replace('--kind message', '--kind feedback');
+  const ui = await openChat(t, changed);
+  const submit = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: '{"accepted": true}' }));
+  ui.type('Also strip whitespace');
+  ui.submit();
+  await flush(); await flush();
+  assert.equal(submit.mock.calls.filter((call) => call.arguments[1][0] === 'intervention').length, 0);
+  assert.match(ui.document.querySelector('#chat-error').textContent, /Unsupported live message action/);
+  assert.equal(ui.document.querySelector('#message').value, 'Also strip whitespace');
+  await ui.poll(liveMessageView());
+  t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: '{"accepted": false}' }));
+  ui.submit();
+  await flush(); await flush();
+  assert.match(ui.document.querySelector('#chat-error').textContent, /did not save the message/);
+  assert.equal(ui.document.querySelector('#message').value, 'Also strip whitespace', 'an unsaved message stays to send again');
+});
+
 test('Pause refuses a command the view did not name in the exact pause grammar (#1598)', async (t) => {
   const changed = pauseView();
   changed.pause.next_command = changed.pause.next_command.map((word) => (word === 'pause' ? 'stop' : word));

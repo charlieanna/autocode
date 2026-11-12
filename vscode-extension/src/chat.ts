@@ -127,6 +127,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   private readonly busy = new Set<string>();
   /** Tabs whose pause request is being submitted; a working run keeps `busy` the whole time (#1598). */
   private readonly pausing = new Set<string>();
+  /** Tabs whose message for the next boundary is being saved; it never waits on `busy` (#3259). */
+  private readonly messaging = new Set<string>();
   /** Wait identities already announced, keyed by run key: a new tab for the same run does not re-announce. */
   private readonly notified = new Map<string, Set<string>>();
   private sequence = 0;
@@ -339,7 +341,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     const tab = this.active;
     const busy = tab.starting || this.busy.has(tab.key);
     void this.view?.webview.postMessage({
-      type: "chat", runKey: tab.key, busy, pausing: this.pausing.has(tab.key),
+      type: "chat", runKey: tab.key, busy, pausing: this.pausing.has(tab.key), messaging: this.messaging.has(tab.key),
       error: tab.error || tab.readError, pendingBrief: tab.pendingBrief,
       startingLabel: tab.status ? "" : tab.startingLabel,
       // A dialog or picker that holds a chat's start, named in the chat until it is answered.
@@ -674,6 +676,13 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     if (message.type !== "send" && message.type !== "take" && message.type !== "raise") return;
     const tab = this.active;
     if (message.type === "send" && typeof message.text === "string" && message.text.trim()
+      && message.runKey === tab.key && tab.run && !tab.starting && tab.status?.chat?.input?.kind === "message") {
+      // The run works and the view takes a message for its next boundary (#3259): saved at once,
+      // never held behind the stage this window is driving.
+      await this.queueMessage(tab, message.text, message.context ?? "");
+      return;
+    }
+    if (message.type === "send" && typeof message.text === "string" && message.text.trim()
       && (message.runKey !== tab.key || tab.starting || this.busy.has(tab.key))) {
       // A dropped send must never look like it was taken: the person's text stays in the
       // composer, and the chat says why nothing happened.
@@ -814,6 +823,49 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       this.busy.delete(key);
       this.actions.changed();
       void this.refresh();
+    }
+  }
+
+  /**
+   * Save a message typed while the run works, through the view's named `message` action (#3259). The
+   * stage this window may be driving goes on; the run reads the message at its next boundary. A run no
+   * one is driving, ready at a boundary, is continued so that boundary reads it.
+   */
+  private async queueMessage(tab: ChatTab, text: string, context: string): Promise<void> {
+    const run = tab.run;
+    const key = tab.key;
+    if (!run || this.messaging.has(key)) return;
+    this.messaging.add(key);
+    tab.error = "";
+    this.post();
+    try {
+      // The view the person typed against, not a fresh read: a status read can take seconds on a busy
+      // host, and the core checks the message's admission itself when it saves it.
+      const view = tab.status;
+      if (!view) throw new Error("The run's status is not read yet; send this again in a moment.");
+      await this.controller.queueMessage(view, run, text, context, `message-${randomBytes(8).toString("hex")}`);
+      void this.view?.webview.postMessage({ type: "sent", runKey: key, text });
+    } catch (error) {
+      if (this.activeKey === key) tab.error = messageOf(error);
+      else void vscode.window.showErrorMessage(`AutoCode (${run.runDir}): ${messageOf(error)}`);
+      this.messaging.delete(key);
+      this.post();
+      return;
+    }
+    this.messaging.delete(key);
+    this.post();
+    if (this.busy.has(key) || tab.starting) { await this.refresh(); return; }
+    this.busy.add(key);
+    this.post();
+    try {
+      await this.advanceAfterInput(run);
+    } catch (error) {
+      if (this.activeKey === key) tab.error = messageOf(error);
+      else void vscode.window.showErrorMessage(`AutoCode (${run.runDir}): ${messageOf(error)}`);
+    } finally {
+      this.busy.delete(key);
+      this.actions.changed();
+      await this.refresh();
     }
   }
 

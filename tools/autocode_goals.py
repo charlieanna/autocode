@@ -744,6 +744,13 @@ def feedback(state: RunState, text, *, interpret=True, semantic_hold=False, requ
     if contract:
         contract.update(approval_status="draft", approval_event=None)
         invalidate(state, "Brief feedback requires a refreshed draft and explicit approval")
+    elif cast(dict, state.get(RESOLVER_PROPOSAL_KEY) or {}).get("scope") == "clarification":
+        # Before any contract, Requirements' understanding can still be an unpublished clarification
+        # proposal: a message typed while Requirements ran is taken at that boundary (#3259). This
+        # correction restarts discovery, so that question about the old brief is superseded. Kept, the
+        # write path rejected it and held the run at RESOLVER_PENDING, showing the old understanding
+        # with a continue the core refused.
+        state.pop(RESOLVER_PROPOSAL_KEY, None)
     state.update(
         {
             "status": "RUNNING",
