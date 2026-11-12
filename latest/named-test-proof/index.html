@@ -2011,8 +2011,15 @@ add one; no person is asked. A base holding only documents, manifests, data file
 extensionless text note has no behavior to preserve at all.
 An exit code or a printed <code>PASS test_c1_example</code> is not enough to identify which
 case ran. AutoCode currently attributes tests from Python unittest/pytest, Go,
-Node's built-in <code>node:test</code> runner, Vitest 4, and an explicitly configured
+Node's built-in <code>node:test</code> runner, Vitest 4, RSpec, and an explicitly configured
 JUnit XML report from another test runner.</p>
+<p>RSpec needs no added gem: a plain <code>rspec</code> or <code>bundle exec rspec</code> command also runs
+RSpec's built-in JSON formatter, writing to a file in the proof's evidence while the
+progress output stays on the screen. Each example is named <code>FILE::FULL DESCRIPTION</code>,
+the file relative to where RSpec ran, so <code>test: test_grades_case_insensitively</code> names
+<code>it "test_grades_case_insensitively"</code> inside any <code>describe</code>. A spec file that fails to
+load runs no example and is reported as <code>FILE::[collection]</code>. A command that already
+writes its own output file (<code>--out</code>) or reads another options file is left as it is.</p>
 <p>A literal Go check with an explicit empty selector (<code>go test -run '^$' ./...</code>)
 may validate compilation in a plan. Its exit must be zero, but it supplies no
 named-test results or behavioral proof. Unknown flags, benchmark/fuzz requests,
@@ -2219,7 +2226,8 @@ hidden definitions stayed intact.</p>
   <code>target/nextest/ci/junit.xml</code>. JUnit output is configured in the profile,
   not with a <code>--junit</code> command flag.
   <a href="https://nexte.st/docs/machine-readable/junit/">Nextest JUnit configuration</a>.
-- <strong>Ruby / RSpec:</strong> include <code>rspec_junit_formatter</code> in the project's bundle and
+- <strong>Ruby / RSpec:</strong> a plain <code>bundle exec rspec</code> needs none of this (see above).
+  To use JUnit XML instead, include <code>rspec_junit_formatter</code> in the project's bundle and
   run <code>bundle exec rspec --format RspecJunitFormatter --out junit.xml</code>; use
   <code>junit:junit.xml</code>. Keep the formatter in the same dependency group as RSpec.
   <a href="https://github.com/sj26/rspec_junit_formatter">Formatter usage</a>.</p>
