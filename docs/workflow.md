@@ -872,6 +872,18 @@ checks keep both receipts as `companion_suite_on_base:DIR` and
 `--test-root`, `--test-command` or `--regression-command` keeps to the suite it
 names.
 
+A plan's `guard:` may name a test of another project, such as a root Node test
+that must keep passing while `backend/`'s suite proves the fix. The proof's own
+suite never holds that test, and another project's whole suite may report no
+per-test results (`npm test`), so each test file outside the proof's suite that
+names a guard's test is run by its own project's suite, targeted at those files,
+on the original code and with the change, whether or not the change touched that
+project's code. The guard rests on its test when it passed in both complete runs;
+a failing variant there breaks it, and a run that does not finish leaves it
+unverified rather than refuted. The checks keep both receipts as
+`companion_guards_on_base:DIR` and `companion_guards_on_candidate:DIR`, and the
+proof's notes name the files and the command.
+
 A plan is checked for this when it is drafted and when it is approved. If the
 test files its milestones name (a Python test module, a Go test, an RSpec spec or
 a JavaScript or TypeScript `.test`/`.spec` file) include some the proof's suite

@@ -515,6 +515,7 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
     unscoped = "package" not in detection and "test_root" not in detection
     companions: list = []
     companion_notes: list = []
+    guard_suites: list = []
     if base and unscoped and not command and not options.get("regression_command"):
         # Tests the root's suite cannot run are proven with the suite of the project around them, as in a
         # --package run of that directory (autocode_package_scope.for_tests). Every other project whose code
@@ -531,6 +532,18 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
         companions, companion_notes = companion_suites.find(
             workspace, framework, root_framework, code, original_tests, detect
         )
+        # A guard may name a test of another project: that project's own suite runs its file (#2889).
+        guards = sorted(
+            {
+                case["test_name"]
+                for case in cases(state, all_due=all_due)
+                if case.get("kind") == "preserve" and case.get("test_name")
+            }
+        )
+        guard_suites, guard_notes = companion_suites.guard_suites(
+            workspace, framework, root_framework, original_tests, _guards_named(workspace, guards), detect
+        )
+        companion_notes = [*companion_notes, *guard_notes]
     try:
         from . import autocode_replay_checks as recorded_checks
     except ImportError:
@@ -599,6 +612,20 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
             if companions
             else {}
         ),
+        **(
+            {
+                "companion_guards": {
+                    companion_suites.label(found["project"]): {
+                        "framework": found["framework"].to_dict(),
+                        "files": found["files"],
+                        "command": found["command"],
+                    }
+                    for found in guard_suites
+                }
+            }
+            if guard_suites
+            else {}
+        ),
     }
     if (
         saved.get("source_revision") == current
@@ -635,6 +662,7 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
             inputs,
             all_due=all_due,
             companions=(companions, companion_notes),
+            guard_suites=guard_suites,
         )
         proof["execution_context"] = execution_context
         if proof.get("path"):
@@ -655,6 +683,7 @@ def _prove(
     *,
     all_due=False,
     companions=((), ()),
+    guard_suites=(),
 ):
     kept: list = []  # the candidate tree verify() leaves for the mutation check (#699), removed here
     try:
@@ -671,6 +700,7 @@ def _prove(
             kept,
             all_due,
             companions=companions,
+            guard_suites=guard_suites,
         )
     except verify.command_receipt.OwnershipUncertain:
         # The supervisor could not establish that every child stopped. Keep
@@ -721,6 +751,61 @@ def _protect_companions(proof, result, companions, workspace, base, out, kept, d
     )
 
 
+def _guards_named(workspace, guards):
+    """``names(path)``: the ``guards`` (exact test names) a test file in ``workspace`` names."""
+
+    def names(path):
+        if not guards:
+            return []
+        try:
+            text = (Path(workspace) / path).read_text(errors="replace")
+        except OSError:
+            return []
+        return [name for name in guards if test_cases.named_in(name, text)]
+
+    return names
+
+
+def _run_guard_suites(guard_suites, result, workspace, base, out, kept, dependencies, patch, inputs, timeout):
+    """Run each guard suite (autocode_companion_suites.guard_suites) on the original code and with the change.
+
+    Returns, for check_cases, what each shows: its tests that passed in both runs, its failures with the
+    change, whether both runs were complete, and where and how it ran. The receipts join the proof's checks.
+    """
+    others: list = []
+    if not guard_suites or not kept or not kept[-1].is_dir():
+        return others
+    for found in guard_suites:
+        project, framework, command = found["project"], found["framework"], found["command"]
+        at = companion_suites.label(project)
+        evidence = out / "companion-guards" / (project.replace("/", "-") or "root")
+        on_base = verify.baseline(
+            workspace,
+            base,
+            evidence,
+            framework=framework,
+            suite_command=command,
+            dependencies_from=dependencies["dependencies_from"],
+            timeout=timeout,
+            base_patch=patch,
+            ignored_inputs=inputs,
+        )["receipt"]
+        on_change = verify.run_suite(framework, command, kept[-1], evidence, "guards-on-candidate", timeout=timeout)
+        result["checks"][f"companion_guards_on_base:{at}"] = on_base
+        result["checks"][f"companion_guards_on_candidate:{at}"] = on_change
+        others.append(
+            {
+                **companion_suites.guard_results(on_base, on_change),
+                "framework": framework.name,
+                "where": companion_suites.where(project),
+                "command": command,
+                "guards": found["guards"],
+                "ids_root": package_scope.ids_root(workspace, project, command),
+            }
+        )
+    return others
+
+
 def _proving(
     state: RunState,
     workspace,
@@ -735,6 +820,7 @@ def _proving(
     all_due,
     *,
     companions=((), ()),
+    guard_suites=(),
 ):
     started_at, started = util.now(), time.monotonic()
     base = base_commit(state, workspace)
@@ -907,6 +993,9 @@ def _proving(
             inputs,
             suite_timeout(state),
         )
+        others = _run_guard_suites(
+            guard_suites, result, workspace, base, out, kept, dependencies, base_patch, inputs, suite_timeout(state)
+        )
         if fallback:
             proof["suite_fallback"] = fallback
             proof["notes"] = [*(proof.get("notes") or []), fallback["reason"]]
@@ -938,6 +1027,11 @@ def _proving(
             if due
             else {}
         )
+        changed_paths = [Path(workspace) / path for path in changed]
+        for other in others:
+            # As the proof's own suite: a test a changed code file names is not the one that ran on the base.
+            other["passing"] = untouched(other["passing"], changed_paths)
+            refused.update(wrapped_runner.refusals(other.pop("ids_root"), other["passing"]) if due else {})
         turn_baseline = execution_context.get("follow_up_baseline")
         follow_up_ids = {case["id"] for case in turn_baseline["cases"]} if turn_baseline else set()
         check_cases(
@@ -949,6 +1043,7 @@ def _proving(
             ignored=result.get("ignored_test_files") or [],
             by_id=bool(result.get("no_test_changed")),
             incomplete=bool(result.get("guard_run_incomplete")),
+            others=others,
         )
         if turn_baseline:
             receipt = follow_up_proof.collect(
@@ -1116,7 +1211,9 @@ def _variant(test):
     return container, test_cases.function_name(test)
 
 
-def check_cases(proof, cases, refused=None, *, suite_passing=(), failing=(), ignored=(), by_id=False, incomplete=False):
+def check_cases(
+    proof, cases, refused=None, *, suite_passing=(), failing=(), ignored=(), by_id=False, incomplete=False, others=()
+):
     """Each English test case needs a test named after it.
 
     A restore case (the default, and what a case without a kind means) needs a
@@ -1146,6 +1243,12 @@ def check_cases(proof, cases, refused=None, *, suite_passing=(), failing=(), ign
     bug fix). ``incomplete``: the suite run on the original code with the
     change's test files did not finish, so a preserve case that names its test
     and is left without one is unproven rather than refuted.
+
+    ``others`` are the guard suites of other projects (autocode_companion_suites.guard_suites, as
+    _run_guard_suites reports them): a preserve case that names its test exactly and has none in the proof's
+    own suite may rest on one that passed in such a suite on the original code and with the change, and a
+    failing variant there breaks it as in the proof's suite. A case whose name such a suite looked for in a
+    run that did not finish is unproven rather than refuted.
     """
     if not cases:
         return
@@ -1190,6 +1293,19 @@ def check_cases(proof, cases, refused=None, *, suite_passing=(), failing=(), ign
     for case in preserve:
         if (case.get("test_name") or by_id) and not proof["case_tests"][case["id"]]:
             proof["case_tests"][case["id"]] = test_cases.match_cases([case], suite_ids, framework=framework)[case["id"]]
+    for other in others:
+        for case in preserve:
+            if not case.get("test_name") or proof["case_tests"][case["id"]]:
+                continue
+            found = test_cases.match_cases([case], usable(other["passing"]), framework=other["framework"])[case["id"]]
+            if found:
+                proof["case_tests"][case["id"]] = found
+                proof["notes"] = list(proof.get("notes") or []) + [
+                    f"Preserve case {case['id']}'s test {', '.join(found)} passed on the original code and with the "
+                    f"change in the suite of {other['where']} (`{other['command']}`), which the proof's suite cannot run"
+                ]
+    failing = [*failing, *(test for other in others for test in other["failing"])]
+    incomplete_elsewhere = {name for other in others if not other["complete"] for name in other["guards"]}
     failures = []
     missing = [case for case in restore if not proof["case_tests"][case["id"]]]
     failures += [
@@ -1260,7 +1376,11 @@ def check_cases(proof, cases, refused=None, *, suite_passing=(), failing=(), ign
         else ""
     )
     unproven = [
-        case for case in untested if incomplete and case.get("test_name") and not refusal("Preserve case", case)
+        case
+        for case in untested
+        if (incomplete or case.get("test_name") in incomplete_elsewhere)
+        and case.get("test_name")
+        and not refusal("Preserve case", case)
     ]
     failures += [
         refusal("Preserve case", case)
@@ -1273,9 +1393,14 @@ def check_cases(proof, cases, refused=None, *, suite_passing=(), failing=(), ign
     ]
     if unproven:
         proof["unverified"] = list(proof.get("unverified") or []) + [
-            f"Preserve case {test_cases.case_text(case)}: the suite run on the original code with the change's "
-            "test files timed out or did not report every test, so its test "
-            f"{case['test_name']} is not shown to pass before and after the change"
+            f"Preserve case {test_cases.case_text(case)}: "
+            + (
+                "the other project's suite that runs its test timed out or did not report every test"
+                if case["test_name"] in incomplete_elsewhere
+                else "the suite run on the original code with the change's test files timed out or did not "
+                "report every test"
+            )
+            + f", so its test {case['test_name']} is not shown to pass before and after the change"
             for case in unproven
         ]
         if proof["verdict"] == verify.PASS:

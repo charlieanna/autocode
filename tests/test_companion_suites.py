@@ -103,6 +103,72 @@ class FindTests(unittest.TestCase):
         )
 
 
+class GuardSuiteTests(unittest.TestCase):
+    NAMES = {"backend/spec/grader_spec.rb": ["test_grades"], "frontend/routing.test.mjs": ["test_routes"]}
+
+    def test_a_project_whose_test_file_names_a_guard_runs_that_file_with_its_own_suite(self):
+        repo = Repository(self, POLYGLOT)
+        detect = lambda directory: RSPEC if (directory / "Gemfile").is_file() else None  # noqa: E731
+        backend = package_scope.PackageFramework(RSPEC, "backend")
+        suites, notes = companions.guard_suites(repo.root, backend, ROOT_NODE, TESTS, self.NAMES.get, detect)
+        # The proof's own suite runs backend/'s spec, so only the root's file is another suite's.
+        self.assertEqual(
+            [
+                (
+                    companions.ROOT,
+                    ["frontend/routing.test.mjs"],
+                    "node --test frontend/routing.test.mjs",
+                    ["test_routes"],
+                )
+            ],
+            [(found["project"], found["files"], found["command"], found["guards"]) for found in suites],
+        )
+        self.assertEqual(
+            [
+                "The guards' tests in frontend/routing.test.mjs are in the repository root, whose tests the proof's "
+                "suite `cd backend && bundle exec rspec` cannot run, so `node --test frontend/routing.test.mjs` ran "
+                "them on the original code and with the change"
+            ],
+            notes,
+        )
+        suites, _ = companions.guard_suites(repo.root, ROOT_NODE, ROOT_NODE, TESTS, self.NAMES.get, detect)
+        self.assertEqual(
+            [("backend", "cd backend && bundle exec rspec spec/grader_spec.rb")],
+            [(found["project"], found["command"]) for found in suites],
+        )
+
+    def test_nothing_runs_without_a_named_guard_or_a_suite_and_a_project_without_one_is_noted(self):
+        repo = Repository(self, POLYGLOT)
+        detect = lambda directory: RSPEC  # noqa: E731
+        self.assertEqual(
+            ([], []), companions.guard_suites(repo.root, ROOT_NODE, ROOT_NODE, TESTS, lambda p: [], detect)
+        )
+        self.assertEqual(([], []), companions.guard_suites(repo.root, None, None, TESTS, self.NAMES.get, detect))
+        suites, notes = companions.guard_suites(repo.root, ROOT_NODE, ROOT_NODE, TESTS, self.NAMES.get, lambda d: None)
+        self.assertEqual([], suites)
+        self.assertEqual(
+            [
+                "The guards' tests in backend/spec/grader_spec.rb are in backend/, whose tests the proof's suite "
+                "`npm test --silent` cannot run, and no suite there runs them by file, so they were not run"
+            ],
+            notes,
+        )
+
+    def test_a_guard_rests_only_on_tests_that_passed_in_both_complete_runs(self):
+        def run(passed, failed=(), *, complete=True, timed_out=False):
+            results = {"passed": list(passed), "failed": list(failed), "complete": complete}
+            return {"exit_code": 1 if failed else 0, "timed_out": timed_out, "results": results}
+
+        self.assertEqual(
+            {"passing": ["a"], "failing": ["b"], "complete": True},
+            companions.guard_results(run(["a", "b", "c"]), run(["a"], ["b"])),
+        )
+        unfinished = {"passing": [], "failing": [], "complete": False}
+        self.assertEqual(unfinished, companions.guard_results(run(["a"]), run(["a"], complete=False)))
+        self.assertEqual(unfinished, companions.guard_results(run(["a"], timed_out=True), run(["a"])))
+        self.assertEqual(unfinished, companions.guard_results({"exit_code": 0, "timed_out": False}, run(["a"])))
+
+
 class JudgeTests(unittest.TestCase):
     def test_a_test_that_passed_and_no_longer_passes_fails_the_proof(self):
         failures, unverified = companions.judge(

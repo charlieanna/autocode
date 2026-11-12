@@ -14,6 +14,14 @@ pass with the change, or a suite that passed and fails with it, fails the proof;
 finish, or an exit-code-only suite that already fails on the original code, cannot show it, and the
 proof is unverified. Each decision is a note in the proof's evidence, never a question for a person.
 
+A plan's guard may name a test of another project: a live Kilo run (2026-11-11) proved its fix with
+backend/'s suite while a guard named a root Node test. The proof looked for it only in its own suite, so the
+guard failed twice and the Builder was sent back for a test that passed all along. A project's whole suite
+may report no per-test results either (`npm test`). ``guard_suites`` names, for each other project whose
+test files name a guard's test and whose tests the proof's suite cannot run, the command that runs just
+those files with that project's own suite; autocode_regression runs it on the original code and with the
+change, and ``guard_results`` gives the tests a guard may rest on: those that passed in both complete runs.
+
 Pure helpers over paths, frameworks and receipts: nothing here runs a command.
 """
 
@@ -93,6 +101,59 @@ def find(root, framework, root_framework, code_paths, test_files, detect_in) -> 
             f"its own suite `{found.suite}` ran on the original code and with the change"
         )
     return suites, notes
+
+
+def guard_suites(root, framework, root_framework, test_files, names, detect_in) -> tuple[list[dict], list[str]]:
+    """(suites, notes): the projects outside the proof's suite whose test files name a guard's test.
+
+    ``test_files`` are the original code's test files and ``names(path)`` the guard test names a file names
+    (none when it cannot be read). Each suite is a dict: ``project``, ``framework`` (its own suite, detected
+    as in ``find``), ``files``, ``command`` (that suite targeted at the files) and ``guards`` (the names).
+    A file the proof's suite may run is the proof's own to decide, and a project whose suite cannot target
+    its files by name gets a note instead.
+    """
+    if framework is None:
+        return [], []
+    found_in: dict = {}
+    for path in sorted(test_files):
+        named = names(path) if verification_commands.cannot_run(framework, [path]) else ()
+        if named:
+            files, guards = found_in.setdefault(project_of(root, path), ([], set()))
+            files.append(path)
+            guards.update(named)
+    suites, notes = [], []
+    for project, (files, guards) in sorted(found_in.items()):
+        found = root_framework if project == ROOT else package_scope.detect(root, project, detect_in)
+        command = found.targeted(files) if found is not None else None
+        which = f"The guards' tests in {', '.join(files)} are in {where(project)}, whose tests the proof's suite "
+        if command is None:
+            notes.append(
+                f"{which}`{framework.suite}` cannot run, and no suite there runs them by file, so they were not run"
+            )
+            continue
+        suites.append(
+            {"project": project, "framework": found, "files": files, "command": command, "guards": sorted(guards)}
+        )
+        notes.append(
+            f"{which}`{framework.suite}` cannot run, so `{command}` ran them on the original code and with the change"
+        )
+    return suites, notes
+
+
+def guard_results(on_base, on_change) -> dict:
+    """What a guard suite's two runs show: ``passing`` (passed in both), ``failing`` (failed with the change),
+    and ``complete``, False when either run did not finish or reported no complete per-test results."""
+    runs = [on_base, on_change]
+    if not all(command_receipt.completed(run) and not run.get("timed_out") for run in runs) or not all(
+        (run.get("results") or {}).get("complete") for run in runs
+    ):
+        return {"passing": [], "failing": [], "complete": False}
+    before, after = on_base["results"], on_change["results"]
+    return {
+        "passing": sorted(set(before.get("passed") or []) & set(after.get("passed") or [])),
+        "failing": sorted(after.get("failed") or []),
+        "complete": True,
+    }
 
 
 def judge(project, command, on_base, on_change) -> tuple[list[str], list[str]]:
