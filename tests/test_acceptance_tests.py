@@ -746,6 +746,60 @@ class RunnerCollectionTests(unittest.TestCase):
             self.assertEqual({"T1": "fails"}, receipt["results"])
             self.assertEqual("builder", state["next_stage"])
 
+    def test_a_test_that_fails_on_its_own_line_goes_back_to_the_tester_not_to_the_builder(self):
+        # Live run, 2026-11-11 (#3262): a test called self.assertIsFalse, which unittest does not have. It
+        # errored on today's code, was accepted as failing first, and the Builder could never make it pass.
+        import autocode_acceptance_tests_job as job
+        import autocode_verify as verify
+
+        name = "test_t1_catalog_lists_remotes"
+        with tempfile.TemporaryDirectory() as root:
+            workspace, evidence = Path(root) / "workspace", Path(root) / "evidence"
+            workspace.mkdir()
+            evidence.mkdir()
+            (workspace / "catalog.py").write_text("class Catalog:\n    pass\n")
+            test_file = workspace / "test_catalog.py"
+            git = ["git", "-C", str(workspace), "-c", "user.name=t", "-c", "user.email=t@t"]
+            for args in (("init", "-q"), ("add", "-A"), ("commit", "-qm", "base")):
+                subprocess.run([*git, *args], check=True)
+            value = {
+                "tests": [{"case_id": "T1", "test_name": name, "file": "test_catalog.py"}],
+                "cannot_write": [],
+                "already_passing": [],
+            }
+            record = {"output": str(evidence / "tester.json"), "changed_files": ["test_catalog.py"]}
+
+            def run_tests(files):
+                return verify.scratch_run(workspace, evidence / "acceptance-proof", tests=files)
+
+            header = "import unittest\n\nfrom catalog import Catalog\n\n\nclass RemotesTests(unittest.TestCase):\n"
+            for body, own in (
+                ("        self.assertIsFalse(Catalog().remotes())\n", "'RemotesTests' object has no attribute"),
+                (
+                    "        ghost.check()\n        self.assertEqual([], Catalog().remotes())\n",
+                    "name 'ghost' is not defined",
+                ),
+            ):
+                with self.subTest(own=own):
+                    state = approved({"T1": f"test: {name}"}, task="list remotes")
+                    acceptance.route(state)
+                    test_file.write_text(header + f"    def {name}(self):\n" + body)
+                    job.apply(state, dict(value), record, workspace, run_tests=run_tests, evidence_dir=evidence)
+                    self.assertEqual(("RUNNING", job.STAGE), (state["status"], state["next_stage"]))
+                    [message] = job.packet(state)["runner_feedback"]
+                    self.assertIn(f"T1: {name} in test_catalog.py fails on its own line, not on the product", message)
+                    self.assertIn(own, message)
+                    self.assertEqual({}, acceptance.receipts(state))
+
+            # The same test failing because the product lacks the method is a proper first failure.
+            state = approved({"T1": f"test: {name}"}, task="list remotes")
+            acceptance.route(state)
+            test_file.write_text(header + f"    def {name}(self):\n        self.assertEqual([], Catalog().remotes())\n")
+            job.apply(state, dict(value), record, workspace, run_tests=run_tests, evidence_dir=evidence)
+            receipt = next(iter(acceptance.receipts(state).values()))
+            self.assertEqual({"T1": "fails"}, receipt["results"])
+            self.assertEqual("builder", state["next_stage"])
+
     def test_a_guard_whose_file_cannot_load_goes_back_to_the_tester_with_the_cause(self):
         # Live run, 2026-11-11: the new tests imported char_count at the top of the module that also held the
         # guard, so on today's code the module could not load, the guard never ran, and the run asked the

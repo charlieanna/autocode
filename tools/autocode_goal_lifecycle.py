@@ -1314,7 +1314,7 @@ def assign_task(state: RunState, decision, current, *, draft_slice=None, visual_
     previous_task = state.get("current_task") or {}
     if (
         spec["kind"] == "implement"
-        and recovery.get("timeout_kind")
+        and recovery.get("timeout_kind") not in (None, "", "person")  # a person's stop needs no new approach
         and recovery.get("task_id")
         and recovery["task_id"] == previous_task.get("id")
         and recovery.get("execution_limits")

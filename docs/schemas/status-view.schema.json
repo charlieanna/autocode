@@ -145,7 +145,7 @@
         "acceptance_tests": {"type": ["object", "null"]},
         "usage": {
           "type": "object",
-          "description": "Tokens and cost so far; unknown cost is not zero.",
+          "description": "Tokens and cost so far; unknown cost is not zero. cost_usd.estimated is a comparison figure at frozen rates that price every input token, cached or not, at the input rate; the run's cost is cost.spent_usd.",
           "required": [
             "accounting"
           ],
@@ -739,11 +739,15 @@
             },
             "single_model": {
               "type": "object",
-              "required": ["builder_usd", "builder_share", "checking_usd", "basis", "produced"],
+              "required": ["builder_usd", "builder_share", "checking_usd", "planning_usd", "review_usd", "planning_share", "review_share", "basis", "produced"],
               "properties": {
                 "builder_usd": {"type": ["number", "null"]},
                 "builder_share": {"type": ["number", "null"]},
-                "checking_usd": {"type": ["number", "null"]},
+                "checking_usd": {"type": ["number", "null"], "description": "Everything but the Builder: planning_usd plus review_usd."},
+                "planning_usd": {"type": ["number", "null"], "description": "Requirements, Planner and Plan Reviewer spend (#3268)."},
+                "review_usd": {"type": ["number", "null"], "description": "The rest of checking_usd: testing, review, proof and recovery."},
+                "planning_share": {"type": ["number", "null"]},
+                "review_share": {"type": ["number", "null"]},
                 "basis": {"type": "string"},
                 "produced": {
                   "type": "object",
@@ -878,7 +882,10 @@
           }
         },
         "pause": {"type": ["object", "null"], "description": "The boundary pause a working run offers: label, effect, requested and next_command. Null when nothing is working.",
-          "properties": {"label": {"type": "string"}, "effect": {"type": "string"}, "requested": {"type": "boolean"}, "next_command": {"type": ["array", "null"], "items": {"type": "string"}}}},
+          "properties": {"label": {"type": "string"}, "effect": {"type": "string"}, "requested": {"type": "boolean"}, "next_command": {"type": ["array", "null"], "items": {"type": "string"}},
+            "stop_now": {"type": "object", "description": "The same pause, also ending the running step now (#3263): label, effect, requested and next_command. Present only when the run's runner can end a step on request.",
+              "properties": {"label": {"type": "string"}, "effect": {"type": "string"}, "requested": {"type": "boolean"}, "next_command": {"type": ["array", "null"], "items": {"type": "string"}}},
+              "required": ["label", "effect", "requested", "next_command"]}}},
         "package": {"type": ["string", "null"], "description": "The repository directory a run started with --package works in; null for a run of the whole repository."},
         "tool_containment_backend": {"type": ["object", "null"], "description": "The kernel boundary the latest contained launch ran in; null until a stage launches contained."},
         "changes_by_criterion": {"type": ["object", "null"], "description": "Saved Builder steps attributed to the approved plan's criteria; null until a plan is approved. Attribution, not proof."},

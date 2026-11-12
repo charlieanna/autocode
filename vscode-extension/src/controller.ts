@@ -12,6 +12,7 @@ import * as vscode from "vscode";
 import { realpath } from "node:fs/promises";
 import { invoke, readStatus, stream, tail, STATUS_TIMEOUT_MS, type CliResult } from "./core/cli";
 import { LEGACY_PLACEMENT, placementArgs } from "./core/worktrees";
+import { freshRunDir } from "./core/run-dir";
 import {
   applyDecisions,
   boundOffer,
@@ -431,6 +432,23 @@ export class RunController {
     if (result.code !== 0) throw new Error(tail(result));
   }
 
+  /** The Stop now the view named (#3263): the pause that also ends the running step, in its exact grammar. */
+  async stopNow(run: RunRef, requestId: string): Promise<void> {
+    const view = await this.status(run);
+    const offer = view.pause?.stop_now;
+    const command = offer?.next_command;
+    if (!offer || offer.requested || !Array.isArray(command)) {
+      throw new ClientGap("AutoCode offers no Stop now for this run right now");
+    }
+    const own = effective(view, run);
+    const expected = ["intervention", "submit", "--workspace", own.workspace, "--run-dir", own.runDir,
+      "--request-id", "REQUEST_ID", "--kind", "pause", "--now", "--json"];
+    if (JSON.stringify(command) !== JSON.stringify(expected)) throw new ClientGap("Unsupported Stop now action from AutoCode");
+    const result = await this.mutating([run, own], () =>
+      invoke(this.settings, command.map((word) => (word === "REQUEST_ID" ? requestId : word))));
+    if (result.code !== 0) throw new Error(tail(result));
+  }
+
   /** The checkpoint action the view named, checked against the exact grammar before anything runs. */
   private namedCheckpointAction(view: StatusView, run: RunRef, checkpointId: string,
     actionId: "compare" | "step" | "restore"): CheckpointAction {
@@ -539,14 +557,6 @@ export interface CheckpointRestoreResult {
  */
 function effective(view: StatusView, run: RunRef): { workspace: string; runDir: string } {
   return { workspace: view.workspace ?? run.workspace, runDir: view.run_dir ?? run.runDir };
-}
-
-/** AutoCode's own run-directory shape, under the workspace's runs directory. */
-function freshRunDir(workspace: string): string {
-  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-").replace(/-/g, "").slice(0, 8);
-  const time = new Date().toTimeString().slice(0, 8).replace(/:/g, "");
-  const random = Math.random().toString(16).slice(2, 8);
-  return `${workspace}/.autocode/runs/${stamp}-${time}-vscode-${random}`;
 }
 
 function summarize(brief: string): string {

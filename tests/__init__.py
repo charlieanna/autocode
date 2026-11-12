@@ -51,6 +51,14 @@ os.environ["GIT_CONFIG_COUNT"] = str(_count)
 # test turns it on itself (tests/test_source_host.py).
 os.environ.setdefault("AUTOCODE_SOURCE_HOST", "0")
 
+# A run started without AUTOCODE_HOME records its project in the per-user project
+# index (~/.autocode/projects.json, #3265). Every test, and every process it starts
+# with this environment, writes an index of its own instead, so the suite never
+# lists a test's temporary project among the person's chats. A test that needs
+# the index names its own AUTOCODE_PROJECT_INDEX_HOME.
+if "AUTOCODE_PROJECT_INDEX_HOME" not in os.environ:
+    os.environ["AUTOCODE_PROJECT_INDEX_HOME"] = tempfile.mkdtemp(prefix="autocode-test-projects-")
+
 # A new run takes its provider and the person's settings from AUTOCODE_PROVIDER
 # and $XDG_CONFIG_HOME/autocode (default ~/.config): config.toml, providers/ and
 # direct/. A developer's own choice there (default_provider = "kilocode") changed

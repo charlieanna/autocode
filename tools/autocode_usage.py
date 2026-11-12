@@ -11,7 +11,9 @@ one, the stage's cost (`metrics.provider_cost_usd`). This module turns those int
 
 Cost has three bases and the output says which: "reported" (the provider's own number, as the
 built-in claude provider writes it), "estimated" (tokens at the flat comparison rates below, only
-for models listed there) and unknown. An estimate is never added to a reported cost without being
+for models listed there) and unknown. The flat rates price every input token, cached or not, at the
+input rate, so "estimated" is a comparison figure, not the run's cost; that is the status view's
+``cost.spent_usd`` (autocode_cost, at the dated table with its cached rate; #3268). An estimate is never added to a reported cost without being
 shown separately, and unknown is never zero: `complete` is false while any stage lacks a cost.
 A stage that only the runner executed costs nothing. Imports only the standard library and
 the request accounting, role catalogue and utilities; RunState is type checking only.

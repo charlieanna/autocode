@@ -131,15 +131,16 @@ class RegistryProjectCliTests(unittest.TestCase):
         home.mkdir()
         environment = {key: value for key, value in self.env.items() if key != "AUTOCODE_HOME"}
         environment["HOME"] = str(home)
+        environment["AUTOCODE_PROJECT_INDEX_HOME"] = str(self.root / "index")
         with patch.dict(os.environ, environment, clear=True):
             registry.configure_workspace_storage(lane)
             registry.register_run(lane, run, state)
         self.assertTrue((self.project / ".autocode" / "registry" / "registry.json").is_file())
 
-        def invoke(*args):
+        def invoke(*args, cwd=self.project):
             result = subprocess.run(
                 [sys.executable, str(CLI), *args, "--json"],
-                cwd=self.project,
+                cwd=cwd,
                 env=environment,
                 capture_output=True,
                 text=True,
@@ -154,6 +155,17 @@ class RegistryProjectCliTests(unittest.TestCase):
         fleet = invoke("runs", "--all")
         self.assertEqual([str(run)], [row["run_dir"] for row in fleet["runs"]])
         self.assertFalse((home / ".autocode").exists(), "reading creates no per-user registry")
+        # #3265: the run's project was recorded when it took its own registry, so a listing from any
+        # other folder, another project or none, finds the chat too.
+        elsewhere = self.root / "elsewhere"
+        subprocess.run(["git", "init", "-q", str(elsewhere)], check=True)
+        for folder in (elsewhere, self.root):
+            self.assertEqual([str(run)], [row["run_dir"] for row in invoke("registry", "list", cwd=folder)["runs"]])
+            self.assertEqual([str(run)], [row["run_dir"] for row in invoke("runs", "--all", cwd=folder)["runs"]])
+        self.assertEqual(
+            {"version": 1, "projects": [str(self.project)]},
+            json.loads((self.root / "index" / "projects.json").read_text()),
+        )
         # An explicit home still selects exactly one registry.
         environment["AUTOCODE_HOME"] = str(self.home)
         self.assertEqual([], invoke("registry", "list")["runs"])

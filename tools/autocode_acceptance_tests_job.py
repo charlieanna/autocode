@@ -40,6 +40,7 @@ except ImportError:
 
 import copy
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -324,6 +325,9 @@ def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: d
                 wrong.append(f"{case['id']} was reported already working, but {case['test_name']} does not pass today")
         elif passed[case["id"]]:
             wrong.append(f"{case['id']} ({case['test_name']}) already passes on today's code")
+        elif failed[case["id"]] and (own := _own_error(case, rows[case["id"]]["file"], source, run)):
+            needs_execution = True
+            wrong.append(own)
         elif failed[case["id"]]:
             verdicts[case["id"]] = "fails"
         elif unloadable and test_cases.named_in(case["test_name"], source):
@@ -343,6 +347,49 @@ def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: d
             "already exists, keep its test and also report the case in already_passing; do not weaken the test."
         )
     return verdicts
+
+
+# A failure the test raises on itself: an attribute its own TestCase class lacks (self.assertIsFalse), or a
+# name its own line never defined. No product change can make such a test pass (#3262).
+_OWN_ATTRIBUTE = re.compile(r"\bAttributeError: '(\w+)' object has no attribute '\w+'")
+_UNDEFINED_NAME = re.compile(r"\bNameError: name '\w+' is not defined")
+_FAILURE_START = re.compile(r"^(?:ERROR: |FAIL: |FAILED |ERROR |_{3,} )")
+_FRAME = re.compile(r'^\s*File "([^"]+)", line \d+|^([^\s:]+\.py):\d+: ', re.M)
+
+
+def _failure_blocks(tail: str, test_name: str) -> list[str]:
+    """The runner's report of each failure whose heading names ``test_name`` (unittest or pytest output)."""
+    blocks, current = [], None
+    for line in tail.splitlines():
+        if _FAILURE_START.match(line):
+            current = [line] if re.search(rf"\b{re.escape(test_name)}\b", line) else None
+            if current is not None:
+                blocks.append(current)
+        elif current is not None:
+            current.append(line)
+    return ["\n".join(block) for block in blocks]
+
+
+def _own_error(case: dict, file: str, source: str, run: dict) -> str:
+    """Why a failing test fails on its own line rather than on the product; "" when it does not (#3262).
+
+    Live run, 2026-11-11: a test called ``self.assertIsFalse``, which unittest does not have. It errored on
+    today's code, so it was accepted as failing first; the Builder then could not make it pass, and its
+    second pass ran to the hour's limit. The case now goes back to the Tester with the error."""
+    classes = set(re.findall(r"^\s*class (\w+)\b", source, re.M))
+    for block in _failure_blocks(str(run.get("tail") or ""), case["test_name"]):
+        found = _OWN_ATTRIBUTE.search(block)
+        if not (found and found.group(1) in classes):
+            found = _UNDEFINED_NAME.search(block)
+            frames = [a or b for a, b in _FRAME.findall(block[: found.start()])] if found else []
+            if not (found and frames and Path(frames[-1]).name == Path(file).name):
+                continue
+        return (
+            f"{case['id']}: {case['test_name']} in {file} fails on its own line, not on the product: "
+            f"`{found.group(0)}`. No product change can make it pass; correct the test so it fails only "
+            "because the product lacks the behavior"
+        )
+    return ""
 
 
 def _guard_not_passing(case: dict, file: str, run: dict, results: dict) -> str:

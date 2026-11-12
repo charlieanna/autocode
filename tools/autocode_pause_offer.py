@@ -15,6 +15,11 @@ if TYPE_CHECKING:
 
 LABEL = "Pause after this step"
 EFFECT = "The current step finishes and is saved, then the run pauses. Resume continues where it paused."
+STOP_NOW_LABEL = "Stop now"
+STOP_NOW_EFFECT = (
+    "The step that is running ends now instead of finishing, so it costs nothing more. Its partial work and logs "
+    "are kept, then the run pauses. Resume runs that step again."
+)
 
 
 def working(view: dict[str, Any]) -> bool:
@@ -36,7 +41,9 @@ def project(
     """The offer, or None when nothing is running, the runner cannot consume a pause, or the run is stopped.
 
     `requested` is true while a pause request waits in the inbox; the offer then
-    names no command, so a client cannot queue a second one.
+    names no command, so a client cannot queue a second one. `stop_now` is the same pause that also ends
+    the running step at once (#3263), offered when the run's runner can do that; it stays offered while
+    only a boundary pause waits, since that one lets the step run on.
     """
     if view.get("done") or not working(view):
         return None
@@ -49,6 +56,7 @@ def project(
     ):
         return None
     requested = any(isinstance(row, dict) and row.get("kind") == "pause" for row in pending)
+    stopping = any(isinstance(row, dict) and row.get("kind") == "pause" and row.get("now") is True for row in pending)
     command = [
         "intervention",
         "submit",
@@ -62,4 +70,12 @@ def project(
         "pause",
         "--json",
     ]
-    return {"label": LABEL, "effect": EFFECT, "requested": requested, "next_command": None if requested else command}
+    offer = {"label": LABEL, "effect": EFFECT, "requested": requested, "next_command": None if requested else command}
+    if capability.get("supports_stop_now") is True:
+        offer["stop_now"] = {
+            "label": STOP_NOW_LABEL,
+            "effect": STOP_NOW_EFFECT,
+            "requested": stopping,
+            "next_command": None if stopping else [*command[:-1], "--now", "--json"],
+        }
+    return offer

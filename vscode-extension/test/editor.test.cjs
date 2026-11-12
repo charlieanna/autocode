@@ -1587,7 +1587,7 @@ function headerView(extra = {}) {
     ],
     recoveries: [{ id: 'r1', at: '2026-11-02T05:33:44+00:00', headline: 'Builder sent back', problem: 'A test failed', action: 'It tried again.' }],
     run_metrics: { schema: 1, spent_usd: 2.5, complete: true, by_job: [{ job: 'Builder', attempts: 1, spent_usd: 2.5, complete: true, share: 1 }],
-      tokens: {}, waste: {}, single_model: { builder_usd: 2.5, builder_share: 1, checking_usd: 0, produced: {} } },
+      tokens: {}, waste: {}, single_model: { builder_usd: 2.5, builder_share: 1, checking_usd: 0, planning_usd: 0, review_usd: 0, planning_share: 0, review_share: 0, produced: {} } },
     ...extra };
 }
 
@@ -4421,6 +4421,72 @@ test('no Pause without a named offer, or once the run is done (#1598)', async (t
   assert.equal(ui.document.querySelector('#pause-run').hidden, true);
 });
 
+// #3263: a stop request waited for the running step to finish, so a looping Tester kept spending for up to an
+// hour. Stop now is the pause that also ends the step at once, offered and taken only as the view names it.
+function stopNowView(extra = {}) {
+  const value = pauseView(extra);
+  if (value.pause && !('stop_now' in value.pause)) {
+    value.pause.stop_now = { label: 'Stop now', effect: 'The step that is running ends now instead of finishing.',
+      requested: false, next_command: ['intervention', 'submit', '--workspace', run.workspace, '--run-dir', run.runDir,
+        '--request-id', 'REQUEST_ID', '--kind', 'pause', '--now', '--json'] };
+  }
+  return value;
+}
+
+test('Stop now ends the running step through the named request, beside Pause (#3263)', async (t) => {
+  const ui = await openChat(t, stopNowView());
+  const stop = () => ui.document.querySelector('#stop-now-run');
+  assert.equal(stop().hidden, false);
+  assert.equal(stop().disabled, false);
+  assert.equal(stop().textContent, 'Stop now');
+  assert.match(stop().title, /ends now/);
+  assert.equal(ui.document.querySelector('#pause-run').hidden, false, 'the boundary pause stays offered');
+  const launch = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: '{"receipt":{"kind":"pause","now":true}}' }));
+  stop().click(); stop().click();
+  await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'a second click while submitting is ignored');
+  const [, argv] = launch.mock.calls[0].arguments;
+  assert.deepEqual(argv.slice(0, 6), ['intervention', 'submit', '--workspace', run.workspace, '--run-dir', run.runDir]);
+  assert.match(argv[7], /^stop-[0-9a-f]{16}$/, 'the placeholder becomes this request\'s id');
+  assert.deepEqual(argv.slice(8), ['--kind', 'pause', '--now', '--json']);
+  const stopping = stopNowView();
+  stopping.pause.requested = true;
+  stopping.pause.next_command = null;
+  stopping.pause.stop_now.requested = true;
+  stopping.pause.stop_now.next_command = null;
+  await ui.poll(stopping);
+  assert.equal(stop().disabled, true);
+  assert.equal(stop().textContent, 'Stopping…');
+  assert.match(ui.document.querySelector('#send-hint').textContent, /ending this step now; its partial work is kept/);
+  await ui.poll({ status: 'PAUSED_INTERVENTION', done: false, liveness: { kind: 'unknown' }, needs: { kind: 'resume' }, pause: null,
+    stop_reason: 'Stopped by you. The step that was running was ended; its partial work and logs are kept. Resume runs it again.',
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused` });
+  assert.equal(stop().hidden, true, 'a paused run has nothing to stop');
+});
+
+test('Stop now refuses a command outside its exact grammar, and an older runner shows only Pause (#3263)', async (t) => {
+  const changed = stopNowView();
+  changed.pause.stop_now.next_command = changed.pause.stop_now.next_command.filter((word) => word !== '--now');
+  const ui = await openChat(t, changed);
+  const launch = t.mock.method(cli, 'invoke', async () => ok);
+  ui.document.querySelector('#stop-now-run').click();
+  await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 0);
+  assert.match(ui.document.querySelector('#chat-error').textContent, /Unsupported Stop now action/);
+  await ui.poll(pauseView());
+  assert.equal(ui.document.querySelector('#stop-now-run').hidden, true, 'no Stop now without a named offer');
+  assert.equal(ui.document.querySelector('#pause-run').hidden, false);
+});
+
+test('a waiting boundary pause still lets the person stop the step now (#3263)', async (t) => {
+  const waiting = stopNowView();
+  waiting.pause.requested = true;
+  waiting.pause.next_command = null;
+  const ui = await openChat(t, waiting);
+  assert.equal(ui.document.querySelector('#pause-run').disabled, true);
+  assert.equal(ui.document.querySelector('#stop-now-run').disabled, false, 'the boundary pause lets the step run on');
+});
+
 test('a background tab keeps its own read error when it is shown again (#1593)', async (t) => {
   const other = { workspace: '/ws', runDir: '/ws/.autocode/runs/other' };
   let failing = false;
@@ -5421,6 +5487,27 @@ test('test_ac3_new_need_notifies_again', async (t) => {
   assert.equal(host.notices[1].message, 'AutoCode: alpha is waiting for you - 2 question(s)');
 });
 
+test('a stopped run that needs nothing from the person never says it is waiting for them', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  views.set(alpha.runDir, {
+    status: 'PAUSED', done: false, needs: { kind: 'continue' },
+    controller: { kind: 'ready', checked: true, alive: false },
+    progress: { line: 'Tester ready', needs_you: 'nothing needed from you' },
+  });
+  await ui.poll();
+  views.set(alpha.runDir, {
+    status: 'WAITING', done: false, needs: { kind: 'dependency' },
+    progress: { needs_you: 'nothing needed from you until the other run delivers' },
+  });
+  await ui.poll();
+  assert.deepEqual(host.notices.map((notice) => notice.message), [
+    'AutoCode: alpha stopped. Nothing is needed from you; open the chat to continue it.',
+    'AutoCode: alpha is waiting for another run to deliver. Nothing is needed from you.',
+  ]);
+  for (const notice of host.notices) assert.doesNotMatch(notice.message, /waiting for you/);
+});
+
 test('test_ac4_done_notifies_once_with_outcome', async (t) => {
   const views = new Map([[alpha.runDir, workingView()]]);
   const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
@@ -5610,7 +5697,7 @@ test('test_ac19_idle_continue_need_notifies_once', async (t) => {
   views.set(alpha.runDir, { status: 'PAUSED', done: false, needs: { kind: 'continue' } });
   await ui.poll();
   assert.equal(host.notices.length, 1);
-  assert.equal(host.notices[0].message, 'AutoCode: alpha is waiting for you - nothing; the run can simply proceed');
+  assert.equal(host.notices[0].message, 'AutoCode: alpha stopped. Nothing is needed from you; open the chat to continue it.');
   await ui.poll();
   assert.equal(host.notices.length, 1);
 });
@@ -5692,7 +5779,7 @@ for (const [label, controllerState] of [
     assert.equal(host.notices.length, 0);
     await ui.poll({ ...preflight, controller: controllerState });
     assert.equal(host.notices.length, 1, 'stopped or unverified ownership is not work');
-    assert.match(host.notices[0].message, /waiting for you - nothing needed from you$/);
+    assert.equal(host.notices[0].message, 'AutoCode: alpha stopped. Nothing is needed from you; open the chat to continue it.');
     const take = ui.document.querySelector('#take-action');
     assert.equal(take.textContent, 'Continue');
     assert.equal(take.disabled, false);
