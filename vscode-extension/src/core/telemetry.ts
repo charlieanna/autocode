@@ -1,4 +1,4 @@
-/** Read-only model and usage display from the public task-run accounting view. */
+/** Read-only usage display from the public task-run accounting view. */
 export interface Quantity {
   value?: number | null;
   known?: number;
@@ -33,13 +33,6 @@ export interface ModelRoute {
   reasoning_effort?: string | null;
 }
 
-interface ModelDisplay {
-  job: string;
-  model: string;
-  variant: string;
-  provider: string;
-}
-
 export interface Usage {
   stages?: number;
   active_stage?: string | null;
@@ -69,13 +62,6 @@ export interface UsageDisplay {
   tokens: string;
   cost: string;
   details: { label: string; value: string }[];
-}
-
-export interface Telemetry extends UsageDisplay {
-  modelLabel: string;
-  models: ModelDisplay[];
-  configuredModels: ModelDisplay[];
-  stagesUsed: (ModelDisplay & { attempts: number; active: boolean })[];
 }
 
 const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
@@ -163,43 +149,4 @@ export function usageDisplay(usage?: Usage | null, cost?: BudgetCost | null): Us
     { label: "Budget cost basis", value: "The core compares this known subtotal with the cap. Unpriced or unreported usage may be missing. This is not a provider bill." },
   );
   return display;
-}
-
-export function telemetry(view: { cost?: BudgetCost | null; usage?: Usage | null; provider?: string | null; routes?: Record<string, ModelRoute> | null; done: boolean }): Telemetry {
-  const attempts = (view.usage?.accounting?.attempts ?? []).filter((row) => !row.runner_owned && row.usage_basis !== "runner");
-  const current = view.done ? [] : attempts.filter((row) => row.active && !row.finished_at && !row.interrupted && !row.timed_out && !row.rejected);
-  const selected = current.length ? current : attempts.slice(-1);
-  const describe = (row: Attempt): ModelDisplay => {
-    const route = row.launch_route;
-    const engine = route?.engine || row.engine;
-    return {
-      // Human job names are supplied by the core, never a second client-side table.
-      job: row.job || row.stage || "Stage not reported",
-      model: row.model || route?.model || "Model not reported",
-      // The level it ran at, not the saved route's: a small review runs below its saved ceiling.
-      variant: row.reasoning_effort || route?.reasoning_effort || "Not reported",
-      provider: route?.provider || (engine === "opencode" ? view.provider : engine) || "Not reported",
-    };
-  };
-  const used = new Map<string, Telemetry["stagesUsed"][number]>();
-  for (const row of attempts) {
-    const model = describe(row);
-    const key = JSON.stringify(model);
-    const item = used.get(key) ?? { ...model, attempts: 0, active: false };
-    item.attempts++;
-    item.active ||= current.includes(row);
-    used.set(key, item);
-  }
-  return {
-    ...usageDisplay(view.usage, view.cost),
-    modelLabel: current.length ? (current.length > 1 ? "Current attempts" : "Current attempt") : "Last used",
-    models: selected.map(describe),
-    configuredModels: Object.entries(view.routes ?? {}).filter(([, route]) => route && typeof route === "object").map(([role, route]) => ({
-      job: route.job || role,
-      model: route.model || "Model not reported",
-      variant: route.reasoning_effort || "Not reported",
-      provider: route.provider || (route.engine === "opencode" ? view.provider : route.engine) || "Not reported",
-    })),
-    stagesUsed: [...used.values()],
-  };
 }

@@ -19,25 +19,7 @@ export const chatStyles = /* css */ `
   #send-message { margin-left: auto; flex-shrink: 0; }
   #send-hint { display: block; padding: 6px 8px 0; font-size: .75rem; color: var(--vscode-descriptionForeground); }
   #chat-error { padding: 0 8px; font-size: .8rem; color: var(--vscode-errorForeground); }
-  #telemetry { flex-shrink: 0; margin: 0 6px; border: 1px solid var(--vscode-panel-border); border-radius: 6px;
-    font-size: .75rem; color: var(--vscode-descriptionForeground); background: var(--vscode-sideBar-background); }
-  #telemetry-summary { cursor: pointer; padding: 5px 8px; line-height: 1.4; overflow-wrap: anywhere; font-size: .75rem; }
-  .telemetry-heading { color: var(--vscode-foreground); font-weight: 600; }
-  #model-summary, #usage-summary { display: inline; }
-  #model-summary::before, #usage-summary::before { content: "  ·  "; color: var(--vscode-descriptionForeground); }
-  #model-summary { color: var(--vscode-foreground); }
-  #telemetry-body { max-height: 30vh; overflow: auto; padding: 0 8px 8px; border-top: 1px solid var(--vscode-panel-border); }
-  #model-info { padding-top: 6px; }
-  .model-caption { font-weight: 600; color: var(--vscode-foreground); margin-bottom: 4px; }
   .model-note { font-size: .7rem; margin-bottom: 6px; }
-  .model-section { margin-bottom: 12px; }
-  .model-card { padding: 6px 0; border-bottom: 1px solid var(--vscode-panel-border); }
-  .model-heading { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; }
-  .model-job { font-weight: 600; color: var(--vscode-foreground); }
-  .model-meta { font-size: .7rem; margin-top: 2px; }
-  .model-value { color: var(--vscode-foreground); overflow-wrap: anywhere; }
-  #usage-breakdown { padding-top: 6px; }
-  .telemetry-row { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; padding: 3px 0; }
   .message { overflow-wrap: anywhere; margin: 0 0 20px; line-height: 1.5; }
   .message.notice { border-left: 3px solid var(--vscode-errorForeground, #a1260d); border-radius: 0 8px 8px 0;
     padding: 10px 12px; background: var(--vscode-inputValidation-errorBackground, rgba(161, 18, 13, .12)); }

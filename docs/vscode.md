@@ -89,27 +89,12 @@ draft. New output follows the bottom until you scroll up or select text;
 are adapted from Kilo Code's open-source UI; the exact revision and attribution
 are in [THIRD_PARTY_NOTICES.md](../vscode-extension/THIRD_PARTY_NOTICES.md).
 
-**Models & usage** stays above the composer and starts expanded. **Configured
-models** lists every saved role assignment with its full model ID, provider and
-reasoning **Variant** (such as medium or high), even before that role runs.
-**Models used** groups recorded attempts by job, model, provider and variant,
-including retries and earlier models. Several stages or slots can serve the same
-job; configured assignments do not imply that all those stages will run.
-
-Collapse the panel to a summary that still shows the current attempt (or **Last
-used**), variant, configured-role count, tokens and cost. Your expanded/collapsed
-preference survives polling, History navigation
-and reopening the chat. Values refresh with status polling and cover the whole
-run. Cache and reasoning are already included in input/output totals. Partial
-counts are labeled; unreported usage stays unknown.
-
-Models & usage shows **Cost counted toward cap** from the core’s public budget
-accounting beside the configured cap. Partial totals say **at least** and name
-unpriced stages; unknown amounts stay unknown. The expanded breakdown keeps the
-historical comparison estimate separately. These figures describe recorded usage,
-not an invoice or a guarantee that the next step fits within the cap.
-
-Each stage's model and usage is a row of the run header's stage table (below).
+Models and usage are shown once, in the run header at the top of the chat (below):
+each stage's model, level, time, tokens and cost is a row of its stage table, and
+**Show details** has the rest. Cache and reasoning are already included in
+input/output totals; partial counts end in `+` or say **known**, and unreported
+usage stays unknown. These figures describe recorded usage, not an invoice or a
+guarantee that the next step fits within the cap.
 A report repair counts as the repaired stage's next attempt. When the working
 stage is retrying after a failed attempt, its row shows ↻ and the working card
 shows a warning with which attempt it is, how long it has run and why the last
@@ -198,19 +183,23 @@ is; each stage's whole route and attempts (`4 attempts, 3 failed`, and why the
 last failed), with what the working stage is doing and its latest message; every recovery and what AutoCode did about it; where the
 money went and what the checking produced; **Cost and usage** (the accounted
 total and why it may be a floor, the running stage's spend, the price-table and
-provider-reported figures, the cap, tokens by kind, time by kind of work, total
+provider-reported figures, the historical comparison estimate, the cap, tokens by kind, time by kind of work, total
 execution time and every attempt with its model, level, outcome and tokens); the
 models saved for the next attempts and any route changes; the verification once
 the run finishes; the planning path; and which stages ran or were skipped and
 why. A stage with no saved route of its own shows the model its attempt launched
 on. The choice to keep details open is remembered. The arrow at the end of the
-first line folds the whole header to that one line: where the run is, then the
-run's total time and cost. Folding is the same for every chat and is remembered
+first line folds the whole header to that one line: where the run is, the
+working stage's model and level, then the run's total time and cost; the toolbar
+keeps the run's cost against its cap and its tokens. Folding is the same for every chat and is remembered
 until you unfold it, including when the sidebar is closed and opened again. Everything in the header
 comes from the status view (`summary`, `explanation`, `pipeline`, `recoveries`,
 `run_metrics`, `cost`, `usage`, `efficiency`, `routes`, `escalations`,
 `route_assignments`, `chat.now`, `chat.log`, `verification`, `stage_policy`,
-`stage_decisions`); it shows no command or flag and takes no action.
+`stage_decisions`); it shows no command or flag. Its one action is **Change this
+chat's models** beside **Show details**, shown when the status view offers
+`stage_models`: it opens this chat's own Stage models, and is greyed out with the
+core's reason (on hover) while a stage is working.
 
 While a step works, the conversation shows the live agent log the status view
 names (`view.chat.log`): what each running agent thinks (`∴`), says (`»`) and
@@ -391,7 +380,7 @@ after a minute fails and says so instead of leaving the box greyed out.
 The same independence rules apply, so a model the stage's checker runs is greyed
 out with the reason, and **Use Stage models** drops this chat's pick. When the chat
 starts, AutoCode checks the picks again and the run starts with them; once it has
-started they are listed under Models & usage like any started chat's models
+started they are listed in the run header's stage table like any started chat's models
 ([Changing a new chat's models](models.md#changing-a-new-chats-models)).
 
 The list is shown at once. Listing the models a backend offers takes a few

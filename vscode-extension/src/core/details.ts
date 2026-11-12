@@ -491,8 +491,14 @@ function usageSection(view: Row): DetailSection | null {
   const reported = mapping(accounting.cost).reported_usd ?? cost.reported_usd;
   const reportedText = quantity(reported, true);
   if (reportedText !== "unknown" && reportedText !== "$0 known") lines.push(`  Provider-reported: ${reportedText}`);
+  // The core's comparison at its own historical rates (the terminal's "Historical comparison estimate").
+  const historical = quantity(mapping(accounting.cost).historical_estimated_usd, true);
+  if (historical !== "unknown" && historical !== "$0 known") lines.push(`  Historical comparison estimate: ${historical}`);
   if (isNumber(cost.inherited_usd)) lines.push(`  Carried over from a restored step: ${stageMoney(cost.inherited_usd)}`);
-  lines.push(isNumber(cost.cap_usd) && cost.cap_usd > 0 ? `  Spending cap: ${stageMoney(cost.cap_usd)}` : "  Spending cap: none");
+  // An older core without `cost` says nothing about a cap: that is not "none" (nor a free run).
+  if (isNumber(cost.cap_usd) && cost.cap_usd > 0) lines.push(`  Spending cap: ${stageMoney(cost.cap_usd)}`);
+  else if (cost.cap_usd === null || cost.cap_usd === 0) lines.push("  Spending cap: none");
+  else if (Object.keys(cost).length) lines.push("  Spending cap: not reported");
   for (const row of rows(mapping(cost.breakdown).by_billing)) {
     if (row.billing !== "subscription") continue;
     lines.push(`  On your subscription: ${stageMoney(isNumber(row.spent_usd) ? row.spent_usd : null)} as API-equivalent pricing, not an invoice`);

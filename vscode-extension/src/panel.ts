@@ -13,7 +13,6 @@ import { approvalToken, isWorking, needsSummary, pauseLabel, planForApproval, pr
 import type { RunController, RunRef } from "./controller";
 import { markdown, type TextNode } from "./chat-markdown";
 import { chatStyles, installChatBehavior } from "./upstream/kilo-chat";
-import { telemetry, type Telemetry } from "./core/telemetry";
 import { finishSummary, runTotal, struggling, totalText, type FinishSummary } from "./core/meter";
 import { runHeader, type RunHeader } from "./core/details";
 
@@ -63,7 +62,6 @@ export interface PanelState {
   nextStage: string | null;
   task: string | null;
   usage: string | null;
-  telemetry: Telemetry | null;
   /** Whether this chat's own stage models can change now (`view.stage_models`), never its command. */
   stageModels?: { changeable: boolean; reason: string | null } | null;
   pause: string | null;
@@ -460,7 +458,6 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     nextStage: view.next_stage ?? null,
     task: view.task ?? null,
     usage: usageLine(view),
-    telemetry: telemetry(view),
     stageModels: view.stage_models ? { changeable: view.stage_models.changeable === true, reason: view.stage_models.reason ?? null } : null,
     pause: pauseLabel(view),
     needKind: need?.kind ?? null,
@@ -691,7 +688,6 @@ function emptyState(run: RunRef): PanelState {
     nextStage: null,
     task: null,
     usage: null,
-    telemetry: null,
     pause: null,
     needKind: null,
     needSummary: null,
@@ -830,8 +826,12 @@ const METER_STYLES = `
   /* Folded, the overview is one line: the state, the sentence and the run's time and cost. */
   #header-brief { flex: none; opacity: .75; white-space: nowrap; font-variant-numeric: tabular-nums; }
   #header-brief:empty, #run-header:not(.collapsed) #header-brief { display: none; }
+  /* Folded, the working stage's model stays in view. It gives way first when the line is narrow: its shrink
+     weight leaves the sentence's share below a layout unit, so the sentence keeps its width until the model is gone. */
+  #header-model { flex: 0 100000 auto; min-width: 0; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #header-model:empty, #run-header:not(.collapsed) #header-model { display: none; }
   #run-header.collapsed #header-body { display: none; }
-  #run-header.collapsed #header-sentence { -webkit-line-clamp: 1; }
+  #run-header.collapsed #header-sentence { display: block; white-space: nowrap; text-overflow: ellipsis; }
   #header-collapse { flex: none; align-self: center; display: inline-flex; align-items: center; justify-content: center;
                      width: 20px; height: 18px; padding: 0; border: 0; border-radius: 4px;
                      background: transparent; color: var(--vscode-foreground); opacity: .75; }
@@ -851,7 +851,7 @@ const METER_STYLES = `
   #header-stage:empty { display: none; }
   #header-place { opacity: .8; margin-top: 2px; overflow-wrap: anywhere; }
   #header-place:empty { display: none; }
-  #header-toggle { margin-top: 2px; }
+  #header-links { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 2px; }
   #header-details { max-height: 35vh; overflow-y: auto; margin-top: 4px; border-top: 1px solid var(--vscode-panel-border); padding-top: 4px; }
   .detail-section { margin: 4px 0 8px; }
   .detail-head { display: flex; gap: 8px; align-items: baseline; }
@@ -952,16 +952,11 @@ export function panelHtml(chat = false): string {
 </style>
 </head>
 <body>
-${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools"><span id="run-cost" role="status" aria-label="Run cost"></span>${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel, true)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="chat-tabs" role="tablist" aria-label="Open chats"></div><section id="run-header" aria-label="Run overview" hidden><div id="header-now"><span id="header-label"></span><span id="header-sentence"></span><span id="header-brief"></span><button type="button" id="header-collapse" class="fold" aria-expanded="true" aria-controls="header-body" title="Collapse the run overview" aria-label="Collapse the run overview">${ICONS.chevron}</button></div><div id="header-body"><table id="pipeline" aria-label="Stages"><thead><tr><th scope="col"><span class="sr-only">State</span></th><th scope="col" class="name">Stage</th><th scope="col" class="model">Model</th><th scope="col" class="num">Time</th><th scope="col" class="num tokens">Tokens</th><th scope="col" class="num">Cost</th></tr></thead><tbody></tbody><tfoot></tfoot></table><div id="header-stage"></div><div id="header-place"></div><div id="header-facts"></div><button type="button" id="header-toggle" class="link" aria-expanded="false" aria-controls="header-details">Show details</button><div id="header-details" hidden></div></div></section><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
+${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools"><span id="run-cost" role="status" aria-label="Run cost"></span>${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel, true)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="chat-tabs" role="tablist" aria-label="Open chats"></div><section id="run-header" aria-label="Run overview" hidden><div id="header-now"><span id="header-label"></span><span id="header-sentence"></span><span id="header-model"></span><span id="header-brief"></span><button type="button" id="header-collapse" class="fold" aria-expanded="true" aria-controls="header-body" title="Collapse the run overview" aria-label="Collapse the run overview">${ICONS.chevron}</button></div><div id="header-body"><table id="pipeline" aria-label="Stages"><thead><tr><th scope="col"><span class="sr-only">State</span></th><th scope="col" class="name">Stage</th><th scope="col" class="model">Model</th><th scope="col" class="num">Time</th><th scope="col" class="num tokens">Tokens</th><th scope="col" class="num">Cost</th></tr></thead><tbody></tbody><tfoot></tfoot></table><div id="header-stage"></div><div id="header-place"></div><div id="header-facts"></div><div id="header-links"><button type="button" id="header-toggle" class="link" aria-expanded="false" aria-controls="header-details">Show details</button><button type="button" id="change-stage-models" class="link" hidden>Change this chat's models</button></div><div id="header-details" hidden></div></div></section><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
 <div id="app" class="muted">${chat ? "Describe what you want to build, fix, review, or discuss." : "Loading…"}</div>
 ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messages</button>
 <details id="chat-place" aria-label="Where this chat works" hidden><summary><span class="stages-title">Where this chat works</span> <span id="chat-place-summary"></span></summary><div id="chat-place-body"></div></details>
 <details id="chat-models" aria-label="This chat's models" open hidden><summary><span class="stages-title">This chat's models</span> <span id="chat-models-summary"></span></summary><div id="chat-models-body"></div></details>
-<section id="telemetry" aria-label="Models and usage">
-<details id="usage-details"><summary id="telemetry-summary"><span class="telemetry-heading">Models &amp; usage</span>
-<span id="model-summary">Model not reported</span><span id="usage-summary">Tokens not reported · Cost not reported</span></summary>
-<div id="telemetry-body"><div id="model-info"></div><div id="usage-breakdown"></div></div></details>
-</section>
 <form id="composer">
 <label for="message" id="send-hint">Message AutoCode</label>
 <textarea id="message" aria-label="Message AutoCode" aria-describedby="keyboard-hint" placeholder="Ask AutoCode to work on this project…"></textarea>
@@ -1231,7 +1226,8 @@ function renderHeader(data) {
   const header = data.state && data.state.header;
   host.hidden = !header;
   if (!header) { host.dataset.content = ''; return; }
-  const key = JSON.stringify([header, headerOpen, headerCollapsed]);
+  const stageModels = data.state.stageModels || null;
+  const key = JSON.stringify([header, stageModels, headerOpen, headerCollapsed]);
   if (host.dataset.content === key) return;
   host.dataset.content = key;
   host.className = header.state || '';
@@ -1242,6 +1238,18 @@ function renderHeader(data) {
   fold.setAttribute('aria-label', foldLabel);
   fold.setAttribute('aria-expanded', headerCollapsed ? 'false' : 'true');
   document.getElementById('header-brief').textContent = header.total ? [header.total.time, header.total.cost].filter(Boolean).join(' · ') : '';
+  // The folded line keeps the working stage's model in view, as its table row shows it unfolded.
+  const working = header.pipeline.find((step) => step.state === 'working');
+  const workingRoute = working ? [working.model, working.level].filter(Boolean).join(' ') : '';
+  const model = document.getElementById('header-model');
+  model.textContent = workingRoute;
+  model.title = working && working.route ? working.label + ': ' + working.route : '';
+  // A started chat changes its own models only through the list its status view names (stage_models).
+  const change = document.getElementById('change-stage-models');
+  change.hidden = !stageModels;
+  change.disabled = !stageModels || !stageModels.changeable;
+  change.title = stageModels && !stageModels.changeable && stageModels.reason ? stageModels.reason
+    : "Change a stage's model and reasoning level for this chat; Stage models applies to new chats";
   const pipeline = document.getElementById('pipeline');
   pipeline.hidden = !header.pipeline.length;
   const body = pipeline.querySelector('tbody');
@@ -2253,7 +2261,6 @@ function renderChat(data) {
   renderChatPlace(data);
   renderChatModels(data);
   renderMeter(data);
-  renderTelemetry(data.state && data.state.telemetry, data.state && data.state.stageModels, !data.selectedRun && Boolean(data.models));
   updateComposer();
   chatBehavior.resize();
   if (!same) {
@@ -2414,68 +2421,6 @@ function updateLatestCue(state) {
   if (latest.textContent !== text) latest.textContent = text;
 }
 
-function renderTelemetry(info, stageModels, pickable) {
-  const host = document.getElementById('model-info');
-  const signature = JSON.stringify([info, stageModels, pickable]);
-  if (host.dataset.content === signature) return;
-  host.dataset.content = signature;
-  host.textContent = '';
-  const configured = info ? info.configuredModels : [];
-  const summary = [];
-  if (info && info.models.length) summary.push(info.modelLabel + ': ' + info.models.map((item) => item.job + ' · ' + item.model.split('/').pop() + ' · ' + item.variant).join(' / '));
-  if (configured.length) summary.push(configured.length + ' configured roles');
-  document.getElementById('model-summary').textContent = summary.join(' · ') || 'Model not reported';
-  function modelSection(id, title, note, items) {
-    const section = el('div', 'model-section'); section.id = id;
-    section.appendChild(el('div', 'model-caption', title));
-    if (note) section.appendChild(el('div', 'model-note', note));
-    items.forEach((item) => {
-      const model = el('div', 'model-card');
-      const heading = el('div', 'model-heading');
-      heading.appendChild(el('span', 'model-job', item.job));
-      heading.appendChild(el('span', 'model-variant', 'Variant: ' + item.variant));
-      model.appendChild(heading);
-      model.appendChild(el('div', 'model-value', item.model));
-      const meta = ['Provider: ' + item.provider];
-      if (item.attempts) meta.push(item.attempts + (item.attempts === 1 ? ' attempt' : ' attempts'));
-      if (item.active) meta.push('Active');
-      model.appendChild(el('div', 'model-meta', meta.join(' · ')));
-      section.appendChild(model);
-    });
-    host.appendChild(section);
-  }
-  // A run keeps the routes it started with; Stage models changes reach new chats only (docs/task-run.md#stage-choices-for-clients).
-  if (configured.length) modelSection('configured-models', "This chat's models", stageModels ? 'Kept from when this chat started until you change one here; Stage models applies to new chats. Several stages can share a model; an assignment does not mean it has run.' : 'Fixed when this chat started; a change in Stage models applies to new chats. Several stages can share a model; an assignment does not mean it has run.', configured);
-  if (configured.length && stageModels) {
-    // Only the core's own offer: the extension asks for the list the status view names.
-    const change = el('button', 'link', "Change this chat's models");
-    change.type = 'button'; change.id = 'change-stage-models';
-    change.disabled = !stageModels.changeable;
-    change.addEventListener('click', () => vscode.postMessage({ type: 'stage_models' }));
-    const section = document.getElementById('configured-models');
-    section.insertBefore(change, section.children[2] || null);
-    if (!stageModels.changeable && stageModels.reason) section.insertBefore(el('div', 'model-note', stageModels.reason), change.nextSibling);
-  }
-  if (info && info.stagesUsed.length) modelSection('used-models', 'Models used', 'Recorded attempts, including retries and earlier model variants.', info.stagesUsed);
-  else {
-    // Before a run reports anything, say where its models are chosen now, not where they will be listed.
-    host.appendChild(el('span', 'model-placeholder', info ? 'No model attempts reported yet.'
-      : pickable ? "Nothing has run yet. Choose this chat's models with Models under the message box."
-      : 'Nothing has run yet. A new chat runs the models in Stage models.'));
-  }
-  document.getElementById('usage-summary').textContent = info ? info.tokens + ' · ' + info.cost : 'Tokens not reported · Cost not reported';
-  const details = document.getElementById('usage-breakdown');
-  details.textContent = '';
-  if (!info) { details.textContent = 'Tokens and cost are shown here once the chat starts.'; return; }
-  details.appendChild(el('div', 'model-caption', 'Usage for this run'));
-  info.details.forEach((item) => {
-    const row = el('div', 'telemetry-row');
-    row.appendChild(el('span', null, item.label));
-    row.appendChild(el('span', null, item.value));
-    details.appendChild(row);
-  });
-}
-
 function appendFormatted(parent, nodes) {
   const allowed = new Set(['p','h2','h3','h4','h5','h6','strong','em','del','code','pre','blockquote','br','hr','ol','ul','li','table','thead','tbody','tr','th','td','a','span']);
   nodes.forEach((node) => {
@@ -2492,11 +2437,8 @@ function appendFormatted(parent, nodes) {
 }
 
 if (chatMode) {
-  const disclosure = document.getElementById('usage-details');
-  disclosure.open = initialWebviewState.modelDetailsOpen === true;
-  disclosure.addEventListener('toggle', () => {
-    vscode.setState({ ...(vscode.getState() || {}), modelDetailsOpen: disclosure.open });
-  });
+  // Only the core's own offer: the extension asks for the list the status view names.
+  document.getElementById('change-stage-models').addEventListener('click', () => vscode.postMessage({ type: 'stage_models' }));
   document.getElementById('history').addEventListener('click', () => vscode.postMessage({ type: 'history' }));
   // The tab strip works from the keyboard: arrows (and Home/End) move over the chats and select,
   // the same selection a click makes, with the roving tabindex renderTabs keeps.
