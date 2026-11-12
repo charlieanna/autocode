@@ -93,13 +93,13 @@ class ReviewerEffortCLI(unittest.TestCase):
             view = run.advance_until_input()
         self.assertEqual("approve_plan", view["needs"]["kind"], view["stop_reason"])
         after = self.public(run)
-        expected = "medium"  # explicit Medium preserved; automatic High reduced one tier
-        reviewer = after["settings"]["roles"]["plan_reviewer"]
-        self.assertEqual(expected, reviewer["reasoning_effort"])
-        self.assertEqual(unchanged["roles"]["plan_reviewer"]["model"], reviewer["model"])
+        # The Plan Reviewer runs at its saved level on a small clear brief too (owner decision 2026-11-11):
+        # an explicit Medium stays Medium, and the default level is dispatched unlowered.
+        expected = unchanged["roles"]["plan_reviewer"]["reasoning_effort"]
+        if explicit:
+            self.assertEqual("medium", expected)
         for role in unchanged["roles"]:
-            if role != "plan_reviewer":
-                self.assertEqual(unchanged["roles"][role], after["settings"]["roles"][role], role)
+            self.assertEqual(unchanged["roles"][role], after["settings"]["roles"][role], role)
         self.assertEqual(unchanged["limits"], after["settings"]["limits"])
         if legacy:
             self.assertEqual(
@@ -115,9 +115,9 @@ class ReviewerEffortCLI(unittest.TestCase):
         reviews = [row for row in self.calls() if row["stage"] in ("review_plan", "finalize_plan")]
         self.assertTrue(reviews, self.calls())
         for row in reviews:
-            self.assertIn('model_reasoning_effort="medium"', row["argv"])
+            self.assertIn(f'model_reasoning_effort="{expected}"', row["argv"])
         self.assertNotIn("builder", {row["stage"] for row in self.calls()})
-        self.assertIn("counts across revisions (small clear brief)", run.show_goal())
+        self.assertNotIn("counts across revisions", run.show_goal(), "each cycle gets its own allowance")
         self.assertIn(f"{len(reviews)}/2 plan-review calls used", run.show_goal())
         self.assertFalse(view["done"])
         self.assertFalse((self.project / "greet.py").exists())
@@ -129,7 +129,7 @@ class ReviewerEffortCLI(unittest.TestCase):
     def test_legacy_saved_medium_survives_public_resume_without_new_provenance(self):
         self.review(legacy=True)
 
-    def test_fresh_default_reviewer_still_dispatches_reduced_effort(self):
+    def test_fresh_default_reviewer_dispatches_its_saved_level(self):
         self.review(explicit=False)
 
     def test_a_vague_requests_first_draft_runs_one_level_above_the_planners_level(self):

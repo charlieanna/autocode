@@ -53,9 +53,15 @@ identifying the delivery base, a GitHub `origin`, Git push authentication, and
 `gh auth login`, `GITHUB_TOKEN` or `GH_TOKEN` for PR creation. `/repos` shows
 authentication readiness. Before creating a worktree, AutoCode checks repository
 write access and that the local baseline matches the remote delivery branch.
-Missing checkouts must be made available before their work starts. Discovery is
-bounded to configured roots and standalone registrations; it does not clone
-remotes or search the whole disk.
+Missing checkouts can be brought onto disk before their work starts. The operator
+lists the GitHub repository in the shared catalog's allowlist (`autocode registry
+remotes add OWNER/NAME --ref BRANCH`) and confirms it once with `autocode registry
+remotes clone OWNER/NAME`: AutoCode clones `https://github.com/OWNER/NAME.git`
+(credentials from Git's own credential helper or gh) into the catalog's managed
+`clones/OWNER/NAME`, checks out the allowlisted ref, records the resolved commit
+as the pinned base and registers the clone like any registered checkout. Discovery
+is bounded to configured roots and standalone registrations; nothing clones on its
+own during a run, and discovery does not search the whole disk.
 
 The Investigator traces the symptom through code. Grounded repository names
 resolve against registered directory, GitHub or package names. A unique match is
@@ -321,8 +327,11 @@ Live end-to-end delivery is not yet verified. The current implementation also ha
 
 - Discovery inventories repositories beneath configured roots and standalone
   registrations. The model still has to ground each repository's role in the
-  ticket and source files; AutoCode does not search the whole disk or clone
-  missing repositories.
+  ticket and source files; AutoCode does not search the whole disk. A repository
+  that is not cloned locally reaches disk only through the operator's allowlist
+  and one person-confirmed clone (`autocode registry remotes add OWNER/NAME --ref
+  BRANCH`, then `autocode registry remotes clone OWNER/NAME`); nothing clones
+  missing repositories on its own.
 - Automatic coordination currently supports owned terminal chats on Linux and
   local Git repositories containing ordinary files. Symlinks, submodules and
   `durable_local` coordination are refused explicitly; saved execution policies

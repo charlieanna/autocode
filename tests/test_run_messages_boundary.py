@@ -233,6 +233,100 @@ class MessageBoundaryTests(unittest.TestCase):
         self.assertEqual("continue", view["needs"]["kind"])
         self.assertNotIn("--resume-paused", view["next_command"])
 
+    def test_message_accepted_just_before_a_launch_is_taken_at_that_boundary_without_a_pause(self):
+        # Live 2026-11-12 (#3259): a message sent from VS Code while the next command was starting arrived
+        # after that command's boundary check and before its launch. The launch's admission refused, as it
+        # must, but the run then stopped at PAUSED_INTERVENTION_PENDING and asked the person to continue.
+        # Nothing launched, so the controller takes the message at that boundary itself.
+        local = {"auth_mode": "fixture"}
+        self.state.update(next_stage="draft_plan", iteration=1, sessions={}, stages=[], history=[])
+        self.state["settings"].update(
+            transport_identity=local,
+            headroom={"enabled": False},
+            context_soft_tokens=10000,
+            limits={"iteration_ceiling": 5, "max_seconds": None, "no_progress_batches": 3},
+        )
+        self.state["settings"]["roles"]["planner"] = {"model": "saved-model", "engine": "codex"}
+        self.save()
+        args, parser = runner.cli_args.parse(
+            None,
+            ["--no-chat", "--workspace", str(self.workspace), "--run-dir", str(self.run)],
+            runner.opencode.DEFAULT_MODELS,
+        )
+        launches = []
+
+        def before_probe(*args, **kwargs):
+            kwargs["before_probe"]()
+
+        def racing_launch(**kwargs):
+            launches.append(kwargs["role"])
+            self.submit("late")
+            with inbox.admission(self.run):
+                raise AssertionError("No provider may launch past a queued message")
+
+        with (
+            util.run_lock(self.run),
+            mock.patch.object(runner.run_setup, "load_locked", return_value=self.state),
+            mock.patch.object(runner.run_setup.keep_awake, "hold"),
+            mock.patch.object(runner.run_actions, "handle", return_value=None),
+            mock.patch.object(runner.build_loop.model_preflight, "check", side_effect=before_probe),
+            mock.patch.object(runner.support, "local_settings", return_value=local),
+            mock.patch.object(runner, "check_joint_transports"),
+            mock.patch.object(runner, "run_role", side_effect=racing_launch),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            code = runner.run_setup.run_locked(runner, args, parser, self.state, self.path, self.run, self.workspace)
+        self.assertEqual(2, code)
+        self.assertEqual(1, len(launches))
+        self.assertEqual([], inbox.pending(self.run), "the message was taken, not left queued")
+        view = taskrun.TaskRun(
+            self.workspace, self.run, command=[sys.executable, str(ROOT / "tools/autocode.py")]
+        ).status()
+        self.assertEqual("RUNNING", view["status"])
+        self.assertEqual("continue", view["needs"]["kind"])
+        self.assertEqual("requirements_gather", view["next_stage"], "Requirements answers the message next")
+        self.assertNotIn("--resume-paused", view["next_command"])
+
+    def test_continuing_a_launch_held_only_by_a_queued_message_takes_that_message(self):
+        # Live 2026-11-12 (#3259): a run already held at PAUSED_INTERVENTION_PENDING by a queued message was
+        # continued. The message was taken from the inbox, but the run stayed paused with no action to offer,
+        # so the chat showed nothing the person could do. Taking the message resolves that boundary.
+        self.state.update(next_stage="draft_plan", iteration=1, sessions={})
+        self.state.update(status="PAUSED_INTERVENTION_PENDING", stop_reason=inbox.PENDING_ADMISSION_REASON)
+        self.state["phase"] = "PAUSED_OR_BLOCKED"
+        self.save()
+        self.submit("late")
+        args, parser = runner.cli_args.parse(
+            None,
+            ["--no-chat", "--resume-paused", "--workspace", str(self.workspace), "--run-dir", str(self.run)],
+            runner.opencode.DEFAULT_MODELS,
+        )
+
+        def before_probe(*args, **kwargs):
+            kwargs["before_probe"]()
+
+        with (
+            util.run_lock(self.run),
+            mock.patch.object(runner.run_setup, "load_locked", return_value=self.state),
+            mock.patch.object(runner.run_setup.keep_awake, "hold"),
+            mock.patch.object(runner.run_actions, "handle", return_value=None),
+            mock.patch.object(runner.build_loop.model_preflight, "check", side_effect=before_probe),
+            mock.patch.object(runner, "run_role", side_effect=AssertionError("No provider may launch")),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            code = runner.run_setup.run_locked(runner, args, parser, self.state, self.path, self.run, self.workspace)
+        self.assertEqual(2, code)
+        self.assertEqual([], inbox.inspect(self.workspace, self.run)["requests"])
+        view = taskrun.TaskRun(
+            self.workspace, self.run, command=[sys.executable, str(ROOT / "tools/autocode.py")]
+        ).status()
+        self.assertEqual(("RUNNING", "requirements_gather"), (view["status"], view["next_stage"]))
+        self.assertEqual("continue", view["needs"]["kind"])
+        self.assertNotIn("--resume-paused", view["next_command"])
+        saved = json.loads(self.path.read_text())
+        event = next(row for row in saved["user_events"] if row.get("kind") == "plan_message")
+        self.assertEqual("RUNNING", event["return_checkpoint"]["status"], "a question returns to a running run")
+
     def test_controller_preserves_explicit_pause_at_message_handoff(self):
         view = self.controller_boundary(hold="pause")
         self.assertEqual("PAUSED_INTERVENTION", view["status"])

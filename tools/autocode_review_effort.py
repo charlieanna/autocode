@@ -1,19 +1,18 @@
-"""A small, clear task's reviews run one level below the person's saved level (owner decision 2026-11-05).
+"""A small, clear task's checks run one level below the person's saved level (owner decision 2026-11-05).
 
 The person's stage choices (``autocode stages``, autocode_stage_choices) name a model and a reasoning
-level for each stage. For the three review stages that level is a ceiling rather than a fixed value:
-on a small, clear task the Plan Reviewer, the Tester and the Completion Reviewer run one level below it.
-In the 2026-11-05 slugify run the Plan Reviewer spent 612 of the run's 1,680 s in one pass at high,
-almost all of it reasoning, on a two-line fix whose plan it then approved as drafted. The Builder, the
-Planner, Requirements and every other stage run at the saved level.
+level for each stage. For the Tester and the Completion Reviewer that level is a ceiling rather than a
+fixed value: on a small, clear task they run one level below it. The Plan Reviewer was lowered the same
+way until the owner decided on 2026-11-11 that every plan gets its saved level: the size of a plan is
+not known well enough from the request to justify a lighter review of it. The Builder, the Planner,
+the Plan Reviewer, Requirements and every other stage run at the saved level.
 
 ``decide`` applies the rule in this order, and returns the decision with its reason either way:
 
 - Only a level taken from the stage choices is a ceiling (``settings.effort_origins[role]`` is
   ``stage_choice``, autocode_role_route). A level typed as a flag or given as an answer is exact, and
-  the runner's own default keeps its existing tiers (the Plan Reviewer's reduced depth, #1564).
+  the runner's own default is not lowered.
 - A route a climb moved, or a fallback route on another model, is not the saved ceiling any more.
-- ``--plan-review-full`` keeps the Plan Reviewer at full depth, as it does for the review allowance.
 - A stage that already ran for this task (a rejected answer, a send-back, another look) runs at the
   ceiling, so a cheap first pass never costs a second one at the same low level.
 - The task is small and clear when Requirements judged it clear and the drafted plan is small (one
@@ -52,16 +51,15 @@ except ImportError:
     import autocode_role_route as role_route
     import autocode_route_fit as route_fit
 
-# The review stages whose saved level is a ceiling, by the route that launches them.
+# The review stages whose saved level is a ceiling, by the route that launches them. The Plan Reviewer
+# always runs at its saved level (owner decision 2026-11-11): a plan's size is not known well enough from
+# the request to justify a lighter review of it.
 STAGES = {
-    "review_plan": "plan_reviewer",
-    "finalize_plan": "plan_reviewer",
     "tester": "tester",
     "review_completion": "completion",
 }
-PLANNING = ("review_plan", "finalize_plan")
 SMALL_CLEAR = "small_clear"
-KEPT = ("not_small_clear", "earlier_attempt", "no_lower_level", "levels_unknown", "climbed", "full_review")
+KEPT = ("not_small_clear", "earlier_attempt", "no_lower_level", "levels_unknown", "climbed")
 
 
 def small_clear(state: RunState) -> bool:
@@ -103,8 +101,6 @@ def decide(state: RunState, stage, route_role, report_only, configured, *, model
     lower = below(configured)
     if any(row.get("role") == route_role for row in _rows(state.get("reasoning_escalations"))):
         return _kept(configured, "climbed", "a climb raised this stage's level", facts)
-    if route_role == "plan_reviewer" and settings.get("plan_review_full"):
-        return _kept(configured, "full_review", "this run asked for full plan review", facts)
     if _earlier(state, stage):
         return _kept(configured, "earlier_attempt", "this stage already ran for this task", facts)
     if not small_clear(state):
@@ -214,9 +210,9 @@ def _offered(settings, model) -> list | None:
 
 
 def _earlier(state: RunState, stage) -> bool:
-    """Whether ``stage`` already launched for this task: a plan review in this iteration, a Tester or
-    Completion Reviewer for the current build task (this iteration while there is none)."""
-    task = None if stage in PLANNING else (state.get("current_task") or {}).get("id")
+    """Whether ``stage`` already launched for this task: a Tester or Completion Reviewer for the current
+    build task (this iteration while there is none)."""
+    task = (state.get("current_task") or {}).get("id")
     iteration = state.get("iteration")
     for row in _rows(state.get("stages")):
         if stage not in (row.get("stage"), row.get("original_stage")):

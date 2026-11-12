@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { chosenPlacement, placementArgs, readWorktrees } from "../src/core/worktrees";
+import { chosenPlacement, lacksPlaceList, placementArgs, readWorktrees } from "../src/core/worktrees";
 
 const LIST = {
   schema: 1, folder: "/p", branch: "main", default: "new_branch",
@@ -36,4 +36,13 @@ test("a choice turns into the start flags the core named for it", () => {
   assert.throws(() => chosenPlacement(list, { place: "branch" }), /Pick the branch/);
   const folder = chosenPlacement(list, { place: "folder" });
   assert.deepEqual([folder.args, folder.place.warning], [["--in-place"], "can conflict"]);
+});
+
+test("only an AutoCode without the command counts as having no place list", () => {
+  const old = "usage: autocode [TASK] [OPTIONS]\nautocode: error: unrecognized arguments: list. If this was the task, put all of it in quotes";
+  assert.equal(lacksPlaceList({ code: 2, stderr: old }), true);
+  assert.equal(lacksPlaceList({ code: 1, stderr: "autocode did not answer within 60 s" }), false, "a timeout");
+  assert.equal(lacksPlaceList({ code: null, stderr: "" }), false, "a killed read");
+  assert.equal(lacksPlaceList({ code: 2, stderr: "Input rejected: not a Git checkout" }), false, "the command's own refusal");
+  assert.equal(lacksPlaceList({ code: 2, stderr: "usage: autocode worktrees list [-h]\nautocode worktrees list: error: unrecognized arguments: --x" }), false);
 });

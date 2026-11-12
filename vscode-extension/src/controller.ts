@@ -389,6 +389,32 @@ export class RunController {
     if (result.code !== 0) throw new Error(tail(result));
   }
 
+  /**
+   * A message typed while the run works (#3259): the view's named `message` action, which saves it in the
+   * run's intervention inbox for the next stage boundary. It never waits for the running stage and grants
+   * nothing: Requirements answers it there, and only a change it classifies goes on as feedback.
+   */
+  async queueMessage(view: StatusView, run: RunRef, text: string, shownContext: string, requestId: string): Promise<void> {
+    if (!text.trim()) throw new ClientGap("Enter a message first");
+    const input = view.chat?.input;
+    if (!input || input.kind !== "message" || view.chat?.context !== shownContext) {
+      throw new ClientGap("This conversation changed; review its current state before sending");
+    }
+    const parsed = parseNamedCommand(input.next_command, effective(view, run));
+    const expected = ["intervention", "submit", "--request-id", "REQUEST_ID", "--kind", "message", "--text", "MESSAGE", "--json"];
+    if (JSON.stringify(parsed.argv) !== JSON.stringify(expected) || Object.keys(parsed.env).length || !requestId) {
+      throw new ClientGap("Unsupported live message action from AutoCode");
+    }
+    const own = effective(view, run);
+    const argv = ["intervention", "submit", "--workspace", own.workspace, "--run-dir", own.runDir,
+      "--request-id", requestId, "--kind", "message", "--text", text, "--json"];
+    const result = await this.mutating([run, own], () => invoke(this.settings, argv));
+    if (result.code !== 0) throw new Error(tail(result));
+    let accepted = false;
+    try { accepted = (JSON.parse(result.stdout) as { accepted?: unknown }).accepted === true; } catch { accepted = false; }
+    if (!accepted) throw new Error(`AutoCode did not save the message:\n${tail(result)}`);
+  }
+
   /** The pause the view named (#1598), checked against its exact grammar, with this request's id. */
   async pause(run: RunRef, requestId: string): Promise<void> {
     const view = await this.status(run);

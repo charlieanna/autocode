@@ -61,9 +61,7 @@ try:
     from .. import autocode_requirement_retention as requirement_retention
     from .. import autocode_requirements_prompt as requirements_prompt
     from .. import autocode_risk_obligations as risk_obligations
-    from .. import autocode_role_route as role_route
     from .. import autocode_roles as role_names
-    from .. import autocode_route_fit as route_fit
     from .. import autocode_scope_question as scope_question
     from .. import autocode_source_trace as source_trace
     from .. import autocode_stage_context as stage_context
@@ -102,9 +100,7 @@ except ImportError:
     import autocode_requirement_retention as requirement_retention
     import autocode_requirements_prompt as requirements_prompt
     import autocode_risk_obligations as risk_obligations
-    import autocode_role_route as role_route
     import autocode_roles as role_names
-    import autocode_route_fit as route_fit
     import autocode_scope_question as scope_question
     import autocode_source_trace as source_trace
     import autocode_stage_context as stage_context
@@ -791,17 +787,9 @@ def _resolve_route(state: RunState, stage, role=None):
 
 
 def route_for(state: RunState, stage, role=None):
-    """The saved route for a stage, with the reduced-depth policy active at the
-    Plan Reviewer's own resolution (#1564).
-
-    The reviewer launch reads its role record after this resolution, so activating
-    the policy here (once per planning record) makes the first launch consume the
-    reduced effort tier without rewriting saved settings mid-launch.
-    """
-    route = _resolve_route(state, stage, role)
-    if route == "plan_reviewer":
-        apply_review_depth_policy(state)
-    return route
+    """The saved route for a stage. The Plan Reviewer always runs at its saved level: the reduced-depth
+    tier for small clear briefs (#1564) was removed on the owner's decision of 2026-11-11."""
+    return _resolve_route(state, stage, role)
 
 
 # Independent Plan Reviewer route (user 2026-09-26): never the Planner's model.
@@ -809,111 +797,10 @@ def route_for(state: RunState, stage, role=None):
 PINNED_REVIEWER_MODEL = "openai/gpt-6-sol"
 
 
-def review_depth_reduced(state: RunState) -> bool:
-    """Whether this run's review allowance counts across planning cycles (#1564).
-
-    A small clear brief pays a total allowance, not a fresh one per revision: the
-    2026-10-18 dogfood run spent three grants because each requirements revision
-    restarted the cycle counter. ``--plan-review-full`` opts a run out; anything
-    not clearly small at recognition (and whose drafted plan is not small once it
-    exists) keeps today's per-cycle counting. While the policy is active the Plan
-    Reviewer launches at the reduced effort tier.
-    """
-    if (state.get("settings") or {}).get("plan_review_full"):
-        return False
-    workflow = state.get("workflow") or {}
-    if workflow.get("clarity") != "clear":
-        return False
-    if workflow.get("brief_size") == "small":
-        return True
-    adaptive_record = (state.get("planning") or {}).get("adaptive") or {}
-    return adaptive_record.get("size") == "small"
-
-
-def reduced_reviewer_effort(route):
-    """The reduced Plan Reviewer effort tier for one role record (#1564).
-
-    A provider's optional ``light_effort`` is the tier when it defines one;
-    otherwise the configured effort steps one rung down the effort ladder
-    (autocode_util.EFFORTS). An already-lowest effort stays lowest; an unset or
-    off-ladder effort is returned unchanged, never an error.
-    """
-    light = route.get("light_effort")
-    if isinstance(light, str) and light:
-        return light
-    effort = route.get("reasoning_effort")
-    if effort not in util.EFFORTS:
-        return effort
-    index = util.EFFORTS.index(effort)
-    return util.EFFORTS[index - 1] if index else effort
-
-
-def apply_reviewer_effort_tier(state: RunState):
-    """Write the reduced tier into the saved Plan Reviewer role record (#1564).
-
-    Only the reasoning effort moves: the reviewer model and its pin are the
-    cross-family contract and stay exactly as configured. ``--plan-review-full``
-    and runs without a Plan Reviewer role keep their configured effort. Explicit
-    efforts and legacy saved routes without effort provenance stay unchanged.
-    """
-    settings = state.get("settings") or {}
-    if settings.get("plan_review_full"):
-        return
-    # Replay starts from archived effective routes. Reducing them again would
-    # change the recorded effort; the replay transport still checks every dispatch.
-    if settings.get("replay_recording"):
-        return
-    if not role_route.reviewer_effort_can_reduce(settings):
-        return
-    route = (settings.get("roles") or {}).get("plan_reviewer")
-    if not isinstance(route, dict):
-        return
-    tier = reduced_reviewer_effort(route)
-    if tier is None:
-        return
-    # The rung below may be one the model does not declare (GLM 5.3 declares low, high and max: a step from high
-    # lands on medium). Fit it at the one boundary rule (#2015, #2057), and record the move; with no listing the
-    # launch records the plain rung as unverified, as before (#2020).
-    model = route.get("model")
-    declared = route_fit.declared_for(settings, model) if isinstance(model, str) else None
-    fitted = route_fit.fit(settings, "plan_reviewer", effort=tier, declared=declared)
-    if fitted.reason == "fitted":
-        route_fit.record(settings, "plan_reviewer", fitted, cause="review_depth")
-    route["reasoning_effort"] = fitted.effort
-
-
-def apply_review_depth_policy(state: RunState):
-    """Activate the reduced depth at review admission; earlier calls join the total.
-
-    Runs once per planning record: the first admission that finds the policy
-    applicable carries every archived cycle's usage into the current counter, so
-    reviews that already ran at full depth still count against the total, and
-    applies the reduced Plan Reviewer effort tier once for the run.
-    """
-    if not review_depth_reduced(state):
-        return
-    planning = state.get("planning")
-    if not isinstance(planning, dict):
-        planning = state["planning"] = {}
-    review_usage.reconcile(state, at=s.now())
-    if planning.get("review_depth_reduced"):
-        return
-    archived = sum(
-        row.get("plan_review_calls", 0)
-        for row in state.get("planning_history") or []
-        if row.get("turn_event_id") == planning.get("turn_event_id")
-    )
-    archived = review_usage.archived_calls(state, archived)
-    planning["review_depth_reduced"] = True
-    planning["review_calls_before_policy"] = archived
-    planning["plan_review_calls"] = archived + planning.get("plan_review_calls", 0)
-    apply_reviewer_effort_tier(state)
-
-
 def renew_for_revision(state: RunState, stage, limit) -> bool:
     """One more review of a revision that answered blocking concerns, once per run (#1815).
 
-    Under the small-brief total (#1564) a live worker run spent its two calls on two challenges that both had
+    Only a run saved under the removed small-brief total applies. Under that total (#1564) a live worker run spent its two calls on two challenges that both had
     blocking concerns; the Planner revised, and nothing was left to review the revision, so the run stopped for
     a person when the next step was simply the final review. A limit the person chose (a flag or config.toml)
     is never raised here."""
@@ -1047,7 +934,9 @@ def charge(state: RunState, stage, record=None, workspace=None):
     if progressive.charge_review(state, stage, record):
         return
     planning = state["planning"]
-    apply_review_depth_policy(state)
+    # Every plan gets the configured allowance per cycle (owner decision 2026-11-11). A run saved while the
+    # removed small-brief total (#1564) was active keeps its saved total; only its proven counter fix applies.
+    review_usage.reconcile(state, at=s.now())
     refund_unreported(state, planning)
     limit = review_call_limit(state)
     if (

@@ -251,6 +251,32 @@ class RepositoryCatalogTests(unittest.TestCase):
         self.assertTrue(result["removed"])
         self.assertEqual([], catalog.list_roots()["roots"])
 
+    def test_stale_repository_can_be_removed_after_its_checkout_disappears(self):
+        # #3266: a deleted standalone checkout left discovery incomplete for every chat, and the only command
+        # that removes it refused the path because the folder was gone.
+        import shutil
+
+        checkout = self.git_repo(self.root / "standalone" / "service")
+        kept = self.git_repo(self.root / "standalone" / "other")
+        catalog.add_repository(checkout)
+        catalog.add_repository(kept)
+        common = catalog.list_roots()["repositories"][1]["git_common_dir"]
+        shutil.rmtree(checkout)
+        self.assertFalse(catalog.discover()["complete"])
+
+        result = catalog.remove_repository(checkout)
+
+        self.assertEqual({"operation": "repository-remove", "git_common_dir": common, "removed": True}, result)
+        self.assertEqual([str(kept)], [row["path"] for row in catalog.list_roots()["repositories"]])
+        self.assertTrue(catalog.discover()["complete"])
+        # Asking again removes nothing; a folder that is there but is not a registered checkout is still refused.
+        self.assertFalse(catalog.remove_repository(checkout)["removed"])
+        plain = self.root / "plain"
+        plain.mkdir()
+        with self.assertRaisesRegex(catalog.CatalogError, "not a readable Git repository"):
+            catalog.remove_repository(plain)
+        self.assertTrue(catalog.remove_repository(kept)["removed"])
+
     def test_remote_identity_normalizes_scheme_host_and_git_suffix(self):
         first = self.git_repo(self.root / "clone-a", remote="https://EXAMPLE.test/Fulfillment/API.git")
         second = self.git_repo(self.root / "clone-b", remote="https://example.test/Fulfillment/API")

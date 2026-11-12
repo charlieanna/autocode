@@ -265,9 +265,9 @@ class RequirementsNamesTheJobCliTests(unittest.TestCase):
         self.assertEqual(0, self.ran(run, "review-change"), "No Code Reviewer shortcut")
         self.assertEqual(1, self.ran(run, "discovery"), "The Planner plans the review")
 
-    def test_a_small_bug_fix_keeps_its_reduced_review_when_requirements_names_the_job(self):
-        # The recognizer judged clarity, and units.autoplanner.review_depth_reduced keeps a small clear brief on
-        # one review allowance at the reduced reviewer effort. Requirements now judges it (#1846 review).
+    def test_a_small_bug_fix_gets_the_full_plan_review_when_requirements_names_the_job(self):
+        # Requirements judges clarity (#1846 review). A small clear brief no longer shares one review allowance
+        # across revisions: the Plan Reviewer runs at its saved level each cycle (owner decision 2026-11-11).
         run, _ = self.start("bugfix-trivial", chat=ADAPTIVE_CHAT)
         view, offers = self.drive(run)
         self.assertEqual("approve_plan", (view.get("needs") or {}).get("kind"), self.details(view))
@@ -280,7 +280,7 @@ class RequirementsNamesTheJobCliTests(unittest.TestCase):
         depth = view["planning_depth"]
         self.assertTrue(depth["adaptive"], depth)
         self.assertEqual("clear", depth["clarity"], "Requirements judged clarity as the recognizer did")
-        self.assertIn("counts across revisions (small clear brief)", run.show_goal())
+        self.assertNotIn("counts across revisions", run.show_goal())
 
 
 if __name__ == "__main__":

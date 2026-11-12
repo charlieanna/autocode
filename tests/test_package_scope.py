@@ -20,6 +20,7 @@ import autocode_proof_stability as proof_stability
 import autocode_protected_oracles as protected_oracles
 import autocode_regression as regression
 import autocode_run_view as run_view
+import autocode_scratch_suites as scratch_suites
 import autocode_task_preflight as task_preflight
 import autocode_util as util
 import autocode_verify as verify
@@ -1078,6 +1079,107 @@ class PolyglotSuite(unittest.TestCase):
             proof["case_tests"],
         )
         self.assertIn("--format json --out", proof["checks"]["regression_on_candidate"]["command"])
+
+
+# The repository of a live Kilo bug fix (2026-11-12): a Node suite at the root and a Python project in backend/.
+SPLIT = {
+    "package.json": '{"name": "site", "scripts": {"test": "node --test frontend/routing.test.mjs"}}\n',
+    "frontend/routing.mjs": "export const route = (p) => '/staging' + p;\n",
+    "frontend/routing.test.mjs": "import test from 'node:test';\nimport assert from 'node:assert/strict';\n"
+    "import { route } from './routing.mjs';\n"
+    "test('test_route_adds_staging_prefix', () => assert.equal(route('/x'), '/staging/x'));\n",
+    "backend/pyproject.toml": '[project]\nname = "backend"\nversion = "0.1.0"\n',
+    "backend/grader.py": "def grade(answer, expected):\n    return 'passed' if answer == expected else 'failed'\n",
+    "backend/tests/__init__.py": "",
+}
+SPLIT_TEST = (
+    "import sys\nimport unittest\nfrom pathlib import Path\n\nsys.path.insert(0, str(Path(__file__).parents[1]))\n"
+    "from grader import grade  # noqa: E402\n\n\nclass GraderTest(unittest.TestCase):\n"
+    "    def test_ignores_case_and_spaces(self):\n        self.assertEqual('passed', grade(' Paris ', 'paris'))\n\n"
+    "    def test_exact_match_passes(self):\n        self.assertEqual('passed', grade('a', 'a'))\n"
+)
+SPLIT_TESTS = ["backend/tests/test_grader.py", "frontend/routing.test.mjs"]
+
+
+class TestsInTwoProjects(unittest.TestCase):
+    """The Tester's tests run on today's code each with the suite of its own project (2026-11-12).
+
+    A live run handed a backend/ Python test and a root Node test to the root's Node suite, which ran only the
+    Node file. The runner told the Tester three times that its Python tests did not run, until it wrapped them
+    in a Node test that shelled out to Python, edited a frontend test the plan said to leave alone, and paused."""
+
+    def project(self, files=SPLIT):
+        project = Project(files)
+        self.addCleanup(project.close)
+        project.write({"backend/tests/test_grader.py": SPLIT_TEST})
+        return project
+
+    def detect(self, directory):
+        return verify.detect_framework(directory, python=sys.executable)
+
+    @unittest.skipUnless(shutil.which("node"), "Node runs the root suite")
+    def test_each_file_runs_with_the_suite_of_its_own_project_and_every_test_is_reported(self):
+        project = self.project()
+        with tempfile.TemporaryDirectory() as run_dir:
+            receipt = verify.scratch_run(project.root, Path(run_dir), tests=SPLIT_TESTS)
+        self.assertFalse(receipt.get("error"), receipt)
+        results = receipt["results"]
+        self.assertTrue(results["complete"], receipt)
+        self.assertEqual(3, results["total"], results)
+        passed = [test.rsplit(".", 1)[-1].rsplit("::", 1)[-1] for test in results["passed"]]
+        failed = [test.rsplit(".", 1)[-1].rsplit("::", 1)[-1] for test in results["failed"]]
+        self.assertEqual(["test_exact_match_passes", "test_route_adds_staging_prefix"], sorted(passed), results)
+        self.assertEqual(["test_ignores_case_and_spaces"], failed, results)
+        self.assertEqual(1, receipt["exit_code"], "the Python test fails on today's code")
+        commands = [run["command"] for run in receipt["suites"]]
+        self.assertEqual(2, len(commands), commands)
+        self.assertTrue(commands[0].startswith("node ") and commands[0].endswith("--test frontend/routing.test.mjs"))
+        self.assertTrue(commands[1].startswith("cd backend && "), commands)
+        self.assertIn("tests/test_grader.py", commands[1])
+
+    def test_a_file_no_suite_there_runs_is_refused_by_name(self):
+        # Without backend/'s manifest no project around the Python test has a suite, and the root's cannot run it.
+        project = self.project({path: text for path, text in SPLIT.items() if path != "backend/pyproject.toml"})
+        root = self.detect(project.root)
+        self.assertEqual(
+            "no test command runs these files: backend/tests/test_grader.py (the detected node suite "
+            "`npm test --silent` cannot run them)",
+            scratch_suites.suites(project.root, root, SPLIT_TESTS, self.detect),
+        )
+        with tempfile.TemporaryDirectory() as run_dir:
+            receipt = verify.scratch_run(project.root, Path(run_dir), tests=SPLIT_TESTS)
+        self.assertEqual((None, scratch_suites.suites(project.root, root, SPLIT_TESTS, self.detect)), (
+            receipt["results"], receipt["error"]))  # fmt: skip
+
+    def test_one_suite_that_runs_every_file_is_kept(self):
+        project = self.project()
+        root = self.detect(project.root)
+        found = scratch_suites.suites(project.root, root, ["frontend/routing.test.mjs"], self.detect)
+        self.assertEqual([(root, "node --test frontend/routing.test.mjs", "scratch-tests")], found)
+        (backend,) = scratch_suites.suites(project.root, root, ["backend/tests/test_grader.py"], self.detect)
+        self.assertEqual(("backend", "scratch-tests"), (backend[0].directory, backend[2]))
+
+
+class MergedReceiptTests(unittest.TestCase):
+    def test_results_join_and_the_failed_run_speaks_for_the_receipt(self):
+        node = {"command": "node --test a.test.mjs", "exit_code": 0, "timed_out": False, "output": "node.log",
+                "results": {"passed": ["a.test.mjs::t"], "failed": [], "skipped": [], "collection_errors": [],
+                            "uncollected": [], "total": 1, "complete": True}, "results_expected": True}  # fmt: skip
+        python = {**node, "command": "cd backend && python -m unittest", "exit_code": 1, "output": "python.log",
+                  "results": {**node["results"], "passed": [], "failed": ["test_x.T.test_y"]}}  # fmt: skip
+        receipt = scratch_suites.merged([node, python])
+        self.assertEqual((1, "python.log", False), (receipt["exit_code"], receipt["output"], receipt["timed_out"]))
+        self.assertEqual("node --test a.test.mjs ; cd backend && python -m unittest", receipt["command"])
+        self.assertEqual(["a.test.mjs::t"], receipt["results"]["passed"])
+        self.assertEqual(["test_x.T.test_y"], receipt["results"]["failed"])
+        self.assertEqual((2, True), (receipt["results"]["total"], receipt["results"]["complete"]))
+        self.assertEqual([node, python], receipt["suites"])
+        self.assertIs(node, scratch_suites.merged([node]))
+        # A run without per-test results leaves the receipt without them; one that did not finish is not complete.
+        self.assertIsNone(scratch_suites.merged([node, {**python, "results": None}])["results"])
+        unfinished = {**python, "results": {**python["results"], "complete": False}, "timed_out": True}
+        merged = scratch_suites.merged([node, unfinished])
+        self.assertEqual((False, True), (merged["results"]["complete"], merged["timed_out"]))
 
 
 class PackageRequired(unittest.TestCase):

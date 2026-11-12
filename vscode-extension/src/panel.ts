@@ -936,8 +936,18 @@ export function panelHtml(chat = false): string {
   .live-log .thought .fold-line { font-style: normal; }
   pre { white-space: pre-wrap; word-break: break-all; font-size: .76rem; background: var(--vscode-textCodeBlock-background);
         padding: 8px; border-radius: 4px; }
-  /* A saved-code or working diff can be thousands of lines: it scrolls inside the thread, never stretches it. */
-  pre.diff { max-height: 40vh; overflow: auto; }
+  /* A saved-code or working diff can be thousands of lines: it scrolls inside the thread, never stretches it.
+     It also opts out of the break-all the generic pre needs for unspaced JSON and command blobs: a patch
+     wraps at its whitespace, and only a token too long for the sidebar is split. */
+  pre.diff { max-height: 40vh; overflow: auto; word-break: normal; overflow-wrap: break-word; }
+  /* The patch reads as a diff, not as one uniform block: each line kind gets the theme's own
+     diff-editor colors. The spans stay inline, so the wash hugs the text and adds no line box. */
+  pre.diff .add { color: var(--vscode-charts-green, #3a7d3a);
+                  background: var(--vscode-diffEditor-insertedLineBackground, rgba(58, 125, 58, .14)); }
+  pre.diff .del { color: var(--vscode-charts-red, #a1260d);
+                  background: var(--vscode-diffEditor-removedLineBackground, rgba(161, 38, 13, .14)); }
+  pre.diff .file { color: var(--vscode-textLink-foreground); font-weight: 600; }
+  pre.diff .hunk { color: var(--vscode-descriptionForeground); }
   .gap, .notice { border-left: 3px solid var(--vscode-inputValidation-warningBorder, #cc8800);
                   background: var(--vscode-inputValidation-warningBackground, rgba(204,136,0,.12));
                   padding: 8px 10px; margin: 12px 0; font-size: .84rem; }
@@ -997,6 +1007,41 @@ function el(tag, cls, text) {
   if (cls) node.className = cls;
   if (text !== undefined && text !== null) node.appendChild(document.createTextNode(String(text)));
   return node;
+}
+
+/* The "---" and "+++" file headers must be named before the "+" and "-" line kinds, or the two
+   lines that introduce every file in the patch read as a removed and an added line. */
+const DIFF_HEADER = /^(diff |index |--- |\\+\\+\\+ |new file|deleted file|old mode|new mode|similarity|dissimilarity|rename |copy |Binary files)/;
+function diffKind(line) {
+  if (DIFF_HEADER.test(line)) return 'file';
+  if (line.startsWith('@@')) return 'hunk';
+  if (line.startsWith('+')) return 'add';
+  if (line.startsWith('-')) return 'del';
+  return '';
+}
+
+/** A patch as colored runs of lines: one span per run, so a thousand-line patch is a handful of
+ * nodes and the block's text stays exactly the patch the core sent. */
+function fillDiff(pre, patch) {
+  const runs = [];
+  String(patch).split('\\n').forEach((line) => {
+    const kind = diffKind(line);
+    const last = runs[runs.length - 1];
+    if (last && last.kind === kind) last.lines.push(line);
+    else runs.push({ kind, lines: [line] });
+  });
+  runs.forEach((run, index) => {
+    if (index) pre.appendChild(document.createTextNode('\\n'));
+    pre.appendChild(el('span', run.kind || null, run.lines.join('\\n')));
+  });
+}
+
+/** The comparison's patch as a diff block, or the plain sentence that says there is nothing to show. */
+function diffBlock(patch, nothing) {
+  const pre = el('pre', 'diff');
+  if (patch) fillDiff(pre, patch);
+  else pre.textContent = nothing;
+  return pre;
 }
 
 function section(title, rows) {
@@ -1161,9 +1206,7 @@ function renderChatProgress(container, state) {
     const files = (comparison.changed_files || []).length;
     const since = comparison.since === 'start' ? 'the run started' : 'the last saved step';
     container.appendChild(el('div', 'why', files + ' file(s) changed since ' + since + (comparison.truncated ? ' · diff truncated' : '')));
-    const patch = el('pre', 'diff');
-    patch.textContent = comparison.patch || 'The Builder has not changed any files yet.';
-    container.appendChild(patch);
+    container.appendChild(diffBlock(comparison.patch, 'The Builder has not changed any files yet.'));
   }
 }
 
@@ -1619,9 +1662,7 @@ function render(state) {
           box.appendChild(el('div', 'why', step
             ? files + ' file(s) changed in this step' + (comparison.truncated ? ' · diff truncated' : '')
             : files + ' file(s) differ from this checkpoint' + (comparison.truncated ? ' · diff truncated' : '')));
-          const patch = el('pre', 'diff');
-          patch.textContent = comparison.patch || (step ? 'This step changed no files.' : 'The files match this checkpoint.');
-          box.appendChild(patch);
+          box.appendChild(diffBlock(comparison.patch, step ? 'This step changed no files.' : 'The files match this checkpoint.'));
         }
         if (checkpointResult && checkpointResult.checkpoint === cp.id && checkpointResult.result) {
           const result = checkpointResult.result;
@@ -2072,15 +2113,21 @@ function updateComposer() {
   pauseButton.textContent = pausing ? 'Pausing after this step…' : 'Pause';
   pauseButton.setAttribute('aria-label', pause ? (pausing ? 'Pausing after this step' : pause.label) : 'Pause');
   pauseButton.title = pause && pause.effect ? pause.effect : '';
+  // A message the view takes while the run works is saved for the next stage boundary (#3259): the
+  // stage this window drives does not hold it, and it continues nothing itself.
+  const live = Boolean(input && input.kind === 'message');
+  const messaging = Boolean(chatEnvelope.messaging);
   document.getElementById('send-message').hidden = Boolean(pause) && !input;
-  document.getElementById('send-message').disabled = chatEnvelope.busy || !allowed || (Boolean(pause) && !input) || !document.getElementById('message').value.trim();
+  document.getElementById('send-message').disabled = (chatEnvelope.busy && !live) || messaging || !allowed || (Boolean(pause) && !input) || !document.getElementById('message').value.trim();
   document.getElementById('send-message').textContent = 'Send ↑';
-  const label = input ? input.label + (input.kind === 'resolver_response' ? '' : ' and continue') : 'Send message';
+  const label = input ? input.label + (input.kind === 'resolver_response' || live ? '' : ' and continue') : 'Send message';
   document.getElementById('send-message').setAttribute('aria-label', label);
   document.getElementById('send-hint').textContent = chatEnvelope.state && chatEnvelope.state.confirming
     ? chatEnvelope.state.confirming + ' — answer the dialog that opened'
     : !chatEnvelope.selectedRun ? 'Message AutoCode'
     : unreadable ? 'Waiting for the status to read again. You can keep a draft here.'
+    : messaging ? 'Saving your message…'
+    : live ? 'AutoCode is working. A message you send now is read after the current step.'
     : pausing ? 'AutoCode pauses once this step is saved. You can keep a draft here.'
     : input ? (chatEnvelope.busy ? 'AutoCode is working on your last message. Keep your draft here and send it after.' : label)
     : (chatEnvelope.busy || (chatEnvelope.state && chatEnvelope.state.working)) ? 'AutoCode is working. You can keep a draft here.'

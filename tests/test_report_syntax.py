@@ -1,4 +1,4 @@
-"""A complete report's trailing commas need no model repair; admission stays independent."""
+"""A complete report's bounded syntax defects need no model repair; admission stays independent."""
 
 import hashlib
 import importlib
@@ -65,6 +65,69 @@ class SyntaxTests(unittest.TestCase):
                 self.assertIsNone(syntax.trailing_commas(raw))
 
 
+class StraySeparatorTests(unittest.TestCase):
+    """A duplicated separator between a nested object and the next key (Completion Reviewer, GLM 5.3)."""
+
+    REPORT = '{"validation":{"checks":[],"uncovered":[],"verdict":"PASS"},"status":"CONTINUE","task_id":"task-1"}'
+
+    def corrected(self, raw):
+        result = syntax.stray_object_separators(raw)
+        self.assertIsNotNone(result, raw)
+        value, offsets = result
+        self.assertEqual(value, json.loads("".join(c for i, c in enumerate(raw) if i not in offsets)))
+        return value, offsets
+
+    def test_both_observed_spellings_recover_the_same_report(self):
+        expected = json.loads(self.REPORT)
+        for raw in (
+            self.REPORT.replace('},"status"', '},","status"'),
+            self.REPORT.replace('},"status"', '},""status"'),
+            self.REPORT.replace('},"status"', '} , " , "status"'),
+        ):
+            with self.subTest(raw=raw):
+                value, offsets = self.corrected(raw)
+                self.assertEqual(expected, value)
+                self.assertTrue(all(raw[i] in ' ",' for i in offsets), offsets)
+
+    def test_the_correction_never_renames_a_key_or_alters_a_value(self):
+        value, _ = self.corrected(self.REPORT.replace('},"status"', '},","status"'))
+        self.assertEqual(["status", "task_id", "validation"], sorted(value))
+        self.assertEqual("PASS", value["validation"]["verdict"])
+        self.assertNotIn(",status", value)
+
+    def test_more_than_one_duplication_is_corrected_up_to_the_bound(self):
+        self.assertEqual(
+            {"a": {"n": 1}, "b": {"m": 2}, "c": 3}, self.corrected('{"a":{"n":1},","b":{"m":2},","c":3}')[0]
+        )
+
+        def duplicated(count):
+            return "{" + ",".join(f'"a{i}":{{"n":{i}}},","b{i}":{i}' for i in range(count)) + "}"
+
+        expected = {f"a{i}": {"n": i} for i in range(syntax.MAX_STRAY)}
+        expected |= {f"b{i}": i for i in range(syntax.MAX_STRAY)}
+        self.assertEqual(expected, self.corrected(duplicated(syntax.MAX_STRAY))[0])
+        self.assertIsNone(syntax.stray_object_separators(duplicated(syntax.MAX_STRAY + 1)))
+
+    def test_a_valid_report_or_an_unprovable_one_is_left_for_existing_repair(self):
+        for raw in (
+            self.REPORT,
+            '{"a":{},"b":1}',
+            '{"a":{},"":1}',
+            '{"a":{},",":1}',
+            '{"a":{"b":"},\\"x\\""},"c":1}',
+            '{"summary":"done" "checks":[]}',
+            '{"a":{},","}',
+            '{"summary":"unterminated,}',
+            'All evidence is in. {"a":{},","status":"CONTINUE"}',
+            '{"a":{},","' + "b" * syntax.MAX_REPORT_BYTES + '"}',
+        ):
+            with self.subTest(raw=raw[:48]):
+                self.assertIsNone(syntax.stray_object_separators(raw))
+
+    def test_a_correction_cannot_introduce_a_duplicate_key(self):
+        self.assertIsNone(syntax.stray_object_separators('{"a":{"n":1},","a":2}'))
+
+
 class LoaderTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -83,15 +146,24 @@ class LoaderTests(unittest.TestCase):
             persist=atomic_json,
         )
 
-    def assert_preserved(self, value, raw=None):
+    def assert_preserved(self, value, raw=None, kind="trailing_commas"):
         raw = self.raw if raw is None else raw
         self.assertEqual(value, read_object(self.output))
         self.assertEqual(raw.encode(), Path(self.record["response_text"]).read_bytes())
         receipt = self.record["syntax_corrections"]
-        self.assertEqual("trailing_commas", receipt["kind"])
+        self.assertEqual(kind, receipt["kind"])
         self.assertEqual(hashlib.sha256(raw.encode()).hexdigest(), receipt["source_sha256"])
         corrected = "".join(char for index, char in enumerate(raw) if index not in receipt["removed_offsets"])
         self.assertEqual(value, json.loads(corrected))
+
+    def test_a_duplicated_object_separator_keeps_its_exact_source_and_own_receipt(self):
+        self.raw = '{"summary":"keep failure","checks":{"last":{"exit_code":1}},","verdict":"FAIL"}'
+        self.output.write_text(self.raw)
+        value = self.load()
+        self.assertEqual("FAIL", value["verdict"])
+        self.assertEqual(1, value["checks"]["last"]["exit_code"])
+        self.assert_preserved(value, kind="stray_object_separators")
+        self.assertEqual(value, self.load(), "reloading the normalized report needs no new correction")
 
     def test_a_file_report_keeps_its_exact_source_and_failed_result(self):
         value = self.load()
@@ -212,3 +284,14 @@ class LoaderTests(unittest.TestCase):
             base.runner.load_stage_report(record)
         self.assertEqual('{"summary":false,}', Path(record["response_text"]).read_text())
         self.assertIn("syntax_corrections", record)
+
+    def test_a_corrected_separator_still_fails_the_ordinary_report_schema(self):
+        schema = self.root / "report.schema.json"
+        atomic_json(schema, {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]})
+        raw = '{"checks":{"last":{"exit_code":1}},","summary":false}'
+        self.output.write_text(raw)
+        record = {**self.record, "schema": str(schema), "stage": "review_completion"}
+        with self.assertRaisesRegex(ValueError, "string"):
+            base.runner.load_stage_report(record)
+        self.assertEqual(raw, Path(record["response_text"]).read_text())
+        self.assertEqual("stray_object_separators", record["syntax_corrections"]["kind"])

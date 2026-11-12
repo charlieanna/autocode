@@ -563,9 +563,11 @@ flags are `--reasoning-effort LEVEL` for every role and `--<role>-reasoning-effo
 for one (`--planner-reasoning-effort`, `--task-planner-reasoning-effort`, `--builder-reasoning-effort`,
 `--tester-reasoning-effort`, and the matching flag for the other jobs).
 
-A level from your [stage choices](#choosing-each-stages-model) is a ceiling for the Plan
-Reviewer, the Tester and the Completion Reviewer (owner decision 2026-11-05). Each launch
-of one of those reviews decides the level on its own, from the run's own records, and never asks you:
+A level from your [stage choices](#choosing-each-stages-model) is a ceiling for the Tester and
+the Completion Reviewer (owner decision 2026-11-05). The Plan Reviewer always runs at your level
+(owner decision 2026-11-11): a short request can draft a large plan, so its review is never the
+lighter one. Each launch of the Tester or Completion Reviewer decides the level on its own, from
+the run's own records, and never asks you:
 
 - On a small, clear task the review runs one level below your level, so high becomes
   medium. A task is small and clear when Requirements judged the request clear and the
@@ -575,16 +577,15 @@ of one of those reviews decides the level on its own, from the run's own records
   tool's own listing once, when it starts. GLM 5.3 offers low, high and max, so a GLM review stays at high
   rather than drop two levels, and so does a model whose levels the run cannot list.
 - A review that already ran for this task runs at your level: a rejected answer, a
-  send-back or a second look. So does a route that climbed the effort ladder, and the Plan
-  Reviewer of a run started with `--plan-review-full`.
+  send-back or a second look. So does a route that climbed the effort ladder.
 
 Each review launch records its decision on its stage record as `effort_choice`: the
 level, your ceiling, the reason, and the task's clarity, brief size and plan size. The
 status view's usage attempts carry it, `/details` in the terminal chat shows the level
 each attempt ran at, and the live log says when a review runs below your level. A level
 typed as a flag (`--tester-reasoning-effort`, `--reasoning-effort`) or given as an answer is
-exact. A level the runner chose keeps its own tiers: the Plan Reviewer's reduced depth for
-small clear briefs and the Builder's light first attempt (`autocode_light_builder`).
+exact. A level the runner chose keeps its own tier: the Builder's light first attempt
+(`autocode_light_builder`).
 
 A hard plan goes the other way (owner decision 2026-11-09): the Planner and the Plan Reviewer
 run one level above their level, on the same model, never another one. AutoCode decides it at

@@ -941,7 +941,10 @@ Not covered yet (#711):
   run, and the proof stays `UNVERIFIED`.
 - The Tester's acceptance tests, written before the Builder starts, run with the
   suite detected at the repository root, or with the suite of the package around
-  them when the root's cannot run them (above), even in a `--package` run.
+  them when the root's cannot run them (above), even in a `--package` run. Tests
+  in two projects run together: each file the root's suite cannot run goes to the
+  suite of the project around it, and each test is reported by the suite that ran
+  it. A file that no suite there runs is refused by name, never left out.
 - Diff coverage and the mutation report, which never change a verdict, are not
   narrowed to a package's commands and may be skipped.
 

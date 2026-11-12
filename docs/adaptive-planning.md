@@ -39,11 +39,10 @@ What does not change:
   and names the job (owner decision 2026-10-22, #1846, #1860). Until then a build
   request the Job recognizer judged `clear` went straight to the Planner; that skip
   is gone. While it names the job, Requirements also judges clarity by the
-  recognizer's rule. Clarity then skips nothing; it keeps a small clear brief on one
-  review allowance at the reduced Plan Reviewer effort (#1564), one rung below the configured
-  one and fitted to the variants the reviewer's model declares (GLM 5.3 declares `low`, `high`
-  and `max`, so a step from `high` lands on `high`, not `medium`; the move is recorded in
-  `effort_fits`, #2020). A build named with
+  recognizer's rule. Clarity then skips nothing in planning: every plan, however short the
+  request, gets the Plan Reviewer at its saved level and a review allowance per planning cycle
+  (owner decision 2026-11-11). Until then a small clear brief shared one allowance across cycles
+  at a reduced Plan Reviewer level (#1564); a run saved with that total keeps it. A build named with
   `--workflow build` still runs Requirements, and nobody judges its clarity.
 - The setting applies only to new runs. A saved run keeps the planning flow it
   was started with: resuming with `--adaptive-planning` a run that lacks it, or
@@ -108,11 +107,11 @@ planned; your feedback changes that plan. Three checks keep the shortcut safe:
 
 You still approve the revised plan.
 
-Your change is a new review round. A small clear brief otherwise shares one review
-allowance across its planning cycles (#1564), and before #3094 a revision you asked
-for inherited the spent allowance and paused for a raise before anyone reviewed it.
-Now the first cycle after your feedback gets a fresh allowance on top of the calls
-already charged, at the same reduced depth, and records `feedback_renewal` (the
+Your change is a new review round. Every planning cycle gets its own allowance. In a run
+saved while a small clear brief shared one allowance across its cycles (#1564, removed
+2026-11-11), before #3094 a revision you asked for inherited the spent allowance and paused
+for a raise before anyone reviewed it. In such a run the first cycle after your feedback gets
+a fresh allowance on top of the calls already charged, and records `feedback_renewal` (the
 feedback, the calls used and the allowance before and after) on the planning record.
 Usage is never erased. It happens once per piece of feedback; a restart inside the
 same revision carries the allowance as before. A total you chose with

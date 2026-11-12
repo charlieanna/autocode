@@ -46,6 +46,11 @@ TRUNCATED_REVIEW_STAGES = ("tester", "review_completion", "review_checkpoint", "
 REPAIR_INPUT_ROUTE = (
     " Resume with autocode resume to archive this repair (evidence retained) and start a fresh attempt of the stage."
 )
+# Bounded syntax corrections, each named in the receipt's ``kind``, tried in order.
+SYNTAX_CORRECTIONS = (
+    ("trailing_commas", report_syntax.trailing_commas),
+    ("stray_object_separators", report_syntax.stray_object_separators),
+)
 
 
 def _event_facade(record):
@@ -82,7 +87,12 @@ def syntax_report(record, error, *, persist):
         or any(record.get(key) for key in ("report_only", "truncated_output", "timed_out", "interrupted", "abandoned"))
     ):
         return None
-    corrected = report_syntax.trailing_commas(cause.doc)
+    kind = corrected = None
+    for name, correct in SYNTAX_CORRECTIONS:
+        corrected = correct(cause.doc)
+        if corrected is not None:
+            kind = name
+            break
     if corrected is None:
         return None
     output = Path(record["output"])
@@ -98,7 +108,7 @@ def syntax_report(record, error, *, persist):
     response.write_bytes(raw)
     record["response_text"] = str(response)
     record["syntax_corrections"] = {
-        "kind": "trailing_commas",
+        "kind": kind,
         "source_sha256": hashlib.sha256(raw).hexdigest(),
         "removed_offsets": offsets,
     }

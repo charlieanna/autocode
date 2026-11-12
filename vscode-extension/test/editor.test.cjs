@@ -25,6 +25,9 @@ const { engineOf, routeKeyOf, spendTarget, sanitizeRoutes, readSettings, applyEn
 let controller = new RunController(host.log);
 const run = { workspace: '/ws', runDir: '/ws/.autocode/runs/test' };
 const ok = { code: 0, stdout: '', stderr: '', rejected: false };
+/** What an AutoCode without the `worktrees` command answers: its main parser takes the word as the task. */
+const noPlaceList = { code: 2, stdout: '', rejected: true,
+  stderr: 'usage: autocode [TASK] [OPTIONS]\nautocode: error: unrecognized arguments: list. If this was the task, put all of it in quotes' };
 
 function totalTimeView(token = 'time:current') {
   return {
@@ -1256,7 +1259,7 @@ async function openChat(t, initial, selected = run, options = {}) {
     const stages = options.stages || (() => ({ ...ok, stdout: JSON.stringify({ version: 1, stages: [] }) }));
     // Where a new chat works: unless the case supplies a list, an AutoCode without one answers, so the
     // chat starts in the folder as it did before and no external `autocode worktrees` subprocess is raced.
-    const worktrees = options.worktrees || (() => ({ ...ok, code: 2, stdout: '', stderr: 'unknown command' }));
+    const worktrees = options.worktrees || (() => ({ ...noPlaceList }));
     // A copy loaded from TypeScript sources has read-only module namespaces: the mock cannot be
     // installed there, and the chat then reads the missing external `autocode` as unavailable.
     try {
@@ -2215,6 +2218,30 @@ test('a chat in the folder itself starts only once the person confirms the warni
   ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
   assert.equal(start.mock.callCount(), 1);
   assert.deepEqual(start.mock.calls[0].arguments[5], ['--in-place']);
+});
+
+test('a chat whose places could not be read does not start in the folder', async (t) => {
+  // Live run, 2026-11-12 (#3267): a second chat's place list failed while another run was busy, and the chat
+  // started with --in-place on the folder's own branch, without the confirmation that place requires.
+  let answer = () => ({ ...ok, code: 1, stderr: 'autocode did not answer within 60 s' });
+  const ui = await openChat(t, null, false, { worktrees: (argv) => answer(argv) });
+  ui.chat.show(); await flush(); await flush();
+  const note = () => ui.document.querySelector('#chat-place .chat-place-note').textContent;
+  assert.match(note(), /could not be read: autocode did not answer within 60 s/);
+  assert.doesNotMatch(note(), /works in your folder/);
+  const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
+  ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
+  assert.equal(start.mock.callCount(), 0, 'nothing starts, least of all in the folder');
+  assert.match(ui.document.querySelector('#chat-error').textContent, /could not be read, so it was not started: autocode did not answer/);
+  // A refusal by the command itself is not an AutoCode without the command either.
+  answer = () => ({ ...ok, code: 2, rejected: true, stderr: 'usage: autocode worktrees list [-h]\nautocode worktrees list: error: unrecognized arguments: --x' });
+  ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
+  assert.equal(start.mock.callCount(), 0);
+  // Once the list answers, the same message starts on a branch of its own.
+  answer = () => worktreeList();
+  ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
+  assert.equal(start.mock.callCount(), 1);
+  assert.deepEqual(start.mock.calls[0].arguments[5], ['--build-in-worktree']);
 });
 
 test('listing where a chat works is bounded like the stages list', async (t) => {
@@ -4314,6 +4341,68 @@ test('Pause stays beside Send when the working run also takes a message (#1598)'
   assert.equal(ui.document.querySelector('#send-message').hidden, false);
 });
 
+// #3259: while a stage ran, Send stayed disabled for the whole stage (this chat held the run busy), and
+// the view's own `message` offer was refused even once it was not. A message is saved for the next
+// boundary at once, beside the running stage, and starts nothing itself.
+function liveMessageView(extra = {}) {
+  return { ...pauseView(), chat: { context: 'live-1', phase: 'requirements',
+    messages: [{ id: 'u1', role: 'user', text: 'Add farewell' }],
+    input: { kind: 'message', label: 'Send message',
+      next_command: `autocode intervention submit --workspace ${run.workspace} --run-dir ${run.runDir} --request-id REQUEST_ID --kind message --text MESSAGE --json` } },
+  ...extra };
+}
+
+test('a message typed while this chat\'s own stage runs is saved for the next boundary (#3259)', async (t) => {
+  host.config.set('confirmPersonOnly', false);
+  const idle = { status: 'RUNNING', done: false, liveness: { kind: 'unknown' }, needs: { kind: 'continue' },
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}` };
+  const ui = await openChat(t, idle);
+  const stage = t.mock.method(cli, 'stream', () => new Promise(() => {}));
+  ui.document.querySelector('#take-action').click();
+  await flush();
+  await ui.poll(liveMessageView());
+  const send = () => ui.document.querySelector('#send-message');
+  ui.type('Also strip whitespace');
+  assert.equal(send().hidden, false);
+  assert.equal(send().disabled, false, 'the stage this chat drives does not hold the message');
+  assert.equal(send().getAttribute('aria-label'), 'Send message', 'a saved message continues nothing itself');
+  assert.match(ui.document.querySelector('#send-hint').textContent, /read after the current step/);
+  const submit = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: '{"accepted": true, "operation": "submit"}' }));
+  ui.submit(); ui.submit();
+  await flush(); await flush(); await flush();
+  const sends = submit.mock.calls.map((call) => call.arguments[1]).filter((argv) => argv[0] === 'intervention');
+  assert.equal(sends.length, 1, 'a second Enter while saving is ignored');
+  const argv = sends[0];
+  assert.deepEqual(argv.slice(0, 6), ['intervention', 'submit', '--workspace', run.workspace, '--run-dir', run.runDir]);
+  assert.match(argv[7], /^message-[0-9a-f]{16}$/, 'each message gets its own request id');
+  assert.deepEqual([argv[6], ...argv.slice(8)], ['--request-id', '--kind', 'message', '--text', 'Also strip whitespace', '--json']);
+  assert.equal(ui.document.querySelector('#message').value, '', 'the saved message leaves the composer');
+  assert.equal(stage.mock.callCount(), 1, 'no second stage was started for the message');
+  assert.equal(ui.document.querySelector('#chat-error').textContent, '');
+});
+
+test('a live message runs only the exact named grammar, and a refusal keeps the draft (#3259)', async (t) => {
+  const changed = liveMessageView();
+  changed.chat.input.next_command = changed.chat.input.next_command.replace('--kind message', '--kind feedback');
+  const ui = await openChat(t, changed);
+  // One mock only, its answer switched by this flag: stacked t.mock.method layers on the same
+  // function restore in creation order, leaving the second-to-last mock live in the next test.
+  let accepted = true;
+  const submit = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({ accepted }) }));
+  ui.type('Also strip whitespace');
+  ui.submit();
+  await flush(); await flush();
+  assert.equal(submit.mock.calls.filter((call) => call.arguments[1][0] === 'intervention').length, 0);
+  assert.match(ui.document.querySelector('#chat-error').textContent, /Unsupported live message action/);
+  assert.equal(ui.document.querySelector('#message').value, 'Also strip whitespace');
+  await ui.poll(liveMessageView());
+  accepted = false;
+  ui.submit();
+  await flush(); await flush();
+  assert.match(ui.document.querySelector('#chat-error').textContent, /did not save the message/);
+  assert.equal(ui.document.querySelector('#message').value, 'Also strip whitespace', 'an unsaved message stays to send again');
+});
+
 test('Pause refuses a command the view did not name in the exact pause grammar (#1598)', async (t) => {
   const changed = pauseView();
   changed.pause.next_command = changed.pause.next_command.map((word) => (word === 'pause' ? 'stop' : word));
@@ -6378,6 +6467,70 @@ test('a long saved-code comparison is bounded and scrolls like the working diff'
   const compared = saved.document.querySelector('#app pre.diff');
   assert.ok(compared, 'a saved-code comparison is marked as a diff');
   assert.ok(compared.textContent.includes('+line 499'));
+});
+
+// A patch inherited the generic pre's break-all, which is for unspaced JSON and command blobs:
+// it broke diff lines mid-identifier and mid-indentation, so the code could not be read.
+test('a rendered diff wraps at words instead of breaking mid-token', () => {
+  const rule = /pre\.diff\s*\{([^}]*)\}/.exec(panelHtml(true))[1];
+  assert.match(rule, /word-break:\s*normal/, 'a patch line is not broken at an arbitrary character');
+  assert.match(rule, /overflow-wrap:\s*break-word/, 'a token too long for the sidebar still splits rather than stretching the thread');
+});
+
+// A rendered patch was one grey monospace block: its added and removed lines were told apart only
+// by their first character, and the ---/+++ headers that introduce a file were indistinguishable
+// from a removed and an added line.
+const COLOR_PATCH = [
+  'diff --checkpoint greet.py',
+  '--- checkpoint/greet.py',
+  '+++ current/greet.py',
+  '@@ -1,2 +1,3 @@',
+  ' import sys',
+  '-print(1)',
+  '+print(2)',
+  '+print(3)',
+].join('\n');
+
+/** The block's runs of like lines: each run's kind and its text. */
+function diffRuns(pre) {
+  return [...pre.children].map((span) => [span.className, span.textContent]);
+}
+
+test('the working diff colors each kind of patch line', async (t) => {
+  const working = ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--working'];
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    code_checkpoints: { rows: [], working: { id: 'working', label: 'Show what the Builder has changed so far', next_command: working } },
+    chat: { phase: null, context: 'live-step', input: null, messages: [], progress: ['Builder working'], activity: [] } };
+  const ui = await openChat(t, value);
+  t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({ since: 'start',
+    changed_files: ['greet.py'], patch: COLOR_PATCH, truncated: false }) }));
+  ui.document.querySelector('#working-diff').click();
+  await flush();
+  const live = ui.document.querySelector('#app pre.diff');
+  assert.equal(live.textContent, COLOR_PATCH, 'coloring leaves the patch the core sent unchanged');
+  assert.deepEqual(diffRuns(live), [
+    ['file', 'diff --checkpoint greet.py\n--- checkpoint/greet.py\n+++ current/greet.py'],
+    ['hunk', '@@ -1,2 +1,3 @@'],
+    ['', ' import sys'],
+    ['del', '-print(1)'],
+    ['add', '+print(2)\n+print(3)'],
+  ], 'each kind of line is named, and a file header is not a removed line');
+  const html = panelHtml(true);
+  assert.ok(/pre\.diff \.add\s*\{/.test(html), 'the stylesheet colors an added line');
+  assert.ok(/pre\.diff \.del\s*\{/.test(html), 'the stylesheet colors a removed line');
+});
+
+test('a saved-code comparison colors its patch like the working diff', async (t) => {
+  const saved = await openChat(t, checkpointView());
+  t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({ checkpoint_id: 'cp-1',
+    changed_files: ['greet.py'], patch: COLOR_PATCH, truncated: false }) }));
+  saved.document.querySelector('[data-checkpoint-action="compare"]').click();
+  await flush(); await flush();
+  const compared = saved.document.querySelector('#app pre.diff');
+  assert.equal(compared.textContent, COLOR_PATCH, 'coloring leaves the patch the core sent unchanged');
+  assert.deepEqual(diffRuns(compared).map((row) => row[0]), ['file', 'hunk', '', 'del', 'add'],
+    'the other diff the client renders is colored too');
 });
 // The spend confirmation reads as a sentence whether the provider is named or the default (#1541 follow-up).
 test('the spend confirmation says "its default provider" instead of quoting the phrase', async (t) => {

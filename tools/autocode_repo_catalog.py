@@ -1,8 +1,10 @@
 """Shared, explicitly authorized source roots for cross-repository discovery.
 
-This catalog contains repository pointers only. It does not clone, edit or run
-code in discovered repositories. The owning coordination service pins selected
-identities and revisions before it can create task worktrees.
+This catalog contains repository pointers only. It does not edit or run code in
+discovered repositories. The person-confirmed `registry remotes clone` command
+brings one operator-allowlisted GitHub repository into the managed `clones/`
+folder beneath the catalog storage root. The owning coordination service pins
+selected identities and revisions before it can create task worktrees.
 """
 
 from __future__ import annotations
@@ -10,7 +12,10 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
+import shutil
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -24,6 +29,12 @@ except ImportError:
 CATALOG_NAME = "source-catalog.json"
 CATALOG_VERSION = 1
 MAX_DEPTH = 8
+# Managed clones of operator-allowlisted GitHub remotes live under this folder
+# in the catalog storage root; only `registry remotes clone` creates one.
+MANAGED_CLONES = "clones"
+# A clone is a bounded network operation, unlike the local inspection below.
+CLONE_TIMEOUT = 600
+_OWNER_NAME_SEGMENT = re.compile(r"[A-Za-z0-9._-]+")
 DIRECTORY_BUDGET = 20_000
 EXCLUDED_DIRECTORIES = {".git", ".autocode", ".autocode-ui", "node_modules", "vendor", ".venv", "venv"}
 # A checkout or directory below a configured root that cannot be read holds
@@ -57,7 +68,7 @@ def catalog_path() -> Path:
 
 
 def _empty() -> dict[str, Any]:
-    return {"version": CATALOG_VERSION, "roots": [], "repositories": []}
+    return {"version": CATALOG_VERSION, "roots": [], "repositories": [], "remotes": []}
 
 
 def _read() -> dict[str, Any]:
@@ -73,8 +84,12 @@ def _read() -> dict[str, Any]:
         or value.get("version") != CATALOG_VERSION
         or not isinstance(value.get("roots"), list)
         or not isinstance(value.get("repositories"), list)
+        or ("remotes" in value and not isinstance(value.get("remotes"), list))
     ):
         raise CatalogError("Source catalog has an unsupported version or shape")
+    # A catalog saved before the remote allowlist existed has no `remotes` key;
+    # it loads as an empty allowlist and keeps every existing command working.
+    value.setdefault("remotes", [])
     return value
 
 
@@ -160,19 +175,28 @@ def list_roots() -> dict[str, Any]:
     }
 
 
-def _git(path: Path, *args: str) -> str:
+def _git_environment() -> dict[str, str]:
+    """Git's own environment: no inherited GIT_* redirection, no terminal prompts.
+
+    Credentials come from Git's own credential helper or gh; this catalog never
+    stores or passes a token.
+    """
     environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     environment["GIT_TERMINAL_PROMPT"] = "0"
+    return environment
+
+
+def _git(path: Path, *args: str, timeout: float = 30) -> str:
     result = subprocess.run(
-        ["git", "-C", str(path), *args], env=environment, capture_output=True, text=True, timeout=30
+        ["git", "-C", str(path), *args], env=_git_environment(), capture_output=True, text=True, timeout=timeout
     )
     if result.returncode:
         raise CatalogError(result.stderr.strip()[-1000:] or "Git repository inspection failed")
     return result.stdout.strip()
 
 
-def add_repository(path: str | Path) -> dict[str, Any]:
-    """Authorize one committed repository outside recursive source roots."""
+def _repository_row(path: str | Path) -> dict[str, Any]:
+    """The standalone-repository record for one committed Git repository root."""
     root = _canonical_directory(path)
     try:
         git_root = Path(_git(root, "rev-parse", "--show-toplevel")).resolve()
@@ -182,32 +206,56 @@ def add_repository(path: str | Path) -> dict[str, Any]:
         raise CatalogError(f"Standalone source must be a committed Git repository: {error}") from error
     if root != git_root:
         raise CatalogError(f"Standalone source must be the Git repository root: {git_root}")
-    row = {"path": str(root), "git_common_dir": str(common), "head": head}
+    return {"path": str(root), "git_common_dir": str(common), "head": head}
+
+
+def _insert_repository(document: dict[str, Any], row: dict[str, Any]) -> bool:
+    known = {item.get("git_common_dir") for item in document["repositories"] if isinstance(item, dict)}
+    if row["git_common_dir"] in known:
+        return False
+    document["repositories"].append(row)
+    document["repositories"].sort(key=lambda item: item["path"])
+    return True
+
+
+def add_repository(path: str | Path) -> dict[str, Any]:
+    """Authorize one committed repository outside recursive source roots."""
+    row = _repository_row(path)
     with _locked():
         document = _read()
-        known = {item.get("git_common_dir") for item in document["repositories"] if isinstance(item, dict)}
-        if str(common) not in known:
-            document["repositories"].append(row)
-            document["repositories"].sort(key=lambda item: item["path"])
+        inserted = _insert_repository(document, row)
+        if inserted:
             _save(document)
-    return {"operation": "repository-add", **row, "already_registered": str(common) in known}
+    return {"operation": "repository-add", **row, "already_registered": not inserted}
 
 
 def remove_repository(path: str | Path) -> dict[str, Any]:
     """Remove one explicitly registered standalone repository."""
-    root = _canonical_directory(path)
+    # As with remove_root, removal must remain possible after the checkout has disappeared: a dead entry
+    # leaves discovery incomplete for every chat (#3266). A checkout Git can still read is matched by its
+    # Git identity; otherwise by the path add_repository recorded.
     try:
-        common = Path(_git(root, "rev-parse", "--path-format=absolute", "--git-common-dir")).resolve()
-    except (OSError, subprocess.SubprocessError, CatalogError) as error:
-        raise CatalogError(f"Standalone source is not a readable Git repository: {error}") from error
+        root = Path(path).expanduser().resolve(strict=False)
+    except (OSError, RuntimeError) as error:
+        raise CatalogError(f"Source location cannot be resolved: {error}") from error
+    common, unreadable = None, None
+    if root.is_dir():
+        try:
+            common = str(Path(_git(root, "rev-parse", "--path-format=absolute", "--git-common-dir")).resolve())
+        except (OSError, subprocess.SubprocessError, CatalogError) as error:
+            unreadable = error
     with _locked():
         document = _read()
-        before = len(document["repositories"])
-        document["repositories"] = [row for row in document["repositories"] if row.get("git_common_dir") != str(common)]
-        removed = before != len(document["repositories"])
-        if removed:
+        key, wanted = ("git_common_dir", common) if common is not None else ("path", str(root))
+        dropped = [row for row in document["repositories"] if row.get(key) == wanted]
+        if dropped:
+            document["repositories"] = [row for row in document["repositories"] if row.get(key) != wanted]
             _save(document)
-    return {"operation": "repository-remove", "git_common_dir": str(common), "removed": removed}
+    if not dropped and unreadable is not None:
+        raise CatalogError(f"Standalone source is not a readable Git repository: {unreadable}") from unreadable
+    if common is None and dropped:
+        common = dropped[0].get("git_common_dir")
+    return {"operation": "repository-remove", "git_common_dir": common, "removed": bool(dropped)}
 
 
 def _remote(path: Path) -> str | None:
@@ -444,6 +492,183 @@ def not_searched(discovery: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _owner_name(value: str) -> str:
+    """One GitHub OWNER/NAME pair; nothing else may name a remote or a managed clone."""
+    parts = value.split("/") if isinstance(value, str) else []
+    if len(parts) != 2 or any(part in ("", ".", "..") or not _OWNER_NAME_SEGMENT.fullmatch(part) for part in parts):
+        raise CatalogError(f"Remote must be one OWNER/NAME pair of letters, digits, '.', '_' and '-': {value!r}")
+    return value
+
+
+def _github_url(name: str) -> str:
+    return f"https://github.com/{name}.git"
+
+
+def _remote_entry(document: dict[str, Any], name: str) -> dict[str, Any] | None:
+    return next((row for row in document["remotes"] if isinstance(row, dict) and row.get("name") == name), None)
+
+
+def _remote_row(entry: dict[str, Any]) -> dict[str, Any]:
+    name = entry.get("name")
+    path = entry.get("path") or None
+    pinned = entry.get("pinned_commit") or None
+    return {
+        "name": name,
+        "url": _github_url(name),
+        "ref": entry.get("ref"),
+        "cloned": bool(path and pinned),
+        "path": path,
+        "pinned_commit": pinned,
+    }
+
+
+def add_remote(name: str, ref: str) -> dict[str, Any]:
+    """List one GitHub repository on the operator-approved remote allowlist.
+
+    Re-adding an already-listed OWNER/NAME replaces its stored ref; only these
+    `registry remotes` commands change the allowlist.
+    """
+    selected = _owner_name(name)
+    if not isinstance(ref, str) or not ref.strip():
+        raise CatalogError("Remote ref is required")
+    with _locked():
+        document = _read()
+        entries = document["remotes"]
+        row = _remote_entry(document, selected)
+        already_registered = row is not None
+        if row is None:
+            row = {"name": selected}
+            entries.append(row)
+        row["ref"] = ref
+        entries.sort(key=lambda item: str(item.get("name")) if isinstance(item, dict) else "")
+        _save(document)
+    return {
+        "operation": "remotes-add",
+        "name": selected,
+        "url": _github_url(selected),
+        "ref": ref,
+        "already_registered": already_registered,
+    }
+
+
+def remove_remote(name: str) -> dict[str, Any]:
+    """Drop only the allowlist entry; a managed clone stays on disk and registered."""
+    with _locked():
+        document = _read()
+        before = len(document["remotes"])
+        document["remotes"] = [
+            row for row in document["remotes"] if not isinstance(row, dict) or row.get("name") != name
+        ]
+        removed = len(document["remotes"]) != before
+        if removed:
+            _save(document)
+    return {"operation": "remotes-remove", "name": name, "removed": removed}
+
+
+def list_remotes() -> dict[str, Any]:
+    """List the operator-approved remote allowlist and what is already cloned."""
+    document = _read()
+    entries = sorted(
+        (row for row in document["remotes"] if isinstance(row, dict)), key=lambda row: str(row.get("name"))
+    )
+    return {
+        "operation": "remotes-list",
+        "catalog": str(catalog_path()),
+        "remotes": [_remote_row(row) for row in entries],
+    }
+
+
+def _verifiable_managed_clone(path: Path, url: str) -> bool:
+    """A managed folder the person already made: a Git repository whose origin is the allowlisted URL."""
+    try:
+        top = Path(_git(path, "rev-parse", "--show-toplevel")).resolve()
+    except (OSError, subprocess.SubprocessError, CatalogError):
+        return False
+    return top == path.resolve() and _remote(top) == _normalize_remote(url)
+
+
+def _git_clone(url: str, destination: Path, ref: str) -> None:
+    try:
+        result = subprocess.run(
+            ["git", "clone", "--branch", ref, "--single-branch", "--", url, str(destination)],
+            env=_git_environment(),
+            capture_output=True,
+            text=True,
+            timeout=CLONE_TIMEOUT,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise CatalogError(f"Git clone failed: {error}") from error
+    if result.returncode:
+        raise CatalogError(result.stderr.strip()[-1000:] or "Git clone failed")
+
+
+def _record_managed_clone(selected: str, row: dict[str, Any], ref: Any) -> dict[str, Any]:
+    """Register the managed clone as a standalone repository and pin its resolved commit."""
+    with _locked():
+        document = _read()
+        entry = _remote_entry(document, selected)
+        if entry is None:
+            raise CatalogError(f"Remote {selected} is not on the operator-approved allowlist")
+        _insert_repository(document, row)
+        entry["path"] = row["path"]
+        entry["pinned_commit"] = row["head"]
+        _save(document)
+    return {
+        "operation": "remotes-clone",
+        "name": selected,
+        "url": _github_url(selected),
+        "ref": ref,
+        "path": row["path"],
+        "pinned_commit": row["head"],
+    }
+
+
+def clone_remote(name: str) -> dict[str, Any]:
+    """The person's confirmation to bring one allowlisted GitHub repository onto disk."""
+    selected = _owner_name(name)
+    url = _github_url(selected)
+    entry = _remote_entry(_read(), selected)
+    if entry is None:
+        raise CatalogError(f"Remote {selected} is not on the operator-approved allowlist")
+    ref = entry.get("ref")
+    target = storage_root() / MANAGED_CLONES / Path(*selected.split("/"))
+    if target.is_dir():
+        if entry.get("path") and entry.get("pinned_commit"):
+            return {
+                "operation": "remotes-clone",
+                "name": selected,
+                "url": url,
+                "ref": ref,
+                "already_cloned": True,
+                "path": entry.get("path"),
+                "pinned_commit": entry.get("pinned_commit"),
+            }
+        if not _verifiable_managed_clone(target, url):
+            raise CatalogError(f"Managed folder {target} already exists and is not a verifiable clone of {url}")
+        return {"already_cloned": True, **_record_managed_clone(selected, _repository_row(target), ref)}
+    root = storage_root()
+    root.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix="remote-clone-", dir=root))
+    moved = False
+    try:
+        try:
+            _git_clone(url, staging, ref)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            # A rename, never a move: a managed folder another clone finished meanwhile is refused
+            # here, where a move would nest this clone inside it and the cleanup below would delete it.
+            os.rename(staging, target)
+        except (OSError, subprocess.SubprocessError) as error:
+            raise CatalogError(f"Git clone failed: {error}") from error
+        moved = True
+        report = _record_managed_clone(selected, _repository_row(target), ref)
+    except BaseException:
+        # Cleanup removes only directories this attempt created, never a
+        # managed folder that already existed.
+        shutil.rmtree(target if moved else staging, ignore_errors=True)
+        raise
+    return {"already_cloned": False, **report}
+
+
 def _digest(value: Any) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
     import hashlib
@@ -460,6 +685,8 @@ def cli(argv: list[str]) -> int:
 
     if argv and argv[0] == "repositories":
         return repository_cli(argv[1:])
+    if argv and argv[0] == "remotes":
+        return remote_cli(argv[1:])
     parser = argparse.ArgumentParser(prog="autocode registry roots")
     commands = parser.add_subparsers(dest="operation", required=True)
     add = commands.add_parser("add")
@@ -510,6 +737,37 @@ def repository_cli(argv: list[str]) -> int:
             value = remove_repository(args.path)
         else:
             value = list_roots()
+    except CatalogError as error:
+        print(json.dumps({"error": {"code": "source_catalog_error", "message": str(error)}}, indent=2))
+        return 2
+    print(json.dumps(value, indent=2, sort_keys=True))
+    return 0
+
+
+def remote_cli(argv: list[str]) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="autocode registry remotes")
+    commands = parser.add_subparsers(dest="operation", required=True)
+    add = commands.add_parser("add", help="List one GitHub repository on the operator-approved allowlist")
+    add.add_argument("name", help="The GitHub OWNER/NAME pair")
+    add.add_argument("--ref", required=True, help="The branch or ref a later clone checks out")
+    remove = commands.add_parser("remove", help="Drop only the allowlist entry; a managed clone stays on disk")
+    remove.add_argument("name", help="The GitHub OWNER/NAME pair")
+    listing = commands.add_parser("list", help="List the allowlist and what is already cloned")
+    listing.add_argument("--json", action="store_true")
+    clone = commands.add_parser("clone", help="The person's confirmation to clone one allowlisted repository")
+    clone.add_argument("name", help="The GitHub OWNER/NAME pair")
+    args = parser.parse_args(argv)
+    try:
+        if args.operation == "add":
+            value = add_remote(args.name, args.ref)
+        elif args.operation == "remove":
+            value = remove_remote(args.name)
+        elif args.operation == "clone":
+            value = clone_remote(args.name)
+        else:
+            value = list_remotes()
     except CatalogError as error:
         print(json.dumps({"error": {"code": "source_catalog_error", "message": str(error)}}, indent=2))
         return 2
