@@ -120,7 +120,7 @@ function historicalUsageDisplay(usage?: Usage | null): UsageDisplay {
   result.details.push(
     { label: "Provider-reported cost", value: displayQuantity(reported, true) },
     { label: "Historical cost estimate", value: displayQuantity(estimated, true) },
-    { label: "Cost basis", value: "Reported cost and historical estimates are separate. Estimates use the core’s comparison rates, not current prices or your token-plan bill." },
+    { label: "Cost basis", value: "Reported cost and historical estimates are separate. Estimates use the core’s comparison rates, which price every input token at the full input rate even when it was a cheaper cache read, so they run higher than the cost counted toward the cap. They are not current prices or your token-plan bill." },
   );
   if (!accounting && legacyPartial) result.details.push({ label: "Coverage", value: "Saved-stage usage only; active, interrupted or unreported usage may be missing." });
   if (accounting?.parallel_workers_pending?.length) result.details.push({ label: "Coverage", value: "Parallel workers are still pending; these totals do not include all live worker usage." });

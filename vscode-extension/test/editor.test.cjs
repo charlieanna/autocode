@@ -1587,7 +1587,7 @@ function headerView(extra = {}) {
     ],
     recoveries: [{ id: 'r1', at: '2026-11-02T05:33:44+00:00', headline: 'Builder sent back', problem: 'A test failed', action: 'It tried again.' }],
     run_metrics: { schema: 1, spent_usd: 2.5, complete: true, by_job: [{ job: 'Builder', attempts: 1, spent_usd: 2.5, complete: true, share: 1 }],
-      tokens: {}, waste: {}, single_model: { builder_usd: 2.5, builder_share: 1, checking_usd: 0, produced: {} } },
+      tokens: {}, waste: {}, single_model: { builder_usd: 2.5, builder_share: 1, checking_usd: 0, planning_usd: 0, review_usd: 0, planning_share: 0, review_share: 0, produced: {} } },
     ...extra };
 }
 

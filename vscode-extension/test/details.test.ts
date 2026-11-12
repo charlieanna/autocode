@@ -142,8 +142,9 @@ test("what went wrong lists every recovery with what AutoCode did, as /why does"
 
 test("spend restates run_metrics as /spend does, and says nothing before anything is spent", () => {
   const header = runHeader(view({ run_metrics: METRICS }))!;
-  assert.equal(spendSummary(view({ run_metrics: METRICS })), "Builder 60% · checking 40%");
-  assert.ok(header.facts.includes("Builder 60% · checking 40%"));
+  // METRICS has no planning split, as an older core's view: the rest is "everything else", not "checking" (#3268).
+  assert.equal(spendSummary(view({ run_metrics: METRICS })), "Builder 60% · everything else 40%");
+  assert.ok(header.facts.includes("Builder 60% · everything else 40%"));
   assert.deepEqual(section(header, "spend")!.lines, [
     "Where the money went: $2.50",
     "  Builder $1.50 · 60%, 2 runs",
@@ -163,6 +164,17 @@ test("spend restates run_metrics as /spend does, and says nothing before anythin
   assert.equal(section(runHeader(view()), "spend"), undefined);
   assert.equal(spendSummary(view({ run_metrics: { ...METRICS, schema: 2 } })), null, "an unknown schema is not guessed at");
   assert.deepEqual(runHeader(view())!.facts, []);
+});
+
+test("spend names planning apart from the checking after it (#3268)", () => {
+  // The #2066 run read "Builder 18% · checking 82%", though Requirements and the Planner were $2.1 of $3.1.
+  const split = { ...METRICS, single_model: { ...METRICS.single_model, builder_usd: 0.56, builder_share: 0.18,
+    checking_usd: 2.54, planning_usd: 2.1, review_usd: 0.44, planning_share: 0.68, review_share: 0.14 } };
+  assert.equal(spendSummary(view({ run_metrics: split })), "Builder 18% · planning 68% · checking 14%");
+  assert.ok(section(runHeader(view({ run_metrics: split }))!, "spend")!.lines
+    .includes("  Builder $0.56 (18%); planning $2.10; checking $0.44"));
+  const noPlanning = { ...split, single_model: { ...split.single_model, planning_usd: 0, planning_share: 0, review_usd: 2.54, review_share: 0.82 } };
+  assert.equal(spendSummary(view({ run_metrics: noPlanning })), "Builder 18% · checking 82%", "no planning spend, no planning part");
 });
 
 test("verification shows once the run has finished, from the core's own gate", () => {

@@ -156,12 +156,34 @@ class RunMetricsTests(unittest.TestCase):
             single["produced"],
         )
 
+    def test_planning_is_named_apart_from_the_checking_after_it(self):
+        # #3268: "Builder 18% · checking 82%" counted Requirements and the Planner ($2.1 of $3.1) as checking.
+        planned = view()
+        planned["cost"]["breakdown"]["by_stage"] += [
+            stage("requirements_gather", "Requirements", 0.4),
+            stage("draft_plan", "Planner", 1.2),
+            stage("review_plan", "Plan Reviewer", 0.4),
+        ]
+        planned["cost"]["spent_usd"] = 4.0
+        single = run_metrics.project(planned)["single_model"]
+        self.assertEqual((0.5, 3.5), (single["builder_usd"], single["checking_usd"]))
+        self.assertEqual((2.0, 1.5), (single["planning_usd"], single["review_usd"]))
+        self.assertEqual((0.5, 0.375), (single["planning_share"], single["review_share"]))
+        planned["run_metrics"] = run_metrics.project(planned)
+        self.assertEqual("Builder 12% · planning 50% · checking 38%", spend.compact(planned)[0])
+        self.assertIn("  Builder $0.50 (12%); planning $2.00; checking $1.50", spend.details(planned).splitlines())
+
+    def test_a_view_from_an_older_core_says_everything_else_not_checking(self):
+        older = {"run_metrics": {"schema": 1, "spent_usd": 2.0, "by_job": [], "single_model": {"builder_share": 0.25}}}
+        self.assertEqual("Builder 25% · everything else 75%", spend.compact(older)[0])
+
     def test_a_run_with_no_builder_yet_has_no_stand_in(self):
         early = view()
         early["cost"]["breakdown"]["by_stage"] = [stage("requirements_gather", "Requirements", 0.1)]
         early["cost"]["spent_usd"] = 0.1
         single = run_metrics.project(early)["single_model"]
         self.assertEqual((None, None, None), (single["builder_usd"], single["builder_share"], single["checking_usd"]))
+        self.assertEqual((None, None), (single["planning_usd"], single["review_usd"]))
 
     def test_budget_exhausted_mutants_do_not_inflate_the_reported_work(self):
         partial = view()
@@ -223,7 +245,7 @@ class SpendDisplayTests(unittest.TestCase):
             "Where the money went: $2.00",
             "  Tokens: input 1.0k, new 100, cache write 200, cache read 700, output 50",
             "  Report repairs $0.10",
-            "  Builder $0.50 (25%); planning and checking $1.50",
+            "  Builder $0.50 (25%); planning $0.00; checking $1.50",
             "  What that bought: 3/3 criteria accepted; 2 tests fail before, pass after; 1 check rerun clean; "
             "1/2 broken lines caught; 1 blocking review finding; 1 problem handled",
         ):

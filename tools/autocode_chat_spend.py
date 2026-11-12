@@ -105,6 +105,15 @@ def _checked(produced: dict) -> list[str]:
     return parts
 
 
+def share_line(single: dict) -> str:
+    """The Builder's share beside planning and checking (#3268); "everything else" from an older core."""
+    builder = f"Builder {_percent(single['builder_share'])}"
+    planning, review = single.get("planning_share"), single.get("review_share")
+    if not (_number(planning) and _number(review)):
+        return f"{builder} · everything else {_percent(1 - single['builder_share'])}"
+    return builder + (f" · planning {_percent(planning)}" if planning else "") + f" · checking {_percent(review)}"
+
+
 def compact(view: dict | None) -> tuple[str, list[str]] | None:
     """The side panel's Spend section: the Builder's share, the costliest jobs, cache use and waste."""
     metrics = _metrics(view)
@@ -112,7 +121,7 @@ def compact(view: dict | None) -> tuple[str, list[str]] | None:
         return None
     single = _mapping(metrics.get("single_model"))
     if _number(single.get("builder_share")):
-        summary = f"Builder {_percent(single['builder_share'])} · checking {_percent(1 - single['builder_share'])}"
+        summary = share_line(single)
     else:
         summary = f"{_money(metrics.get('spent_usd'))} across {len(_rows(metrics.get('by_job')))} jobs"
     entries = [_job_line(row) for row in _rows(metrics.get("by_job"))[:TOP_JOBS] if _number(row.get("spent_usd"))]
@@ -153,7 +162,11 @@ def details(view: dict | None) -> str:
     lines.append("Compared with one model building it alone")
     lines.append(
         f"  Builder {_money(single.get('builder_usd'))} ({_percent(single.get('builder_share'))}); "
-        f"planning and checking {_money(single.get('checking_usd'))}"
+        + (
+            f"planning {_money(single['planning_usd'])}; checking {_money(single.get('review_usd'))}"
+            if _number(single.get("planning_usd"))
+            else f"planning and checking {_money(single.get('checking_usd'))}"
+        )
     )
     checked = _checked(_mapping(single.get("produced")))
     lines.append("  What that bought: " + ("; ".join(checked) if checked else "nothing recorded yet"))

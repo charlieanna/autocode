@@ -23,6 +23,9 @@ import math
 
 SCHEMA = 1
 BUILDER_STAGE = "builder"
+# The jobs that decide what to build, named apart from the checking after it (#3268): "checking 82%"
+# once counted Requirements and the Planner too.
+PLANNING_JOBS = frozenset({"Requirements", "Planner", "Plan Reviewer"})
 BASIS = (
     "The Builder's spend stands in for one model doing the task alone; "
     "it is not a measured single-model run of this task"
@@ -183,6 +186,12 @@ def project(view: dict) -> dict:
         if row.get("stage") == BUILDER_STAGE
     ]
     builder_usd = round(sum(amount for amount in builder if amount is not None), 6) if builder else None
+    checking_usd = round(total - builder_usd, 6) if total is not None and builder_usd is not None else None
+    planning_usd = (
+        round(sum(row["spent_usd"] for row in by_job if row["job"] in PLANNING_JOBS), 6)
+        if checking_usd is not None
+        else None
+    )
     return {
         "schema": SCHEMA,
         "spent_usd": total,
@@ -193,7 +202,12 @@ def project(view: dict) -> dict:
         "single_model": {
             "builder_usd": builder_usd,
             "builder_share": _share(builder_usd, total),
-            "checking_usd": round(total - builder_usd, 6) if total is not None and builder_usd is not None else None,
+            "checking_usd": checking_usd,
+            # checking_usd split (#3268): Requirements, Planner and Plan Reviewer, then everything else.
+            "planning_usd": planning_usd,
+            "review_usd": round(max(checking_usd - planning_usd, 0), 6) if planning_usd is not None else None,
+            "planning_share": _share(planning_usd, total),
+            "review_share": _share(checking_usd - planning_usd, total) if planning_usd is not None else None,
             "basis": BASIS,
             "produced": _produced(view),
         },
