@@ -698,14 +698,16 @@
             "complete": {"type": "boolean"},
             "by_job": {"type": "array", "items": {
               "type": "object",
-              "required": ["job", "stages", "attempts", "spent_usd", "complete", "share"],
+              "required": ["job", "stages", "attempts", "spent_usd", "complete", "share", "seconds", "seconds_complete"],
               "properties": {
                 "job": {"type": "string"},
                 "stages": {"type": "array"},
                 "attempts": {"type": "integer"},
                 "spent_usd": {"type": "number"},
                 "complete": {"type": "boolean"},
-                "share": {"type": ["number", "null"]}
+                "share": {"type": ["number", "null"]},
+                "seconds": {"type": ["number", "null"]},
+                "seconds_complete": {"type": "boolean"}
               }
             }},
             "tokens": {
@@ -730,8 +732,11 @@
                 "failed_usd": {"type": "number"},
                 "failed_usd_complete": {"type": "boolean"},
                 "repeated_jobs": {"type": "array", "items": {
-                  "type": "object", "required": ["job", "attempts"],
-                  "properties": {"job": {"type": "string"}, "attempts": {"type": "integer"}}
+                  "type": "object", "required": ["job", "attempts", "runs", "report_repairs"],
+                  "properties": {
+                    "job": {"type": "string"}, "attempts": {"type": "integer"},
+                    "runs": {"type": "integer"}, "report_repairs": {"type": "integer"}
+                  }
                 }},
                 "report_repair_usd": {"type": ["number", "null"]},
                 "report_repair_complete": {"type": "boolean"}

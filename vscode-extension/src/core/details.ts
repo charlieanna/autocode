@@ -40,7 +40,9 @@ export interface PipelineStep {
   /** How many times the stage launched, and how many of those failed (rejected, timed out, interrupted or exited nonzero). */
   attempts: number;
   failed: number;
-  /** The same in words, empty for a stage that launched once: "4 attempts, 3 failed" or "ran 3 times". */
+  /** Report repairs: rewrites of a rejected report, counted apart from the stage's own launches. */
+  repairs: number;
+  /** The same in words, empty for a stage that launched once: "4 attempts, 3 failed", "ran 3 times", "2 report repairs". */
   runs: string;
   /** Why the newest failed attempt did not succeed, while the stage retries or after it failed. */
   why: string;
@@ -111,7 +113,7 @@ function clock(value: unknown): string {
 /** A job's launched attempts as the meter reads them (`usage.accounting.attempts`), several stages of one job together. */
 interface JobUse {
   model: string; level: string; seconds: number | null; tokens: number; tokensComplete: boolean; spent: number | null;
-  attempts: number; failed: number; why: string; active: boolean;
+  attempts: number; failed: number; repairs: number; why: string; active: boolean;
 }
 
 function jobUse(view: Row, now: number): Map<string, JobUse> {
@@ -129,6 +131,7 @@ function jobUse(view: Row, now: number): Map<string, JobUse> {
       spent: add(seen?.spent ?? null, row.spentUsd),
       attempts: (seen?.attempts ?? 0) + row.attempts,
       failed: (seen?.failed ?? 0) + row.failedAttempts,
+      repairs: (seen?.repairs ?? 0) + row.repairs,
       why: row.why || seen?.why || "",
       active: Boolean(seen?.active) || row.state === "working" || row.state === "retrying",
     });
@@ -158,7 +161,7 @@ function stepOf(label: string, state: StepState, row: Row, use: JobUse | undefin
   const step: PipelineStep = {
     label, state, mark: STEP_MARKS[state], detail: "", now: state === "working" ? nowFor(view, label) : "",
     model: shortModel(model), level, route: [model, level].filter(Boolean).join(" "),
-    time: "", tokens: "", cost: "", attempts: use?.attempts ?? 0, failed: use?.failed ?? 0, runs: "", why: "",
+    time: "", tokens: "", cost: "", attempts: use?.attempts ?? 0, failed: use?.failed ?? 0, repairs: use?.repairs ?? 0, runs: "", why: "",
   };
   if (state === "skipped") {
     step.detail = "skipped" + (text(row.reason) ? `: ${text(row.reason)}` : "");
@@ -168,8 +171,11 @@ function stepOf(label: string, state: StepState, row: Row, use: JobUse | undefin
   if (use?.tokens) step.tokens = `${stageTokens(use.tokens)}${use.tokensComplete ? "" : "+"}`;
   const spent = use?.spent ?? (isNumber(row.spent_usd) ? row.spent_usd : null);
   if (spent !== null && (spent > 0 || use)) step.cost = stageMoney(spent);
-  // A stage that ran again after succeeding (a second plan-review round) is not a retry.
-  if (use && use.attempts > 1) step.runs = use.failed ? `${use.attempts} attempts, ${use.failed} failed` : `ran ${use.attempts} times`;
+  // A stage that ran again after succeeding (a second plan-review round) is not a retry, and a report
+  // repair only rewrote a rejected report: it is never another run of the stage.
+  const again = use && use.attempts > 1 ? (use.failed ? `${use.attempts} attempts, ${use.failed} failed` : `ran ${use.attempts} times`) : "";
+  const repaired = use?.repairs ? counted(use.repairs, "report repair", "report repairs") : "";
+  step.runs = [again, repaired].filter(Boolean).join(", ");
   if (use?.failed && use.why) step.why = use.why;
   step.detail = [step.model, step.level, step.time, step.tokens && `${step.tokens} tokens`, step.cost, step.runs].filter(Boolean).join(" · ");
   return step;
@@ -320,7 +326,10 @@ function metricsOf(view: Row): Row | null {
 function jobLine(row: Row): string {
   const again = isCount(row.attempts) && row.attempts > 1 ? `, ${row.attempts} runs` : "";
   const known = row.complete === true ? "" : " (known part)";
-  return `${text(row.job) || "Job unreported"} ${money(row.spent_usd)}${known} · ${percent(row.share)}${again}`;
+  // Each job's own time beside its share of the cost, so a share is never read as a share of the time.
+  let took = isNumber(row.seconds) ? duration(row.seconds) : "";
+  if (took && row.seconds_complete !== true) took += " so far";
+  return `${text(row.job) || "Job unreported"} ${money(row.spent_usd)}${known} · ${percent(row.share)} of cost${took ? ` · ${took}` : ""}${again}`;
 }
 
 function cacheLine(tokenRow: Row): string | null {
@@ -334,8 +343,14 @@ function wasteLine(waste: Row): string {
   const failed = waste.failed_attempts;
   let line = !isCount(failed) || !failed ? "No failed attempts"
     : `${failed} failed attempt${failed === 1 ? "" : "s"} ${money(waste.failed_usd)}${waste.failed_usd_complete === true ? "" : " known"}`;
+  // A report repair rewrote a rejected report; it is not another run of the job.
   const repeated = rows(waste.repeated_jobs);
-  if (repeated.length) line += "; ran again: " + repeated.map((row) => `${text(row.job)} ×${row.attempts}`).join(", ");
+  const again = repeated.map((row) => [text(row.job), isCount(row.runs) ? row.runs : row.attempts] as const)
+    .filter(([, runs]) => isCount(runs) && runs > 1).map(([job, runs]) => `${job} ×${runs}`);
+  const repaired = repeated.filter((row) => isCount(row.report_repairs) && row.report_repairs)
+    .map((row) => `${text(row.job)} ×${row.report_repairs}`);
+  if (again.length) line += "; ran again: " + again.join(", ");
+  if (repaired.length) line += "; report repairs: " + repaired.join(", ");
   return line;
 }
 
@@ -352,14 +367,17 @@ function checked(produced: Row): string[] {
   return parts;
 }
 
-/** The short spend line: the Builder's share against checking, or the total across jobs. */
+/**
+ * The short spend line: what share of the cost (never of the time) went to the Builder, planning and the
+ * rest, or the total across jobs. "Builder 18% · checking 82%" counted planning as checking (#3268).
+ */
 export function spendSummary(view: Row): string | null {
   const metrics = metricsOf(view);
   if (!metrics) return null;
   const single = mapping(metrics.single_model);
   if (isNumber(single.builder_share) && single.builder_share <= 1) {
     // Planning is named apart from checking (#3268); an older core gives no split, so the rest is "everything else".
-    const builder = `Builder ${percent(single.builder_share)}`;
+    const builder = `Cost: Builder ${percent(single.builder_share)}`;
     if (!isNumber(single.planning_share) || !isNumber(single.review_share)) {
       return `${builder} · everything else ${percent(1 - single.builder_share)}`;
     }

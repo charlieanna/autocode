@@ -1615,7 +1615,7 @@ test('the run header sits above the conversation with the pipeline, where the ru
   assert.equal(ui.document.querySelector('#pipeline tfoot').textContent, '', 'no total before the run has worked or spent');
   assert.equal(ui.document.querySelector('#header-label').textContent, 'Working');
   assert.equal(ui.document.querySelector('#header-sentence').textContent, 'Builder working.');
-  assert.equal(ui.document.querySelector('#header-facts').textContent, 'Builder 100% · checking 0% · 1 thing went wrong, handled');
+  assert.equal(ui.document.querySelector('#header-facts').textContent, 'Cost: Builder 100% · checking 0% · 1 thing went wrong, handled');
   assert.equal(ui.document.querySelector('#header-details').hidden, true, 'details start folded');
   assert.equal(ui.document.querySelector('#run-header img'), null);
   assert.doesNotMatch(header.textContent, /RUNNING|--status/);
@@ -5951,6 +5951,20 @@ test('the run header lists every stage the run launched in one aligned table, wi
   assert.match(tester.title, /last one answer rejected/);
   assert.equal(rows[0].querySelector('.runs'), null, 'a stage that launched once has no count');
   assert.deepEqual([...ui.document.querySelectorAll('#pipeline tfoot td.num')].map((cell) => cell.textContent), ['', '651k', '$1.21']);
+});
+
+test('a report repair shows on its stage row apart from the stage\'s own runs', async (t) => {
+  // Live, 2026-11-12: the Tester's two runs and two report repairs read "Tester ×4" in the table.
+  const base = meteredView();
+  const attempts = base.usage.accounting.attempts.slice(0, 5).concat([
+    { ...base.usage.accounting.attempts[4], stage: 'sol_report_repair', original_stage: 'sol', rejected: false, active: true, duration_seconds: 12 },
+  ]);
+  attempts.splice(4, 0, { ...base.usage.accounting.attempts[4], stage: 'write_acceptance_tests', rejected: false });
+  const ui = await openChat(t, meteredView({ usage: { accounting: { ...base.usage.accounting, attempts } } }));
+  const tester = [...ui.document.querySelectorAll('#pipeline tbody tr')].find((row) => row.dataset.job === 'Tester');
+  const badge = tester.querySelector('.runs');
+  assert.deepEqual([badge.textContent, badge.title], ['×2 +1 repair', '2 attempts, 1 failed, 1 report repair']);
+  assert.equal(ui.document.getElementById('struggling').textContent, '⚠ Tester · report repair 1 · 42s · last answer rejected');
 });
 
 test('a stage on a later attempt shows a struggling warning in the working card', async (t) => {

@@ -169,7 +169,8 @@ stage in one aligned table: Requirements, Planner, Plan Reviewer, Builder, Teste
 and Completion Reviewer, plus any other job the run launched (a model preflight,
 an Investigator) where it ran. Each row has the stage's mark (✓ ran, ● working,
 ↻ retrying, › next, – skipped, · still to come), its name with a ×N badge when it
-launched more than once (amber when an attempt failed; hover for the count in
+launched more than once and a `+N repairs` badge for its report repairs, which are
+not runs of the stage (amber when an attempt failed; hover for the count in
 words), its model without the provider prefix and reasoning level, and the time,
 tokens and cost of its own attempts (`+` while some are not reported yet). The
 working stage's row is highlighted. A **Total** row gives the run's working time,
@@ -178,12 +179,14 @@ skipped. Where the sidebar is too narrow for a model column, the model sits unde
 the stage's name (or beside a stage that has not run yet), and below 340 pixels
 the tokens column gives way to time and cost. Under the table, a line says what
 the working stage is doing now (`reading files`, `running a command`), then where
-the chat works, then how the spend splits between the Builder and checking and
+the chat works, then how the cost (not the time) splits between the Builder, planning and
+checking (`Cost: Builder 4% · planning 28% · checking 68%`) and
 how many things went wrong. **Show details** unfolds the same
 reading as the terminal chat's `/details`, `/why` and `/spend`: where the run
 is; each stage's whole route and attempts (`4 attempts, 3 failed`, and why the
-last failed), with what the working stage is doing and its latest message; every recovery and what AutoCode did about it; where the
-money went and what the checking produced; **Cost and usage** (the accounted
+last failed), with its report repairs counted apart (`2 report repairs`: a repair only rewrote a
+rejected report, so it is not another run of the stage), with what the working stage is doing and its latest message; every recovery and what AutoCode did about it; where the
+money went, each job with its share of the cost and its own time, and what the checking produced; **Cost and usage** (the accounted
 total and why it may be a floor, the running stage's spend, the price-table and
 provider-reported figures, the historical comparison estimate, the cap, tokens by kind, time by kind of work, total
 execution time and every attempt with its model, level, outcome and tokens); the

@@ -22,9 +22,12 @@ export interface StageRow {
   model: string;
   level: string;
   state: StageState;
+  /** How many times the stage itself launched; a report repair is counted apart (`repairs`). */
   attempts: number;
-  /** How many of its attempts were rejected, timed out, interrupted or exited nonzero. */
+  /** How many of those launches were rejected, timed out, interrupted or exited nonzero. */
   failedAttempts: number;
+  /** Report repairs: attempts that only rewrote a rejected report (`original_stage`), never another run of the stage. */
+  repairs: number;
   seconds: number | null;
   tokens: number;
   tokensComplete: boolean;
@@ -111,6 +114,12 @@ function failed(row: Row): boolean {
     || (Number.isInteger(row.exit_code) && row.exit_code !== 0));
 }
 
+/** A report repair: an attempt the core records against the stage it repairs (`original_stage`). */
+function repair(row: Row): boolean {
+  const original = text(row.original_stage);
+  return Boolean(original) && original !== text(row.stage);
+}
+
 function why(row: Row): string {
   if (row.rejected) return "answer rejected";
   if (row.timed_out) return "timed out";
@@ -140,7 +149,7 @@ export function stages(view: unknown, now = Date.now()): StageRow[] {
   const running = isNumber(cost.running_usd) ? cost.running_usd : null;
   const grouped = new Map<string, Row[]>();
   for (const row of attempts) {
-    // A report repair (`sol_report_repair`) is another attempt at the stage it repairs.
+    // A report repair (`sol_report_repair`) belongs on the row of the stage it repairs; it is counted apart.
     const stage = text(row.original_stage) || text(row.stage);
     if (!stage) continue;
     grouped.set(stage, [...(grouped.get(stage) ?? []), row]);
@@ -166,6 +175,7 @@ export function stages(view: unknown, now = Date.now()): StageRow[] {
       .map((name) => mapping(spend.get(name)).spent_usd).filter(isNumber);
     if (newest.active && running !== null) costs.push(running);
     const working = state === "working" || state === "retrying";
+    const runs = group.filter((row) => !repair(row));
     return {
       stage,
       job: text(newest.job) || stage,
@@ -173,8 +183,9 @@ export function stages(view: unknown, now = Date.now()): StageRow[] {
       model: modelOf(newest)[0],
       level: modelOf(newest)[1],
       state,
-      attempts: group.length,
-      failedAttempts: group.filter(failed).length,
+      attempts: runs.length,
+      failedAttempts: runs.filter(failed).length,
+      repairs: group.length - runs.length,
       seconds: seconds.length ? seconds.reduce((a, b) => a + b, 0) : null,
       tokens: used,
       tokensComplete: complete,
@@ -192,7 +203,9 @@ export function struggling(view: unknown, now = Date.now()): string {
   const working = stages(view, now).filter((row) => row.state === "working" || row.state === "retrying");
   const row = working[working.length - 1];
   if (!row || row.state !== "retrying") return "";
-  const parts = [row.job, `attempt ${row.attempts}`];
+  const newest = rows(mapping(mapping(mapping(view).usage).accounting).attempts)
+    .filter((attempt) => attempt.active && (text(attempt.original_stage) || text(attempt.stage)) === row.stage).pop();
+  const parts = [row.job, newest && repair(newest) ? `report repair ${row.repairs}` : `attempt ${row.attempts}`];
   if (row.seconds !== null) parts.push(duration(row.seconds));
   // "last one answer rejected" read as a typo (2026-11-11).
   if (row.why) parts.push(row.why === "answer rejected" ? "last answer rejected" : `last one ${row.why}`);

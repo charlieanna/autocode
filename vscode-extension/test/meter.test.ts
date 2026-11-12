@@ -77,18 +77,18 @@ test("a retry is struggling and says why the last attempt failed", () => {
   assert.equal(struggling(shown, NOW), "Builder · attempt 2 · 4m30s · last answer rejected");
 });
 
-test("a report repair is the repaired stage's next attempt, and its cost is added", () => {
+test("a report repair is counted apart from the repaired stage's runs, and its cost is added", () => {
   const rejected = attempt("sol", "Tester", { rejected: true });
   const repairing = attempt("sol_report_repair", "Tester", {
     original_stage: "sol", active: true, duration_seconds: null, started_at: "2026-11-02T01:09:30Z",
   });
   const shown = view([rejected, attempt("resolver", "Resolver"), repairing]);
   assert.deepEqual(stages(shown, NOW).map((row) => row.job), ["Tester", "Resolver"]);
-  assert.equal(struggling(shown, NOW), "Tester · attempt 2 · 1m00s · last answer rejected");
+  assert.equal(struggling(shown, NOW), "Tester · report repair 1 · 1m00s · last answer rejected");
   const repaired = { ...repairing, active: false, duration_seconds: 18 };
   const costs = [{ stage: "sol", spent_usd: 0.25 }, { stage: "sol_report_repair", spent_usd: 0.1 }];
   const tester = stages(view([rejected, attempt("resolver", "Resolver"), repaired], { byStage: costs }), NOW)[0]!;
-  assert.deepEqual([tester.state, tester.attempts, tester.spentUsd], ["done", 2, 0.35]);
+  assert.deepEqual([tester.state, tester.attempts, tester.repairs, tester.spentUsd], ["done", 1, 1, 0.35]);
   assert.deepEqual([tester.seconds, tester.failedAttempts], [48, 1]);
 });
 

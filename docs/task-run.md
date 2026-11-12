@@ -1971,12 +1971,20 @@ observed repetition reasons, consult the existing `efficiency.repeats` projectio
 `run_metrics` (schema 1, `tools/autocode_run_metrics.py`) restates the projections above for a
 client to show where a run could cost less, without computing anything itself: `spent_usd` and
 `complete` as in `cost`; `by_job` (each job's `stages`, `attempts`, `spent_usd`, `complete` and
-`share` of the run total, costliest first, from `cost.breakdown.by_stage`); `tokens` (`input`,
+`share` of the run total, costliest first, from `cost.breakdown.by_stage`, with `seconds`, the summed
+run time of that job's own stages' attempts in `usage.accounting.attempts`, and `seconds_complete`,
+false while one runs or did not report it, so a share of the cost is never read as a share of the
+time); `tokens` (`input`,
 `new`, `cache_write`, `cache_read`, `output` from `usage.accounting.tokens`, the known part when a
 count is incomplete, with `complete`, `cache_read_share` and `cache_write_share` of input); `waste`
 (`failed_attempts` and their `failed_usd` from the deduplicated attempt costs, `repeated_jobs` that
-ran more than once, and `report_repair_usd`); and `single_model`: the Builder's `builder_usd` and
-`builder_share`, the rest as `checking_usd`, a `basis` saying the Builder's spend is a stand-in for
+ran more than once, each with all its `attempts` split into `runs` of the job and `report_repairs`,
+attempts that only rewrote a rejected report (`original_stage` names the stage they repair), and
+`report_repair_usd`, the report-repair stages' spend from `cost.breakdown.by_stage`, the same prices
+as every other figure here); and `single_model`: the Builder's `builder_usd` and
+`builder_share`, the rest as `checking_usd`, that rest split into `planning_usd` and `review_usd`
+with their `planning_share` and `review_share` (above; #3268), a `basis`
+saying the Builder's spend is a stand-in for
 one model building the change alone and not a measured run, and `produced`, counts from the run's
 own evidence (criteria requested and accepted, regression-proof verdict and fail-to-pass tests,
 clean-replay checks, mutants tried and killed, review findings and blocking ones, and recoveries
