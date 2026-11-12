@@ -17,7 +17,8 @@
                   the stop reason when that check refuses an attempt
   line(cost)      the one human line `--status` and a completion summary print
 
-Each stage has one basis, as in autocode_usage.stage_rows: the runner's own stages cost nothing,
+Each stage has one basis, as in autocode_usage.stage_rows: the runner's own stages and a model
+access probe the provider refused outright cost nothing,
 a provider-reported cost is used as reported, otherwise the stage's tokens are priced from
 autocode_prices, otherwise it is unpriced (a model without a rate, or no token counts recorded).
 Unpriced is never zero: `spent_usd` is then a floor (`complete` is false), or null when nothing at

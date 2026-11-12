@@ -223,6 +223,8 @@ def stage_rows(state: RunState, estimator=None):
         request_cost_partial = False
         if record.get("runner_owned") is True and record.get("engine") == "runner":
             cost, basis = 0.0, "runner"
+        elif _refused_probe(record, tokens, requests):
+            cost, basis = 0.0, "refused"
         elif _money(metrics.get("provider_cost_usd")) is not None:
             cost, basis = metrics["provider_cost_usd"], "reported"
         elif (observation := cost_state_cost(metrics)) is not None:
@@ -270,6 +272,23 @@ def stage_rows(state: RunState, estimator=None):
     return rows
 
 
+def _refused_probe(record, tokens, requests):
+    """A model access probe the provider refused outright, which bills nothing.
+
+    The probe sends one tiny request. When the provider answers it with an access refusal (no
+    credits, a rejected login, a billing route; autocode_model_preflight.BLOCKING_STATUSES) and the
+    events hold no answered request and no token count, no model ran, so the attempt costs nothing
+    rather than leaving the run's cost unpriced. A refusal after any recorded usage is priced as usual.
+    """
+    outcome = _dict(record.get("preflight_outcome"))
+    return (
+        record.get("stage") == "model_preflight"
+        and outcome.get("blocking") is True
+        and not requests
+        and all(_count(tokens.get(key)) is None for key in TOKEN_KEYS)
+    )
+
+
 def _unpriced_reason(model, tokens):
     """Why a stage has no cost (#1713): no token counts recorded, no model identified, or no rate for its model."""
     if tokens.get("input_tokens") is None or tokens.get("output_tokens") is None:
@@ -284,17 +303,8 @@ def _sum(values):
 def summary(state: RunState):
     """Totals for one run. Sums cover the stages that reported; `unknown_stages` counts those that did not."""
     rows = stage_rows(state)
-    roles: dict = {}
-    for row in rows:
-        entry = roles.setdefault(
-            row["role"] or "other",
-            {"stages": 0, "input_tokens": 0, "output_tokens": 0, "reported_usd": 0.0, "estimated_usd": 0.0},
-        )
-        entry["stages"] += 1
-        entry["input_tokens"] += row["tokens"]["input_tokens"] or 0
-        entry["output_tokens"] += row["tokens"]["output_tokens"] or 0
-        if row["basis"] in ("reported", "estimated"):
-            entry[row["basis"] + "_usd"] += row["cost_usd"]
+    settings = _dict(state.get("settings"))
+    naming = {"settings": {"workflow": _dict(settings.get("workflow"))}}
     reported = _sum(row["cost_usd"] for row in rows if row["basis"] == "reported")
     guessed = _sum(row["cost_usd"] for row in rows if row["basis"] == "estimated")
     unknown = sum(row["basis"] == "unknown" for row in rows)
@@ -310,14 +320,33 @@ def summary(state: RunState):
         },
         "unknown_stages": unknown,
         "partial_stages": partial,
-        "by_role": {
-            role: {key: round(value, 6) if isinstance(value, float) else value for key, value in entry.items()}
-            for role, entry in sorted(roles.items())
-        },
+        # By the route that ran each stage; one route can do several jobs (the Plan Reviewer can run
+        # on the task_planner route), so by_job also names each stage's job as the screen does.
+        "by_role": _grouped(rows, lambda row: row["role"] or "other"),
+        "by_job": _grouped(rows, lambda row: roles.screen_name(row["stage"] or "", naming) or "other"),
         # Unlike the legacy known subtotals above, totals here are nullable and
         # each quantity has its own coverage, including active/failed attempts.
         "accounting": accounting(state),
         "legacy_scope": "Legacy fields are saved-stage known subtotals; nullable all-attempt quantities are in accounting",
+    }
+
+
+def _grouped(rows, key):
+    """Stages, tokens and the reported and estimated subtotals of ``rows``, by ``key(row)``."""
+    groups: dict = {}
+    for row in rows:
+        entry = groups.setdefault(
+            key(row),
+            {"stages": 0, "input_tokens": 0, "output_tokens": 0, "reported_usd": 0.0, "estimated_usd": 0.0},
+        )
+        entry["stages"] += 1
+        entry["input_tokens"] += row["tokens"]["input_tokens"] or 0
+        entry["output_tokens"] += row["tokens"]["output_tokens"] or 0
+        if row["basis"] in ("reported", "estimated"):
+            entry[row["basis"] + "_usd"] += row["cost_usd"]
+    return {
+        name: {field: round(value, 6) if isinstance(value, float) else value for field, value in entry.items()}
+        for name, entry in sorted(groups.items())
     }
 
 

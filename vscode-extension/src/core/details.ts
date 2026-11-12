@@ -491,9 +491,12 @@ function usageSection(view: Row): DetailSection | null {
   const reported = mapping(accounting.cost).reported_usd ?? cost.reported_usd;
   const reportedText = quantity(reported, true);
   if (reportedText !== "unknown" && reportedText !== "$0 known") lines.push(`  Provider-reported: ${reportedText}`);
-  // The core's comparison at its own historical rates (the terminal's "Historical comparison estimate").
+  // The core's comparison at its own frozen rates, shown only by an older core with no dated
+  // price-table estimate: beside that estimate it is a second, different price for the same tokens.
   const historical = quantity(mapping(accounting.cost).historical_estimated_usd, true);
-  if (historical !== "unknown" && historical !== "$0 known") lines.push(`  Historical comparison estimate: ${historical}`);
+  if (!isNumber(cost.estimated_usd) && historical !== "unknown" && historical !== "$0 known") {
+    lines.push(`  Historical comparison estimate: ${historical}`);
+  }
   if (isNumber(cost.inherited_usd)) lines.push(`  Carried over from a restored step: ${stageMoney(cost.inherited_usd)}`);
   // An older core without `cost` says nothing about a cap: that is not "none" (nor a free run).
   if (isNumber(cost.cap_usd) && cost.cap_usd > 0) lines.push(`  Spending cap: ${stageMoney(cost.cap_usd)}`);
