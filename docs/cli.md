@@ -1079,6 +1079,15 @@ job's exact retry keeps the last deadline it ran on. No question is asked. Only 
 total time cap leaves no room, does the job pause as below, for its exact retry on the
 same model: a stage-deadline stop asks no model question and takes no model answer.
 
+A workflow job whose provider ended the stream on the provider's own API error row
+(an `APIError` that is not a quota, rate limit, capacity, refusal, output or context
+limit, or authentication failure, such as a gateway's `400 Connection prematurely
+closed`) is retried once on the same model and deadline, under the run's caps. It is
+recorded with its reason as a runner `automatic_job_provider_error_retry` event. A
+second such stop of that job in the run pauses for its exact retry as below. An
+external-directory denial is named only from OpenCode's own `permission requested:
+external_directory` line, never from a mention of the word in the job's work.
+
 For an authenticated hard stage timeout that still paused, an operator can preserve the selected
 model and save a larger finite deadline with `--job-retry-token TOKEN
 --max-stage-seconds N`, without resume or retry flags. This changes only that

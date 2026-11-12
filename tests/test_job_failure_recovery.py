@@ -41,6 +41,8 @@ with Path(os.environ['JOB_CALLS']).open('a') as f:f.write('request\n')
 mode=os.environ['JOB_MODE']
 # JOB_TIMEOUTS=N: the first N requests time out, later ones succeed (#2605).
 if os.environ.get('JOB_TIMEOUTS') and len(Path(os.environ['JOB_CALLS']).read_text().splitlines())>int(os.environ['JOB_TIMEOUTS']):mode='success'
+# JOB_APIERRORS=N: the first N requests end on the provider's own APIError row (#3233 rerun).
+if os.environ.get('JOB_APIERRORS'):mode='apierror' if len(Path(os.environ['JOB_CALLS']).read_text().splitlines())<=int(os.environ['JOB_APIERRORS']) else 'success'
 if mode=='lock':print('Error: database is locked',flush=True);raise SystemExit(42)
 if mode=='filtered':print(Path(os.environ['JOB_REPLAY']).read_text(),end='',flush=True);raise SystemExit(0)
 print(json.dumps({'type':'thread.started','thread_id':str(uuid.uuid4())}),flush=True)
@@ -55,6 +57,11 @@ if mode in ('write','later','missing','corrupt','replace_error','staging_error',
  if mode=='mode':Path('calc.py').chmod(0o644)
 if mode=='create':Path('scratch.py').write_text('attempt scratch\n')
 if mode=='delete':Path('calc.py').unlink();Path('notes.txt').unlink()
+if mode=='apierror':
+ # The job read source that mentions the denial word; only the provider's error ended it.
+ print(json.dumps({'type':'item.completed','item':{'type':'agent_message','text':'tools/autocode_tool_containment.py: "external_directory": "deny"'}}),flush=True)
+ print(json.dumps({'type':'error','error':{'name':'APIError','data':{'message':'Request failed','statusCode':400,'isRetryable':False,'responseBody':json.dumps({'error':{'code':'400','message':'Request failed','param':'Connection prematurely closed BEFORE response'}})}}}),flush=True)
+ raise SystemExit(1)
 error={'capacity':'resource_exhausted','rate':'429 rate_limit','external':'permission requested: external_directory'}.get(mode,'interrupted partial attempt')
 print(json.dumps({'type':'turn.failed','error':{'message':error},'usage':{'input_tokens':1200,'output_tokens':450}}),flush=True)
 if mode not in ('exit42','abandon','capacity','rate','external'):os.kill(os.getpid(),signal.SIGTERM)
@@ -101,7 +108,7 @@ if mode=='abandon':
   try:return run_role(**kw)
   except autocode.support.Paused:os._exit(0)
  autocode.run_role=crash
-if mode not in ('success','terminal','abandon','exit42','capacity','rate','external','lock','filtered'):
+if mode not in ('success','terminal','abandon','exit42','capacity','rate','external','lock','filtered','apierror'):
  real_deadline=autocode.processes.wait_for_stage
  def deadline(child, seconds, checkpoint, *, activity=None, **kwargs):
   code=child.wait(timeout=10)
@@ -314,6 +321,28 @@ class JobDeadlineExtensionTests(JobHarness):
         run = self.start()
         self.paused(run)
         self.assertEqual(900, self.limits(run)["stage_timeout_seconds"])
+
+
+class JobProviderErrorRetryTests(JobHarness):
+    """#3233 rerun: a job its provider stopped with an API error retries once, without a question."""
+
+    def test_a_provider_error_retries_once_and_completes_without_a_question(self):
+        self.env["JOB_APIERRORS"] = "1"
+        run = self.start("success")
+        self.finished(run.status())
+        self.assertEqual(2, self.count())
+
+    def test_a_second_provider_error_pauses_for_the_exact_retry_under_its_own_name(self):
+        self.env["JOB_APIERRORS"] = "9"
+        run = self.start("success")
+        view = run.status()
+        self.assertEqual("PAUSED_JOB_FAILURE", view["status"], view)
+        self.assertEqual(2, self.count())
+        reason = view["needs"]["reason"]
+        self.assertIn("the provider returned an error", reason)
+        self.assertIn("400 Request failed: Connection prematurely closed BEFORE response", reason)
+        self.assertIn("already retried", reason)
+        self.assertNotIn("external-directory", reason)
 
 
 class JobFailureTaskRunTests(JobHarness):
