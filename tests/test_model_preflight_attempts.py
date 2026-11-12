@@ -187,6 +187,32 @@ class ModelPreflightAttemptTests(unittest.TestCase):
         self.assertEqual(1, execute.call_count)
         self.assert_spend(0.03, 2)
 
+    def test_subscription_probe_without_a_reported_cost_is_priced_and_complete(self):
+        # A subscription route reports a cost of 0 for every request, which events record as no
+        # reported cost. Its token counts are complete, so the probe is priced from them and the
+        # run's cost is not left a floor ("+") for good.
+        self.model = "zai-coding-plan/glm-5.3"
+        self.state["settings"]["roles"]["tester"]["model"] = self.model
+
+        def subscription(**kwargs):
+            self.write_events(kwargs["directory"], amount=0)
+            kwargs["checkpoint"](self.ownership(kwargs["directory"]))
+            self.seconds += 2
+            return {
+                "exit_code": 0,
+                "timed_out": False,
+                "metrics": support.event_metrics(kwargs["directory"] / "events.jsonl"),
+            }
+
+        with patch.object(preflight.transport, "execute", side_effect=subscription):
+            self.assertTrue(self.check())
+        self.state = json.loads(self.state_path.read_text())
+        view = cost.view(self.state)
+        self.assertIsNone(view["reported_usd"])
+        self.assertAlmostEqual((100 * 1.4 + 5 * 4.4) / 1e6, view["estimated_usd"])
+        self.assertEqual(0, view["unpriced_stages"])
+        self.assertTrue(view["complete"])
+
     def test_interruption_retains_partial_cost_and_time_before_pausing(self):
         def interrupted(**kwargs):
             self.write_events(kwargs["directory"], partial=True)

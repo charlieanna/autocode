@@ -49,7 +49,13 @@ def records(state: RunState, run_dir, earlier_dirs=()):
 
 
 def _project_metrics(metrics):
-    """Carry exact native request costs into the saved-stage budget projection."""
+    """Carry exact native request costs into the saved-stage budget projection.
+
+    A request without a reported cost is not missing usage: a subscription route reports none
+    for every request, and its complete token counts are priced like any other stage's
+    (autocode_usage.stage_rows, which also marks a part-reported cost as a floor). Only
+    incomplete native accounting makes the probe's usage a lower bound.
+    """
     result = dict(metrics)
     context = result.get("request_context") or {}
     native = context.get("accounting") or {}
@@ -61,7 +67,7 @@ def _project_metrics(metrics):
             if all(type(value) in (int, float) and math.isfinite(value) and value >= 0 for value in costs)
             else None
         )
-        if not native.get("complete") or any(value is None for value in costs):
+        if not native.get("complete"):
             result["provider_tokens_partial"] = True
     return result
 

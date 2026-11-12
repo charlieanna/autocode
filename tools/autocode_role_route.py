@@ -79,6 +79,10 @@ def account(model):
 # How a provider prefix bills. OpenAI depends on how OpenCode signs in (see ``plan``).
 PLANS = {
     "zai-coding-plan": ("Z.AI Coding Plan", "subscription"),
+    "zhipuai-coding-plan": ("Zhipu AI Coding Plan", "subscription"),
+    "xiaomi-token-plan-sgp": ("Xiaomi Token Plan (Singapore)", "subscription"),
+    "mimo-token-plan": ("Xiaomi Token Plan", "subscription"),
+    "alibaba-token-plan": ("Alibaba Token Plan", "subscription"),
     "github-copilot": ("GitHub Copilot", "subscription"),
     "zai": ("Z.AI API", "pay per token"),
     "opencode": ("OpenCode Zen", "pay per token"),

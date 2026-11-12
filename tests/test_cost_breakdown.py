@@ -4,6 +4,8 @@ import copy
 import unittest
 
 import autocode_cost as cost
+import autocode_role_route as role_route
+import autocode_route_discovery as route_discovery
 import autocode_route_evidence as routes
 import autocode_usage as usage
 
@@ -268,3 +270,25 @@ class BillingBreakdownTests(unittest.TestCase):
         self.assertEqual(
             sum(row["stages"] for row in detail["by_stage"]), sum(row["stages"] for row in detail["by_billing"])
         )
+
+    def test_token_and_coding_plan_routes_bill_as_subscriptions(self):
+        # Their estimate is an API-equivalent figure, so the run's details must say so.
+        state = {
+            "stages": [
+                self.stage("xiaomi-token-plan-sgp/mimo-v2.6-pro"),
+                self.stage("zhipuai-coding-plan/glm-5.3"),
+                self.stage("zai-coding-plan/glm-5.3"),
+            ]
+        }
+        groups = {row["billing"]: row for row in cost.view(state)["breakdown"]["by_billing"]}
+        self.assertEqual({"subscription": 3}, {key: row["stages"] for key, row in groups.items()})
+
+    def test_every_subscription_login_discovery_knows_is_billed_as_one(self):
+        # Discovery and the billing table name the same accounts; a login added to one alone
+        # would show its stages as unknown billing.
+        for account, (prefixes, billing) in route_discovery.OPENCODE_ROUTES.items():
+            if billing != "subscription":
+                continue
+            for prefix in prefixes.split():
+                with self.subTest(account=account, prefix=prefix):
+                    self.assertEqual("subscription", role_route.billing(prefix + "some-model"))
