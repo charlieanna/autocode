@@ -239,6 +239,23 @@ class RemotesCatalogTests(unittest.TestCase):
                 self.assertEqual([], list(clones.iterdir()))
             self.assertNotIn("OTHER/REPO", self.repository_paths())
 
+    def test_a_hand_edited_entry_without_a_ref_or_name_is_refused_not_cloned(self):
+        bare, _ = self.make_bare("owner-name-bare", "BRANCH")
+        with self.catalog_home(bare=bare) as home:
+            catalog = {
+                "version": 1,
+                "roots": [],
+                "repositories": [],
+                "remotes": [{"name": OWNER_NAME}, {"ref": "main"}],
+            }
+            (home / "source-catalog.json").write_text(json.dumps(catalog))
+            rows = self.remotes_entries()
+            self.assertEqual([None, GITHUB_URL], sorted((row["url"] for row in rows), key=str))
+            code, output = self.clone_owner()
+            self.assert_source_catalog_error(code, output)
+            self.assertIn("--ref", self.payload(output)["error"]["message"])
+            self.assertFalse(self.managed_clone(home).exists())
+
     def test_c5_remotes_second_clone_reports_existing(self):
         bare, commit = self.make_bare("owner-name-bare", "BRANCH")
         with self.catalog_home(bare=bare) as home:
