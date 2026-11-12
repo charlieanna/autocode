@@ -67,6 +67,31 @@ class PauseOfferTests(unittest.TestCase):
         self.assertFalse(pause_offer.project(CAPABLE, LIVE, pending=[{"id": "f", "kind": "feedback"}])["requested"])
 
 
+class StopNowOfferTests(unittest.TestCase):
+    STOPPABLE = {"intervention_capability": {"supported": True, "version": 1, "supports_stop_now": True}}
+
+    def test_a_runner_that_can_end_a_step_offers_stop_now_beside_the_pause(self):
+        # #3263: a client had no way to end a runaway step; the person paid for up to an hour.
+        offer = pause_offer.project(self.STOPPABLE, LIVE, run_dir="/w/.autocode/runs/r", workspace="/w")
+        stop_now = offer["stop_now"]
+        self.assertEqual("Stop now", stop_now["label"])
+        self.assertIn("ends now", stop_now["effect"])
+        self.assertFalse(stop_now["requested"])
+        self.assertEqual([*offer["next_command"][:-1], "--now", "--json"], stop_now["next_command"])
+
+    def test_an_older_runner_offers_only_the_boundary_pause(self):
+        self.assertNotIn("stop_now", pause_offer.project(CAPABLE, LIVE))
+
+    def test_a_queued_boundary_pause_still_offers_stop_now_and_a_queued_stop_now_offers_neither(self):
+        waiting = pause_offer.project(self.STOPPABLE, LIVE, pending=[{"id": "p", "kind": "pause"}])
+        self.assertIsNone(waiting["next_command"])
+        self.assertIsNotNone(waiting["stop_now"]["next_command"], "a boundary pause lets the step run on")
+        stopping = pause_offer.project(self.STOPPABLE, LIVE, pending=[{"id": "n", "kind": "pause", "now": True}])
+        self.assertTrue(stopping["stop_now"]["requested"])
+        self.assertIsNone(stopping["stop_now"]["next_command"])
+        self.assertIsNone(stopping["next_command"])
+
+
 class PauseOfferStatusTests(unittest.TestCase):
     setUp = test_subprocess.SubprocessFlow.setUp
     launch = test_subprocess.SubprocessFlow.launch
@@ -97,3 +122,16 @@ class PauseOfferStatusTests(unittest.TestCase):
         with support.workspace_lock(self.project):
             queued = self.view(run)["pause"]
         self.assertEqual((True, None), (queued["requested"], queued["next_command"]))
+        # The runner records that it can end a step on request, so the view also offers Stop now (#3263).
+        stop_now = queued["stop_now"]
+        self.assertFalse(stop_now["requested"], "a boundary pause lets the step run on")
+        argv = [word.replace("REQUEST_ID", "stop-1") for word in stop_now["next_command"]]
+        self.assertEqual(["--kind", "pause", "--now", "--json"], argv[-4:])
+        submitted = subprocess.run(
+            [*self.entry, *argv], cwd=self.root, env=self.env, capture_output=True, text=True, timeout=60
+        )
+        self.assertEqual(0, submitted.returncode, submitted.stdout + submitted.stderr)
+        self.assertIs(True, json.loads(submitted.stdout)["receipt"]["now"])
+        with support.workspace_lock(self.project):
+            stopping = self.view(run)["pause"]["stop_now"]
+        self.assertEqual((True, None), (stopping["requested"], stopping["next_command"]))

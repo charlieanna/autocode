@@ -500,6 +500,7 @@ class ProcessTests(unittest.TestCase):
         require_worker=False,
         startup_grace=0,
         tool_ready=False,
+        stop_requested=None,
     ):
         """Run a real event-writing worker without making cleanup speed an assertion."""
         with tempfile.TemporaryDirectory() as temp:
@@ -534,6 +535,7 @@ class ProcessTests(unittest.TestCase):
                             activity=monitor,
                             activity_checkpoint=checkpoint_activity,
                             startup_grace=startup_grace,
+                            stop_requested=stop_requested,
                         )
                     else:
                         with patch.object(processes.ProcessTree, "sample", sample(child)):
@@ -552,7 +554,7 @@ class ProcessTests(unittest.TestCase):
                     worker_pid = int((root / "worker.pid").read_text()) if (root / "worker.pid").exists() else None
                     if worker_pid is not None:
                         self.assertIn(worker_pid, [row["pid"] for row in owned])
-                    return code, expired, snapshots, monitor.expired()
+                    return code, expired, snapshots, monitor.expired() or getattr(monitor, "timeout", None)
                 finally:
                     if child.poll() is None:
                         child.kill()
@@ -601,6 +603,36 @@ while True:
         code, expired, _, _ = self.activity_child(body, idle=1.5, total=0.35)
         self.assertNotEqual(0, code)
         self.assertTrue(expired)
+
+    def test_a_persons_stop_ends_a_busy_stage_before_any_limit(self):
+        # #3263: a stop request used to wait for the step to finish, up to its hour-long hard limit.
+        body = """index = 0
+while True:
+    emit({'type':'item.completed','item':{'id':str(index),'type':'command_execution','command':'true','exit_code':0}})
+    index += 1
+    time.sleep(.06)
+"""
+        asked = []
+
+        def stop_requested():
+            asked.append(True)
+            return len(asked) >= 2  # the first check finds nothing; the next finds the person's request
+
+        code, expired, _, reason = self.activity_child(body, idle=60, tool=60, total=120, stop_requested=stop_requested)
+        self.assertNotEqual(0, code)
+        self.assertTrue(expired)
+        self.assertEqual({"kind": "person", "reason": "Stopped by you"}, reason)
+        self.assertEqual(2, len(asked), "the supervisor stops at the first check that finds the request")
+
+    def test_an_unreadable_stop_request_is_no_request(self):
+        def broken():
+            raise OSError("inbox unreadable")
+
+        body = "emit({'type':'item.completed','item':{'id':'a','type':'command_execution','command':'true','exit_code':0}})\ntime.sleep(1.3)\n"
+        code, expired, _, reason = self.activity_child(body, idle=60, tool=60, total=120, stop_requested=broken)
+        self.assertEqual(0, code)
+        self.assertFalse(expired)
+        self.assertIsNone(reason)
 
     def exercise_blocked_monitor(self, *, total, idle=300):
         # Establish the blocked phase first, then advance the original limit.

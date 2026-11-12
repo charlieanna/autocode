@@ -270,3 +270,45 @@ test('the registry and mode listings pass a timeout so a wedged CLI cannot freez
     assert.equal(call.arguments[3], 30000, 'a poll read is bounded like --status');
   }
 });
+
+test('every CLI call runs with the warm source host unless the person opted out', async (t) => {
+  // Each poll is a new process that re-hashes the whole workspace while a question waits:
+  // 13-27 s on a 12.5k-file project, past STATUS_TIMEOUT_MS. The terminal chat already sets this.
+  const { EventEmitter } = require('node:events');
+  const spawned = [];
+  t.mock.method(require('node:child_process'), 'spawn', (_file, _argv, options) => {
+    spawned.push(options.env);
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => {};
+    setImmediate(() => child.emit('close', 0));
+    return child;
+  });
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+  const saved = process.env.AUTOCODE_SOURCE_HOST;
+  t.after(() => {
+    Object.defineProperty(process, 'platform', platform);
+    if (saved === undefined) delete process.env.AUTOCODE_SOURCE_HOST;
+    else process.env.AUTOCODE_SOURCE_HOST = saved;
+  });
+  const call = (env) => cli.invoke({ command: 'autocode', prefix: [] }, ['--status'], env);
+  const posix = { ...platform, value: 'linux' };
+
+  Object.defineProperty(process, 'platform', posix);
+  delete process.env.AUTOCODE_SOURCE_HOST;
+  await call();
+  assert.equal(spawned.at(-1).AUTOCODE_SOURCE_HOST, '1', 'a status poll shares one warm snapshot helper');
+
+  await call({ AUTOCODE_SOURCE_HOST: '0' });
+  assert.equal(spawned.at(-1).AUTOCODE_SOURCE_HOST, '0', 'an explicit opt-out is kept');
+
+  process.env.AUTOCODE_SOURCE_HOST = '0';
+  await call();
+  assert.equal(spawned.at(-1).AUTOCODE_SOURCE_HOST, '0', "the person's own environment wins over the default");
+  delete process.env.AUTOCODE_SOURCE_HOST;
+
+  Object.defineProperty(process, 'platform', { ...platform, value: 'win32' });
+  await call();
+  assert.equal(spawned.at(-1).AUTOCODE_SOURCE_HOST, undefined, 'Windows file times prove nothing about content');
+});

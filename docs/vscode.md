@@ -138,9 +138,11 @@ While a run works, **Pause** takes the place of **Send**; Send stays beside it
 when the run also takes a message. Pause lets the current step finish and save,
 then the run pauses with nothing lost, and **Continue** resumes it where it
 paused. Until then the button reads **Pausing after this step…**. The button
-appears only when the status view names the pause (`view.pause`); a cancelled
-mid-step model call is not offered, and the run's terminal Stop stays outside
-the chat.
+appears only when the status view names the pause (`view.pause`). **Stop now**
+beside it, when the view names `view.pause.stop_now`, ends the running step at
+once instead of letting it finish: nothing more is spent on it, its partial work
+and logs are kept, the run pauses ("Stopped by you"), and **Continue** runs that
+step again. The run's terminal Stop stays outside the chat.
 
 **Saved code changes** offers only the comparisons and restores named by the
 core. While this chat waits for one of its commands to finish, those buttons
@@ -167,7 +169,8 @@ stage in one aligned table: Requirements, Planner, Plan Reviewer, Builder, Teste
 and Completion Reviewer, plus any other job the run launched (a model preflight,
 an Investigator) where it ran. Each row has the stage's mark (✓ ran, ● working,
 ↻ retrying, › next, – skipped, · still to come), its name with a ×N badge when it
-launched more than once (amber when an attempt failed; hover for the count in
+launched more than once and a `+N repairs` badge for its report repairs, which are
+not runs of the stage (amber when an attempt failed; hover for the count in
 words), its model without the provider prefix and reasoning level, and the time,
 tokens and cost of its own attempts (`+` while some are not reported yet). The
 working stage's row is highlighted. A **Total** row gives the run's working time,
@@ -176,12 +179,14 @@ skipped. Where the sidebar is too narrow for a model column, the model sits unde
 the stage's name (or beside a stage that has not run yet), and below 340 pixels
 the tokens column gives way to time and cost. Under the table, a line says what
 the working stage is doing now (`reading files`, `running a command`), then where
-the chat works, then how the spend splits between the Builder and checking and
+the chat works, then how the cost (not the time) splits between the Builder, planning and
+checking (`Cost: Builder 4% · planning 28% · checking 68%`) and
 how many things went wrong. **Show details** unfolds the same
 reading as the terminal chat's `/details`, `/why` and `/spend`: where the run
 is; each stage's whole route and attempts (`4 attempts, 3 failed`, and why the
-last failed), with what the working stage is doing and its latest message; every recovery and what AutoCode did about it; where the
-money went and what the checking produced; **Cost and usage** (the accounted
+last failed), with its report repairs counted apart (`2 report repairs`: a repair only rewrote a
+rejected report, so it is not another run of the stage), with what the working stage is doing and its latest message; every recovery and what AutoCode did about it; where the
+money went, each job with its share of the cost and its own time, and what the checking produced; **Cost and usage** (the accounted
 total and why it may be a floor, the running stage's spend, the price-table and
 provider-reported figures, the historical comparison estimate, the cap, tokens by kind, time by kind of work, total
 execution time and every attempt with its model, level, outcome and tokens); the
@@ -298,11 +303,13 @@ The jsdom tests alone establish neither editor-host nor live-provider compatibil
 | `autocode.pollSeconds` | `5` | Seconds between read-only status updates. |
 | `autocode.confirmPersonOnly` | `true` | Ask before acting on a pause the run stopped for a person. |
 
-Each status update is a new `autocode` process, which reads the whole workspace once
-before answering. On a large project, set `AUTOCODE_SOURCE_HOST=1` in the environment
-the editor starts the CLI with, so the updates share one warm snapshot helper; see
-[Execution](execution.md#who-approved) just above "Who approved" for what it does and
-keeps.
+Each status update is a new `autocode` process, which would otherwise read the whole
+workspace once before answering: 13–27 s on a 12.5k-file project, past the 30 s status
+bound, so the update fails instead of showing the run. The extension starts every CLI
+call with `AUTOCODE_SOURCE_HOST=1`, so the updates share one warm snapshot helper
+instead. Setting `AUTOCODE_SOURCE_HOST=0` in the environment the editor starts in turns
+it off; see [Execution](execution.md#who-approved) just above "Who approved" for what
+the helper does and keeps.
 
 ## Remaining scope
 

@@ -1587,7 +1587,7 @@ function headerView(extra = {}) {
     ],
     recoveries: [{ id: 'r1', at: '2026-11-02T05:33:44+00:00', headline: 'Builder sent back', problem: 'A test failed', action: 'It tried again.' }],
     run_metrics: { schema: 1, spent_usd: 2.5, complete: true, by_job: [{ job: 'Builder', attempts: 1, spent_usd: 2.5, complete: true, share: 1 }],
-      tokens: {}, waste: {}, single_model: { builder_usd: 2.5, builder_share: 1, checking_usd: 0, produced: {} } },
+      tokens: {}, waste: {}, single_model: { builder_usd: 2.5, builder_share: 1, checking_usd: 0, planning_usd: 0, review_usd: 0, planning_share: 0, review_share: 0, produced: {} } },
     ...extra };
 }
 
@@ -1615,7 +1615,7 @@ test('the run header sits above the conversation with the pipeline, where the ru
   assert.equal(ui.document.querySelector('#pipeline tfoot').textContent, '', 'no total before the run has worked or spent');
   assert.equal(ui.document.querySelector('#header-label').textContent, 'Working');
   assert.equal(ui.document.querySelector('#header-sentence').textContent, 'Builder working.');
-  assert.equal(ui.document.querySelector('#header-facts').textContent, 'Builder 100% · checking 0% · 1 thing went wrong, handled');
+  assert.equal(ui.document.querySelector('#header-facts').textContent, 'Cost: Builder 100% · checking 0% · 1 thing went wrong, handled');
   assert.equal(ui.document.querySelector('#header-details').hidden, true, 'details start folded');
   assert.equal(ui.document.querySelector('#run-header img'), null);
   assert.doesNotMatch(header.textContent, /RUNNING|--status/);
@@ -4421,6 +4421,72 @@ test('no Pause without a named offer, or once the run is done (#1598)', async (t
   assert.equal(ui.document.querySelector('#pause-run').hidden, true);
 });
 
+// #3263: a stop request waited for the running step to finish, so a looping Tester kept spending for up to an
+// hour. Stop now is the pause that also ends the step at once, offered and taken only as the view names it.
+function stopNowView(extra = {}) {
+  const value = pauseView(extra);
+  if (value.pause && !('stop_now' in value.pause)) {
+    value.pause.stop_now = { label: 'Stop now', effect: 'The step that is running ends now instead of finishing.',
+      requested: false, next_command: ['intervention', 'submit', '--workspace', run.workspace, '--run-dir', run.runDir,
+        '--request-id', 'REQUEST_ID', '--kind', 'pause', '--now', '--json'] };
+  }
+  return value;
+}
+
+test('Stop now ends the running step through the named request, beside Pause (#3263)', async (t) => {
+  const ui = await openChat(t, stopNowView());
+  const stop = () => ui.document.querySelector('#stop-now-run');
+  assert.equal(stop().hidden, false);
+  assert.equal(stop().disabled, false);
+  assert.equal(stop().textContent, 'Stop now');
+  assert.match(stop().title, /ends now/);
+  assert.equal(ui.document.querySelector('#pause-run').hidden, false, 'the boundary pause stays offered');
+  const launch = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: '{"receipt":{"kind":"pause","now":true}}' }));
+  stop().click(); stop().click();
+  await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'a second click while submitting is ignored');
+  const [, argv] = launch.mock.calls[0].arguments;
+  assert.deepEqual(argv.slice(0, 6), ['intervention', 'submit', '--workspace', run.workspace, '--run-dir', run.runDir]);
+  assert.match(argv[7], /^stop-[0-9a-f]{16}$/, 'the placeholder becomes this request\'s id');
+  assert.deepEqual(argv.slice(8), ['--kind', 'pause', '--now', '--json']);
+  const stopping = stopNowView();
+  stopping.pause.requested = true;
+  stopping.pause.next_command = null;
+  stopping.pause.stop_now.requested = true;
+  stopping.pause.stop_now.next_command = null;
+  await ui.poll(stopping);
+  assert.equal(stop().disabled, true);
+  assert.equal(stop().textContent, 'Stopping…');
+  assert.match(ui.document.querySelector('#send-hint').textContent, /ending this step now; its partial work is kept/);
+  await ui.poll({ status: 'PAUSED_INTERVENTION', done: false, liveness: { kind: 'unknown' }, needs: { kind: 'resume' }, pause: null,
+    stop_reason: 'Stopped by you. The step that was running was ended; its partial work and logs are kept. Resume runs it again.',
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused` });
+  assert.equal(stop().hidden, true, 'a paused run has nothing to stop');
+});
+
+test('Stop now refuses a command outside its exact grammar, and an older runner shows only Pause (#3263)', async (t) => {
+  const changed = stopNowView();
+  changed.pause.stop_now.next_command = changed.pause.stop_now.next_command.filter((word) => word !== '--now');
+  const ui = await openChat(t, changed);
+  const launch = t.mock.method(cli, 'invoke', async () => ok);
+  ui.document.querySelector('#stop-now-run').click();
+  await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 0);
+  assert.match(ui.document.querySelector('#chat-error').textContent, /Unsupported Stop now action/);
+  await ui.poll(pauseView());
+  assert.equal(ui.document.querySelector('#stop-now-run').hidden, true, 'no Stop now without a named offer');
+  assert.equal(ui.document.querySelector('#pause-run').hidden, false);
+});
+
+test('a waiting boundary pause still lets the person stop the step now (#3263)', async (t) => {
+  const waiting = stopNowView();
+  waiting.pause.requested = true;
+  waiting.pause.next_command = null;
+  const ui = await openChat(t, waiting);
+  assert.equal(ui.document.querySelector('#pause-run').disabled, true);
+  assert.equal(ui.document.querySelector('#stop-now-run').disabled, false, 'the boundary pause lets the step run on');
+});
+
 test('a background tab keeps its own read error when it is shown again (#1593)', async (t) => {
   const other = { workspace: '/ws', runDir: '/ws/.autocode/runs/other' };
   let failing = false;
@@ -5421,6 +5487,27 @@ test('test_ac3_new_need_notifies_again', async (t) => {
   assert.equal(host.notices[1].message, 'AutoCode: alpha is waiting for you - 2 question(s)');
 });
 
+test('a stopped run that needs nothing from the person never says it is waiting for them', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  views.set(alpha.runDir, {
+    status: 'PAUSED', done: false, needs: { kind: 'continue' },
+    controller: { kind: 'ready', checked: true, alive: false },
+    progress: { line: 'Tester ready', needs_you: 'nothing needed from you' },
+  });
+  await ui.poll();
+  views.set(alpha.runDir, {
+    status: 'WAITING', done: false, needs: { kind: 'dependency' },
+    progress: { needs_you: 'nothing needed from you until the other run delivers' },
+  });
+  await ui.poll();
+  assert.deepEqual(host.notices.map((notice) => notice.message), [
+    'AutoCode: alpha stopped. Nothing is needed from you; open the chat to continue it.',
+    'AutoCode: alpha is waiting for another run to deliver. Nothing is needed from you.',
+  ]);
+  for (const notice of host.notices) assert.doesNotMatch(notice.message, /waiting for you/);
+});
+
 test('test_ac4_done_notifies_once_with_outcome', async (t) => {
   const views = new Map([[alpha.runDir, workingView()]]);
   const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
@@ -5610,7 +5697,7 @@ test('test_ac19_idle_continue_need_notifies_once', async (t) => {
   views.set(alpha.runDir, { status: 'PAUSED', done: false, needs: { kind: 'continue' } });
   await ui.poll();
   assert.equal(host.notices.length, 1);
-  assert.equal(host.notices[0].message, 'AutoCode: alpha is waiting for you - nothing; the run can simply proceed');
+  assert.equal(host.notices[0].message, 'AutoCode: alpha stopped. Nothing is needed from you; open the chat to continue it.');
   await ui.poll();
   assert.equal(host.notices.length, 1);
 });
@@ -5692,7 +5779,7 @@ for (const [label, controllerState] of [
     assert.equal(host.notices.length, 0);
     await ui.poll({ ...preflight, controller: controllerState });
     assert.equal(host.notices.length, 1, 'stopped or unverified ownership is not work');
-    assert.match(host.notices[0].message, /waiting for you - nothing needed from you$/);
+    assert.equal(host.notices[0].message, 'AutoCode: alpha stopped. Nothing is needed from you; open the chat to continue it.');
     const take = ui.document.querySelector('#take-action');
     assert.equal(take.textContent, 'Continue');
     assert.equal(take.disabled, false);
@@ -5864,6 +5951,20 @@ test('the run header lists every stage the run launched in one aligned table, wi
   assert.match(tester.title, /last one answer rejected/);
   assert.equal(rows[0].querySelector('.runs'), null, 'a stage that launched once has no count');
   assert.deepEqual([...ui.document.querySelectorAll('#pipeline tfoot td.num')].map((cell) => cell.textContent), ['', '651k', '$1.21']);
+});
+
+test('a report repair shows on its stage row apart from the stage\'s own runs', async (t) => {
+  // Live, 2026-11-12: the Tester's two runs and two report repairs read "Tester ×4" in the table.
+  const base = meteredView();
+  const attempts = base.usage.accounting.attempts.slice(0, 5).concat([
+    { ...base.usage.accounting.attempts[4], stage: 'sol_report_repair', original_stage: 'sol', rejected: false, active: true, duration_seconds: 12 },
+  ]);
+  attempts.splice(4, 0, { ...base.usage.accounting.attempts[4], stage: 'write_acceptance_tests', rejected: false });
+  const ui = await openChat(t, meteredView({ usage: { accounting: { ...base.usage.accounting, attempts } } }));
+  const tester = [...ui.document.querySelectorAll('#pipeline tbody tr')].find((row) => row.dataset.job === 'Tester');
+  const badge = tester.querySelector('.runs');
+  assert.deepEqual([badge.textContent, badge.title], ['×2 +1 repair', '2 attempts, 1 failed, 1 report repair']);
+  assert.equal(ui.document.getElementById('struggling').textContent, '⚠ Tester · report repair 1 · 42s · last answer rejected');
 });
 
 test('a stage on a later attempt shows a struggling warning in the working card', async (t) => {
@@ -6314,6 +6415,29 @@ function choiceView() {
     next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --answer q1=ANSWER` };
 }
 
+function offDefaultChoiceView() {
+  const view = choiceView();
+  view.needs.questions[0] = { id: 'q1', question: 'Report an existing clone or refuse?',
+    options: ['Report it', 'Keep the refusal'],
+    proposed_default: 'Report the verifiable clone instead of refusing, because the task says an existing clone is reported' };
+  return view;
+}
+
+test('while an answer is being saved the chat says so, not that AutoCode waits for you', async (t) => {
+  host.config.set('confirmPersonOnly', false);
+  const ownController = new RunController(host.log);
+  const ui = await openChat(t, choiceView(), run, { controller: ownController });
+  const prompt = () => ui.document.querySelector('.action-prompt').textContent;
+  assert.equal(prompt(), 'AutoCode is waiting for you');
+  let finish;
+  t.mock.method(cli, 'stream', () => new Promise((resolve) => { finish = () => resolve(ok); }));
+  ui.document.querySelector('#take-action').click(); await flush(); await flush();
+  assert.equal(typeof finish, 'function', 'the answer is being saved');
+  assert.equal(ui.document.querySelector('#take-action').textContent, 'Working…');
+  assert.equal(prompt(), 'Sending your answer. AutoCode goes on as soon as it is saved.');
+  finish(); await flush(); await flush();
+});
+
 for (const surface of ['chat', 'Run details']) {
   test(`an out-of-range number says why beside its field in ${surface}`, async (t) => {
     host.config.set('confirmPersonOnly', false);
@@ -6329,6 +6453,21 @@ for (const surface of ['chat', 'Run details']) {
     input.value = '5400'; input.dispatchEvent(new ui.window.Event('input'));
     assert.equal(hint().textContent, '');
     assert.equal(ui.document.querySelector('#take-action').disabled, false);
+  });
+
+  test(`a proposed default worded apart from every option is still offered and preselected in ${surface}`, async (t) => {
+    host.config.set('confirmPersonOnly', false);
+    const ownController = new RunController(host.log);
+    const view = offDefaultChoiceView();
+    const ui = surface === 'chat' ? await openChat(t, view, run, { controller: ownController }) : await openPanel(t, view, undefined, ownController);
+    const select = ui.document.querySelector('[data-question="q1"]');
+    const fallback = view.needs.questions[0].proposed_default;
+    assert.deepEqual([...select.options].map((option) => option.value).filter(Boolean), ['Report it', 'Keep the refusal', fallback]);
+    assert.equal(select.value, fallback, 'the core accepts its own default, so the client preselects it');
+    const launch = t.mock.method(cli, 'stream', async () => ok);
+    ui.document.querySelector('#take-action').click(); await flush();
+    const args = launch.mock.calls[0].arguments[1];
+    assert.equal(args[args.indexOf('--answer') + 1], `q1=${fallback}`);
   });
 
   test(`a proposed default is preselected and one click sends it in ${surface}`, async (t) => {

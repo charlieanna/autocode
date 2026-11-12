@@ -203,8 +203,8 @@ report_path.write_text(json.dumps(report))
   return { xdg, roles };
 }
 
-/** A run paused at a person's request, in the full shape a resume's build loop reads. */
-function writeResumeRun(root, xdg, roles) {
+/** A run in the full shape a resume's build loop reads: paused at a person's request, or mid-step (`working`). */
+function writeResumeRun(root, xdg, roles, working = false) {
   const runDir = path.join(root, '.autocode', 'runs', 'resume');
   fs.mkdirSync(runDir, { recursive: true });
   const tools = path.dirname(SCRIPT);
@@ -214,6 +214,7 @@ sys.path.insert(0, ${JSON.stringify(tools)})
 from autocode_util import digest, criteria_definition
 from autocode_providers import resolve
 import goal_fixtures
+working = ${working ? 'True' : 'False'}
 root = ${JSON.stringify(root)}
 run = ${JSON.stringify(runDir)}
 seed = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
@@ -229,7 +230,7 @@ provider = resolve("fake")
 ident = provider.local_settings(pathlib.Path(os.path.realpath(root)))
 state = {
   "version": 3, "task": "Build a greeting CLI", "workspace": os.path.realpath(root),
-  "status": "PAUSED_REQUESTED", "iteration": 1, "sessions": {}, "stages": [], "history": [],
+  "status": "RUNNING" if working else "PAUSED_REQUESTED", "iteration": 1, "sessions": {}, "stages": [], "history": [],
   "user_events": [approval], "turns": [], "next_stage": "builder", "created_at": "2026-11-11T08:00:00Z",
   "current_task": {"id": "t1", "milestone_id": "M1", "kind": "build",
                    "affected_paths": ["greet.py", "test_greeting.py"],
@@ -247,9 +248,31 @@ state = {
   },
   "goal_contract": contract, "code_checkpoints": [], "contract_history": [], "planning_history": [],
 }
+if working:
+    state["intervention_capability"] = {"supported": True}
+    state["active_stage"] = {"stage": "builder", "active": True, "iteration": 1,
+                             "output": str(pathlib.Path(run) / "attempt.log")}
 pathlib.Path(run, "state.json").write_text(json.dumps(state, indent=2))
 `], { stdio: 'pipe', env: { ...process.env, XDG_CONFIG_HOME: xdg } });
   return runDir;
+}
+
+
+/** The step boundary a controller makes when the step it drives finishes: its save commits the queued pause. */
+function landPause(runDir) {
+  const tools = path.dirname(SCRIPT);
+  execFileSync(CLI, ['-c', `
+import datetime, json, pathlib, sys
+sys.path.insert(0, ${JSON.stringify(tools)})
+import autocode_stop as stop_policy
+run = pathlib.Path(${JSON.stringify(runDir)})
+state = json.loads((run / "state.json").read_text())
+state.pop("active_stage", None)
+stop_policy.consume(state, run, pathlib.Path(state["workspace"]),
+                     write_json=lambda p, v: p.write_text(json.dumps(v, indent=2)),
+                     now=lambda: datetime.datetime.now(datetime.timezone.utc).isoformat())
+print(state.get("status"))
+`], { stdio: 'pipe' });
 }
 
 
@@ -934,4 +957,406 @@ test('walk: the resume after a pause brings the run back to work', { skip }, asy
     'the run stops at a person-facing gate, not in a silent state: ' + done.status);
   assert.ok((done.stages || []).some((row) => row.stage === 'builder'),
     "the Builder's stage ran: " + JSON.stringify((done.stages || []).map((row) => row.stage)));
+});
+
+test('walk: a paused chat survives a reload, and resuming runs the run\'s own command', { skip }, async (t) => {
+  const { root, restore } = buildWorkspace();
+  host.config.set('cliPath', CLI);
+  host.config.set('cliArgs', [SCRIPT]);
+  // One status item per window: a shared one lets the first window's text (or a late
+  // read landing after its dispose) satisfy the second window's assertions.
+  const statusItems = [];
+  t.mock.method(host.vscode.window, 'createStatusBarItem', () => {
+    const item = { show() {}, hide() {}, dispose() {}, text: '', tooltip: undefined, command: undefined };
+    statusItems.push(item);
+    return item;
+  });
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
+  const compares = [];
+  const realCompare = RunController.prototype.compareCheckpoint;
+  t.mock.method(RunController.prototype, 'compareCheckpoint', async function (run, checkpointId) {
+    const comparison = await realCompare.call(this, run, checkpointId);
+    compares.push(comparison);
+    return comparison;
+  });
+  const wsState = host.workspaceState;
+  let saved = {};
+  const openWindow = () => {
+    const context = { subscriptions: [], workspaceState: wsState };
+    activate(context);
+    const chat = host.providers.get('autocode.chat');
+    let receive;
+    const webview = {
+      html: '', options: {},
+      onDidReceiveMessage: (callback) => { receive = callback; },
+      postMessage: async (data) => { webview.deliver?.(data); return true; },
+    };
+    const shell = { visible: true, webview, onDidChangeVisibility: () => {}, onDidDispose() {} };
+    chat.resolveWebviewView(shell);
+    const dom = new JSDOM(webview.html, { runScripts: 'outside-only' });
+    // The webview's own state (drafts, tabs) persists across a reload, as VS Code keeps it.
+    dom.window.acquireVsCodeApi = () => ({
+      postMessage: (message) => receive(message),
+      getState: () => saved,
+      setState: (value) => { saved = value; },
+    });
+    webview.deliver = (data) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
+    dom.window.eval(dom.window.document.querySelector('script').textContent);
+    return { context, chat, dom };
+  };
+
+  const first = openWindow();
+  t.after(() => first.context.subscriptions.forEach((item) => item.dispose?.()));
+  t.after(() => first.dom.window.close());
+  await first.dom.window.acquireVsCodeApi().postMessage({ type: 'ready' });
+  await first.chat.show({ workspace: root, runDir: restore }), await first.chat.refresh();
+  const text = () => first.dom.window.document.querySelector('#app').textContent;
+  await waitFor(() => text().includes('Fixture step'), 30000);
+  await waitFor(() => statusItems[0].text.includes('AutoCode'), 30000);
+  assert.ok(statusItems[0].text.includes('AutoCode'), 'the status line follows the opened chat: ' + statusItems[0].text);
+  const field = first.dom.window.document.querySelector('#message');
+  field.value = 'A draft that must survive the reload';
+  field.dispatchEvent(new first.dom.window.Event('input'));
+  await flush();
+  first.dom.window.document.querySelector('[data-checkpoint-action="compare"]').click();
+  await waitFor(() => text().includes('+print'), 30000);
+  assert.ok(text().includes('diff --checkpoint'), 'the compare card is open before the reload');
+
+  // The window reloads: the extension and the webview are torn down and rebuilt.
+  first.context.subscriptions.forEach((item) => item.dispose?.());
+  first.dom.window.close();
+  const second = openWindow();
+  t.after(() => second.context.subscriptions.forEach((item) => item.dispose?.()));
+  t.after(() => second.dom.window.close());
+  await second.dom.window.acquireVsCodeApi().postMessage({ type: 'ready' });
+  const text2 = () => second.dom.window.document.querySelector('#app').textContent;
+  await waitFor(() => text2().includes('Fixture step'), 30000);
+  assert.ok(text2().includes('Fixture step'), "the paused chat's card comes back after the reload");
+  assert.equal(second.dom.window.document.querySelector('#message').value, 'A draft that must survive the reload',
+    'the unsent draft survives the reload');
+  await waitFor(() => statusItems[1].text.includes('AutoCode'), 30000);
+  assert.ok(statusItems[1].text.includes('AutoCode'), 'the status line comes back on the restored chat: ' + statusItems[1].text);
+  assert.ok(!text2().includes('diff --checkpoint'),
+    'the cached comparison card does not survive the reload');
+
+  // Restore re-compares for itself before it asks.
+  let asked;
+  let releaseRestore;
+  t.mock.method(host.vscode.window, 'showWarningMessage', (question) => {
+    asked = String(question);
+    return new Promise((resolve) => { releaseRestore = resolve; });
+  });
+  second.dom.window.document.querySelector('[data-checkpoint-action="restore"]').click();
+  await waitFor(() => text2().includes('diff --checkpoint'), 30000);
+  await waitFor(() => Boolean(releaseRestore), 30000);
+  assert.match(asked, /Restore "Fixture step"/, 'the restore asks after re-comparing');
+  assert.equal(compares.length, 2, 'the restore after the reload re-compares instead of reusing the cached comparison');
+  releaseRestore(undefined);   // declined: this walk is about the state, not a second restore
+  await flush(); await flush();
+
+  // Resuming runs the run's own named command; on a host without that provider, the CLI says so
+  // and the chat reports it — the resume is the run's, not the client's, to complete.
+  const take = second.dom.window.document.querySelector('#take-action');
+  assert.ok(take && !take.disabled, 'the paused chat still offers its named action after the reload');
+  t.mock.method(host.vscode.window, 'showWarningMessage', () => Promise.resolve('Continue'));
+  take.click();
+  const error = () => second.dom.window.document.querySelector('#chat-error').textContent;
+  await waitFor(() => error().includes('provider config'), 30000);
+  assert.ok(error().includes('provider config'),
+    'the resume runs the named command and reports this host\'s refusal: ' + error());
+});
+
+test("walk: pausing a working run mid-walk and resuming it brings the run back to work", { skip }, async (t) => {
+  const { root } = buildWorkspace();
+  const { xdg, roles } = writeWalkProvider();
+  process.env.XDG_CONFIG_HOME = xdg;
+  t.after(() => { delete process.env.XDG_CONFIG_HOME; });
+  const runDir = writeResumeRun(root, xdg, roles, true);
+  claimSupervision(runDir);
+  const statePath = path.join(runDir, 'state.json');
+  const state = () => JSON.parse(fs.readFileSync(statePath, 'utf8'));
+
+  host.config.set('cliPath', CLI);
+  host.config.set('cliArgs', [SCRIPT]);
+  let statusText = '';
+  const mockStatus = {
+    show() {}, hide() {}, dispose() {},
+    get text() { return statusText; }, set text(val) { statusText = val; },
+    tooltip: undefined, command: undefined,
+  };
+  t.mock.method(host.vscode.window, 'createStatusBarItem', () => mockStatus);
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+  const chat = host.providers.get('autocode.chat');
+  let receive;
+  const webview = {
+    html: '', options: {},
+    onDidReceiveMessage: (callback) => { receive = callback; },
+    postMessage: async (data) => { webview.deliver?.(data); return true; },
+  };
+  const shell = { visible: true, webview, onDidChangeVisibility: () => {}, onDidDispose() {} };
+  t.after(() => { chat.dispose(); });
+  chat.resolveWebviewView(shell);
+  const dom = new JSDOM(webview.html, { runScripts: 'outside-only' });
+  t.after(() => dom.window.close());
+  let saved = {};
+  dom.window.acquireVsCodeApi = () => ({
+    postMessage: (message) => receive(message),
+    getState: () => saved,
+    setState: (value) => { saved = value; },
+  });
+  webview.deliver = (data) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
+  dom.window.eval(dom.window.document.querySelector('script').textContent);
+  await flush();
+
+  await host.commands.get('autocode.openRun')({ workspace: root, runDir });
+  const text = () => dom.window.document.querySelector('#app').textContent;
+
+  // The run works mid-walk: its Pause is offered and the bar follows the working run.
+  const pause = () => dom.window.document.querySelector('#pause-run');
+  await waitFor(() => !pause().hidden && pause().textContent === 'Pause', 30000);
+  assert.ok(!pause().hidden, 'the working chat offers its Pause: ' + text().slice(0, 200));
+
+  // The person pauses it: the real intervention lands in the run's inbox. The button's
+  // "Pausing" mark shows while the action is in flight and while the pause waits in the
+  // inbox, so the landed inbox is the only honest sign the submit finished.
+  pause().click();
+  await waitFor(() => dom.window.document.querySelector('#pause-run').textContent === 'Pausing after this step…', 30000);
+  await waitFor(() => fs.existsSync(path.join(runDir, 'interventions.json')), 30000);
+  assert.ok(fs.existsSync(path.join(runDir, 'interventions.json')),
+    'the pause intervention landed in the run\'s inbox: ' + dom.window.document.querySelector('#chat-error').textContent);
+
+  // The step finishes: the controller's own commit saves the step and applies the queued pause together.
+  landPause(runDir);
+  await waitFor(() => state().status === 'PAUSED_INTERVENTION', 30000);
+  assert.equal(state().status, 'PAUSED_INTERVENTION', 'the landed pause stops the run: ' + state().status);
+  await waitFor(() => text().includes('Paused as you asked'), 30000);
+  assert.ok(text().includes('Paused as you asked'), 'the pause card says the pause landed: ' + text().slice(0, 200));
+
+  // The person resumes: the named command runs with no confirmation dialog of its own.
+  let dialog = 0;
+  t.mock.method(host.vscode.window, 'showWarningMessage', () => { dialog++; return Promise.resolve('Continue'); });
+  const resume = () => dom.window.document.querySelector('#take-action');
+  await waitFor(() => resume() && !resume().disabled, 30000);
+  assert.ok(resume() && !resume().disabled, 'the pause card offers its Resume: ' + text().slice(0, 200));
+  resume().click();
+
+  // The run comes back to work: the pause is behind it and the Builder starts.
+  await waitFor(() => state().status !== 'PAUSED_INTERVENTION', 120000);
+  assert.notEqual(state().status, 'PAUSED_INTERVENTION', 'the resume takes the run out of its pause');
+  assert.equal(dialog, 0, 'the Resume needs no confirmation dialog of its own');
+  assert.ok((state().pause_intent || {}).acknowledged_at, 'the resume acknowledges the pause it returns from');
+
+  // The work happens for real: the Builder writes the greeting into the workspace.
+  await waitFor(() => fs.readFileSync(path.join(root, 'greet.py'), 'utf8').includes('Hello, '), 180000);
+  assert.ok(fs.readFileSync(path.join(root, 'greet.py'), 'utf8').includes('Hello, '),
+    'the run came back and did its work: ' + fs.readFileSync(path.join(root, 'greet.py'), 'utf8'));
+
+  // The action lands where the work stops: a person's gate, with the stages it ran recorded.
+  await waitFor(() => /^(PAUSED_|WAITING_FOR_USER)/.test(state().status), 180000);
+  const done = state();
+  assert.ok(/^(PAUSED_|WAITING_FOR_USER)/.test(done.status),
+    'the run stops at a person-facing gate, not in a silent state: ' + done.status);
+  assert.ok((done.stages || []).some((row) => row.stage === 'builder'),
+    "the Builder's stage ran: " + JSON.stringify((done.stages || []).map((row) => row.stage)));
+});
+
+test("walk: an edit sent mid-walk is taken up by the run at its next boundary", { skip }, async (t) => {
+  const { root } = buildWorkspace();
+  const { xdg, roles } = writeWalkProvider();
+  process.env.XDG_CONFIG_HOME = xdg;
+  t.after(() => { delete process.env.XDG_CONFIG_HOME; });
+  const runDir = writeResumeRun(root, xdg, roles, true);
+  claimSupervision(runDir);
+  const statePath = path.join(runDir, 'state.json');
+  const state = () => JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  // The live message channel: a spec-first, message-capable run takes a message mid-walk (#3259).
+  const s = state();
+  s.settings.spec_first = true;
+  s.intervention_capability = { supported: true, supports_messages: true };
+  fs.writeFileSync(statePath, JSON.stringify(s));
+
+  host.config.set('cliPath', CLI);
+  host.config.set('cliArgs', [SCRIPT]);
+  let statusText = '';
+  const mockStatus = {
+    show() {}, hide() {}, dispose() {},
+    get text() { return statusText; }, set text(val) { statusText = val; },
+    tooltip: undefined, command: undefined,
+  };
+  t.mock.method(host.vscode.window, 'createStatusBarItem', () => mockStatus);
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+  const chat = host.providers.get('autocode.chat');
+  let receive;
+  const webview = {
+    html: '', options: {},
+    onDidReceiveMessage: (callback) => { receive = callback; },
+    postMessage: async (data) => { webview.deliver?.(data); return true; },
+  };
+  const shell = { visible: true, webview, onDidChangeVisibility: () => {}, onDidDispose() {} };
+  t.after(() => { chat.dispose(); });
+  chat.resolveWebviewView(shell);
+  const dom = new JSDOM(webview.html, { runScripts: 'outside-only' });
+  t.after(() => dom.window.close());
+  let saved = {};
+  dom.window.acquireVsCodeApi = () => ({
+    postMessage: (message) => receive(message),
+    getState: () => saved,
+    setState: (value) => { saved = value; },
+  });
+  webview.deliver = (data) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
+  dom.window.eval(dom.window.document.querySelector('script').textContent);
+  await flush();
+
+  await host.commands.get('autocode.openRun')({ workspace: root, runDir });
+  const text = () => dom.window.document.querySelector('#app').textContent;
+  const hint = () => dom.window.document.querySelector('#send-hint').textContent;
+
+  // The run works mid-walk and the chat takes a message for its next boundary.
+  await waitFor(() => hint().includes('read after the current step'), 30000);
+  assert.ok(hint().includes('read after the current step'),
+    'the working chat says a message now is read after the step: ' + hint());
+  const send = () => dom.window.document.querySelector('#send-message');
+  assert.ok(send() && !send().hidden, 'the live message can be sent while the step works');
+
+  // The person edits the run mid-walk.
+  const edit = 'Change the greeting to say Goodbye instead of Hello';
+  const field = dom.window.document.querySelector('#message');
+  field.value = edit;
+  field.dispatchEvent(new dom.window.Event('input'));
+  dom.window.document.querySelector('#composer').dispatchEvent(new dom.window.Event('submit', { cancelable: true }));
+
+  // The edit lands: the chat's own named command saves it in the run's inbox.
+  await waitFor(() => fs.existsSync(path.join(runDir, 'interventions.json')), 30000);
+  assert.ok(fs.existsSync(path.join(runDir, 'interventions.json')),
+    "the edit landed in the run's inbox: " + dom.window.document.querySelector('#chat-error').textContent);
+  await waitFor(() => dom.window.document.querySelector('#message').value === '', 30000);
+  assert.equal(dom.window.document.querySelector('#message').value, '', 'the saved edit leaves the composer');
+
+  // The step finishes: the controller's own commit takes the queued edit into the run's conversation.
+  landPause(runDir);
+  await waitFor(() => (state().user_events || []).some((row) => row.text === edit), 30000);
+  const events = (state().user_events || []).filter((row) => row.text === edit);
+  assert.ok(events.length > 0, 'the run took the edit into its conversation: ' + JSON.stringify(state().user_events));
+  assert.equal(events[0].actor, 'user_intervention', "the edit is recorded as the person's own");
+  assert.equal(state().status, 'RUNNING', 'the run keeps working, with the edit read at its next boundary');
+  assert.ok(/Message saved/.test(state().stop_reason || ''),
+    'the run says the message is saved for its conversation: ' + state().stop_reason);
+});
+
+
+test('walk: two windows on one workspace keep their own drafts and serialize their actions', { skip }, async (t) => {
+  const { root, restore } = buildWorkspace();
+  host.config.set('cliPath', CLI);
+  host.config.set('cliArgs', [SCRIPT]);
+  const bars = [];
+  t.mock.method(host.vscode.window, 'createStatusBarItem', () => {
+    const bar = { show() {}, hide() {}, dispose() {}, text: '', tooltip: undefined, command: undefined };
+    bars.push(bar);
+    return bar;
+  });
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
+  const wsState = host.workspaceState;   // windows on one workspace share this
+  const openWindow = (store) => {
+    const context = { subscriptions: [], workspaceState: wsState };
+    activate(context);
+    const chat = host.providers.get('autocode.chat');
+    let receive;
+    const webview = {
+      html: '', options: {},
+      onDidReceiveMessage: (callback) => { receive = callback; },
+      postMessage: async (data) => { webview.deliver?.(data); return true; },
+    };
+    const shell = { visible: true, webview, onDidChangeVisibility: () => {}, onDidDispose() {} };
+    chat.resolveWebviewView(shell);
+    const dom = new JSDOM(webview.html, { runScripts: 'outside-only' });
+    // Each window keeps its own webview state (drafts), as VS Code does.
+    dom.window.acquireVsCodeApi = () => ({
+      postMessage: (message) => receive(message),
+      getState: () => store.state,
+      setState: (value) => { store.state = value; },
+    });
+    webview.deliver = (data) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
+    dom.window.eval(dom.window.document.querySelector('script').textContent);
+    return { context, chat, dom };
+  };
+
+  const storeA = { state: {} };
+  const storeB = { state: {} };
+  const a = openWindow(storeA);
+  const b = openWindow(storeB);
+  t.after(() => { a.context.subscriptions.forEach((item) => item.dispose?.()); b.context.subscriptions.forEach((item) => item.dispose?.()); });
+  t.after(() => { a.dom.window.close(); b.dom.window.close(); });
+
+  // Per-window drafts: the same workspace, two windows, two private composers.
+  await a.chat.show({ workspace: root, runDir: restore });
+  await a.chat.refresh();
+  await b.chat.show({ workspace: root, runDir: restore });
+  await b.chat.refresh();
+  const fieldA = a.dom.window.document.querySelector('#message');
+  const fieldB = b.dom.window.document.querySelector('#message');
+  fieldA.value = 'Window A draft';
+  fieldA.dispatchEvent(new a.dom.window.Event('input'));
+  fieldB.value = 'Window B draft';
+  fieldB.dispatchEvent(new b.dom.window.Event('input'));
+  await flush();
+  assert.equal(fieldA.value, 'Window A draft');
+  assert.equal(fieldB.value, 'Window B draft', 'each window keeps its own draft');
+
+  // Both windows watch the run: two status lines, each its own.
+  await waitFor(() => bars.length >= 2 && bars.every((bar) => bar.text.includes('AutoCode')), 30000);
+
+  // Both windows act on the same run at once: the run lock serializes them, and the shared
+  // workspaceState gives both the same request id, so only one candidate can be created.
+  const requests = [];
+  const cli = host.load('core/cli.js');
+  const realInvoke = cli.invoke;
+  t.mock.method(cli, 'invoke', (options, argv, env, timeoutMs) => {
+    if (argv[0] === 'checkpoint' && argv.includes('--restore')) requests.push(argv[argv.indexOf('--request-id') + 1]);
+    return realInvoke(options, argv, env, timeoutMs);
+  });
+  // The CLI is made slow so the two restores overlap on the run lock.
+  const slow = path.join(root, 'slow-cli.sh');
+  fs.writeFileSync(slow, '#!/bin/sh\nsleep 2\nexec "$@"\n');
+  fs.chmodSync(slow, 0o755);
+  host.config.set('cliPath', slow);
+  host.config.set('cliArgs', [CLI, SCRIPT]);
+  let releaseA, releaseB;
+  t.mock.method(host.vscode.window, 'showWarningMessage', (question) => {
+    assert.match(question, /Restore "Fixture step"/);
+    return new Promise((resolve) => {
+      if (!releaseA) releaseA = resolve;
+      else releaseB = resolve;
+    });
+  });
+  const restoreBtn = (dom) => dom.window.document.querySelector('[data-checkpoint-action="restore"]');
+  await waitFor(() => restoreBtn(a.dom) && !restoreBtn(a.dom).disabled, 30000);
+  restoreBtn(a.dom).click();
+  await waitFor(() => Boolean(releaseA), 30000);
+  restoreBtn(b.dom).click();
+  await waitFor(() => Boolean(releaseB), 30000);
+  releaseA('Restore');
+  releaseB('Restore');
+  // One window's restore lands; the other is refused by the run lock, and both say so.
+  const errA = () => a.dom.window.document.querySelector('#chat-error').textContent;
+  const errB = () => b.dom.window.document.querySelector('#chat-error').textContent;
+  const appA = () => a.dom.window.document.querySelector('#app').textContent;
+  const appB = () => b.dom.window.document.querySelector('#app').textContent;
+  await waitFor(() => (appA().includes('Restored on a new branch') || errA().includes('run lock'))
+    && (appB().includes('Restored on a new branch') || errB().includes('run lock')), 60000);
+  const wonA = appA().includes('Restored on a new branch');
+  const wonB = appB().includes('Restored on a new branch');
+  assert.equal(wonA !== wonB, true, 'exactly one window restores; the other is refused by the run lock');
+  const loser = wonA ? appB() : appA();
+  assert.ok(loser.includes('run lock'), 'the refused window says why: ' + loser.slice(-200));
+  assert.equal(requests.length, 2, 'both windows named their restore');
+  assert.equal(requests[0], requests[1], 'both carried the same request id: the workspace state is shared');
+  const branches = execFileSync('git', ['-C', root, 'branch', '--list'], { encoding: 'utf8' })
+    .split('\n').filter((line) => line.includes('autocode/checkpoint-'));
+  assert.equal(branches.length, 1, 'one candidate branch, never two: ' + branches.join(' | '));
 });

@@ -166,18 +166,117 @@ class ChangedCodeReviewTests(unittest.TestCase):
                     verified_refs=self.refs,
                 )
 
-    def test_legacy_id_only_offer_still_binds_ids_and_refuses_handles(self):
+    def test_legacy_id_only_offer_still_binds_ids_and_handles_of_current_gaps(self):
         legacy = wire()
         props = legacy["properties"][review.FIELD]["items"]["properties"]
         props["gap_id"]["enum"] = [self.gap["gap_id"]]
         self.assertTrue(self.bind(offered_schema=legacy))
+        # A handle is a runner-assigned identity in the proof document the Tester reads, so it
+        # names the same gap the legacy id names; only a name no current obligation has is stale (#3286).
         self.decision["gap_id"] = "L1"
-        with self.assertRaisesRegex(ValueError, "duplicate, unknown or stale"):
-            self.bind(offered_schema=legacy)
+        self.assertTrue(self.bind(offered_schema=legacy))
+        for stale in ("L9", self.gap["gap_id"] + "0"):
+            with self.subTest(stale=stale):
+                self.decision["gap_id"] = stale
+                with self.assertRaisesRegex(ValueError, "duplicate, unknown or stale"):
+                    self.bind(offered_schema=legacy)
 
     @staticmethod
     def state(value):
         return {"regression_proof": {"changed_code_evidence": value}}
+
+    GROWN_TEXTS = {"calc.py": {"sha256": "a" * 64, "lines": {"2": "return a + b", "3": "return a - b"}}}
+
+    def grown(self, mutation=None):
+        return evidence.assess(
+            [{"path": "calc.py", "sha256": "a" * 64, "lines": [2, 3]}],
+            None,
+            mutation,
+            source_revision="source-one",
+            proof_context="proof-one",
+            texts=self.GROWN_TEXTS,
+        )
+
+    def test_a_gap_the_proof_made_current_after_the_offer_still_binds(self):
+        """#3286: the generation enum is a launch-time snapshot; the proof a Tester read can be newer."""
+        offered = wire(state=self.state(self.assessment))  # one gap: L1
+        grown = self.grown()
+        fresh = grown["obligations"][1]
+        self.assertEqual("reason_required", fresh["status"])
+        self.assertNotIn(fresh["handle"], offered["properties"][review.FIELD]["items"]["properties"]["gap_id"]["enum"])
+        widened = reports.review_validation_schema(
+            offered, self.state(grown), {"stage": "tester"}, {"changed_code_exceptions": []}
+        )
+        field = widened["properties"][review.FIELD]
+        offered_field = offered["properties"][review.FIELD]
+        self.assertIn(fresh["handle"], field["items"]["properties"]["gap_id"]["enum"])
+        decision = {**self.decision, "gap_id": fresh["handle"], "source_line": "return a - b"}
+        with self.assertRaises(ValueError):
+            validate_schema([decision], offered_field)
+        validate_schema([decision], field)
+        bound = review.bind(grown, [decision], self.record, offered_schema=offered, verified_refs=self.refs)
+        self.assertEqual(fresh["gap_id"], bound[0]["gap_id"])
+
+    def test_validation_widening_still_refuses_a_gap_no_current_obligation_names(self):
+        grown = self.grown()
+        widened = reports.review_validation_schema(
+            wire(state=self.state(grown)), self.state(grown), {"stage": "tester"}, {}
+        )
+        field = widened["properties"][review.FIELD]
+        for stale in ("L99", grown["obligations"][0]["gap_id"] + "0"):
+            with self.subTest(stale=stale):
+                self.decision["gap_id"] = stale
+                with self.assertRaises(ValueError):
+                    validate_schema([self.decision], field)
+
+    def test_a_decision_on_an_already_tested_line_binds_but_never_applies(self):
+        mutation = {
+            "source_revision": "source-one",
+            "proof_context": "proof-one",
+            "files": [
+                {
+                    "path": "calc.py",
+                    "sha256": "a" * 64,
+                    "mutants": [
+                        {"line": 2, "outcome": "killed", "evidence": ["receipt:m2"], "failed_tests": ["test_add"]}
+                    ],
+                }
+            ],
+        }
+        mixed = self.grown(mutation)
+        tested, undecided = mixed["obligations"]
+        self.assertEqual(("tested", "reason_required"), (tested["status"], undecided["status"]))
+        offered = wire(state=self.state(mixed))
+        enum = offered["properties"][review.FIELD]["items"]["properties"]["gap_id"]["enum"]
+        self.assertIn(undecided["handle"], enum)
+        self.assertNotIn(tested["handle"], enum)
+        decision = {
+            **self.decision,
+            "gap_id": tested["handle"],
+            "source_line": "return a + b",
+            "reason": "Independently checked: the mutant on this line is already killed by test_add.",
+        }
+        bound = review.bind(mixed, [decision], self.record, offered_schema=offered, verified_refs=self.refs)
+        self.assertEqual(tested["gap_id"], bound[0]["gap_id"])
+        again = evidence.assess(
+            [{"path": "calc.py", "sha256": "a" * 64, "lines": [2, 3]}],
+            None,
+            mutation,
+            source_revision="source-one",
+            proof_context="proof-one",
+            exceptions=bound,
+            texts=self.GROWN_TEXTS,
+        )
+        # A decision on a demonstrated line never displaces its mutation evidence.
+        self.assertEqual(["tested", "reason_required"], [row["status"] for row in again["obligations"]])
+        self.assertEqual("UNVERIFIED", again["status"])
+
+    def test_an_offer_naming_no_current_obligation_still_refuses(self):
+        foreign = wire()
+        props = foreign["properties"][review.FIELD]["items"]["properties"]
+        props["gap_id"]["enum"] = ["changed-code:" + "9" * 64]
+        with self.assertRaisesRegex(ValueError, "no exact current offered gap binding"):
+            self.bind(offered_schema=foreign)
 
     def test_rejected_reason_is_recorded_but_never_accepted(self):
         self.decision["decision"] = "reject"

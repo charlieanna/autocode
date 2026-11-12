@@ -86,7 +86,10 @@ export interface PanelState {
   /** This client is acting, or AutoCode reports live stage/controller work. */
   working: boolean;
   /** The pause the view offers while the run works (#1598); `requested` once one waits for the step to end. */
-  pauseOffer: { label: string; effect: string | null; requested: boolean } | null;
+  pauseOffer: {
+    label: string; effect: string | null; requested: boolean;
+    stopNow: { label: string; effect: string | null; requested: boolean } | null;
+  } | null;
   /** Chat only: the latest status read failed, so this state is an older read and its actions stay disabled (#1593). */
   unreadable?: boolean;
   /** Saved code changes and the actions the view named for them (#1532). */
@@ -520,6 +523,11 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
       label: view.pause.label ?? "Pause after this step",
       effect: view.pause.effect ?? null,
       requested: view.pause.requested === true || !Array.isArray(view.pause.next_command),
+      stopNow: view.pause.stop_now ? {
+        label: view.pause.stop_now.label ?? "Stop now",
+        effect: view.pause.stop_now.effect ?? null,
+        requested: view.pause.stop_now.requested === true || !Array.isArray(view.pause.stop_now.next_command),
+      } : null,
     } : null,
     checkpoints: (view.code_checkpoints?.rows ?? []).map((row) => ({
       id: row.id,
@@ -588,9 +596,21 @@ function describe(
     questionId: open.questionId,
     kind: open.kind,
     text: question?.question ?? (asksModel && route ? `Name the model ${route.role} continues on` : open.questionId),
-    options: asksModel ? [...(route?.candidates ?? [])] : [...(question?.options ?? [])],
+    options: asksModel ? [...(route?.candidates ?? [])] : offeredLabels(question),
     suggested: asksModel ? null : (question?.proposed_default ?? null),
   };
+}
+
+/**
+ * The answers a question with options accepts, as the core reads them (`autocode_answer_options.labels`):
+ * its options, and its proposed default when that is not one of them. A default worded apart from every
+ * option could not be preselected or chosen, so the person had to pick an option the default did not name.
+ */
+function offeredLabels(question: Question | undefined): string[] {
+  const options = (question?.options ?? []).filter((label) => typeof label === "string" && label.trim());
+  const fallback = question?.proposed_default;
+  if (options.length && typeof fallback === "string" && fallback.trim() && !options.includes(fallback)) options.push(fallback);
+  return options;
 }
 
 /** Only the core-named Requirements answer starts paid planning; corrections stay conversational. */
@@ -972,7 +992,7 @@ ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messag
 <textarea id="message" aria-label="Message AutoCode" aria-describedby="keyboard-hint" placeholder="Ask AutoCode to work on this project…"></textarea>
 <div id="chat-error" role="alert"></div>
 <div class="actions"><button type="button" id="engine-picker" class="chip" title="Engine for new chats" aria-label="Engine for new chats">${ICONS.tune}<span id="engine-name">opencode</span></button><button type="button" id="mode-picker" class="chip" title="Run mode for new chats" aria-label="Run mode for new chats" hidden>${ICONS.route}<span id="mode-name"></span></button><button type="button" id="models-picker" class="chip" title="This chat's models" aria-label="This chat's models" hidden>${ICONS.chip}<span id="models-name">Models</span></button><span id="keyboard-hint" class="keyboard-hint">Enter to send · Shift+Enter for newline</span>
-<button type="button" id="pause-run" hidden>Pause</button><button type="submit" id="send-message" disabled>Send</button></div></form>` : ""}
+<button type="button" id="stop-now-run" hidden>Stop now</button><button type="button" id="pause-run" hidden>Pause</button><button type="submit" id="send-message" disabled>Send</button></div></form>` : ""}
 <script>
 const vscode = acquireVsCodeApi();
 const app = document.getElementById('app');
@@ -1117,6 +1137,15 @@ function logLine(group) {
   });
   line.appendChild(fold);
   return line;
+}
+
+// What the strip beside the action says. While the person's answer is being saved the button reads
+// "Working…"; the strip said "AutoCode is waiting for you" beside it for as long as that took (75 s on
+// a loaded host in the #2066 run), so the click looked unanswered.
+function actionPrompt(state) {
+  if (state.confirming) return state.confirming + ' — answer the dialog that opened';
+  if (state.taking) return 'Sending your answer. AutoCode goes on as soon as it is saved.';
+  return 'AutoCode is waiting for you';
 }
 
 function renderChatProgress(container, state) {
@@ -1304,9 +1333,12 @@ function renderHeader(data) {
     item.appendChild(el('td', 'mark', step.state === 'working' && step.why ? '↻' : step.mark));
     const route = step.state === 'skipped' ? 'skipped' : [step.model, step.level].filter(Boolean).join(' ');
     const name = el('td', 'name', step.label);
-    if (step.attempts > 1) {
-      // A small count; the words are its tooltip and Show details. Amber when an attempt failed.
-      const badge = el('span', 'runs' + (step.failed ? ' failed' : ''), '×' + step.attempts);
+    if (step.attempts > 1 || step.repairs) {
+      // A small count of the stage's own launches, and its report repairs apart (a repair only rewrote a
+      // rejected report); the words are its tooltip and Show details. Amber when an attempt failed.
+      const count = [step.attempts > 1 ? '×' + step.attempts : '', step.repairs ? '+' + step.repairs + (step.repairs > 1 ? ' repairs' : ' repair') : '']
+        .filter(Boolean).join(' ');
+      const badge = el('span', 'runs' + (step.failed ? ' failed' : ''), count);
       badge.title = step.runs;
       badge.setAttribute('aria-label', step.runs);
       name.appendChild(badge);
@@ -1464,9 +1496,7 @@ function render(state) {
         approve.addEventListener('click', () => vscode.postMessage({ type: 'take',
           answers: { [review.question_id]: review.answer }, token: null,
           runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
-        strip.appendChild(el('span', 'action-prompt', state.confirming
-          ? state.confirming + ' — answer the dialog that opened'
-          : 'AutoCode is waiting for you'));
+        strip.appendChild(el('span', 'action-prompt', actionPrompt(state)));
         strip.appendChild(approve);
       } else if (state.needKind === 'continue' && state.working) {
         renderChatProgress(cardContent, state);
@@ -1476,7 +1506,7 @@ function render(state) {
         resume.disabled = Boolean(state.unreadable);
         resume.addEventListener('click', () => vscode.postMessage({ type: 'take', answers: {}, token: null,
           runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
-        strip.appendChild(el('span', 'action-prompt', 'AutoCode is waiting for you'));
+        strip.appendChild(el('span', 'action-prompt', actionPrompt(state)));
         strip.appendChild(resume);
       }
       if (cardContent.childNodes.length > 0) app.appendChild(card);
@@ -1610,9 +1640,7 @@ function render(state) {
         vscode.postMessage({ type: 'take', answers: { ...answers }, token: state.token || null,
           runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext });
       });
-      strip.appendChild(el('span', 'action-prompt', state.confirming
-        ? state.confirming + ' — answer the dialog that opened'
-        : 'AutoCode is waiting for you'));
+      strip.appendChild(el('span', 'action-prompt', actionPrompt(state)));
       strip.appendChild(take);
       const again = el('button', 'secondary', 'Refresh');
       again.addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
@@ -2113,6 +2141,15 @@ function updateComposer() {
   pauseButton.textContent = pausing ? 'Pausing after this step…' : 'Pause';
   pauseButton.setAttribute('aria-label', pause ? (pausing ? 'Pausing after this step' : pause.label) : 'Pause');
   pauseButton.title = pause && pause.effect ? pause.effect : '';
+  // Stop now ends the running step at once (#3263), so a runaway step stops costing; only where the view names it.
+  const stopNow = pause && pause.stopNow;
+  const stopping = Boolean(stopNow && stopNow.requested);
+  const stopButton = document.getElementById('stop-now-run');
+  stopButton.hidden = !stopNow;
+  stopButton.disabled = !stopNow || stopping || Boolean(chatEnvelope.pausing) || unreadable;
+  stopButton.textContent = stopping ? 'Stopping…' : (stopNow ? stopNow.label : 'Stop now');
+  stopButton.setAttribute('aria-label', stopping ? 'Stopping the running step' : (stopNow ? stopNow.label : 'Stop now'));
+  stopButton.title = stopNow && stopNow.effect ? stopNow.effect : '';
   // A message the view takes while the run works is saved for the next stage boundary (#3259): the
   // stage this window drives does not hold it, and it continues nothing itself.
   const live = Boolean(input && input.kind === 'message');
@@ -2128,6 +2165,7 @@ function updateComposer() {
     : unreadable ? 'Waiting for the status to read again. You can keep a draft here.'
     : messaging ? 'Saving your message…'
     : live ? 'AutoCode is working. A message you send now is read after the current step.'
+    : stopping ? 'AutoCode is ending this step now; its partial work is kept. You can keep a draft here.'
     : pausing ? 'AutoCode pauses once this step is saved. You can keep a draft here.'
     : input ? (chatEnvelope.busy ? 'AutoCode is working on your last message. Keep your draft here and send it after.' : label)
     : (chatEnvelope.busy || (chatEnvelope.state && chatEnvelope.state.working)) ? 'AutoCode is working. You can keep a draft here.'
@@ -2525,6 +2563,9 @@ if (chatMode) {
     headerOpen = !headerOpen;
     vscode.setState({ ...(vscode.getState() || {}), headerOpen });
     if (chatEnvelope) renderHeader(chatEnvelope);
+  });
+  document.getElementById('stop-now-run').addEventListener('click', () => {
+    if (chatEnvelope && chatEnvelope.runKey) vscode.postMessage({ type: 'stopNow', runKey: chatEnvelope.runKey });
   });
   document.getElementById('pause-run').addEventListener('click', () => {
     if (chatEnvelope && chatEnvelope.runKey) vscode.postMessage({ type: 'pause', runKey: chatEnvelope.runKey });

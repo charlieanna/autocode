@@ -222,6 +222,8 @@ def classify_failure(data, mode, spec):
         untestable="" if probe else "The retained report cannot establish which cause produced the empty diff.",
         failure_class="execution" if execution else "unknown",
         failure_id=failure["failure_id"],
+        # A strict-schema engine requires every Investigator field, this one included (#3213).
+        project_notes=[],
     )
 
 
@@ -344,6 +346,7 @@ def main():
             "probe": "",
             "counterexample": {"file": "", "find": "", "replace": ""},
             "untestable": "",
+            "project_notes": [],
         }
     elif data["stage"] == "draft_plan":
         draft = cite_sources(copy.deepcopy(spec["contract"]), data)

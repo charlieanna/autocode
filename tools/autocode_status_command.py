@@ -359,6 +359,10 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         stage=stage_name,
         following=following_name,
     )
+    # A finished run whose verification no longer covers the current checkout names
+    # a re-verification action: resume re-checks completion against the source on disk.
+    if completion_current is False and not (stale or stale_check):
+        public_view["next_command"] = ["--workspace", str(workspace), "--run-dir", str(run_dir), "--resume-paused"]
     # The run in one sentence and its exact next action (#2049); `--summary` prints only this.
     public_view["summary"] = status_summary.project(
         public_view, stale=stale or stale_check, completion_current=completion_current, next_action=next_action

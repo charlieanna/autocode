@@ -371,6 +371,33 @@ class RemotesCatalogTests(unittest.TestCase):
             self.assertEqual(commit, entry["pinned_commit"])
             self.assertIn(str(clone), self.repository_paths())
 
+    def test_c10_remotes_list_leaves_out_a_row_without_a_name(self):
+        with self.catalog_home():
+            self.run_cli(["remotes", "add", OWNER_NAME, "--ref", "BRANCH"])
+            path = registry.source_catalog.catalog_path()
+            document = json.loads(path.read_text())
+            document["remotes"].append({"ref": "BRANCH"})
+            path.write_text(json.dumps(document))
+            entries = self.remotes_entries()
+            self.assertEqual([OWNER_NAME], [row["name"] for row in entries], entries)
+            self.assertEqual(GITHUB_URL, entries[0]["url"], entries)
+
+    def test_c11_remotes_clone_refuses_an_entry_without_a_ref(self):
+        with self.catalog_home() as home:
+            self.run_cli(["remotes", "add", OWNER_NAME, "--ref", "BRANCH"])
+            path = registry.source_catalog.catalog_path()
+            document = json.loads(path.read_text())
+            for row in document["remotes"]:
+                row.pop("ref", None)
+            path.write_text(json.dumps(document))
+            code, output = self.clone_owner()
+            self.assert_source_catalog_error(code, output)
+            self.assertIn("no stored ref", output)
+            clones = home / "clones"
+            if clones.exists():
+                self.assertEqual([], list(clones.iterdir()))
+            self.assertNotIn(str(self.managed_clone(home)), self.repository_paths())
+
     def test_g1_legacy_catalog_keeps_loading(self):
         standalone = self.git_repo(self.root / "standalone")
         common = subprocess.run(
