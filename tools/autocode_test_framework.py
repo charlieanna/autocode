@@ -43,7 +43,7 @@ class Framework:
 
     @property
     def per_test(self):
-        return self.name in ("pytest", "unittest", "go", "node", "vitest")
+        return self.name in ("pytest", "unittest", "go", "node", "vitest", "rspec")
 
     def targeted(self, test_paths):
         files = sorted(test_paths)

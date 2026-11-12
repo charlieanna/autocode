@@ -989,6 +989,41 @@ class PolyglotSuite(unittest.TestCase):
             "The new tests pass on the unfixed base code, so they do not reproduce the bug", proof["failures"]
         )
 
+    @unittest.skipUnless(shutil.which("bundle") and shutil.which("rspec"), "Bundler and RSpec run backend/'s suite")
+    def test_an_rspec_suite_without_a_junit_formatter_names_each_example(self):
+        # The plan named RSpec examples and the project had no JUnit formatter: the proof saw only an exit code, so
+        # every named criterion ended unverified (idlecampus, 2026-11-07). RSpec's own JSON formatter names them.
+        existing = "RSpec.describe 'existing' do\n  it('test_existing_runs') { expect(1).to eq(1) }\nend\n"
+        project = Project({**POLYGLOT, "backend/spec/requests/existing_spec.rb": existing})
+        self.addCleanup(project.close)
+        project.write(
+            {
+                POLYGLOT_SPEC: "require_relative '../../app/grader'\nRSpec.describe Grader do\n"
+                "  it('test_passes_a_correct_answer') { expect(Grader.new.grade).to eq(:passed) }\nend\n",
+                "backend/app/grader.rb": "class Grader\n  def grade\n    :passed\n  end\nend\n",
+            }
+        )
+        state = bugfix_state(project, package=None)
+        state["goal_contract"]["body"]["acceptance_criteria"] = [
+            {
+                "id": "C1",
+                "criterion": "A correct answer passes",
+                "verification_method": "test: test_passes_a_correct_answer",
+            },
+            {"id": "C2", "criterion": "The existing example runs", "verification_method": "guard: test_existing_runs"},
+        ]
+        with tempfile.TemporaryDirectory() as run_dir:
+            proof = regression.prove(state, project.root, Path(run_dir))
+        self.assertEqual(("rspec", "backend"), (proof["framework"]["name"], proof["framework"]["directory"]), proof)
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        example = "spec/requests/grader_spec.rb::Grader test_passes_a_correct_answer"
+        self.assertEqual([example], proof["fail_to_pass"], proof)
+        self.assertEqual(
+            {"C1": [example], "C2": ["spec/requests/existing_spec.rb::existing test_existing_runs"]},
+            proof["case_tests"],
+        )
+        self.assertIn("--format json --out", proof["checks"]["regression_on_candidate"]["command"])
+
 
 class PackageRequired(unittest.TestCase):
     def setUp(self):
