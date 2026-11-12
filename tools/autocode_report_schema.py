@@ -117,8 +117,14 @@ def review_validation_schema(schema, state: RunState | None, record, value):
     literal exactly. This also accepts ID-only responses against older saved schemas.
     """
     schema = planning_policy.concern_validation_schema(schema, record)
-    stage = record.get("original_stage") or record.get("stage")
+    stage = str(record.get("original_stage") or record.get("stage") or "").removesuffix("_report_repair")
     if state and stage in ("tester", "review_checkpoint"):
+        # The saved generation enum is a launch-time snapshot; widen it to the obligations
+        # current here, so a decision the proof document asked for is not refused for the
+        # moment the snapshot was drawn (#3286).
+        schema = changed_code_review.validation_schema(
+            schema, (state.get("regression_proof") or {}).get("changed_code_evidence"), stage
+        )
         design_coverage.report_refs(state, value.get("validation", value))
     criteria = (state or {}).get("acceptance_criteria") or []
     if stage not in COMPLETION_STAGES or not criteria or "acceptance_criteria" not in schema.get("properties", {}):

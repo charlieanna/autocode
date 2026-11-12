@@ -81,6 +81,21 @@ def _gaps(assessment):
     return result
 
 
+def _obligations(assessment):
+    """Every current obligation whatever its status, under _gaps' integrity rule."""
+    if not isinstance(assessment, dict) or not isinstance(assessment.get("obligations"), list):
+        return {}
+    result = {}
+    for row in assessment["obligations"]:
+        if not isinstance(row, dict):
+            return {}
+        identity = row.get("gap_id")
+        if not isinstance(identity, str) or not identity or identity in result:
+            return {}
+        result[identity] = row
+    return result
+
+
 def _names(gaps):
     """Each current gap's accepted names: its short handle (when it has one) and its full id."""
     result = {}
@@ -161,6 +176,32 @@ def generation_schema(schema, assessment, stage):
     return result
 
 
+def validation_schema(schema, assessment, stage):
+    """Widen the offered gap_id enum to the obligations current at validation.
+
+    The generation enum is a launch-time snapshot of the reason_required gaps, and proofs
+    re-run between that moment and validation, so the proof document a Tester read can name
+    obligations the saved enum never offered (#3286). A decision naming a current obligation
+    is decided work whatever its status: an accepted exception on an already-tested line
+    never applies, because autocode_changed_code_evidence applies exceptions only to lines
+    with no mutation outcome, and a name resolving to no current obligation keeps the
+    enum's refusal. maxItems covers every obligation, since a report may decide them all.
+    """
+    result = copy.deepcopy(schema)
+    if stage not in ("tester", "review_checkpoint"):
+        return result
+    field = _fields(result, stage).get(FIELD)
+    if not isinstance(field, dict):
+        return result
+    obligations = _obligations(assessment)
+    field["maxItems"] = len(obligations)
+    if obligations:
+        names = [name for name in _names(obligations) if name not in obligations] + list(obligations)
+        props = field["items"]["properties"]
+        props["gap_id"] = {**props["gap_id"], "enum": names}
+    return result
+
+
 def normalize_absent(value, schema, record):
     """Legacy omissions mean no decision; supplied decisions remain untouched."""
     stage = _stage(record)
@@ -207,9 +248,11 @@ def bind(assessment, decisions, record, *, offered_schema, verified_refs):
 
     A nullable/absent field grants nothing. Accepted rows alone can satisfy a gap;
     rejected rows remain available for disclosure. Evidence aliases resolve only
-    through the caller's authenticated, pinned reference map. The saved generation
-    schema must have offered the exact current gap, including its source/context
-    identity. Builder self-checks and completion prose never create authority.
+    through the caller's authenticated, pinned reference map. Each decision must name
+    a current obligation — one the offered schema offered, or one a later proof made
+    current before the report arrived (#3286) — and its identity is re-derived from
+    the exact file, bytes and line. Builder self-checks and completion prose never
+    create authority.
     """
     if decisions is None or decisions == []:
         return []
@@ -229,15 +272,17 @@ def bind(assessment, decisions, record, *, offered_schema, verified_refs):
         raise ValueError("Changed-code reason review does not match a read-only current source")
     field = _fields(offered_schema, stage).get(FIELD, {})
     offered = field.get("items", {}).get("properties", {}).get("gap_id", {}).get("enum")
-    gaps = _gaps(assessment)
-    names = _names(gaps)
+    obligations = _obligations(assessment)
+    current = _names(obligations)
     if (
         not isinstance(offered, list)
         or not offered
         or len(offered) != len(set(offered))
-        or field.get("maxItems") != len(gaps)
-        # A legacy schema offered the full ids alone; a current one offers each handle too.
-        or set(offered) not in (set(gaps), set(names))
+        or not isinstance(field.get("maxItems"), int)
+        # The offer is a launch-time snapshot of the gap set: proofs re-run between that moment
+        # and this binding, so an offered name need only name a current obligation (#3286).
+        # A schema from another run or source still names none.
+        or not set(offered) <= set(current)
         or not isinstance(verified_refs, dict)
     ):
         raise ValueError("Changed-code reason review has no exact current offered gap binding")
@@ -252,7 +297,9 @@ def bind(assessment, decisions, record, *, offered_schema, verified_refs):
         if not isinstance(row, dict) or set(row) != fields:
             raise ValueError("Malformed changed-code exception decision")
         supplied = row.get("gap_id")
-        identity = names.get(supplied) if isinstance(supplied, str) and supplied in offered else None
+        # A name the offer predates still binds when it names a current obligation; the digest
+        # check below authenticates the binding either way (#3286).
+        identity = current.get(supplied) if isinstance(supplied, str) else None
         if not isinstance(identity, str) or identity in seen:
             raise ValueError("Changed-code reason names a duplicate, unknown or stale gap")
         seen.add(identity)
@@ -274,7 +321,7 @@ def bind(assessment, decisions, record, *, offered_schema, verified_refs):
                 raise ValueError(f"Changed-code reason cites unauthenticated evidence: {ref!r}")
             if actual not in evidence:
                 evidence.append(actual)
-        gap = gaps[identity]
+        gap = obligations[identity]
         if (
             not isinstance(gap.get("path"), str)
             or not gap["path"]
