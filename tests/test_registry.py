@@ -33,6 +33,8 @@ class RegistryTests(unittest.TestCase):
         self.environment = patch.dict(os.environ, {"AUTOCODE_HOME": str(self.home)})
         self.environment.start()
         self.addCleanup(self.environment.stop)
+        # A test that clears the environment to take the default storage keeps an index of its own.
+        self.index = {"AUTOCODE_PROJECT_INDEX_HOME": str(self.root / "index")}
 
     def test_explicit_storage_lists_without_an_account_home(self):
         with patch.object(Path, "home", side_effect=RuntimeError("No account home")):
@@ -87,7 +89,7 @@ class RegistryTests(unittest.TestCase):
 
     def test_workspace_storage_defaults_to_workspace_and_preserves_explicit_shared_home(self):
         workspace, _, _ = self.fixture("workspace")
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, self.index, clear=True):
             registry.configure_workspace_storage(workspace)
             self.assertEqual(str(workspace / ".autocode" / "registry"), os.environ["AUTOCODE_HOME"])
         with patch.dict(os.environ, {"AUTOCODE_HOME": str(self.home)}, clear=True):
@@ -114,7 +116,7 @@ class RegistryTests(unittest.TestCase):
         }
         (run / "state.json").write_text(json.dumps(state))
         project_registry = project / ".autocode" / "registry"
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, self.index, clear=True):
             registry.configure_workspace_storage(lane.resolve())
             self.assertEqual(str(project_registry), os.environ["AUTOCODE_HOME"])
             registry.register_run(lane.resolve(), run.resolve(), state)
@@ -129,7 +131,7 @@ class RegistryTests(unittest.TestCase):
         (lane / ".autocode" / "task-workspace.json").write_text(
             json.dumps({"workspace": str(lane.resolve()), "project_workspace": str(self.root / "elsewhere")})
         )
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, self.index, clear=True):
             registry.configure_workspace_storage(lane.resolve())
             self.assertEqual(str(lane.resolve() / ".autocode" / "registry"), os.environ["AUTOCODE_HOME"])
 
@@ -163,6 +165,41 @@ class RegistryTests(unittest.TestCase):
         alone = registry.listing(also=project_home)
         self.assertTrue(alone["registry_exists"])
         self.assertEqual([str(project_run)], [row["run_dir"] for row in alone["runs"]])
+
+    def test_a_project_that_took_its_own_registry_is_listed_from_any_other_folder(self):
+        """#3265: runs index in their project, and a listing read only the current folder's project, so a
+        chat in any other project was missing from the list of every project's chats."""
+        first, first_run, first_state = self.fixture("first")
+        second, second_run, second_state = self.fixture("second")
+        index = self.root / "index" / "projects.json"
+        for workspace, run, state in ((first, first_run, first_state), (second, second_run, second_state)):
+            with patch.dict(os.environ, self.index, clear=True):
+                registry.configure_workspace_storage(workspace)
+                registry.register_run(workspace, run, state)
+        self.assertEqual({"version": 1, "projects": [str(first), str(second)]}, json.loads(index.read_text()))
+        self.assertEqual([], registry.other_project_storage(), "an explicit AUTOCODE_HOME names the one registry")
+        with patch.dict(os.environ, self.index, clear=True), patch.object(Path, "home", return_value=self.root):
+            others = registry.other_project_storage()
+            self.assertEqual([first / ".autocode" / "registry", second / ".autocode" / "registry"], others)
+            listed = registry.listing(also=registry.project_storage(second), others=others)
+            self.assertEqual({str(first_run), str(second_run)}, {row["run_dir"] for row in listed["runs"]})
+            self.assertEqual(2, len(listed["runs"]), "the current project is read once")
+            # Without the index only the current folder's project is read, as before.
+            alone = registry.listing(also=registry.project_storage(second))
+            self.assertEqual([str(second_run)], [row["run_dir"] for row in alone["runs"]])
+            # A project whose folder is gone is skipped, and dropped when the index is next written.
+            import shutil
+
+            shutil.rmtree(first)
+            self.assertEqual([second / ".autocode" / "registry"], registry.other_project_storage())
+            third, _, _ = self.fixture("third")
+            registry.remember_project(third)
+            self.assertEqual({"version": 1, "projects": [str(second), str(third)]}, json.loads(index.read_text()))
+            # An unreadable index lists nothing more and stops nothing.
+            index.write_text("broken\n")
+            self.assertEqual([], registry.other_project_storage())
+            registry.remember_project(second)
+            self.assertEqual({"version": 1, "projects": [str(second)]}, json.loads(index.read_text()))
 
     def test_project_storage_is_read_only_without_an_explicit_home(self):
         project, _, _ = self.fixture("project")

@@ -238,7 +238,9 @@ def rows(workspace: Path, *, all_workspaces: bool = False, now: float | None = N
                     _row(Path(record["workspace"]), Path(record["run_dir"]), clock, changesets, checkpoint=checkpoint)
                 )
 
-        registry._listing(also=registry.project_storage(workspace), visit_run=visit)
+        registry._listing(
+            also=registry.project_storage(workspace), visit_run=visit, others=registry.other_project_storage()
+        )
     else:
         entries = [row(one_workspace, run_dir, clock, changesets) for run_dir, one_workspace in _pairs(Path(workspace))]
     return sorted(
