@@ -45,6 +45,26 @@ class UserConfigIsolationTests(unittest.TestCase):
             seen = run("import os, tests; print(os.environ['XDG_CONFIG_HOME'])", environment)
         self.assertEqual(chosen, seen.strip())
 
+    def test_a_suite_started_from_a_chat_keeps_test_source_roots_out_of_the_persons_catalog(self):
+        """A chat names the shared catalog for every process it starts; a test's AUTOCODE_HOME must still win."""
+        with tempfile.TemporaryDirectory() as person, tempfile.TemporaryDirectory() as test_home:
+            environment = {**os.environ, "AUTOCODE_SOURCE_CATALOG_HOME": person}
+            environment.pop(USER_CONFIG_MARKER, None)
+            code = (
+                "import os, tests, autocode_repo_catalog as catalog; "
+                f"os.environ['AUTOCODE_HOME'] = {test_home!r}; "
+                f"catalog.add_root({test_home!r}); print(catalog.catalog_path())"
+            )
+            path = Path(run(code, environment).strip())
+            self.assertEqual(Path(test_home).resolve() / "source-catalog.json", path)
+            self.assertEqual([], os.listdir(person))
+
+    def test_a_process_a_test_starts_keeps_the_source_catalog_that_test_chose(self):
+        with tempfile.TemporaryDirectory() as chosen:
+            environment = {**os.environ, "AUTOCODE_SOURCE_CATALOG_HOME": chosen}
+            seen = run("import os, tests; print(os.environ['AUTOCODE_SOURCE_CATALOG_HOME'])", environment)
+        self.assertEqual(chosen, seen.strip())
+
 
 if __name__ == "__main__":
     unittest.main()
