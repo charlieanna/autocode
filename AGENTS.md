@@ -144,7 +144,8 @@ It is a client of the
 - it takes only the action the status view names (`view.next_command`, the
   optional `view.chat.input.next_command` message offer, or the optional
   `view.pause.next_command` boundary pause the owner approved on 2026-10-19
-  for #1598, and a saved step's `compare`/`restore` or the running Builder's
+  for #1598, its `view.pause.stop_now` variant that ends the running step at once, owner request
+  2026-11-12 for #3263, and a saved step's `compare`/`restore` or the running Builder's
   display-only `code_checkpoints.working` diff, owner decision 2026-10-19), so it can
   do nothing the headless conformance client (#1012,
   `scenarios/harness/conformance.py`) cannot. Where the view names no action the

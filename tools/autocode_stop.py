@@ -55,6 +55,10 @@ except ImportError:
 STOP_KIND = "stop"
 STOP_STATUS = "PAUSED_INTERVENTION"
 STOP_REASON = "Durable stop applied at a saved boundary; this run launches no further stages."
+# A pause that ended the running step (#3263): the step's partial work and logs are kept, and resuming runs it again.
+STOPPED_NOW_REASON = (
+    "Stopped by you. The step that was running was ended; its partial work and logs are kept. Resume runs it again."
+)
 
 
 # The actor of a stop AutoCode records itself when it cannot continue (#2485), never a person's request.
@@ -166,7 +170,7 @@ def state_writer(ordinary_write: Callable, persist_stopped: Callable) -> Callabl
     def write(path, value, *, before_commit=None, after_commit=None):
         if Path(path).name == "state.json" and isinstance(value, dict):
             value.setdefault("intervention_capability", {}).update(
-                supports_stop=True, supports_messages=True, supports_message_context=True
+                supports_stop=True, supports_messages=True, supports_message_context=True, supports_stop_now=True
             )
             if applied_stop(value):
                 assert_stopped(value)
@@ -270,6 +274,8 @@ def boundary_effects(
         state["stop_intent"] = {"request_ids": [item["id"] for item in stops], "applied_at": now()}
     if stops:
         run_status.pause(state, STOP_STATUS, STOP_REASON)
+    elif not feedback and any(item.get("now") is True for item in pauses):
+        run_status.pause(state, STOP_STATUS, STOPPED_NOW_REASON)
     elif not feedback and (pauses or not messages):
         run_status.pause(state, STOP_STATUS, "Queued pause was applied; explicitly resume when ready.")
     if held:

@@ -4421,6 +4421,72 @@ test('no Pause without a named offer, or once the run is done (#1598)', async (t
   assert.equal(ui.document.querySelector('#pause-run').hidden, true);
 });
 
+// #3263: a stop request waited for the running step to finish, so a looping Tester kept spending for up to an
+// hour. Stop now is the pause that also ends the step at once, offered and taken only as the view names it.
+function stopNowView(extra = {}) {
+  const value = pauseView(extra);
+  if (value.pause && !('stop_now' in value.pause)) {
+    value.pause.stop_now = { label: 'Stop now', effect: 'The step that is running ends now instead of finishing.',
+      requested: false, next_command: ['intervention', 'submit', '--workspace', run.workspace, '--run-dir', run.runDir,
+        '--request-id', 'REQUEST_ID', '--kind', 'pause', '--now', '--json'] };
+  }
+  return value;
+}
+
+test('Stop now ends the running step through the named request, beside Pause (#3263)', async (t) => {
+  const ui = await openChat(t, stopNowView());
+  const stop = () => ui.document.querySelector('#stop-now-run');
+  assert.equal(stop().hidden, false);
+  assert.equal(stop().disabled, false);
+  assert.equal(stop().textContent, 'Stop now');
+  assert.match(stop().title, /ends now/);
+  assert.equal(ui.document.querySelector('#pause-run').hidden, false, 'the boundary pause stays offered');
+  const launch = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: '{"receipt":{"kind":"pause","now":true}}' }));
+  stop().click(); stop().click();
+  await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'a second click while submitting is ignored');
+  const [, argv] = launch.mock.calls[0].arguments;
+  assert.deepEqual(argv.slice(0, 6), ['intervention', 'submit', '--workspace', run.workspace, '--run-dir', run.runDir]);
+  assert.match(argv[7], /^stop-[0-9a-f]{16}$/, 'the placeholder becomes this request\'s id');
+  assert.deepEqual(argv.slice(8), ['--kind', 'pause', '--now', '--json']);
+  const stopping = stopNowView();
+  stopping.pause.requested = true;
+  stopping.pause.next_command = null;
+  stopping.pause.stop_now.requested = true;
+  stopping.pause.stop_now.next_command = null;
+  await ui.poll(stopping);
+  assert.equal(stop().disabled, true);
+  assert.equal(stop().textContent, 'Stopping…');
+  assert.match(ui.document.querySelector('#send-hint').textContent, /ending this step now; its partial work is kept/);
+  await ui.poll({ status: 'PAUSED_INTERVENTION', done: false, liveness: { kind: 'unknown' }, needs: { kind: 'resume' }, pause: null,
+    stop_reason: 'Stopped by you. The step that was running was ended; its partial work and logs are kept. Resume runs it again.',
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused` });
+  assert.equal(stop().hidden, true, 'a paused run has nothing to stop');
+});
+
+test('Stop now refuses a command outside its exact grammar, and an older runner shows only Pause (#3263)', async (t) => {
+  const changed = stopNowView();
+  changed.pause.stop_now.next_command = changed.pause.stop_now.next_command.filter((word) => word !== '--now');
+  const ui = await openChat(t, changed);
+  const launch = t.mock.method(cli, 'invoke', async () => ok);
+  ui.document.querySelector('#stop-now-run').click();
+  await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 0);
+  assert.match(ui.document.querySelector('#chat-error').textContent, /Unsupported Stop now action/);
+  await ui.poll(pauseView());
+  assert.equal(ui.document.querySelector('#stop-now-run').hidden, true, 'no Stop now without a named offer');
+  assert.equal(ui.document.querySelector('#pause-run').hidden, false);
+});
+
+test('a waiting boundary pause still lets the person stop the step now (#3263)', async (t) => {
+  const waiting = stopNowView();
+  waiting.pause.requested = true;
+  waiting.pause.next_command = null;
+  const ui = await openChat(t, waiting);
+  assert.equal(ui.document.querySelector('#pause-run').disabled, true);
+  assert.equal(ui.document.querySelector('#stop-now-run').disabled, false, 'the boundary pause lets the step run on');
+});
+
 test('a background tab keeps its own read error when it is shown again (#1593)', async (t) => {
   const other = { workspace: '/ws', runDir: '/ws/.autocode/runs/other' };
   let failing = false;

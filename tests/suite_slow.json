@@ -83,5 +83,6 @@
   "tests.test_changeset_chat": "Two linked offline fixture runs reach plan approval and complete while the chat client approves the set and runs its check through the CLI; about 34 s on macOS, 2026-10-25",
   "tests.test_changeset_delivery_cli": "Two linked offline fixture runs complete through the task-run interface, then the change set's integration check, waiver and reopen run through the CLI; about 70 s on macOS, 2026-10-26",
   "tests.test_python_test_roles_cli": "189.710s observed on Linux: native named proof and saved legacy inventory migration",
-  "tests.test_catalog_unreadable_cli": "two scripted greenfield-greeting-cli runs through the real CLI with an unreadable or link-escaping checkout under a source root, about 20 s each on Linux; 2026-11-10"
+  "tests.test_catalog_unreadable_cli": "two scripted greenfield-greeting-cli runs through the real CLI with an unreadable or link-escaping checkout under a source root, about 20 s each on Linux; 2026-11-10",
+  "tests.test_stop_now_cli": "Real CLI and fake OpenCode through Requirements, plan approval, a held Builder, Stop now and resume; 267 s on a loaded macOS host, 2026-11-12. Runs when the module itself changes and on master."
 }

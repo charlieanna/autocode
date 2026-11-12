@@ -759,7 +759,14 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
         "checks, or fix the identified stall. Preserve all acceptance checks; do not replay the same "
         "task under unchanged limits. Do not extend limits or reset budgets without authorization.",
     }
-    if retry_missing_tester_report:
+    if record.get("timeout_kind") == "person":
+        # The person ended the attempt (#3263); nothing timed out, so the next one keeps its plan and limits.
+        recovery["instruction"] = (
+            "The person stopped this request while it ran; it was archived after its workers stopped. "
+            "Inspect the retained partial work and evidence before continuing; do not treat it as a completed "
+            "report. Nothing timed out, so keep the plan and limits; preserve all acceptance checks."
+        )
+    elif retry_missing_tester_report:
         recovery["instruction"] = (
             "The archived stage left no accepted Tester report and did not change source. "
             "Execute the required checks for this attempt, using the current runner proof to focus inspection. "
