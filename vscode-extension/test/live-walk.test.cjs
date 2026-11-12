@@ -533,3 +533,50 @@ test('walk: the status line keeps its liveness without the poll interval, and go
   await waitFor(() => statusText.includes('$5') && !statusText.includes('stale'), 30000);
   assert.ok(statusText.includes('$5'), 'the line recovers: ' + statusText);
 });
+
+test("walk: two runs racing on one project see each other's work, and a restore leaves the tree alone", { skip }, async (t) => {
+  const { root, builder, restore } = buildWorkspace();
+  claimSupervision(builder);
+  // One project, one tree: A (the saved step) changed greet.py, B (the Builder) wrote helper.py.
+  fs.writeFileSync(path.join(root, 'greet.py'), "print('A changed this')\n");
+  fs.writeFileSync(path.join(root, 'helper.py'), "print('B wrote this')\n");
+  const ui = await openWalkChat(t, root, restore);
+  const text = () => ui.document.querySelector('#app').textContent;
+
+  // A's compare against its saved step names BOTH runs' work: one tree, every diff sees it all.
+  ui.document.querySelector('[data-checkpoint-action="compare"]').click();
+  await waitFor(() => text().includes('+print'));
+  assert.ok(text().includes('helper.py'), "A's changes since its checkpoint include B's file: " + text().slice(-200));
+
+  // B's own diff, in its tab, names A's work just the same.
+  ui.chat.show({ workspace: root, runDir: builder });
+  await ui.chat.refresh();
+  const show = await waitFor(() => {
+    const btn = ui.document.querySelector('#working-diff');
+    return btn && !btn.disabled ? btn : false;
+  });
+  assert.ok(show, "B's diff is offered while it works");
+  show.click();
+  await waitFor(() => text().includes('+print'));
+  assert.ok(text().includes('greet.py') || text().includes("A changed this"),
+    "B's changes so far include A's file: " + text().slice(-200));
+
+  // A restores while B builds: the candidate lands on its own branch and the tree stays put.
+  ui.chat.show({ workspace: root, runDir: restore });
+  await ui.chat.refresh();
+  await waitFor(() => {
+    const btn = ui.document.querySelector('[data-checkpoint-action="restore"]');
+    return btn && !btn.disabled ? btn : false;
+  });
+  let release;
+  t.mock.method(host.vscode.window, 'showWarningMessage', () => new Promise((resolve) => { release = resolve; }));
+  ui.document.querySelector('[data-checkpoint-action="restore"]').click();
+  await waitFor(() => release);
+  release('Restore');
+  await waitFor(() => text().includes('Restored on a new branch'));
+  const branches = execFileSync('git', ['-C', root, 'branch', '--list'], { encoding: 'utf8' });
+  assert.ok(branches.includes('autocode/checkpoint-'), 'the candidate is on its own branch: ' + branches.trim());
+  const head = execFileSync('git', ['-C', root, 'branch', '--show-current'], { encoding: 'utf8' }).trim();
+  assert.equal(head, 'master', "the restore leaves the shared checkout where it was: B's tree is untouched");
+  assert.ok(fs.existsSync(path.join(root, 'helper.py')), "B's file survives the restore");
+});
