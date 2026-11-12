@@ -79,7 +79,65 @@ def configure_workspace_storage(workspace: str | Path) -> None:
     ``AUTOCODE_HOME`` still wins.
     """
     root = _registry_project(Path(workspace).resolve())
-    os.environ.setdefault("AUTOCODE_HOME", str(root / ".autocode" / "registry"))
+    if os.environ.get("AUTOCODE_HOME") is None:
+        os.environ["AUTOCODE_HOME"] = str(root / ".autocode" / "registry")
+        remember_project(root)
+
+
+PROJECT_INDEX = "projects.json"
+PROJECT_INDEX_VERSION = 1
+
+
+def project_index_path() -> Path:
+    """The per-user list of projects whose runs index in their own registry (#3265).
+
+    A run without ``AUTOCODE_HOME`` indexes in its project, so a listing from another folder could not
+    find it. The index names those projects; it holds no run. ``AUTOCODE_PROJECT_INDEX_HOME`` selects its
+    home for isolated installations and tests; otherwise it is ``~/.autocode``, whatever home a run uses.
+    """
+    selected = os.environ.get("AUTOCODE_PROJECT_INDEX_HOME")
+    return Path(selected if selected else Path.home() / ".autocode").expanduser().resolve() / PROJECT_INDEX
+
+
+def _read_project_index(path: Path) -> list[str]:
+    try:
+        value = json.loads(path.read_text())
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return []
+    rows = value.get("projects") if isinstance(value, dict) and value.get("version") == PROJECT_INDEX_VERSION else None
+    return [row for row in rows if isinstance(row, str)] if isinstance(rows, list) else []
+
+
+def _has_registry(project: str) -> bool:
+    return (Path(project) / ".autocode" / "registry" / "registry.json").is_file()
+
+
+def remember_project(root: Path) -> None:
+    """Record a project whose runs index in its own registry, so a listing from anywhere finds them.
+
+    Best effort: the index is how other folders find this project's chats, never a reason to stop a run.
+    Projects whose registry is gone (a deleted folder) are dropped as the index is rewritten.
+    """
+    path = project_index_path()
+    try:
+        if str(root) in _read_project_index(path):
+            return
+        with _locked_registry_at(path.parent):
+            kept = [row for row in _read_project_index(path) if row != str(root) and _has_registry(row)]
+            util.atomic_json(path, {"version": PROJECT_INDEX_VERSION, "projects": sorted([*kept, str(root)])})
+    except (OSError, RegistryError):
+        return
+
+
+def other_project_storage() -> list[Path]:
+    """The registries of every project a task ran in, for a listing of all chats (#3265).
+
+    None with an explicit ``AUTOCODE_HOME``, which selects exactly one registry, as in ``project_storage``.
+    """
+    if os.environ.get("AUTOCODE_HOME") is not None:
+        return []
+    roots = [Path(row) / ".autocode" / "registry" for row in _read_project_index(project_index_path())]
+    return [root for root in roots if (root / "registry.json").is_file() and root != storage_root()]
 
 
 def project_storage(start: str | Path) -> Path | None:
@@ -569,16 +627,17 @@ def location() -> dict[str, Any]:
     }
 
 
-def listing(also: Path | None = None, *, include_archived: bool = False) -> dict[str, Any]:
+def listing(also: Path | None = None, *, include_archived: bool = False, others=()) -> dict[str, Any]:
     """The registry's workspaces and runs; ``also`` adds a project registry (``project_storage``).
 
-    The shared registry's records win on a shared key. An unreadable ``also`` is a diagnostic,
-    never a reason to hide the shared registry. Archived chats are hidden unless asked for.
+    ``others`` adds further project registries (``other_project_storage``), for a listing of every
+    project's chats. The shared registry's records win on a shared key. An unreadable project registry
+    is a diagnostic, never a reason to hide the shared registry. Archived chats are hidden unless asked for.
     """
-    return _listing(also, include_archived=include_archived)
+    return _listing(also, include_archived=include_archived, others=others)
 
 
-def _listing(also: Path | None = None, *, include_archived: bool = False, visit_run=None) -> dict[str, Any]:
+def _listing(also: Path | None = None, *, include_archived: bool = False, visit_run=None, others=()) -> dict[str, Any]:
     """Internal streaming projection: consume each validated checkpoint before the next read.
 
     The visitor receives (pointer record, checkpoint result), or None for a pointer
@@ -589,8 +648,14 @@ def _listing(also: Path | None = None, *, include_archived: bool = False, visit_
     path = registry_path()
     if path.exists():
         documents.append(_read_registry(path))
-    extra = also / "registry.json" if also is not None else None
-    if extra is not None and extra.exists():
+    extras: list[Path] = []
+    for root in (*((also,) if also is not None else ()), *others):
+        extra = Path(root) / "registry.json"
+        if extra not in extras and extra != path:
+            extras.append(extra)
+    for extra in extras:
+        if not extra.exists():
+            continue
         try:
             documents.append(_read_registry(extra))
         except RegistryError as error:
@@ -1045,7 +1110,9 @@ def cli(argv: list[str]) -> int:
             result = location()
         elif args.operation == "list":
             result = listing(
-                also=project_storage(Path.cwd()), include_archived=getattr(args, "include_archived", False)
+                also=project_storage(Path.cwd()),
+                include_archived=getattr(args, "include_archived", False),
+                others=other_project_storage(),
             )
         elif args.operation == "add":
             result = add_project(args.workspace)
