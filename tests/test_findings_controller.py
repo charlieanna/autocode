@@ -366,6 +366,83 @@ class ControllerFindingsTests(unittest.TestCase):
             )
         self.assertEqual("PAUSED_COMPLETION_GATE", caught.exception.status)
 
+    def flaky_proof_judged(self, *, settled_after_tester=True):
+        """The Tester's FAIL on a source whose first proof failed once on a pre-existing test (#2942).
+
+        Live Kilo run, 2026-11-12: proof-01 failed only on test_clock, the Tester reported that as a blocking
+        finding, proof-02 of the same source passed and the runner settled its own finding as a flake.
+        """
+        current = self.validated("task-flake")
+        output = self.state["validation"]["output"]
+        self.state["validation"]["verdict"] = "FAIL"
+        findings.record_validation(
+            self.state,
+            {
+                "findings": [
+                    {
+                        "severity": "high",
+                        "finding": "The runner regression proof is FAIL: test_clock.TestClock.test_tick",
+                        "evidence": "proof-01/verification.json",
+                        "blocking": True,
+                    }
+                ],
+                "finding_dispositions": [],
+            },
+            {"output": output},
+        )
+        tester = findings.blocking_entries(self.state)[0]
+        tester["last_reported_at"] = "2026-11-12T01:41:45+00:00"
+        revision = current["revision"]
+        self.state["regression_proof"] = {"path": "proof-02/verification.json", "source_revision": revision}
+        self.state["regression_proof"]["verdict"] = "PASS"
+        findings.ledger(self.state).append(
+            {
+                "id": "F-runnerflak",
+                "source": "runner",
+                "regression_proof": True,
+                "blocking": True,
+                "status": "resolved",
+                "failed_revisions": [revision],
+                "flaky_revisions": {revision: {"tests": ["test_clock.TestClock.test_tick"], "receipt": "proof-01"}},
+                "resolved_in": "proof-02/verification.json",
+                "resolved_at": "2026-11-12T01:42:15+00:00" if settled_after_tester else "2026-11-12T01:40:00+00:00",
+            }
+        )
+        return current
+
+    def complete(self, current, output):
+        runner.apply_result(
+            self.state,
+            "review_completion",
+            self.astra_decision("COMPLETE"),
+            {"output": output, "source_revision": current["revision"]},
+            self.root,
+            self.run,
+        )
+
+    def test_a_tester_fail_on_a_proof_later_settled_as_a_flake_goes_back_to_the_tester_once(self):
+        current = self.flaky_proof_judged()
+        with patch.object(runner, "run_role", side_effect=AssertionError("no agent may launch")):
+            self.complete(current, "complete-01.json")
+        self.assertEqual(("RUNNING", "tester"), (self.state["status"], self.state["next_stage"]))
+        # A Tester that leaves its finding open again keeps its word: the gate refuses as before.
+        with self.assertRaises(support.Paused) as caught:
+            self.complete(current, "complete-02.json")
+        self.assertEqual("PAUSED_COMPLETION_GATE", caught.exception.status)
+
+    def test_a_tester_fail_reported_after_the_flake_was_settled_still_blocks(self):
+        current = self.flaky_proof_judged(settled_after_tester=False)
+        with self.assertRaises(support.Paused) as caught:
+            self.complete(current, "complete-01.json")
+        self.assertEqual("PAUSED_COMPLETION_GATE", caught.exception.status)
+
+    def test_a_tester_fail_still_blocks_while_the_current_proof_fails(self):
+        current = self.flaky_proof_judged()
+        self.state["regression_proof"]["verdict"] = "FAIL"
+        with self.assertRaises(support.Paused) as caught:
+            self.complete(current, "complete-01.json")
+        self.assertEqual("PAUSED_COMPLETION_GATE", caught.exception.status)
+
     def test_a_completion_owner_finding_still_blocks_without_a_recheck(self):
         current = self.validated("task-own")
         findings.record_decision(
