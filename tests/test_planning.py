@@ -2060,13 +2060,18 @@ if __name__ == "__main__":
 
 
 class ReviewDepthPolicyTests(unittest.TestCase):
-    """A small clear brief's allowance counts across planning cycles (#1564)."""
+    """A run saved while the small-brief total (#1564) was active keeps it across planning cycles.
+
+    No new run takes the total since the owner's decision of 2026-11-11, so these runs carry the
+    saved ``review_depth_reduced`` flag from the start; ``test_a_new_run_never_takes_the_total`` covers
+    a fresh run.
+    """
 
     def state(self, **extra):
         base = {
             "status": "RUNNING",
             "next_stage": "review_plan",
-            "planning": {"plan_review_calls": 0, "reports": {}},
+            "planning": {"plan_review_calls": 0, "reports": {}, "review_depth_reduced": True},
             "workflow": {"kind": "build", "clarity": "clear", "brief_size": "small"},
             "settings": {"planning_review_call_limit": 2},
         }
@@ -2198,13 +2203,18 @@ class ReviewDepthPolicyTests(unittest.TestCase):
         cycle.new_cycle(approved)
         self.assertEqual(2, planning.review_call_limit(approved), "an approved plan's correction has its own path")
 
-    def test_normal_brief_resets_per_cycle_as_today(self):
-        state = self.state(workflow={"kind": "build", "clarity": "vague"})
-        planning.charge(state, "review_plan")
-        self.assertNotIn("review_depth_reduced", state["planning"])
-        state["planning"]["plan_review_calls"] = 2
-        cycle.new_cycle(state)
-        self.assertEqual(state["planning"]["plan_review_calls"], 0)
+    def test_a_new_run_never_takes_the_total(self):
+        # A small clear brief, a small drafted plan and a large one: each cycle gets its own allowance.
+        for adaptive in ({}, {"adaptive": {"size": "small"}}, {"adaptive": {"size": "large"}}):
+            with self.subTest(adaptive=adaptive):
+                state = self.state(planning={"plan_review_calls": 0, "reports": {}, **adaptive})
+                state["planning_history"] = [{"plan_review_calls": 2, "reports": {}}]
+                planning.charge(state, "review_plan")
+                self.assertNotIn("review_depth_reduced", state["planning"])
+                self.assertEqual(1, state["planning"]["plan_review_calls"], "earlier cycles do not join")
+                state["planning"]["plan_review_calls"] = 2
+                cycle.new_cycle(state)
+                self.assertEqual(0, state["planning"]["plan_review_calls"])
 
     def test_explicit_finite_allowance_survives_when_restart_keeps_spent_calls(self):
         state = self.state(settings={"planning_review_call_limit": 2, "joint_planning": True})
@@ -2233,24 +2243,6 @@ class ReviewDepthPolicyTests(unittest.TestCase):
         self.assertEqual(2, planning.review_call_limit(state))
         self.assertNotIn("review_call_limit_origin", state["planning"])
 
-    def test_full_depth_flag_opts_out(self):
-        state = self.state(settings={"planning_review_call_limit": 2, "plan_review_full": True})
-        planning.charge(state, "review_plan")
-        self.assertNotIn("review_depth_reduced", state["planning"])
-
-    def test_finalized_small_plan_activates_and_counts_earlier_cycles(self):
-        state = self.state(workflow={"kind": "build", "clarity": "clear", "brief_size": "medium"})
-        state["planning_history"] = [{"plan_review_calls": 2, "reports": {}}]
-        state["planning"]["adaptive"] = {"size": "small"}
-        # Activation happens at admission: the two full-depth reviews already run
-        # join the total, so this admission pauses instead of granting a fresh cycle.
-        with self.assertRaises(support.Paused) as raised:
-            planning.charge(state, "review_plan")
-        self.assertIn("2/2 plan-review calls used", str(raised.exception))
-        self.assertTrue(state["planning"]["review_depth_reduced"])
-        self.assertEqual(state["planning"]["plan_review_calls"], 2, "full-depth reviews already run join the total")
-        self.assertEqual(state["planning"]["review_calls_before_policy"], 2)
-
     def test_budget_line_names_the_policy(self):
         import autocode_goal_lifecycle as lifecycle
 
@@ -2264,141 +2256,30 @@ class ReviewDepthPolicyTests(unittest.TestCase):
         self.assertIn("counts across revisions (small clear brief)", lifecycle.render(state))
 
 
-class ReviewerEffortTierTests(unittest.TestCase):
-    """A reduced-depth run's Plan Reviewer launches at the reduced effort tier (#1564)."""
+class ReviewerLevelTests(unittest.TestCase):
+    """The Plan Reviewer always runs at its saved level (owner decision 2026-11-11; the #1564 tier is removed)."""
 
-    def state(self, **extra):
-        base = {
-            "status": "RUNNING",
-            "next_stage": "review_plan",
-            "planning": {"plan_review_calls": 0, "reports": {}},
-            "workflow": {"kind": "build", "clarity": "clear", "brief_size": "small"},
-            "settings": {
-                "planning_review_call_limit": 6,
-                "effort_origins": {"plan_reviewer": "runner_default"},
-                "roles": {
-                    "plan_reviewer": {
-                        "model": "openai/gpt-6-sol",
-                        "model_pinned": True,
-                        "reasoning_effort": "high",
-                    }
-                },
-            },
-        }
-        base.update(extra)
-        return base
-
-    def test_ac1_effort_steps_down_when_policy_active(self):
-        state = self.state()
-        planning.charge(state, "review_plan")
-        self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
-        cycle.new_cycle(state)
-        planning.charge(state, "review_plan")
-        self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
-        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["plan_reviewer"]["model"])
-        self.assertIs(True, state["settings"]["roles"]["plan_reviewer"]["model_pinned"])
-
-    def test_ac2_provider_light_effort_is_the_tier(self):
-        state = self.state()
-        state["settings"]["roles"]["plan_reviewer"]["light_effort"] = "low"
-        planning.charge(state, "review_plan")
-        self.assertEqual("low", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
-        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["plan_reviewer"]["model"])
-        self.assertIs(True, state["settings"]["roles"]["plan_reviewer"]["model_pinned"])
-
-    def test_the_reduced_tier_is_fitted_to_the_models_declared_variants(self):
-        """#2020: GLM 5.3 declares low, high and max, so the rung below high (medium) is not a variant it serves. The
-        reduced tier moves to the nearest declared one, as --single-model's profile efforts do (#2015), and the
-        move is recorded; a run with no listing keeps the plain rung for the launch check to judge."""
-        state = self.state()
-        state["settings"]["roles"]["plan_reviewer"]["model"] = "zai-coding-plan/glm-5.3"
-        state["settings"]["declared_variants"] = {"zai-coding-plan/glm-5.3": ["low", "high", "max"]}
-        planning.charge(state, "review_plan")
-        self.assertEqual("high", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
-        self.assertEqual(
-            {"from": "medium", "to": "high", "reason": "review_depth"},
-            state["settings"]["effort_fits"]["plan_reviewer"],
-        )
-        # The listing a selected route carries serves too, and a declared rung stays where it lands.
-        selected = self.state()
-        selected["settings"]["roles"]["plan_reviewer"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
-        selected["settings"]["route_selection"] = {
-            "candidates": {
-                "tester": [{"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro", "levels": ["low", "medium", "high"]}]
-            }
-        }
-        planning.charge(selected, "review_plan")
-        self.assertEqual("medium", selected["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
-        self.assertNotIn("effort_fits", selected["settings"])
-        unknown = self.state()
-        planning.charge(unknown, "review_plan")
-        self.assertEqual("medium", unknown["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
-        self.assertNotIn("effort_fits", unknown["settings"])
-
-    def test_explicit_and_unknown_saved_efforts_keep_their_tier_and_charges(self):
-        for origin in ("user_explicit", None):
-            with self.subTest(origin=origin):
-                state = self.state()
-                if origin is None:
-                    state["settings"].pop("effort_origins")
-                else:
-                    state["settings"]["effort_origins"]["plan_reviewer"] = origin
-                state["settings"]["roles"]["plan_reviewer"].update(reasoning_effort="medium", light_effort="low")
-                state["settings"]["roles"]["investigator"] = {"model": "different/model", "reasoning_effort": "high"}
-                state["planning_history"] = [{"plan_review_calls": 2}]
-                planning.route_for(state, "review_plan")
+    def test_a_small_clear_brief_keeps_the_plan_reviewers_level_and_route(self):
+        for extra in ({}, {"light_effort": "low"}):
+            with self.subTest(extra=extra):
+                route = {"model": "openai/gpt-6-sol", "model_pinned": True, "reasoning_effort": "high", **extra}
+                state = {
+                    "status": "RUNNING",
+                    "next_stage": "review_plan",
+                    "planning": {"plan_review_calls": 0, "reports": {}},
+                    "planning_history": [{"plan_review_calls": 3, "reports": {}}],
+                    "workflow": {"kind": "build", "clarity": "clear", "brief_size": "small"},
+                    "settings": {
+                        "planning_review_call_limit": 6,
+                        "effort_origins": {"plan_reviewer": "runner_default"},
+                        "roles": {"plan_reviewer": dict(route)},
+                    },
+                }
+                before = copy.deepcopy(state["settings"])
+                self.assertEqual("plan_reviewer", planning.route_for(state, "review_plan"))
                 planning.charge(state, "review_plan")
-                self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
-                self.assertEqual("high", state["settings"]["roles"]["investigator"]["reasoning_effort"])
-                self.assertEqual(2, state["planning"]["review_calls_before_policy"])
-                self.assertEqual(3, state["planning"]["plan_review_calls"])
-
-    def test_ac3_one_step_down_ladder_boundaries(self):
-        self.assertEqual("xhigh", planning.reduced_reviewer_effort({"reasoning_effort": "max"}))
-        self.assertEqual("low", planning.reduced_reviewer_effort({"reasoning_effort": "low"}))
-        self.assertIsNone(planning.reduced_reviewer_effort({"reasoning_effort": None}))
-        self.assertIsNone(planning.reduced_reviewer_effort({}))
-        self.assertEqual("turbo", planning.reduced_reviewer_effort({"reasoning_effort": "turbo"}))
-
-    def test_ac4_full_depth_flag_never_reduces(self):
-        state = self.state()
-        state["settings"]["plan_review_full"] = True
-        state["planning"]["review_depth_reduced"] = True
-        planning.apply_reviewer_effort_tier(state)
-        self.assertEqual("high", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
-        reduced = self.state()
-        reduced["planning"]["review_depth_reduced"] = True
-        planning.apply_reviewer_effort_tier(reduced)
-        self.assertEqual("medium", reduced["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
-
-    def test_ac5_reviewer_model_unchanged(self):
-        from units import autoplanner
-
-        with_light = self.state()
-        with_light["settings"]["roles"]["plan_reviewer"]["light_effort"] = "low"
-        for state in (self.state(), with_light, self.state()):
-            before = copy.deepcopy(state["settings"]["roles"]["plan_reviewer"])
-            planning.apply_reviewer_effort_tier(state)
-            self.assertEqual(before["model"], state["settings"]["roles"]["plan_reviewer"]["model"])
-            self.assertEqual(before["model_pinned"], state["settings"]["roles"]["plan_reviewer"]["model_pinned"])
-        self.assertEqual("openai/gpt-6-sol", autoplanner.PINNED_REVIEWER_MODEL)
-
-    def test_ac8_first_launch_consumes_reduced_tier(self):
-        state = self.state()
-        state["planning_history"] = [{"plan_review_calls": 3, "reports": {}}]
-        self.assertEqual("plan_reviewer", planning.route_for(state, "review_plan"))
-        self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
-        planning.charge(state, "review_plan")
-        self.assertEqual(3, state["planning"]["review_calls_before_policy"])
-        self.assertEqual(4, state["planning"]["plan_review_calls"])
-        cycle.new_cycle(state)
-        self.assertEqual("plan_reviewer", planning.route_for(state, "review_plan"))
-        self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
-        planning.charge(state, "review_plan")
-        self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
-        vague = self.state(workflow={"clarity": "vague"})
-        self.assertEqual("plan_reviewer", planning.route_for(vague, "review_plan"))
-        self.assertEqual("high", vague["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+                self.assertEqual(before, state["settings"], "level, model, pin and fits are untouched")
+                self.assertEqual(1, state["planning"]["plan_review_calls"], "earlier cycles do not join")
 
 
 class BriefSizeTests(unittest.TestCase):

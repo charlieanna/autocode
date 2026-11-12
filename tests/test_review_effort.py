@@ -1,4 +1,6 @@
-"""A small, clear task's reviews run one level below the saved stage-choice level (owner decision 2026-11-05)."""
+"""A small, clear task's checks run one level below the saved stage-choice level (owner decision 2026-11-05).
+
+The Plan Reviewer always runs at its saved level (owner decision 2026-11-11)."""
 
 import copy
 import tempfile
@@ -48,16 +50,18 @@ def triage_state():
 
 
 class DecideTests(unittest.TestCase):
-    def test_a_small_clear_tasks_plan_review_runs_one_level_below_the_saved_level(self):
-        for stage in ("review_plan", "finalize_plan"):
-            choice = decide(run_state(), stage, "plan_reviewer")
-            self.assertEqual(("medium", "high", True, "small_clear"), _key(choice), stage)
-            self.assertEqual(("clear", "small", None), (choice["clarity"], choice["brief_size"], choice["plan_size"]))
+    def test_a_small_clear_tasks_completion_review_runs_one_level_below_the_saved_level(self):
+        choice = decide(run_state(), "review_completion", "completion")
+        self.assertEqual(("medium", "high", True, "small_clear"), _key(choice))
+        self.assertEqual(("clear", "small", None), (choice["clarity"], choice["brief_size"], choice["plan_size"]))
 
-    def test_the_completion_reviewer_is_lowered_too(self):
-        self.assertEqual(
-            ("medium", "high", True, "small_clear"), _key(decide(run_state(), "review_completion", "completion"))
-        )
+    def test_the_plan_reviewer_always_runs_at_its_saved_level(self):
+        # A short request can draft a large plan; the plan review is never the lighter one (2026-11-11).
+        for stage in ("review_plan", "finalize_plan"):
+            self.assertIsNone(decide(run_state(), stage, "plan_reviewer"), stage)
+            state = run_state()
+            route = state["settings"]["roles"]["plan_reviewer"]
+            self.assertEqual(("high", None), review_effort.launch(state, stage, "plan_reviewer", False, route), stage)
 
     def test_a_model_without_the_level_just_below_keeps_the_ceiling(self):
         # GLM 5.3 offers low, high and max: high to low would drop two levels.
@@ -69,7 +73,9 @@ class DecideTests(unittest.TestCase):
         state = run_state()
         del state["settings"]["declared_variants"]
         state["settings"]["certified_variants"] = {MIMO: ["high"]}
-        self.assertEqual(("high", "high", False, "levels_unknown"), _key(decide(state, "review_plan", "plan_reviewer")))
+        self.assertEqual(
+            ("high", "high", False, "levels_unknown"), _key(decide(state, "review_completion", "completion"))
+        )
 
     def test_a_probe_that_passed_the_lower_level_counts_beside_the_listing(self):
         state = run_state()
@@ -80,18 +86,18 @@ class DecideTests(unittest.TestCase):
     def test_a_typed_answered_or_runner_level_is_not_a_ceiling(self):
         for origin in ("user_explicit", "runner_default", "auto_selected", None):
             state = run_state()
-            state["settings"]["effort_origins"]["plan_reviewer"] = origin
-            self.assertIsNone(decide(state, "review_plan", "plan_reviewer"), origin)
+            state["settings"]["effort_origins"]["completion"] = origin
+            self.assertIsNone(decide(state, "review_completion", "completion"), origin)
 
     def test_other_stages_report_repairs_and_fallback_models_are_not_considered(self):
         state = run_state()
         self.assertIsNone(decide(state, "builder", "builder"))
         self.assertIsNone(decide(state, "write_acceptance_tests", "tester"))
-        self.assertIsNone(decide(state, "review_plan", "plan_reviewer", report_only=True))
+        self.assertIsNone(decide(state, "review_completion", "completion", report_only=True))
         self.assertIsNone(decide(state, "review_completion", "plan_reviewer"), "the stage's own route only")
-        fallback = review_effort.decide(state, "review_plan", "plan_reviewer", False, "high", model=GLM)
+        fallback = review_effort.decide(state, "review_completion", "completion", False, "high", model=GLM)
         self.assertIsNone(fallback, "a fallback route on another model is not the saved ceiling")
-        self.assertIsNone(decide(state, "review_plan", "plan_reviewer", configured="medium"))
+        self.assertIsNone(decide(state, "review_completion", "completion", configured="medium"))
 
     def test_a_stage_that_already_ran_for_this_task_runs_at_the_ceiling(self):
         state = run_state(current_task={"id": "task-1"})
@@ -103,39 +109,36 @@ class DecideTests(unittest.TestCase):
         self.assertEqual("earlier_attempt", decide(state, "review_completion", "completion")["reason"])
         state["stages"] = [{"stage": "review_completion", "task_id": "task-0", "iteration": 1}]
         self.assertTrue(decide(state, "review_completion", "completion")["lowered"], "another task's review")
-        # A plan review counts within the iteration; the challenge does not make the finalize a retry.
-        state["stages"] = [{"stage": "review_plan", "iteration": 1, "task_id": "task-1"}]
-        self.assertEqual("earlier_attempt", decide(state, "review_plan", "plan_reviewer")["reason"])
-        self.assertTrue(decide(state, "finalize_plan", "plan_reviewer")["lowered"])
+        # Without a build task, the iteration bounds "this task".
+        state = run_state()
+        state["stages"] = [{"stage": "review_completion", "iteration": 1}]
+        self.assertEqual("earlier_attempt", decide(state, "review_completion", "completion")["reason"])
         state["iteration"] = 2
-        self.assertTrue(decide(state, "review_plan", "plan_reviewer")["lowered"], "an earlier iteration")
+        self.assertTrue(decide(state, "review_completion", "completion")["lowered"], "an earlier iteration")
 
     def test_the_drafted_plans_size_decides_once_it_is_known(self):
         state = run_state(planning={"adaptive": {"size": "medium"}})
-        self.assertEqual("not_small_clear", decide(state, "finalize_plan", "plan_reviewer")["reason"])
+        self.assertEqual("not_small_clear", decide(state, "review_completion", "completion")["reason"])
         state = run_state(planning={"adaptive": {"size": "small"}})
         state["workflow"]["brief_size"] = "medium"
-        self.assertTrue(decide(state, "finalize_plan", "plan_reviewer")["lowered"])
+        self.assertTrue(decide(state, "review_completion", "completion")["lowered"])
         state = run_state()
         state["workflow"]["clarity"] = "vague"
-        self.assertEqual("not_small_clear", decide(state, "review_plan", "plan_reviewer")["reason"])
+        self.assertEqual("not_small_clear", decide(state, "review_completion", "completion")["reason"])
         state = run_state()
         state["workflow"]["brief_size"] = "medium"
-        self.assertEqual("not_small_clear", decide(state, "review_plan", "plan_reviewer")["reason"])
+        self.assertEqual("not_small_clear", decide(state, "review_completion", "completion")["reason"])
 
-    def test_a_climbed_route_and_a_full_plan_review_keep_the_ceiling(self):
+    def test_a_climbed_route_keeps_the_ceiling(self):
         state = run_state(reasoning_escalations=[{"role": "completion"}])
         self.assertEqual("climbed", decide(state, "review_completion", "completion")["reason"])
-        self.assertTrue(decide(state, "review_plan", "plan_reviewer")["lowered"], "another role's climb")
-        state = run_state()
-        state["settings"]["plan_review_full"] = True
-        self.assertEqual("full_review", decide(state, "review_plan", "plan_reviewer")["reason"])
-        self.assertTrue(decide(state, "review_completion", "completion")["lowered"], "only the plan review is full")
+        state = run_state(reasoning_escalations=[{"role": "tester"}])
+        self.assertTrue(decide(state, "review_completion", "completion")["lowered"], "another role's climb")
 
     def test_the_bottom_of_the_scale_stays(self):
         state = run_state()
-        state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"] = "low"
-        self.assertEqual("no_lower_level", decide(state, "review_plan", "plan_reviewer", "low")["reason"])
+        state["settings"]["roles"]["completion"]["reasoning_effort"] = "low"
+        self.assertEqual("no_lower_level", decide(state, "review_completion", "completion", "low")["reason"])
         self.assertEqual("xhigh", review_effort.below("max"))
         self.assertIsNone(review_effort.below("thinking"))
 
@@ -144,8 +147,8 @@ class LaunchTests(unittest.TestCase):
     def test_launch_lowers_a_review_and_keeps_a_stage_choice_builder_at_its_level(self):
         state = run_state()
         before = copy.deepcopy(state["settings"])
-        route = state["settings"]["roles"]["plan_reviewer"]
-        level, choice = review_effort.launch(state, "review_plan", "plan_reviewer", False, route)
+        route = state["settings"]["roles"]["completion"]
+        level, choice = review_effort.launch(state, "review_completion", "completion", False, route)
         self.assertEqual(("medium", True), (level, choice["lowered"]))
         self.assertEqual(before, state["settings"], "the saved ceiling is never rewritten")
         state.update(
@@ -169,7 +172,7 @@ class LaunchTests(unittest.TestCase):
         )
 
     def test_the_note_says_the_level_and_why_only_when_lowered(self):
-        choice = decide(run_state(), "review_plan", "plan_reviewer")
+        choice = decide(run_state(), "review_completion", "completion")
         self.assertEqual(
             "Running at medium, one level below your high: the task is small and clear.", review_effort.note(choice)
         )

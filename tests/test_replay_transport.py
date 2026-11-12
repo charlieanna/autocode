@@ -201,12 +201,15 @@ class OwnedTransportTests(unittest.TestCase):
         self.assertEqual({"plan_reviewer": "auto_selected"}, state["settings"]["effort_origins"])
         self.assertEqual("high", state["settings"]["roles"]["investigator"]["reasoning_effort"])
         self.assertEqual(tape.document["launch"]["settings"]["roles"], state["settings"]["roles"])
-        self.assertTrue(state["planning"]["review_depth_reduced"])
-        self.assertEqual(1, state["planning"]["review_calls_before_policy"])
-        self.assertEqual(1, state["planning"]["plan_review_calls"])
+        # Each planning cycle has its own allowance (owner decision 2026-11-11): the earlier cycle's call is not
+        # carried over, even for a small clear brief.
+        self.assertNotIn("review_depth_reduced", state["planning"])
+        self.assertEqual(0, state["planning"]["plan_review_calls"])
         self.recorded_facade(tape).check_models(state["settings"]["roles"], self.workspace)
         planning.charge(state, "review_plan")
+        planning.charge(state, "review_plan")
         self.assertEqual(2, state["planning"]["plan_review_calls"])
+        self.assertEqual(tape.document["launch"]["settings"]["roles"], state["settings"]["roles"])
         with self.assertRaises(util.Paused) as raised:
             planning.charge(state, "review_plan")
         self.assertEqual("PAUSED_PLANNING_BUDGET", raised.exception.status)

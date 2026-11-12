@@ -24,8 +24,7 @@ State key written here (and read by autocode_run_view, autopilot):
                already ran),
                "clarity": "clear" | "vague", only in adaptive-planning runs,
                "brief_size": "small" | "medium", a brief-only size signal (#1564) read by
-               units.autoplanner.review_depth_reduced to keep small clear briefs on one
-               total review allowance across planning cycles,
+               autocode_review_effort.small_clear before a plan is sized,
                "requirements_skipped": bool, saved only by runs from before 2026-10-22; read by
                autocode_adaptive_planning.view for the status view,
                "requirements_approved": True, once a chat run's person approved what
@@ -256,8 +255,8 @@ def from_requirements(state: RunState, report: dict, record: dict | None = None)
     The record keeps ``source: "model"``: a model decided the kind, here the Requirements stage. A
     report that names no job is planned as a build (#1860). A build's design document counts only
     when it exists in the workspace (approved_design). In an adaptive run, Requirements judges the
-    request's clarity (adaptive.requirements_judge_clarity), which keeps the Plan Reviewer's reduced
-    depth for small clear briefs (units.autoplanner.review_depth_reduced, #1564)."""
+    request's clarity (adaptive.requirements_judge_clarity), which a small task's Tester and
+    Completion Reviewer levels read (autocode_review_effort.small_clear)."""
     named = named_by_requirements(report)
     outcome = str(report.get("intended_outcome") or "").strip().rstrip(".")
     value = {

@@ -10,8 +10,8 @@ the first stage that has the evidence:
 - Clarity no longer skips anything. Requirements is the first stage of every run and
   follow-up turn (owner decision 2026-10-22, #1860), so a build request judged ``clear``
   is gathered like any other. The judgment is still made, by the stage that names the
-  job, Requirements (``requirements_judge_clarity``). It keeps a small clear brief's
-  Plan Reviewer at reduced depth (units.autoplanner.review_depth_reduced, #1564).
+  job, Requirements (``requirements_judge_clarity``). It lowers the Tester's and Completion
+  Reviewer's level on a small task (autocode_review_effort), never the Plan Reviewer's (2026-11-11).
 - Convergence, from the Plan Reviewer. The Planner's draft carries its initial_task,
   so a first review with no blocking concern approves an ordinary draft as written and it
   goes to the user. Progressive delegations retain revision and final independent review.
@@ -33,7 +33,7 @@ This module is pure. It imports nothing from the runner; callers pass state in.
 
 State keys written by callers from these decisions:
     workflow.clarity: "clear" | "vague", saved by autocode_workflows.apply. Read by
-        units.autoplanner.review_depth_reduced and, from state.json, by
+        autocode_review_effort.small_clear and, from state.json, by
         scenarios/harness/plan_compare.py.
     workflow.requirements_skipped: whether clarity sent the turn straight to the Planner. Written
         only by runs from before 2026-10-22; the status view still shows a saved value.
@@ -124,8 +124,8 @@ def resume_refused(saved_settings: dict, requested) -> bool:
 def requirements_judge_clarity(state: RunState) -> bool:
     """Whether Requirements reports clarity: in an adaptive run, while it names the job (#1846, #1860).
 
-    Requirements is the first stage of every run and names the job, so it judges clarity. Without it units.autoplanner.review_depth_reduced
-    never saw a small clear brief. A known job (pinned with --workflow, or named earlier in the turn) is
+    Requirements is the first stage of every run and names the job, so it judges clarity. Without it
+    autocode_review_effort.small_clear never saw a small clear brief. A known job (pinned with --workflow, or named earlier in the turn) is
     not judged again."""
     workflow = state.get("workflow")
     return enabled(state) and isinstance(workflow, dict) and workflow.get("kind") is None

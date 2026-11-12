@@ -77,6 +77,8 @@ def fixture(*, repaired=False):
         "failure_history": {"historical-builder": {"count": 2}},
     }
     cycle.new_cycle(state)
+    # A run saved while the small-brief total (#1564) was active: no new run takes it since 2026-11-11.
+    state["planning"].update(review_depth_reduced=True, review_calls_before_policy=0)
     for stage in ("review_plan", "finalize_plan"):
         row = attempt(stage, stage)
         autoplanner.charge(state, stage, row)
