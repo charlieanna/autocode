@@ -217,6 +217,20 @@ the stage, at the same source, failed with the same error and left the same kind
 (`tools/autocode_failures.py`). Different problems that happen to share an exception type,
 such as missing responses to different concerns, pause as `PAUSED_INVALID_OUTPUT`.
 
+A stage whose answers keep being rejected for different reasons, say two answers each fixing
+what the other broke, never repeats one error, so it never counts as a repeated failure. AutoCode
+bounds it itself instead of asking you to resume (`tools/autocode_rejection_retry.py`). It counts
+every rejected attempt of the stage at one source, whatever the error, until the stage returns an
+accepted report; a report-only repair belongs to the attempt it repairs. After the Investigator's
+retry of a `PAUSED_INVALID_OUTPUT` is rejected again, AutoCode runs the stage again itself, up to
+four rejected attempts, and records each retry with the rejection (`automatic_retries` on its
+`failure_history` entry, shown in the status view's `recoveries`). At four the Investigator looks
+once more, at the whole run of rejections, within the run's investigation budget. If its retry is
+rejected too, or the budget is spent, the run stops with what it tried and the errors it saw,
+without offering another retry. A planning stage's next attempt sees the latest rejection
+(`prior_rejection`). An Investigator that says only you can answer keeps that question, and an
+exact repeat keeps its `PAUSED_REPEATED_FAILURE` rules.
+
 The Investigator runs at high effort on a model different from the stuck stage's: in `kilocode`
 runs the first of the run's own direct routes (Plan Reviewer, Planner, Requirements, Completion,
 Tester, Builder) outside the stuck stage's model family, never a `kilo/` gateway route; otherwise
@@ -249,7 +263,8 @@ there, so a probe that passes whatever the files say retries nothing (#1769). Th
 probe's receipt, with its counterexample's exit code, is recorded with the investigation.
 
 Bounds: one investigation per distinct stage and pause on one source revision (the same
-problem after the source changed is a new one), and per run three or one per milestone of the
+problem after the source changed is a new one; a rejected answer AutoCode retried up to its limit
+gets one more, above), and per run three or one per milestone of the
 approved plan, whichever is more (`settings.stuck_investigation.max_calls_per_run`; 0 turns it
 off). A stage that stops twice on unchanged source without a valid report, even when a review
 re-issues it in between, pauses as a repeated failure and reaches the Investigator. A Builder

@@ -59,12 +59,20 @@ _RESOLVER_ACTIONS = {
 }
 
 
+_RETRIED = "again itself"  # autocode_rejection_retry: AutoCode ran the stage again itself
+
+
 def project(state: RunState) -> list[dict[str, Any]]:
     """Every recorded recovery, oldest first, the newest ``LIMIT`` of them."""
     investigations = list(_investigations(state))
     explained = {(row["job"], row["problem"]) for row in investigations}
     entries = [
-        *(row for row in _rejections(state) if (row["job"], row["problem"]) not in explained),
+        # A rejection AutoCode retried itself after the investigation stays: that retry is not in the investigation's entry.
+        *(
+            row
+            for row in _rejections(state)
+            if (row["job"], row["problem"]) not in explained or _RETRIED in row["action"]
+        ),
         *_report_repairs(state),
         *_test_role_corrections(state),
         *_sent_back(state),
@@ -185,6 +193,15 @@ def _rejections(state: RunState):
         if not stage or not problem:
             continue
         job = roles.screen_name(stage, state)
+        retried = [item for item in row.get("automatic_retries") or [] if isinstance(item, dict)]
+        last = retried[-1] if retried else {}
+        action = "AutoCode did not accept it."
+        if isinstance(last.get("attempt"), int) and isinstance(last.get("limit"), int):
+            # autocode_rejection_retry: AutoCode ran the stage again itself, within its limit.
+            action = (
+                f"AutoCode did not accept it and ran the {job} {_RETRIED} "
+                f"(attempt {last['attempt']} of at most {last['limit']} at this source)."
+            )
         yield _entry(
             "rejected",
             row.get("last_seen"),
@@ -192,7 +209,7 @@ def _rejections(state: RunState):
             state,
             headline=f"{job} answer rejected{_times(row.get('count'))}",
             problem=problem,
-            action="AutoCode did not accept it.",
+            action=action,
         )
 
 

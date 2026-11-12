@@ -24,6 +24,8 @@ attempt or the question only the user can answer. Then:
   is restored exactly, with the diagnosis added to its reason.
 
 Bounds: one investigation per distinct (stage, pause) problem on one source revision, and
+one more for a rejected answer AutoCode then retried itself up to its limit
+(autocode_rejection_retry: ``retry_rejected`` before the pause, ``second_look`` here), and
 ``MAX_CALLS`` per run, or one per approved milestone when there are more
 (``settings.stuck_investigation.max_calls_per_run``; 0 disables). A Builder failure's
 classification (autocode_builder_failure) is not counted here: it has its own budget per
@@ -72,11 +74,13 @@ from typing import Any
 
 try:
     from . import autocode_classification_recovery as classification_recovery
+    from . import autocode_failures as failures
     from . import autocode_model_identity as model_identity
     from . import autocode_planning_advice as recovery_binding
     from . import autocode_progressive_state as progressive
     from . import autocode_project_notes_lifecycle as project_notes
     from . import autocode_recovery_accounting as recovery_accounting
+    from . import autocode_rejection_retry as rejection_retry
     from . import autocode_roles as roles
     from . import autocode_run_status as run_status
     from . import autocode_stage_access as stage_access
@@ -86,11 +90,13 @@ try:
     from .autocode_test_cases import COUNTEREXAMPLE, run_probes
 except ImportError:
     import autocode_classification_recovery as classification_recovery
+    import autocode_failures as failures
     import autocode_model_identity as model_identity
     import autocode_planning_advice as recovery_binding
     import autocode_progressive_state as progressive
     import autocode_project_notes_lifecycle as project_notes
     import autocode_recovery_accounting as recovery_accounting
+    import autocode_rejection_retry as rejection_retry
     import autocode_roles as roles
     import autocode_run_status as run_status
     import autocode_stage_access as stage_access
@@ -259,14 +265,21 @@ def intercept(state: RunState, status: str, reason: str) -> bool:
     key = identity(stuck, status)
     revision = source_revision(state, stuck)
     spent = sum(entry.get("trigger") != "builder_failure" for entry in history)
+    seen = [entry for entry in history if same_problem(entry, key, revision)]
+    # A stage AutoCode kept retrying itself after the first look gets one more (autocode_rejection_retry).
+    again = bool(seen) and rejection_retry.second_look(state, stuck, status, seen)
     if (
         # The same problem again on the same source: once is enough. A Builder that changed the
         # source makes it a new problem, still within the run's budget.
-        any(same_problem(entry, key, revision) for entry in history)
-        or spent >= max_calls(state)
-        or operator_retried(state, stuck)
+        (seen and not again) or spent >= max_calls(state) or operator_retried(state, stuck)
     ):
         return False
+    if again:
+        attempts = len(failures.episode_rejections(state, stuck))
+        reason += (
+            f"\nThis is the second look: after the first retry, {attempts} attempts at this source were each "
+            "rejected, with errors that changed instead of repeating. Find what keeps the answers from passing together."
+        )
     history = state.setdefault("stuck_investigations", [])
     request: dict[str, Any] = {
         "identity": key,
@@ -310,6 +323,28 @@ def intercept(state: RunState, status: str, reason: str) -> bool:
         state.pop(field, None)
     state.update({"status": "RUNNING", "phase": "INVESTIGATING", "next_stage": STAGE})
     return True
+
+
+def _seen(state: RunState, stage: str, status: str) -> list[dict]:
+    """The investigations of this (stage, pause) problem on the stage's current source."""
+    key, revision = identity(stage, status), source_revision(state, stage)
+    return [entry for entry in state.get("stuck_investigations") or [] if same_problem(entry, key, revision)]
+
+
+def retry_rejected(state: RunState, status: str) -> bool:
+    """AutoCode runs a rejected stage again itself after its investigation (autocode_rejection_retry)."""
+    stage = state.get("next_stage")
+    if not isinstance(stage, str) or not stage or stage in NEVER or operator_retried(state, stage):
+        return False
+    return rejection_retry.admit(state, stage, status, _seen(state, stage, status), at=now())
+
+
+def stopped(state: RunState, status: str, reason: str) -> str:
+    """The pause reason once AutoCode stopped retrying a rejected stage itself."""
+    stage = state.get("next_stage")
+    if not isinstance(stage, str) or not stage:
+        return reason
+    return rejection_retry.stop_reason(state, stage, status, _seen(state, stage, status), reason)
 
 
 def persons_review_total(state: RunState, status: str) -> bool:
@@ -985,7 +1020,11 @@ def drive(
             if not fresh():
                 raise
             if not queue or not intercept(state, status, reason):
-                reraised = paused(status, annotate(state, status, reason))
+                if queue and retry_rejected(state, status):
+                    if persist:
+                        persist(state)
+                    continue
+                reraised = paused(status, annotate(state, status, stopped(state, status, reason)))
                 if getattr(error, "quota_worker", None):
                     reraised.quota_worker = error.quota_worker
                 raise reraised from error
