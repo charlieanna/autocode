@@ -4608,6 +4608,40 @@ test('delayed status resolution does not re-show unwatched run or replace newly 
   assert.ok(mockStatus.text.includes('Other running'), 'late resolution must not replace newer watched run');
 });
 
+test('a status line whose reads stop says it is stale, not silently old', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
+  let statusText = '';
+  let statusVisible = false;
+  const mockStatus = {
+    show() { statusVisible = true; }, hide() { statusVisible = false; }, dispose() {},
+    get text() { return statusText; }, set text(val) { statusText = val; },
+    tooltip: undefined, command: undefined,
+  };
+  t.mock.method(host.vscode.window, 'createStatusBarItem', () => mockStatus);
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
+  const good = { status: 'RUNNING', done: false, needs: { kind: 'continue' }, progress: { headline: 'Builder working' } };
+  let calls = 0;
+  let release;
+  t.mock.method(RunController.prototype, 'status', () => {
+    calls++;
+    if (calls === 1) return Promise.resolve(structuredClone(good));
+    return new Promise((resolve) => { release = () => resolve(structuredClone(good)); });
+  });
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+  await host.commands.get('autocode.openRun')(run);
+  await flush(); await flush();
+  assert.ok(statusText.includes('Builder working'), 'the line starts on the run: ' + statusText);
+  // The reads stop landing: the line must say it is stale, not keep showing old content.
+  t.mock.timers.tick(20000);
+  await flush(); await flush();
+  assert.ok(statusText.includes('stale'), 'the line says it is stale: ' + statusText);
+  release();
+  await flush(); await flush();
+  assert.ok(statusText.includes('Builder working'), 'the line recovers: ' + statusText);
+});
+
 test('a failed status read keeps the status bar up saying so instead of hiding it', async (t) => {
   t.mock.timers.enable({ apis: ['setInterval'] });
   let statusVisible = false;

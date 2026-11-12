@@ -363,22 +363,34 @@ test('walk: closing a chat mid-reply returns every poll to the ordinary interval
     while (!ok() && Date.now() < until) await new Promise((resolve) => setImmediate(resolve));
     return ok();
   };
+  // Real reads take wall-clock seconds on a busy machine: wait for the count to stop
+  // moving, never for a fixed pause.
+  const settle = async () => {
+    let last = -1;
+    while (last !== reads()) { last = reads(); await drain(() => false, 800); }
+  };
   // The reply grows again: an unchanged extract would quiet the pace back to the ordinary
   // interval after a few reads, which is the core's rule, not the bug being walked here.
   fs.appendFileSync(path.join(stream, 'events.jsonl'),
     JSON.stringify({ type: 'text', part: { id: 1, text: '{"assistant_reply": "Who will use it?"} ' } }) + '\n');
-  await drain(() => false, 1500);
+  // A cycle still in flight from the setup would swallow the tick's refresh (the joinable
+  // refresh is right); wait for idle and take one settled cycle that sees the growth.
+  await drain(() => !ui.chat.refreshing);
+  await ui.chat.refresh();
+  await settle();
   const start = reads();
   t.mock.timers.tick(250);
   await drain(() => reads() > start);
   assert.ok(reads() > start, 'a growing reply polls at the streaming pace');
   // The streaming chat's tab is closed while its reply still grows.
   [...ui.document.querySelectorAll('.chat-tab .close')][0].click();
-  await drain(() => false, 1500);           // let the close settle and the pending tick land
-  t.mock.timers.tick(250); await drain(() => false, 1500);
+  await drain(() => !ui.chat.refreshing);
+  await ui.chat.refresh();                   // a settled cycle after the close
+  await settle();                            // and the counts stop moving
+  t.mock.timers.tick(250); await settle();
   const settled = reads();
   t.mock.timers.tick(250);
-  await drain(() => false, 1500);
+  await settle();
   assert.equal(reads(), settled, 'a closed chat must not hold every poll at the streaming pace');
   t.mock.timers.tick(5000);
   await drain(() => reads() > settled);
@@ -477,3 +489,47 @@ test('walk: a CLI that dies mid-reply leaves the reply standing, says why, and r
   assert.ok(mockStatus.text.includes('AutoCode'), 'the status line is back on the run: ' + mockStatus.text);
 });
 
+test('walk: the status line keeps its liveness without the poll interval, and goes loud when reads are slow', { skip }, async (t) => {
+  const { root, stream } = buildWorkspace();
+  host.config.set('cliPath', CLI);
+  host.config.set('cliArgs', [SCRIPT]);
+  host.config.set('pollSeconds', 1);
+  t.mock.timers.enable({ apis: ['setInterval'] });   // the poll interval is silenced: the round-14 wart
+  let statusText = '';
+  const mockStatus = {
+    show() {}, hide() {}, dispose() {},
+    get text() { return statusText; }, set text(val) { statusText = val; },
+    tooltip: undefined, command: undefined,
+  };
+  t.mock.method(host.vscode.window, 'createStatusBarItem', () => mockStatus);
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+  await host.commands.get('autocode.openRun')({ workspace: root, runDir: stream });
+  await waitFor(() => statusText.includes('AutoCode'), 30000);
+
+  // The run changes with no interval driving the line: the line's own watchdog keeps it live.
+  const statePath = path.join(stream, 'state.json');
+  const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  state.inherited_spend = { usd: 5 };
+  fs.writeFileSync(statePath, JSON.stringify(state));
+  await waitFor(() => statusText.includes('$5'), 30000);
+  assert.ok(statusText.includes('$5'), 'the line tracks the run with the poll interval silenced: ' + statusText);
+
+  // Now the CLI itself is slow (a wedged read takes longer than the line's threshold):
+  // the line must say it is stale rather than present the old content as current.
+  const slow = path.join(root, 'slow-cli.sh');
+  fs.writeFileSync(slow, '#!/bin/sh\nsleep 3\nexec "$@"\n');
+  fs.chmodSync(slow, 0o755);
+  host.config.set('cliPath', slow);
+  host.config.set('cliArgs', [CLI, SCRIPT]);
+  await waitFor(() => statusText.includes('stale'), 30000);
+  assert.ok(statusText.includes('stale'), 'the line goes loud while a read is slow: ' + statusText);
+
+  // And it comes back to the run when the reads land again.
+  host.config.set('cliPath', CLI);
+  host.config.set('cliArgs', [SCRIPT]);
+  await waitFor(() => statusText.includes('$5') && !statusText.includes('stale'), 30000);
+  assert.ok(statusText.includes('$5'), 'the line recovers: ' + statusText);
+});
