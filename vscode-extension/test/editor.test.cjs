@@ -1521,6 +1521,53 @@ test('separate VS Code windows keep independent selected tasks and drafts', asyn
   assert.equal(second.document.querySelector('#message').value, 'Draft for the second VS Code window');
 });
 
+for (const outcome of ['success', 'failure']) {
+  test(`reload restores the conversation before the run-mode list ${outcome}`, async (t) => {
+    const own = new RunController(host.log);
+    let finishModes;
+    const modes = t.mock.method(own, 'modes', () => new Promise((resolve, reject) => {
+      finishModes = () => outcome === 'success' ? resolve(structuredClone(RUN_MODES)) : reject(new Error('modes unavailable'));
+    }));
+    const launch = t.mock.method(cli, 'stream', async () => ok);
+    const key = `${run.workspace}\n${run.runDir}`;
+    const ui = await openChat(t, headerView(), false, {
+      controller: own,
+      webviewState: { tabs: [{ key, run }], activeTabKey: key, selectedRun: run, drafts: { [key]: 'Keep this draft after reload' } },
+    });
+    try {
+      assert.equal(modes.mock.callCount(), 1, 'the mode list is still pending; no poll timer has fired');
+      assert.equal(ui.document.querySelector('#run-header').hidden, false, 'a readable restored chat must not wait for new-chat modes');
+      assert.match(ui.document.querySelector('#header-sentence').textContent, /Builder working/);
+      assert.match(ui.document.querySelector('#messages').textContent, /Build the requested CLI/);
+      assert.equal(ui.document.querySelector('#message').value, 'Keep this draft after reload');
+      assert.equal(launch.mock.callCount(), 0, 'restoring a conversation never starts or advances a task');
+    } finally {
+      finishModes();
+      await flush(); await flush(); await ui.chat.refresh();
+    }
+    assert.equal(ui.document.querySelector('#run-header').hidden, false);
+    assert.equal(ui.document.querySelector('#message').value, 'Keep this draft after reload');
+    assert.equal(launch.mock.callCount(), 0);
+    ui.chat.show(); await flush(); await flush();
+    assert.equal(ui.document.querySelector('#mode-picker').hidden, outcome !== 'success', 'new chats still use the mode-list result');
+  });
+}
+
+test('a new chat shows modes that arrive after its initial refresh, without another poll', async (t) => {
+  const own = new RunController(host.log);
+  let finishModes;
+  t.mock.method(own, 'modes', () => new Promise((resolve) => { finishModes = () => resolve(structuredClone(RUN_MODES)); }));
+  const ui = await openChat(t, null, false, {
+    controller: own,
+    // The independent places read must not supply the render that lands the modes.
+    worktrees: () => new Promise(() => {}),
+  });
+  assert.equal(ui.document.querySelector('#mode-picker').hidden, true);
+  finishModes(); await flush(); await flush();
+  assert.equal(ui.document.querySelector('#mode-picker').hidden, false);
+  assert.equal(ui.document.querySelector('#mode-picker').textContent, 'Full');
+});
+
 test('models and usage are shown once, in the run header, with no second section above the composer', async (t) => {
   const q = (value) => ({ value, known: value, complete: true, known_items: 1 });
   const initial = headerView({ provider: 'kilocode', routes: {
