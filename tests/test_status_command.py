@@ -360,15 +360,30 @@ class ProjectedControllerPauseTests(unittest.TestCase):
             command.render(runner, util.read(run_dir / "state.json"), args, self.workspace, run_dir)
         return json.loads(output.getvalue())
 
-    def test_ready_display_survives_the_real_human_authority_envelope(self):
+    def test_ready_handoff_keeps_running_in_the_real_envelope(self):
+        """A client goes on through consecutive ready boundaries while the view reads RUNNING (#2332).
+
+        The VS Code chat's advance after a person's action stops at the first status that is not
+        RUNNING, so a ready handoff shown as a controller-exit pause left a bare Continue.
+        """
         run = self.make_run("envelope-ready")
         self.exit_ready(run)
         before = (run / "state.json").read_bytes()
         payload = self.render_envelope(run)
+        self.assertEqual(("RUNNING", "RUNNING"), (payload["status"], payload["view"]["status"]))
+        self.assertEqual("ready", payload["view"]["controller"]["kind"])
+        self.assertEqual("continue", payload["view"]["needs"]["kind"])
+        self.assertFalse(payload["human_request_authorized"])
+        self.assertEqual(before, (run / "state.json").read_bytes())
+
+    def test_lost_controller_pause_survives_the_real_human_authority_envelope(self):
+        run = self.make_run("envelope-gone")
+        self.exit_gone(run)
+        before = (run / "state.json").read_bytes()
+        payload = self.render_envelope(run)
         self.assertEqual("PAUSED_CONTROLLER_EXIT", payload["status"])
         self.assertEqual(payload["status"], payload["view"]["status"])
-        self.assertEqual("RUNNING", payload["saved_status"])
-        self.assertFalse(payload["human_request_authorized"])
+        self.assertIn("--resume-paused", payload["view"]["next_command"])
         self.assertEqual(before, (run / "state.json").read_bytes())
 
     def test_other_human_authority_status_projections_are_preserved(self):
@@ -406,7 +421,7 @@ class ProjectedControllerPauseTests(unittest.TestCase):
 
         ready_saved = util.read(ready / "state.json")
         ready_view = self.render_view(ready)
-        self.assertEqual("PAUSED_CONTROLLER_EXIT", ready_view["status"])
+        self.assertEqual("RUNNING", ready_view["status"])
         self.assertEqual("continue", ready_view["needs"]["kind"])
         self.assertEqual("ready", ready_view["controller"]["kind"])
         self.assertEqual(
@@ -447,7 +462,7 @@ class ProjectedControllerPauseTests(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertEqual(before, snapshot(), "the inventory and --status are display-only")
 
-    def test_ac9_action_payloads_render_the_projected_ready_status(self):
+    def test_ac9_action_payloads_keep_the_ready_status_and_continue(self):
         import autocode_run_view as run_view
         import autocode_util as util
 
@@ -455,7 +470,7 @@ class ProjectedControllerPauseTests(unittest.TestCase):
         self.exit_ready(ready)
         saved = util.read(ready / "state.json")
         view = self.render_view(ready)
-        self.assertEqual("PAUSED_CONTROLLER_EXIT", view["status"])
+        self.assertEqual("RUNNING", view["status"])
         self.assertEqual("continue", view["needs"]["kind"])
         self.assertEqual("ready", view["controller"]["kind"])
         self.assertEqual(0, view["controller"]["receipt"]["exit_code"])

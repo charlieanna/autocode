@@ -10,11 +10,12 @@ Discovery has two scopes. By default the current project's
 registered and a crashed run whose pointer is stale. ``--all`` walks the per-user
 registry instead, so every project the person has run appears.
 
-A row projects the same controller-exit display the run's own ``--status`` shows,
-read-only (#3287): a controller positively gone reads as the pause with its
-resume, and a deliberate ready handoff keeps ``Ready to continue``, while unknown
-or busy ownership keeps the saved claim. Use ``--status`` on one run for its full
-detail.
+A row projects, read-only, the controller-exit pause the run's own ``--status``
+shows (#3287): a controller positively gone reads as that pause with its resume.
+A deliberate ready handoff keeps RUNNING and reads as ``Ready to continue``.
+Ownership the inventory cannot settle (unknown or busy) keeps the saved claim,
+where ``--status`` may show a process-check pause: use ``--status`` on one run
+for its full detail.
 """
 
 from __future__ import annotations
@@ -152,8 +153,8 @@ def _row(workspace: Path, run_dir: Path, now: float, changesets, *, checkpoint) 
     if state.get("status") == "RUNNING":
         # One shared display rule over a read-only controller inspection (#3287): a positively lost
         # controller displays the controller-exit pause and its resume; a deliberate ready handoff
-        # displays the pause and keeps its continue action. Unknown, busy, live or mid-flight
-        # ownership keeps the saved claim. Nothing here writes, signals or reconciles a run.
+        # keeps RUNNING and its continue action. Unknown, busy, live or mid-flight ownership keeps
+        # the saved claim. Nothing here writes, signals or reconciles a run.
         displayed = controller_owner.display(state, controller_owner.inspect(state, run_dir, workspace))
         shown_status, action_state, handoff = displayed["status"], displayed["action_state"], displayed["ready_handoff"]
     try:

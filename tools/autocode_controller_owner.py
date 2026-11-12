@@ -350,19 +350,21 @@ def project(state: RunState, inspection):
 
 
 def display(state: RunState, inspection):
-    """The one display rule for a saved checkpoint: the status a viewer shows, and the action it keeps (#3287).
+    """The one display rule for a saved checkpoint in the run inventory: its status and action (#3287).
 
     A positively lost controller displays the controller-exit pause exactly where project() above
-    concludes it, with that pause's resume; a deliberate ready handoff (its continue action kept,
-    ``ready_handoff``) displays the same status; everything else keeps the saved claim — unknown or
-    busy ownership, a live controller, a mid-flight uncertain attempt or active runner check the
-    projection will not settle, or a saved non-RUNNING boundary. ``action_state`` is the state whose
-    need and next command the viewer shows. Read-only: project()/reconcile()/the Owner persist paths
-    never take the ready route, so a ready receipt is never saved as a lost controller.
+    concludes it, with that pause's resume, as the run's own --status does. Everything else keeps the
+    saved claim: unknown or busy ownership, a live controller, a mid-flight uncertain attempt or active
+    runner check the projection will not settle, a saved non-RUNNING boundary, and a deliberate ready
+    handoff (#2332). That handoff is not a lost controller: it keeps RUNNING with its continue action,
+    as its --status view does, and ``ready_handoff`` marks it so the inventory lists it as Ready to
+    continue. A client goes on through consecutive ready boundaries while the status view reads
+    RUNNING, so showing the pause there would stop it after one. ``action_state`` is the state whose
+    need and next command the viewer shows. Read-only: nothing here persists a projection.
     """
     saved = state.get("status")
     if saved == "RUNNING" and (inspection or {}).get("kind") == "ready":
-        return {"status": STATUS, "action_state": state, "ready_handoff": True}
+        return {"status": saved, "action_state": state, "ready_handoff": True}
     if (
         saved == "RUNNING"
         and not (state.get("active_stage") and not (inspection or {}).get("completed_stage"))

@@ -82,9 +82,7 @@ class FleetRowsTests(unittest.TestCase):
         with util.run_lock(run_dir), owners.Owner(state, run_dir, persist) as owner:
             owner.result(0, ready=True)
         row = next(item for item in runs.rows(self.root) if item["name"] == "working")
-        self.assertEqual(
-            (runs.NEEDS, True, "PAUSED_CONTROLLER_EXIT"), (row["bucket"], row["ready_to_continue"], row["status"])
-        )
+        self.assertEqual((runs.NEEDS, True, "RUNNING"), (row["bucket"], row["ready_to_continue"], row["status"]))
         self.assertTrue(row["next_command"])
         rendered = runs.render(runs.rows(self.root), str(self.root))
         self.assertIn(
@@ -219,8 +217,8 @@ class FleetRowsTests(unittest.TestCase):
         for name in ("working", "deadpid", "stale-ready"):
             self.assertEqual("PAUSED_CONTROLLER_EXIT", statuses[name])
 
-    def test_ac2_ready_row_projects_the_pause_keeps_continue(self):
-        """#3287: a deliberate ready handoff changes only its displayed status, not its action (#2332)."""
+    def test_ac2_ready_row_keeps_running_and_its_continue(self):
+        """#3287: a deliberate ready handoff is not a lost controller; it reads Ready to continue (#2332)."""
         import autocode_controller_owner as owners
         import autocode_util as util
 
@@ -232,7 +230,7 @@ class FleetRowsTests(unittest.TestCase):
             json.loads((run_dir / "state.json").read_text()), run_dir=run_dir, workspace=self.root
         )["next_command"]
         row = next(item for item in runs.rows(self.root) if item["name"] == "working")
-        self.assertEqual("PAUSED_CONTROLLER_EXIT", row["status"])
+        self.assertEqual("RUNNING", row["status"])
         self.assertEqual((runs.NEEDS, True), (row["bucket"], row["ready_to_continue"]))
         self.assertEqual(expected, row["next_command"])
         self.assertNotIn("--resume-paused", row["next_command"])
@@ -250,7 +248,7 @@ class FleetRowsTests(unittest.TestCase):
         with util.run_lock(run_dir), owners.Owner(state, run_dir, self._persist()) as owner:
             owner.result(2, ready=True)
         row = next(item for item in runs.rows(self.root) if item["name"] == "working")
-        self.assertEqual("PAUSED_CONTROLLER_EXIT", row["status"])
+        self.assertEqual("RUNNING", row["status"])
         self.assertTrue(row["ready_to_continue"])
         self.assertIn("--no-chat", row["next_command"])
         self.assertNotIn("--resume-paused", row["next_command"])

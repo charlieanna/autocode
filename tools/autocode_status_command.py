@@ -364,6 +364,10 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
     # a re-verification action: resume re-checks completion against the source on disk.
     if completion_current is False and not (stale or stale_check):
         public_view["next_command"] = ["--workspace", str(workspace), "--run-dir", str(run_dir), "--resume-paused"]
+    # The run in one sentence and its exact next action (#2049); `--summary` prints only this.
+    public_view["summary"] = status_summary.project(
+        public_view, stale=stale or stale_check, completion_current=completion_current, next_action=next_action
+    )
     public_view["chat"]["progress"] = chat_progress.project(
         state, public_view, finished=bool(active_finished), stopped=bool(next_action)
     )
@@ -406,13 +410,6 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         }
         if completion_current is True:
             public_view["progressive"]["outstanding_product_criteria"] = []
-    # One shared display rule (#3287): the deliberate ready handoff's displayed status flips here,
-    # after the chat projections above, whose gates read the saved claim they are written against.
-    public_view = {**public_view, "status": controller_owner.display(state, owner)["status"]}
-    # The run in one sentence and its exact next action (#2049); `--summary` prints only this.
-    public_view["summary"] = status_summary.project(
-        public_view, stale=stale or stale_check, completion_current=completion_current, next_action=next_action
-    )
     if stale:
         print(
             f"STALE CHECKPOINT: saved status is RUNNING but the retained "
@@ -431,11 +428,6 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         if block := answer_output.questions(public_view):
             print(block)  # what the named --answer command answers, with options and default (#2325)
         return
-    authority = runner.resolver_human.projection(state)
-    if public_view["status"] == controller_owner.STATUS:
-        # The authority envelope keeps its fields and human-gate projection, but
-        # must not overwrite this read-only controller display with saved RUNNING.
-        authority = {**authority, "status": public_view["status"]}
     print(
         json.dumps(
             {
@@ -443,7 +435,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
                 "workspace": str(workspace),
                 "project_workspace": state.get("project_workspace", str(workspace)),
                 "task_branch": state.get("task_branch"),
-                "status": public_view["status"],
+                "status": state["status"],
                 "iteration": state["iteration"],
                 "stale": stale or stale_check,
                 "next_action": next_action,
@@ -470,7 +462,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
                 "milestone_activation_pending": (run_dir / "milestone-checkpoints-requested.json").exists(),
                 "interventions": runner.intervention_metadata(workspace, run_dir, state),
                 "view": {**public_view, "delivery": runner.dependency.export(state, current, completion_current)},
-                **authority,
+                **runner.resolver_human.projection(state),
             },
             indent=2,
         )
