@@ -77,6 +77,7 @@ try:
     from . import autocode_review_proof as review_proof
     from . import autocode_scratch_overlay as scratch_overlay
     from . import autocode_scratch_preparation as scratch_preparation
+    from . import autocode_scratch_suites as scratch_suites
     from . import autocode_suite_definition_inputs as definition_inputs
     from . import autocode_suite_definition_policy as definition_policy
     from . import autocode_suite_definition_scan as definition_scan
@@ -94,7 +95,7 @@ try:
     from . import autocode_vitest_tests as vitest_tests
     from .autocode_suite_health import suite_health
     from .autocode_test_framework import Framework
-    from .autocode_verification_commands import _go_test, command_framework, select_commands, unheld, untargeted
+    from .autocode_verification_commands import _go_test, command_framework, select_commands, unheld
     from .autocode_verification_commands import _mentions_tests as _mentions_tests
 except ImportError:
     import autocode_agent_env as agent_env
@@ -122,6 +123,7 @@ except ImportError:
     import autocode_review_proof as review_proof
     import autocode_scratch_overlay as scratch_overlay
     import autocode_scratch_preparation as scratch_preparation
+    import autocode_scratch_suites as scratch_suites
     import autocode_suite_definition_inputs as definition_inputs
     import autocode_suite_definition_policy as definition_policy
     import autocode_suite_definition_scan as definition_scan
@@ -139,7 +141,7 @@ except ImportError:
     import autocode_vitest_tests as vitest_tests
     from autocode_suite_health import suite_health
     from autocode_test_framework import Framework
-    from autocode_verification_commands import _go_test, command_framework, select_commands, unheld, untargeted
+    from autocode_verification_commands import _go_test, command_framework, select_commands, unheld
     from autocode_verification_commands import _mentions_tests as _mentions_tests
 
 PASS, FAIL, UNVERIFIED = "PASS", "FAIL", "UNVERIFIED"
@@ -2019,14 +2021,13 @@ def scratch_run(
             if framework is None and all(str(test).endswith(".py") for test in tests):
                 # A project with no suite of its own: standard unittest files still run.
                 framework = Framework("unittest", f"{shlex.quote(python)} -m unittest discover -v", python=python)
-            command = framework.targeted(list(tests)) if framework else None
             detect = lambda directory: detect_framework(directory, python=python)  # noqa: E731
-            if not command and (nested := package_scope.for_tests(tree, framework, tests, detect)):
-                framework, command = nested, nested.targeted(list(tests))
-            if not command:
-                return {"error": untargeted(framework, tests), "results": None}
-            receipt = run_suite(
-                framework, command, tree, run_dir, "scratch-tests", timeout=timeout, native_execution=native_execution
+            suites = scratch_suites.suites(tree, framework, tests, detect)  # one per project the tests are in
+            if isinstance(suites, str):
+                return {"error": suites, "results": None}
+            receipt = scratch_suites.merged(
+                run_suite(found, command, tree, run_dir, label, timeout=timeout, native_execution=native_execution)
+                for found, command, label in suites
             )
         else:
             # A command naming the workspace's absolute path runs against the copy, never the workspace.
