@@ -21,7 +21,7 @@
         "schema", "status", "done", "needs", "pause_category", "pause_category_label", "next_command",
         "phase", "next_stage", "iteration", "stop_reason", "explanation", "current_task", "task", "task_sha256",
         "workflow", "workflow_source", "workflow_reason", "turn", "evidence", "approvals", "evidence_report",
-        "acceptance_tests", "usage", "cost", "progress", "summary", "delivery", "liveness", "controller", "recovery", "recoveries",
+        "acceptance_tests", "usage", "cost", "planning_calls", "progress", "summary", "delivery", "liveness", "controller", "recovery", "recoveries",
         "verification", "review_result", "verification_obligation", "code_checkpoints", "runner", "runner_check", "dependency",
         "prompts_hash", "interaction_timing", "replay_source", "replay_progress", "replay_result",
         "escalation_outcomes", "escalations", "request_context", "output_transport", "direct_rework_assignments", "routes",
@@ -344,6 +344,17 @@
           }
         },
         "cost": {"type": "object", "description": "Spend against the money cap."},
+        "planning_calls": {
+          "type": "object",
+          "description": "Planning's model calls (Requirements, Planner, Plan Reviewer, their report repairs and planning investigations) since the person's last answer or feedback, against the cap on them. At the cap the run pauses PAUSED_PLANNING_CALL_LIMIT before the next planning call.",
+          "required": ["used", "cap", "renewed_at"],
+          "additionalProperties": false,
+          "properties": {
+            "used": {"type": "integer", "minimum": 0},
+            "cap": {"type": ["integer", "null"], "minimum": 1, "description": "Null when the run has no cap: 0 was chosen, or the run was saved before the cap existed."},
+            "renewed_at": {"type": ["string", "null"], "description": "When the person's last answer or feedback started the count again; null before any."}
+          }
+        },
         "progress": {"type": "object", "description": "How far the run has got, from saved records; `line` is for a person, the fields beside it for programs."},
         "summary": {
           "type": "object",
