@@ -2898,7 +2898,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/211c9cefe294291b623bc129f5b531b219593256/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/8aa8d9238d2211b60cc18b1b81c52df46cc4ebf7/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -4108,7 +4108,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/211c9cefe294291b623bc129f5b531b219593256/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/8aa8d9238d2211b60cc18b1b81c52df46cc4ebf7/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -4884,7 +4884,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/211c9cefe294291b623bc129f5b531b219593256/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/8aa8d9238d2211b60cc18b1b81c52df46cc4ebf7/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -4949,7 +4949,13 @@ when no stage runs or the running stage cannot be priced. It is not part of <cod
 check. A client showing spend so far adds it to <code>spent_usd</code> and to the running stage's row, as a
 floor, so a run on its first stage does not read as nothing spent while its tokens climb.
 <code>usage.cost_usd</code> keeps the frozen comparison rates its reports are bound to,
-so its <code>estimated</code> can differ from <code>cost.estimated_usd</code>.</p>
+so its <code>estimated</code> can differ from <code>cost.estimated_usd</code>. Those rates price every input token at the
+input rate, cached or not, so on a run whose input is mostly cache reads <code>usage.cost_usd.estimated</code>
+is about twice <code>cost.spent_usd</code> (#3268: $26.30 against $12.40). It is a comparison figure: the run's
+cost is <code>cost.spent_usd</code>, and a client that shows one cost shows that.</p>
+<p><code>run_metrics.single_model</code> splits what is not the Builder's into <code>planning_usd</code> (Requirements,
+Planner and Plan Reviewer) and <code>review_usd</code> (testing, review, proof and recovery), with
+<code>planning_share</code> and <code>review_share</code> of <code>spent_usd</code>; <code>checking_usd</code> stays their sum (#3268).</p>
 <p><code>cost.breakdown</code> groups that same finished-stage ledger in three alternative ways:
 <code>by_stage</code>, <code>by_process_outcome</code> (<code>completed</code>, <code>failed</code>, <code>interrupted</code>, <code>unknown</code>) and
 <code>by_billing</code> (<code>subscription</code>, <code>pay per token</code>, <code>unknown</code>: how the stage's model bills, from the
