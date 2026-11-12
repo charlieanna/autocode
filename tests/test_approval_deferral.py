@@ -98,7 +98,8 @@ class DeferredApprovalRestarts(unittest.TestCase):
         self.assertEqual("PAUSED_APPROVAL_DEFERRED", self.state["status"])
 
     def small_brief_review_spent(self):
-        # A small clear brief pays one review total across cycles (#1564), and this one is spent.
+        # A run saved under the removed small-brief total (#1564) keeps one review total across cycles, and
+        # this one is spent.
         self.state["planning"].update(
             plan_review_calls=2,
             review_depth_reduced=True,

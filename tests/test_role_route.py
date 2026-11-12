@@ -250,9 +250,6 @@ class ConfiguredRouteOriginTests(unittest.TestCase):
                 )
                 self.assertEqual("user_explicit", settings["route_origins"]["plan_reviewer"])
                 self.assertEqual(origin, settings["effort_origins"]["plan_reviewer"])
-                state = {"settings": settings, "workflow": {"clarity": "clear", "brief_size": "small"}}
-                planning.route_for(state, "review_plan")
-                self.assertEqual("medium", settings["roles"]["plan_reviewer"]["reasoning_effort"])
 
     def test_saved_effort_keeps_its_origin_unless_an_effort_override_is_named(self):
         settings = self.configure({"workspace": "/fixture", "iteration": 0})
@@ -261,12 +258,8 @@ class ConfiguredRouteOriginTests(unittest.TestCase):
         state = {"workspace": "/fixture", "iteration": 0, "settings": settings}
         kept = self.configure(state, plan_reviewer_model="openai/gpt-6-sol")
         self.assertNotIn("effort_origins", kept)
-        planning.apply_reviewer_effort_tier({"settings": kept})
-        self.assertEqual("medium", kept["roles"]["plan_reviewer"]["reasoning_effort"])
         moved = self.configure(state, plan_reviewer_reasoning_effort="high")
         self.assertEqual("user_explicit", moved["effort_origins"]["plan_reviewer"])
-        planning.apply_reviewer_effort_tier({"settings": moved})
-        self.assertEqual("high", moved["roles"]["plan_reviewer"]["reasoning_effort"])
         self.assertNotIn("effort_origins", settings, "configure must not mutate the input checkpoint")
 
     def test_project_reviewer_effort_is_explicit_after_the_public_parser_loads_it(self):
@@ -287,8 +280,6 @@ class ConfiguredRouteOriginTests(unittest.TestCase):
                     opencode=oc,
                 )
             self.assertEqual("user_explicit", settings["effort_origins"]["plan_reviewer"])
-            planning.apply_reviewer_effort_tier({"settings": settings})
-            self.assertEqual("medium", settings["roles"]["plan_reviewer"]["reasoning_effort"])
 
     def test_ignored_global_effort_does_not_pin_a_different_reviewer_default(self):
         settings = self.configure({"workspace": "/fixture", "iteration": 0}, reasoning_effort="medium")
@@ -307,10 +298,6 @@ class ConfiguredRouteOriginTests(unittest.TestCase):
                     settings["route_selection"] = {"routes": {"plan_reviewer": {"origin": "auto_selected"}}}
                 role_route.record_efforts(SimpleNamespace(reasoning_effort=global_effort), settings, fresh=True)
                 self.assertEqual(expected, settings["effort_origins"]["plan_reviewer"])
-                planning.apply_reviewer_effort_tier({"settings": settings})
-                self.assertEqual(
-                    "medium" if global_effort else "low", settings["roles"]["plan_reviewer"]["reasoning_effort"]
-                )
 
     def test_configure_records_whether_the_person_chose_the_builders_effort(self):
         # The light first Builder attempt (#1710) lowers only the runner's own default.
@@ -348,7 +335,6 @@ class ConfiguredRouteOriginTests(unittest.TestCase):
         role_route.record_efforts(args, settings, fresh=True)
         self.assertEqual({"tester": "stage_choice", "builder": "user_explicit"}, settings["effort_origins"])
         self.assertFalse(role_route.effort_can_reduce(settings, "tester"), "the runner's own tiers stay off")
-        self.assertFalse(role_route.reviewer_effort_can_reduce({"effort_origins": {"plan_reviewer": "stage_choice"}}))
 
     def test_a_new_run_records_why_each_role_has_the_route_it_has(self):
         settings = self.configure({"workspace": "/fixture", "iteration": 0}, tester_model=LUNA)

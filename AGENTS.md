@@ -177,11 +177,14 @@ had worked on the folder's one branch, so chats conflicted). Choosing models
 automatically by measured capability (#2049) is paused until the owner revisits it.
 
 **Review levels under the stage choices, owner decision 2026-11-05.** The person chooses each
-stage's model; the level they save for the Plan Reviewer, the Tester and the Completion Reviewer
+stage's model; the level they save for the Tester and the Completion Reviewer
 is a ceiling. On a small, clear task (Requirements judged it clear and the plan, or before one is
 sized the brief, is small) those reviews run one level below it, when the model offers that
-level; a review that runs again for the same task, a climbed route and `--plan-review-full` keep
-the ceiling (`tools/autocode_review_effort.py`). AutoCode decides this itself at each launch and
+level; a review that runs again for the same task and a climbed route keep
+the ceiling (`tools/autocode_review_effort.py`). **The Plan Reviewer always runs at its saved
+level with a per-cycle review allowance, owner decision 2026-11-11:** a short request can draft a
+large plan, so neither the level nor the small-brief total (#1564) is lowered for it. A run saved
+with that total keeps it. AutoCode decides this itself at each launch and
 records the decision and its reason as the stage's `effort_choice`; it is never a question for the
 person. A level typed as a flag stays exact, and every other stage runs at the saved level.
 

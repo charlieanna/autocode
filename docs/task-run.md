@@ -2302,7 +2302,7 @@ whenever `workflow` is.
 | Field | Meaning |
 | --- | --- |
 | `adaptive` | Whether the run plans adaptively (`--adaptive-planning`, the default where it applies); `false` on the fixed sequence |
-| `clarity` | `"clear"` or `"vague"`: the judgment of the request text by Requirements when it names the job (an earlier runtime's recognizer on a flow without Requirements); `null` on the fixed sequence, on a flow without Requirements, under `--workflow`, and before the job is named. It no longer skips Requirements; a small clear brief keeps its reduced plan-review depth |
+| `clarity` | `"clear"` or `"vague"`: the judgment of the request text by Requirements when it names the job (an earlier runtime's recognizer on a flow without Requirements); `null` on the fixed sequence, on a flow without Requirements, under `--workflow`, and before the job is named. It no longer skips Requirements, and since 2026-11-11 it no longer lowers plan review |
 | `requirements_skipped` | `true` only on a run saved before 2026-10-22 whose recognizer judged a build request clear and sent it straight to the Planner, `false` where such a run's judgment kept the Requirements stage; `null` on every newer run, which always runs Requirements first (#1860), and wherever clarity decided nothing |
 | `plan_size` | `"small"`, `"medium"` or `"large"`, measured from the draft's milestones and the files they touch at its first review; `null` before that review |
 | `size_signals` | The counts behind `plan_size`: `milestones`, `affected_paths`, `acceptance_criteria`, `dependency_edges`; `null` before the first review |

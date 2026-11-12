@@ -168,8 +168,8 @@ class ListingTests(unittest.TestCase):
 
 
 class LaunchTests(unittest.TestCase):
-    def test_launch_passes_the_raised_level_and_a_raise_wins_over_a_small_tasks_lowered_review(self):
-        # A small, clear plan would lower its review (autocode_review_effort); one touching billing is raised.
+    def test_launch_passes_the_raised_level_and_a_small_task_keeps_the_saved_level(self):
+        # A plan touching billing is raised; the Plan Reviewer is never lowered below the saved level (2026-11-11).
         state = run_state(body(path="src/billing/charge{index}.py"))
         state["workflow"]["brief_size"] = "small"
         route = state["settings"]["roles"]["plan_reviewer"]
@@ -179,12 +179,11 @@ class LaunchTests(unittest.TestCase):
             "Running at max, one level above your high: the plan is hard (it touches sensitive files).",
             review_effort.note(choice),
         )
-        # Nothing hard: the small-task rule decides as before.
+        # Nothing hard: a small, clear task's plan review runs at the saved level.
         plain = run_state()
         plain["workflow"]["brief_size"] = "small"
         plain["settings"]["declared_variants"][GLM] = ["low", "medium", "high", "max"]
-        level, choice = review_effort.launch(plain, "review_plan", "plan_reviewer", False, route)
-        self.assertEqual(("medium", True), (level, choice["lowered"]))
+        self.assertEqual(("high", None), review_effort.launch(plain, "review_plan", "plan_reviewer", False, route))
 
     def test_the_usage_details_say_why_an_attempt_ran_higher(self):
         choice = decide(run_state(body(milestones=3)), "review_plan", "plan_reviewer")
