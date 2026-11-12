@@ -878,7 +878,10 @@
           }
         },
         "pause": {"type": ["object", "null"], "description": "The boundary pause a working run offers: label, effect, requested and next_command. Null when nothing is working.",
-          "properties": {"label": {"type": "string"}, "effect": {"type": "string"}, "requested": {"type": "boolean"}, "next_command": {"type": ["array", "null"], "items": {"type": "string"}}}},
+          "properties": {"label": {"type": "string"}, "effect": {"type": "string"}, "requested": {"type": "boolean"}, "next_command": {"type": ["array", "null"], "items": {"type": "string"}},
+            "stop_now": {"type": "object", "description": "The same pause, also ending the running step now (#3263): label, effect, requested and next_command. Present only when the run's runner can end a step on request.",
+              "properties": {"label": {"type": "string"}, "effect": {"type": "string"}, "requested": {"type": "boolean"}, "next_command": {"type": ["array", "null"], "items": {"type": "string"}}},
+              "required": ["label", "effect", "requested", "next_command"]}}},
         "package": {"type": ["string", "null"], "description": "The repository directory a run started with --package works in; null for a run of the whole repository."},
         "tool_containment_backend": {"type": ["object", "null"], "description": "The kernel boundary the latest contained launch ran in; null until a stage launches contained."},
         "changes_by_criterion": {"type": ["object", "null"], "description": "Saved Builder steps attributed to the approved plan's criteria; null until a plan is approved. Attribution, not proof."},

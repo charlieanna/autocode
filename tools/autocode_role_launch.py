@@ -329,9 +329,10 @@ def raise_for_exit(
             "PAUSED_INTERRUPTED", "Provider stage interrupted; inspect saved artifacts before reconciliation"
         )
     if timed_out:
-        raise support.Paused(
-            "PAUSED_PROVIDER_TIMEOUT", f"{role}: {record['timeout_reason']}; partial work and logs retained at {events}"
-        )
+        # A person's stop (#3263) ends the stage as a deadline does, so its partial work is kept the same way;
+        # the queued pause that asked for it then holds the run at the next boundary.
+        reason = "stopped by you" if record.get("timeout_kind") == "person" else record["timeout_reason"]
+        raise support.Paused("PAUSED_PROVIDER_TIMEOUT", f"{role}: {reason}; partial work and logs retained at {events}")
     if exit_code != 0:
         refused = stage_stops.refusal_reason(state, record) or stage_stops.context_window_reason(state, record)
         hint = (

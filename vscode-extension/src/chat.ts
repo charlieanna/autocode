@@ -655,6 +655,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     if (message.type === "checkpoint") { await this.checkpoint(message); return; }
     if (message.type === "working_diff") { await this.workingDiff(message); return; }
     if (message.type === "pause") { await this.pause(message); return; }
+    if (message.type === "stopNow") { await this.pause(message, true); return; }
     if (message.type === "checkpoint_open") {
       const opened = asRunRef({ workspace: message.workspace, runDir: message.runDir });
       if (opened) this.show(opened);
@@ -882,7 +883,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     await vscode.commands.executeCommand("autocode.stages", { list, cwd: tab.run.workspace });
   }
 
-  private async pause(message: ChatMessage): Promise<void> {
+  /** Pause after this step, or with ``now`` end the running step at once (#3263): both only as the view names them. */
+  private async pause(message: ChatMessage, now = false): Promise<void> {
     const tab = this.active;
     const run = tab.run;
     if (!run || message.runKey !== tab.key || this.pausing.has(tab.key)) return;
@@ -891,7 +893,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     tab.error = "";
     this.post();
     try {
-      await this.controller.pause(run, `pause-${randomBytes(8).toString("hex")}`);
+      const id = `${now ? "stop" : "pause"}-${randomBytes(8).toString("hex")}`;
+      await (now ? this.controller.stopNow(run, id) : this.controller.pause(run, id));
     } catch (error) {
       if (this.activeKey === key) tab.error = messageOf(error);
       else void vscode.window.showErrorMessage(`AutoCode (${run.runDir}): ${messageOf(error)}`);

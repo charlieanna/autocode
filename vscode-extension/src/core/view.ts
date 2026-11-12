@@ -216,7 +216,11 @@ export interface StatusView {
   /** What the request spans beyond this repository; `linked` lists the other runs of its change set (#2066). */
   scope?: { linked?: LinkedRun[] | null; [key: string]: unknown } | null;
   /** The pause the view offers while the run works (#1598); a client runs only its `next_command`. */
-  pause?: { label?: string; effect?: string; requested?: boolean; next_command?: string[] | null } | null;
+  pause?: {
+    label?: string; effect?: string; requested?: boolean; next_command?: string[] | null;
+    /** The same pause, also ending the running step now (#3263); absent from an older runner. */
+    stop_now?: { label?: string; effect?: string; requested?: boolean; next_command?: string[] | null };
+  } | null;
   /** Ready to go on, but another run holds the folder its next step needs: display text, never authority. */
   checkout_wait?: { run_dir?: string; since?: string | null; text?: string } | null;
   chat?: {

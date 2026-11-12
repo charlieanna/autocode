@@ -746,9 +746,26 @@ def _sampling_instant(activity, before, after):
     return sampled
 
 
+# How often the supervisor asks whether the person stopped the step (#3263), and what it records then.
+STOP_CHECK_SECONDS = 1.0
+PERSON_STOP_REASON = "Stopped by you"
+
+
 def wait_for_stage(
-    child, timeout, checkpoint, *, activity=None, activity_checkpoint=None, startup_grace=0, on_root=None
+    child,
+    timeout,
+    checkpoint,
+    *,
+    activity=None,
+    activity_checkpoint=None,
+    startup_grace=0,
+    on_root=None,
+    stop_requested=None,
 ):
+    """Wait for a provider stage under its deadlines; returns (exit code, whether the supervisor stopped it).
+
+    ``stop_requested`` (no arguments) is asked about once a second while an activity monitor supervises the
+    stage; when it answers true the stage is ended as at a deadline, with kind ``person`` (#3263)."""
     receipts = process_receipts.ReceiptWorker()
     tree = ProcessTree(child.pid, receipts.record)
     deadline = util.monotonic() + timeout if timeout else None
@@ -798,7 +815,7 @@ def wait_for_stage(
         with firing:
             if stopped.is_set() or watchdog_fired.is_set() or child.poll() is not None:
                 return
-            if reason["kind"] in ("stage", "idle", "tool", "progress"):
+            if reason["kind"] in ("stage", "idle", "tool", "progress", "person"):
                 timeout_decision = dict(reason)
             if activity is not None:
                 activity.timeout = reason
@@ -861,7 +878,14 @@ def wait_for_stage(
                     return
             stop_at_deadline({"kind": "monitor", "reason": "Activity supervision failed"})
 
+    def person_stopped():
+        try:
+            return bool(stop_requested())
+        except Exception:  # an unreadable request is no request; the deadlines still bound the stage
+            return False
+
     def supervise():
+        next_stop_check = util.monotonic()
         while not stopped.is_set() and not watchdog_fired.is_set():
             # Routine polling must not reap a fast exit before identity capture.
             # Deadline termination remains active while inspection or writes stall.
@@ -873,6 +897,11 @@ def wait_for_stage(
                     {"kind": "stage", "reason": f"Stage exceeded its {timeout:g}-second hard runtime limit"}
                 )
                 return
+            if stop_requested is not None and current >= next_stop_check:
+                next_stop_check = current + STOP_CHECK_SECONDS
+                if person_stopped():
+                    stop_at_deadline({"kind": "person", "reason": PERSON_STOP_REASON})
+                    return
             # Event-driven, not time-driven: completed tool calls already seen, so no startup grace.
             if activity is not None and latest_observation[1].get("progress_stop"):
                 stop_at_deadline({"kind": "progress", "reason": latest_observation[1]["progress_stop"]})

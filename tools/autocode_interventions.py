@@ -111,6 +111,8 @@ def _read_inbox(inbox: Path) -> dict[str, Any]:
             or request.get("observed_goal_token") is not None
             and not isinstance(request["observed_goal_token"], str)
             or request.get("boundary_pause_requested") is not True
+            or "now" in request
+            and (request["now"] is not True or request["kind"] != "pause")
             or request["id"] in seen_ids
         ):
             raise InterventionError("corrupt_inbox", "Intervention inbox has an invalid or duplicate request record")
@@ -145,7 +147,7 @@ def _locked_inbox(lock: Path) -> Any:
         handle.close()
 
 
-def _payload(request_id: str, kind: str, text: str) -> dict[str, Any]:
+def _payload(request_id: str, kind: str, text: str, now: bool = False) -> dict[str, Any]:
     if not isinstance(request_id, str) or not request_id:
         raise InterventionError("invalid_request_id", "Request ID must be a nonempty string")
     if kind not in {"feedback", "message", "pause", "stop"}:
@@ -156,7 +158,9 @@ def _payload(request_id: str, kind: str, text: str) -> dict[str, Any]:
         raise InterventionError("invalid_text", "Pause requests do not accept feedback text")
     if kind == "stop" and text:
         raise InterventionError("invalid_text", "Stop requests do not accept feedback text")
-    return {"id": request_id, "kind": kind, "text": text}
+    if now and kind != "pause":
+        raise InterventionError("invalid_now", "Only a pause can end the current step now")
+    return {"id": request_id, "kind": kind, "text": text, **({"now": True} if now else {})}
 
 
 def _original_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
@@ -164,10 +168,14 @@ def _original_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in receipt.items() if key not in {"applied_at", "resumed_at"}}
 
 
-def submit(workspace: Path, run_dir: Path, *, request_id: str, kind: str, text: str, context=None) -> dict[str, Any]:
-    """Persist one request, or return the original receipt for an identical retry."""
+def submit(
+    workspace: Path, run_dir: Path, *, request_id: str, kind: str, text: str, context=None, now: bool = False
+) -> dict[str, Any]:
+    """Persist one request, or return the original receipt for an identical retry.
+
+    ``now`` (a pause only) also ends the step that is running, instead of waiting for it to finish (#3263)."""
     workspace, run_dir, state = _target(workspace, run_dir)
-    payload = _payload(request_id, kind, text)
+    payload = _payload(request_id, kind, text, now)
     try:
         context = message_context.checked(context)
     except ValueError as error:
@@ -181,7 +189,11 @@ def submit(workspace: Path, run_dir: Path, *, request_id: str, kind: str, text: 
         document = _read_inbox(inbox)
         existing = next((item for item in document["requests"] if item.get("id") == request_id), None)
         if existing is not None:
-            if {key: existing.get(key) for key in payload} != payload or existing.get("context") != context:
+            if (
+                {key: existing.get(key) for key in payload} != payload
+                or existing.get("now") != payload.get("now")
+                or existing.get("context") != context
+            ):
                 raise InterventionError("request_conflict", "Request ID is already used by a different payload")
             return {
                 "version": INBOX_VERSION,
@@ -203,7 +215,11 @@ def submit(workspace: Path, run_dir: Path, *, request_id: str, kind: str, text: 
             None,
         )
         if applied is not None:
-            if {key: applied.get(key) for key in payload} != payload or applied.get("context") != context:
+            if (
+                {key: applied.get(key) for key in payload} != payload
+                or applied.get("now") != payload.get("now")
+                or applied.get("context") != context
+            ):
                 raise InterventionError("request_conflict", "Request ID is already used by a different payload")
             return {
                 "version": INBOX_VERSION,
@@ -261,6 +277,19 @@ def submit(workspace: Path, run_dir: Path, *, request_id: str, kind: str, text: 
         "consumer": "pending_only",
         "receipt": receipt,
     }
+
+
+def stop_now_requested(run_dir: Path) -> bool:
+    """Whether a pause that ends the running step now waits in the inbox (#3263).
+
+    Read by the stage supervisor while a provider runs, without the inbox lock: the inbox is replaced
+    atomically, and an unreadable one holds no request, so it reads as none."""
+    try:
+        inbox, _ = _paths(Path(run_dir))
+        requests = _read_inbox(inbox)["requests"]
+    except (InterventionError, OSError):
+        return False
+    return any(request.get("kind") == "pause" and request.get("now") is True for request in requests)
 
 
 def inspect(workspace: Path, run_dir: Path) -> dict[str, Any]:
@@ -383,6 +412,11 @@ def cli(argv: list[str]) -> int:
     )
     submit_parser.add_argument("--text", default="", help="The feedback text")
     submit_parser.add_argument(
+        "--now",
+        action="store_true",
+        help="With --kind pause: end the step that is running now, keeping its partial work and logs",
+    )
+    submit_parser.add_argument(
         "--context-file", type=Path, help="Bounded public participant evidence for a task conversation"
     )
     submit_parser.add_argument("--json", action="store_true", help="Print the receipt as JSON")
@@ -412,6 +446,7 @@ def cli(argv: list[str]) -> int:
                 kind=args.kind,
                 text=args.text,
                 context=context,
+                now=args.now,
             )
         else:
             result = inspect(args.workspace, args.run_dir)
