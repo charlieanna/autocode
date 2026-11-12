@@ -75,6 +75,7 @@ def progress(
     stopped: str | None = None,
     finished: bool = False,
     following: str | None = None,
+    controller_running: bool = False,
 ) -> dict:
     """The progress projection of one run.
 
@@ -86,6 +87,8 @@ def progress(
     finished  the running stage's turn is over (its report is saved, not yet applied)
     following screen name of the job after that finished stage, when the run already knows it
               (#1711: a finished Builder must not keep the headline across a Builder→Tester handoff)
+    controller_running  the run's own controller is alive (autocode_controller_owner "running"), so a
+              stage it names next is being started, not waiting for anyone
     """
     status = state.get("status", "")
     done = status in COMPLETE
@@ -130,6 +133,10 @@ def progress(
         # A new run's first save holds the default next stage until the run chooses its first one,
         # a moment later; naming it put "Next: Planner" ahead of Requirements in the chat's log.
         headline, stage = "Starting the run", None
+    elif stage and controller_running and status == "RUNNING":
+        # The controller is getting the stage ready (workspace checks, the provider's own checks) before
+        # its model starts. "Next: Requirements" read as a queue the person's "hi" was waiting in.
+        headline = f"Starting {stage}"
     elif stage:
         headline = f"Next: {stage}"
     else:
