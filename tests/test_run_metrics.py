@@ -4,7 +4,6 @@ import unittest
 
 import autocode_chat_panel as panel
 import autocode_chat_spend as spend
-import autocode_efficiency as efficiency
 import autocode_run_metrics as run_metrics
 import autocode_run_view as run_view
 
