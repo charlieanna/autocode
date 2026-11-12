@@ -1740,6 +1740,51 @@ test('the run header shows the working stage and what it does, and its details t
   assert.equal(ui.document.querySelector('#header-stage').hidden, false);
 });
 
+test('the run header folds to one summary line and stays folded across polling, chats and webview recreation', async (t) => {
+  const spent = { cost: { spent_usd: 2.5, running_usd: 0, cap_usd: null, complete: true, unpriced_stages: 0, breakdown: {} },
+    efficiency: { time: { summed_execution_seconds: 1664 } } };
+  const ui = await openChat(t, headerView(spent));
+  const header = ui.document.querySelector('#run-header');
+  const fold = ui.document.querySelector('#header-collapse');
+  const shown = (id) => ui.window.getComputedStyle(ui.document.getElementById(id)).display !== 'none';
+  assert.equal(header.classList.contains('collapsed'), false, 'the overview starts unfolded');
+  assert.deepEqual(['header-body', 'header-brief'].map(shown), [true, false]);
+  assert.equal(fold.getAttribute('aria-expanded'), 'true');
+  assert.equal(fold.getAttribute('aria-controls'), 'header-body');
+  for (const id of ['pipeline', 'header-place', 'header-facts', 'header-toggle']) {
+    assert.equal(ui.document.getElementById(id).closest('#header-body').id, 'header-body', `${id} folds with the body`);
+  }
+  assert.equal(fold.closest('#header-now').id, 'header-now', 'the fold button stays on the summary line');
+  fold.click();
+  assert.equal(header.classList.contains('collapsed'), true);
+  assert.equal(header.className, 'working collapsed', 'the run state class stays with the fold');
+  assert.equal(fold.getAttribute('aria-expanded'), 'false');
+  assert.equal(fold.getAttribute('aria-label'), 'Expand the run overview');
+  assert.equal(ui.webviewState.headerCollapsed, true);
+  assert.deepEqual(['header-body', 'header-brief'].map(shown), [false, true], 'the stage table folds away and the one line shows the totals');
+  assert.equal(ui.document.querySelector('#header-label').textContent, 'Working');
+  assert.equal(ui.document.querySelector('#header-sentence').textContent, 'Builder working.');
+  assert.equal(ui.document.querySelector('#header-brief').textContent, '27m44s · $2.50', 'the one line carries the run\'s total time and cost');
+  // A new read, a run that now needs the person, keeps the fold and updates the line.
+  let envelope = null;
+  ui.window.addEventListener('message', (event) => { if (event.data && event.data.type === 'chat') envelope = event.data; });
+  await ui.poll(headerView({ ...spent, summary: { state: 'needs_you', label: 'Needs you', sentence: 'Approve the plan.' } }));
+  assert.equal(header.className, 'needs_you collapsed');
+  assert.equal(ui.document.querySelector('#header-sentence').textContent, 'Approve the plan.');
+  const restored = new JSDOM(panelHtml(true), { runScripts: 'outside-only' });
+  restored.window.acquireVsCodeApi = () => ({ getState: () => ui.webviewState, setState() {}, postMessage() {} });
+  restored.window.eval(restored.window.document.querySelector('script').textContent);
+  restored.window.dispatchEvent(new restored.window.MessageEvent('message', { data: envelope }));
+  assert.equal(restored.window.document.querySelector('#run-header').classList.contains('collapsed'), true, 'the choice survives a recreated webview');
+  assert.equal(restored.window.document.querySelector('#header-collapse').getAttribute('aria-expanded'), 'false');
+  restored.window.close();
+  fold.click();
+  assert.equal(header.classList.contains('collapsed'), false);
+  assert.equal(fold.getAttribute('aria-label'), 'Collapse the run overview');
+  assert.equal(ui.webviewState.headerCollapsed, false);
+  assert.deepEqual(['header-body', 'header-brief'].map(shown), [true, false]);
+});
+
 test('a new chat with no run shows no run header', async (t) => {
   const ui = await openChat(t, headerView(), false);
   assert.equal(ui.document.querySelector('#run-header').hidden, true);

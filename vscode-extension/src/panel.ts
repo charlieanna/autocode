@@ -827,11 +827,24 @@ const METER_STYLES = `
   /* Narrower still, the time and cost stay and the tokens go; Show details and the toolbar still have them. */
   @media (max-width: 340px) { #pipeline .tokens { display: none; } }
   #header-now { display: flex; gap: 6px; align-items: baseline; }
+  /* Folded, the overview is one line: the state, the sentence and the run's time and cost. */
+  #header-brief { flex: none; opacity: .75; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  #header-brief:empty, #run-header:not(.collapsed) #header-brief { display: none; }
+  #run-header.collapsed #header-body { display: none; }
+  #run-header.collapsed #header-sentence { -webkit-line-clamp: 1; }
+  #header-collapse { flex: none; align-self: center; display: inline-flex; align-items: center; justify-content: center;
+                     width: 20px; height: 18px; padding: 0; border: 0; border-radius: 4px;
+                     background: transparent; color: var(--vscode-foreground); opacity: .75; }
+  #header-collapse:hover { background: var(--vscode-toolbar-hover); opacity: 1; }
+  #header-collapse:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+  #header-collapse svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8;
+                         stroke-linecap: round; stroke-linejoin: round; transition: transform .1s; }
+  #run-header.collapsed #header-collapse svg { transform: rotate(180deg); }
   #header-label { flex: none; font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; padding: 0 5px; border-radius: 3px;
                   background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
   #run-header.needs_you #header-label { background: var(--vscode-editorWarning-foreground, #cc8800); color: var(--vscode-editor-background, #fff); }
   #run-header.done #header-label { background: var(--vscode-charts-green, #3a7d3a); }
-  #header-sentence { min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  #header-sentence { flex: 1 1 auto; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   #header-facts { opacity: .75; margin-top: 2px; }
   #header-facts:empty { display: none; }
   #header-stage { margin-top: 2px; overflow-wrap: anywhere; opacity: .85; }
@@ -863,6 +876,7 @@ const ICONS = {
   plug: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3.5v4M15 3.5v4M6.5 7.5h11v3.5a5.5 5.5 0 0 1-11 0V7.5zM12 16.5v4" /></svg>`,
   route: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2.25" /><circle cx="18" cy="18" r="2.25" /><path d="M8.25 6H14a3.5 3.5 0 0 1 0 7h-4a3.5 3.5 0 0 0 0 7h5.75" /></svg>`,
   chip: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5" /><path d="M10 3.5v3.5M14 3.5v3.5M10 17v3.5M14 17v3.5M3.5 10H7M3.5 14H7M17 10h3.5M17 14h3.5" /></svg>`,
+  chevron: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14.5l5-5 5 5" /></svg>`,
   tune: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M19 7h1M4 17h1M11 17h9" /><circle cx="16" cy="7" r="2.25" /><circle cx="8" cy="17" r="2.25" /></svg>`,
 };
 
@@ -938,7 +952,7 @@ export function panelHtml(chat = false): string {
 </style>
 </head>
 <body>
-${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools"><span id="run-cost" role="status" aria-label="Run cost"></span>${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel, true)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="chat-tabs" role="tablist" aria-label="Open chats"></div><section id="run-header" aria-label="Run overview" hidden><div id="header-now"><span id="header-label"></span><span id="header-sentence"></span></div><table id="pipeline" aria-label="Stages"><thead><tr><th scope="col"><span class="sr-only">State</span></th><th scope="col" class="name">Stage</th><th scope="col" class="model">Model</th><th scope="col" class="num">Time</th><th scope="col" class="num tokens">Tokens</th><th scope="col" class="num">Cost</th></tr></thead><tbody></tbody><tfoot></tfoot></table><div id="header-stage"></div><div id="header-place"></div><div id="header-facts"></div><button type="button" id="header-toggle" class="link" aria-expanded="false" aria-controls="header-details">Show details</button><div id="header-details" hidden></div></section><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
+${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools"><span id="run-cost" role="status" aria-label="Run cost"></span>${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel, true)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="chat-tabs" role="tablist" aria-label="Open chats"></div><section id="run-header" aria-label="Run overview" hidden><div id="header-now"><span id="header-label"></span><span id="header-sentence"></span><span id="header-brief"></span><button type="button" id="header-collapse" class="fold" aria-expanded="true" aria-controls="header-body" title="Collapse the run overview" aria-label="Collapse the run overview">${ICONS.chevron}</button></div><div id="header-body"><table id="pipeline" aria-label="Stages"><thead><tr><th scope="col"><span class="sr-only">State</span></th><th scope="col" class="name">Stage</th><th scope="col" class="model">Model</th><th scope="col" class="num">Time</th><th scope="col" class="num tokens">Tokens</th><th scope="col" class="num">Cost</th></tr></thead><tbody></tbody><tfoot></tfoot></table><div id="header-stage"></div><div id="header-place"></div><div id="header-facts"></div><button type="button" id="header-toggle" class="link" aria-expanded="false" aria-controls="header-details">Show details</button><div id="header-details" hidden></div></div></section><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
 <div id="app" class="muted">${chat ? "Describe what you want to build, fix, review, or discuss." : "Loading…"}</div>
 ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messages</button>
 <details id="chat-place" aria-label="Where this chat works" hidden><summary><span class="stages-title">Where this chat works</span> <span id="chat-place-summary"></span></summary><div id="chat-place-body"></div></details>
@@ -963,6 +977,8 @@ const WELCOME_TEXT = ${JSON.stringify(WELCOME_TEXT)};
 const initialWebviewState = vscode.getState?.() || {};
 // The header's details stay open or closed across reads, tabs and a recreated webview.
 let headerOpen = initialWebviewState.headerOpen === true;
+// So does folding the whole overview to its one summary line, the person's choice for every chat.
+let headerCollapsed = initialWebviewState.headerCollapsed === true;
 let chatEnvelope = null;
 const chatBehavior = chatMode ? (${installChatBehavior.toString()})() : null;
 let current = null;
@@ -1215,10 +1231,17 @@ function renderHeader(data) {
   const header = data.state && data.state.header;
   host.hidden = !header;
   if (!header) { host.dataset.content = ''; return; }
-  const key = JSON.stringify([header, headerOpen]);
+  const key = JSON.stringify([header, headerOpen, headerCollapsed]);
   if (host.dataset.content === key) return;
   host.dataset.content = key;
   host.className = header.state || '';
+  host.classList.toggle('collapsed', headerCollapsed);
+  const fold = document.getElementById('header-collapse');
+  const foldLabel = headerCollapsed ? 'Expand the run overview' : 'Collapse the run overview';
+  fold.title = foldLabel;
+  fold.setAttribute('aria-label', foldLabel);
+  fold.setAttribute('aria-expanded', headerCollapsed ? 'false' : 'true');
+  document.getElementById('header-brief').textContent = header.total ? [header.total.time, header.total.cost].filter(Boolean).join(' · ') : '';
   const pipeline = document.getElementById('pipeline');
   pipeline.hidden = !header.pipeline.length;
   const body = pipeline.querySelector('tbody');
@@ -2504,6 +2527,11 @@ if (chatMode) {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); document.getElementById('composer').requestSubmit(); }
   });
   document.getElementById('new-chat').addEventListener('click', () => vscode.postMessage({ type: 'new' }));
+  document.getElementById('header-collapse').addEventListener('click', () => {
+    headerCollapsed = !headerCollapsed;
+    vscode.setState({ ...(vscode.getState() || {}), headerCollapsed });
+    if (chatEnvelope) renderHeader(chatEnvelope);
+  });
   document.getElementById('header-toggle').addEventListener('click', () => {
     headerOpen = !headerOpen;
     vscode.setState({ ...(vscode.getState() || {}), headerOpen });

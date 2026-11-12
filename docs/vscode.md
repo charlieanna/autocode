@@ -203,7 +203,10 @@ execution time and every attempt with its model, level, outcome and tokens); the
 models saved for the next attempts and any route changes; the verification once
 the run finishes; the planning path; and which stages ran or were skipped and
 why. A stage with no saved route of its own shows the model its attempt launched
-on. The choice to keep details open is remembered. Everything in the header
+on. The choice to keep details open is remembered. The arrow at the end of the
+first line folds the whole header to that one line: where the run is, then the
+run's total time and cost. Folding is the same for every chat and is remembered
+until you unfold it, including when the sidebar is closed and opened again. Everything in the header
 comes from the status view (`summary`, `explanation`, `pipeline`, `recoveries`,
 `run_metrics`, `cost`, `usage`, `efficiency`, `routes`, `escalations`,
 `route_assignments`, `chat.now`, `chat.log`, `verification`, `stage_policy`,
