@@ -754,7 +754,7 @@ written to disk. One helper serves one code version and one Git environment, and
 exits after 30 idle minutes. A process that finds no helper starts one and takes its
 own snapshot that time; a helper that fails or answers slowly is not asked again by
 that process. On the 13.6k-file project a status refresh drops from 1.5–3 s to about
-0.45 s. The terminal chat sets `AUTOCODE_SOURCE_HOST=1` for the AutoCode processes it starts, unless its own environment already sets it (`AUTOCODE_SOURCE_HOST=0` turns it off): a waiting question rechecks the source on every status read, and on a 13.8k-file project under load one cold snapshot took 14–15 s, past the chat's status read timeout, against 1.75 s from a warm helper with the same revision. Other commands keep it off by default (#1707).
+0.45 s. The terminal chat and the VS Code extension set `AUTOCODE_SOURCE_HOST=1` for the AutoCode processes they start, unless their own environment already sets it (`AUTOCODE_SOURCE_HOST=0` turns it off): a waiting question rechecks the source on every status read, and on a 13.8k-file project under load one cold snapshot took 14–15 s, past the chat's status read timeout, against 1.75 s from a warm helper with the same revision. The extension's own 30 s bound was reached the same way on a 12.5k-file project, where a cold read took 13–27 s. Other commands keep it off by default (#1707).
 
 Logical phases are `DISCOVERING`, `AWAITING_GOAL_APPROVAL`, `READY_TO_EXECUTE`,
 `EXECUTING`, `WAITING_FOR_USER`, `COMPLETE`, and `PAUSED_OR_BLOCKED`. While an initial
