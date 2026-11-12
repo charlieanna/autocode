@@ -195,19 +195,31 @@ def add_repository(path: str | Path) -> dict[str, Any]:
 
 def remove_repository(path: str | Path) -> dict[str, Any]:
     """Remove one explicitly registered standalone repository."""
-    root = _canonical_directory(path)
+    # As with remove_root, removal must remain possible after the checkout has disappeared: a dead entry
+    # leaves discovery incomplete for every chat (#3266). A checkout Git can still read is matched by its
+    # Git identity; otherwise by the path add_repository recorded.
     try:
-        common = Path(_git(root, "rev-parse", "--path-format=absolute", "--git-common-dir")).resolve()
-    except (OSError, subprocess.SubprocessError, CatalogError) as error:
-        raise CatalogError(f"Standalone source is not a readable Git repository: {error}") from error
+        root = Path(path).expanduser().resolve(strict=False)
+    except (OSError, RuntimeError) as error:
+        raise CatalogError(f"Source location cannot be resolved: {error}") from error
+    common, unreadable = None, None
+    if root.is_dir():
+        try:
+            common = str(Path(_git(root, "rev-parse", "--path-format=absolute", "--git-common-dir")).resolve())
+        except (OSError, subprocess.SubprocessError, CatalogError) as error:
+            unreadable = error
     with _locked():
         document = _read()
-        before = len(document["repositories"])
-        document["repositories"] = [row for row in document["repositories"] if row.get("git_common_dir") != str(common)]
-        removed = before != len(document["repositories"])
-        if removed:
+        key, wanted = ("git_common_dir", common) if common is not None else ("path", str(root))
+        dropped = [row for row in document["repositories"] if row.get(key) == wanted]
+        if dropped:
+            document["repositories"] = [row for row in document["repositories"] if row.get(key) != wanted]
             _save(document)
-    return {"operation": "repository-remove", "git_common_dir": str(common), "removed": removed}
+    if not dropped and unreadable is not None:
+        raise CatalogError(f"Standalone source is not a readable Git repository: {unreadable}") from unreadable
+    if common is None and dropped:
+        common = dropped[0].get("git_common_dir")
+    return {"operation": "repository-remove", "git_common_dir": common, "removed": bool(dropped)}
 
 
 def _remote(path: Path) -> str | None:
