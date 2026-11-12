@@ -278,11 +278,6 @@ def _record_effort(args, settings, role, *, fresh):
     settings.setdefault("effort_origins", {})[role] = chosen
 
 
-def reviewer_effort_can_reduce(settings):
-    """Only a recorded automatic/default effort may be tiered; unknown saved choices stay."""
-    return effort_can_reduce(settings, "plan_reviewer")
-
-
 def effort_can_reduce(settings, role):
     """True only when the role's effort was recorded as the runner's or selector's, never a person's or unknown."""
     return (settings.get("effort_origins") or {}).get(role) in (RUNNER_DEFAULT, AUTO_SELECTED)

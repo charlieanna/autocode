@@ -234,7 +234,8 @@ export interface StatusView {
     review?: { question_id: string; answer: string; label: string; summary?: string;
       spend_confirmation?: { title: string; detail: string; label: string; match?: "trim_lower" } } | null;
     context: string;
-    input: { kind: "feedback" | "follow_up" | "resolver_response"; label: string; next_command: string } | null;
+    /** `message` is offered while the run works: saved for the next stage boundary (#3259). */
+    input: { kind: "feedback" | "follow_up" | "resolver_response" | "message"; label: string; next_command: string } | null;
   };
 }
 

@@ -5,7 +5,6 @@ import unittest
 
 import autocode_planning_review_usage as usage
 import autocode_run_view as run_view
-from units import autoplanner
 
 
 def inherited(*, activated=False, limit=3, origin="runner_default"):
@@ -39,14 +38,6 @@ def inherited(*, activated=False, limit=3, origin="runner_default"):
 
 
 class InheritedReviewUsageTests(unittest.TestCase):
-    def test_activation_counts_two_real_reviews_not_three_copies(self):
-        state = inherited()
-        history = copy.deepcopy(state["planning_history"])
-        autoplanner.apply_review_depth_policy(state)
-        self.assertEqual(2, state["planning"]["plan_review_calls"])
-        self.assertEqual(1, state["planning"]["review_calls_before_policy"])
-        self.assertEqual(history, state["planning_history"])
-
     def test_saved_false_pause_names_ordinary_resume_without_mutating_state(self):
         state = inherited(activated=True)
         before = copy.deepcopy(state)
@@ -154,12 +145,6 @@ class InheritedReviewUsageTests(unittest.TestCase):
                     self.assertIsNone(usage.correction(state))
                     self.assertFalse(usage.reconcile(state, at="now"))
                 self.assertEqual(before, state)
-
-    def test_an_earlier_turn_does_not_join_the_current_turn_total(self):
-        state = inherited()
-        state["planning_history"].append({"plan_review_calls": 99, "turn_event_id": "earlier"})
-        autoplanner.apply_review_depth_policy(state)
-        self.assertEqual(2, state["planning"]["plan_review_calls"])
 
     def test_malformed_legacy_planning_cannot_offer_a_correction(self):
         for saved in ([], "legacy", 3):

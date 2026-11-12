@@ -1480,11 +1480,14 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             need["action"] = "--resume-paused"
             return need
         if status == "PAUSED_ACCEPTANCE_TESTS" and "action" not in need:
-            # The command revises the plan; a resume reruns the same Tester on the same plan (#1869).
-            need["action"] = "--feedback 'WHAT TO CHANGE'"
+            # The named command is what a yes takes, so it is the resume: it reruns the Tester and a fresh
+            # proof. A plan change is the person's words, offered as chat.input's feedback (#1869). Naming
+            # `--feedback 'WHAT TO CHANGE'` here sent that placeholder to Requirements as the plan feedback
+            # when a person answered "y" at the chat's Continue prompt (live Kilo run, 2026-11-12).
+            need["action"] = "--resume-paused"
             need["guidance"] = (
-                "--feedback MESSAGE revises the plan; --resume-paused reruns the Tester unchanged, "
-                "which helps only after you changed the code."
+                "--resume-paused reruns the Tester and a fresh proof on the same plan; "
+                "--feedback MESSAGE revises the plan."
             )
         if "action" not in need and status == "PAUSED_TRANSPORT_CHANGED":
             try:

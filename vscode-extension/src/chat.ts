@@ -17,7 +17,7 @@ import { invoke, tail, STAGES_TIMEOUT_MS } from "./core/cli";
 import { chatRoute, chatSource, fillChatSet, fillSet, readStages, runListCommand, runRoute, type StageView } from "./core/stages";
 import { StageListCache } from "./core/stage-cache";
 import { inFolder, newChatCall, pickStageModel } from "./stages";
-import { chosenPlacement, LEGACY_PLACEMENT, readWorktrees, type PlaceChoice, type WorktreeList } from "./core/worktrees";
+import { chosenPlacement, lacksPlaceList, LEGACY_PLACEMENT, NoPlaceList, readWorktrees, type PlaceChoice, type WorktreeList } from "./core/worktrees";
 import { confirmRaise, numericActionLabel, numericConfirmation, numericRecoveryEffect, panelHtml, planningSpendConfirmation, stateFor } from "./panel";
 
 // While a reply is being written the view is read this often, so each new extract
@@ -81,6 +81,7 @@ interface ChatTab {
   pendingBrief: string;
   starting: boolean;
   launching: boolean;
+  continuePending?: boolean;
   /** What a run's start is doing before its first status view, in the core's words (#3079). */
   startingLabel: string;
   /** Compare results this tab already holds, by checkpoint id. */
@@ -96,6 +97,8 @@ interface ChatTab {
   /** A chat that has not started: where it may work (`worktrees list --json`), and the person's pick. */
   places?: WorktreeList;
   placesError: string;
+  /** The places could not be read because this AutoCode has no such list (it works in the folder). */
+  placesMissing: boolean;
   placeChoice?: PlaceChoice;
   /** Set while `stages` is the list every new chat here shares (no picks of its own): its cache key. */
   sharedStages?: string;
@@ -105,7 +108,7 @@ interface ChatTab {
 
 function newTab(key: string, run?: RunRef): ChatTab {
   return { key, run, error: "", readError: "", pendingBrief: "", starting: false, launching: false, startingLabel: "", comparisons: new Map(),
-    stagesError: "", stagesBusy: false, placesError: "", confirming: "" };
+    stagesError: "", stagesBusy: false, placesError: "", placesMissing: false, confirming: "" };
 }
 
 function tabName(tab: ChatTab): string {
@@ -126,6 +129,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   private readonly busy = new Set<string>();
   /** Tabs whose pause request is being submitted; a working run keeps `busy` the whole time (#1598). */
   private readonly pausing = new Set<string>();
+  /** Tabs whose message for the next boundary is being saved; it never waits on `busy` (#3259). */
+  private readonly messaging = new Set<string>();
   /** Wait identities already announced, keyed by run key: a new tab for the same run does not re-announce. */
   private readonly notified = new Map<string, Set<string>>();
   private sequence = 0;
@@ -338,7 +343,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     const tab = this.active;
     const busy = tab.starting || this.busy.has(tab.key);
     void this.view?.webview.postMessage({
-      type: "chat", runKey: tab.key, busy, pausing: this.pausing.has(tab.key),
+      type: "chat", runKey: tab.key, busy, pausing: this.pausing.has(tab.key), messaging: this.messaging.has(tab.key),
       error: tab.error || tab.readError, pendingBrief: tab.pendingBrief,
       startingLabel: tab.status ? "" : tab.startingLabel,
       // A dialog or picker that holds a chat's start, named in the chat until it is answered.
@@ -447,9 +452,11 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     try {
       tab.places = await readPlaces();
       tab.placesError = "";
+      tab.placesMissing = false;
     } catch (error) {
       tab.places = undefined;
       tab.placesError = messageOf(error);
+      tab.placesMissing = error instanceof NoPlaceList;
     }
     this.post();
   }
@@ -562,7 +569,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
           const before = tab.status;
           if (this.tabs.includes(tab)) {
             this.announce(tab, status);
-            void this.continueAfterWait(tab, before, status);
+            void this.continueWhenReady(tab, before, status);
           }
         } catch (error) {
           if (error instanceof RunStarting) {
@@ -673,6 +680,13 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     if (message.type !== "send" && message.type !== "take" && message.type !== "raise") return;
     const tab = this.active;
     if (message.type === "send" && typeof message.text === "string" && message.text.trim()
+      && message.runKey === tab.key && tab.run && !tab.starting && tab.status?.chat?.input?.kind === "message") {
+      // The run works and the view takes a message for its next boundary (#3259): saved at once,
+      // never held behind the stage this window is driving.
+      await this.queueMessage(tab, message.text, message.context ?? "");
+      return;
+    }
+    if (message.type === "send" && typeof message.text === "string" && message.text.trim()
       && (message.runKey !== tab.key || tab.starting || this.busy.has(tab.key))) {
       // A dropped send must never look like it was taken: the person's text stays in the
       // composer, and the chat says why nothing happened.
@@ -780,8 +794,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
    * stopping after the first left the person a bare Continue to press. A run waiting for another chat to leave
    * its folder (`checkout_wait`) is left to the poll, which continues it once the folder is free.
    */
-  private async advanceAfterInput(run: RunRef): Promise<void> {
-    let view = await this.controller.status(run);
+  private async advanceAfterInput(run: RunRef, initial?: StatusView): Promise<void> {
+    let view = initial ?? await this.controller.status(run);
     for (let taken = 0; taken < ADVANCE_LIMIT; taken += 1) {
       if (view.done || view.needs?.kind !== "continue" || isWorking(view)) return;
       // After the first, only a running run's ready boundary is gone on with; a stop is the person's to see.
@@ -793,18 +807,59 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     }
   }
 
-  /**
-   * The run waited for another chat to leave its folder and now no longer does: take its named continue,
-   * the one the person's own action had started. Without this the chat dropped its progress card for a
-   * bare Continue that the person had to press until the folder happened to be free (2026-11-11).
-   */
-  private async continueAfterWait(tab: ChatTab, before: StatusView | undefined, now: StatusView): Promise<void> {
-    if (!before || !waitsForFolder(before) || waitsForFolder(now) || !tab.run) return;
-    if (now.done || now.needs?.kind !== "continue" || isWorking(now) || this.busy.has(tab.key) || tab.starting) return;
+  // A failed startup read or a held folder must not lose the first message's automatic continuation.
+  private async continueWhenReady(tab: ChatTab, before: StatusView | undefined, now: StatusView): Promise<void> {
+    if (!tab.run || (!tab.continuePending && (!before || !waitsForFolder(before)))) return;
+    if (waitsForFolder(now) || this.busy.has(tab.key) || tab.starting) return;
+    tab.continuePending = false;
+    if (now.done || now.needs?.kind !== "continue" || isWorking(now)) return;
     const run = tab.run;
     const key = tab.key;
     this.busy.add(key);
     tab.error = "";
+    this.post();
+    try {
+      await this.advanceAfterInput(run, now);
+    } catch (error) {
+      if (this.activeKey === key) tab.error = messageOf(error);
+      else void vscode.window.showErrorMessage(`AutoCode (${run.runDir}): ${messageOf(error)}`);
+    } finally {
+      this.busy.delete(key);
+      this.actions.changed();
+      void this.refresh();
+    }
+  }
+
+  /**
+   * Save a message typed while the run works, through the view's named `message` action (#3259). The
+   * stage this window may be driving goes on; the run reads the message at its next boundary. A run no
+   * one is driving, ready at a boundary, is continued so that boundary reads it.
+   */
+  private async queueMessage(tab: ChatTab, text: string, context: string): Promise<void> {
+    const run = tab.run;
+    const key = tab.key;
+    if (!run || this.messaging.has(key)) return;
+    this.messaging.add(key);
+    tab.error = "";
+    this.post();
+    try {
+      // The view the person typed against, not a fresh read: a status read can take seconds on a busy
+      // host, and the core checks the message's admission itself when it saves it.
+      const view = tab.status;
+      if (!view) throw new Error("The run's status is not read yet; send this again in a moment.");
+      await this.controller.queueMessage(view, run, text, context, `message-${randomBytes(8).toString("hex")}`);
+      void this.view?.webview.postMessage({ type: "sent", runKey: key, text });
+    } catch (error) {
+      if (this.activeKey === key) tab.error = messageOf(error);
+      else void vscode.window.showErrorMessage(`AutoCode (${run.runDir}): ${messageOf(error)}`);
+      this.messaging.delete(key);
+      this.post();
+      return;
+    }
+    this.messaging.delete(key);
+    this.post();
+    if (this.busy.has(key) || tab.starting) { await this.refresh(); return; }
+    this.busy.add(key);
     this.post();
     try {
       await this.advanceAfterInput(run);
@@ -814,7 +869,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     } finally {
       this.busy.delete(key);
       this.actions.changed();
-      void this.refresh();
+      await this.refresh();
     }
   }
 
@@ -951,11 +1006,14 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   /**
    * The placement flags this chat starts with: the chosen place's own `start_args`, read again in the folder
    * it starts in, after the person confirms a place that warns. An AutoCode without the list works in the
-   * folder, as every chat did before it. Undefined when the person declined.
+   * folder, as every chat did before it; a list that could not be read stops the start, so a chat never
+   * lands in the person's folder unconfirmed (#3267). Undefined when the person declined.
    */
   private async placement(tab: ChatTab, read: { list: WorktreeList } | { error: unknown }): Promise<string[] | undefined> {
     if ("error" in read) {
-      if (tab.places) throw new Error(`Where this chat works: ${messageOf(read.error)}`);
+      if (tab.places || !(read.error instanceof NoPlaceList)) {
+        throw new Error(`Where this chat works could not be read, so it was not started: ${messageOf(read.error)}`);
+      }
       return [...LEGACY_PLACEMENT];
     }
     const list = read.list;
@@ -1060,16 +1118,19 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
         }
       }, mode?.startArgs, stageArgs, placement);
       if (allocatedRun) {
+        tab.continuePending = true;
+        let view: StatusView;
         try {
-          const view = await this.controller.status(allocatedRun);
-          if (this.sequence === launchSequence && this.active.key === allocatedKey) {
-            this.active.status = view;
-            this.active.pendingBrief = "";
-          }
-          await this.advanceAfterInput(allocatedRun);
+          view = await this.controller.status(allocatedRun);
         } catch {
-          // Status read failure handled on next poll
+          return;
         }
+        if (this.sequence === launchSequence && this.active.key === allocatedKey) {
+          this.active.status = view;
+          this.active.pendingBrief = "";
+        }
+        tab.continuePending = false;
+        await this.advanceAfterInput(allocatedRun, view);
       }
     } catch (error) {
       const errMessage = messageOf(error);
@@ -1128,14 +1189,15 @@ async function readPlaces(cwd?: string): Promise<WorktreeList> {
   // Bounded like the stages list: a start awaits this read, and a wedged list would leave
   // the chat saying "starting" forever with nothing for the person to answer.
   const result = await invoke(folder ? { ...settings, cwd: folder } : settings, argv, {}, STAGES_TIMEOUT_MS);
-  if (result.code !== 0) throw new Error(tail(result));
+  if (result.code !== 0) throw lacksPlaceList(result) ? new NoPlaceList(tail(result)) : new Error(tail(result));
   return readWorktrees(result.stdout);
 }
 
 /** What the webview shows for a chat that has not started: the places, the pick, and its warning. */
 function chatPlaceFor(tab: ChatTab) {
   const list = tab.places;
-  if (!list) return { places: [], error: tab.placesError ? "This AutoCode cannot say where a chat works; it works in your folder. Update AutoCode." : "", chosen: null, branch: null, warning: null, folder: "" };
+  if (!list) return { places: [], error: tab.placesMissing ? "This AutoCode cannot say where a chat works; it works in your folder. Update AutoCode."
+    : tab.placesError ? `Where this chat works could not be read: ${tab.placesError}` : "", chosen: null, branch: null, warning: null, folder: "" };
   const chosen = tab.placeChoice?.place ?? list.defaultPlace;
   const place = list.places.find((row) => row.id === chosen);
   // A branch the list no longer offers (merged and gone) is not a pick the picker may claim: the

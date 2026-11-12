@@ -79,12 +79,6 @@ def _evidence(state: RunState):
     return {"raw_archived": raw, "archived": len(prior - current), "charges": sorted(prior & current)}
 
 
-def archived_calls(state: RunState, fallback):
-    """At policy activation, add only reviews not already carried by this cycle."""
-    evidence = _evidence(state)
-    return evidence["archived"] if evidence else fallback
-
-
 def correction(state: RunState):
     """A pure correction for an already-saved counter from the old activation formula."""
     planning = state.get("planning") or {}

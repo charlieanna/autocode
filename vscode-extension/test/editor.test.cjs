@@ -25,6 +25,9 @@ const { engineOf, routeKeyOf, spendTarget, sanitizeRoutes, readSettings, applyEn
 let controller = new RunController(host.log);
 const run = { workspace: '/ws', runDir: '/ws/.autocode/runs/test' };
 const ok = { code: 0, stdout: '', stderr: '', rejected: false };
+/** What an AutoCode without the `worktrees` command answers: its main parser takes the word as the task. */
+const noPlaceList = { code: 2, stdout: '', rejected: true,
+  stderr: 'usage: autocode [TASK] [OPTIONS]\nautocode: error: unrecognized arguments: list. If this was the task, put all of it in quotes' };
 
 function totalTimeView(token = 'time:current') {
   return {
@@ -1256,7 +1259,7 @@ async function openChat(t, initial, selected = run, options = {}) {
     const stages = options.stages || (() => ({ ...ok, stdout: JSON.stringify({ version: 1, stages: [] }) }));
     // Where a new chat works: unless the case supplies a list, an AutoCode without one answers, so the
     // chat starts in the folder as it did before and no external `autocode worktrees` subprocess is raced.
-    const worktrees = options.worktrees || (() => ({ ...ok, code: 2, stdout: '', stderr: 'unknown command' }));
+    const worktrees = options.worktrees || (() => ({ ...noPlaceList }));
     // A copy loaded from TypeScript sources has read-only module namespaces: the mock cannot be
     // installed there, and the chat then reads the missing external `autocode` as unavailable.
     try {
@@ -1795,6 +1798,104 @@ test('a greeting waits for Requirements to answer instead of a canned reply', as
   assert.ok(ui.document.querySelector('#app').textContent.includes('Thinking…'));
 });
 
+for (const statusUnavailable of [false, true]) {
+  test(`a first message automatically starts Requirements${statusUnavailable ? ' after an unavailable initial status' : ''}`, async (t) => {
+    const text = 'what does this project do?';
+    const reply = 'AutoCode plans coding tasks, implements them and checks the results.';
+    const ready = { status: 'RUNNING', done: false, phase: 'DISCOVERING', next_stage: 'requirements_gather', iteration: 1,
+      needs: { kind: 'continue' }, progress: { headline: 'Next: Requirements' },
+      chat: { phase: 'requirements', context: 'first-message', input: null,
+        messages: [{ id: 'first', role: 'user', text }], progress: ['Next: Requirements'] } };
+    const ui = await openChat(t, null, false);
+    t.mock.method(controller, 'start', async (_workspace, brief, created) => {
+      assert.equal(brief, text);
+      created(run);
+      ui.setView(ready);
+      return run;
+    });
+    const status = controller.status;
+    let unavailable = statusUnavailable;
+    t.mock.method(controller, 'status', async (target) => {
+      if (unavailable) { unavailable = false; throw new Error('Initial status temporarily unavailable'); }
+      return status.call(controller, target);
+    });
+    const take = t.mock.method(controller, 'take', async (view, target) => {
+      assert.equal(view.needs.kind, 'continue');
+      assert.deepEqual(target, run);
+      ui.setView({ ...ready, status: 'WAITING_FOR_USER', needs: { kind: 'answer',
+        questions: [{ id: 'requirements-question', question: 'What would you like to work on?', options: [] }] },
+      chat: { ...ready.chat, progress: [], messages: [...ready.chat.messages, { id: 'reply', role: 'assistant', text: reply }] } });
+      return ok;
+    });
+    ui.type(text); ui.submit();
+    await flush(); await flush();
+    await ui.poll();
+    assert.equal(take.mock.callCount(), 1, 'Requirements must start without a Continue click');
+    assert.ok(ui.document.querySelector('#messages').textContent.includes(reply), 'Requirements handles the first message');
+    await ui.poll();
+    assert.equal(take.mock.callCount(), 1, 'a Requirements question must still wait for the person');
+  });
+}
+
+for (const statusUnavailable of [false, true]) {
+  test(`a first-message continuation refusal is visible and never automatically retried${statusUnavailable ? ' after status recovery' : ''}`, async (t) => {
+    const ui = await openChat(t, null, false);
+    const text = 'what does this project do?';
+    const ready = { status: 'RUNNING', done: false, next_stage: 'requirements_gather', needs: { kind: 'continue' },
+      progress: { headline: 'Next: Requirements' }, chat: { context: 'first-message', input: null,
+        messages: [{ id: 'first', role: 'user', text }], progress: ['Next: Requirements'] } };
+    t.mock.method(controller, 'start', async (_workspace, _brief, created) => {
+      created(run);
+      ui.setView(ready);
+      return run;
+    });
+    const status = controller.status;
+    let unavailable = statusUnavailable;
+    t.mock.method(controller, 'status', async (target) => {
+      if (unavailable) { unavailable = false; throw new Error('Initial status temporarily unavailable'); }
+      return status.call(controller, target);
+    });
+    const take = t.mock.method(controller, 'take', async () => { throw new Error('AutoCode rejected the Requirements launch'); });
+    ui.type(text); ui.submit();
+    await flush(); await flush();
+    await ui.poll();
+    assert.match(ui.document.querySelector('#chat-error').textContent, /rejected the Requirements launch/);
+    assert.deepEqual(ui.chat.run, run, 'a launch refusal must not discard the saved chat');
+    assert.ok(ui.document.querySelector('#messages').textContent.includes(text));
+    await ui.poll();
+    assert.equal(take.mock.callCount(), 1, 'a rejected action must not be replayed by polling');
+  });
+}
+
+for (const [label, boundary] of [
+  ['a working Requirements stage', workingView()],
+  ['a Requirements question', { status: 'WAITING_FOR_USER', done: false, needs: { kind: 'answer', questions: [] } }],
+  ['plan approval', approvalView()],
+  ['a finished chat', { status: 'TASK_COMPLETE', done: true, needs: { kind: 'done' } }],
+]) {
+  test(`a recovered first-message status respects ${label} and clears its pending continuation`, async (t) => {
+    const ui = await openChat(t, null, false);
+    t.mock.method(controller, 'start', async (_workspace, _brief, created) => {
+      created(run);
+      ui.setView(boundary);
+      return run;
+    });
+    const status = controller.status;
+    let unavailable = true;
+    t.mock.method(controller, 'status', async (target) => {
+      if (unavailable) { unavailable = false; throw new Error('Initial status temporarily unavailable'); }
+      return status.call(controller, target);
+    });
+    const take = t.mock.method(controller, 'take', async () => ok);
+    ui.type('what does this project do?'); ui.submit();
+    await flush(); await flush();
+    await ui.poll();
+    assert.equal(take.mock.callCount(), 0, 'startup recovery must not take this boundary');
+    await ui.poll({ status: 'RUNNING', done: false, needs: { kind: 'continue' } });
+    assert.equal(take.mock.callCount(), 0, 'startup authority must not survive its first observed boundary');
+  });
+}
+
 const RUN_MODES = {
   defaultId: 'full',
   modes: [
@@ -2117,6 +2218,30 @@ test('a chat in the folder itself starts only once the person confirms the warni
   ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
   assert.equal(start.mock.callCount(), 1);
   assert.deepEqual(start.mock.calls[0].arguments[5], ['--in-place']);
+});
+
+test('a chat whose places could not be read does not start in the folder', async (t) => {
+  // Live run, 2026-11-12 (#3267): a second chat's place list failed while another run was busy, and the chat
+  // started with --in-place on the folder's own branch, without the confirmation that place requires.
+  let answer = () => ({ ...ok, code: 1, stderr: 'autocode did not answer within 60 s' });
+  const ui = await openChat(t, null, false, { worktrees: (argv) => answer(argv) });
+  ui.chat.show(); await flush(); await flush();
+  const note = () => ui.document.querySelector('#chat-place .chat-place-note').textContent;
+  assert.match(note(), /could not be read: autocode did not answer within 60 s/);
+  assert.doesNotMatch(note(), /works in your folder/);
+  const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
+  ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
+  assert.equal(start.mock.callCount(), 0, 'nothing starts, least of all in the folder');
+  assert.match(ui.document.querySelector('#chat-error').textContent, /could not be read, so it was not started: autocode did not answer/);
+  // A refusal by the command itself is not an AutoCode without the command either.
+  answer = () => ({ ...ok, code: 2, rejected: true, stderr: 'usage: autocode worktrees list [-h]\nautocode worktrees list: error: unrecognized arguments: --x' });
+  ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
+  assert.equal(start.mock.callCount(), 0);
+  // Once the list answers, the same message starts on a branch of its own.
+  answer = () => worktreeList();
+  ui.type('Build it'); ui.submit(); await flush(); await flush(); await flush();
+  assert.equal(start.mock.callCount(), 1);
+  assert.deepEqual(start.mock.calls[0].arguments[5], ['--build-in-worktree']);
 });
 
 test('listing where a chat works is bounded like the stages list', async (t) => {
@@ -4216,6 +4341,65 @@ test('Pause stays beside Send when the working run also takes a message (#1598)'
   assert.equal(ui.document.querySelector('#send-message').hidden, false);
 });
 
+// #3259: while a stage ran, Send stayed disabled for the whole stage (this chat held the run busy), and
+// the view's own `message` offer was refused even once it was not. A message is saved for the next
+// boundary at once, beside the running stage, and starts nothing itself.
+function liveMessageView(extra = {}) {
+  return { ...pauseView(), chat: { context: 'live-1', phase: 'requirements',
+    messages: [{ id: 'u1', role: 'user', text: 'Add farewell' }],
+    input: { kind: 'message', label: 'Send message',
+      next_command: `autocode intervention submit --workspace ${run.workspace} --run-dir ${run.runDir} --request-id REQUEST_ID --kind message --text MESSAGE --json` } },
+  ...extra };
+}
+
+test('a message typed while this chat\'s own stage runs is saved for the next boundary (#3259)', async (t) => {
+  host.config.set('confirmPersonOnly', false);
+  const idle = { status: 'RUNNING', done: false, liveness: { kind: 'unknown' }, needs: { kind: 'continue' },
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}` };
+  const ui = await openChat(t, idle);
+  const stage = t.mock.method(cli, 'stream', () => new Promise(() => {}));
+  ui.document.querySelector('#take-action').click();
+  await flush();
+  await ui.poll(liveMessageView());
+  const send = () => ui.document.querySelector('#send-message');
+  ui.type('Also strip whitespace');
+  assert.equal(send().hidden, false);
+  assert.equal(send().disabled, false, 'the stage this chat drives does not hold the message');
+  assert.equal(send().getAttribute('aria-label'), 'Send message', 'a saved message continues nothing itself');
+  assert.match(ui.document.querySelector('#send-hint').textContent, /read after the current step/);
+  const submit = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: '{"accepted": true, "operation": "submit"}' }));
+  ui.submit(); ui.submit();
+  await flush(); await flush(); await flush();
+  const sends = submit.mock.calls.map((call) => call.arguments[1]).filter((argv) => argv[0] === 'intervention');
+  assert.equal(sends.length, 1, 'a second Enter while saving is ignored');
+  const argv = sends[0];
+  assert.deepEqual(argv.slice(0, 6), ['intervention', 'submit', '--workspace', run.workspace, '--run-dir', run.runDir]);
+  assert.match(argv[7], /^message-[0-9a-f]{16}$/, 'each message gets its own request id');
+  assert.deepEqual([argv[6], ...argv.slice(8)], ['--request-id', '--kind', 'message', '--text', 'Also strip whitespace', '--json']);
+  assert.equal(ui.document.querySelector('#message').value, '', 'the saved message leaves the composer');
+  assert.equal(stage.mock.callCount(), 1, 'no second stage was started for the message');
+  assert.equal(ui.document.querySelector('#chat-error').textContent, '');
+});
+
+test('a live message runs only the exact named grammar, and a refusal keeps the draft (#3259)', async (t) => {
+  const changed = liveMessageView();
+  changed.chat.input.next_command = changed.chat.input.next_command.replace('--kind message', '--kind feedback');
+  const ui = await openChat(t, changed);
+  const submit = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: '{"accepted": true}' }));
+  ui.type('Also strip whitespace');
+  ui.submit();
+  await flush(); await flush();
+  assert.equal(submit.mock.calls.filter((call) => call.arguments[1][0] === 'intervention').length, 0);
+  assert.match(ui.document.querySelector('#chat-error').textContent, /Unsupported live message action/);
+  assert.equal(ui.document.querySelector('#message').value, 'Also strip whitespace');
+  await ui.poll(liveMessageView());
+  t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: '{"accepted": false}' }));
+  ui.submit();
+  await flush(); await flush();
+  assert.match(ui.document.querySelector('#chat-error').textContent, /did not save the message/);
+  assert.equal(ui.document.querySelector('#message').value, 'Also strip whitespace', 'an unsaved message stays to send again');
+});
+
 test('Pause refuses a command the view did not name in the exact pause grammar (#1598)', async (t) => {
   const changed = pauseView();
   changed.pause.next_command = changed.pause.next_command.map((word) => (word === 'pause' ? 'stop' : word));
@@ -4606,6 +4790,40 @@ test('delayed status resolution does not re-show unwatched run or replace newly 
   await flush();
   assert.equal(statusVisible, true);
   assert.ok(mockStatus.text.includes('Other running'), 'late resolution must not replace newer watched run');
+});
+
+test('a status line whose reads stop says it is stale, not silently old', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
+  let statusText = '';
+  let statusVisible = false;
+  const mockStatus = {
+    show() { statusVisible = true; }, hide() { statusVisible = false; }, dispose() {},
+    get text() { return statusText; }, set text(val) { statusText = val; },
+    tooltip: undefined, command: undefined,
+  };
+  t.mock.method(host.vscode.window, 'createStatusBarItem', () => mockStatus);
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
+  const good = { status: 'RUNNING', done: false, needs: { kind: 'continue' }, progress: { headline: 'Builder working' } };
+  let calls = 0;
+  let release;
+  t.mock.method(RunController.prototype, 'status', () => {
+    calls++;
+    if (calls === 1) return Promise.resolve(structuredClone(good));
+    return new Promise((resolve) => { release = () => resolve(structuredClone(good)); });
+  });
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+  await host.commands.get('autocode.openRun')(run);
+  await flush(); await flush();
+  assert.ok(statusText.includes('Builder working'), 'the line starts on the run: ' + statusText);
+  // The reads stop landing: the line must say it is stale, not keep showing old content.
+  t.mock.timers.tick(20000);
+  await flush(); await flush();
+  assert.ok(statusText.includes('stale'), 'the line says it is stale: ' + statusText);
+  release();
+  await flush(); await flush();
+  assert.ok(statusText.includes('Builder working'), 'the line recovers: ' + statusText);
 });
 
 test('a failed status read keeps the status bar up saying so instead of hiding it', async (t) => {

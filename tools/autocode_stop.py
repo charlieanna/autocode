@@ -17,7 +17,8 @@ acknowledge. An invocation that released the held pause with its own authority
 before applying the batch passes released=True: nothing is held then.
 
 This module sits below the controllers: it imports only autocode_util,
-autocode_interventions, autocode_goals and autocode_pause_authority, never the
+autocode_interventions, autocode_goals, autocode_pause_authority, autocode_roles,
+autocode_run_messages and autocode_run_status, never the
 runner, autopilot, or a module that imports them. The state writer and clock
 are passed in.
 """
@@ -37,6 +38,7 @@ try:
     from . import autocode_goals as goals
     from . import autocode_interventions as interventions
     from . import autocode_pause_authority as pause_authority
+    from . import autocode_roles as roles
     from . import autocode_run_messages as run_messages
     from . import autocode_run_status as run_status
     from . import autocode_util as util
@@ -44,6 +46,7 @@ except ImportError:
     import autocode_goals as goals
     import autocode_interventions as interventions
     import autocode_pause_authority as pause_authority
+    import autocode_roles as roles
     import autocode_run_messages as run_messages
     import autocode_run_status as run_status
     import autocode_util as util
@@ -287,6 +290,15 @@ def boundary_effects(
         state.pop("completion_actor", None)
         state.pop("final_decision", None)
     if messages and not pauses and not stops:
+        if (
+            not feedback
+            and not held
+            and interventions.pending_admission_pause(state.get("status"), state.get("stop_reason"))
+        ):
+            # Only this queued message held the launch, and taking it resolves that boundary (#3259): the run
+            # was running, so it continues, and a question returns to a running run, not to this pause.
+            stage = state.get("next_stage")
+            run_status.running(state, "PLANNING" if stage in roles.ALL_PLANNING_STAGES else "EXECUTING")
         run_messages.activate(state)
         if state.get("status") == "RUNNING":
             state["stop_reason"] = "Message saved; continuing with its conversation at the next safe boundary."

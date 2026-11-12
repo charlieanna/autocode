@@ -8,6 +8,7 @@ import autocode_goals as goals
 import autocode_plan_chat as plan_chat
 import autocode_requirements_handoff as handoff
 import autocode_run_messages as messages
+import autocode_run_records as records
 
 from tests.test_plan_chat import acceptance_hold, reviewed
 
@@ -275,6 +276,47 @@ class LiveConversationRoutingTests(unittest.TestCase):
         self.assertEqual("run_message", second["kind"])
         self.assertEqual("draft", state["goal_contract"]["approval_status"])
         self.assertIsNone(state["goal_contract"]["approval_event"])
+
+    def test_change_sent_while_requirements_runs_restarts_requirements_instead_of_holding_its_old_question(self):
+        # Live 2026-11-12 (#3259): a message typed while Requirements ran was taken at the boundary where
+        # Requirements' understanding was still an unpublished clarification proposal. The answered change
+        # restored that proposal beside the feedback, so the write path rejected the stale question and held
+        # the run at RESOLVER_PENDING: the old understanding was shown and its named continue was refused.
+        state = working()
+        state.update(
+            status="RESOLVER_PENDING",
+            phase="RESOLVING",
+            next_stage="draft_plan",
+            resolver_human_proposal={"scope": "clarification", "questions": [{"id": "understanding"}]},
+            pending_questions=[],
+        )
+        state["settings"].setdefault("roles", {})["requirements"] = {}
+        state.pop("goal_contract")  # Requirements' first understanding: no contract exists yet
+        event = messages.receive(state, receipt(text="Also strip whitespace from the name."))
+        self.assertTrue(messages.activate(state))
+        self.assertTrue(handoff.accept_chat(state, response(event, "change"), {}, queue=mock.Mock()))
+        self.assertTrue(event["forwarded"])
+        self.assertNotIn("resolver_human_proposal", state)
+        self.assertEqual(("RUNNING", "requirements_gather"), (state["status"], state["next_stage"]))
+        records.normalize_human_boundary(state, None)
+        self.assertEqual(("RUNNING", "requirements_gather"), (state["status"], state["next_stage"]))
+
+    def test_question_sent_while_requirements_runs_keeps_its_understanding_for_the_resolver(self):
+        state = working()
+        proposal = {"scope": "clarification", "questions": [{"id": "understanding"}]}
+        state.update(
+            status="RESOLVER_PENDING",
+            phase="RESOLVING",
+            next_stage="draft_plan",
+            resolver_human_proposal=copy.deepcopy(proposal),
+            pending_questions=[],
+        )
+        state.pop("goal_contract")
+        event = messages.receive(state, receipt())
+        self.assertTrue(messages.activate(state))
+        self.assertTrue(handoff.accept_chat(state, response(event), {}, queue=mock.Mock()))
+        self.assertEqual(proposal, state["resolver_human_proposal"])
+        self.assertEqual(("RESOLVER_PENDING", "draft_plan"), (state["status"], state["next_stage"]))
 
     def test_change_accepted_before_completion_archives_completion_and_requires_review(self):
         state = working()

@@ -31,6 +31,8 @@ export function activate(context: vscode.ExtensionContext): void {
   let active: RunRef | undefined;
   let watched: RunRef | undefined;
   let statusSequence = 0;
+  /** When the line's content was last rendered: the age the line must never hide. */
+  let statusReadAt: number | null = null;
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 90);
 
@@ -66,18 +68,36 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       const line = statusLine(view);
       status.text = line.text;
-      status.tooltip = line.tooltip;
+      status.tooltip = `${line.tooltip}\nRead at ${new Date().toLocaleTimeString()}`;
       status.command = { command: "autocode.openRun", title: "Open Run", arguments: [currentWatched] };
+      statusReadAt = Date.now();
       status.show();
     } catch (error) {
       if (sequence === statusSequence && sameRun(watched, currentWatched)) {
         // A read that failed keeps the bar up saying so: the line is the run's
         // only quick state, and hiding it looks like the run stopped reporting.
         status.text = "$(warning) AutoCode: status unavailable";
-        status.tooltip = messageOf(error);
+        status.tooltip = `${messageOf(error)}\nRead at ${new Date().toLocaleTimeString()}`;
         status.command = { command: "autocode.openRun", title: "Open Run", arguments: [currentWatched] };
+        statusReadAt = Date.now();
         status.show();
       }
+    }
+  };
+
+  // The line must never present an old read as current. This runs on its own chain, not
+  // the poll interval: when that loop is throttled in a background window or stops
+  // entirely, the line says it is stale and takes a read of its own, instead of freezing
+  // on the last thing it showed and looking fresh.
+  const staleAfter = (): number =>
+    Math.max(1, vscode.workspace.getConfiguration("autocode").get<number>("pollSeconds", 5)) * 2 * 1000;
+  const watchStatus = (): void => {
+    if (watched && statusReadAt !== null && Date.now() - statusReadAt > staleAfter()) {
+      status.text = "$(warning) AutoCode: status is stale";
+      status.tooltip = `No status read since ${new Date(statusReadAt).toLocaleTimeString()}`;
+      status.command = { command: "autocode.openRun", title: "Open Run", arguments: [watched] };
+      status.show();
+      void updateStatus();
     }
   };
 
@@ -231,8 +251,21 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("autocode.showLog", () => log.show()),
   );
 
-  const poll = setInterval(() => void refresh(), pollSeconds() * 1000);
+  // The interval and the watchdog are separate chains: one dying must not leave the line
+  // frozen, and the cadence the person sets is the cadence both run at.
+  let poll = setInterval(() => void refresh(), pollSeconds() * 1000);
+  let watch = setTimeout(function repeat() {
+    watchStatus();
+    watch = setTimeout(repeat, pollSeconds() * 1000);
+  }, pollSeconds() * 1000);
   context.subscriptions.push({ dispose: () => clearInterval(poll) });
+  context.subscriptions.push({ dispose: () => clearTimeout(watch) });
+  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => {
+    if (event.affectsConfiguration("autocode.pollSeconds")) {
+      clearInterval(poll);
+      poll = setInterval(() => void refresh(), pollSeconds() * 1000);
+    }
+  }));
 
   void refresh();
 }
