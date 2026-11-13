@@ -136,7 +136,7 @@ without a provider call. The archived sources remained unchanged (SHA-256
 and `85c1a265aa097024c8310f9725b6e2b96e4a963a7766fcc545844d4b1e1f9cd2`).
 This is captured-report validation, not a full run replay.
 
-### Native extension retest limitation
+### Initial native extension retest blocker (subsequently resolved)
 
 The rebuilt VSIX was installed successfully at 00:58 local time. Its installed
 `dist/extension.js` matched the tested build (SHA-256
@@ -145,8 +145,8 @@ The test workspace retained its isolated CLI wrapper and existing model choices.
 After invoking Developer: Reload Window in that workspace, the entire VS Code
 window became blank. Native UI inspection, closing that test window and
 reconnecting to the application timed out, including after resetting UI automation.
-No new chat was submitted through the updated native extension. Its live retest
-remains unverified; the earlier live extension results above are not presented as
+No new chat was submitted through the updated native extension at that point. Its
+live retest was unverified; the earlier live extension results above were not presented as
 evidence that this updated extension passed. Other VS Code workspaces were not
 terminated to recover this test.
 
@@ -181,5 +181,72 @@ provider-session boundary remained unavailable; no Linux qualification is claime
 
 The redacted `fixed-cli.tar.gz` bundle has manifest SHA-256
 `36f02797ff52c15106139d07c30d2cd40a546ff1ed52d8eb7052b09d7548bd98`.
-It has the same replay-export limitation recorded above. This CLI result does not
-replace the pending native-extension retest.
+It has the same replay-export limitation recorded above. This CLI result did not
+replace the native-extension retest recorded below.
+
+### Completed native extension retest
+
+The test workspace was recovered and reopened in VS Code. A separate temporary
+VS Code recovery instance was stopped by its exact process identity; the main
+editor process and its other workspaces remained running. Closing and reopening
+the disposable workspace activated the installed VSIX without another blank
+Developer: Reload Window. No repository change or provider bypass was needed to
+recover the editor.
+
+Run `20261113-013251-vscode-5878a7` was started through the actual extension with
+the same project-local chat request above. The core's report loader, normalizer,
+handoff and three changed prompt resources matched PR revision `7e878a43d`.
+Its first question exposed a capitalization edge case: the assistant said
+"To ground this, can you walk me..." while the answer field's question began
+"Can you walk me...". The visible duplicate check now ignores case. A regression
+for this exact difference failed on the previous candidate and passed after the
+fix; all five saved/streaming/absent/different variants passed.
+
+The final isolated VSIX was built from that PR plus the case fix. Installed and
+tested `dist/extension.js` matched SHA-256
+`8e09bc1b9560afdcba8c5f0918df4bf6ce5925d68ad28f10453fd12cb50093d6`.
+The restored first question appeared once with a named, editable answer field.
+Through that field, native UI automation submitted:
+
+> It offered a menu before I had explained the problem. Sometimes examples or
+> choices help me, but sometimes they steer me into the wrong answer. I am still
+> unsure when it should offer them, and I do not want it to just assume that
+> choices should always be banned.
+
+Requirements reflected the answer and asked:
+
+> Can you think of a time a suggested example or set of options actually helped
+> you? What was different about that moment compared to the menu case?
+
+The native UI was observed through completion: the saved message appeared once,
+the free-text answer field kept that question as its accessible name, and
+"AutoCode is waiting for you" replaced the running state. The public status
+independently reported `WAITING_FOR_USER`, empty options and default, no goal
+contract, and exactly two Requirements attempts with **zero rejected reports,
+zero retries and zero report repairs**. No Planner or Builder was launched.
+
+Crucially, the second raw report omitted `acceptance_tests`. The preserved
+`requirements-gather-02.reported.json` lacks that key, its accepted report has
+`acceptance_tests=[]`, and its stage receipt records
+`defaulted_fields=["acceptance_tests", "access_blockers"]`. This live native run
+therefore exercised the normalization itself, as well as the interview and
+extension rendering fixes.
+
+The existing Kilo route and Requirements model `zai-coding-plan/glm-5.3`, reasoning
+`low`, were retained. The provider command was `kilo run --auto --dir WORKSPACE
+--model zai-coding-plan/glm-5.3 --variant low --format json --agent RUN_AGENT`.
+The two stages took 34.49s and 33.34s (67.83s combined). The public cost view
+estimated $0.030288, with 25,196 input and 1,636 output tokens and no unpriced
+stage; this is not an invoice. The run stopped at its second clarification.
+This native macOS result does not claim supported Linux provider qualification.
+
+The redacted `fixed-native.tar.gz` bundle is retained beside the earlier bundles,
+with manifest SHA-256
+`2ce14e58e9a69c94c94fcd9a624b8bc6b4700378604ad780df1dc4c70c493f45`.
+It has the same replay-export limitation recorded above.
+
+The seven prompt-rendering snapshots affected by the interview instructions were
+updated after comparing the rendered text against master. All 11 prompt-rendering
+tests passed. Typecheck, build, VSIX packaging, repository Ruff lint/format checks
+and `git diff --check` passed for the final extension fix. The native retest
+blocker is resolved; earlier failures remain recorded above.

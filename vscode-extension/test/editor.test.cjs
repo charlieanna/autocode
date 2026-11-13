@@ -6940,11 +6940,12 @@ test('the spend confirmation says "its default provider" instead of quoting the 
   assert.ok(shown[1].includes('through provider "kilocode"?'), shown[1]);
 });
 
-for (const source of ['saved', 'streaming', 'absent', 'different']) {
+for (const source of ['saved', 'saved sentence case', 'streaming', 'absent', 'different']) {
   test(`Requirements clarification is shown once with accessible input (${source})`, async (t) => {
     const question = 'What was different when choices helped you?';
     const messages = source === 'absent' ? [] : [{ id: 'requirements-question-current', role: 'assistant',
-      text: source === 'different' ? 'What happened before that?' : `Tell me more. ${question}`,
+      text: source === 'different' ? 'What happened before that?'
+        : source === 'saved sentence case' ? `To ground this, ${question.toLowerCase()}` : `Tell me more. ${question}`,
       streaming: source === 'streaming' }];
     const value = { status: 'WAITING_FOR_USER', done: false,
       needs: { kind: 'answer', questions: [{ id: 'Q2', question, options: [] }] },
@@ -6954,9 +6955,9 @@ for (const source of ['saved', 'streaming', 'absent', 'different']) {
     const field = ui.document.querySelector('[data-question="Q2"]');
     assert.ok(field);
     assert.equal(field.getAttribute('aria-label'), question);
-    assert.equal(ui.document.querySelectorAll('#app .q').length, source === 'saved' ? 0 : 1);
-    if (source === 'saved') {
-      assert.equal(ui.document.getElementById('messages').textContent.split(question).length - 1, 1);
+    assert.equal(ui.document.querySelectorAll('#app .q').length, source.startsWith('saved') ? 0 : 1);
+    if (source.startsWith('saved')) {
+      assert.equal(ui.document.getElementById('messages').textContent.toLowerCase().split(question.toLowerCase()).length - 1, 1);
       assert.ok(!ui.document.getElementById('app').textContent.includes(question));
     }
     if (source === 'streaming') {

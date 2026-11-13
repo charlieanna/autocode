@@ -1592,7 +1592,7 @@ function render(state) {
           const box = el('div', 'decision');
           // The core's current Requirements message already asks this question in the thread.
           // Keep the field named for assistive technology, without repeating the visible text.
-          const plain = (text) => String(text || '').replace(/\\s+/g, ' ').trim();
+          const plain = (text) => String(text || '').replace(/\\s+/g, ' ').trim().toLowerCase();
           const asked = state.chat && state.chat.phase === 'requirements' && (state.chat.messages || []).some((row) =>
             !row.streaming && row.role === 'assistant' && String(row.id || '').startsWith('requirements-question-')
             && plain(decision.text) && plain(row.text).includes(plain(decision.text)));
