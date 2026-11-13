@@ -26,6 +26,7 @@ try:
     from . import autocode_planning_calls as planning_calls
     from . import autocode_planning_review_usage as review_usage
     from . import autocode_recovery_accounting as accounting
+    from . import autocode_recovery_grants as recovery_grants
     from . import autocode_recovery_limits as recovery_limits
 except ImportError:
     import autocode_cost as cost
@@ -34,6 +35,7 @@ except ImportError:
     import autocode_planning_calls as planning_calls
     import autocode_planning_review_usage as review_usage
     import autocode_recovery_accounting as accounting
+    import autocode_recovery_grants as recovery_grants
     import autocode_recovery_limits as recovery_limits
 
 MAX_INTEGER = 9007199254740991  # Exact in the Python and JavaScript clients.
@@ -152,7 +154,10 @@ def project(state: RunState, need, resume_flags):
     """Describe one explicit finite total, never infer a value from human prose."""
     if state.get("status") == "PAUSED_PLANNING_BUDGET":
         return _planning(state, need, resume_flags)
-    if state.get("status") == "PAUSED_TIMEOUT_RECOVERY":
+    if (
+        state.get("status") == "PAUSED_TIMEOUT_RECOVERY"
+        or pause_authority.held_origin(state).get("pause_status") == "PAUSED_TIMEOUT_RECOVERY"
+    ):
         return _grant(state, need, resume_flags)
     return _bound(state, need, resume_flags)
 
@@ -268,15 +273,23 @@ def _planning_counts(state: RunState):
 def _grant(state: RunState, need, resume_flags):
     if (
         not need
-        or need.get("kind") != "resume"
         or need.get("new_run_required")
         or need.get("edit_required")
-        or (need.get("action") or resume_flags) != GRANT_ACTION
-        or any(
-            state.get(key)
-            for key in ("active_stage", "active_runner_check", "pending_report_repair", "uncertain_artifacts")
-        )
+        or need.get("route")
+        or need.get("correction")
+        or any(state.get(key) for key in BUSY)
     ):
+        return None
+    named = need.get("action") or resume_flags
+    if need.get("kind") == "resume" and named == GRANT_ACTION:
+        separate = False
+    elif (
+        need.get("kind") == "answer"
+        and need.get("resolver_scope") == "operational_exhaustion"
+        and need.get("pause_origin") == "PAUSED_TIMEOUT_RECOVERY"
+    ):
+        separate = True
+    else:
         return None
     try:
         used = accounting.spent(state)
@@ -284,17 +297,26 @@ def _grant(state: RunState, need, resume_flags):
         return None
     if type(used) is not int or not 1 <= used <= MAX_INTEGER:
         return None
-    return [
-        {
-            "id": "grant_recovery",
-            "kind": "integer",
-            "flag": "--grant-recovery",
-            "placeholder": "N",
-            "arg_index": 2,
-            "label": "Additional recoveries",
-            "current": accounting.MAX_AUTOMATIC_RECOVERIES,
-            "used": used,
-            "minimum": 1,
-            "maximum": used,
-        }
-    ]
+    if state.get("status") != "PAUSED_TIMEOUT_RECOVERY" and not recovery_grants.eligible(
+        state,
+        current_request=recovery_limits.published_request,
+        queued_request=recovery_limits.queued_operational_hold,
+        count=used,
+        maximum=accounting.MAX_AUTOMATIC_RECOVERIES,
+    ):
+        return None
+    row = {
+        "id": "grant_recovery",
+        "kind": "integer",
+        "flag": "--grant-recovery",
+        "placeholder": "N",
+        "arg_index": 2,
+        "label": "Additional recoveries",
+        "current": accounting.MAX_AUTOMATIC_RECOVERIES,
+        "used": used,
+        "minimum": 1,
+        "maximum": used,
+    }
+    if separate:
+        row["command"] = None  # autocode_run_view names it, with the run's paths and recovery token
+    return [row]

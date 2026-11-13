@@ -1775,8 +1775,10 @@ class ChatClient:
     def resolver_reply(self, view: dict) -> bool:
         context = (view.get("chat") or {}).get("context") or ""
         offer = self.bound_offer(view)
-        if offer:
+        if offer and offer[0].get("id") != "grant_recovery":
             return self.raise_or_leave(view, offer)
+        if offer:
+            self.say(f"  (Or type a number, {within(offer[0])}, to authorize additional recoveries and continue.)")
         reply = self.ask("\nYour reply (Enter to leave it for now): ")
         if not reply:
             self.say("Nothing sent. The run is still paused.")
@@ -1806,7 +1808,10 @@ class ChatClient:
             or ((self.bound_offer(view) or [None])[0])
         ):
             # A limit the run reached is not "a problem of its own", and its reason names CLI commands (#2607).
-            self.say(f"\nAutoCode stopped: the run reached its limit for {bound['label'].split(' (')[0].lower()}.")
+            if bound.get("id") == "grant_recovery":
+                self.say("\nAutoCode stopped: automatic recovery was exhausted.")
+            else:
+                self.say(f"\nAutoCode stopped: the run reached its limit for {bound['label'].split(' (')[0].lower()}.")
         else:
             self.say(f"\nAutoCode stopped: {STOP_CAUSES.get(str(label), label)}. {why}".rstrip())
         if need.get("recovery_hint"):

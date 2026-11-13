@@ -342,11 +342,14 @@ limits and models stay saved, and neither action approves a plan. Blank, zero,
 fractional or stale choices cannot run.
 
 At an exhausted operational-recovery boundary, **Additional recoveries** is a
-separate blank finite input. It shows the existing recovery allowance and counted
-spend. Choose from 1 through the spent count and confirm **Grant and continue**.
-Choosing 1 replenishes one spent slot; it does not raise the fixed allowance or
-bank excess. History stays retained and the existing consecutive-timeout streak
-is cleared by that grant. Other limits, routes and plan approval still apply.
+separate blank finite input (shown as **Or authorize more recoveries instead:
+Additional recoveries** beside the reply box when AutoResolver also asks for
+corrective information at `WAITING_FOR_USER`). It shows the existing recovery
+allowance and counted spend. Choose from 1 through the spent count and confirm
+**Grant and continue**. Choosing 1 replenishes one spent slot; it does not raise
+the fixed allowance or bank excess. History stays retained and the existing
+consecutive-timeout streak is cleared by that grant. Other limits, routes and
+plan approval still apply.
 
 Plan editing (`--edit-goal`) and other actions with unresolved
 `GOAL_FILE`, untyped recovery `N` or explanatory placeholders remain explicit gaps.

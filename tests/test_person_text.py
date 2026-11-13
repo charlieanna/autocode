@@ -9,7 +9,9 @@ sentences only, while the saved request and the stop reason keep the operator ad
 
 import unittest
 
+import autocode_chat_view as chat_view
 import autocode_person_text as person_text
+import autocode_progress_view as progress_view
 import autocode_recovery_limits as recovery_limits
 import autocode_resolver_human as human
 import autocode_run_view as run_view
@@ -162,6 +164,67 @@ class PersonOnlyQuestionTests(unittest.TestCase):
         need = self.view()["needs"]
         self.assertNotIn("resolver_scope", need)
         self.assertEqual(text, need["questions"][0]["question"])
+
+    def test_exhausted_operational_recovery_grant_offers_no_machinery_or_limit_copy(self):
+        self.contract()
+        self.state.update(
+            status="PAUSED_TIMEOUT_RECOVERY",
+            next_stage="review_plan",
+            automatic_recoveries_since_resume=3,
+            consecutive_timeout_recoveries=3,
+            planning={"plan_review_calls": 3},
+        )
+        receipt = {
+            "stage": "resolver",
+            "runner_owned": True,
+            "decision": {"action": "hold"},
+            "receipt": {"evaluation_binding": human._binding(self.state)},
+        }
+        self.state["resolver"] = {
+            "operational_diagnostics": ["op-receipt"],
+            "operational_receipts": {"op-receipt": receipt},
+        }
+        human.queue(
+            self.state,
+            "operational_exhaustion",
+            {"stage": "review_plan", "pause_status": "PAUSED_TIMEOUT_RECOVERY"},
+            request=self.request(),
+            evidence={"resolver_receipt_id": "op-receipt"},
+        )
+        self.assertEqual("escalate", human.evaluate(self.state))
+        published = self.view()
+        self.assertEqual("grant_recovery", published["needs"]["command_inputs"][0]["id"])
+        self.assertIsNone(chat_view.raised_bound(published["needs"]))
+        published_needs_you = progress_view.progress(self.state, accepted=(), stage=None, needs=published["needs"])[
+            "needs_you"
+        ]
+        self.assertEqual(
+            "send AutoResolver corrective information, or authorize additional recoveries",
+            published_needs_you,
+        )
+        self.assertFalse(person_text.machinery(published_needs_you))
+
+        # Held at RESOLVER_PENDING with an authenticated runner hold receipt.
+        self.state.pop("resolver_human_request", None)
+        self.state.pop("pending_questions", None)
+        self.state["status"] = "PAUSED_TIMEOUT_RECOVERY"
+        receipt["receipt"]["evaluation_binding"] = human._binding(self.state)
+        human.queue(
+            self.state,
+            "operational_exhaustion",
+            {"stage": "review_plan", "pause_status": "PAUSED_TIMEOUT_RECOVERY"},
+            request=self.request(),
+            evidence={"resolver_receipt_id": "op-receipt"},
+        )
+        self.state["status"] = "RESOLVER_PENDING"
+        queued = self.view()
+        self.assertEqual("resume", queued["needs"]["kind"])
+        self.assertEqual("grant_recovery", queued["needs"]["command_inputs"][0]["id"])
+        queued_needs_you = progress_view.progress(self.state, accepted=(), stage=None, needs=queued["needs"])[
+            "needs_you"
+        ]
+        self.assertEqual("authorize additional recoveries to continue", queued_needs_you)
+        self.assertFalse(person_text.machinery(queued_needs_you))
 
 
 if __name__ == "__main__":

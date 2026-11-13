@@ -40,10 +40,32 @@ def _cause(issued, escalations):
     )
 
 
-def eligible(state: RunState, *, previous_settings=None, current_request, count, maximum, issued=None, cause=None):
+def eligible(
+    state: RunState,
+    *,
+    previous_settings=None,
+    current_request,
+    queued_request=None,
+    count,
+    maximum,
+    issued=None,
+    cause=None,
+):
     """Whether ``--grant-recovery`` would be accepted at this stop."""
     if state.get("status") == "PAUSED_TIMEOUT_RECOVERY":
         return True
+    if state.get("status") == "RESOLVER_PENDING":
+        if queued_request is None:
+            return False
+        proposal = queued_request(state)
+        if proposal is None and previous_settings is not None:
+            proposal = queued_request({**state, "settings": previous_settings})
+        if not (isinstance(proposal, dict) and proposal.get("scope") == "operational_exhaustion"):
+            return False
+        raw_origin = proposal.get("origin")
+        origin = raw_origin if isinstance(raw_origin, dict) else {}
+        origin_cause = origin.get("pause_status")
+        return origin_cause in GRANTABLE_CAUSES or count >= maximum or _consecutive_exhausted(state)
     if issued is None:
         issued = current_request(state)
         if issued is None and previous_settings is not None:
@@ -74,6 +96,7 @@ def grant(
     *,
     previous_settings,
     current_request,
+    queued_request=None,
     count,
     supersede,
     persist,
@@ -89,12 +112,39 @@ def grant(
         state,
         previous_settings=previous_settings,
         current_request=current_request,
+        queued_request=queued_request,
         count=count,
         maximum=maximum,
         issued=issued,
     ):
         raise ValueError("--grant-recovery requires a run paused for exhausted timeout recovery")
     request_id = issued["request_id"] if issued else None
+    if request_id is None and state.get("status") == "RESOLVER_PENDING" and queued_request is not None:
+        queued = queued_request(state)
+        if queued is None and previous_settings is not None:
+            queued = queued_request({**state, "settings": previous_settings})
+        evidence = queued.get("evidence") if isinstance(queued, dict) else None
+        if isinstance(evidence, dict) and isinstance(evidence.get("resolver_receipt_id"), str):
+            request_id = evidence["resolver_receipt_id"]
+    reason = f"Operator granted {amount} more automatic recoveries"
+    if (
+        previous_settings is not None
+        and state.get("status") == "RESOLVER_PENDING"
+        and queued_request is not None
+        and queued_request(state) is None
+    ):
+        had_settings = "settings" in state
+        selected_settings = state.get("settings")
+        state["settings"] = previous_settings
+        try:
+            supersede(state, reason)
+        finally:
+            if had_settings and isinstance(selected_settings, dict):
+                state["settings"] = selected_settings
+            else:
+                state.pop("settings", None)
+    else:
+        supersede(state, reason)
     remaining = accounting.record_grant(state, amount, request_id, count)
     state.setdefault("user_events", []).append(
         {
@@ -106,7 +156,6 @@ def grant(
             "previous_count": count,
         }
     )
-    supersede(state, f"Operator granted {amount} more automatic recoveries")
     if pending_limit_events:
         # The invocation's limit_change events waited for the validation above (#2479): they join
         # the same single save as the grant and the corrected settings, so no exit can persist the

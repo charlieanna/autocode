@@ -91,9 +91,12 @@ class ResolverRecoveryLifecycleCliTests(unittest.TestCase):
             [row for row in after if not row["runner_owned"]],
             "reopening may record a runner decision but cannot launch another model",
         )
-        # #3358 separately tracks the stop being republished as RESOLVER_PENDING on reopen.
-        # It must still retain the diagnosis and spend no further model attempt here.
-        self.assertEqual("resume", reopened["needs"]["kind"])
+        # Reopening publishes the repeated-failure operational exhaustion as WAITING_FOR_USER
+        # instead of leaving RESOLVER_PENDING, retaining the diagnosis without another attempt.
+        self.assertEqual("WAITING_FOR_USER", reopened["status"])
+        self.assertEqual("answer", reopened["needs"]["kind"])
+        self.assertEqual("operational_exhaustion", reopened["needs"]["resolver_scope"])
+        self.assertEqual("PAUSED_REPEATED_FAILURE", reopened["needs"]["pause_origin"])
         self.assertIn("Offline fixture: it cannot diagnose", reopened["stop_reason"])
         for field in ("spent_usd", "running_usd", "reported_usd", "estimated_usd", "cap_usd"):
             self.assertEqual(view["cost"][field], reopened["cost"][field], field)

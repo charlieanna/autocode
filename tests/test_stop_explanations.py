@@ -395,6 +395,19 @@ class StopExplanationTests(unittest.TestCase):
         self.assertIn("re-checks the saved routes", text["what_the_command_does"])
         self.assertIn("--joint-planning --planning-v2", text["what_the_command_does"])
 
+    def test_resolver_pending_with_timeout_recovery_origin_explains_grant_and_fallback(self):
+        grant_text = stop_explanations.explain(
+            "RESOLVER_PENDING",
+            needs={"pause_origin": "PAUSED_TIMEOUT_RECOVERY", "action": "--resume-paused --grant-recovery N"},
+        )
+        self.assertIn("Automatic recovery reached its allowance", grant_text["what_it_means"])
+        self.assertIn("--resume-paused --grant-recovery N replenishes", grant_text["what_the_command_does"])
+        fallback = stop_explanations.explain(
+            "RESOLVER_PENDING",
+            needs={"pause_origin": "PAUSED_TIMEOUT_RECOVERY", "action": "--resume-paused"},
+        )
+        self.assertEqual("Resolve the pause reason, then --resume-paused.", fallback["what_the_command_does"])
+
 
 if __name__ == "__main__":
     unittest.main()

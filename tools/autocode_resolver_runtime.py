@@ -728,6 +728,8 @@ def record_operational_exhaustion(runner, state: RunState, run_dir, error, *, re
 def _stop_reason(cause, advice):
     """The stop's cause followed by its current request's advice."""
     cause = str(cause).strip()
+    if recovery_limits.GRANT_ADVICE in cause and advice.endswith(" " + recovery_limits.GRANT_ADVICE):
+        advice = advice[: -len(" " + recovery_limits.GRANT_ADVICE)]
     return advice if not cause or cause in advice else cause + ("" if cause.endswith(".") else ".") + " " + advice
 
 

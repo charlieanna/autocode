@@ -1536,6 +1536,14 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             need["action"] = "--resume-paused"
         elif review.get("action") and (review["status"] == "held" or "action" not in need):
             need["action"] = review["action"]
+        if (
+            status == "RESOLVER_PENDING"
+            and (queued := recovery_limits.queued_operational_hold(state))
+            and (queued.get("origin") or {}).get("pause_status") == "PAUSED_TIMEOUT_RECOVERY"
+        ):
+            need["pause_origin"] = "PAUSED_TIMEOUT_RECOVERY"
+            if "action" not in need and not any(state.get(key) for key in command_inputs.BUSY):
+                need["action"] = command_inputs.GRANT_ACTION
         pending = state.get("pending_report_repair") or {}
         rejected = report_retry.rejected_attempt(state) or {}
         if (

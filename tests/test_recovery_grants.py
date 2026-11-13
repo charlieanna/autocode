@@ -1,11 +1,15 @@
 """An explicit allowance preserves request identity across one settings update."""
 
 import copy
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
+import autocode as runner
 import autocode_recovery_grants as grants
+import autocode_resolver_human as human
+import autocode_support as support
 
 
 class RecoveryGrantTests(unittest.TestCase):
@@ -145,3 +149,134 @@ class RecoveryGrantTests(unittest.TestCase):
                 maximum=6,
             )
         )
+
+    def test_authenticated_queued_operational_hold_at_resolver_pending_grants_and_supersedes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            run_dir = Path(temporary) / "run"
+            workspace = Path(temporary) / "ws"
+            run_dir.mkdir()
+            workspace.mkdir()
+            state = {
+                "version": 2,
+                "iteration": 1,
+                "status": "PAUSED_TIMEOUT_RECOVERY",
+                "workspace": str(workspace),
+                "run_dir": str(run_dir),
+                "task_id": "t",
+                "settings": copy.deepcopy(self.previous),
+                "source_revision": "rev-1",
+                "automatic_recoveries_since_resume": 3,
+                "consecutive_timeout_recoveries": 3,
+                "automatic_timeout_recoveries": [{"stage": "builder", "attempt_id": "one"}],
+                "resolver": {"human_escalations": {}},
+                "history": [],
+                "user_events": [],
+                "stages": [],
+            }
+            error = support.Paused("PAUSED_TIMEOUT_RECOVERY", "Recovery exhausted")
+            self.assertTrue(runner.resolver_runtime.record_operational_exhaustion(runner, state, run_dir, error))
+            self.assertEqual("RESOLVER_PENDING", state["status"])
+            queued = human.queued_operational(state)
+            self.assertIsNotNone(queued)
+
+            # Unauthenticated receipt or changed source_revision is rejected, and queued_request=None refuses RESOLVER_PENDING.
+            self.assertFalse(grants.eligible(state, current_request=human.current, count=3, maximum=3))
+            self.assertTrue(
+                grants.eligible(
+                    state,
+                    current_request=human.current,
+                    queued_request=human.queued_operational,
+                    count=3,
+                    maximum=3,
+                )
+            )
+            cap_state = {
+                "version": 2,
+                "iteration": 1,
+                "status": "PAUSED_OUTPUT_CAP",
+                "workspace": str(workspace),
+                "run_dir": str(run_dir),
+                "task_id": "t",
+                "settings": copy.deepcopy(self.previous),
+                "source_revision": "rev-1",
+                "automatic_recoveries_since_resume": 3,
+                "consecutive_timeout_recoveries": 0,
+                "automatic_timeout_recoveries": [],
+                "resolver": {"human_escalations": {}},
+                "history": [],
+                "user_events": [],
+                "stages": [],
+            }
+            self.assertTrue(
+                runner.resolver_runtime.record_operational_exhaustion(
+                    runner, cap_state, run_dir, support.Paused("PAUSED_OUTPUT_CAP", "Output cap")
+                )
+            )
+            self.assertTrue(
+                grants.eligible(
+                    cap_state,
+                    current_request=human.current,
+                    queued_request=human.queued_operational,
+                    count=3,
+                    maximum=3,
+                )
+            )
+            self.assertFalse(
+                grants.eligible(
+                    cap_state,
+                    current_request=human.current,
+                    queued_request=human.queued_operational,
+                    count=2,
+                    maximum=3,
+                )
+            )
+            receipt_id = queued["evidence"]["resolver_receipt_id"]
+            bad_receipt = copy.deepcopy(state)
+            bad_receipt["resolver"]["operational_receipts"][receipt_id]["runner_owned"] = False
+            self.assertIsNone(human.queued_operational(bad_receipt))
+            self.assertFalse(
+                grants.eligible(
+                    bad_receipt,
+                    current_request=human.current,
+                    queued_request=human.queued_operational,
+                    count=3,
+                    maximum=3,
+                )
+            )
+            bad_source = copy.deepcopy(state)
+            bad_source["source_revision"] = "rev-changed"
+            self.assertIsNone(human.queued_operational(bad_source))
+
+            # Valid held RESOLVER_PENDING is eligible and grants across a single settings adjustment.
+            state["settings"] = {"limits": {"max_stage_seconds": 300}}
+            self.assertTrue(
+                grants.eligible(
+                    state,
+                    previous_settings=self.previous,
+                    current_request=human.current,
+                    queued_request=human.queued_operational,
+                    count=3,
+                    maximum=3,
+                )
+            )
+            persist = Mock()
+            granted = grants.grant(
+                state,
+                run_dir,
+                1,
+                previous_settings=self.previous,
+                current_request=human.current,
+                queued_request=human.queued_operational,
+                count=3,
+                maximum=3,
+                supersede=human.supersede_operational,
+                persist=persist,
+            )
+            self.assertEqual(2, granted)
+            self.assertEqual("PAUSED_TIMEOUT_RECOVERY", state["status"])
+            self.assertIsNone(state.get("resolver_human_proposal"))
+            self.assertIsNone(human.queued_operational(state))
+            self.assertEqual(2, state["automatic_recoveries_since_resume"])
+            self.assertEqual(0, state["consecutive_timeout_recoveries"])
+            self.assertEqual(["recovery_grant"], [e["kind"] for e in state["user_events"]])
+            persist.assert_called_once()

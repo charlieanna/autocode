@@ -186,6 +186,7 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
                         args.grant_recovery,
                         previous_settings=getattr(args, "_recovery_grant_settings", None),
                         current_request=resolver_human.current,
+                        queued_request=resolver_human.queued_operational,
                         count=runner.recovery_count(state),
                         supersede=resolver_human.supersede_operational,
                         persist=runner.write_json,

@@ -641,7 +641,11 @@ export function numericConfirmation(state: PanelState, answers: Record<string, s
 
 /** The confirmation for a bound's separate raise with the typed number; a number out of bounds is a gap. */
 export function raiseConfirmation(input: IntegerCommandInput, text: string): string {
-  return boundQuestion(input, integerValue(text, input));
+  const total = integerValue(text, input);
+  if (input.id === "grant_recovery") {
+    return `Replenish ${total} recovery slot${total === "1" ? "" : "s"} and continue?`;
+  }
+  return boundQuestion(input, total);
 }
 
 function boundQuestion(input: IntegerCommandInput, total: string): string {
@@ -675,11 +679,15 @@ export async function confirmRaise(state: PanelState, decisionContext: string | 
   }
   const title = raiseConfirmation(input, value);
   onDialog?.(title);
-  return (await vscode.window.showWarningMessage(title, { modal: true, detail: boundEffect(input) }, RAISE_LABEL)) === RAISE_LABEL;
+  const buttonLabel = input.id === "grant_recovery" ? "Grant and continue" : RAISE_LABEL;
+  return (await vscode.window.showWarningMessage(title, { modal: true, detail: boundEffect(input) }, buttonLabel)) === buttonLabel;
 }
 
 /** What raising a bound changes, and what it leaves alone. */
 export function boundEffect(input: IntegerCommandInput): string {
+  if (input.id === "grant_recovery") {
+    return "This replenishes spent recovery slots under the existing fixed allowance. Recovery history is retained; excess is not banked. Other saved limits and model routes stay the same. It does not approve a plan.";
+  }
   if (input.id === "max_seconds") return NUMERIC_RECOVERY_EFFECT;
   const noun = BOUND_WORDING[input.id]?.[1] ?? input.label;
   return `This changes only ${noun}, then resumes the run. Other saved limits and model routes stay the same. It does not approve a plan.`;
@@ -2040,10 +2048,13 @@ function updateActionButton() {
 // number and button, so a typed limit goes only into that command.
 function renderBoundRaise(container, state) {
   const input = state.boundRaise;
+  const isGrant = input.id === 'grant_recovery';
   const name = 'raise:' + input.id;
   const box = el('div', 'decision');
   box.id = 'bound-raise';
-  box.appendChild(el('div', 'q', 'Or raise the limit instead: ' + input.label));
+  box.appendChild(
+    el('div', 'q', (isGrant ? 'Or authorize more recoveries instead: ' : 'Or raise the limit instead: ') + input.label),
+  );
   box.appendChild(el('div', 'why', numericHelp(input)));
   const field = document.createElement('input');
   field.type = 'text'; field.inputMode = 'numeric'; field.pattern = '[0-9]*';
@@ -2057,7 +2068,8 @@ function renderBoundRaise(container, state) {
   field.addEventListener('keydown', enterTakes);
   box.appendChild(field);
   box.appendChild(hint);
-  const raise = el('button', null, (state.taking || state.working) ? 'Working…' : RAISE_LABEL);
+  const actionLabel = isGrant ? 'Grant and continue' : RAISE_LABEL;
+  const raise = el('button', null, (state.taking || state.working) ? 'Working…' : actionLabel);
   raise.id = 'raise-bound';
   raise.addEventListener('click', () => vscode.postMessage({ type: 'raise', value: answers[name] || '',
     runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));

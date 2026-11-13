@@ -657,6 +657,31 @@ def current(state: RunState):
     return None
 
 
+def queued_operational(state: RunState):
+    """Authenticated runner-held operational_exhaustion proposal still queued at RESOLVER_PENDING."""
+    if state.get("status") != "RESOLVER_PENDING" or current(state) is not None:
+        return None
+    proposal = state.get(PRIVATE)
+    if not isinstance(proposal, dict) or proposal.get("scope") != "operational_exhaustion":
+        return None
+    if not _evidence_valid(proposal):
+        return None
+    evidence = proposal.get("evidence")
+    receipt_id = evidence.get("resolver_receipt_id") if isinstance(evidence, dict) else None
+    if not isinstance(receipt_id, str) or not receipt_id:
+        return None
+    receipt = (cast(dict, state.get("resolver", {})).get("operational_receipts") or {}).get(receipt_id)
+    if not (
+        isinstance(receipt, dict)
+        and receipt.get("runner_owned")
+        and receipt.get("stage") == "resolver"
+        and (receipt.get("decision") or {}).get("action") == "hold"
+        and (receipt.get("receipt") or {}).get("evaluation_binding") == _binding(state)
+    ):
+        return None
+    return copy.deepcopy(proposal)
+
+
 def cli_token(state: RunState, token, request_id=None):
     """Read the CLI's ``-`` token selector back out of the run it names (#2958).
 
@@ -937,12 +962,24 @@ def require_response(state: RunState, request_id, request_token):
 
 
 def supersede_operational(state: RunState, reason):
-    """Withdraw only a resolver-issued operational question after explicit repair."""
+    """Withdraw only a resolver-issued or queued operational request after explicit repair."""
     public = state.get(PUBLIC) or {}
     key = public.get("request_id")
     entry = cast(dict, state.get("resolver", {})).get("human_escalations", {}).get(key)
     if not isinstance(entry, dict) or entry.get("status") != "pending":
-        return False
+        queued = queued_operational(state)
+        if not queued:
+            return False
+        state.pop(PRIVATE, None)
+        if state.get("status") == "RESOLVER_PENDING" and not state.get("pending_questions"):
+            origin = queued.get("origin") if isinstance(queued.get("origin"), dict) else {}
+            previous = origin.get("pause_status") or queued.get("previous_status")
+            run_status.pause(
+                state,
+                cast(str, previous) if str(previous).startswith("PAUSED_") else "PAUSED_RESOLVER",
+                state.get("stop_reason") or queued.get("summary") or reason,
+            )
+        return True
     identity = entry.get("identity") or {}
     proposal = identity.get("proposal") or {}
     if (
