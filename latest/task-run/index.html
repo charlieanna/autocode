@@ -2898,7 +2898,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/9773ca0fa3e47f50fb24f60fd5155ceb9ae7b6d7/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/eab74202fbdf8c83c2a612704be01eb6504c05b9/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3270,15 +3270,16 @@ Builder's starting code separately. Legacy runs without a saved identity report
 <code>commit: null</code>. Status never substitutes the current installation or Builder
 revision for this saved identity. The existing resume warning names a change
 in the controller revision.</p>
-<p>To build AutoCode itself with the controller from that same source checkout, keep
-that checkout fixed and create a separate workspace:</p>
-<pre><code class="language-sh">git -C /path/to/autocode worktree add --detach /path/to/autocode-self-build HEAD
-/path/to/controller-venv/bin/python /path/to/autocode/tools/autocode.py \
-  &quot;Fix the selected issue&quot; --workspace /path/to/autocode-self-build --in-place
-</code></pre>
-<p>Use the existing provider and model flags for the run. Keep the controller
-checkout and its environment unchanged until the run has stopped. An installed
-controller is also safe when its package directory is outside the task worktree.</p>
+<p>Before a self-build, <code>autocode worktrees list --workspace FOLDER --json</code> checks the
+executing controller's resolved package location, including editable installations.
+Choosing <strong>New worktree and branch</strong> does not bypass this check: Requirements still
+starts in the opened folder. Select a CLI installed non-editably outside that folder,
+or sourced from a separate checkout kept fixed until the run stops. In VS Code the
+core's <strong>Select isolated AutoCode CLI</strong> action opens a file picker, verifies the
+candidate, and saves only workspace-local CLI settings. Nothing is installed.
+Send the message again after selection so models and placement are read from that CLI.
+Terminal callers use that installed CLI instead; no worktree or workspace-flag workaround
+is needed. See <a href="#worktrees-for-clients">Worktrees for clients</a>.</p>
 <p>Inputs fixed when a run starts, such as <code>--ui-run</code>, <code>--test-root</code> and <code>--package</code>, belong in <code>start_options</code>
 instead of <code>options</code>: <code>TaskRun.start(workspace, brief, options=("--engine", "codex"),
 start_options=("--ui-run", str(design_run)))</code>. They are passed once; later advances
@@ -4108,7 +4109,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/9773ca0fa3e47f50fb24f60fd5155ceb9ae7b6d7/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/eab74202fbdf8c83c2a612704be01eb6504c05b9/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -4895,7 +4896,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/9773ca0fa3e47f50fb24f60fd5155ceb9ae7b6d7/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/eab74202fbdf8c83c2a612704be01eb6504c05b9/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -6227,6 +6228,21 @@ start the chat in the one to change (#2066). A client
 shows the places, preselects <code>default</code>, passes the chosen place's (or branch's) <code>start_args</code>
 unchanged in place of its own placement flag, and, when that place has a <code>warning</code>, shows it and
 starts only once the person confirms. It reads the list again just before the start.</p>
+<p>The additive <code>controller</code> object is pre-start admission, not saved-run state:
+<code>ready</code> (boolean), <code>detail</code> (display text), and <code>actions</code> (empty when ready).
+When the executing controller is inside an AutoCode task checkout, <code>ready</code> is false
+for every placement. Its <code>select_cli</code> action has <code>label</code> and
+<code>next_command: ["worktrees", "list", "--workspace", FOLDER, "--json"]</code>.
+This is a local executable-selection capability, not an install or a run command:
+the client lets the person pick an existing AutoCode executable and invokes it with
+that exact read-only array, an empty CLI prefix, the folder as cwd and a bounded timeout.
+It saves the executable and clears the old prefix only after the candidate reports
+the same folder and <code>controller.ready: true</code>. VS Code stores these as workspace
+<code>autocode.cliPath</code> and <code>autocode.cliArgs</code>; global settings remain untouched.
+Cancel or a failed, unsafe, missing or malformed admission read changes no settings
+and starts no run. After selection the person retries the message, so all start
+choices are freshly read from the selected CLI. Missing <code>controller</code> on older cores
+retains legacy placement behavior, but cannot verify a selected candidate.</p>
 <h2 id="run-modes-for-clients">Run modes for clients<a class="headerlink" href="#run-modes-for-clients" title="Permanent link">&para;</a></h2>
 <p>A client that starts runs may offer a choice of how much planning a new run does
 before the person approves it. <code>autocode modes list --json</code> returns the
