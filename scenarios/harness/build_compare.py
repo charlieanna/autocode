@@ -10,13 +10,14 @@ prove plumbing and gates, not model quality or dollar savings.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from . import api_cost, profiles, stats, verdict
+from . import api_cost, comparison_identity, profiles, stats, verdict
 
 VARIANTS = {"fixed": ("--no-adaptive-planning",), "adaptive": ("--adaptive-planning",)}
 
@@ -50,11 +51,17 @@ def report(root: Path, protocol: dict, records: list[dict]) -> dict:
     if len(indexed) != len(records) or set(indexed) - set(expected):
         raise ValueError("duplicate or unscheduled comparison attempts")
     missing = [list(key) for key in expected if key not in indexed]
-    rows = [indexed[key] for key in expected if key in indexed]
+    rows = [
+        {**indexed[key], "qualification": comparison_identity.qualification(protocol, indexed[key])}
+        for key in expected
+        if key in indexed
+    ]
     summary = {}
     for variant in VARIANTS:
         arm = [row for row in rows if row["variant"] == variant]
         successes = sum(passed(row) for row in arm)
+        qualified = sum(passed(row) and row["qualification"]["status"] == "qualified" for row in arm)
+        scheduled = len(protocol["pairs"])
         costs = [row.get("api_cost") or {} for row in arm]
         priced = (
             not protocol["fake"]
@@ -67,9 +74,14 @@ def report(root: Path, protocol: dict, records: list[dict]) -> dict:
             "scheduled": len(protocol["pairs"]),
             "attempts": len(arm),
             "passes": successes,
+            "qualified_passes": qualified,
+            "native_pass_rate": successes / scheduled if scheduled else None,
+            "qualified_pass_rate": qualified / scheduled if scheduled else None,
+            "qualifications": dict(Counter(row["qualification"]["status"] for row in arm)),
             "verdicts": dict(Counter(row["verdict"] for row in arm)),
             "api_usd": total,
             "api_usd_per_pass": round(total / successes, 8) if total is not None and successes else None,
+            "api_usd_per_qualified_pass": round(total / qualified, 8) if total is not None and qualified else None,
             "wall_seconds": _total([row.get("wall_seconds", 0) for row in arm]),
             "model_calls": _total([row.get("metrics", {}).get("model_stages", 0) for row in arm]),
             "report_repairs": _total([row.get("metrics", {}).get("report_repairs", 0) for row in arm]),
@@ -81,33 +93,42 @@ def report(root: Path, protocol: dict, records: list[dict]) -> dict:
         "summary": summary,
         "records": rows,
         "missing": missing,
-        "all_passed": not missing and all(passed(row) for row in rows) and bool(rows),
+        "all_passed": not missing
+        and bool(rows)
+        and all(passed(row) and row["qualification"]["status"] == "qualified" for row in rows),
     }
     (root / "comparison.json").write_text(json.dumps(result, indent=2) + "\n")
     text = [
         "# Complete-run planning comparison",
         "",
         f"Mode: {'fake (no cost/quality proof)' if protocol['fake'] else protocol['profile_name']}",
-        "API dollars are estimates from the frozen rate card; failed attempts are included.",
+        "Qualified scenario passes require matching observed inputs; native verdicts are retained.",
+        "API dollars are estimates from the frozen rate card; failed and unqualified attempts are included.",
         "",
-        "| Mode | Passed / scheduled | Model calls | Repairs | Estimated API $ | $ / pass |",
-        "| --- | ---: | ---: | ---: | ---: | ---: |",
+        "| Mode | Native passes / scheduled | Qualified passes / scheduled | Model calls | Repairs | Estimated API $ | $ / qualified pass |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for variant, arm in summary.items():
         usd = f"{arm['api_usd']:.6f}" if arm["api_usd"] is not None else "unknown"
-        per_pass = f"{arm['api_usd_per_pass']:.6f}" if arm["api_usd_per_pass"] is not None else "unknown"
+        per_pass = (
+            f"{arm['api_usd_per_qualified_pass']:.6f}" if arm["api_usd_per_qualified_pass"] is not None else "unknown"
+        )
         text.append(
-            f"| {variant} | {arm['passes']} / {arm['scheduled']} | {arm['model_calls']} | {arm['report_repairs']} | {usd} | {per_pass} |"
+            f"| {variant} | {arm['passes']} / {arm['scheduled']} | {arm['qualified_passes']} / {arm['scheduled']} | "
+            f"{arm['model_calls']} | {arm['report_repairs']} | {usd} | {per_pass} |"
         )
     text += [
         "",
-        "| Scenario | Repeat | Mode | Verdict | Oracle | Model calls |",
-        "| --- | ---: | --- | --- | --- | ---: |",
+        "| Scenario | Repeat | Mode | Verdict | Input qualification | Oracle | Model calls |",
+        "| --- | ---: | --- | --- | --- | --- | ---: |",
     ]
     for row in rows:
         checks = row.get("checks", [])
+        qualification = row["qualification"]
+        explanation = "; ".join(qualification["reasons"]).replace("|", "\\|").replace("\n", " ")
         text.append(
             f"| {row['scenario']} | {row['repeat']} | {row['variant']} | {row['verdict']} | "
+            f"{qualification['status']}{': ' + explanation if explanation else ''} | "
             f"{sum(bool(check['ok']) for check in checks)}/{len(checks)} | {row.get('metrics', {}).get('model_stages', 0)} |"
         )
     if missing:
@@ -136,12 +157,14 @@ def prepare(scenarios, args, root: Path, *, revision: dict) -> dict:
     if args.jobs < 1:
         raise ValueError("positive jobs required")
     card = json.loads(args.rate_card.read_text()) if args.rate_card else None
-    profile = profiles.resolve(args.profile) if not args.fake else None
+    profile = copy.deepcopy(profiles.resolve(args.profile)) if not args.fake else None
     if not args.fake and (card is None or profile.get("passthrough")):
         raise ValueError("live comparisons need a frozen rate card and explicit model profile")
     pairs = schedule([scenario.id for scenario in scenarios], args.repeats)
+    workloads = {scenario.id: comparison_identity.workload(scenario) for scenario in scenarios}
     protocol = {
-        "revision": revision,
+        "schema_version": 2,
+        "revision": copy.deepcopy(revision),
         "fake": args.fake,
         "profile_name": args.profile,
         "profile": profile,
@@ -150,20 +173,20 @@ def prepare(scenarios, args, root: Path, *, revision: dict) -> dict:
         "jobs": args.jobs,
         "autocode": args.autocode,
         "fake_solution": args.fake_solution,
+        "workloads": workloads,
+        "configurations": {
+            scenario.id: {
+                variant: comparison_identity.configuration(args, scenario, flags) for variant, flags in VARIANTS.items()
+            }
+            for scenario in scenarios
+        },
         "caps": {
             key: getattr(args, key, None)
             for key in ("max_steps", "timeout_minutes", "max_seconds", "max_stage_seconds", "max_iterations")
         },
         "brief_sha256": {scenario.id: hashlib.sha256(scenario.brief.encode()).hexdigest() for scenario in scenarios},
         "briefs": {scenario.id: scenario.brief for scenario in scenarios},
-        "seed_sha256": {
-            scenario.id: {
-                str(path.relative_to(scenario.seed)): hashlib.sha256(path.read_bytes()).hexdigest()
-                for path in sorted(scenario.seed.rglob("*"))
-                if path.is_file()
-            }
-            for scenario in scenarios
-        },
+        "seed_sha256": {scenario.id: workloads[scenario.id]["seed_sha256"] for scenario in scenarios},
         "scenario_budgets": {
             scenario.id: {
                 "max_steps": args.max_steps or scenario.max_steps,
@@ -176,7 +199,7 @@ def prepare(scenarios, args, root: Path, *, revision: dict) -> dict:
     return protocol
 
 
-def run(scenarios, args, root: Path, *, run_one, revision: dict) -> dict:
+def run(scenarios, args, root: Path, *, run_one, revision: dict, revision_reader=None) -> dict:
     protocol = prepare(scenarios, args, root, revision=revision)
     pairs, card = protocol["pairs"], protocol["rate_card"]
     records = []
@@ -187,11 +210,15 @@ def run(scenarios, args, root: Path, *, run_one, revision: dict) -> dict:
         out.mkdir()
         results = []
         for variant in pair["order"]:
+            scenario = by_id[pair["scenario"]]
             options = argparse.Namespace(
                 **{**vars(args), "out": out, "attempt_context": {"repeat": pair["repeat"], "variant": variant}}
             )
-            result = run_one(by_id[pair["scenario"]], options, extra_flags=VARIANTS[variant])
+            before = comparison_identity.observe(scenario, options, VARIANTS[variant], revision_reader)
+            result = run_one(scenario, options, extra_flags=VARIANTS[variant])
+            after = comparison_identity.observe(scenario, options, VARIANTS[variant], revision_reader)
             result.update(repeat=pair["repeat"], variant=variant)
+            result["comparison_identity"] = {"schema_version": 1, "before": before, "after": after}
             if result["verdict"] == verdict.INTERRUPTED_UNGRADED:
                 result["rejected_model_calls"] = None
                 result["api_cost"] = {"usd": None, "complete": False, "issues": ["interrupted usage is unknown"]}

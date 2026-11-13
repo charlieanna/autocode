@@ -576,13 +576,46 @@ $PY scenarios/run.py build-compare greenfield-greeting-cli greenfield-todo-cli f
 $PY scenarios/run.py build-compare --rebuild .scenario-runs/<comparison-directory>
 ```
 
-`protocol.json` freezes the revision, model profile, brief hashes, rate card,
-budgets and scheduled pairs before execution. Each completed attempt is saved
-separately; rebuilding reports calls no models and shows missing attempts. Live
+New `protocol.json` files use version 2 and freeze the revision, resolved model
+profile, effective comparison options, rate card, budgets and scheduled pairs.
+They also fingerprint each scenario's definition tree, resolved brief, consumed
+seed files (including a pinned repository's cached files), and shared harness
+helpers. Fingerprints hash sorted relative paths, executable modes, stable
+directory markers (including empty directories) and file bytes;
+only generated `__pycache__` directories are excluded. Symlinks, special files and
+unavailable inputs leave identity unknown.
+
+Each arm saves observations before and after its drive in its outer comparison
+receipt. Source observations cover `tools/`, `pyproject.toml`, `scenarios/run.py`
+and `scenarios/harness/`; the native result's revision, profile and mode are
+checked independently. A **qualified scenario pass** needs a native `PASS`, a
+passing oracle, no harness error and matching clean source, workload and
+configuration observations. Scripted solution paths that are absolute or contain
+`..` may consume files outside the fingerprinted scenario tree; execution is kept
+working but their input identity remains unknown. A scenario may expect a correct stop, so this is
+not necessarily a delivered implementation. External `--autocode` commands lack
+a runtime identity in this contract and remain unqualified. These observations
+detect persistent changes, not edits restored between observations; they provide
+neither snapshot isolation nor authenticated evidence.
+
+Reports retain native verdicts and show native and qualified passes separately,
+each against the full scheduled denominator. The JSON's `passes` and
+`api_usd_per_pass` retain their native meaning; `qualified_passes`,
+`qualified_pass_rate` and `api_usd_per_qualified_pass` report input-qualified
+results. Failed and unqualified attempts' spend stays in both cost totals. Unknown
+cost stays unknown. Command success requires all scheduled arms to qualify and
+pass; a native success with unknown or mismatched identity cannot make it green.
+
+Each completed attempt is saved separately; rebuilding reports calls no models
+and shows missing attempts. Older protocols and receipts, including recovered
+admissions without comparison observations, remain readable with identity unknown.
+Rebuild never fills that gap from today's files or changes their native verdict.
+This comparison receipt does not migrate ordinary scenario results or the
+reliability campaign ledger. Live
 API dollar estimates use individual OpenCode request finishes, deduplicate
 replayed usage, include reasoning, rejected calls and report repairs, apply
 cache rates and long-context surcharges, and leave unknown usage unpriced.
-`API $ / pass` includes spend on failed attempts. These are standard API token
+`API $ / qualified pass` includes spend on failed and unqualified attempts. These are standard API token
 estimates, even when the configured connection uses a subscription; actual
 billing, tool fees and unreported/incomplete-request usage are not established.
 Fake runs show gate correctness and oracle sensitivity, never dollar savings or
