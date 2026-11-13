@@ -15,6 +15,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from .fake_changed_code import _review_data, quote_changed_lines
+
 ATTACKS = frozenset(
     {
         "evidence_failing_exit",
@@ -43,6 +45,83 @@ def greet(name):
 if __name__ == "__main__":
     print(greet(sys.argv[1] if len(sys.argv) > 1 else ""))
 '''
+
+FIXTURE_REASONS = {
+    2: "The adversarial Builder scripts this sys import for the CLI argv read. The pinned "
+    "TestGreet.test_cli_success executes the entrypoint and asserts its streams and exit. Mutation "
+    "checking is unavailable because this deliberately broken candidate already fails its tests; "
+    "this reason does not attest that the check passed.",
+    5: "The adversarial Builder deliberately scripts this wrong return. The pinned TestGreet.test_greet "
+    "and test_unicode assert exact correct greetings and fail on it. Mutation checking is unavailable "
+    "for this already-failing candidate; the independent command replay must still reject its claimed PASS.",
+    7: "The mutator excludes this entrypoint guard. The pinned TestGreet.test_cli_success starts greet.py "
+    "as a process and asserts its greeting, streams and exit; the intentionally wrong greeting remains "
+    "a failing check, not evidence of success.",
+    8: "The adversarial Builder scripts this argv/print adapter. The pinned TestGreet.test_cli_success, "
+    "test_no_arg, test_two_arg and test_cli_empty_name assert its output and exit behavior and fail on "
+    "this broken implementation. Mutation checking is unavailable while those tests fail; their forged "
+    "success claim still requires independent replay.",
+}
+BROKEN_GREETING_SHA256 = "458920212b315ab723b1cfe0733f8da9cf5acfe93efcc2b70e31fa027286be8b"
+GREETING_TESTS_SHA256 = "52eccb4f679487a8e767237fb93d2418057ecf6deafdc79040b6789152fc5776"
+
+
+def forged_receipt_reasons(data: dict, root: Path | None = None) -> list[dict]:
+    """Explain only the attack's exact scripted gaps; never certify its broken behavior."""
+    data = _review_data(data)
+    if data is None:
+        return []
+    root = Path.cwd() if root is None else root
+    try:
+        if (
+            (root / "greet.py").read_bytes() != BROKEN_GREETING.encode()
+            or hashlib.sha256((root / "greet.py").read_bytes()).hexdigest() != BROKEN_GREETING_SHA256
+            or hashlib.sha256((root / "test_greet.py").read_bytes()).hexdigest() != GREETING_TESTS_SHA256
+        ):
+            return []
+    except OSError:
+        return []
+    proof = data.get("regression_proof") or {}
+    assessment = proof.get("changed_code_evidence") or {}
+    revision, context = assessment.get("source_revision"), assessment.get("proof_context")
+    if (
+        not isinstance(proof.get("path"), str)
+        or not proof["path"].strip()
+        or proof.get("source_revision") != revision
+        or not all(
+            isinstance(value, str) and len(value) == 64 and set(value) <= set("0123456789abcdef")
+            for value in (revision, context)
+        )
+    ):
+        return []
+    decisions = []
+    for line, reason in FIXTURE_REASONS.items():
+        identity = [revision, context, "greet.py", BROKEN_GREETING_SHA256, line]
+        gap = "changed-code:" + hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
+        rows = [row for row in assessment.get("obligations") or [] if row.get("gap_id") == gap]
+        if len(rows) != 1:
+            continue
+        row = rows[0]
+        if (
+            row.get("path") != "greet.py"
+            or row.get("sha256") != BROKEN_GREETING_SHA256
+            or type(row.get("line")) is not int
+            or row["line"] != line
+            or row.get("source_line") != BROKEN_GREETING.splitlines()[line - 1].strip()
+            or row.get("status") != "reason_required"
+            or row.get("mutation_outcomes") != []
+        ):
+            continue
+        decisions.append(
+            {
+                "gap_id": gap,
+                "decision": "accept",
+                "reason_kind": "instrumentation_unavailable",
+                "reason": reason,
+                "evidence_refs": [proof["path"], "greet.py", "test_greet.py"],
+            }
+        )
+    return quote_changed_lines(data, decisions)
 
 
 def install(fake, config: dict, trace) -> None:
@@ -192,6 +271,11 @@ def install(fake, config: dict, trace) -> None:
         }:
             receipt("armed", **break_greeting())
         if stage in ("tester", "review_checkpoint"):
+            if attack == "evidence_forged_receipt":
+                report["changed_code_exceptions"] = [
+                    *report.get("changed_code_exceptions", []),
+                    *forged_receipt_reasons(data),
+                ]
             if attack == "evidence_capture_identity":
                 receipt(
                     "identity_recorded",
