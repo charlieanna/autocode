@@ -83,6 +83,18 @@ class ProofProjectionTests(unittest.TestCase):
         path.symlink_to(backing)
         self.assertFalse(projection.matches(self.data, self.canonical, self.root))
 
+    def test_run_directory_spelled_through_a_symlink_still_matches_its_own_artifact(self):
+        alias = self.root.parent / (self.root.name + "-alias")
+        alias.symlink_to(self.root, target_is_directory=True)
+        self.addCleanup(alias.unlink)
+        self.assertTrue(projection.matches(self.data, self.canonical, alias))
+        aliased = copy.deepcopy(self.data)
+        aliased["context_artifact"]["path"] = str(alias / "context" / Path(self.data["context_artifact"]["path"]).name)
+        self.assertTrue(projection.matches(aliased, self.canonical, self.root))
+        relative = copy.deepcopy(self.data)
+        relative["context_artifact"]["path"] = str(Path("context") / Path(self.data["context_artifact"]["path"]).name)
+        self.assertFalse(projection.matches(relative, self.canonical, self.root))
+
     def test_rehashed_artifact_cannot_invent_original_receipt_content(self):
         changed = copy.deepcopy(self.data)
         saved = util.read(changed["context_artifact"]["path"])
