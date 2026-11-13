@@ -5519,6 +5519,125 @@ function approveView(token = 'r1:abc') {
   return { status: 'AWAITING_GOAL_APPROVAL', done: false, needs: { kind: 'approve_plan', token } };
 }
 
+test('need notifications close on resolution and replacement without duplicating', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  views.set(alpha.runDir, approveView());
+  await ui.poll();
+  const first = host.notices[0];
+  await ui.poll();
+  assert.equal(host.notices.length, 1);
+  views.set(alpha.runDir, approveView('r2:def'));
+  await ui.poll();
+  assert.equal(first.closed, true);
+  assert.equal(host.notices.length, 2);
+  const second = host.notices[1];
+  assert.equal(second.closed, false);
+  views.set(alpha.runDir, workingView());
+  await ui.poll();
+  assert.equal(second.closed, true);
+  views.set(alpha.runDir, approveView('r3:ghi'));
+  await ui.poll();
+  assert.equal(host.notices.length, 3);
+});
+
+test('closing or deleting a run and disposing the chat closes its notice', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  ui.chat.show(beta);
+  await flush();
+  views.set(alpha.runDir, approveView());
+  views.set(beta.runDir, approveView('beta'));
+  await ui.poll();
+  assert.equal(host.notices.length, 2);
+  ui.chat.forget(alpha);
+  await flush();
+  assert.equal(host.notices[0].closed, true);
+  ui.chat.dispose();
+  await flush();
+  assert.equal(host.notices[1].closed, true);
+});
+
+test('closing a tab closes its notification and invalidates its link', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  ui.chat.show(beta);
+  await flush();
+  views.set(alpha.runDir, approveView());
+  await ui.poll();
+  const notice = host.notices[0];
+  [...ui.document.querySelectorAll('.chat-tab .close')][0].click();
+  await flush();
+  assert.equal(notice.closed, true);
+  notice.resolve('Open chat');
+  await flush();
+  assert.equal(ui.chat.run.runDir, beta.runDir);
+});
+
+test('forgetting the only run closes its notification', async (t) => {
+  const ui = await openChat(t, approveView(), alpha);
+  assert.equal(host.notices.length, 1);
+  ui.chat.forget(alpha);
+  await flush();
+  assert.equal(host.notices[0].closed, true);
+});
+
+test('restoring different tabs closes the discarded run notification', async (t) => {
+  const views = new Map([[alpha.runDir, approveView()], [beta.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  assert.equal(host.notices.length, 1);
+  const post = ui.window.acquireVsCodeApi().postMessage;
+  post({ type: 'ready' });
+  await flush();
+  post({ type: 'ready', tabs: [{ key: 'beta-tab', run: beta }], activeKey: 'beta-tab' });
+  await flush();
+  assert.equal(host.notices[0].closed, true);
+});
+
+test('a late poll after disposal cannot create a notification', async (t) => {
+  const ui = await openChat(t, workingView(), alpha);
+  let release;
+  const pending = new Promise((resolve) => { release = resolve; });
+  t.mock.method(controller, 'pollStatus', () => pending);
+  const refresh = ui.chat.refresh();
+  ui.chat.dispose();
+  release(approveView());
+  await refresh;
+  assert.equal(host.notices.length, 0);
+});
+
+test('a replaced notice cannot reopen its chat through a late action', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  ui.chat.show(beta);
+  await flush();
+  views.set(alpha.runDir, approveView());
+  await ui.poll();
+  const stale = host.notices[0];
+  views.set(alpha.runDir, approveView('r2:def'));
+  await ui.poll();
+  stale.resolve('Open chat');
+  await flush();
+  assert.equal(ui.chat.run.runDir, beta.runDir);
+  host.notices[1].resolve('Open chat');
+  await flush();
+  assert.equal(ui.chat.run.runDir, alpha.runDir);
+});
+
+test('turning notifications off closes the current notice', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  views.set(alpha.runDir, approveView());
+  await ui.poll();
+  await host.vscode.workspace.getConfiguration('autocode').update('notify', false);
+  await flush();
+  assert.equal(host.notices[0].closed, true);
+  await host.vscode.workspace.getConfiguration('autocode').update('notify', true);
+  await ui.chat.refresh();
+  assert.equal(host.notices.length, 2);
+  assert.equal(host.notices[1].closed, false);
+});
+
 test('test_ac1_background_tab_need_notifies_once', async (t) => {
   const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
   const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
@@ -5686,7 +5805,7 @@ test('test_ac12_working_to_done_task_complete_notifies_once', async (t) => {
   assert.equal(host.notices.length, 1);
 });
 
-test('test_ac13_renewed_identity_notifies_and_prior_identity_stays_silent', async (t) => {
+test('test_ac13_returning_need_is_announced_again', async (t) => {
   const views = new Map([[alpha.runDir, workingView()]]);
   const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
   views.set(alpha.runDir, approveView('r1:abc'));
@@ -5697,7 +5816,7 @@ test('test_ac13_renewed_identity_notifies_and_prior_identity_stays_silent', asyn
   assert.equal(host.notices[1].message, 'AutoCode: alpha is waiting for you - approval of the plan AutoCode displayed');
   views.set(alpha.runDir, approveView('r1:abc'));
   await ui.poll();
-  assert.equal(host.notices.length, 2);
+  assert.equal(host.notices.length, 3);
 });
 
 test('test_ac14_other_run_same_need_notifies_independently', async (t) => {
@@ -5785,6 +5904,24 @@ test('test_ac18_reopened_tab_same_run_does_not_renotify', async (t) => {
   await ui.poll();
   assert.equal(host.notices.length, 1);
   views.set(alpha.runDir, approveView('r2:def'));
+  await ui.poll();
+  assert.equal(host.notices.length, 2);
+});
+
+test('a reopened tab announces the same need if it resolved and returned', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  ui.chat.show(beta);
+  await flush();
+  views.set(alpha.runDir, approveView());
+  await ui.poll();
+  [...ui.document.querySelectorAll('.chat-tab .close')][0].click();
+  await flush();
+  ui.chat.show(alpha);
+  await flush();
+  views.set(alpha.runDir, workingView());
+  await ui.poll();
+  views.set(alpha.runDir, approveView());
   await ui.poll();
   assert.equal(host.notices.length, 2);
 });
