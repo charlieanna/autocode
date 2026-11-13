@@ -91,6 +91,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **A Resolver that repeatedly times out reaches the Investigator** (#3367): repair Resolvers now use the same bounded, independent investigation as other stuck stages. Attempts, partial usage, routes and saved work stay in the history; reopening cannot launch another identical model attempt. The Investigator still cannot investigate itself.
+
 - **Requirements clarification avoids empty-test report repairs and repeated questions**: while an unanswered interview question has no drafted behavior, an omitted acceptance-tests list is recorded as empty with the original report preserved. Work-bearing reports still require tests. VS Code shows the question once in the conversation and keeps an accessible answer field.
 
 - **Requirements can ask a clarification before drafting the outcome**: an initial question with no behaviors or acceptance tests can now wait for an answer even when its outcome is still blank, instead of entering report repair. The answer returns to Requirements before planning; completed handoffs still require an outcome.
