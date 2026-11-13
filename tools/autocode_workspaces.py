@@ -204,6 +204,7 @@ def discard_unused(data) -> bool:
 
 
 BASELINE = "Autocode project baseline"
+BASELINE_EMAIL = "autocode@localhost"
 # What a folder may hold and still be nothing of the person's: Git's own directory, AutoCode's, a Finder file.
 NOT_THE_PERSONS = frozenset({".git", ".autocode", ".DS_Store"})
 
@@ -231,7 +232,7 @@ def first_commit(project) -> bool:
     if not branch.startswith("refs/heads/"):
         return False
     tree = git(project, "hash-object", "-w", "-t", "tree", "--stdin", input="")
-    identity = ("-c", "user.name=Autocode", "-c", "user.email=autocode@localhost")
+    identity = ("-c", "user.name=Autocode", "-c", f"user.email={BASELINE_EMAIL}")
     commit = git(project, *identity, "commit-tree", tree, "-m", BASELINE)
     try:  # only when the branch still has no commit: one made meanwhile is never replaced
         git(project, "update-ref", "-m", BASELINE, branch, commit, "")
@@ -240,6 +241,24 @@ def first_commit(project) -> bool:
             return False  # another start, or the person, made the first commit in between
         raise
     return True
+
+
+def only_first_commit(project) -> bool:
+    """Whether the branch checked out in ``project`` holds nothing but the empty first commit AutoCode made.
+
+    That is a project AutoCode started (``bootstrap``, ``first_commit``) in which nobody has committed
+    yet: what a first task built there, or what the person keeps there, is uncommitted. A second task
+    in a folder AutoCode had made a project of was given a worktree of that empty commit, so "add an
+    option to hello.py" started in a folder without hello.py. A task there works in the folder itself
+    until the branch has a commit with something in it. Other refs do not count: AutoCode keeps its own
+    (``refs/autocode/``), and a task branch still at the first commit holds nothing either.
+    """
+    try:
+        if git(project, "rev-list", "--count", "HEAD") != "1" or git(project, "ls-tree", "HEAD"):
+            return False
+        return git(project, "log", "-1", "--format=%s%n%ae") == f"{BASELINE}\n{BASELINE_EMAIL}"
+    except (OSError, ValueError):
+        return False
 
 
 def own_files(project) -> list[str]:
@@ -282,7 +301,7 @@ def bootstrap(selected):
         "-c",
         "user.name=Autocode",
         "-c",
-        "user.email=autocode@localhost",
+        f"user.email={BASELINE_EMAIL}",
         "commit",
         "--allow-empty",
         "-qm",

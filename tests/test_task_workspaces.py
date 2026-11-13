@@ -153,6 +153,31 @@ class TaskWorkspaces(unittest.TestCase):
         with unittest.mock.patch.object(w, "git", refusing), self.assertRaisesRegex(ValueError, "cannot lock ref"):
             w.first_commit(folder)
 
+    def test_a_branch_that_holds_only_autocodes_empty_first_commit_has_nothing_committed(self):
+        folder = self.unborn()
+        self.assertFalse(w.only_first_commit(folder))  # no commit at all
+        w.first_commit(folder)
+        self.assertTrue(w.only_first_commit(folder))
+        made = self.root / "made"
+        made.mkdir()
+        self.assertTrue(w.only_first_commit(w.bootstrap(made)))
+        # AutoCode's own refs and a task branch still at the first commit hold nothing either.
+        (folder / "hello.py").write_text("print('hi')\n")
+        tree = w.git(folder, "write-tree")
+        other = w.git(folder, "-c", "user.name=A", "-c", "user.email=a@example.test", "commit-tree", tree, "-m", "x")
+        w.git(folder, "update-ref", "refs/autocode/launch/run-1", other)
+        w.git(folder, "branch", "autocode/task-1")
+        self.assertTrue(w.only_first_commit(folder))
+        # The person's first commit ends it, and a repository of theirs never qualifies.
+        w.git(folder, "add", "hello.py")
+        w.git(folder, "-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qm", "mine")
+        self.assertFalse(w.only_first_commit(folder))
+        self.assertFalse(w.only_first_commit(self.project))
+        self.assertFalse(w.only_first_commit(self.root))
+        mine = self.unborn("mine")  # an empty first commit of the person's own is theirs
+        w.git(mine, "-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "--allow-empty", "-qm", "Start")
+        self.assertFalse(w.only_first_commit(mine))
+
     def test_a_task_worktree_starts_from_the_first_commit_autocode_made(self):
         folder = self.unborn()
         created = w.create(folder, "task")
@@ -296,6 +321,46 @@ class IsolatedCli(unittest.TestCase):
                 self.assertFalse((folder / ".autocode" / "worktrees").exists())
                 self.assertEqual(before, w.git(folder, "status", "--porcelain", "--untracked-files=all"))
                 self.assertEqual(bool(files), "your files were not added to it" in output)
+
+    def test_a_second_task_in_a_project_with_nothing_committed_works_in_the_folder(self):
+        # A folder AutoCode made a project of holds what the first task built, uncommitted. The second
+        # task ("add an option to hello.py") got a worktree of the empty first commit, without hello.py.
+        flow = test_subprocess.SubprocessFlow()
+        flow.setUp()
+        self.addCleanup(flow.doCleanups)
+        folder = flow.root / "made"
+        folder.mkdir()
+
+        def start(*flags):
+            result = subprocess.run(
+                [*flow.entry, "--workspace", str(folder), "--engine", "codex", "--no-chat", *flags, "Add an option"],
+                cwd=flow.root,
+                env={**flow.env, "AUTOCODE_FIXTURE_MODE": "no-human"},
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            return result.stdout + result.stderr
+
+        self.assertIn("Created task project", start())
+        (folder / "hello.py").write_text("print('hi')\n")
+        runs = lambda: len(list((folder / ".autocode" / "runs").glob("*/state.json")))  # noqa: E731
+        for count, flags in ((2, ()), (3, ("--build-in-worktree",)), (4, ("--in-place",))):
+            with self.subTest(flags=flags):
+                output = start(*flags)
+                self.assertEqual(count, runs(), output)
+                self.assertFalse((folder / ".autocode" / "worktrees").exists(), output)
+                self.assertNotIn("Task worktree:", output)
+                self.assertEqual(
+                    not flags, f"Nothing in {folder} is committed yet, so the task works in the folder" in output
+                )
+        # Once the person commits, a task gets a worktree of its own again, from that commit.
+        w.git(folder, "add", "hello.py")
+        w.git(folder, "-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qm", "mine")
+        output = start()
+        self.assertIn("Task worktree:", output)
+        [tree] = (folder / ".autocode" / "worktrees").iterdir()
+        self.assertTrue((tree / "hello.py").is_file())
 
     def test_read_only_commands_never_make_the_first_commit(self):
         flow = test_subprocess.SubprocessFlow()

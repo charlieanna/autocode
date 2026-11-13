@@ -391,6 +391,15 @@ def resolve(runner, args, parser):
                     ),
                     flush=True,
                 )
+            elif not getattr(args, "worktree_branch", None) and task_workspaces.only_first_commit(workspace):
+                # Nothing is committed here yet: a worktree would start from the empty first commit,
+                # without what an earlier task built in the folder or the person keeps there.
+                if not args.in_place:
+                    print(
+                        f"Nothing in {workspace} is committed yet, so the task works in the folder itself.",
+                        flush=True,
+                    )
+                args.in_place, args.build_in_worktree = True, False
         if not args.in_place and not args.dry_run and not args.status and not args.explain:
             repeated = run_finder.same_task(workspace, task)
             if repeated:  # a recalled start command most often means "continue", not "start another" (#2340)

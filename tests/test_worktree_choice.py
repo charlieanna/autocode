@@ -228,6 +228,24 @@ class OptionsTests(unittest.TestCase):
                 else:
                     self.assertIsNone(warning)
 
+    def test_a_project_with_nothing_committed_offers_only_the_folder(self):
+        # A worktree would start from AutoCode's empty first commit, without anything the folder holds.
+        made = checkout(self).parent / "made"  # checkout: a registry of this test's own
+        made.mkdir()
+        workspaces.bootstrap(made)
+        (made / "hello.py").write_text("print('hi')\n")
+        listing = choice.options(made)
+        self.assertEqual(["folder"], [place["id"] for place in listing["places"]])
+        self.assertEqual("folder", listing["default"])
+        self.assertEqual(["--build-in-worktree"], listing["places"][0]["start_args"])
+        self.assertEqual(
+            "Nothing in this folder is committed yet, so the chat works here.", listing["places"][0]["does"]
+        )
+        self.assertIsNone(listing["places"][0]["warning"])
+        util.git(made, "add", "hello.py")
+        util.git(made, "-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qm", "mine")
+        self.assertEqual(["new_branch", "branch", "folder"], [place["id"] for place in choice.options(made)["places"]])
+
     def test_a_folder_of_checkouts_warns_that_a_chat_there_changes_none_of_them(self):
         """#2066: a parent folder of repositories bootstraps an empty project; the person sees it first."""
         root = checkout(self)
