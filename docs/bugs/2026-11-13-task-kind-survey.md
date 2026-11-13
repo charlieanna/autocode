@@ -10,7 +10,7 @@ provider (`scenarios/run.py run --fake`). Eight of them then ran once on Claude 
 (`--profile claude-tiers`: Sonnet 5.5 Requirements, Planner and Tester, Opus 5.5 reviewers,
 Haiku 4.5 Builder), $9.15 in all, and $12.59 more for the eight runs after a fix. Sections 5 to 7
 (JavaScript) are six later runs, $10.86, section 8 (RSpec) four more, $5.51, and section 9 (Minitest)
-three, $4.82. Sections 10 to 12 are fifteen runs on master `c6b9f7f`, $17.59.
+three, $4.82. Sections 10 to 12 are fifteen runs on master `c6b9f7f`, $17.59, and section 14 four more, $5.10.
 
 ## Scripted stops that real models do not hit
 
@@ -295,8 +295,8 @@ touches no test, and the suite failed on the original code, the proof needs it t
 with the suite's own files (its tests, manifests and runner configs) as the original code had them
 (`first_suite.exit_flip`). That holds for the suites whose inputs AutoCode knows: Jest, Mocha, Minitest
 files, and a test script the approved plan names where no runner is detected. `make test` and a
-package.json script run whatever a recipe says, and a shell test that sources the product holds the
-product at its original, so those keep the old judgement. On the fixed tree the same request completed
+package.json script run whatever a recipe says, so those keep the old judgement (a shell test that
+sources the product did too, until section 14). On the fixed tree the same request completed
 without a question (346 s, $2.20, of which about half was a Tester report repair unrelated to the proof;
 manifest `3cacb2fc3b57d06c8fba7b474c3d94e3576ac73e8c0c515f2376af2e48560521`).
 
@@ -343,6 +343,39 @@ project whose original code never returns.
 
 Still open: a project whose runner names no test and has no targeted command proves with the whole suite
 on the original code, which is run under the suite's own limit.
+
+## 14. Shell: three more runs, and a failing shell test to repair asks the person (fixed)
+
+Three runs on the tree with the fixes above, $4.28, and one after this fix, $0.82:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| Shell bug fix with a regression test (`pager.sh`, `tests/test_pager.sh`) | complete, 268 s, $1.65; one question (below) | `d1965f9eb89e8133dd69e1eca028a1e7e746a1c70772f9797b0e1754d7596503` |
+| "`sh tests/test_pager.sh` fails, fix `pager.sh`, do not change the tests" | asked the person, 195 s, $1.21 | `45c40a2554d79b47d85b26e247fbb490af423cae5ce895ac85dea87dddd64bc6` |
+| Python: "drain() never returns for a list with items", with a regression test | complete, 191 s, $1.42 | `126d298960b227cd3f9ea3077e4ba2366ab5a9ad9ec9334773c1814b8178e1ba` |
+
+The repair of the failing shell test is section 11 again. The test sources the code it tests
+(`. ./pager.sh`), and the suite's definition held every file a test script names at the original, so the
+original test never ran the fixed `pager.sh`: the proof failed twice with "the suite that fails on the
+original code is not shown to pass with the change", and the Resolver asked the person to allow a new test
+file. Fixed: when a repair rests on the suite's exit code, a file the original shell tests source is the
+code under test, as a file a JavaScript test imports is (#587), and the original test runs over the
+changed file (`autocode_suite_definition_scan.sourced_product`). A script the test runs
+(`sh ./checks.sh`) is still one of the suite's own files, so a change that drops a check from it shows no
+repair.
+
+On the fixed tree the same request completed without a question (132 s, $0.82, 8 stages, manifest
+`a20978095797ba616679c3e3e61681cbce444751750d1edd3c7a1019b544478f`): the proof ran the original test over
+the changed `pager.sh` and passed with "its suite `sh tests/test_pager.sh` fails on the original code
+(exit 1) and passes with the change".
+
+In the fix for the function that never returns, the Builder's test gave itself a time limit, so the
+bound of section 13 had nothing to stop.
+
+The shell bug fix asked one question, which the harness answered: the Plan Reviewer had asked for a
+different proof of an unchanged criterion (a `guard:` on the test command replaced by an inline
+command), and the person was asked to accept "the new wording" of a criterion whose words were the
+same. Not fixed here.
 
 ## Also seen, not yet run on real models
 

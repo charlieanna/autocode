@@ -274,10 +274,13 @@ names report only an exit code, so there the suite shows the repair as a whole: 
 failed on the original code and passes with the change. That counts when the change is
 code alone and touches no test, and the suite's own files (its tests, manifests and
 runner configs) are the ones the original code had, or the original definition also
-passes over the new code. `make test` and a script package.json names run whatever a
-recipe says, so they do not show a repair this way, and a change that also edits
-another kind of file is judged as before (`tools/autocode_first_suite.py`,
-`exit_flip`). When AutoCode detects no runner and nothing was typed, the regression
+passes over the new code. A file a shell test sources (`. ./pager.sh`) is the code
+under test there, as a file a JavaScript test imports is, and not one of the suite's
+own files; a script the test runs stays one
+(`autocode_suite_definition_scan.sourced_product`). `make test` and a script
+package.json names run whatever a recipe says, so they do not show a repair this way,
+and a change that also edits another kind of file is judged as before
+(`tools/autocode_first_suite.py`, `exit_flip`). When AutoCode detects no runner and nothing was typed, the regression
 proof runs the approved plan's own test command and judges its exit code
 (`tools/autocode_plan_proof_command.py`), recording that choice in the proof's
 notes and review reasons; it never asks the person to pass `--test-command`. Do

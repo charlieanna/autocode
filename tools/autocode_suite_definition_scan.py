@@ -203,6 +203,39 @@ def _shell_script(path, text):
     return interpreter == "env" and any(token in _SHELL_INTERPRETERS for token in tokens)
 
 
+# ``. FILE`` or ``source FILE`` as a whole statement at the start of a line, with a literal path.
+_SHELL_SOURCE = re.compile(r"""^[ \t]*(?:\.|source)[ \t]+(["']?)([^\s;&|()<>"'`$*?~]+)\1[ \t]*(?:#.*)?$""", re.M)
+
+
+def shell_sources(path, text) -> list[str]:
+    """The literal paths a shell script sources, relative to the directory the suite runs in.
+
+    Sourcing is a shell script's import: the file's functions become the script's own. Only a statement
+    on a line of its own with a literal path counts; a computed path (``. "$DIR/lib.sh"``) names no file.
+    """
+    if not _shell_script(path, text):
+        return []
+    found = [posixpath.normpath(match.group(2)) for match in _SHELL_SOURCE.finditer(text)]
+    return [literal for literal in found if not literal.startswith(("/", "../"))]
+
+
+def sourced_product(tests, tracked, read) -> set[str]:
+    """The files the base's shell tests source, and the files those source: the code under test.
+
+    As a file a JavaScript test imports is product code (#587), not one of the suite's own files. Tests
+    are never product, and a file no test reaches by sourcing stays what the suite's scripts made it.
+    """
+    found: set[str] = set()
+    queue = sorted(tests)
+    while queue:
+        path = queue.pop()
+        for target in shell_sources(path, read(path)):
+            if target in tracked and target not in tests and target not in found:
+                found.add(target)
+                queue.append(target)
+    return found
+
+
 def _first_argument_end(mask, open_paren, close):
     """Index of the first-argument comma at parenthesis depth 1, else ``close``."""
     depth = 0

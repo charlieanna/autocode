@@ -18,6 +18,8 @@ class Definition:
     patched: set[str]
     manifests: dict[str, str] = field(default_factory=dict)
     changed: bool = True
+    # Files the base's shell tests source (definition_scan.sourced_product): the code under test.
+    sourced: set[str] = field(default_factory=set)
 
 
 # Product import/export maps only. Module execution mode and legacy entry
