@@ -36,11 +36,21 @@ def _span(quote: str, text: str) -> str | None:
     return match.group(0) if match else None
 
 
+def _blockquote_span(quote: str, text: str) -> str | None:
+    """``quote`` inside Markdown ``> ``-prefixed lines, returning the exact verbatim slice of ``text``."""
+    words = quote.split()
+    if not words or ">" not in text:
+        return None
+    sep = r"(?:\s*\n[ \t]*>[ \t]?|\s)+"
+    match = re.search(sep.join(map(re.escape, words)), text)
+    return match.group(0) if match else None
+
+
 def ground(quote, sources) -> str | None:
     """The exact source text ``quote`` stands for: the quote itself, the same words with the source's
     whitespace, or the same text without the period the checklist adds to a heading. None when no
-    source holds it. A quote that differs only by dropped markup (backticks, quotes, whitespace)
-    resolves to the source span itself (#2835)."""
+    source holds it. A quote that differs only by dropped markup (backticks, quotes, whitespace,
+    or Markdown ``> `` prefixes) resolves to the source span itself (#2835)."""
     quote = str(quote or "").strip()
     if not quote:
         return None
@@ -49,10 +59,10 @@ def ground(quote, sources) -> str | None:
         return quote
     for candidate in (quote, quote.removesuffix(".").rstrip()) if quote.endswith(".") else (quote,):
         for text in texts:
-            span = _span(candidate, text)
+            span = _span(candidate, text) or _blockquote_span(candidate, text)
             if span:
                 return span
-    # A quote that dropped markup (backticks, quotes) still matches the source's words (#2835).
+    # A quote that dropped markup (backticks, quotes, or blockquote markers) still matches (#2835).
     # Strip markup from both and match; then map back to the source's exact text.
     stripped = _strip_markup(quote)
     if stripped:
@@ -88,25 +98,25 @@ def _find_source_span(stripped: str, text: str) -> str | None:
     words = stripped.split()
     if not words:
         return None
-    # Find each word's position in the source; words may be wrapped in markup.
-    # Match each word allowing surrounding markup, and take the span from first to last.
+    # Match each word sequentially across text; words may be wrapped in markup and span blockquote lines.
     positions = []
+    cursor = 0
     for word in words:
         core = word.strip(".,;:!?")
         if not core:
             continue
-        # Find the core word in the source, allowing markup around it.
         match = re.search(
             r"[`'\"\u201c\u201d\u2018\u2019]*" + re.escape(core) + r"[`'\"\u201c\u201d\u2018\u2019]*",
-            text,
+            text[cursor:],
         )
         if not match:
             return None
-        positions.append(match)
+        positions.append((cursor + match.start(), cursor + match.end()))
+        cursor += match.end()
     if not positions:
         return None
-    start = positions[0].start()
-    end = positions[-1].end()
+    start = positions[0][0]
+    end = positions[-1][1]
     # Extend to include trailing punctuation from the source.
     while end < len(text) and text[end] in ".,;:!?":
         end += 1
@@ -117,8 +127,9 @@ _MARKUP_CHARS = "`'\"\u201c\u201d\u2018\u2019"
 
 
 def _strip_markup(text: str) -> str:
-    """Remove backticks and quote marks, collapse whitespace: the words a dropped-markup quote holds."""
-    cleaned = "".join(c for c in text if c not in _MARKUP_CHARS)
+    """Remove backticks, quote marks and Markdown ``> `` prefixes; collapse whitespace."""
+    without_quotes = re.sub(r"(?m)^[ \t]*>[ \t]?", " ", text)
+    cleaned = "".join(c for c in without_quotes if c not in _MARKUP_CHARS)
     return " ".join(cleaned.split())
 
 

@@ -26,6 +26,7 @@ try:
     from . import autocode_report_edits as report_edits
     from . import autocode_requirement_retention as requirement_retention
     from . import autocode_roles as roles
+    from . import autocode_source_log as source_log
     from . import autocode_source_trace as source_trace
 except ImportError:
     import autocode_contract_revision as contract_revision
@@ -37,6 +38,7 @@ except ImportError:
     import autocode_report_edits as report_edits
     import autocode_requirement_retention as requirement_retention
     import autocode_roles as roles
+    import autocode_source_log as source_log
     import autocode_source_trace as source_trace
 
 PLANNING_STAGES = frozenset(roles.ALL_PLANNING_STAGES)
@@ -44,14 +46,17 @@ DECISION_STAGES = frozenset({"plan_task", "review_completion", "review_checkpoin
 
 
 def requirements_sources(state: RunState, stage: str) -> dict:
-    """Give a Requirements repair the saved IDs needed to cite a user correction."""
+    """Give a Requirements repair the saved IDs needed to cite a user correction or linked origin issue."""
     if stage != "requirements_gather":
         return {"previous_requirements": None}
     previous = ((state.get("requirements_handoff") or {}).get("report") or {}).get("requirements", [])
-    return {
+    result = {
         "previous_requirements": copy.deepcopy(previous),
         "requirements_correction_sources": requirement_retention.correction_sources(state, previous),
     }
+    if linked := source_log.linked_issue_records(state):
+        result["linked_issues"] = linked
+    return result
 
 
 def baseline_instruction(stage: str) -> str:

@@ -26,9 +26,11 @@ import re
 
 try:
     from . import autocode_requirements_review as requirements_review
+    from . import autocode_source_log as source_log
     from .autocode_conversation import task_user_texts
 except ImportError:
     import autocode_requirements_review as requirements_review
+    import autocode_source_log as source_log
     from autocode_conversation import task_user_texts
 
 CUE = re.compile(r"\b(must not|must|never|do not|don't|required|exactly|only)\b", re.I)
@@ -138,10 +140,11 @@ def _task_sources(state: RunState):
 
 
 def source_texts(state: RunState):
-    """Human task sources, brief feedback and answers a source_quote may cite."""
+    """Human task sources, brief feedback, answers and linked origin issues a source_quote may cite."""
     texts = _task_sources(state)
     texts += [event.get("text", "") for event in state.get("brief_feedback", [])]
     texts += [event.get("text", "") for event in state.get("answers", {}).values() if isinstance(event, dict)]
+    texts += [row["text"] for row in source_log.linked_issue_records(state) if row.get("text")]
     return [text for text in texts if text]
 
 

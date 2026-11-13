@@ -173,6 +173,17 @@ def prompt(state: RunState, inventory, engine) -> str:
     }
     if reference := (state.get("settings") or {}).get("figma_file"):
         packet["figma_file"] = reference
+    try:
+        from . import autocode_source_log as source_log
+    except ImportError:
+        import autocode_source_log as source_log
+    if linked := source_log.linked_issue_records(state):
+        packet["linked_issues"] = linked
+        packet["linked_issues_note"] = (
+            "Origin-repository GitHub issues/PRs named in the user's messages were already fetched "
+            "and are included in linked_issues and source_texts. Do not re-fetch them via shell/network; "
+            "quote their text verbatim in source_quote and cite their id in source_refs if needed."
+        )
     return (
         prompts.get("requirements-triage.md")
         + prompts.get("fragments/autoplanner/context-03.md")
