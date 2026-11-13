@@ -30,6 +30,14 @@ class AccessTransportConsumerTests(unittest.TestCase):
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_stalled_review_changes_keep_the_public_retry_regression_when_slow(self):
+        consumer = "tests.test_repeated_tester_timeout_cli"
+        for source in ("tools/autocode_stage_stalls.py", "tools/autocode_stage_recovery.py"):
+            with self.subTest(source=source):
+                selected = run_suite.select_tests([source], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
     def test_kilo_tool_readiness_keeps_its_mixed_transport_cli_regression_when_slow(self):
         consumer = "tests.test_kilo_tool_readiness_cli"
         for source in (

@@ -43,6 +43,10 @@ CALC_TEST = NODE_TEST + "const {add} = require('../calc.js');\ntest('add', () =>
 FEATURE_TEST = NODE_TEST + "const {mul} = require('../calc.js');\ntest('mul', () => assert.equal(mul(2, 3), 6));\n"
 OTHER_TEST = NODE_TEST + "test('other', () => assert.ok(true));\n"
 NARROWED = "The base suite definition fails against the candidate code"
+# A test script the runner cannot ask for per-test results, so `npm test` reports an exit code only. A
+# script that is node's own test runner alone is run with the runner's reporter and names its tests
+# (autocode_node_tests.npm_test): the same candidates are then judged by name, never through npm.
+OPAQUE = {"test": "node --test && node -e 0"}
 
 
 def manifest(scripts, **fields):
@@ -187,39 +191,47 @@ class BaseDefinitionProofTests(unittest.TestCase):
             result["failures"],
         )
 
-    def test_g7_a_follow_up_cannot_undo_the_reviewed_change_and_its_test(self):
+    def follow_up(self, scripts, files):
+        """The proof of a follow-up (``files``) to a reviewed change that added mul() and its test."""
         reviewed_test = CALC_TEST + "test('mul', () => assert.equal(require('../calc.js').mul(2, 3), 6));\n"
-        sub_test = NODE_TEST + "const {sub} = require('../sub.js');\ntest('sub', () => assert.equal(sub(3, 2), 1));\n"
-        project = self.project(seed(), {"calc.js": FIXED, "test/calc.test.js": reviewed_test})
+        project = self.project(seed(scripts), {"calc.js": FIXED, "test/calc.test.js": reviewed_test})
         patch = project.evidence.parent / "reviewed.patch"
         patch.write_text(
             subprocess.run(["git", "diff"], cwd=project.root, check=True, capture_output=True, text=True).stdout
         )
-        project.write(
-            {
-                "calc.js": CALC,
-                "test/calc.test.js": CALC_TEST,
-                "sub.js": "exports.sub = (a, b) => a - b;\n",
-                "test/sub.test.js": sub_test,
-            }
-        )
+        project.write(files)
+        return project, self.verified(project, base_patch=patch)
+
+    def test_g7_a_follow_up_cannot_undo_the_reviewed_change_and_its_test(self):
+        sub_test = NODE_TEST + "const {sub} = require('../sub.js');\ntest('sub', () => assert.equal(sub(3, 2), 1));\n"
+        undone = {
+            "calc.js": CALC,
+            "test/calc.test.js": CALC_TEST,
+            "sub.js": "exports.sub = (a, b) => a - b;\n",
+            "test/sub.test.js": sub_test,
+        }
+        project, result = self.follow_up(OPAQUE, undone)
         self.assertNotIn("calc.js", verify.changed_files(project.root, project.base))
-        self.assertNarrowed(self.verified(project, base_patch=patch))
+        self.assertNarrowed(result)
+        # Named test by test, the reviewed change's own test is missing from the candidate's suite.
+        _, named = self.follow_up(None, undone)
+        self.assertEqual(verify.FAIL, named["verdict"], named)
+        self.assertTrue(
+            any(
+                reason.startswith("Tests that pass on base did not pass on the candidate")
+                and "test/calc.test.js::mul" in reason
+                for reason in named["failures"]
+            ),
+            named["failures"],
+        )
 
     def test_g7_a_follow_up_preserving_the_reviewed_change_still_passes(self):
-        reviewed_test = CALC_TEST + "test('mul', () => assert.equal(require('../calc.js').mul(2, 3), 6));\n"
-        project = self.project(seed(), {"calc.js": FIXED, "test/calc.test.js": reviewed_test})
-        patch = project.evidence.parent / "reviewed.patch"
-        patch.write_text(
-            subprocess.run(["git", "diff"], cwd=project.root, check=True, capture_output=True, text=True).stdout
-        )
-        project.write(
-            {
-                "sub.js": "exports.sub = (a, b) => a - b;\n",
-                "test/sub.test.js": NODE_TEST + "test('sub', () => assert.equal(require('../sub.js').sub(3, 2), 1));\n",
-            }
-        )
-        self.assertPreserved(self.verified(project, base_patch=patch))
+        kept = {
+            "sub.js": "exports.sub = (a, b) => a - b;\n",
+            "test/sub.test.js": NODE_TEST + "test('sub', () => assert.equal(require('../sub.js').sub(3, 2), 1));\n",
+        }
+        self.assertPreserved(self.follow_up(OPAQUE, kept)[1])
+        self.assertEqual(verify.PASS, self.follow_up(None, kept)[1]["verdict"])
 
 
 class DefinitionReceiptTests(unittest.TestCase):

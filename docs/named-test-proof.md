@@ -174,6 +174,17 @@ including final summary events available in current Node 22 and later releases.
 The reporter handles Node 22.14's omitted ordinary-test type while preserving
 suite identity; a missing type in retained proof files is still invalid evidence.
 
+A project whose suite is `npm test` reports its tests by name too when the package's
+`test` script is that command: `node --test tests/*.test.js`, or build steps and then
+it (`tsc -p . && node --test out/*.test.js`). Node reads a reporter option only before
+the test paths, so AutoCode runs the script's own command with its reporter (after the
+build steps, run as `npm test` runs them) and leaves the path pattern for the shell to
+expand as it does under npm. A change that touches no test file is then proved by the
+suite's own tests, which is what a refactor guarded by the existing tests needs. A
+package with a `pretest` or `posttest` script or an `.npmrc` (which can set the
+script's shell or node's options), a script behind `--prefix`, and any other script
+keep `npm test` as written and its exit code (`autocode_node_tests.npm_test`).
+
 For Vitest 4, keep the tests in their existing framework. Give each case a unique
 name, such as `test('test_c1_adds_two_numbers', ...)`, and use
 `npx --no-install vitest run tests/example.test.js`. An npm `test` script containing
@@ -184,6 +195,24 @@ identities, interrupted reports, and unsupported versions cannot supply named
 passes. Collection and hook failures are separated from application failures.
 The reporter uses Vitest's reporting lifecycle and v4 hook-result metadata;
 qualification currently covers Vitest 4.1.6.
+
+A test the project already has in `node:test` or Vitest is named by its title,
+which is free text: for `test('counts a partial last page', ...)` a plan writes
+`guard: counts a partial last page`. AutoCode binds such a declaration to the test
+when a test the proof ran has exactly that title (the last part of its id; inside
+a Vitest suite, `suite > title` or `title` alone), quoted or followed by an
+annotation if the plan wrote one. A declaration that is no test's title is prose,
+and its criterion keeps the id convention (`test_ac2_...`). So a refactor or a bug
+fix in a project whose tests have ordinary titles guards its existing behavior
+with the existing tests, without a `test_*` copy of them
+(`autocode_test_cases.titled`).
+
+A JavaScript test's own name is that title, never a word of its file's name. The proof
+leaves a suite test out of the guards when a changed file names it, since the changed
+file may have redefined it: for a titled test that means a changed file spells the
+title. Read from the whole id, `tests/pager.test.js::counts a partial last page` was
+named "test", so any changed file that says `test(` took every test of the suite out
+(`autocode_test_cases.function_name`).
 
 A `node:test` case must assert the behavior itself. A case that runs another
 test runner through `child_process` (`npm test -- -t NAME`, `npx vitest`, Jest,

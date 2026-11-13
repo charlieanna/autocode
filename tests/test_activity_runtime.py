@@ -754,9 +754,9 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertEqual(1, failures[0]["output_probe"]["attempts"])
         self.assertNotIn("active_stage", self.state)
 
-    def stalled_tester(self, iteration):
+    def stalled_tester(self, iteration, *, stage="tester"):
         _, record = self.interrupted_attempt()
-        record.update(role="tester", stage="tester", iteration=iteration)
+        record.update(role="tester" if stage == "tester" else "task_planner", stage=stage, iteration=iteration)
         return runner.automatically_recover_timed_out_stage(
             self.state, self.run, self.root, support.Paused("PAUSED_PROVIDER_TIMEOUT", "idle")
         )
@@ -831,6 +831,34 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertTrue(self.stalled_tester(3))
         self.assertEqual("RUNNING", self.state["status"])
         self.assertEqual(3, len(self.state["automatic_timeout_recoveries"]))
+
+    def test_consecutive_tester_stalls_are_investigated_before_a_third_identical_attempt(self):
+        # #3233: the direct Tester retry bypassed the repeated-stage guard because no successful
+        # Completion Review reset the streak. Each attempt repeated the same long verification.
+        self.start_task()
+        self.state["next_stage"] = "tester"
+        self.assertTrue(self.stalled_tester(1))
+        self.assertEqual("RUNNING", self.state["status"])
+        self.assertTrue(self.stalled_tester(2))
+        self.assertEqual("PAUSED_REPEATED_FAILURE", self.state["status"])
+        self.assertEqual(2, len(self.state["automatic_timeout_recoveries"]))
+        self.assertTrue(all(Path(row["events"]).is_file() for row in self.state["automatic_timeout_recoveries"]))
+        self.assertTrue(stuck_job.intercept(self.state, self.state["status"], self.state["stop_reason"]))
+        self.assertEqual("investigate_stuck", self.state["next_stage"])
+        self.assertEqual("tester", self.state["stuck_investigation"]["stage"])
+
+    def test_consecutive_completion_stalls_reach_diagnosis_before_a_third_review(self):
+        for stage in ("review_completion", "review_checkpoint"):
+            with self.subTest(stage=stage):
+                self.start_task()
+                self.state["next_stage"] = stage
+                self.assertTrue(self.stalled_tester(1, stage=stage))
+                self.assertEqual("RUNNING", self.state["status"])
+                self.assertTrue(self.stalled_tester(2, stage=stage))
+                self.assertEqual("PAUSED_REPEATED_FAILURE", self.state["status"])
+                self.assertTrue(stuck_job.intercept(self.state, self.state["status"], self.state["stop_reason"]))
+                self.assertEqual("investigate_stuck", self.state["next_stage"])
+                self.assertEqual(stage, self.state["stuck_investigation"]["stage"])
 
     def completion_review_timeout(self):
         """A stopped non-terminal Completion Review over a source the Validator already passed."""
@@ -910,6 +938,7 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertEqual(original, support.read(self.run / "state.json")["validation"])
 
     def test_completion_review_timeout_revalidates_when_the_evidence_no_longer_binds(self):
+        initial = copy.deepcopy(self.state)
         for binding, expected in (
             ("source", "tester"),
             ("contract", "tester"),
@@ -919,6 +948,8 @@ class ActivityRuntimeTests(unittest.TestCase):
             ("absent", "review_completion"),
         ):
             with self.subTest(binding=binding):
+                # Each binding fault is a separate run, not another retry of the previous fault.
+                self.state = copy.deepcopy(initial)
                 record, evidence = self.completion_review_timeout()
                 if binding == "source":
                     (self.root / "greet.py").write_text("print('changed after the validation ran')\n")
@@ -950,12 +981,14 @@ class ActivityRuntimeTests(unittest.TestCase):
     def test_completion_review_timeout_routes_the_workflows_verification_stage(self):
         # The retry must ask the reviewer that this routing uses for independent verification, and a
         # final-audit-only run has no separate Validator: its own audit stage re-produces the evidence.
+        initial = copy.deepcopy(self.state)
         for mode, policy, expected in (
             (None, None, "tester"),
             (runner.workflow.MODE, runner.workflow.APPROVAL_TEXT, "review_checkpoint"),
             (runner.workflow.FINAL_MODE, runner.workflow.FINAL_APPROVAL, "review_completion"),
         ):
             with self.subTest(mode=mode):
+                self.state = copy.deepcopy(initial)
                 self.completion_review_timeout()
                 self.state["settings"]["milestone_checkpoints"] = {"enabled": False}
                 if mode:

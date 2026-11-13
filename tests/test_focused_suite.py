@@ -56,12 +56,12 @@ class FocusedFallbackProofTests(unittest.TestCase):
             "goal_contract": {"body": {"task_kind": "bugfix"}},
         }
 
-    def prove(self, state):
+    def prove(self, state, *, timeout_all=False):
         """Prove with real commands, except that the whole discovered suite times out without waiting."""
         real = verify.run_suite
 
         def run(framework, command, tree, directory, label, **options):
-            if "discover" not in command:
+            if "discover" not in command and not timeout_all:
                 return real(framework, command, tree, directory, label, **options)
             self.whole_runs.append(label)
             output = Path(directory) / (label + ".log")
@@ -150,10 +150,94 @@ class FocusedFallbackProofTests(unittest.TestCase):
         self.assertIsNone(proof["suite_fallback"])
         self.assertTrue(any("timed out" in reason for reason in proof["unverified"]), proof["unverified"])
 
+    def test_focused_baseline_timeout_is_retained_without_repeating_it_or_passing_the_candidate(self):
+        state = self.state(test_timeout=1800)
+        for attempt in range(3):
+            self.project.write({"calc.py": f"# attempt {attempt}\ndef add(a, b): return a + b\n"})
+            proof = self.prove(state, timeout_all=True)
+            self.assertEqual(verify.UNVERIFIED, proof["verdict"])
+            self.assertNotIn("regression_on_candidate", proof["checks"])
+            self.assertEqual(["test_calc.py"], proof["suite_fallback"]["tests"])
+            self.assertEqual(["suite-on-base", "suite-on-base"], self.whole_runs)
+        state["settings"]["regression"]["test_timeout"] = 3600
+        self.prove(state, timeout_all=True)
+        self.assertEqual(4, len(self.whole_runs))
+
+    def test_no_fallback_does_not_relaunch_a_known_baseline_timeout(self):
+        state = self.state(test_timeout=1800)
+        with mock.patch.object(focused_suite, "choose_from_git", return_value=None):
+            for attempt in range(3):
+                self.project.write({"calc.py": f"# attempt {attempt}\ndef add(a, b): return a + b\n"})
+                proof = self.prove(state)
+                self.assertEqual(verify.UNVERIFIED, proof["verdict"])
+                self.assertIsNone(proof["suite_fallback"])
+                self.assertNotIn("regression_on_candidate", proof["checks"])
+                self.assertEqual(["suite-on-base"], self.whole_runs)
+
+    def test_new_regression_tests_use_existing_importers_across_repeated_proofs(self):
+        self.project = Project(
+            {
+                "autocode_calc.py": "def add(a, b): return a - b\n",
+                "test_existing.py": CALC_TESTS.replace("from calc", "from autocode_calc"),
+                "test_slow.py": "import unittest\nclass Slow(unittest.TestCase):\n def test_slow(self): pass\n",
+            }
+        )
+        self.addCleanup(self.project.close)
+        self.run_dir = self.project.root / ".autocode" / "runs" / "proof"
+        self.run_dir.mkdir(parents=True)
+        self.project.write(
+            {
+                "test_new.py": CALC_TESTS.replace("from calc", "from autocode_calc")
+                + " def test_add(self): self.assertEqual(5, add(2, 3))\n",
+            }
+        )
+        state = self.state(test_timeout=1800)
+        real = verify.baseline_identity
+        for attempt in range(3):
+            self.project.write({"autocode_calc.py": f"# attempt {attempt}\ndef add(a, b): return a + b\n"})
+            with mock.patch.object(
+                verify, "baseline_identity", side_effect=lambda *a, **k: {**real(*a, **k), "reuse_supported": False}
+            ):
+                proof = self.prove(state)
+            self.assertEqual(verify.PASS, proof["verdict"], proof["unverified"])
+            self.assertEqual(["test_existing.py"], proof["suite_fallback"]["tests"])
+            self.assertIn("imports", proof["suite_fallback"]["reason"])
+            self.assertTrue(any(name.endswith("test_add") for name in proof["fail_to_pass"]))
+            self.assertEqual(["suite-on-base"], self.whole_runs)
+
 
 class NearestTestsTests(unittest.TestCase):
     def roles(self, project, changes):
         return role_inventory.from_git(project.root, project.base, verify.is_test_path, changes=changes)
+
+    def test_import_graph_uses_original_sources_including_relative_and_ambiguous_imports(self):
+        sources = {
+            "pkg/__init__.py": "",
+            "pkg/autocode_calc.py": "X = 1\n",
+            "pkg/bridge.py": "from . import autocode_calc\n",
+            "other/bridge.py": "X = 1\n",
+            "tests/test_direct.py": "import pkg.autocode_calc\ndef test_x(): pass\n",
+            "tests/test_relative.py": "from pkg import bridge\ndef test_x(): pass\n",
+            "tests/test_flat.py": "import bridge\ndef test_x(): pass\n",
+            "tests/test_dynamic.py": "__import__(selected)\ndef test_x(): pass\n",
+            "tests/test_dynamic_relative.py": 'import_module(".autocode_calc", package_name)\ndef test_x(): pass\n',
+            "tests/test_unrelated.py": "def test_x(): pass\n",
+        }
+        project = Project(sources)
+        self.addCleanup(project.close)
+        project.write({"pkg/autocode_calc.py": "X = 2\n", "tests/test_direct.py": "def test_x(): pass\n"})
+        changes = {"pkg/autocode_calc.py": "modified"}
+        selected = focused_suite.nearest_tests(sources, changes, self.roles(project, changes), read=sources.__getitem__)
+        self.assertEqual(
+            [
+                "tests/test_direct.py",
+                "tests/test_dynamic.py",
+                "tests/test_dynamic_relative.py",
+                "tests/test_flat.py",
+                "tests/test_relative.py",
+            ],
+            selected,
+        )
 
     def test_changed_original_tests_and_tests_named_after_changed_products(self):
         project = Project(
