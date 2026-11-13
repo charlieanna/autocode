@@ -46,6 +46,7 @@ try:
     from . import autocode_stale_handoff as stale_handoff
     from . import autocode_status
     from . import autocode_support as support
+    from . import autocode_toolchain_byproducts as toolchain_byproducts
     from . import autocode_visual_profile as visual_profile
     from . import autocode_visual_runtime as visual_runtime
 except ImportError:
@@ -73,6 +74,7 @@ except ImportError:
     import autocode_stale_handoff as stale_handoff
     import autocode_status
     import autocode_support as support
+    import autocode_toolchain_byproducts as toolchain_byproducts
     import autocode_visual_profile as visual_profile
     import autocode_visual_runtime as visual_runtime
 
@@ -375,8 +377,19 @@ def raise_for_exit(
         raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Process exited without a report file")
 
 
-def record_after(state: RunState, record, workspace, base, before, events, *, save):
-    """Save the source after the stage, its diff and the tool summary, and name them on the record."""
+def record_after(state: RunState, record, workspace, base, before, events, *, save, allow_write=False):
+    """Save the source after the stage, its diff and the tool summary, and name them on the record.
+
+    A lockfile the project's toolchain created while the stage ran it is removed first and named on
+    the record (autocode_toolchain_byproducts): a read-only stage leaves the repository as it found
+    it, and a Builder is not charged with a file outside its assigned paths that a tool wrote. A
+    writing stage with no assigned paths may write anywhere, so nothing of its is removed.
+    """
+    owned = (state.get("current_task") or {}).get("affected_paths") or [] if allow_write else []
+    if not allow_write or owned:
+        removed = toolchain_byproducts.discard(workspace, before, owned=owned)
+        if removed:
+            record["toolchain_byproducts"] = removed
     after = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
     save(base.with_suffix(".after.json"), after)
     record["after_ref"] = str(base.with_suffix(".after.json"))

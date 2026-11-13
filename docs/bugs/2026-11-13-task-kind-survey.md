@@ -8,7 +8,7 @@ one-function paging library with a one-line change, so a stop is AutoCode's and 
 Method: master `6d8f4e4`, Linux cloud container. Twelve task kinds ran with the scripted
 provider (`scenarios/run.py run --fake`). Eight of them then ran once on Claude Code
 (`--profile claude-tiers`: Sonnet 5.5 Requirements, Planner and Tester, Opus 5.5 reviewers,
-Haiku 4.5 Builder), $9.15 in all.
+Haiku 4.5 Builder), $9.15 in all, and $3.67 more for the two runs after a fix.
 
 ## Scripted stops that real models do not hit
 
@@ -28,7 +28,7 @@ all three completed. The same holds for a C project with `make test` and a shell
 | Bug fix, shell script | stops | complete, 147 s, $0.75 |
 | Bug fix, Ruby with Minitest | stops | **asks the person for flags** |
 | Bug fix, Rust, tests inside `src/lib.rs` | stops | **asks the person to widen the plan** |
-| Bug fix, Rust, no `Cargo.lock` | stops | **pauses in planning** |
+| Bug fix, Rust, no `Cargo.lock` | stops | **pauses in planning** (fixed, then section 4) |
 
 ## 1. Ruby with Minitest: the person is asked for a test command (fixed)
 
@@ -56,7 +56,7 @@ allow a new `tests/page_count.rs`. A test under `tests/` is proved today (script
 but it reaches only public items. Proving an inline test needs the candidate's test module run
 against the original product code of the same file.
 
-## 3. Rust: `Cargo.lock` written by a read-only stage pauses the run (open)
+## 3. Rust: `Cargo.lock` written by a read-only stage pauses the run (fixed)
 
 Manifest `f817c5e0ea6db43cc36bec3e922c8647c144e8f907ef0267a87465672cff69fa`. The project has no
 `Cargo.lock` and does not ignore it. The Planner ran Cargo to read the project, Cargo wrote
@@ -64,6 +64,27 @@ Manifest `f817c5e0ea6db43cc36bec3e922c8647c144e8f907ef0267a87465672cff69fa`. The
 review") 65 s in. A scripted Builder that runs `cargo test` is rejected the same way for a file
 outside its paths (`PAUSED_INVALID_OUTPUT`). A lockfile the toolchain writes as a by-product is not
 an edit by the stage.
+
+A `Cargo.lock` that did not exist when the stage began, is untracked and sits beside a `Cargo.toml`
+is now removed before the stage's changes are read, and named in the stage record as
+`toolchain_byproducts` (`autocode_toolchain_byproducts`, `tests.test_toolchain_byproducts`). A
+lockfile the project already had, one a Builder's task owns, and one written by a Builder with no
+assigned paths are left alone. The same task on the same models then went through planning and the
+build with `Cargo.lock` discarded at the Plan Reviewer and the Builder (manifest
+`a10301015bb318cac7fbf20cba3557a77ab7cff4bc039470099897261514bdac`, 259 s, $1.39) and stopped at the
+next defect, section 4. OpenCode and Kilo check a read-only stage with their own snapshot
+(`autocode_readonly_events`); that path was not exercised here.
+
+## 4. Rust: a named test cannot be proved, and the person is asked (open)
+
+Same run as the fix in section 3. The plan named its tests (`test:` criteria in `tests/pages.rs`).
+Cargo results are not read per test, so the proof was `UNVERIFIED` ("the test run reported no
+per-test results") although its own log shows each named test failing on the original code and
+passing with the change. The Resolver then asked the person to accept the log lines, wait "until
+the runner supports cargo named-test parsing", or deliver without a proof. In an earlier run the
+Plan Reviewer raised the same limit at planning and the Planner asked the person how the fix should
+be verified. A `guard:` criterion has the same limit, so a Rust refactor with no new test cannot
+complete either (scripted run). Reading `cargo test` results per test removes all three.
 
 ## Also seen, not yet run on real models
 

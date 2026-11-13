@@ -858,7 +858,9 @@ def run_role(
         route_role=route_role,
     )
     with phase_timing.measure(state, "after_snapshot", stage=stage, attempt=attempt):
-        after = role_launch.record_after(state, record, workspace, base, before, events, save=save)
+        after = role_launch.record_after(
+            state, record, workspace, base, before, events, save=save, allow_write=allow_write
+        )
     if not allow_write and before["revision"] != after["revision"]:
         raise support.Paused(
             "PAUSED_STALE_VALIDATION", "Repository changed during read-only review; preserve result and revalidate"
