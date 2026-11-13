@@ -94,6 +94,13 @@ class CountTests(unittest.TestCase):
         saved = state([row("draft_plan", None), row("review_plan", "yesterday")], events)
         self.assertEqual(2, planning_calls.used(saved))
 
+    def test_a_damaged_saved_record_list_counts_nothing_and_keeps_the_view_readable(self):
+        for damaged in (True, 7, "none", {"stage": "draft_plan"}):
+            with self.subTest(damaged=damaged):
+                state = {"stages": damaged, "stuck_investigations": damaged, "user_events": damaged}
+                self.assertEqual(0, planning_calls.used(state))
+                self.assertIsNone(planning_calls.renewed_at(state))
+
 
 class CapTests(unittest.TestCase):
     def full(self, **extra):
