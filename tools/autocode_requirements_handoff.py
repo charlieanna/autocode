@@ -88,18 +88,18 @@ def _accept(state: RunState, value: dict, record: dict, *, check_code_refs, queu
     clarification_only = bool(questions) and (
         requirements_review.enabled(state) or requirements_review.questions_only(value)
     )
-    intake_only = (
-        requirements_review.enabled(state)
+    # An initial clarification can honestly leave the outcome undrafted. It must
+    # return to Requirements after the answer, before any plan is prepared.
+    awaiting_intent = (
+        not state.get("goal_contract")
         and clarification_only
-        and not any(value[key] for key in ("requirements", "required_behaviors", "acceptance_tests"))
+        and any(question.get("id") not in (state.get("answers") or {}) for question in questions)
+        and not any(value[key] for key in ("required_behaviors", "acceptance_tests"))
     )
-    # A chat that has not named any software outcome yet ("what is your name?")
-    # may say so honestly, provided it asks the person for that outcome.
-    asks_outcome = intake_only and any(question.get("category") == "requested_outcome" for question in questions)
     # Behaviors and acceptance tests describe code to build. A review, design or question names its
     # outcome and nothing else; its own stage checks the result (#1846).
     builds_code = requirements_review.builds_code(requirements_review.job(state, value))
-    if (not value["intended_outcome"].strip() and not asks_outcome) or (
+    if (not value["intended_outcome"].strip() and not awaiting_intent) or (
         builds_code and not clarification_only and (not value["required_behaviors"] or not value["acceptance_tests"])
     ):
         raise ValueError("Requirements handoff needs an outcome, behaviors, and acceptance tests")
