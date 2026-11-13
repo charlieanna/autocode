@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 try:
     from . import autocode_escalation as escalation
     from . import autocode_failures as failures
+    from . import autocode_first_reply_budget as first_reply_budget
     from . import autocode_interventions as interventions
     from . import autocode_job_failure as job_failure
     from . import autocode_partial_work as partial_work
@@ -32,6 +33,7 @@ try:
     from . import autocode_process as processes
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_limits as recovery_limits
+    from . import autocode_report_repair_queue as report_repair_queue
     from . import autocode_report_retry as report_retry
     from . import autocode_report_source as report_source
     from . import autocode_resolver_human as resolver_human
@@ -48,6 +50,7 @@ try:
 except ImportError:
     import autocode_escalation as escalation
     import autocode_failures as failures
+    import autocode_first_reply_budget as first_reply_budget
     import autocode_interventions as interventions
     import autocode_job_failure as job_failure
     import autocode_partial_work as partial_work
@@ -56,6 +59,7 @@ except ImportError:
     import autocode_process as processes
     import autocode_quota_route as quota_route
     import autocode_recovery_limits as recovery_limits
+    import autocode_report_repair_queue as report_repair_queue
     import autocode_report_retry as report_retry
     import autocode_report_source as report_source
     import autocode_resolver_human as resolver_human
@@ -336,7 +340,7 @@ def automatically_recover_report_repair_timeout(state: RunState, run_dir, worksp
         ):
             stop("source, original evidence or stage bindings changed")
         attempts = pending.get("attempts")
-        if type(attempts) is not int or not 1 <= attempts < records.repair_limit(state):
+        if type(attempts) is not int or not 1 <= attempts < report_repair_queue.effective_repair_limit(state, pending):
             stop("bounded report-only repair allowance exhausted or invalid; consumed attempts stay charged")
     except (KeyError, TypeError, ValueError, OSError, processes.ProcessError) as invalid:
         stop(str(invalid))
@@ -598,6 +602,108 @@ def automatically_recover_truncated_review(state: RunState, run_dir, workspace, 
     return True
 
 
+def automatically_recover_first_reply_budget(state: RunState, run_dir, workspace, error):
+    """Transition a ``requirements_gather`` reply-budget stop into a 1-attempt report-only finish (#3345)."""
+    record = state.get("active_stage") or {}
+    event_path = Path(record.get("events", ""))
+    if (
+        error.status not in ("PAUSED_PROVIDER_TIMEOUT", "PAUSED_PROVIDER_UNCERTAIN")
+        or not first_reply_budget.is_budget_stop(record)
+        or record.get("interrupted")
+        or record.get("cleanup_error")
+        or not event_path.is_file()
+        or not record.get("before_ref")
+        or not Path(record["before_ref"]).is_file()
+        or not record.get("schema")
+        or not Path(record["schema"]).is_file()
+        or state.get("pause_intent")
+        or (Path(run_dir) / "pause-requested").exists()
+        or interventions.pending(run_dir)
+    ):
+        return False
+    if any(row.get("type") == "turn.completed" for row in support.events(event_path)):
+        return False
+    try:
+        worker_check = record
+        if record.get("exit_code") is not None and record.get("pid"):
+            worker_check = copy.deepcopy(record)
+            worker_check["processes"] = [
+                row for row in record.get("processes", []) if row.get("pid") != record.get("pid")
+            ]
+        records.assert_stage_stopped(worker_check)
+    except support.Paused:
+        return False
+    before = records.read_json(Path(record["before_ref"]))
+    after = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
+    if before.get("revision") != after.get("revision"):
+        return False
+    pending = state.get("pending_report_repair")
+    if pending:
+        if pending.get("original", {}).get("stage") == first_reply_budget.STAGE and pending.get(
+            "attempts", 0
+        ) >= report_repair_queue.effective_repair_limit(state, pending):
+            raise support.Paused(
+                "PAUSED_REPORT_REPAIR_LIMIT",
+                "First-reply budget report-only finish exhausted its 1-attempt allowance; collected evidence is preserved",
+            )
+        return False
+    if not records.repair_limit(state):
+        return False
+
+    reason = record.get("timeout_reason") or "Requirements pass reached its first-reply budget"
+    evidence = first_reply_budget.extract_partial_evidence(event_path, record)
+    budget_summary = {
+        "stop_kind": evidence["stop_kind"],
+        "stop_reason": evidence["stop_reason"],
+        "budget": evidence["budget"],
+        "completed_tool_calls": evidence["completed_tool_calls"],
+        "inspected_paths": evidence["inspected_paths"],
+    }
+    record["metrics"] = support.event_metrics(event_path)
+    records.account_stage(state, record)
+    after_path = Path(record["output"]).with_suffix(".after.json")
+    records.write_json(after_path, after)
+    record.update(
+        after_ref=str(after_path),
+        source_revision=after["revision"],
+        changed_files=[],
+        abandoned=True,
+        automatic_recovery=True,
+        first_reply_budget=budget_summary,
+        rejection_reason=reason,
+    )
+    originals = records.archive_rejected_stage(state, run_dir, record, reason)
+    pins = {
+        record[key]: support.file_hash(record[key])
+        for key in ("events", "before_ref", "after_ref", "schema")
+        if record.get(key) and Path(record[key]).is_file()
+    }
+    state["pending_report_repair"] = {
+        "original": copy.deepcopy(record),
+        "attempts": 0,
+        "max_attempts": 1,
+        "first_reply_budget": True,
+        "contract_hash": (state.get("goal_contract") or {}).get("hash"),
+        "pins": pins,
+        "error": reason,
+    }
+    state.setdefault("user_events", []).append(
+        {
+            "kind": "first_reply_budget_finish",
+            "actor": "runner",
+            "at": records.now(),
+            "attempt_id": records.attempt_id(record),
+            "stage": first_reply_budget.STAGE,
+            "completed_tool_calls": evidence["completed_tool_calls"],
+        }
+    )
+    run_status.running(state, "REPORT_REPAIR", next_stage=first_reply_budget.STAGE)
+    records.write_json(Path(run_dir) / "state.json", state)
+    for artifact in originals:
+        artifact.unlink(missing_ok=True)
+    return True
+
+
 def reconcile_rate_limited_stage(state: RunState, run_dir, workspace):
     """AutoResolver retires a proven stopped rate-limit attempt without replay."""
     record = state.get("active_stage") or {}
@@ -664,6 +770,8 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
         return job_failure.recover(records, state, run_dir, workspace, error)
     if record and record.get("report_only"):
         return automatically_recover_report_repair_timeout(state, run_dir, workspace, error)
+    if automatically_recover_first_reply_budget(state, run_dir, workspace, error):
+        return True
     # Startup reconciliation classifies a non-terminal saved log as uncertain;
     # the durable timeout record still proves why the stopped request ended.
     if (

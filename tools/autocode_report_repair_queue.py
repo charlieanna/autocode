@@ -96,6 +96,13 @@ def repair_limit(state: RunState) -> int:
     return limit
 
 
+def effective_repair_limit(state: RunState, pending: dict | None = None) -> int:
+    """Repair attempt ceiling honoring any tighter per-repair ``max_attempts`` cap."""
+    limit = repair_limit(state)
+    cap = (pending or {}).get("max_attempts")
+    return min(limit, max(0, cap)) if isinstance(cap, int) else limit
+
+
 def pending_repair_dispatchable(state: RunState) -> bool:
     """True when this resume still has a bounded report-only repair to dispatch on the owning stage.
 
@@ -109,7 +116,7 @@ def pending_repair_dispatchable(state: RunState) -> bool:
     return bool(
         isinstance(original, dict)
         and state.get("next_stage") == original.get("stage")
-        and pending.get("attempts", 0) < repair_limit(state)
+        and pending.get("attempts", 0) < effective_repair_limit(state, pending)
     )
 
 
@@ -156,7 +163,7 @@ def queue(state: RunState, record, error, *, completed: Callable[[], bool]) -> b
             pending["pins"].setdefault(record[key], util.file_hash(record[key]))
     pending["error"] = str(error)
     receipt_repair_context.retain(pending, error)
-    return pending["attempts"] < repair_limit(state)
+    return pending["attempts"] < effective_repair_limit(state, pending)
 
 
 def reset_for_resume(state: RunState, *, now):

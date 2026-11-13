@@ -151,6 +151,8 @@ def _accept(state: RunState, value: dict, record: dict, *, check_code_refs, queu
     if local_refs or (builds_code and not intent_only and not catalog_refs):
         check_code_refs(state, local_refs, "source_refs")
     state["requirements_handoff"] = {"report": copy.deepcopy(value), "output": record["output"]}
+    if isinstance(record.get("first_reply_budget"), dict):
+        state["requirements_handoff"]["first_reply_budget"] = copy.deepcopy(record["first_reply_budget"])
     if "workspace_scope" in value:
         workspace_scope.record(
             state, value["workspace_scope"], record, stage="requirements_gather", dropped=dropped or []
