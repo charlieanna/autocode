@@ -8,7 +8,7 @@ one-function paging library with a one-line change, so a stop is AutoCode's and 
 Method: master `6d8f4e4`, Linux cloud container. Twelve task kinds ran with the scripted
 provider (`scenarios/run.py run --fake`). Eight of them then ran once on Claude Code
 (`--profile claude-tiers`: Sonnet 5.5 Requirements, Planner and Tester, Opus 5.5 reviewers,
-Haiku 4.5 Builder), $9.15 in all, and $3.67 more for the two runs after a fix.
+Haiku 4.5 Builder), $9.15 in all, and $12.59 more for the eight runs after a fix.
 
 ## Scripted stops that real models do not hit
 
@@ -27,8 +27,9 @@ all three completed. The same holds for a C project with `make test` and a shell
 | Bug fix, C with `make test` | stops (fixture reasons) | complete, 159 s, $0.77 |
 | Bug fix, shell script | stops | complete, 147 s, $0.75 |
 | Bug fix, Ruby with Minitest | stops | **asks the person for flags** |
-| Bug fix, Rust, tests inside `src/lib.rs` | stops | **asks the person to widen the plan** |
-| Bug fix, Rust, no `Cargo.lock` | stops | **pauses in planning** (fixed, then section 4) |
+| Bug fix, Rust, tests inside `src/lib.rs` | stops | **asks the person to widen the plan** (fixed: complete, 123 s, $0.74) |
+| Bug fix, Rust, no `Cargo.lock` | stops | **pauses in planning** (fixed: complete, 195 s, $0.96) |
+| Refactor, Rust (extract a helper) | not run | **stops, guards unproven** (fixed: complete, 116 s, $0.77) |
 
 ## 1. Ruby with Minitest: the person is asked for a test command (fixed)
 
@@ -46,15 +47,20 @@ same models with the proof `PASS` on `detected:minitest` (manifest
 `32ff1be331278adf723c8a68903fc3fc4860722a2cda2ad42db0ff5759bf0c69`, 373 s, $2.28). Minitest results
 are not read per test, so the proof rests on the suite's exit code, as for Cargo and `make test`.
 
-## 2. Rust: a test inside the source file is not a test (open)
+## 2. Rust: a test inside the source file is not a test (planned around)
 
 Manifest `685ac9b901c446d81f5115590ee3648e27424a18882e4e0a99d7b3851193a78a`. Rust unit tests live in
 a `#[cfg(test)]` module of the file they test. The Builder fixed `src/lib.rs` and added its
 regression test there, as the seed's own test is. The proof classifies `src/lib.rs` as product only,
 so it failed with "No regression test was added or changed", and the Resolver asked the person to
-allow a new `tests/page_count.rs`. A test under `tests/` is proved today (scripted run, exit code),
-but it reaches only public items. Proving an inline test needs the candidate's test module run
-against the original product code of the same file.
+allow a new `tests/page_count.rs`. Proving an inline test needs the candidate's test module run
+against the original product code of the same file, which the proof cannot do.
+
+The planning and Builder note on named tests now says to plan and write a new Rust test in a file
+under `tests/`. The same task then planned `tests/page_count.rs` from the start and completed
+(manifest `3d0c2a9117f2dd7904b49efd35ac3c8f3e8e6bc07e00f615f8b917c76f615d71`, 123 s, $0.74). A test
+that can only reach a private item is still not provable; that needs the inline test module moved
+onto the original source, and is open.
 
 ## 3. Rust: `Cargo.lock` written by a read-only stage pauses the run (fixed)
 
@@ -75,16 +81,35 @@ build with `Cargo.lock` discarded at the Plan Reviewer and the Builder (manifest
 next defect, section 4. OpenCode and Kilo check a read-only stage with their own snapshot
 (`autocode_readonly_events`); that path was not exercised here.
 
-## 4. Rust: a named test cannot be proved, and the person is asked (open)
+## 4. Rust: a named test cannot be proved, and the person is asked (fixed)
 
 Same run as the fix in section 3. The plan named its tests (`test:` criteria in `tests/pages.rs`).
-Cargo results are not read per test, so the proof was `UNVERIFIED` ("the test run reported no
+Cargo results were not read per test, so the proof was `UNVERIFIED` ("the test run reported no
 per-test results") although its own log shows each named test failing on the original code and
 passing with the change. The Resolver then asked the person to accept the log lines, wait "until
 the runner supports cargo named-test parsing", or deliver without a proof. In an earlier run the
 Plan Reviewer raised the same limit at planning and the Planner asked the person how the fix should
-be verified. A `guard:` criterion has the same limit, so a Rust refactor with no new test cannot
-complete either (scripted run). Reading `cargo test` results per test removes all three.
+be verified.
+
+The proof now reads `cargo test`'s own per-test lines (`autocode_cargo_tests`,
+`tests.test_cargo_tests`, [named test proof](../named-test-proof.md)). A first pass on the same
+models then matched every `test:` criterion and found one more gap: every plan guarded an existing
+test by its own name (`guard: exact_multiple`), and only `test_*` and Go `Test*` names bind, so the
+guards stayed unproven. The two bug fixes got through after a rework in which the Builder added a
+second, `test_ac2_...` copy of each guarded test ($1.65 and $2.21); the refactor, which may add no
+test, stopped (manifest `18b8f5506064c9c6e76f0f1f33917578ce360aafb983f5e56f5cf6262b3e52a8`, 371 s,
+$2.60). With a Cargo suite a declared identifier without a `test_` prefix now names that Rust test
+(`test_cases.bound`); every other runner keeps the criterion-id convention. The second pass
+completed all three with no rework and no question:
+
+| Task | Manifest | Result |
+| --- | --- | --- |
+| Bug fix, no `Cargo.lock` | `adc0a1c1eac513f3778ccc5a986b86b120460854ccac9c303092ece63bab9d7a` | complete, 195 s, $0.96 |
+| Bug fix, tests inside `src/lib.rs` | `3d0c2a9117f2dd7904b49efd35ac3c8f3e8e6bc07e00f615f8b917c76f615d71` | complete, 123 s, $0.74 |
+| Refactor (extract a helper) | `bd1c857047013f9e3103f1d0c489435216e9b0081cbc26a00d702ed3f133912b` | complete, 116 s, $0.77 |
+
+The same limit holds for other runners whose tests need no `test_` prefix (RSpec, node:test and
+Vitest names are free text): a guard on an existing test there still falls back to the criterion id.
 
 ## Also seen, not yet run on real models
 

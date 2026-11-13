@@ -585,7 +585,7 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
         guards = sorted(
             {
                 case["test_name"]
-                for case in cases(state, all_due=all_due)
+                for case in test_cases.bound(cases(state, all_due=all_due), framework.name if framework else None)
                 if case.get("kind") == "preserve" and case.get("test_name")
             }
         )
@@ -994,7 +994,10 @@ def _proving(
             )
         if coverage and not regression_command:
             regression_command = options.get("test_command")
-        guards = sorted({case["test_name"] for case in due if case.get("kind") == "preserve" and case.get("test_name")})
+        named = test_cases.bound(due, framework.name if framework else None)
+        guards = sorted(
+            {case["test_name"] for case in named if case.get("kind") == "preserve" and case.get("test_name")}
+        )
         ahead = [] if all_due else pending_tests.withheld(state, workspace, due)
         kept.append(out / "scratch" / "candidate")
         result = verify.verify(
@@ -1314,7 +1317,7 @@ def check_cases(
         if proof["verdict"] == verify.PASS:
             proof["unverified"] = list(proof.get("unverified") or []) + [
                 "The English test cases could not be matched to tests: the test run reported no per-test results. "
-                "Use a supported named-test runner (unittest/pytest, Go, node:test via node --test, or RSpec). "
+                "Use a supported named-test runner (unittest/pytest, Go, node:test via node --test, RSpec or cargo test). "
                 "Printed PASS labels and package-script summaries are not named proof; keep the existing "
                 "assertions and suite, and register each approved case with the supported runner."
             ]
@@ -1323,6 +1326,7 @@ def check_cases(
     refused = refused or {}
     framework = proof.get("framework") or {}
     framework = framework.get("name") if isinstance(framework, dict) else framework
+    cases = test_cases.bound(cases, framework)
 
     def usable(tests):
         return [test for test in tests or [] if test not in refused]

@@ -43,10 +43,14 @@ class Framework:
 
     @property
     def per_test(self):
-        return self.name in ("pytest", "unittest", "go", "node", "vitest", "rspec")
+        return self.name in ("pytest", "unittest", "go", "node", "vitest", "rspec", "cargo")
 
     def targeted(self, test_paths):
         files = sorted(test_paths)
+        if self.name == "cargo":
+            # Cargo builds every test target of the package together, so its changed test files run in
+            # the suite itself; the proof reads that run's results per test (autocode_cargo_tests).
+            return self.suite if any(p.endswith(".rs") for p in files) else None
         if self.name == "unittest" and "autocode_component_tests.py" in self.suite:
             # Targeting files directly would bypass package load_tests hooks.
             return self.suite if any(PYTHON_TEST_MODULE.match(PurePosixPath(p).name) for p in files) else None

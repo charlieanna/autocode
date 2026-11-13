@@ -46,8 +46,8 @@ add one; no person is asked. A base holding only documents, manifests, data file
 extensionless text note has no behavior to preserve at all.
 An exit code or a printed `PASS test_c1_example` is not enough to identify which
 case ran. AutoCode currently attributes tests from Python unittest/pytest, Go,
-Node's built-in `node:test` runner, Vitest 4, RSpec, and an explicitly configured
-JUnit XML report from another test runner.
+Node's built-in `node:test` runner, Vitest 4, RSpec, Rust's `cargo test`, and an
+explicitly configured JUnit XML report from another test runner.
 
 RSpec needs no added gem: a plain `rspec` or `bundle exec rspec` command also runs
 RSpec's built-in JSON formatter, writing to a file in the proof's evidence while the
@@ -56,6 +56,35 @@ the file relative to where RSpec ran, so `test: test_grades_case_insensitively` 
 `it "test_grades_case_insensitively"` inside any `describe`. A spec file that fails to
 load runs no example and is reported as `FILE::[collection]`. A command that already
 writes its own output file (`--out`) or reads another options file is left as it is.
+
+Cargo needs no reporter either: the test harness prints one line for every test of every
+test binary, and the proof reads those lines from a plain `cargo test` command's own output
+(`tools/autocode_cargo_tests.py`). Each test is named `FILE::NAME`: the file Cargo says it is
+running (`tests/pages.rs`, or `src/lib.rs` for unit tests) and the harness's name, so
+`test: test_partial_last_page` names `fn test_partial_last_page`, also inside a module
+(`src/lib.rs::tests::test_partial_last_page`). A documentation test is
+`Doc-tests CRATE::FILE - item (line N)`, and an ignored test is skipped.
+
+- The command gets `--no-fail-fast`, so one failing test binary does not hide the results of the
+  binaries after it. A command that changes what the harness prints (`-q`, `--format`,
+  `--nocapture`) is left as it is and judged by its exit code.
+- A binary's results count only when they agree with its own `test result:` line. A binary that
+  exited or crashed mid-run is reported as `FILE::[no result]` and the results are incomplete.
+- A build that fails runs no test and is reported as `TARGET::[build failed]`, like a Go package
+  that does not build: a bug fix needs a test that ran and failed on the original code. For a
+  feature, whose new test usually calls a function the original code lacks, only the tests the
+  change adds or edits can show the new behavior; an untouched test that passed on the original
+  code is kept as preserved.
+- In a workspace two crates may print the same file and test name. The two are one identity,
+  failed when either failed.
+- A Rust test needs no `test_` prefix, so with a Cargo suite the identifier after the mark names
+  the test even without one: `guard: exact_multiple` is the project's existing
+  `fn exact_multiple`, and `guard: tests::exact_multiple` the one in `mod tests`. A lone word
+  (`guard: manual`) is still prose. Every other runner keeps the rule above: only a `test_*` or
+  Go `Test*` name binds, and anything else falls back to the criterion id.
+- The changed test files are the files under `tests/` (and other test paths). A test added to a
+  `#[cfg(test)]` module inside a source file is part of the source: the proof cannot run it
+  against the original code, so plans put a new Rust test in a file under `tests/`.
 
 A literal Go check with an explicit empty selector (`go test -run '^$' ./...`)
 may validate compilation in a plan. Its exit must be zero, but it supplies no
@@ -182,7 +211,7 @@ change the verdict, and nothing is installed into the project.
 Shell pipelines, custom reporters, ordinary npm/Jest/Mocha summaries and custom
 assertion scripts do not currently provide named proof. A direct supported
 targeted command can accompany an existing package-script suite. A runner that
-reports only an exit code (`make test`, `cargo test`, Ruby test files run one by
+reports only an exit code (`make test`, Ruby test files run one by
 one, or a runner AutoCode does not detect) cannot prove a `test:` or `guard:`
 criterion by name, so a draft that has one there is refused when it is drafted,
 and the Planner writes the criterion as the command that runs its test file
