@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import autocode as runner
+import autocode_activity as activity
 import autocode_completion as completion_gate
 import autocode_completion_result as completion_result
 import autocode_configure
@@ -305,7 +306,7 @@ class ActivityRuntimeTests(unittest.TestCase):
 
         output = io.StringIO()
         with (
-            patch.object(runner, "ActivityMonitor", monitor),
+            patch.object(activity, "ActivityMonitor", monitor),
             patch.object(runner.supervision, "launch", launcher(Child)),
             patch.object(support, "snapshot", return_value={"head": "h", "files": {}, "revision": "r"}),
             patch.object(runner.processes, "preflight", return_value=None),
@@ -492,7 +493,7 @@ class ActivityRuntimeTests(unittest.TestCase):
         def monitor(*args, **kwargs):
             raise KeyboardInterrupt("SIGHUP")
 
-        with patch.object(runner, "ActivityMonitor", monitor):
+        with patch.object(activity, "ActivityMonitor", monitor):
             error, active = self.interrupted_builder(launch)
         self.assertEqual("PAUSED_INTERRUPTED", error.status)
         self.assertEqual(
