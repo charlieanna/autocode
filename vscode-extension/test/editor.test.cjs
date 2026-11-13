@@ -1371,6 +1371,57 @@ test('chat approval uses the displayed plan token and advances only when the cor
   assert.equal(ui.document.querySelector('#send-message').disabled, true, 'a later person-only stop is not bypassed');
 });
 
+for (const [label, boundary] of [
+  ['completion', { status: 'TASK_COMPLETE', done: true, needs: { kind: 'done' } }],
+  ['a working Completion Reviewer', workingView()],
+  ['another review', { status: 'WAITING_FOR_USER', done: false, needs: { kind: 'review', criteria: [] } }],
+  ['a question', questionView()],
+  ['plan approval', approvalView()],
+  ['a person-only stop', { status: 'PAUSED', done: false, needs: { kind: 'resume' } }],
+]) {
+  test(`chat review acceptance takes the named continue and respects ${label}`, async (t) => {
+    const review = { status: 'WAITING_FOR_USER', done: false,
+      needs: { kind: 'review', token: 'review:current',
+        criteria: [{ id: 'C1', criterion: 'Export matches the saved fixture' }] },
+      next_command: `AUTOCODE_REVIEW_TOKEN=review:current autocode --workspace ${run.workspace} --run-dir ${run.runDir} --approve-review C1 --review-token -` };
+    const ready = { status: 'RUNNING', done: false, next_stage: 'review_completion',
+      needs: { kind: 'continue' },
+      next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --no-chat` };
+    const ui = await openChat(t, review);
+    const launch = t.mock.method(cli, 'stream', async (_options, args) => {
+      ui.setView(args.includes('--approve-review') ? ready : boundary);
+      return ok;
+    });
+    ui.document.querySelector('#take-action').click();
+    await flush(); await flush();
+    assert.equal(launch.mock.callCount(), 2, 'acceptance must start the Completion Reviewer without another click');
+    assert.deepEqual(launch.mock.calls[0].arguments[1], [
+      '--approve-review', 'C1', '--review-token', '-', '--workspace', run.workspace, '--run-dir', run.runDir,
+    ]);
+    assert.equal(launch.mock.calls[0].arguments[2].AUTOCODE_REVIEW_TOKEN, 'review:current');
+    assert.deepEqual(launch.mock.calls[1].arguments[1], [
+      '--no-chat', '--workspace', run.workspace, '--run-dir', run.runDir,
+    ], 'only the continue named by the fresh status is taken');
+    await ui.poll();
+    assert.equal(launch.mock.callCount(), 2, 'no further approval, answer or recovery is inferred');
+  });
+}
+
+test('chat review acceptance does not continue when the fresh view names a person-only stop', async (t) => {
+  const review = { status: 'WAITING_FOR_USER', done: false,
+    needs: { kind: 'review', token: 'review:current', criteria: [{ id: 'C1', criterion: 'Export matches' }] },
+    next_command: `AUTOCODE_REVIEW_TOKEN=review:current autocode --workspace ${run.workspace} --run-dir ${run.runDir} --approve-review C1 --review-token -` };
+  const ui = await openChat(t, review);
+  const launch = t.mock.method(cli, 'stream', async () => {
+    ui.setView({ status: 'PAUSED', done: false, needs: { kind: 'resume' },
+      next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused` });
+    return ok;
+  });
+  ui.document.querySelector('#take-action').click();
+  await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'accepting criteria cannot authorize recovery');
+});
+
 test('chat shows the plan to approve in plain words, without revision, criterion IDs or verification commands', async (t) => {
   const ui = await openChat(t, chatView());
   const app = ui.document.querySelector('#app');

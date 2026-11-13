@@ -783,9 +783,9 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
           if (answer !== button) return;
         }
         await this.controller.take(view, run, message.answers ?? {}, message.token ?? null);
-        // These buttons explicitly say "and continue". Never infer another
+        // Continue after plan approval, review acceptance or answered decisions. Never infer another
         // answer or approval, or release a newly encountered person-only stop.
-        if (view.needs?.kind === "approve_plan" || state.decisions.some((row) => row.kind !== "integer")) await this.advanceAfterInput(run);
+        if (view.needs?.kind === "approve_plan" || view.needs?.kind === "review" || state.decisions.some((row) => row.kind !== "integer")) await this.advanceAfterInput(run);
       }
     } catch (error) {
       if (this.activeKey === key) tab.error = messageOf(error);
