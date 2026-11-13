@@ -54,6 +54,7 @@ try:
     from . import autocode_run_status as run_status
     from . import autocode_stray_writes as stray_writes
     from . import autocode_test_cases as test_cases
+    from . import autocode_unreached_skip as unreached_skip
     from . import autocode_util as util
     from .autocode_report_repair_queue import ExecutionEvidenceRequired
     from .autocode_verify import is_test_path, run_command
@@ -65,6 +66,7 @@ except ImportError:
     import autocode_run_status as run_status
     import autocode_stray_writes as stray_writes
     import autocode_test_cases as test_cases
+    import autocode_unreached_skip as unreached_skip
     import autocode_util as util
     from autocode_report_repair_queue import ExecutionEvidenceRequired
     from autocode_verify import is_test_path, run_command
@@ -344,6 +346,10 @@ def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: d
         elif failed[case["id"]] and (own := _own_error(case, rows[case["id"]]["file"], source, run)):
             needs_execution = True
             wrong.append(own)
+        elif failed[case["id"]] and (skip := _skip_after_change(case, rows[case["id"]]["file"], source, run)):
+            needs_execution = True
+            skipped_again.append(case["id"])  # a second such test ends the rewrites, as a skipped one does
+            wrong.append(skip)
         elif failed[case["id"]]:
             verdicts[case["id"]] = "fails"
         elif unloadable and test_cases.named_in(case["test_name"], source):
@@ -409,6 +415,21 @@ def _own_error(case: dict, file: str, source: str, run: dict) -> str:
             "because the product lacks the behavior"
         )
     return ""
+
+
+def _skip_after_change(case: dict, file: str, source: str, run: dict) -> str:
+    """Why a failing test would skip once the change is made, so the Tester can replace it (#3333); "" if not."""
+    tail = "\n".join(_failure_blocks(str(run.get("tail") or ""), case["test_name"])) or str(run.get("tail") or "")
+    skip = unreached_skip.skip_below_failure(source, file, case["test_name"], tail)
+    if not skip:
+        return ""
+    return (
+        f"{case['id']}: {case['test_name']} in {file} fails today, but below the line that failed it can skip "
+        f"({skip}). Once the change is made that skip is reached, and a test that skips on this host cannot show "
+        "the change works, so the regression proof could not pass. Write a test for this case that runs here "
+        "both before and after the change (no skip condition), or report the case in cannot_write with the "
+        "reason it cannot run on this host"
+    )
 
 
 def _guard_not_passing(case: dict, file: str, run: dict, results: dict) -> str:
