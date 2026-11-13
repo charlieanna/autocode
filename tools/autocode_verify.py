@@ -53,6 +53,7 @@ from urllib.parse import unquote, urlparse
 
 try:
     from . import autocode_agent_env as agent_env
+    from . import autocode_base_bound as base_bound
     from . import autocode_changed_tests as changed_tests
     from . import autocode_command_receipt as command_receipt
     from . import autocode_command_supervision as command_supervision
@@ -101,6 +102,7 @@ try:
     from .autocode_verification_commands import _mentions_tests as _mentions_tests
 except ImportError:
     import autocode_agent_env as agent_env
+    import autocode_base_bound as base_bound
     import autocode_changed_tests as changed_tests
     import autocode_command_receipt as command_receipt
     import autocode_command_supervision as command_supervision
@@ -1277,6 +1279,7 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, c
                     seen.add(target)
                     product.add(target)
                     queue.append(target)
+        found.sourced = definition_scan.sourced_product(tests, tracked, read)
 
         def shell_bindings(command, directory):
             # shlex keeps an ordinary quoted filename as one operand. A shell's
@@ -2108,6 +2111,7 @@ def _run_suite_base_definition(
     generated_unrecorded=False,
     ignored_inputs=None,
     keep_tests=False,
+    sourced=False,
 ):
     """Execute the base suite definition over the candidate's product code (#587).
 
@@ -2118,6 +2122,7 @@ def _run_suite_base_definition(
     candidate-added definition file never enters. Returns {"run", "boundary"}: the receipt
     when the definition ran, or why the boundary could not be established (never a PASS).
     ``keep_tests`` (#2966) keeps the candidate's tests too, and runs only when a retained runner input changed.
+    ``sourced`` takes the files the base's shell tests source as product code (an exit-code repair's run).
     """
     junit = framework is not None and framework.name == "junit"
     try:
@@ -2133,6 +2138,7 @@ def _run_suite_base_definition(
     except (OSError, RuntimeError, ValueError) as error:
         return {"run": None, "boundary": f"the effective base could not be read ({error})"}
     definition, patched, roles = found.paths, found.patched, getattr(framework, "test_roles", None)
+    definition = definition - found.sourced if sourced else definition
     test = roles.is_test if roles else is_test_path
     reviewed = definition_inputs.reviewed_changes(workspace, changes, patched)
 
@@ -2222,6 +2228,7 @@ class _Run:
     guards: Any
     existing_guards: Any
     existing_failures: Any
+    existing_exit: Any
     roles: Any
 
 
@@ -2238,26 +2245,22 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
     ignored_inputs, new_behavior, preserve, fail = run.ignored_inputs, run.new_behavior, run.preserve, run.fail
     unverified, notes, review_reasons, checks = run.unverified, run.notes, run.review_reasons, run.checks
     proof = run.proof
-    on_candidate = run_suite(
-        framework,
-        commands["regression"],
-        trees["candidate"],
-        run_dir,
-        "regression-on-candidate",
-        timeout=timeout,
+    on_candidate, took = base_bound.timed(
+        lambda: run_suite(
+            framework, commands["regression"], trees["candidate"], run_dir, "regression-on-candidate", timeout=timeout
+        )
     )
     checks["regression_on_candidate"] = on_candidate
     on_base = None
     if "base_with_tests" in trees:
+        # A test that never finishes on the original code is stopped there, not waited for (autocode_base_bound).
+        allowed = base_bound.limit(on_candidate, took, timeout)
         on_base = run_suite(
-            framework,
-            commands["regression"],
-            trees["base_with_tests"],
-            run_dir,
-            "regression-on-base",
-            timeout=timeout,
+            framework, commands["regression"], trees["base_with_tests"], run_dir, "regression-on-base", timeout=allowed
         )
         checks["regression_on_base"] = on_base
+        if said := base_bound.stopped(on_base, took, allowed, timeout):
+            unverified.append(said)
 
     def repeat(command, side, label):
         tree = trees["candidate" if side == "candidate" else "base_with_tests"]
@@ -2394,7 +2397,7 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
     )
     if (
         exit_zero
-        and (comparable or {}).get("health") == "passing"
+        and ((comparable or {}).get("health") == "passing" or run.existing_exit)  # or its own repair
         and not fail
         and (untyped or framework is None or framework.name != "junit")
     ):
@@ -2413,6 +2416,7 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
             generated_unrecorded=generated_unrecorded,
             ignored_inputs=ignored_inputs,
             keep_tests=not untyped,
+            sourced=run.existing_exit,
         )
     elif exit_zero and untyped and (comparable or {}).get("health") != "passing":
         # G1 (#652): a base suite that is not green cannot anchor preservation.
@@ -2424,6 +2428,7 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
             "The base suite is not green, so the candidate's exit-code-only suite "
             "cannot prove the base definition still passes over the new code"
         )
+    first_suite.exit_repair(run, base_definition, command_receipt.completed)
     empty_root = None
     if (
         test_root is not None
@@ -2523,20 +2528,42 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
         )
     with_tests = None
     if guards and "base_with_tests" in trees and not hidden:
-        # Without a targeted command the whole suite already ran there (regression_on_base).
-        with_tests = (checks.get("regression_on_base") if not commands["regression"] else None) or run_suite(
-            framework,
-            commands["suite"],
-            trees["base_with_tests"],
-            run_dir,
-            "suite-on-base-with-tests",
-            timeout=timeout,
-        )
-        checks.setdefault(
-            "regression_on_base" if not commands["regression"] else "suite_on_base_with_tests", with_tests
-        )
+        # Without a targeted command the whole suite already ran there; tests that timed out there are in it too.
+        with_tests = base_bound.ran_with_tests(checks, commands["regression"])
+        if with_tests is None:
+            label = "suite_on_base_with_tests" if commands["regression"] else "regression_on_base"
+            with_tests = checks[label] = run_suite(
+                framework,
+                commands["suite"],
+                trees["base_with_tests"],
+                run_dir,
+                "suite-on-base-with-tests",
+                timeout=timeout,
+            )
     first_suite.suite_guards(on_candidate, comparable, proof, unchanged=existing_guards, with_tests=with_tests)
     return hidden
+
+
+def _incomplete_receipts(checks) -> list[str]:
+    """What the proof's command receipts leave unverified: an interrupted command, a JUnit report not intact."""
+    unverified = []
+    for label, receipt in checks.items():
+        if not command_receipt.completed(receipt):
+            unverified.append(f"{label} has no complete owned-command evidence")
+        if receipt.get("results_format") == "junit" and not schedule.intact(receipt):
+            unverified.append(
+                f"{label}: {receipt.get('report_error') or 'JUnit report capture is missing, invalid or changed'}"
+            )
+    return unverified
+
+
+def _file_kind_reasons(stats) -> list[str]:
+    """The kinds of changed file a reviewer should look at: binary files and files that are not code."""
+    return [
+        f"{kind} files changed: " + ", ".join(stats[key][:5])
+        for kind, key in (("binary", "binary_files"), ("non-code", "non_code_files"))
+        if stats[key]
+    ]
 
 
 def verify(
@@ -2558,6 +2585,7 @@ def verify(
     base_patch=None,
     source_paths=(),
     test_only_allowed=False,
+    suite_repair=False,
     generated_record=None,
     generated_unrecorded=False,
     ignored_inputs=None,
@@ -2611,6 +2639,9 @@ def verify(
     the diff turns out to be test files alone, the proof runs in that same preserve mode
     instead of failing "a fix must change product code". A test that does not pass on the
     base then still blocks it, as a mis-tagged case or a failing regression.
+
+    ``suite_repair`` (first_suite.exit_repair_suite): a repair that changes code alone, no test, may be
+    shown by the exit-code-only suite failing on the base and passing on the candidate (exit_flip).
 
     ``ignored_inputs`` is make_tree's, for every scratch tree; its launch record also tells
     _document_only_base what ignored code an in-place checkout held at launch.
@@ -2668,12 +2699,12 @@ def verify(
     runnable_tests = [p for p in tests if changes[p] != "deleted"]
     # Coverage the source already has: no test changed, so nothing can flip; the guards must hold.
     existing_guards = preserve_only and not runnable_tests
-    # A repair whose regression test the project already had (first_suite.repairable_failures): the
-    # suite on the candidate decides below whether the base's failing tests pass now.
-    existing_failures = (
-        first_suite.repairable_failures(base_suite, commands["suite"])
+    # A repair whose regression test the project already had (first_suite.existing_repair): the suite on
+    # the candidate decides below whether the base's failing tests, or its failing exit code, pass now.
+    existing_failures, existing_exit = (
+        first_suite.existing_repair(base_suite, commands["suite"], suite_repair and all(map(is_code_path, changes)))
         if not runnable_tests and sources and not preserve
-        else []
+        else ([], False)
     )
     if not changes and not preserve_only:
         fail.append("No change: the candidate is identical to the base revision")
@@ -2687,7 +2718,7 @@ def verify(
     removed = removed_python_tests(workspace, base, changes, roles=roles)
     if removed:
         fail.append("Existing tests were removed: " + ", ".join(removed[:20]))
-    if not runnable_tests and not existing_guards and not existing_failures and not ambiguous:
+    if not runnable_tests and not (existing_guards or existing_failures or existing_exit) and not ambiguous:
         (unverified if allow_no_test else fail).append(
             "No regression test was added or changed, so the bug is not shown to be reproduced"
         )
@@ -2738,6 +2769,7 @@ def verify(
         guards=guards,
         existing_guards=existing_guards,
         existing_failures=existing_failures,
+        existing_exit=existing_exit,
         roles=roles,
     )
     trees, hidden = {}, []
@@ -2850,18 +2882,9 @@ def verify(
     after = source_snapshot.snapshot(workspace, paths=source_paths)["revision"]
     if after != before:
         unverified.append("The candidate changed while it was being verified; verify again")
-    for label, receipt in checks.items():
-        if not command_receipt.completed(receipt):
-            unverified.append(f"{label} has no complete owned-command evidence")
-        if receipt.get("results_format") == "junit" and not schedule.intact(receipt):
-            unverified.append(
-                f"{label}: {receipt.get('report_error') or 'JUnit report capture is missing, invalid or changed'}"
-            )
+    unverified += _incomplete_receipts(checks)
     stats = diff_stats(workspace, base, changes, roles=roles, allow_ambiguous=bool(ambiguous))
-    if stats["binary_files"]:
-        review_reasons.append("binary files changed: " + ", ".join(stats["binary_files"][:5]))
-    if stats["non_code_files"]:
-        review_reasons.append("non-code files changed: " + ", ".join(stats["non_code_files"][:5]))
+    review_reasons += _file_kind_reasons(stats)
     verdict = FAIL if fail else UNVERIFIED if unverified else PASS
     return verify_result.assemble(
         run,

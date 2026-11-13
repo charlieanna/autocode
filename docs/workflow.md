@@ -381,6 +381,13 @@ contract changes" with the concern that asked for it; the final review judges it
 behaviors, scope exclusions, failure cases and any line that repeats your words still need
 your saved answer or feedback, and so does every line once a plan was approved or edited.
 
+A revision that changes only how a criterion is proven is never your question. When the
+Plan Reviewer asks for another proof and the Planner would replace a proof the runner
+checks (`test:`, `guard:`) with a plain command, the revision is refused and goes back to
+the Planner with what to keep; the criterion's words and who reviews it are as they were,
+so there is nothing for you to accept. You are asked when a revision the Plan Reviewer
+asked for changes a criterion's words or hands it to you to review.
+
 A fresh first-review receipt may also correct an exact failure-case inference that the
 model invented in an unapproved draft. That receipt can compose with independently
 permitted draft criterion wording, baseline observations and engineering proof corrections.
@@ -496,7 +503,12 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.
   ref of a run whose directory is gone, after a day's grace. Each
   suite run may take as long as the run's tool-call limit, at least 900 seconds
   and with no limit when the run turned that limit off;
-  `settings.regression.test_timeout` overrides it. When the detected whole
+  `settings.regression.test_timeout` overrides it. The changed tests get less
+  on the original code: thirty times as long as they took to pass with the
+  change, and at least five minutes. A test that does not finish there is
+  stopped, the proof is unverified and tells the Builder to give the test its
+  own time limit, and nothing runs that test on the original code again for
+  the same proof (`tools/autocode_base_bound.py`). When the detected whole
   suite does not finish on the original code within that limit, the proof
   does not stop to ask for a longer limit or a narrower command: it runs
   instead with the original tests nearest the change (changed tests the base

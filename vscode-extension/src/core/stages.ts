@@ -20,6 +20,8 @@ export interface StageOption {
 
 export interface StageRoute { model: string | null; effort: string | null }
 
+export interface ConfiguredStageRoute extends StageRoute { source: string }
+
 export interface Stage {
   id: string;
   label: string;
@@ -27,6 +29,8 @@ export interface Stage {
   advice: string;
   default: StageRoute & { offered: boolean };
   chosen: StageRoute | null;
+  /** Explicit project or workspace-option route overriding global Stage models and defaults, or null. */
+  configured: ConfiguredStageRoute | null;
   options: StageOption[];
   set: string[];
   reset: string[] | null;
@@ -39,7 +43,7 @@ export interface Stage {
 }
 
 /** How a new chat starts with its picks: the stage flags to add to its start, and the list that names them. */
-export interface ChatStart { startArgs: string[]; list: string[] }
+export interface ChatStart { startArgs: string[]; list: string[]; changeable: boolean; reason: string | null }
 
 export interface StageView {
   backend: string;
@@ -62,6 +66,13 @@ function route(value: unknown): StageRoute | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
   return { model: textOrNull(row.model), effort: textOrNull(row.effort) };
+}
+
+function configuredRoute(value: unknown): ConfiguredStageRoute | null {
+  const base = route(value);
+  if (!base?.model) return null;
+  const row = value as Record<string, unknown>;
+  return { ...base, source: textOrNull(row.source) ?? "project" };
 }
 
 /** Read the version-1 view; a malformed stage or option is dropped rather than guessed at. */
@@ -93,6 +104,7 @@ export function readStages(raw: string): StageView {
       advice: text(value.advice),
       default: { ...fallback, offered: (value.default as Record<string, unknown> | undefined)?.offered === true },
       chosen: route(value.chosen),
+      configured: configuredRoute(value.configured),
       options,
       set,
       reset: words((value.reset as Record<string, unknown> | null | undefined)?.next_command),
@@ -107,7 +119,7 @@ export function readStages(raw: string): StageView {
   return {
     backend: text(parsed.backend), label: text(parsed.label) || text(parsed.backend), optionsStop: textOrNull(parsed.options_stop), stages,
     changeable: parsed.changeable !== false, reason: textOrNull(parsed.reason),
-    chat: list && startArgs ? { list, startArgs } : null,
+    chat: list && startArgs ? { list, startArgs, changeable: chat?.changeable !== false, reason: textOrNull(chat?.reason) } : null,
   };
 }
 
@@ -149,9 +161,10 @@ function fill(stage: Stage, command: string[], model: string, effort: string): s
   return command.map((word) => (word === "MODEL" ? model : word === "EFFORT" ? effort : word));
 }
 
-/** What a new chat's stage will run, in words: this chat's pick, else what every new chat takes. */
+/** What a new chat's stage will run, in words: this chat's pick, explicit config, else what every new chat takes. */
 export function chatRoute(stage: Stage): string {
   if (stage.chat?.model) return `${stage.chat.model} at ${stage.chat.effort ?? "its own default level"} (this chat)`;
+  if (stage.configured?.model) return `${stage.configured.model} at ${stage.configured.effort ?? "its own default level"} (${stage.configured.source})`;
   return currentRoute(stage).replace(/\(your choice\)$/, "(Stage models)");
 }
 
@@ -161,6 +174,7 @@ export function chatRoute(stage: Stage): string {
  */
 export function chatSource(stage: Stage): string {
   if (stage.chat?.model) return "this chat";
+  if (stage.configured?.model) return stage.configured.source;
   if (stage.chosen?.model) return "Stage models";
   if (stage.default.model && !stage.default.offered) return "";
   return "default";
@@ -188,4 +202,22 @@ export function runListCommand(value: unknown): string[] | null {
 /** `--backend KEY` when the person chose the engine or provider new chats run on; otherwise the core picks it as a new run would. */
 export function backendArgs(runOptions: string[], routeKey: string): string[] {
   return runOptions.some((word) => /^--(?:engine|provider)(?:=|$)/.test(word)) ? ["--backend", routeKey] : [];
+}
+
+const MODEL_OPTION = /^--(?:single-model|reasoning-effort|builder-strong-model|(?:planner|task-planner|builder|tester|astra|terra|sol|glm|completion|requirements|plan-reviewer|resolver|investigator)-(?:model|reasoning-effort))$/;
+
+/** New-run model and reasoning-level options from settings, passed after `--` to `stages list`. */
+export function modelArgs(runOptions: string[]): string[] {
+  const found: string[] = [];
+  for (let i = 0; i < runOptions.length; i++) {
+    const word = runOptions[i]!;
+    const flag = word.split("=", 1)[0]!;
+    if (!MODEL_OPTION.test(flag)) continue;
+    if (word.includes("=")) {
+      found.push(word);
+    } else if (i + 1 < runOptions.length && !runOptions[i + 1]!.startsWith("-")) {
+      found.push(word, runOptions[++i]!);
+    }
+  }
+  return found.length ? ["--", ...found] : [];
 }

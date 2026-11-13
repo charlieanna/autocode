@@ -24,6 +24,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import autocode_contract_identity as contracts
+import autocode_interventions as interventions
 import autocode_native_launch as launch
 import autocode_native_parent as parent
 import autocode_process as processes
@@ -1231,6 +1232,74 @@ class FixedNativeGitSetupFactsTests(unittest.TestCase):
 class NativeCheckDeadlineTests(_ControlledNativeCheckFixture, unittest.TestCase):
     def setUp(self):
         self.prepare()
+
+    def test_stop_now_cancels_the_original_held_check_without_an_activity_monitor(self):
+        command = _fault_ready_command()
+        self.declare([command])
+        before = self.approve()
+        execution = self.execution()
+        approval_pins = {path.name: util.file_hash(path) for path in self.owner.root.glob("*.json")}
+        original_wait = processes.wait_for_stage
+        observed = {}
+
+        def wait(child, timeout, checkpoint, **kwargs):
+            if execution.scope["copy"] is None:
+                return original_wait(child, timeout, checkpoint, **kwargs)
+            self.assertIsNone(kwargs["activity"])
+            requested = kwargs["stop_requested"]
+            marker = execution.scope["scratch"] / "writable" / "actual-ready.json"
+
+            def stop_after_original_release():
+                for handle, actual_child, tree in tuple(self.owner._active_checks.values()):
+                    if actual_child is not child or not marker.is_file():
+                        continue
+                    target = _ready_target(tree, json.loads(marker.read_text()))
+                    if target is None:
+                        continue
+                    if not observed:
+                        observed.update(
+                            handle=handle, tree=tree, target=deepcopy(target), metadata=deepcopy(child.supervision)
+                        )
+                        observed["request"] = interventions.submit(
+                            self.root, self.run, request_id="stop-native-check", kind="pause", text="", now=True
+                        )["receipt"]
+                    return requested()
+                return False
+
+            kwargs["stop_requested"] = stop_after_original_release
+            return original_wait(child, timeout, checkpoint, **kwargs)
+
+        with patch.object(processes, "wait_for_stage", side_effect=wait):
+            with self.assertRaises(util.Paused) as paused:
+                verify.scratch_run(
+                    self.root,
+                    self.run / "checks" / "real-stop",
+                    command=command,
+                    timeout=30,
+                    native_execution=execution,
+                )
+        self.assertEqual("PAUSED_INTERVENTION", paused.exception.status)
+        self.assertEqual(["stop-native-check"], [row["id"] for row in self.state["applied_interventions"]])
+        self.assertEqual([], interventions.pending(self.run))
+        result = util.read_object(Path(observed["metadata"]["receipt"]).with_name("result.json"))
+        self.assertTrue(result["interrupted"])
+        self.assertFalse(result["timed_out"])
+        self.assertIsNone(result["exit_code"])
+        final = supervision.receipt(observed["metadata"])
+        self.assertEqual("stopped", final["phase"])
+        self.assertFalse(final.get("cleanup_error"))
+        self.assertFalse(
+            processes.live_processes([observed["target"], *observed["tree"].known.values(), *final["processes"]])
+        )
+        self.assertFalse(
+            any(
+                row["kind"] == "check-finished" and row["body"]["prepared_id"] == observed["handle"].row_id
+                for row in self.owner._rows()
+            )
+        )
+        self.assertEqual(source_scope.snapshot(self.root, self.state), before)
+        self.assertEqual(approval_pins, {name: util.file_hash(self.owner.root / name) for name in approval_pins})
+        self.assertNotIn("active_runner_check", self.state)
 
     def test_actual_released_check_is_terminated_at_controlled_waiter_deadline(self):
         command = _fault_ready_command()

@@ -428,7 +428,8 @@ def reviewer_requested_own_text(state: RunState, previous_contract: dict, previo
 def _review_question(state: RunState, previous: dict, body: dict, items, message: str, proposed=None):
     """Raise the person's question for refused changes only they can settle, if every one is.
 
-    A criterion needs a blocking review concern naming it (#1630). An assumption saved from the
+    A criterion needs a blocking review concern naming it (#1630), and words or a human review that change:
+    a revision that changes only how a criterion is proven is never the person's question. An assumption saved from the
     person's answer, feedback or delegation is their own text: the Planner may not change it
     without their answer, and the person is asked even when the contract is still an unapproved
     draft (a live planning revision, 2026-10-21). A declared rewording supplies its proposed text; an undeclared drop is named
@@ -453,6 +454,11 @@ def _review_question(state: RunState, previous: dict, body: dict, items, message
         concern = reviewer_backed(state, item)
         new = next((row for row in body.get("acceptance_criteria", []) if row.get("id") == item), None)
         if concern is None or new is None:
+            return
+        if old.get("criterion") == new.get("criterion") and old.get("human_review") == new.get("human_review"):
+            # The words and who checks them are as they were: only how AutoCode proves the criterion would
+            # change. That is the runner's rule to keep, not the person's question (owner decision,
+            # 2026-10-29), so the refusal and its hint go back to the Planner.
             return
         rows.append(
             {

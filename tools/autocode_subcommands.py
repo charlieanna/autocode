@@ -66,6 +66,7 @@ SUBCOMMANDS = {
     "merge": "autocode_merge",
     "models": "model_catalogue",
     "review": "autocode_review_cli",
+    "report-check": "autocode_report_check",
     "serve": "autocode_serve_cli",
     "completion": "autocode_shell_completion",
 }

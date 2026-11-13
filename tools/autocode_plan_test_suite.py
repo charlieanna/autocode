@@ -62,9 +62,7 @@ def _plain(path) -> str | None:
 
 def planned_tests(body) -> list[str]:
     """The test files of a known kind the plan's milestones and first task name, in path order."""
-    paths = [path for row in body.get("milestones") or [] for path in row.get("affected_paths") or []]
-    paths += (body.get("initial_task") or {}).get("affected_paths") or []
-    return sorted({plain for path in paths if (plain := _plain(path)) and kind(plain)})
+    return [path for path in _planned(body) if kind(path)]
 
 
 def problems(workspace, framework, tests, detect_in, *, scoped=False) -> list[str]:
@@ -115,6 +113,52 @@ def unnamed_cases(workspace, framework, tests, body, detect_in) -> str | None:
     )
 
 
+def _planned(body) -> list[str]:
+    """Every plain path the plan's milestones and first task name."""
+    paths = [path for row in body.get("milestones") or [] for path in row.get("affected_paths") or []]
+    paths += (body.get("initial_task") or {}).get("affected_paths") or []
+    return sorted({plain for path in paths if (plain := _plain(path))})
+
+
+def _in_tests(path) -> bool:
+    """A test file, or a directory that holds tests (``tests/``), which a plan may name instead."""
+    return verify.is_test_path(path) or verify.is_test_path(path.rstrip("/") + "/_")
+
+
+def untested_code(workspace, body) -> str | None:
+    """Why the proof could find no test for the code this plan changes, or None.
+
+    Every change to product code owes the regression proof a test (autocode_changed_code_trigger): one
+    that fails on the original code and passes with the change, or, for a change that alters no
+    behavior, a guard on tests the project already has. A project with no test code has neither, so a
+    plan there that names code files and no test file cannot pass its proof. A live run asked to add an
+    option to a script in such a project planned the script alone, with shell commands as its criteria:
+    the proof failed twice with "No regression test was added or changed", the Resolver asked the person
+    to allow a test file, and the run took 20 stages (2026-11-13). It is known when the plan is drafted.
+
+    Only that certain case is judged: a project with no test code, and a plan that names at least one
+    code file, names no test file or test directory, and has no test: or guard: criterion. A project
+    that has tests may guard the change with them or already hold the failing test. ``check`` asks only
+    for a build or a bug fix: a review or a discussion may name code it reads.
+    """
+    if _existing_tests(workspace):
+        return None
+    paths = _planned(body)
+    code = [path for path in paths if verify.is_code_path(path) and not _in_tests(path)]
+    if not code or any(_in_tests(path) for path in paths):
+        return None
+    if test_cases.plan_cases(body) or command_guards.plan_guards(body):
+        return None
+    return (
+        f"This plan changes code ({', '.join(code[:5])}) and plans no test, and the project has no tests yet. "
+        "Every change to code needs a test that fails on the original code and passes with the change, so "
+        "the regression proof would fail after a full Builder round, and nothing here can guard the change "
+        "instead. Plan the test with the change: name a new test file in the affected_paths of the milestone "
+        "that changes the code, write the criteria its tests show as test: criteria, and do not restrict the "
+        "change to the code files alone"
+    )
+
+
 def _test_paths(workspace) -> list[str]:
     """The workspace's test paths, tracked or not."""
     listed = subprocess.run(
@@ -150,6 +194,9 @@ def check(state: RunState, body, *, origin=None) -> None:
     # A guard that is a command runs tests the project already has, where no runner names them.
     if unusable := command_guards.problem(command_guards.plan_guards(body), framework, _test_paths(workspace)):
         raise ValueError(unusable)
+    builds = (state.get("workflow") or {}).get("kind") in (None, "build", "bugfix")
+    if builds and (untested := untested_code(workspace, body)):
+        raise ValueError(untested)
     if not tests:
         return
     unrun = problems(workspace, framework, tests, detect, scoped=package_scope.of(settings) is not None)

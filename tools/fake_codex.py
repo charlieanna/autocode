@@ -211,7 +211,7 @@ if data.get("report_repair"):
     source_verdict(result)
     if "progressive_checkpoint" in schema.get("properties", {}):
         result.setdefault("progressive_checkpoint", False)
-    session = str(uuid.uuid4())
+    session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
     print(json.dumps({"type": "thread.started", "thread_id": session}))
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))

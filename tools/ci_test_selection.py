@@ -500,6 +500,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/prompts/fragments/output-policy/", ("tests.test_autocode_output_policy",)),
     ("tools/prompts/fragments/protected-oracles/", ("tests.test_autocode_protected_oracles",)),
     ("tools/prompts/fragments/package-scope/", ("tests.test_package_writes",)),
+    ("tools/autocode_report_check.py", ("tests.test_report_check",)),
 )
 
 # A CLI consumer is selected even if marked slow: otherwise the import-only gap
@@ -922,6 +923,16 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         ("tools/autocode_activity.py", "tools/autocode_process.py"),
         ("tests.test_kilo_wrapper_idle_cli",),
+    ),
+    (
+        (
+            "tools/autocode_command_supervision.py",
+            "tools/autocode_runner_check.py",
+            "tools/autocode_process.py",
+            "tools/autocode_interventions.py",
+            "tools/autocode_stop.py",
+        ),
+        ("tests.test_stop_now_runner_check_cli", "tests.test_runner_check_cancellation"),
     ),
     (
         (

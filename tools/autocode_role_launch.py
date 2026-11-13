@@ -34,11 +34,13 @@ try:
     from . import autocode_output_policy as output_policy
     from . import autocode_partial_work as partial_work
     from . import autocode_planning as planning
+    from . import autocode_planning_recovery_policy as planning_recovery_policy
     from . import autocode_progressive_state as progressive_state
     from . import autocode_provider_auth as provider_auth
     from . import autocode_provider_env as provider_env
     from . import autocode_provider_launch as provider_launch
     from . import autocode_regression as regression
+    from . import autocode_report_check as report_check
     from . import autocode_resolver_recovery as resolver_recovery
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_reviewer_fallback as reviewer_fallback
@@ -48,6 +50,7 @@ try:
     from . import autocode_stale_handoff as stale_handoff
     from . import autocode_status
     from . import autocode_support as support
+    from . import autocode_tool_handoff as tool_handoff
     from . import autocode_toolchain_byproducts as toolchain_byproducts
     from . import autocode_util as util
     from . import autocode_visual_profile as visual_profile
@@ -65,11 +68,13 @@ except ImportError:
     import autocode_output_policy as output_policy
     import autocode_partial_work as partial_work
     import autocode_planning as planning
+    import autocode_planning_recovery_policy as planning_recovery_policy
     import autocode_progressive_state as progressive_state
     import autocode_provider_auth as provider_auth
     import autocode_provider_env as provider_env
     import autocode_provider_launch as provider_launch
     import autocode_regression as regression
+    import autocode_report_check as report_check
     import autocode_resolver_recovery as resolver_recovery
     import autocode_resolver_runtime as resolver_runtime
     import autocode_reviewer_fallback as reviewer_fallback
@@ -79,10 +84,51 @@ except ImportError:
     import autocode_stale_handoff as stale_handoff
     import autocode_status
     import autocode_support as support
+    import autocode_tool_handoff as tool_handoff
     import autocode_toolchain_byproducts as toolchain_byproducts
     import autocode_util as util
     import autocode_visual_profile as visual_profile
     import autocode_visual_runtime as visual_runtime
+
+
+def prepare_schema_and_report_check(
+    state: RunState,
+    original_stage,
+    workspace,
+    run_dir,
+    base,
+    schema,
+    prompt,
+    report_only: bool,
+    dry_run: bool,
+    native,
+    save,
+):
+    """Bind per-stage schemas and stage a public report-check spec in planning/ for live launches."""
+    if not report_only and original_stage in ("tester", "review_completion", "review_checkpoint"):
+        bound_schema = support.review_generation_schema(support.read(schema), state, original_stage)
+        schema = base.with_suffix(".schema.json")
+        save(schema, bound_schema)
+    if (
+        not report_only
+        and not dry_run
+        and native is None
+        and not (state.get("settings") or {}).get("replay_recording")
+        and not planning_recovery_policy.active(state, original_stage)
+        and tool_handoff.MARKER in prompt
+    ):
+        spec_path = run_dir / "planning" / "report-check" / f"{original_stage}-{base.parent.name}-{base.name}.json"
+        save(
+            spec_path,
+            report_check.build_spec(
+                stage=original_stage,
+                workspace=workspace,
+                schema=support.read(schema),
+                state=state,
+            ),
+        )
+        prompt = tool_handoff.with_report_check_command(prompt, spec_path)
+    return schema, prompt
 
 
 def native_environment(state: RunState, workspace, events, adapter, output, before):
