@@ -36,6 +36,7 @@ try:
     from . import autocode_implementation_discrepancy as implementation_discrepancy
     from . import autocode_milestone_replan as replan
     from . import autocode_package_writes as package_writes
+    from . import autocode_partial_review as partial_review
     from . import autocode_protected_oracles as protected_oracles
     from . import autocode_ready_capture_batch as ready_capture_batch
     from . import autocode_review_source as review_source
@@ -50,6 +51,7 @@ except ImportError:
     import autocode_implementation_discrepancy as implementation_discrepancy
     import autocode_milestone_replan as replan
     import autocode_package_writes as package_writes
+    import autocode_partial_review as partial_review
     import autocode_protected_oracles as protected_oracles
     import autocode_ready_capture_batch as ready_capture_batch
     import autocode_review_source as review_source
@@ -115,6 +117,16 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
         execution_limits=state["settings"].get("limits", {}),
         execution_engine=stage_roles.engine_for(state["settings"], stage_roles.role_for(state, stage)),
     )
+    if stage == "tester":
+        retained = partial_review.pending(state, current["revision"])
+        if (base["recovery_context"] or {}).get("partial_review"):
+            base["recovery_context"] = {
+                **base["recovery_context"],
+                "partial_review": retained
+                or {"available": False, "reason": "Archived Tester work no longer matches this source or task"},
+            }
+        elif retained:
+            base["retained_tester_work"] = retained
     if stage == "builder":
         try:
             from . import autocode_partial_work as partial_work

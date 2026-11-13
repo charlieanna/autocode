@@ -26,6 +26,7 @@ try:
     from . import autocode_failures as failures
     from . import autocode_interventions as interventions
     from . import autocode_job_failure as job_failure
+    from . import autocode_partial_review as partial_review
     from . import autocode_partial_work as partial_work
     from . import autocode_permission_recovery as permission_recovery
     from . import autocode_planning as planning
@@ -50,6 +51,7 @@ except ImportError:
     import autocode_failures as failures
     import autocode_interventions as interventions
     import autocode_job_failure as job_failure
+    import autocode_partial_review as partial_review
     import autocode_partial_work as partial_work
     import autocode_permission_recovery as permission_recovery
     import autocode_planning as planning
@@ -699,6 +701,11 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
         automatic_recovery=True,
         rejection_reason="Timed-out non-terminal provider request automatically archived; partial work retained",
     )
+    previous_review = (
+        partial_review.pending(state, before["revision"])
+        if (record.get("original_stage") or record["stage"]) == "tester"
+        else None
+    )
     failures.record(state, record, error, records.now())
     originals = records.archive_rejected_stage(state, run_dir, record, record["rejection_reason"])
     state["sessions"].pop(record.get("route_role", record["role"]), None)
@@ -787,11 +794,10 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
         )
     elif retry_missing_tester_report:
         recovery["instruction"] = (
-            "The archived stage left no accepted Tester report and did not change source. "
-            "Execute the required checks for this attempt, using the current runner proof to focus inspection. "
-            "Partial work remains archived and is not a completed report. Completion Review still needs the "
-            "new independent report. Preserve the approved checks and saved execution limits."
+            "The archived stage left no accepted Tester report and did not change source. " + partial_review.INSTRUCTION
         )
+    if semantic_stage == "tester":
+        recovery["partial_review"] = partial_review.capture(record, before, after, previous=previous_review)
     records.count_automatic_recovery(state)
     state.setdefault("automatic_timeout_recoveries", []).append(recovery)
     state.setdefault("user_events", []).append(
