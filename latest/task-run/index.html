@@ -2898,7 +2898,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/8dd4f04c30990a52d9ec8e90159f531ac0b5fcac/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/69b0ef1650949a912e7b364662d548fcbb6c8807/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3205,6 +3205,13 @@ immediate child of <code>workspace/.autocode/runs</code>. Existing directories a
 are refused before a provider launches. The optional destination is used by
 <a href="../replay/">saved-run replay</a>; the run is created there without moving bound
 artifacts afterward.</p>
+<p>When the workspace is a Git repository with no commit at all (<code>git init</code> and nothing
+more), the core makes an empty first commit itself, without the index, so files the
+person has staged or left untracked stay as they are, and the run works in the folder:
+a worktree of the empty commit would hide what is there. A folder that holds nothing of
+the person's is the run's own project, as an empty folder outside Git is, and its
+<code>workspace-bootstrap</code> message says the first commit was made. No client is told to type
+a Git command.</p>
 <p>When the workspace is a plain, non-empty folder, the core bootstraps a private
 scratch task project in the folder's own store, <code>workspace/.autocode/projects/ID</code>,
 and runs there, so a chat that never builds leaves nothing among the person's
@@ -4109,7 +4116,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/8dd4f04c30990a52d9ec8e90159f531ac0b5fcac/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/69b0ef1650949a912e7b364662d548fcbb6c8807/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -4896,7 +4903,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/8dd4f04c30990a52d9ec8e90159f531ac0b5fcac/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/69b0ef1650949a912e7b364662d548fcbb6c8807/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -4960,6 +4967,11 @@ far carries one (a zero is not a price), otherwise its tokens so far at the same
 when no stage runs or the running stage cannot be priced. It is not part of <code>spent_usd</code> or the cap
 check. A client showing spend so far adds it to <code>spent_usd</code> and to the running stage's row, as a
 floor, so a run on its first stage does not read as nothing spent while its tokens climb.
+A stopped attempt whose report is still awaiting reconciliation counts in <code>spent_usd</code>,
+its breakdown and the cap check, even while the checkpoint retains it in <code>active_stage</code>.
+The runner's saved finish timestamp or accounting marker establishes that boundary;
+the paused status alone does not. Archiving the attempt does not charge it again.
+Partial usage remains a floor, and an unpriced attempt remains unknown.
 <code>usage.cost_usd</code> keeps the frozen comparison rates its reports are bound to,
 so its <code>estimated</code> can differ from <code>cost.estimated_usd</code>. Those rates price every input token at the
 input rate, cached or not, so on a run whose input is mostly cache reads <code>usage.cost_usd.estimated</code>
