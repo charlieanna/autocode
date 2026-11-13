@@ -225,6 +225,10 @@ provider and per-role routes. Person-only recovery decisions still require their
 separate confirmation (`autocode.confirmPersonOnly`). Free text cannot bypass an
 operational stop or approve a plan.
 
+**Accept the reviewed criteria** also continues the run toward the Completion
+Reviewer, taking only the fresh status view's named Continue. Another review,
+question, plan approval or person-only stop still waits for you.
+
 **Change sets.** For a run linked with runs in other repositories (`scope.linked`,
 `autocode changeset link`), Run details reads `autocode changeset status --json`
 and shows every run of the change set. While the set approval is offered it lists
