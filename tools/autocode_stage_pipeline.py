@@ -19,8 +19,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_progress_view as progress_view
     from . import autocode_roles as roles
 except ImportError:
+    import autocode_progress_view as progress_view
     import autocode_roles as roles
 
 # Where a job stands: working now, runs next (the run waits or is between stages), launched at least once,
@@ -80,7 +82,9 @@ def project(state: RunState, view: dict) -> list[dict]:
     done = view.get("done") is True
     active = _mapping(state.get("active_stage"))
     working = None if done else _job(active.get("stage"), state)
-    following = None if done or working else _job(state.get("next_stage"), state)
+    # The creation default names no chosen stage: marking it put Planner ahead of Requirements (#2904).
+    unchosen = progress_view.unchosen(state)
+    following = None if done or working or unchosen else _job(state.get("next_stage"), state)
     pipeline = []
     for job in roles.PIPELINE:
         route = _mapping(routes.get(roles.route_for_job(job, routes) or ""))

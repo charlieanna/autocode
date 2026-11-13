@@ -85,6 +85,16 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual("next", rows[2]["state"])
         self.assertEqual(["ran", "ran"], [row["state"] for row in rows[:2]])
 
+    def test_no_job_is_next_before_the_run_chooses_its_first_stage(self):
+        # The creation default next_stage is plan_task (Planner) until the run picks Requirements;
+        # marking it highlighted Planner ahead of Requirements at startup (#2904).
+        fresh = {"status": "RUNNING", "next_stage": "plan_task"}
+        self.assertEqual({"pending"}, {row["state"] for row in stage_pipeline.project(fresh, view())})
+        chosen = {**fresh, "phase": "DISCOVERING", "next_stage": "requirements_gather"}
+        rows = stage_pipeline.project(chosen, view())
+        self.assertEqual("next", rows[0]["state"])
+        self.assertEqual({"pending"}, {row["state"] for row in rows[1:]})
+
     def test_a_skipped_job_says_why_and_an_ended_run_marks_what_it_never_reached(self):
         decisions = [
             decision("requirements_gather", "requirements"),
@@ -191,6 +201,10 @@ class StatusViewTests(unittest.TestCase):
             ],
             states(pipeline),
         )
+
+    def test_the_status_view_names_no_next_stage_before_the_first_choice(self):
+        pipeline = run_view.view({"status": "RUNNING", "next_stage": "plan_task"})["pipeline"]
+        self.assertEqual({"pending"}, {row["state"] for row in pipeline})
 
 
 if __name__ == "__main__":

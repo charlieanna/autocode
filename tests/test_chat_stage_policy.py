@@ -7,6 +7,7 @@ import unittest
 
 import autocode_chat_panel as panel
 import autocode_chat_stage_policy as stage_policy
+import autocode_stage_pipeline as stage_pipeline
 
 from tools.providers import command
 
@@ -207,6 +208,9 @@ def decided(*rows, **fields):
         }
         for stage, job, label, decision, reason, covered in rows
     ]
+    current["pipeline"] = stage_pipeline.project(
+        {"status": current.get("status"), "next_stage": current.get("next_stage")}, current
+    )
     return current
 
 
@@ -278,6 +282,14 @@ class PipelineTests(unittest.TestCase):
         marks = dict((text.split(" · ")[0], mark) for mark, text in self.marks(decided(*EARLY_APPROVAL)))
         self.assertEqual("✓", marks["Planner"], "the draft ran; only its revision was skipped")
         self.assertEqual("✓", marks["Plan Reviewer"])
+
+    def test_no_job_is_current_before_the_run_chooses_its_first_stage(self):
+        # The creation default next_stage is plan_task (Planner); the panel marked it current
+        # ahead of Requirements at startup (#2904).
+        fresh = decided(next_stage="plan_task")
+        self.assertEqual({"·"}, {mark for mark, _text in self.marks(fresh)})
+        chosen = decided(next_stage="requirements_gather")
+        self.assertEqual("●", self.marks(chosen)[0][0])
 
     def test_a_discussion_requirements_answered_shows_every_later_job_skipped(self):
         self.assertEqual(
