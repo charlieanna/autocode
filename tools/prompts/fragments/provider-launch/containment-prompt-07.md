@@ -1,1 +1,1 @@
-No current runner-authenticated regression PASS is available in this handoff. Do not report HTTP PASS; report FAIL for an unproven required regression and record unavailable execution as BLOCKED/NOT_VERIFIED.
+No current runner-authenticated regression PASS is available for this presented evidence. Do not infer regression PASS from a verdict alone; record missing, stale, failed or unavailable required execution as BLOCKED/NOT_VERIFIED. Independent changed-code decisions remain separate and cannot replace executed regression evidence.

@@ -95,6 +95,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **A contained Tester can cite current regression evidence before deciding changed-line gaps** (#3434): an authentic passing regression was described as unavailable while its first Tester still owed independent line decisions, and legitimate compact receipt projections also lost the hint. The launch now authenticates executed checks and their exact Core projection separately, retaining source, receipt, artifact and JSON-type bindings. Changed-line decisions and full completion gates remain required; unavailable evidence stays unverified for CLI and network workloads alike.
 - **Resuming an older run keeps a known baseline timeout** (#3428): after an upgrade, the same detected base-suite check no longer spends its allowance again because its saved timeout used an older cache key. AutoCode verifies the saved inputs and record hash, retains that negative evidence under the current key, and still requires completed checks before accepting the change.
 - **Stalled Tester relaunches receive a bounded summary of archived tool calls** (#3309): when a Tester attempt stalls after executing checks, automatic timeout recovery now attaches `executed_work` — up to 40 completed tool calls from OpenCode/Kilo or Codex/Claude event logs with redacted commands/paths, exit codes and true output tails — as unverified context so the relaunch focuses instead of re-reading a multi-thousand-line JSONL log or restarting from scratch; the new report still binds its own executed checks.
 

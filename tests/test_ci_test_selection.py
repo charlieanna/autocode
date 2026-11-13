@@ -8,6 +8,22 @@ import run_suite
 
 
 class AccessTransportConsumerTests(unittest.TestCase):
+    def test_contained_tester_hint_keeps_actual_packet_and_projection_controls(self):
+        consumers = {"tests.test_tester_executed_proof", "tests.test_proof_projection"}
+        for path in (
+            "tools/autocode.py",
+            "tools/autocode_context.py",
+            "tools/autocode_role_launch.py",
+            "tools/autocode_provider_launch.py",
+            "tools/autocode_native_image.py",
+            "tools/autocode_proof_projection.py",
+            "tools/prompts/fragments/provider-launch/containment-prompt-06.md",
+            "tools/prompts/fragments/provider-launch/containment-prompt-07.md",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {name: "" for name in [*consumers, "tests.test_unrelated"]})
+                self.assertTrue(consumers <= selected.keys())
+
     def test_required_reliability_oracles_keep_their_process_outcome_counterexamples(self):
         consumer = "scenarios.test_reliability_oracle_outcomes"
         for scenario in (

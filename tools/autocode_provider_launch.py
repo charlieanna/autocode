@@ -21,6 +21,7 @@ try:
     from . import autocode_native_role_isolation as native_isolation
     from . import autocode_output_cap as output_cap
     from . import autocode_prompts as prompts
+    from . import autocode_proof_projection as proof_projection
     from . import autocode_route_evidence as route_evidence
     from . import autocode_storage_errors as storage_errors
     from . import autocode_tool_admission as tool_admission
@@ -34,6 +35,7 @@ except ImportError:
     import autocode_native_role_isolation as native_isolation
     import autocode_output_cap as output_cap
     import autocode_prompts as prompts
+    import autocode_proof_projection as proof_projection
     import autocode_route_evidence as route_evidence
     import autocode_storage_errors as storage_errors
     import autocode_tool_admission as tool_admission
@@ -462,7 +464,15 @@ def stage_record(worker):
 
 
 def render_native_image_prompt(
-    prompt, *, schema, events, adapter, boundary, regression_proof_current, regression_handoff
+    prompt,
+    *,
+    schema,
+    events,
+    adapter,
+    boundary,
+    regression_proof_current,
+    regression_handoff,
+    regression_context_root=None,
 ):
     prompt = adapter.prompt_for_schema(prompt, schema, events)
     return containment_prompt(
@@ -471,10 +481,13 @@ def render_native_image_prompt(
         stage="tester",
         regression_proof_current=regression_proof_current,
         regression_handoff=regression_handoff,
+        regression_context_root=regression_context_root,
     )
 
 
-def containment_prompt(prompt, worker, *, stage=None, regression_proof_current=False, regression_handoff=None):
+def containment_prompt(
+    prompt, worker, *, stage=None, regression_proof_current=False, regression_handoff=None, regression_context_root=None
+):
     """Advertise only the current stage's permitted scratch area, not broader write access."""
     if worker.get("kilo_readonly_tools") and worker.get("planning_report_recovery"):
         before, marker, after = prompt.rpartition("\nCURRENT HANDOFF DATA\n")
@@ -512,8 +525,7 @@ def containment_prompt(prompt, worker, *, stage=None, regression_proof_current=F
         regression_proof_current = (
             regression_proof_current
             and regression_handoff is not None
-            and json.dumps(data.get("regression_proof"), sort_keys=True)
-            == json.dumps(regression_handoff, sort_keys=True)
+            and proof_projection.matches(data, regression_handoff, regression_context_root)
         )
         data["runner_regression_proof_current"] = regression_proof_current
         instruction += prompts.get("fragments/provider-launch/containment-prompt-04.md")

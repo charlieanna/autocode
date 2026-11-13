@@ -138,7 +138,7 @@ class PromptDecorationTests(unittest.TestCase):
                 self.assertEqual("contained", result)
                 adapter.prompt_for_schema.assert_called_once_with("original", schema, "events")
                 if stage == "tester" and containment and required:
-                    complete.assert_called_once_with(state, "revision")
+                    complete.assert_called_once_with(state, "revision", require_changed_code=False)
                 else:
                     complete.assert_not_called()
                 self.assertEqual(current, handoff.called)
@@ -148,6 +148,7 @@ class PromptDecorationTests(unittest.TestCase):
                     stage=stage,
                     regression_proof_current=current,
                     regression_handoff={"proof": "current"} if current else None,
+                    regression_context_root=None,
                 )
 
 

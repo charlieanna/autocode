@@ -317,7 +317,7 @@ class NativeImageConfigTests(unittest.TestCase):
         child["AUTOCODE_TOOL_CONTAINMENT"] = json.dumps(boundary)
         return child, boundary
 
-    def prepare(self, configure=None):
+    def prepare(self, configure=None, *, proof_current=False, regression_handoff=None):
         with (
             patch.object(calls.PlanningCalls, "image_capture_authority", self.authority, create=True),
             patch.object(containment, "configure", side_effect=configure or self.configure),
@@ -336,6 +336,8 @@ class NativeImageConfigTests(unittest.TestCase):
                 events=self.base.with_suffix(".jsonl"),
                 adapter=opencode,
                 render_prompt=launch.render_native_image_prompt,
+                regression_proof_current=proof_current,
+                regression_handoff=regression_handoff,
             )
             result = launch.prepare(
                 engine="opencode",
@@ -362,6 +364,22 @@ class NativeImageConfigTests(unittest.TestCase):
                 native_image_preparation=packet,
             )
         return packet, result
+
+    def test_compacted_runner_evidence_remains_bound_in_final_native_image_prompt(self):
+        import autocode_context as context
+
+        from .test_context_proof_receipts import packet as proof_packet
+
+        original = proof_packet()
+        original["regression_proof"]["verdict"] = "PASS"
+        canonical = deepcopy(original["regression_proof"])
+        data, _ = context.compact(original, self.run / "state.json")
+        self.prompt = "Review original source\nCURRENT HANDOFF DATA\n" + json.dumps(data)
+        packet, _ = self.prepare(proof_current=True, regression_handoff=canonical)
+        handoff = json.loads(packet.prompt.rpartition("\nCURRENT HANDOFF DATA\n")[2])
+        self.assertIs(True, handoff["runner_regression_proof_current"])
+        self.assertEqual(data["regression_proof"], handoff["regression_proof"])
+        self.assertIn("independently", packet.prompt.lower())
 
     def test_final_config_contains_images_plugin_audit_and_prompt_before_observation(self):
         packet, (command, env, _, worker) = self.prepare()
@@ -467,6 +485,9 @@ class NativeImageConfigTests(unittest.TestCase):
             (runner.artifacts, "reserve", Mock(return_value=self.base)),
             (runner.support, "review_generation_schema", lambda schema, *_: schema),
             (runner.source_scope, "snapshot", Mock(return_value=self.snapshot)),
+            (runner.regression, "required", Mock(return_value=True)),
+            (runner.regression, "complete", Mock(return_value=True)),
+            (runner.regression, "handoff", Mock(return_value={"verdict": "PASS"})),
             (runner.task_preflight, "guard", Mock()),
             (runner.readonly_events, "prepare_opencode_snapshots", Mock()),
             (runner.job_source, "capture", Mock()),
@@ -492,6 +513,9 @@ class NativeImageConfigTests(unittest.TestCase):
                     dry_run=False,
                     native=self.native,
                 )
+            runner.regression.complete.assert_called_once_with(
+                self.state, self.snapshot["revision"], require_changed_code=False
+            )
         self.assertEqual([packet.context()["launch_sha256"]], observed)
         self.native.context.factory.prepare_launch.assert_called_once()
 
