@@ -624,11 +624,10 @@ def assert_within_assignment(state: RunState, record):
         raise support.Paused(
             "PAUSED_ASSIGNMENT_SCOPE", "The assignment's starting snapshot is missing; edits retained for inspection"
         )
-    if outside:  # files the assignment created are removed, so a retry is not refused for them
-        raise support.Paused(
-            "PAUSED_ASSIGNMENT_SCOPE",
-            assignment.undo_created(outside, state.get("stages", []), record, state.get("workspace")),
-        )
+    if outside:  # files the assignment created or moved from a saved checkpoint are restored for retries
+        checkpoints = state.get("code_checkpoints") or ()
+        msg = assignment.undo_created(outside, state.get("stages", []), record, state.get("workspace"), checkpoints=checkpoints)
+        raise support.Paused("PAUSED_ASSIGNMENT_SCOPE", msg)
 
 
 def retained_validated_candidate(state: RunState, value, record, workspace):

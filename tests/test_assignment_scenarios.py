@@ -722,3 +722,43 @@ class AssignmentScenarios(unittest.TestCase):
         (self.root / "src/greeting.py").write_text(HELLO)
         self.assertRegex(self.serial_attempt("correct"), "starting snapshot is missing")
         self.assertNotEqual("tester", self.state["next_stage"])
+
+    def test_serial_retry_in_second_milestone_restores_first_milestone_checkpoint_escape(self):
+        import autocode_code_checkpoints as code_checkpoints
+
+        self.seed()
+        m2 = self.partner()
+        self.greeting_contract(m2)
+        self.state["settings"]["orchestration"]["enabled"] = False
+        # Milestone 1 runs and leaves uncommitted WELCOME edits saved via a code checkpoint commit.
+        self.assertIsNone(self.serial_attempt("correct"))
+        self.assertEqual(WELCOME, (self.root / "src/greeting.py").read_text())
+        m1_record = next(row for row in reversed(self.state["stages"]) if row.get("stage") == "builder")
+        m1_source = s.snapshot(self.root)
+        m1_commit = code_checkpoints.capture_tree(self.root, m1_source, self.run)
+        self.state["code_checkpoints"] = [{"id": "code-m1", "commit": m1_commit, "source_revision": m1_record["source_revision"]}]
+        # Dispatch milestone 2 owning only docs/other.txt while M1's edits remain uncommitted.
+        decision = {
+            "status": "CONTINUE",
+            "next_objective": m2["objective"],
+            "affected_paths": m2["affected_paths"],
+            "next_task": {
+                "kind": "implement",
+                "milestone_id": m2["id"],
+                "requirements": ["Independent note is updated"],
+                "acceptance_criteria": m2["acceptance_criteria"],
+                "validation_plan": ["Read docs/other.txt"],
+            },
+        }
+        self.state["settings"]["milestone_checkpoints"]["enabled"] = False
+        lifecycle.assign_task(self.state, decision, m1_source)
+        self.state["affected_paths"] = decision["affected_paths"]
+        # First M2 attempt escapes into M1's src/greeting.py; runner restores it from M1's checkpoint commit.
+        paused = self.serial_attempt("overlap_write")
+        self.assertRegex(paused, "restored pre-existing files.*src/greeting.py")
+        self.assertEqual(WELCOME, (self.root / "src/greeting.py").read_text())
+        # Second M2 attempt edits only docs/other.txt and succeeds without being poisoned by M1's delta.
+        self.assertIsNone(self.serial_attempt("correct"))
+        self.assertEqual(["docs/other.txt"], self.state["changed_files"])
+        self.assertEqual("tester", self.state["next_stage"])
+        self.assertEqual(WELCOME, (self.root / "src/greeting.py").read_text())

@@ -1288,6 +1288,58 @@ function renderFinish(state) {
   app.appendChild(card);
 }
 
+function renderSavedChanges(state) {
+  if (!chatMode || !state.checkpoints || !state.checkpoints.length) return;
+  const savedHeading = el('h2', null, 'Saved code changes');
+  savedHeading.id = 'saved-changes';
+  app.appendChild(savedHeading);
+  if (state.checkpointsBlocked) app.appendChild(el('div', 'why', state.checkpointsBlocked));
+  if (state.taking && state.checkpoints.some((cp) => cp.available && cp.actions.length)) {
+    app.appendChild(el('div', 'why', 'Saved-code actions are available after the current AutoCode action finishes.'));
+  }
+  state.checkpoints.forEach((cp) => {
+    const box = el('div', 'decision');
+    const title = cp.label + (cp.verdict ? ' · ' + cp.verdict : '');
+    box.appendChild(el('div', 'q', title));
+    if (cp.available) {
+      box.appendChild(el('div', 'why', cp.files + ' file(s) changed' + (cp.at ? ' · ' + new Date(cp.at).toLocaleDateString() : '')));
+      cp.actions.forEach((action) => {
+        const button = el('button', action.id === 'restore' ? null : 'secondary', action.label);
+        button.dataset.checkpointAction = action.id;
+        button.dataset.checkpointId = cp.id;
+        button.disabled = Boolean(state.taking || state.unreadable);
+        button.addEventListener('click', () => vscode.postMessage({ type: 'checkpoint', action: action.id,
+          checkpoint: cp.id, runKey: state.workspace + '\\n' + state.runDir }));
+        box.appendChild(button);
+      });
+    } else {
+      box.appendChild(el('div', 'why', cp.reason || 'The saved source for this step is not retained.'));
+    }
+    const compare = checkpointCompare[cp.id];
+    if (compare && compare.error) {
+      box.appendChild(el('div', 'why', 'Comparison failed: ' + compare.error));
+    } else if (compare) {
+      const comparison = compare.comparison || {};
+      const files = (comparison.changed_files || []).length;
+      const step = compare.kind === 'step';
+      box.appendChild(el('div', 'why', step
+        ? files + ' file(s) changed in this step' + (comparison.truncated ? ' · diff truncated' : '')
+        : files + ' file(s) differ from this checkpoint' + (comparison.truncated ? ' · diff truncated' : '')));
+      box.appendChild(diffBlock(comparison.patch, step ? 'This step changed no files.' : 'The files match this checkpoint.'));
+    }
+    if (checkpointResult && checkpointResult.checkpoint === cp.id && checkpointResult.result) {
+      const result = checkpointResult.result;
+      box.appendChild(el('div', 'notice',
+        'Restored on a new branch: ' + (result.branch || 'created') + '. The original branch and later work stay intact.'));
+      const open = el('button', 'secondary', 'Open restored candidate');
+      open.addEventListener('click', () => vscode.postMessage({ type: 'checkpoint_open',
+        workspace: result.workspace, runDir: result.run_dir }));
+      box.appendChild(open);
+    }
+    app.appendChild(box);
+  });
+}
+
 function formatDuration(seconds) {
   const whole = Math.floor(seconds);
   if (whole < 60) return whole + 's';
@@ -1491,6 +1543,7 @@ function render(state) {
       cardContent.appendChild(el('div', 'notice', 'Reply with what changed or how you want to proceed. Recovery is reviewed before the run can continue.'));
       if (state.boundRaise) renderBoundRaise(cardContent, state);
       app.appendChild(card);
+      renderSavedChanges(state);
       return;
     }
 
@@ -1571,9 +1624,11 @@ function render(state) {
         cardContent.appendChild(el('h2', null, 'End-to-end flow'));
         state.plan.flow.forEach((step) => cardContent.appendChild(el('div', 'row', step)));
       }
+      const milestoneCriteria = new Set((state.plan.milestones || []).flatMap((m) => m.acceptance_criteria || []));
       state.plan.criteria.forEach((criterion) => {
         const item = el('div', 'row');
-        item.appendChild(el('span', null, criterion.criterion));
+        const prefix = criterion.id && milestoneCriteria.has(criterion.id) ? criterion.id + ': ' : '';
+        item.appendChild(el('span', null, prefix + criterion.criterion));
         if (criterion.human_review) item.appendChild(el('span', 'why', 'You check this one yourself'));
         cardContent.appendChild(item);
       });
@@ -1685,56 +1740,7 @@ function render(state) {
     if (cardContent.childNodes.length > 0) app.appendChild(card);
     if (strip.childNodes.length > 0) app.appendChild(strip);
     if (state.done && state.finish) renderFinish(state);
-    if (chatMode && state.checkpoints && state.checkpoints.length) {
-      const savedHeading = el('h2', null, 'Saved code changes');
-      savedHeading.id = 'saved-changes';
-      app.appendChild(savedHeading);
-      if (state.checkpointsBlocked) app.appendChild(el('div', 'why', state.checkpointsBlocked));
-      if (state.taking && state.checkpoints.some((cp) => cp.available && cp.actions.length)) {
-        app.appendChild(el('div', 'why', 'Saved-code actions are available after the current AutoCode action finishes.'));
-      }
-      state.checkpoints.forEach((cp) => {
-        const box = el('div', 'decision');
-        const title = cp.label + (cp.verdict ? ' · ' + cp.verdict : '');
-        box.appendChild(el('div', 'q', title));
-        if (cp.available) {
-          box.appendChild(el('div', 'why', cp.files + ' file(s) changed' + (cp.at ? ' · ' + new Date(cp.at).toLocaleDateString() : '')));
-          cp.actions.forEach((action) => {
-            const button = el('button', action.id === 'restore' ? null : 'secondary', action.label);
-            button.dataset.checkpointAction = action.id;
-            button.dataset.checkpointId = cp.id;
-            button.disabled = Boolean(state.taking || state.unreadable);
-            button.addEventListener('click', () => vscode.postMessage({ type: 'checkpoint', action: action.id,
-              checkpoint: cp.id, runKey: state.workspace + '\\n' + state.runDir }));
-            box.appendChild(button);
-          });
-        } else {
-          box.appendChild(el('div', 'why', cp.reason || 'The saved source for this step is not retained.'));
-        }
-        const compare = checkpointCompare[cp.id];
-        if (compare && compare.error) {
-          box.appendChild(el('div', 'why', 'Comparison failed: ' + compare.error));
-        } else if (compare) {
-          const comparison = compare.comparison || {};
-          const files = (comparison.changed_files || []).length;
-          const step = compare.kind === 'step';
-          box.appendChild(el('div', 'why', step
-            ? files + ' file(s) changed in this step' + (comparison.truncated ? ' · diff truncated' : '')
-            : files + ' file(s) differ from this checkpoint' + (comparison.truncated ? ' · diff truncated' : '')));
-          box.appendChild(diffBlock(comparison.patch, step ? 'This step changed no files.' : 'The files match this checkpoint.'));
-        }
-        if (checkpointResult && checkpointResult.checkpoint === cp.id && checkpointResult.result) {
-          const result = checkpointResult.result;
-          box.appendChild(el('div', 'notice',
-            'Restored on a new branch: ' + (result.branch || 'created') + '. The original branch and later work stay intact.'));
-          const open = el('button', 'secondary', 'Open restored candidate');
-          open.addEventListener('click', () => vscode.postMessage({ type: 'checkpoint_open',
-            workspace: result.workspace, runDir: result.run_dir }));
-          box.appendChild(open);
-        }
-        app.appendChild(box);
-      });
-    }
+    renderSavedChanges(state);
     updateActionButton();
     if (focusedQuestion) {
       const input = [...document.querySelectorAll('[data-question]')].find((node) => node.dataset.question === focusedQuestion);
