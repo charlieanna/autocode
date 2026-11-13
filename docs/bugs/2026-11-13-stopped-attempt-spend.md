@@ -62,3 +62,20 @@ combined with the behavioral mutation checks, not a coverage.py report.
 No live-model run was needed for this deterministic accounting fix. The public
 CLI check launches no provider and runs on macOS; supervised provider scenarios
 remain Linux checks. No supported-Linux provider qualification is claimed here.
+
+### CI follow-up
+
+The first [Ubuntu suite run](https://github.com/charlieanna/autocode/actions/runs/43407238782/job/131824603986)
+found two failures in `tests.test_efficiency`; its base attribution confirmed that
+the module passed before this change. Both fixtures intended a running attempt
+but supplied a finish timestamp. The fixture now accepts `end=None`, with no
+finished duration or exit code, and all tests describing running attempts use it.
+The original unknown-usage assertions remain intact. The parent/worker aggregation
+control also explicitly checks that its worker snapshot is still active.
+
+Additional cases check that a stopped attempt with a truncated stream keeps its
+known subtotal and unknown total, and that public efficiency totals stay identical
+before, during and after archival of fully observed retained usage. Both stopped
+cases fail against base `0cd2928f0d`; all 83 efficiency tests pass on the candidate.
+The CI correction changes only tests and this evidence, with no further runtime
+changes. Repository-wide Ruff lint and format checks pass.
