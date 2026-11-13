@@ -14,7 +14,7 @@ from .test_taskrun import BRIEF, FIXTURE_OPTIONS
 
 @unittest.skipUnless(sys.platform == "linux", "fake providers require supported Linux")
 class PlanningScopeCliTests(unittest.TestCase):
-    def start(self, *, grounded, duplicate_citation=False):
+    def start(self, *, grounded, invalid_citation=False):
         workspace, env = fixture_workspace(self)
         provider = Path(env["PATH"].split(os.pathsep)[0]) / "codex"
         env["PATH"] = f"{provider.parent}{os.pathsep}{Path(sys.executable).parent}{os.pathsep}{env['PATH']}"
@@ -26,9 +26,9 @@ class PlanningScopeCliTests(unittest.TestCase):
                 report['workspace_scope'] = {{'spans_repositories': True, 'external_parts': [{{
                     'target': 'greet-history', 'work': 'Record greetings',
                     'source_quote': {quote!r}, 'evidence': ''}}]}}
-                if {duplicate_citation!r} and not repairing:
+                if {invalid_citation!r} and not repairing:
                     report['contract']['acceptance_criteria'][0]['sources'] = [
-                        {{'source_id': 'task:0', 'quote': {elsewhere!r}}}] * 2
+                        {{'source_id': 'task:0', 'quote': 'Invented requirement absent from the request.'}}]
         """)
         source = provider.read_text()
         self.assertEqual(1, source.count(marker))
@@ -43,7 +43,7 @@ class PlanningScopeCliTests(unittest.TestCase):
         return run, env, run.advance_until_input()
 
     def test_malformed_scope_report_is_repaired_before_offering_assignment(self):
-        run, env, view = self.start(grounded=True, duplicate_citation=True)
+        run, env, view = self.start(grounded=True, invalid_citation=True)
         self.assertEqual("answer", view["needs"]["kind"], view["needs"])
         self.assertTrue(view["needs"]["questions"][0]["id"].startswith("workspace-scope-"))
         attempts = view["usage"]["accounting"]["attempts"]
