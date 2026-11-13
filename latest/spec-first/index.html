@@ -1906,7 +1906,11 @@ it is:</p>
 </tr>
 </tbody>
 </table>
-<p>A report that breaks this is rejected, and the Tester's retry gets the runner's result.</p>
+<p>A report that breaks this is rejected, and the Tester's retry gets the runner's result. When the fault is in
+the tests themselves (a guard that does not pass, a test the runner's command did not run, or one it collected
+and then skipped on this host), the runner sends them back to the Tester itself, at most twice. When those
+rewrites are spent, or the same cases come back skipped after the Tester was told they skip, the attempt is
+rejected and the Investigator looks at it before you are asked anything (#3261).</p>
 <p>When the code already does what a <code>test:</code> case says, the Tester keeps the test and reports the case as
 already working; once the runner sees that test pass, it sends the plan back: it relabels that case
 <code>guard:</code> (must keep working), the Plan Reviewer reviews the corrected plan, and you approve it as any
