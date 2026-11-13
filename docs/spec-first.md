@@ -49,13 +49,16 @@ the tests themselves (a guard that does not pass, a test the runner's command di
 and then skipped on this host, or a Python test that fails today above a skip call it never reached, so it would
 skip once the change is made, #3333), the runner sends them back to the Tester itself, at most twice. When those
 rewrites are spent, or the same cases come back skipped after the Tester was told they skip, the attempt is
-rejected and the Investigator looks at it before you are asked anything (#3261).
+rejected and the Investigator looks at it before you are asked anything (#3261). The feedback asks for
+the approved behavior, not a different behavior invented to run on this host. When the Tester reports
+that a case cannot be tested on the runner's host, the attempt is rejected with its reason for bounded
+recovery, including the Investigator when available; it is not proof of the case.
 
 When the code already does what a `test:` case says, the Tester keeps the test and reports the case as
 already working; once the runner sees that test pass, it sends the plan back: it relabels that case
 `guard:` (must keep working), the Plan Reviewer reviews the corrected plan, and you approve it as any
-plan. Then the Tester runs again. A case sent back once that disagrees again, a case no test can show,
-and a bug's reproduction that already passes stop the run with `PAUSED_ACCEPTANCE_TESTS`; `--feedback`
+plan. Then the Tester runs again. A case sent back once that disagrees again and a bug's reproduction
+that already passes stop the run with `PAUSED_ACCEPTANCE_TESTS`; `--feedback`
 revises the plan.
 
 A bug fix's cases are its Investigator's, plus any `test:`/`guard:` cases its plan adds: the Tester writes

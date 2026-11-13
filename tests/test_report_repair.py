@@ -2005,6 +2005,42 @@ class RepairTests(unittest.TestCase):
         self.assertEqual("PAUSED_INVALID_OUTPUT", paused.exception.status)
         self.assertNotIn("pending_report_repair", self.state)
 
+    def test_fake_acceptance_writer_host_limitation_reaches_investigator(self):
+        import autocode_acceptance_tests as acceptance
+        import autocode_acceptance_tests_job as acceptance_job
+
+        self.state["version"] = 3
+        self.state["settings"]["spec_first"] = True
+        self.state["settings"]["report_repair"] = {"max_attempts": 2}
+        self.state["goal_contract"] = {
+            "hash": "approved",
+            "approval_status": "approved",
+            "body": {
+                "acceptance_criteria": [
+                    {"id": "AC1", "criterion": "Read real /proc", "verification_method": "test: test_ac1_reads_rss"}
+                ]
+            },
+        }
+        acceptance.route(self.state)
+        report = {
+            "summary": "The host has no /proc.",
+            "tests": [],
+            "already_passing": [],
+            "cannot_write": [{"case_id": "AC1", "reason": "real /proc is unavailable on this host"}],
+            "tests_run": [],
+        }
+        record = self.stage_record(stage=acceptance_job.STAGE, role="tester", report=json.dumps(report))
+        with self.assertRaises(acceptance_job.TestsNeedRewriting) as failure:
+            acceptance_job.apply(self.state, report, record, self.root)
+        with self.assertRaises(support.Paused) as paused:
+            runner.reject_completed_stage(self.state, self.run, record, failure.exception)
+        self.assertEqual("PAUSED_INVALID_OUTPUT", paused.exception.status)
+        self.assertNotIn("pending_report_repair", self.state)
+        self.assertFalse(acceptance.receipts(self.state))
+        self.assertTrue(stuck_job.intercept(self.state, paused.exception.status, str(paused.exception)))
+        self.assertEqual(stuck_job.STAGE, self.state["next_stage"])
+        self.assertIn("AC1: real /proc is unavailable on this host", self.state["stuck_investigation"]["reason"])
+
     def test_a_criterion_citing_something_the_runner_did_not_verify_gets_a_report_repair(self):
         # A PASS row whose evidence is prose proves nothing the runner replayed (#1070).
         events = self.run / "events.jsonl"

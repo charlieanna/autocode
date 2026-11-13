@@ -15,9 +15,10 @@ A ``test:`` case the Tester reports already working (``already_passing``, its te
 the runner sees pass goes back to plan review once, relabelled ``guard:`` in a runner-built draft (ORIGIN);
 the user approves the corrected plan. That holds for a bug fix too: its plan can add ``test:`` cases of
 its own beside the Investigator's reproduction (autocode_acceptance_tests._cases), and one of those that
-already works is the same disagreement as in a build (#1868). A second disagreement on that case, a case no
-test can show (``cannot_write``) and a bug's reproduction that already passes pause the run
+already works is the same disagreement as in a build (#1868). A second disagreement on that case and a
+bug's reproduction that already passes pause the run
 (PAUSED_ACCEPTANCE_TESTS): only the user (``--feedback``) can say which is right.
+An untestable case (``cannot_write``) is rejected with its reason for bounded rejection recovery, not accepted as proof.
 
 A fault in the tests themselves (a guard that does not pass on today's code, often because its file cannot
 load there, or a test the runner's command did not run) is not a question for the user: the runner sends the
@@ -427,8 +428,8 @@ def _skip_after_change(case: dict, file: str, source: str, run: dict) -> str:
         f"{case['id']}: {case['test_name']} in {file} fails today, but below the line that failed it can skip "
         f"({skip}). Once the change is made that skip is reached, and a test that skips on this host cannot show "
         "the change works, so the regression proof could not pass. Write a test for this case that runs here "
-        "both before and after the change (no skip condition), or report the case in cannot_write with the "
-        "reason it cannot run on this host"
+        "both before and after the change if it proves the approved behavior. Do not assert different or additional behavior "
+        "to avoid a host limitation; report the case in cannot_write with the reason instead"
     )
 
 
@@ -457,8 +458,8 @@ def _skipped(case: dict, file: str, run: dict) -> str:
     return (
         f"{case['id']}: {case['test_name']} in {file} was collected and then skipped by the runner's command "
         f"`{command}` on this host, so it proved nothing. A skipped test neither fails nor passes: write a test "
-        "for this case that runs here (test the behavior through code this host can run, without the skip "
-        "condition), or report the case in cannot_write with the reason it cannot run on this host"
+        "for this case that runs here if it proves the approved behavior. Do not assert different or additional behavior "
+        "to avoid a host limitation; report the case in cannot_write with the reason instead"
     )
 
 
@@ -511,8 +512,10 @@ def apply(
     cases = acceptance.job_cases(state)
     _check_rows(value, cases, shared_names=set(acceptance.shared_test_names(state).values()))
     if value["cannot_write"]:
-        _pause(state, [f"{row['case_id']} cannot be tested: {row['reason']}" for row in value["cannot_write"]])
-        return
+        raise TestsNeedRewriting(
+            "The Tester could not write the approved tests: "
+            + "; ".join(f"{row['case_id']}: {row['reason']}" for row in value["cannot_write"])
+        )
     files = sorted({row["file"] for row in value["tests"]})
     bad = [path for path in files if not is_test_path(path) or not (Path(workspace) / path).is_file()]
     if bad:
