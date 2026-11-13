@@ -7,12 +7,15 @@ them, and that surfaced only after a Builder and a Tester round. tools/autocode_
 
 from __future__ import annotations
 
+import sys
 import unittest
 
 import autocode_goal_lifecycle as lifecycle
 import autocode_native_test_names as native_test_names
 import autocode_plan_test_suite as plan_test_suite
+import autocode_verify as verify
 import goal_fixtures
+from autocode_test_framework import Framework
 
 from tests.test_verify import Project
 
@@ -127,3 +130,66 @@ class CheckTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+MINITEST = {
+    "lib/pager.rb": "def page_count(total, size) = total / size\n",
+    "test/pager_test.rb": "require 'minitest/autorun'\nclass PagerTest < Minitest::Test\n  def test_exact\n  end\nend\n",
+}
+
+
+def named(method, *paths):
+    body = plan(*paths)
+    body["acceptance_criteria"][0]["verification_method"] = method
+    return body
+
+
+class NamedCasesTests(unittest.TestCase):
+    """A test: or guard: criterion on a runner that reports only an exit code is refused when it is drafted.
+
+    A live Ruby Minitest bug fix (2026-11-13) planned test: criteria, built and tested them, and then ended
+    with the proof unable to match any test to them; the Resolver asked the person how to prove it.
+    """
+
+    def state(self, files):
+        project = Project(files)
+        self.addCleanup(project.close)
+        return CheckTests.state(self, project)
+
+    def test_a_named_criterion_on_an_exit_code_runner_goes_back_to_the_planner(self):
+        refusal = (
+            r"Criteria C1 name a test after test: or guard:, but this project's tests run with the minitest suite "
+            r"`ruby -Ilib -Itest -e .*`, which reports only whether the whole run passed.*Write each of them without "
+            r"test: or guard:, as the command that runs its test file"
+        )
+        for method in ("test: test_partial_page_counted", "guard: test_exact"):
+            with self.subTest(method=method), self.assertRaisesRegex(ValueError, refusal):
+                lifecycle.validate_body(self.state(MINITEST), named(method, "test/pager_test.rb"), ready=True)
+
+    def test_test_code_no_runner_reads_is_judged_as_an_exit_code_runner(self):
+        shell = {"pager.sh": "page_count() { echo 1; }\n", "tests/test_pager.sh": ". ./pager.sh\n"}
+        with self.assertRaisesRegex(ValueError, r"this project's tests run with no runner AutoCode reads, which"):
+            lifecycle.validate_body(self.state(shell), named("test: test_partial", "tests/test_pager.sh"), ready=True)
+
+    def test_the_same_criterion_as_the_command_that_runs_its_test_file_is_accepted(self):
+        method = "`ruby test/pager_test.rb` fails on the original code and passes with the fix"
+        lifecycle.validate_body(self.state(MINITEST), named(method, "test/pager_test.rb"), ready=True)
+
+    def test_a_runner_with_per_test_results_or_none_detected_keeps_named_criteria(self):
+        python = {"pager.py": "def page_count(total, size):\n    return total // size\n", "tests/test_pager.py": ""}
+        lifecycle.validate_body(self.state(python), named("test: test_partial", "tests/test_pager.py"), ready=True)
+        # A new project has no runner yet; the proof detects its suite again on the changed code.
+        lifecycle.validate_body(self.state({"tests/fixtures/x.json": "{}"}), named("test: test_partial"), ready=True)
+        lifecycle.validate_body(self.state({"README.md": "new\n"}), named("test: test_partial"), ready=True)
+
+    def test_a_suite_around_the_planned_tests_with_per_test_results_proves_them(self):
+        # A root `make test` beside a backend/ with its own RSpec suite: the proof runs the specs there.
+        project = Project({**POLYGLOT, "package.json": "{}\n", "Makefile": "test:\n\ttrue\n"})
+        self.addCleanup(project.close)
+        make = Framework("make", "make test")
+        detect = lambda directory: verify.detect_framework(directory, python=sys.executable)  # noqa: E731
+        body = named("test: test_partial", SPEC)
+        self.assertIsNone(plan_test_suite.unnamed_cases(str(project.root), make, [SPEC], body, detect))
+        self.assertIn(
+            "make suite `make test`", plan_test_suite.unnamed_cases(str(project.root), make, [], body, detect)
+        )

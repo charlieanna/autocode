@@ -181,9 +181,16 @@ change the verdict, and nothing is installed into the project.
 
 Shell pipelines, custom reporters, ordinary npm/Jest/Mocha summaries and custom
 assertion scripts do not currently provide named proof. A direct supported
-targeted command can accompany an existing package-script suite. If the project
-cannot use a supported runner, settle that compatibility blocker during planning;
-do not downgrade an approved named criterion to prose to make a run finish. A
+targeted command can accompany an existing package-script suite. A runner that
+reports only an exit code (`make test`, `cargo test`, Ruby test files run one by
+one, or a runner AutoCode does not detect) cannot prove a `test:` or `guard:`
+criterion by name, so a draft that has one there is refused when it is drafted,
+and the Planner writes the criterion as the command that runs its test file
+instead. When AutoCode detects no runner and nothing was typed, the regression
+proof runs the approved plan's own test command and judges its exit code
+(`tools/autocode_plan_proof_command.py`), recording that choice in the proof's
+notes and review reasons; it never asks the person to pass `--test-command`. Do
+not downgrade an approved named criterion to prose to make a run finish. A
 draft whose test files the proof's suite would never run, such as RSpec specs in
 a repository whose root suite is Node, is refused when it is drafted unless one
 directory with its own suite holds them all (see the monorepo packages section of

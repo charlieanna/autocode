@@ -20,6 +20,7 @@ job and the user's own edit of the plan are not judged here.
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
@@ -91,6 +92,50 @@ def problems(workspace, framework, tests, detect_in, *, scoped=False) -> list[st
     return [] if package_scope.enclosing(workspace, tests, detect_in, runs=holds) else other
 
 
+def unnamed_cases(workspace, framework, tests, body, detect_in) -> str | None:
+    """Why the plan's test: and guard: criteria could never be proven by name here, or None.
+
+    The proof matches such a criterion to a test only from a runner's per-test results
+    (autocode_regression.check_cases). A runner that reports only an exit code (``make test``,
+    ``cargo test``, Ruby test files run one by one, a Jest or Mocha suite) leaves every such criterion
+    unproven after a full Builder and Tester round, and the Resolver then asked the person how to prove
+    it (a Ruby Minitest bug fix, 2026-11-13). It is known when the plan is drafted, so the Planner gets
+    it instead: the same criterion is proven by the exit code of the command that runs its test file.
+    A suite of the project around the planned tests that reports per-test results counts, as the proof
+    uses it (autocode_package_scope.for_tests). A project with test code but no runner AutoCode detects
+    is judged the same way: its proof runs the approved plan's command (autocode_plan_proof_command). A new
+    project, before its first test exists, is not judged: the proof detects its suite on the changed code.
+    """
+    named = [case["id"] for case in test_cases.plan_cases(body)]
+    if not named or (framework is not None and framework.per_test):
+        return None
+    if framework is None and not _existing_tests(workspace):
+        return None
+    if tests and package_scope.enclosing(workspace, tests, detect_in, runs=lambda found: found.per_test):
+        return None
+    runner = f"the {framework.name} suite `{framework.suite}`" if framework is not None else "no runner AutoCode reads"
+    return (
+        f"Criteria {', '.join(named)} name a test after test: or guard:, but this project's tests run with {runner}, "
+        "which reports only whether the whole run passed, never which test passed, so the runner could never match "
+        "a test to these criteria. Write each of them without test: or guard:, as the command that runs its test "
+        'file and what it shows, such as "`ruby test/pager_test.rb` fails on the original code and passes with '
+        'the fix" (or "passes before and after the change" for behavior that must keep working), and name the '
+        "test file in its milestone's affected_paths. The regression proof runs that command on the original code "
+        "and with the change and judges its exit code"
+    )
+
+
+def _existing_tests(workspace) -> bool:
+    """Whether the workspace already holds test code (a test path that is a code file), tracked or not."""
+    listed = subprocess.run(
+        ["git", "-C", str(workspace), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        capture_output=True,
+        text=True,
+    )
+    names = listed.stdout.split("\0") if listed.returncode == 0 else []
+    return any(name and verify.is_test_path(name) and verify.is_code_path(name) for name in names)
+
+
 def check(state: RunState, body, *, origin=None) -> None:
     """Refuse a plan whose test files the regression proof would never run (see the module docstring)."""
     options = (state.get("settings") or {}).get("regression") or {}
@@ -99,12 +144,16 @@ def check(state: RunState, body, *, origin=None) -> None:
     if any(options.get(key) for key in ("test_command", "regression_command", "test_root")):
         return
     tests, workspace = planned_tests(body), state.get("workspace")
-    if not tests or not workspace or not Path(workspace).is_dir():
+    if not workspace or not Path(workspace).is_dir():
         return
     python = options.get("python") or verify.python_for(state.get("project_workspace") or workspace)
     settings = state.get("settings")
     framework = verify.detect_framework(workspace, python=python, **package_scope.detection(settings))
     detect = lambda directory: verify.detect_framework(directory, python=python)  # noqa: E731
+    if unnamed := unnamed_cases(workspace, framework, tests, body, detect):
+        raise ValueError(unnamed)
+    if not tests:
+        return
     unrun = problems(workspace, framework, tests, detect, scoped=package_scope.of(settings) is not None)
     if unrun and framework is not None:  # problems() names none without a framework
         runs = SHOWN[RUNNER_KIND[framework.name]]
