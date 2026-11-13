@@ -1,5 +1,6 @@
 """The base-suite cache is keyed on the base result, not the candidate tree (#426)."""
 
+import copy
 import shlex
 import sys
 import unittest
@@ -139,6 +140,61 @@ class BaselineCacheTests(unittest.TestCase):
                 project.root,
             )
         self.assertEqual(["base-a", "base-b"], calls)
+
+    def test_legacy_timeout_never_hides_changed_inputs_or_bad_evidence(self):
+        project = Project({"app.py": "x = 1\n"})
+        self.addCleanup(project.close)
+        run_dir = project.root / ".autocode" / "run"
+        framework = verify.command_framework(self.command)
+        binding = {
+            "base": "base-a",
+            "command": self.command,
+            "framework": framework.to_dict(),
+            "base_patch": None,
+            "timeout": 1800,
+            "runtime": {"reuse_supported": False, "environment_hash": "old-runtime"},
+        }
+        record_path = run_dir / "old-baseline.json"
+        record = self._receipt("base-a", run_dir)
+        record["health"] = "timeout"
+        record["receipt"]["timed_out"] = True
+        record["receipt"]["exit_code"] = None
+        for change in ("base", "command", "framework", "base_patch", "timeout", "hash", "not-timeout", "explicit"):
+            with self.subTest(change=change):
+                old_binding = copy.deepcopy(binding)
+                old_record = copy.deepcopy(record)
+                if change in binding:
+                    old_binding[change] = "different-input"
+                if change == "not-timeout":
+                    old_record["receipt"]["timed_out"] = False
+                util.atomic_json(record_path, old_record)
+                pin = {"path": str(record_path), "sha256": util.file_hash(record_path)}
+                if change == "hash":
+                    pin["sha256"] = "wrong-hash"
+                state = {
+                    "settings": {"regression": {"test_timeout": 1800}},
+                    "regression_baseline": {
+                        **pin,
+                        "binding": old_binding,
+                        "settled_timeouts": {util.digest(old_binding): pin},
+                    },
+                }
+                with (
+                    mock.patch.object(verify, "baseline_identity", return_value={"reuse_supported": False}),
+                    mock.patch.object(verify, "baseline", return_value=self._receipt("base-a", run_dir)) as launch,
+                ):
+                    result = regression._baseline(
+                        state,
+                        project.root,
+                        run_dir,
+                        "base-a",
+                        framework,
+                        self.command,
+                        project.root,
+                        settled_timeout=change != "explicit",
+                    )
+                launch.assert_called_once()
+                self.assertEqual("passing", result["health"])
 
 
 if __name__ == "__main__":

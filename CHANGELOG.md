@@ -95,6 +95,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **Resuming an older run keeps a known baseline timeout** (#3428): after an upgrade, the same detected base-suite check no longer spends its allowance again because its saved timeout used an older cache key. AutoCode verifies the saved inputs and record hash, retains that negative evidence under the current key, and still requires completed checks before accepting the change.
 - **Stalled Tester relaunches receive a bounded summary of archived tool calls** (#3309): when a Tester attempt stalls after executing checks, automatic timeout recovery now attaches `executed_work` — up to 40 completed tool calls from OpenCode/Kilo or Codex/Claude event logs with redacted commands/paths, exit codes and true output tails — as unverified context so the relaunch focuses instead of re-reading a multi-thousand-line JSONL log or restarting from scratch; the new report still binds its own executed checks.
 
 - **Reliability checks require completed product commands** (#3423): the required TODO, timesheet, ISO-week and Docutils oracles no longer count a timeout, signal or failed launch as the expected error or failing-original-code proof. A normal child exit of any positive status remains valid, including 126 and 127. TODO success checks also require exit 0 when their output or stored data matches the request. The harness keeps its existing process return codes and output fields, and an abnormal original-code check says it did not complete normally.
