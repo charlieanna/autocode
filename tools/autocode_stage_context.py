@@ -42,6 +42,7 @@ try:
     from . import autocode_roles as roles
     from . import autocode_stage_roles as stage_roles
     from . import autocode_support as support
+    from . import autocode_tool_handoff as tool_handoff
     from . import autocode_visual_evidence as visual
     from .autocode_util import criteria_definition
 except ImportError:
@@ -56,6 +57,7 @@ except ImportError:
     import autocode_roles as roles
     import autocode_stage_roles as stage_roles
     import autocode_support as support
+    import autocode_tool_handoff as tool_handoff
     import autocode_visual_evidence as visual
     from autocode_util import criteria_definition
 
@@ -237,15 +239,7 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
     except ImportError:
         import autocode_output_policy as output_policy
     base["output_transport"] = output_policy.context(state.get("settings") or {})
-    base["capture_command"] = shlex.join(
-        [
-            sys.executable,
-            str(Path(__file__).with_name("autocode.py")),
-            "capture",
-            "--mode",
-            output_policy.mode(state.get("settings") or {}),
-        ]
-    )
+    base["capture_command"] = tool_handoff.capture_command(output_policy.mode(state.get("settings") or {}))
     base["baseline_compare_command"] = shlex.join(
         [sys.executable, str(Path(__file__).with_name("autocode.py")), "compare-baseline"]
     )

@@ -40,6 +40,7 @@ try:
     from . import autocode_skip_requirements as skip_requirements
     from . import autocode_storage_budget as storage_budget
     from . import autocode_support as support
+    from . import autocode_tool_admission as tool_admission
     from . import autocode_transport_relocation as transport_relocation
     from . import autocode_workflow as workflow
     from . import autopilot
@@ -67,6 +68,7 @@ except ImportError:
     import autocode_skip_requirements as skip_requirements
     import autocode_storage_budget as storage_budget
     import autocode_support as support
+    import autocode_tool_admission as tool_admission
     import autocode_transport_relocation as transport_relocation
     import autocode_workflow as workflow
     import autopilot
@@ -107,7 +109,18 @@ def record_resume(runner, args, state: RunState, state_path) -> None:
 def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checkout_owned=False):
     """Drive the run's stages until it stops; return the exit code, or None if the loop ends normally."""
     storage_checked = False
+    tools_checked = False
     args._ready_message_boundary = False
+
+    def check_tools(current):
+        nonlocal tools_checked
+        # Native ownership constructs and checks its agent in its own isolated
+        # configuration. Ordinary metadata cannot certify or replace that owner.
+        # A saved report repair has no tools; admit ordinary stages after it clears.
+        if tools_checked or current.get("pending_report_repair") or getattr(runner, "native_calls", None) is not None:
+            return
+        tool_admission.selected_tools(getattr(runner, "opencode", None), current, workspace, run_dir)
+        tools_checked = True
 
     def check_storage(current):
         nonlocal storage_checked
@@ -143,6 +156,7 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             raise support.Paused("PAUSED_TASK_PREFLIGHT", reason)
 
     try:
+        check_tools(state)
         model_preflight.check(
             runner,
             state,
@@ -156,6 +170,7 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         return stopped.code
 
     def before_code_stage(current):
+        check_tools(current)
         if not check_storage(current):
             raise runner.orchestrator.LoopExit(2)
         if current.get("next_stage") in model_preflight.DEFERRED_STAGES:  # a deferred role's access, first (#1744)

@@ -1120,6 +1120,17 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tools/autocode_tool_admission.py", "tools/autocode_model_preflight.py", "tools/autocode_provider_launch.py"),
         ("tests.test_tool_admission_cli",),
     ),
+    # Black-box mixed transports must be admitted before an earlier role spends.
+    (
+        (
+            "tools/autocode_build_loop.py",
+            "tools/autocode_tool_admission.py",
+            "tools/autocode_tool_handoff.py",
+            "tools/providers/kilocode.py",
+            "tools/providers/kilocode_policy.py",
+        ),
+        ("tests.test_kilo_tool_readiness_cli",),
+    ),
     (("tools/autocode_model_preflight",), ("tests.test_provider_credentials",)),
     # The CLI reaches access transport through model_preflight, beyond the direct import selector.
     (("tools/provider_conformance_transport.py",), ("tests.test_model_preflight_budgets",)),

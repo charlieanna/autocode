@@ -10,6 +10,14 @@ from pathlib import Path
 MARKER = "\nCURRENT HANDOFF DATA\n"
 
 
+def capture_command(mode=None) -> str:
+    """The public capture prefix shared by handoffs and model-free tool admission."""
+    words = [sys.executable, str(Path(__file__).with_name("autocode.py")), "capture"]
+    if mode is not None:
+        words += ["--mode", mode]
+    return shlex.join(words)
+
+
 def with_capture_command(prompt: str) -> str:
     """Fill missing tool context; preserve an existing command and packet bytes.
 
@@ -31,7 +39,7 @@ def with_capture_command(prompt: str) -> str:
         if not isinstance(data["capture_command"], str) or not data["capture_command"].strip():
             raise ValueError("Provider handoff capture_command must be a nonempty command")
         return prompt
-    data["capture_command"] = shlex.join([sys.executable, str(Path(__file__).with_name("autocode.py")), "capture"])
+    data["capture_command"] = capture_command()
     # Keep a compact packet compact: re-indenting a report repair's handoff pushed it over its cap (#1337).
     if "\n" not in packet.strip():
         return instructions + marker + json.dumps(data, separators=(",", ":"))

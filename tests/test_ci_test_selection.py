@@ -16,6 +16,20 @@ class AccessTransportConsumerTests(unittest.TestCase):
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_kilo_tool_readiness_keeps_its_mixed_transport_cli_regression_when_slow(self):
+        consumer = "tests.test_kilo_tool_readiness_cli"
+        for source in (
+            "tools/autocode_build_loop.py",
+            "tools/autocode_tool_admission.py",
+            "tools/autocode_tool_handoff.py",
+            "tools/providers/kilocode.py",
+            "tools/providers/kilocode_policy.py",
+        ):
+            with self.subTest(source=source):
+                selected = run_suite.select_tests([source], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
     def test_named_action_transport_keeps_its_public_consumers_when_slow(self):
         consumers = {"tests.test_pause_status_cli", "tests.test_checkpoint_reconciliation", "tests.test_worker_flow"}
         for source in ("tools/autocode_pause_command.py", "tools/autocode_run_view.py"):

@@ -11,15 +11,18 @@ import shutil
 import subprocess
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from . import kilocode_probe
 
 try:
     from .. import autocode_publish_guard as publish_guard
     from .. import autocode_tool_containment as containment
+    from .. import autocode_tool_handoff as tool_handoff
 except ImportError:
     import autocode_publish_guard as publish_guard
     import autocode_tool_containment as containment
+    import autocode_tool_handoff as tool_handoff
 
 READ_TOOLS = ("read", "glob", "grep", "list")
 # Writable stage work stays in the one session whose commands/reports the core
@@ -52,15 +55,8 @@ def intersect(rules, tools):
     return result
 
 
-def restrict(
-    argv, child, workspace, *, role, request=None, report_recovery=False, portable_shell=False, write_stage=False
-):
-    """``portable_shell``: a read-only checker on a host without the kernel shell (macOS, #1766) keeps the read
-    tools and Kilo's own shell, intersected with the operator's policy; edits stay denied."""
-    if write_stage and (request is not None or report_recovery or portable_shell):
-        raise ValueError("A writable Kilo stage cannot use a read-only tool boundary")
-    if portable_shell and (request is not None or report_recovery):
-        raise ValueError("A portable Kilo shell replaces the kernel boundary; it cannot accompany one")
+def effective_agent(argv, child, workspace, *, cache=None):
+    """Resolve this local launch's actual agent; an optional cache lasts one readiness call only."""
     # A remote server or inherited session could apply different tool grants.
     if any(arg in ("--attach", "--continue", "-c") or arg.startswith("--attach=") for arg in argv):
         raise ValueError("Restricted Kilo stages require a fresh local provider, not attach/continue")
@@ -75,6 +71,10 @@ def restrict(
     executable = shutil.which(argv[0], path=child.get("PATH", ""))
     if not executable:
         raise RuntimeError("Kilo readonly launch cannot find the configured executable")
+    selected = argv[argv.index("--agent") + 1] if "--agent" in argv else None
+    key = (str(Path(executable).resolve()), selected, tuple(sorted(child.items())), str(Path(workspace).resolve()))
+    if cache is not None and key in cache:
+        return argv, cache[key]
 
     observe = kilocode_probe.observer()
 
@@ -94,8 +94,7 @@ def restrict(
             raise ValueError("Kilo debug policy must be a JSON object")
         return value
 
-    if "--agent" in argv:
-        selected = argv[argv.index("--agent") + 1]
+    if selected is not None:
         original = debug("agent", selected)
     else:
         # Each debug command is a Kilo start paid before every stage, and `probe` bounds the whole set of
@@ -108,6 +107,45 @@ def restrict(
             if selected != "code":
                 usual.cancel()
             original = usual.result() if selected == "code" else debug("agent", selected)
+    if cache is not None:
+        cache[key] = original
+    return argv, original
+
+
+def _permission_match(value, pattern):
+    """Native Wildcard.match semantics, as in autocode_preflight_worker.permission_match."""
+    escaped = re.escape(pattern.replace("\\", "/")).replace(r"\*", ".*").replace(r"\?", ".").replace(r"\ ", " ")
+    if escaped.endswith(" .*"):
+        escaped = escaped[:-3] + "( .*)?"
+    return re.fullmatch(escaped, value.replace("\\", "/"), re.DOTALL) is not None
+
+
+def require_capture(policy, *, role, capture_command):
+    """Check only the required capture prefix; this grants no future shell-command permission."""
+    if not isinstance(capture_command, str) or not capture_command.strip():
+        raise ValueError("Kilo tool readiness requires the runner's capture command")
+    selected = "deny"
+    for pattern, action in policy["bash"].items():
+        if _permission_match(capture_command, pattern):
+            selected = action
+    if selected != "allow":
+        raise containment.NativePermissionDenied(
+            f"Kilo {role}: Native tool permissions deny the required capture command; "
+            "configure the selected Kilo agent to allow AutoCode capture in its bash permissions. "
+            "Operator ask/deny permissions remain unchanged; no provider request was launched"
+        )
+
+
+def restrict(
+    argv, child, workspace, *, role, request=None, report_recovery=False, portable_shell=False, write_stage=False
+):
+    """``portable_shell``: a read-only checker on a host without the kernel shell (macOS, #1766) keeps the read
+    tools and Kilo's own shell, intersected with the operator's policy; edits stay denied."""
+    if write_stage and (request is not None or report_recovery or portable_shell):
+        raise ValueError("A writable Kilo stage cannot use a read-only tool boundary")
+    if portable_shell and (request is not None or report_recovery):
+        raise ValueError("A portable Kilo shell replaces the kernel boundary; it cannot accompany one")
+    argv, original = effective_agent(argv, child, workspace)
     prompt = original.get("prompt")
     if prompt is not None and not isinstance(prompt, str):
         raise ValueError("Kilo effective agent prompt must be a string")
@@ -131,6 +169,9 @@ def restrict(
     if "bash" in policy:
         # No stage changes GitHub or pushes, whatever the operator's shell allows (autocode_publish_guard).
         policy["bash"] = publish_guard.bash_permission(policy["bash"])
+        require_capture(
+            policy, role=role, capture_command=tool_handoff.capture_command(child.get("AUTOCODE_OUTPUT_MODE"))
+        )
     if write_stage:
         # Kilo's action-only permissions reject pattern objects (and can discard
         # the entire inline config). Collapse only an unconditional rule; a

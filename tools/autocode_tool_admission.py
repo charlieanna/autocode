@@ -19,8 +19,11 @@ try:
     from . import autocode_agent_env as agent_env
     from . import autocode_containment_policy as containment_policy
     from . import autocode_native_role_isolation as native_isolation
+    from . import autocode_output_policy as output_policy
+    from . import autocode_role_transport as role_transport
     from . import autocode_stage_roles as stage_roles
     from . import autocode_tool_containment as containment
+    from . import autocode_tool_handoff as tool_handoff
     from . import autocode_toolchain as toolchain
     from . import autocode_util as util
     from .providers.kilocode import KiloProvider
@@ -29,8 +32,11 @@ except ImportError:
     import autocode_agent_env as agent_env
     import autocode_containment_policy as containment_policy
     import autocode_native_role_isolation as native_isolation
+    import autocode_output_policy as output_policy
+    import autocode_role_transport as role_transport
     import autocode_stage_roles as stage_roles
     import autocode_tool_containment as containment
+    import autocode_tool_handoff as tool_handoff
     import autocode_toolchain as toolchain
     import autocode_util as util
     from providers.kilocode import KiloProvider
@@ -90,6 +96,49 @@ def failure(error, *, kilo_readonly=False, isolation=None):
         "this run's stages with OpenCode's own permission checks only"
     )
     return util.Paused("PAUSED_TOOL_CONTAINMENT", "Native tool boundary was not established: " + str(error) + recovery)
+
+
+def selected_tools(fallback, state: RunState, workspace, run_dir):
+    """Refuse a known unusable Kilo capture policy before any task-stage dispatch.
+
+    All actual transports are inspected, including a Kilo Tester behind another
+    tool's Requirements stage. This grants no capability or reusable readiness;
+    ordinary launches still resolve and enforce their current native policy.
+    """
+    settings = state.get("settings") or {}
+    if settings.get("replay_recording"):
+        return
+    groups = []
+    for facade, routes, identity in role_transport.groups(settings, fallback, workspace):
+        if type(facade) is not KiloProvider:
+            continue
+        same = next(
+            (
+                group
+                for group in groups
+                if identity is not None and group[0].NAME == facade.NAME and group[2] == identity
+            ),
+            None,
+        )
+        if same is None:
+            groups.append((facade, dict(routes), identity))
+        else:
+            same[1].update(routes)
+    for facade, routes, _identity in groups:
+        try:
+            facade.check_tools(
+                routes,
+                workspace,
+                run_dir,
+                env=environment(),
+                capture_command=tool_handoff.capture_command(output_policy.mode(settings)),
+            )
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+            # Missing configured permissions cannot be fixed by waiving the
+            # kernel boundary, choosing another route, or asking a model.
+            raise util.Paused(
+                "PAUSED_TOOL_CONTAINMENT", "Kilo tool readiness failed before stage dispatch: " + str(error)
+            ) from error
 
 
 def requirements(adapter, state: RunState, workspace):

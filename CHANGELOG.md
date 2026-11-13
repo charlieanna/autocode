@@ -91,6 +91,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **A Kilo agent without capture permission is refused before task spend** (#3366): model-free readiness checks every selected ordinary Kilo transport, including a Kilo-only Tester behind another tool. An unusable shell policy stops with configuration guidance before planning; operator asks and denials, selected routes and caps stay unchanged. Ordinary launches recheck the policy, and native-owned isolated agents retain their own conformance checks.
+
 - **Requirements clarification avoids empty-test report repairs and repeated questions**: while an unanswered interview question has no drafted behavior, an omitted acceptance-tests list is recorded as empty with the original report preserved. Work-bearing reports still require tests. VS Code shows the question once in the conversation and keeps an accessible answer field.
 
 - **Requirements can ask a clarification before drafting the outcome**: an initial question with no behaviors or acceptance tests can now wait for an answer even when its outcome is still blank, instead of entering report repair. The answer returns to Requirements before planning; completed handoffs still require an outcome.
