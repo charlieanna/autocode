@@ -418,10 +418,9 @@ def run_role(
     base = artifacts.reserve(run_dir, iteration, stage, attempt)
     output, events, prompt_file = base.with_suffix(".json"), base.with_suffix(".jsonl"), base.with_suffix(".prompt.md")
     prompt_file.parent.mkdir(parents=True, exist_ok=True)
-    if not report_only and original_stage in ("tester", "review_completion", "review_checkpoint"):
-        bound_schema = support.review_generation_schema(read_json(schema), state, original_stage)
-        schema = base.with_suffix(".schema.json")
-        save(schema, bound_schema)
+    schema, prompt = role_launch.prepare_schema_and_report_check(
+        state, original_stage, workspace, run_dir, base, schema, prompt, report_only, dry_run, native, save
+    )
     fallback_route = reviewer_fallback.pending_route(state, original_stage) if joint_stage and not report_only else None
     if fallback_route:
         route_role = fallback_route["role"]
