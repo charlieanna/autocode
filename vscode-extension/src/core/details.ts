@@ -113,6 +113,7 @@ function clock(value: unknown): string {
 /** A job's launched attempts as the meter reads them (`usage.accounting.attempts`), several stages of one job together. */
 interface JobUse {
   model: string; level: string; seconds: number | null; tokens: number; tokensComplete: boolean; spent: number | null;
+  costComplete: boolean;
   attempts: number; failed: number; repairs: number; why: string; active: boolean;
 }
 
@@ -129,6 +130,7 @@ function jobUse(view: Row, now: number): Map<string, JobUse> {
       tokens: (seen?.tokens ?? 0) + row.tokens,
       tokensComplete: (seen?.tokensComplete ?? true) && row.tokensComplete,
       spent: add(seen?.spent ?? null, row.spentUsd),
+      costComplete: (seen?.costComplete ?? true) && row.costComplete,
       attempts: (seen?.attempts ?? 0) + row.attempts,
       failed: (seen?.failed ?? 0) + row.failedAttempts,
       repairs: (seen?.repairs ?? 0) + row.repairs,
@@ -169,8 +171,11 @@ function stepOf(label: string, state: StepState, row: Row, use: JobUse | undefin
   }
   if (use?.seconds && use.seconds >= 1) step.time = duration(use.seconds);
   if (use?.tokens) step.tokens = `${stageTokens(use.tokens)}${use.tokensComplete ? "" : "+"}`;
-  const spent = use?.spent ?? (isNumber(row.spent_usd) ? row.spent_usd : null);
-  if (spent !== null && (spent > 0 || use)) step.cost = stageMoney(spent);
+  const spent = use ? use.spent : (isNumber(row.spent_usd) ? row.spent_usd : null);
+  const complete = use ? use.costComplete : row.spent_complete !== false;
+  if (spent !== null && (spent > 0 || use || typeof row.spent_complete === "boolean")) {
+    step.cost = `${stageMoney(spent)}${complete ? "" : "+"}`;
+  }
   // A stage that ran again after succeeding (a second plan-review round) is not a retry, and a report
   // repair only rewrote a rejected report: it is never another run of the stage.
   const again = use && use.attempts > 1 ? (use.failed ? `${use.attempts} attempts, ${use.failed} failed` : `ran ${use.attempts} times`) : "";
@@ -323,13 +328,14 @@ function metricsOf(view: Row): Row | null {
   return metrics.schema === 1 && isNumber(metrics.spent_usd) && metrics.spent_usd > 0 ? metrics : null;
 }
 
-function jobLine(row: Row): string {
+function jobLine(row: Row, complete: boolean): string {
   const again = isCount(row.attempts) && row.attempts > 1 ? `, ${row.attempts} runs` : "";
   const known = row.complete === true ? "" : " (known part)";
   // Each job's own time beside its share of the cost, so a share is never read as a share of the time.
   let took = isNumber(row.seconds) ? duration(row.seconds) : "";
   if (took && row.seconds_complete !== true) took += " so far";
-  return `${text(row.job) || "Job unreported"} ${money(row.spent_usd)}${known} · ${percent(row.share)} of cost${took ? ` · ${took}` : ""}${again}`;
+  const share = complete ? ` · ${percent(row.share)} of cost` : "";
+  return `${text(row.job) || "Job unreported"} ${money(row.spent_usd)}${known}${share}${took ? ` · ${took}` : ""}${again}`;
 }
 
 function cacheLine(tokenRow: Row): string | null {
@@ -339,10 +345,21 @@ function cacheLine(tokenRow: Row): string | null {
   return parts.join(", ") + (tokenRow.complete === true ? "" : " (known part)");
 }
 
-function wasteLine(waste: Row): string {
+function wasteLine(waste: Row, view: Row): string {
   const failed = waste.failed_attempts;
+  const attempts = rows(mapping(mapping(view.usage).accounting).attempts)
+    .filter((row) => !row.runner_owned && !row.active
+      && (row.rejected || row.interrupted || row.timed_out || (Number.isInteger(row.exit_code) && row.exit_code !== 0)));
+  const hasKnown = attempts.some((row) => {
+    const quantity = mapping(row.attributed_reported_usd);
+    return quantity.complete === true && isNumber(quantity.value)
+      || (isNumber(quantity.known_items) && quantity.known_items > 0);
+  });
+  const amount = isNumber(waste.failed_usd) && (waste.failed_usd > 0 || waste.failed_usd_complete === true || hasKnown)
+    ? `${money(waste.failed_usd)}${waste.failed_usd_complete === true ? "" : " (known part)"}`
+    : "cost not reported";
   let line = !isCount(failed) || !failed ? "No failed attempts"
-    : `${failed} failed attempt${failed === 1 ? "" : "s"} ${money(waste.failed_usd)}${waste.failed_usd_complete === true ? "" : " known"}`;
+    : `${failed} failed attempt${failed === 1 ? "" : "s"} ${amount}`;
   // A report repair rewrote a rejected report; it is not another run of the job.
   const repeated = rows(waste.repeated_jobs);
   const again = repeated.map((row) => [text(row.job), isCount(row.runs) ? row.runs : row.attempts] as const)
@@ -375,7 +392,7 @@ export function spendSummary(view: Row): string | null {
   const metrics = metricsOf(view);
   if (!metrics) return null;
   const single = mapping(metrics.single_model);
-  if (isNumber(single.builder_share) && single.builder_share <= 1) {
+  if (metrics.complete === true && isNumber(single.builder_share) && single.builder_share <= 1) {
     // Planning is named apart from checking (#3268); an older core gives no split, so the rest is "everything else".
     const builder = `Cost: Builder ${percent(single.builder_share)}`;
     if (!isNumber(single.planning_share) || !isNumber(single.review_share)) {
@@ -383,15 +400,15 @@ export function spendSummary(view: Row): string | null {
     }
     return `${builder}${single.planning_share ? ` · planning ${percent(single.planning_share)}` : ""} · checking ${percent(single.review_share)}`;
   }
-  return `${money(metrics.spent_usd)} across ${rows(metrics.by_job).length} jobs`;
+  return `${money(metrics.spent_usd)}${metrics.complete === true ? "" : "+"} across ${rows(metrics.by_job).length} jobs`;
 }
 
 function spendSection(view: Row): DetailSection | null {
   const metrics = metricsOf(view);
   if (!metrics) return null;
-  const whole = metrics.complete === true ? "" : " (known part; some usage is not recorded)";
-  const lines = [`Where the money went: ${money(metrics.spent_usd)}${whole}`];
-  for (const row of rows(metrics.by_job)) if (isNumber(row.spent_usd) && row.spent_usd > 0) lines.push(`  ${jobLine(row)}`);
+  const coverage = metrics.complete === true ? "" : " (known part; some usage is not recorded)";
+  const lines = [`Where the money went: ${money(metrics.spent_usd)}${coverage}`];
+  for (const row of rows(metrics.by_job)) if (isNumber(row.spent_usd) && row.spent_usd > 0) lines.push(`  ${jobLine(row, metrics.complete === true)}`);
   const tokenRow = mapping(metrics.tokens);
   const split = ([["input", "input"], ["new", "new"], ["cache_write", "cache write"], ["cache_read", "cache read"], ["output", "output"]] as const)
     .map(([key, label]) => `${label} ${tokens(tokenRow[key])}`).join(", ");
@@ -399,13 +416,22 @@ function spendSection(view: Row): DetailSection | null {
   const cache = cacheLine(tokenRow);
   if (cache) lines.push(`  ${capitalize(cache)}`);
   const waste = mapping(metrics.waste);
-  lines.push("Spent again", `  ${wasteLine(waste)}`);
+  lines.push("Spent again", `  ${wasteLine(waste, view)}`);
   if (isNumber(waste.report_repair_usd) && waste.report_repair_usd) lines.push(`  Report repairs ${money(waste.report_repair_usd)}`);
   const single = mapping(metrics.single_model);
   lines.push("Compared with one model building it alone");
-  lines.push(`  Builder ${money(single.builder_usd)} (${percent(single.builder_share)}); ${isNumber(single.planning_usd)
-    ? `planning ${money(single.planning_usd)}; checking ${money(single.review_usd)}`
-    : `planning and checking ${money(single.checking_usd)}`}`);
+  const builderRows = rows(mapping(mapping(view.cost).breakdown).by_stage).filter((row) => row.stage === "builder");
+  const builderJob = rows(metrics.by_job).find((row) => row.job === "Builder");
+  const builderKnown = isNumber(single.builder_usd) && (builderRows.some((row) => isNumber(row.spent_usd))
+    || single.builder_usd > 0 || metrics.complete === true || builderJob?.complete === true);
+  const whole = metrics.complete === true;
+  const builderComplete = whole || builderJob?.complete === true;
+  const builder = builderKnown ? `${money(single.builder_usd)}${whole ? ` (${percent(single.builder_share)})` : builderComplete ? "" : " (known part)"}` : "cost not reported";
+  const part = (amount: unknown) => isNumber(amount) && (amount > 0 || whole)
+    ? `${money(amount)}${whole ? "" : " (known part)"}` : "cost not reported";
+  lines.push(`  Builder ${builder}; ${isNumber(single.planning_usd)
+    ? `planning ${part(single.planning_usd)}; checking ${part(single.review_usd)}`
+    : `planning and checking ${part(single.checking_usd)}`}`);
   const bought = checked(mapping(single.produced));
   lines.push(`  What that bought: ${bought.length ? bought.join("; ") : "nothing recorded yet"}`);
   if (text(single.basis)) lines.push(`  ${text(single.basis)}.`);

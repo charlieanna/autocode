@@ -868,7 +868,7 @@
           "description": "The six pipeline jobs in order (Requirements, Planner, Plan Reviewer, Builder, Tester, Completion Reviewer), each with where it stands, its route's model and reasoning level, its spend and why it was skipped, read from routes, stage_decisions and run_metrics; display only. Documented in docs/task-run.md.",
           "items": {
             "type": "object",
-            "required": ["job", "label", "state", "model", "reasoning_effort", "spent_usd", "reason"],
+            "required": ["job", "label", "state", "model", "reasoning_effort", "spent_usd", "spent_complete", "reason"],
             "properties": {
               "job": {"type": "string"},
               "label": {"type": "string"},
@@ -876,6 +876,7 @@
               "model": {"type": ["string", "null"]},
               "reasoning_effort": {"type": ["string", "null"]},
               "spent_usd": {"type": ["number", "null"]},
+              "spent_complete": {"type": "boolean", "description": "False when the job has any unreported cost; a numeric spent_usd is then only a known floor."},
               "reason": {"type": ["string", "null"]}
             }
           }

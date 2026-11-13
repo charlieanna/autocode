@@ -98,6 +98,116 @@ test("where the run is uses the core's summary and plain meaning, never its stat
   assert.equal(runHeader(null), null);
 });
 
+test("stage costs distinguish unreported, partial, running and genuinely zero spend", () => {
+  for (const done of [false, true]) {
+    const shown = view({
+      done,
+      pipeline: [
+        step("requirements", "Requirements", "ran", { spent_usd: 0 }),
+        step("planner", "Planner", "ran", { spent_usd: 1.25 }),
+        step("tester", "Tester", "ran", { spent_usd: 0 }),
+      ],
+      cost: { breakdown: { by_stage: [
+        { stage: "requirements_gather", spent_usd: null, complete: false },
+        { stage: "draft_plan", spent_usd: 1.25, complete: true },
+        { stage: "revise_plan", spent_usd: null, complete: false },
+        { stage: "tester", spent_usd: 0, complete: true },
+      ] } },
+      usage: { accounting: { attempts: [
+        attempt("requirements_gather", "Requirements"),
+        attempt("draft_plan", "Planner"),
+        attempt("revise_plan", "Planner"),
+        attempt("tester", "Tester"),
+      ] } },
+    });
+    assert.deepEqual(pipelineSteps(shown).map((row) => row.cost), ["", "$1.25+", "$0"]);
+  }
+  for (const running of [0, 0.12]) {
+    const shown = working({ cost: { running_usd: running } });
+    assert.equal(pipelineSteps(shown, STARTED)[1]!.cost, running ? "$0.12+" : "$0+");
+  }
+});
+
+test("pipeline-only costs honor completeness, including zero and old cores", () => {
+  const costs = [
+    { spent_usd: null, spent_complete: false },
+    { spent_usd: 0, spent_complete: true },
+    { spent_usd: 0, spent_complete: false },
+    { spent_usd: 1.25, spent_complete: false },
+    { spent_usd: 1.25, spent_complete: true },
+    { spent_usd: 0 },
+    { spent_usd: 1.25 },
+  ];
+  assert.deepEqual(costs.map((extra) => pipelineSteps(view({
+    pipeline: [step("planner", "Planner", "ran", extra)],
+  }))[0]!.cost), ["", "$0", "$0+", "$1.25+", "$1.25", "", "$1.25"]);
+});
+
+test("the spend footer marks incomplete totals as a floor", () => {
+  const partial = { ...METRICS, complete: false, single_model: {} };
+  assert.equal(spendSummary(view({ run_metrics: partial })), "$2.50+ across 3 jobs");
+});
+
+test("incomplete spend details do not present unknown builder and failed-attempt floors as free", () => {
+  const metrics = {
+    ...METRICS, complete: false,
+    by_job: [{ job: "Builder", spent_usd: 0, complete: false }, ...METRICS.by_job.slice(1)],
+    waste: { ...METRICS.waste, failed_attempts: 4, failed_usd: 0, failed_usd_complete: false },
+    single_model: { ...METRICS.single_model, builder_usd: 0, builder_share: 0,
+      planning_usd: 2.25, planning_share: 0.49, review_usd: 2.33, review_share: 0.51 },
+  };
+  const shown = view({
+    run_metrics: metrics,
+    cost: { breakdown: { by_stage: [{ stage: "builder", job: "Builder", spent_usd: null, complete: false }] } },
+    usage: { accounting: { attempts: [
+      attempt("builder", "Builder", { exit_code: 1, attributed_reported_usd: { known: 0, known_items: 0, unknown_items: 1, complete: false } }),
+    ] } },
+  });
+  assert.equal(spendSummary(shown), "$2.50+ across 3 jobs");
+  const lines = section(runHeader(shown), "spend")!.lines;
+  assert.ok(lines.includes("  4 failed attempts cost not reported; ran again: Builder ×2"));
+  assert.ok(lines.includes("  Builder cost not reported; planning $2.25 (known part); checking $2.33 (known part)"));
+  assert.ok(!lines.some((line) => /Builder 0%|Builder \$0|% of cost/.test(line)));
+});
+
+test("incomplete comparisons and failed attempts distinguish known zero from wholly unknown", () => {
+  for (const [amount, expected] of [[null, "cost not reported"], [0, "$0.00 (known part)"], [0.2, "$0.20 (known part)"]] as const) {
+    const metrics = {
+      ...METRICS, complete: false,
+      by_job: [{ job: "Builder", spent_usd: amount ?? 0, complete: false }, ...METRICS.by_job.slice(1)],
+      waste: { ...METRICS.waste, failed_attempts: 1, failed_usd: amount ?? 0, failed_usd_complete: false, repeated_jobs: [] },
+      single_model: { ...METRICS.single_model, builder_usd: amount ?? 0, builder_share: 0, checking_usd: 2 },
+    };
+    const shown = view({
+      run_metrics: metrics,
+      cost: { breakdown: { by_stage: [{ stage: "builder", spent_usd: amount, complete: false }] } },
+      usage: { accounting: { attempts: [
+        attempt("builder", "Builder", { exit_code: 1, attributed_reported_usd: {
+          known: amount ?? 0, known_items: amount === null ? 0 : 1, unknown_items: 1, complete: false,
+        } }),
+      ] } },
+    });
+    const lines = section(runHeader(shown), "spend")!.lines;
+    assert.ok(lines.includes(`  1 failed attempt ${expected}`));
+    assert.ok(lines.includes(`  Builder ${expected}; planning and checking $2.00 (known part)`));
+  }
+  const complete = view({
+    run_metrics: { ...METRICS, waste: { ...METRICS.waste, failed_usd: 0 }, single_model: { ...METRICS.single_model, builder_usd: 0, builder_share: 0 } },
+  });
+  assert.equal(spendSummary(complete), "Cost: Builder 0% · everything else 100%");
+  assert.ok(section(runHeader(complete), "spend")!.lines.includes("  Builder $0.00 (0%); planning and checking $1.00"));
+});
+
+test("incomplete comparisons identify a completely reported builder zero without inventing unknown zero splits", () => {
+  const shown = view({
+    run_metrics: { ...METRICS, complete: false, by_job: [{ job: "Builder", spent_usd: 0, complete: true }],
+      single_model: { ...METRICS.single_model, builder_usd: 0, builder_share: 0, planning_usd: 0, review_usd: 0 } },
+    cost: { breakdown: { by_stage: [{ stage: "builder", spent_usd: 0, complete: true }] } },
+  });
+  assert.ok(section(runHeader(shown), "spend")!.lines
+    .includes("  Builder $0.00; planning cost not reported; checking cost not reported"));
+});
+
 test("a stopped step's details say the core's reason, next action and saved cause, never a flag", () => {
   const notice = "I couldn’t finish this step. The step failed. Your work so far is saved; continue to try this step again.";
   const stopped = (saved: string) => runHeader(view({
@@ -273,7 +383,7 @@ function working(extra: Record<string, unknown> = {}) {
     cost: {
       spent_usd: 0.05, running_usd: 0.12, estimated_usd: 0.05, reported_usd: null, cap_usd: 5, complete: false,
       prices_as_of: "2026-11-09", unpriced_stages: 0,
-      breakdown: { by_stage: [{ stage: "requirements_gather", job: "Requirements", spent_usd: 0.05 }], by_billing: [{ billing: "subscription", spent_usd: 0.17 }] },
+      breakdown: { by_stage: [{ stage: "requirements_gather", job: "Requirements", spent_usd: 0.05, complete: true }], by_billing: [{ billing: "subscription", spent_usd: 0.17 }] },
     },
     usage: {
       accounting: {
@@ -313,12 +423,12 @@ test("each stage shows the model, level, time, tokens and spend its own attempts
   assert.deepEqual(steps.map((row) => [row.label, row.model, row.level, row.time, row.tokens, row.cost, row.now]), [
     ["Requirements", "claude-sonnet-5-5", "high", "1m00s", "13k", "$0.05", ""],
     // The running attempt: its time so far, its tokens as a floor and the core's running spend.
-    ["Planner", "claude-opus-5-5", "high", "30s", "29k+", "$0.12", "reading files"],
+    ["Planner", "claude-opus-5-5", "high", "30s", "29k+", "$0.12+", "reading files"],
     ["Plan Reviewer", "claude-opus-5-5", "medium", "", "", "", ""],
   ]);
   assert.deepEqual(steps.map((row) => row.detail), [
     "claude-sonnet-5-5 · high · 1m00s · 13k tokens · $0.05",
-    "claude-opus-5-5 · high · 30s · 29k+ tokens · $0.12",
+    "claude-opus-5-5 · high · 30s · 29k+ tokens · $0.12+",
     "claude-opus-5-5 · medium",
   ]);
   const header = runHeader(working(), STARTED);

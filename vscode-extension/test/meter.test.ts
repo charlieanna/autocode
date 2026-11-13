@@ -67,6 +67,27 @@ test("a stage with no model shows no cost or model row", () => {
   assert.deepEqual(used(row!), ["Orchestrator", 30, 0, "", 0, 1]);
 });
 
+test("stage cost completeness follows finished ledger rows and stays false while running", () => {
+  for (const [spent, complete] of [[null, false], [0, true], [0, false], [1.25, false], [1.25, true]] as const) {
+    const [row] = stages(view([attempt("draft_plan", "Planner")], {
+      byStage: [{ stage: "draft_plan", spent_usd: spent, complete }],
+    }));
+    assert.equal(row!.spentUsd, spent);
+    assert.equal(row!.costComplete, complete);
+  }
+  const partial = stages(view([
+    attempt("tester", "Tester"),
+    attempt("tester_report_repair", "Tester", { original_stage: "tester" }),
+  ], { byStage: [{ stage: "tester", spent_usd: 1.25, complete: true }] }))[0]!;
+  assert.equal(partial.spentUsd, 1.25);
+  assert.equal(partial.costComplete, false, "an unreported repair makes the stage cost partial");
+  const running = stages(view([attempt("tester", "Tester", { active: true })], {
+    extra: { cost: { running_usd: 0 } },
+  }))[0]!;
+  assert.equal(running.spentUsd, 0);
+  assert.equal(running.costComplete, false);
+});
+
 test("a retry is struggling and says why the last attempt failed", () => {
   const shown = view([
     attempt("terra", "Builder", { rejected: true }),

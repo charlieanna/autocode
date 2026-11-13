@@ -2397,7 +2397,8 @@ of its own (`tools/autocode_stage_pipeline.py`). It is always present. Each row 
 | `state` | `working` (one of its stages is running), `next` (its stage runs next while the run waits or is between stages), `ran` (it launched at least once), `skipped` (a saved decision passed over it and it never launched), `pending` (not reached yet) or `not_run` (the run has ended without reaching it) |
 | `model` | The model of the route the job runs on (`routes`), or `null`; the models that actually ran stay on `usage.accounting.attempts` |
 | `reasoning_effort` | The level it last ran at when a rule moved it (`stage_decisions[].effort_choice`), else its route's level, or `null` |
-| `spent_usd` | Its accounted spend from `run_metrics.by_job`, or `null` before it has any |
+| `spent_usd` | Its accounted spend from `run_metrics.by_job`, or `null` when none of its stages has reported cost. The job metric's zero floor is not a reported zero; `cost.breakdown.by_stage` distinguishes them |
+| `spent_complete` | Whether every stage's accounted cost is known. When false, a numeric `spent_usd` is a floor, displayed as `$X+`, not a whole amount |
 | `reason` | Why a skipped job was skipped, from `stage_decisions`; `null` otherwise |
 
 `ran` says the job launched, never that its work was accepted. The record grants nothing; the VS
