@@ -67,6 +67,7 @@ try:
     from . import autocode_base_patch as operator_patch
     from . import autocode_changed_code_proof as changed_code
     from . import autocode_changed_code_trigger as changed_code_trigger
+    from . import autocode_command_guards as command_guards
     from . import autocode_companion_suites as companion_suites
     from . import autocode_component_plan as component_plan
     from . import autocode_diff_coverage as diff_coverage
@@ -99,6 +100,7 @@ except ImportError:
     import autocode_base_patch as operator_patch
     import autocode_changed_code_proof as changed_code
     import autocode_changed_code_trigger as changed_code_trigger
+    import autocode_command_guards as command_guards
     import autocode_companion_suites as companion_suites
     import autocode_component_plan as component_plan
     import autocode_diff_coverage as diff_coverage
@@ -602,6 +604,8 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
         recorded_checks.require_supported(state)
         if reviewed_patch(state, workspace) or operator_patch.pinned(state):
             raise ValueError("Recorded replay does not support reviewed or operator base patches in v1")
+        if command_guards.due(state, all_due=all_due):
+            raise ValueError("Recorded replay does not support guards that are commands in v1")
         # The same selection the live proof makes (verify.verify): an explicit command, else the
         # detected suite and the regression derived from the changed tests, so a recorded proof
         # whose regression command was derived is compared with the replay's own derivation (#2500).
@@ -802,6 +806,61 @@ def _protect_companions(proof, result, companions, workspace, base, out, kept, d
     )
 
 
+def _run_guard_commands(
+    proof, result, guards, framework, workspace, base, out, kept, dependencies, patch, inputs, timeout
+):
+    """Run each guard that is a command (autocode_command_guards) on the original code and with the change.
+
+    As a companion suite's run: the change's is in the candidate tree verify() kept, the original code's in a
+    fresh tree of ``base``. The receipts join the proof's checks, a finding only ever lowers the verdict, and
+    the proof says its guards rest on exit codes. A proof that built no candidate tree ran nothing: its
+    guards are unproven.
+    """
+    if not guards:
+        return
+    failures, unverified = [], []
+    if not kept or not kept[-1].is_dir():
+        unverified.append(
+            "The plan's guards "
+            + ", ".join(guard["id"] for guard in guards)
+            + " were not run: the proof built no tree of the change to run their commands in"
+        )
+    else:
+        runs: dict[str, tuple] = {}
+        for guard in guards:
+            command = guard["command"]
+            if command not in runs:
+                evidence = out / "guard-commands" / f"{len(runs) + 1:02d}"
+                on_base = verify.baseline(
+                    workspace,
+                    base,
+                    evidence,
+                    framework=framework,
+                    suite_command=command,
+                    dependencies_from=dependencies["dependencies_from"],
+                    timeout=timeout,
+                    base_patch=patch,
+                    ignored_inputs=inputs,
+                )["receipt"]
+                on_change = verify.run_suite(
+                    framework, command, kept[-1], evidence, "guard-on-candidate", timeout=timeout
+                )
+                runs[command] = (on_base, on_change)
+                result["checks"][f"guard_command_on_base:{guard['id']}"] = on_base
+                result["checks"][f"guard_command_on_candidate:{guard['id']}"] = on_change
+            failed, missing = command_guards.judge(guard, *runs[command])
+            failures += failed
+            unverified += missing
+        said = command_guards.note(guards)
+        proof["notes"] = [*(proof.get("notes") or []), said]
+        proof["review_reasons"] = [*(proof.get("review_reasons") or []), said]
+    proof["failures"] = [*(proof.get("failures") or []), *failures]
+    proof["unverified"] = [*(proof.get("unverified") or []), *unverified]
+    proof["verdict"] = companion_suites.verdict(
+        proof["verdict"], failures, unverified, fail=verify.FAIL, unverified_verdict=verify.UNVERIFIED
+    )
+
+
 def _guards_named(workspace, guards):
     """``names(path)``: the ``guards`` (exact test names) a test file in ``workspace`` names."""
 
@@ -980,6 +1039,17 @@ def _proving(
             # change still needs the ordinary bugfix fail-before/pass-after proof.
             coverage = not any(roles.role(path) != role_policy.TEST for path in changes)
         due = cases(state, all_due=all_due)
+        # Guards that are commands, where the runner names no test (autocode_command_guards). With no named
+        # case and no changed test file, the change is coverage of what those commands already show.
+        original_tests = [path for path in role_inventory.entries(workspace, base) if verify.is_test_path(path)]
+        guard_commands = command_guards.usable(command_guards.due(state, all_due=all_due), proving, original_tests)
+        if (
+            guard_commands
+            and not due
+            and goals.task_kind(state) != "bugfix"
+            and not any(roles.role(path) == role_policy.TEST for path in changes)
+        ):
+            coverage = True
         # A non-bugfix contract whose due cases are all test criteria may be a coverage
         # or characterization build: the product already implements the behavior and the
         # approved diff is tests alone. verify() decides that from the diff (#510); its
@@ -1051,6 +1121,20 @@ def _proving(
         )
         others = _run_guard_suites(
             guard_suites, result, workspace, base, out, kept, dependencies, base_patch, inputs, suite_timeout(state)
+        )
+        _run_guard_commands(
+            proof,
+            result,
+            guard_commands,
+            proving,
+            workspace,
+            base,
+            out,
+            kept,
+            dependencies,
+            base_patch,
+            inputs,
+            suite_timeout(state),
         )
         if adopted:
             chosen = plan_command.note(adopted)

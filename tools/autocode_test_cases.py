@@ -80,6 +80,21 @@ def mark(method) -> str | None:
     return GUARD_MARK if lowered.startswith(GUARD_MARK) else MARK if lowered.startswith(MARK) else None
 
 
+# "guard: run `ruby test/pager_test.rb`", then anything: a guard that is a command (autocode_command_guards).
+# The word "run" tells it from a test's name or title, which a plan may also write in backticks.
+_GUARD_COMMAND = re.compile(r"runs?\s+`([^`\n]+)`(?:\s.*)?", re.DOTALL | re.IGNORECASE)
+
+
+def guard_command(method) -> str | None:
+    """The command of a guard written as "run" and a command in backticks, for a project whose runner names
+    no test (autocode_command_guards), or None. Such a criterion names no test, so it is not one of ``plan_cases``."""
+    text = str(method or "").strip()
+    if mark(text) != GUARD_MARK:
+        return None
+    found = _GUARD_COMMAND.fullmatch(text[len(GUARD_MARK) :].strip())
+    return found.group(1).strip() or None if found else None
+
+
 def design_only(state: RunState) -> bool:
     """A job recognized as design (autocode_workflows) delivers documents, never code or tests. A live run
     asked to "deliver only a design ... no application code" planned every criterion as a test and added
@@ -210,11 +225,12 @@ def contract_cases(state: RunState, *, all_due: bool = False) -> list[dict]:
 def plan_cases(body) -> list[dict]:
     """A plan body's criteria marked ``test:`` or ``guard:``, as cases: id, text, the test it names when that
     is a test name (else a ``native_name``, see ``bound``, and the declaration itself as a ``title``, see
-    ``titled``), and kind "preserve" for a guard."""
+    ``titled``), and kind "preserve" for a guard. A guard that is a command names no test and is left out
+    (``guard_command``)."""
     cases = []
     for row in (body.get("acceptance_criteria") if isinstance(body, dict) else None) or []:
         found = mark(row.get("verification_method")) if isinstance(row, dict) else None
-        if found and row.get("id"):
+        if found and row.get("id") and not guard_command(row["verification_method"]):
             declared = str(row["verification_method"]).strip()[len(found) :].strip()
             test_name = declared_test_name(declared)
             native = None if test_name else native_test_name(declared)

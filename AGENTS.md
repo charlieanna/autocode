@@ -76,6 +76,13 @@ behavior and evidence, not a 100% line count:
 - Where coverage cannot be measured (no coverage tool in the project, an
  unmeasured file), AutoCode chooses the fallback deterministically and records
  it in evidence. It never installs a tool into the project.
+- **A change that alters no behavior is proven by the tests the project already
+ has** (owner decision, 2026-11-13). Where the runner names its tests, the plan's
+ guards name them. Where it reports only an exit code (Minitest files run one by
+ one, `make test`, a shell suite), a guard is the command that runs the existing
+ tests, which must pass on the original code and with the change
+ (`tools/autocode_command_guards.py`). Either way the changed lines still need the
+ evidence above, and a bug fix still needs a test that fails without it.
 - **A fake provider in a test is a Tester too.** The scripted Testers
  (`tools/fake_codex.py`, `tools/live_fixture_provider.py`,
  `tools/fixtures/multicomponent_fake.py`, the scenario harness fakes) must give

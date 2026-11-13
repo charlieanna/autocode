@@ -26,13 +26,22 @@ from __future__ import annotations
 import shlex
 
 try:
+    from . import autocode_test_cases as test_cases
     from . import autocode_verification_plan as verification_plan
 except ImportError:
+    import autocode_test_cases as test_cases
     import autocode_verification_plan as verification_plan
 
 
+def _commands(method) -> list[str]:
+    """The commands a criterion's method runs; a guard that is a command (autocode_command_guards) runs it."""
+    guard = test_cases.guard_command(method)
+    return [guard] if guard else verification_plan.commands(method)
+
+
 def approved_commands(contract) -> list[str]:
-    """The commands the approved plan's acceptance criteria run, in criterion order; [] unless approved."""
+    """The commands the approved plan's acceptance criteria run, in criterion order; [] unless approved. A
+    guard that is a command (autocode_command_guards) runs that command."""
     if not isinstance(contract, dict) or contract.get("approval_status") != "approved":
         return []
     rows = (contract.get("body") or {}).get("acceptance_criteria") or []
@@ -40,7 +49,7 @@ def approved_commands(contract) -> list[str]:
         command
         for row in rows
         if isinstance(row, dict) and not row.get("human_review")
-        for command in verification_plan.commands(row.get("verification_method") or "")
+        for command in _commands(row.get("verification_method") or "")
     ]
     return list(dict.fromkeys(found))
 
@@ -53,6 +62,11 @@ def _named(command, paths) -> set[str]:
         words = command.split()
     named = {word[2:] if word.startswith("./") else word for word in words}
     return {path for path in paths if path in named}
+
+
+def test_files(command, original_tests) -> set[str]:
+    """The ``original_tests`` a shell word of ``command`` names: the existing tests it runs."""
+    return _named(command, set(original_tests))
 
 
 def choose(commands, *, original_tests, changed_tests) -> dict | None:
