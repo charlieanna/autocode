@@ -347,6 +347,14 @@ the person's is the run's own project, as an empty folder outside Git is, and it
 `workspace-bootstrap` message says the first commit was made. No client is told to type
 a Git command.
 
+While the branch checked out holds nothing but that empty first commit (in a repository
+AutoCode gave it to, or a folder AutoCode made a project of), nothing there is committed
+yet: what an earlier task built in the folder, or what the person keeps there, is
+uncommitted. A new task then works in the folder itself, whether it was started plainly
+or with `--build-in-worktree`, because a task worktree would start from the empty commit
+without any of it. `--worktree-branch` still names its branch. Once the branch has a
+commit of the person's, tasks get worktrees of their own again.
+
 When the workspace is a plain, non-empty folder, the core bootstraps a private
 scratch task project in the folder's own store, `workspace/.autocode/projects/ID`,
 and runs there, so a chat that never builds leaves nothing among the person's
@@ -3092,7 +3100,9 @@ list: `folder`, `branch` (the folder's current branch), `default` (a place id), 
 `branches`, the local branches most recently committed first, each with `name`, `start_args` and
 `unavailable` (why it is not offered, with `start_args` null): a branch checked out in a worktree,
 the folder's own included, or one another chat will plan on. A folder that is not the top of a Git
-checkout with a commit lists only `folder`, which works there as every chat there does. When that
+checkout with a commit lists only `folder`, which works there as every chat there does. So does a
+checkout where nothing is committed yet, whose branch holds only the empty first commit AutoCode
+made: a worktree there would start without anything the folder holds. When that
 folder is outside Git but holds Git checkouts among its children or grandchildren, a chat there works
 in a new, empty private project, so `folder` has a `warning` naming those checkouts and saying to
 start the chat in the one to change (#2066). A client

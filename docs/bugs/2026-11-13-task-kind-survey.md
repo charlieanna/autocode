@@ -117,10 +117,14 @@ Vitest names are free text): a guard on an existing test there still falls back 
   (`autocode_workspaces.create`), while an empty folder that is not a repository is set up
   automatically. A chat's start there (`--build-in-worktree`) stopped with Git's own
   "ambiguous argument 'HEAD'". Fixed: AutoCode makes the empty first commit itself, without the
-  index, and the task works in the folder (`autocode_workspaces.first_commit`). Still open: once
-  that commit exists and the person's files are uncommitted, the next task starts in a worktree
-  of the empty commit and sees none of them, as a second task in a folder AutoCode made a
-  project of does.
+  index, and the task works in the folder (`autocode_workspaces.first_commit`).
+- **A second task in a new project started without the first task's files**: a folder AutoCode
+  made a project of holds what the first task built, uncommitted, and its branch holds only
+  AutoCode's empty first commit. A second task there ("add an option to hello.py") was given a
+  task worktree of that empty commit, so it started in a folder without `hello.py`; a chat was
+  offered the same worktree as its default place. Reproduced with the scripted provider. Fixed:
+  while the branch holds nothing but that commit, a task works in the folder itself
+  (`autocode_workspaces.only_first_commit`), and `worktrees list` offers only the folder.
 - **A folder of code that is not a Git repository starts an empty project**: `bootstrap` gives a
   populated non-Git folder a private scratch project, so a task about the code there cannot see it,
   and nothing says so.

@@ -37,10 +37,12 @@ try:
     from . import autocode_controller_isolation as isolation
     from . import autocode_folder_checkouts as folder_checkouts
     from . import autocode_util as util
+    from . import autocode_workspaces as workspaces
 except ImportError:
     import autocode_controller_isolation as isolation
     import autocode_folder_checkouts as folder_checkouts
     import autocode_util as util
+    import autocode_workspaces as workspaces
 
 SCHEMA = 1
 KEY = "build_worktree"  # autocode_build_worktree.KEY
@@ -165,13 +167,18 @@ def options(folder) -> dict:
         checkout = root == folder and bool(util.git(folder, "rev-parse", "--verify", "HEAD", timeout=30))
     except (OSError, ValueError):
         checkout = False
-    if not checkout:
-        # Not the root of a checkout with a commit: the chat works where it is, as every new chat there does
-        # (autocode_build_worktree.request builds in place; a folder outside Git is made a project).
+    uncommitted = checkout and workspaces.only_first_commit(folder)
+    if not checkout or uncommitted:
+        # Not the root of a checkout with a commit, or one where nothing is committed yet: the chat works where
+        # it is, as every new chat there does (autocode_run_setup; a folder outside Git is made a project).
         place = {
             "id": FOLDER,
             "label": "This folder",
-            "does": "This folder is not the top of a Git checkout with a commit, so the chat works here.",
+            "does": (
+                "Nothing in this folder is committed yet, so the chat works here."
+                if uncommitted
+                else "This folder is not the top of a Git checkout with a commit, so the chat works here."
+            ),
             "start_args": [WORKTREE_FLAG],
             "warning": None if root is not None else _parent_folder_warning(folder),
         }
