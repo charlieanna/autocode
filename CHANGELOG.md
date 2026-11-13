@@ -95,6 +95,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **Stop now interrupts the runner's local verification too** (#3431): an accepted stop waited through the current regression baseline and every following mutation before pausing. Local commands now observe the same request, stop through their existing process owner, retain interrupted output without accepting it as proof, and pause after cleanup is verified. A boundary pause still lets the current step finish.
 - **Resuming an older run keeps a known baseline timeout** (#3428): after an upgrade, the same detected base-suite check no longer spends its allowance again because its saved timeout used an older cache key. AutoCode verifies the saved inputs and record hash, retains that negative evidence under the current key, and still requires completed checks before accepting the change.
 - **Stalled Tester relaunches receive a bounded summary of archived tool calls** (#3309): when a Tester attempt stalls after executing checks, automatic timeout recovery now attaches `executed_work` — up to 40 completed tool calls from OpenCode/Kilo or Codex/Claude event logs with redacted commands/paths, exit codes and true output tails — as unverified context so the relaunch focuses instead of re-reading a multi-thousand-line JSONL log or restarting from scratch; the new report still binds its own executed checks.
 

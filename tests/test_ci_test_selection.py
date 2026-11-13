@@ -8,6 +8,21 @@ import run_suite
 
 
 class AccessTransportConsumerTests(unittest.TestCase):
+    def test_command_cancellation_keeps_the_public_stop_and_ownership_regressions_when_slow(self):
+        consumers = {"tests.test_stop_now_runner_check_cli", "tests.test_runner_check_cancellation"}
+        for path in (
+            "tools/autocode_command_supervision.py",
+            "tools/autocode_runner_check.py",
+            "tools/autocode_process.py",
+            "tools/autocode_interventions.py",
+            "tools/autocode_stop.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {name: "" for name in (*consumers, "tests.test_unrelated")})
+                kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
+                self.assertEqual(consumers, set(kept))
+                self.assertNotIn("tests.test_unrelated", kept)
+
     def test_required_reliability_oracles_keep_their_process_outcome_counterexamples(self):
         consumer = "scenarios.test_reliability_oracle_outcomes"
         for scenario in (

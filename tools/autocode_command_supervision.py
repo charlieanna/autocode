@@ -35,11 +35,36 @@ except ImportError:
     import autocode_util as util
 
 CHECKPOINT: ContextVar[Callable[..., object] | None] = ContextVar("verification_command_checkpoint", default=None)
+CANCELLATION: ContextVar[Callable[[], object] | None] = ContextVar("verification_command_cancellation", default=None)
 TAIL_CHARS = 4000
 BASH = "/bin/bash"
 # For a host with no bash: set pipefail where /bin/sh has it. The subshell keeps a shell that rejects
 # the option (dash exits on a bad `set` option) from dying before the command runs.
 SH_PIPEFAIL = "(set -o pipefail) 2>/dev/null && set -o pipefail; "
+
+
+class CheckCancelled(BaseException):
+    """Unwind every proof fallback after an observed request, without granting proof authority."""
+
+    def __init__(self, request):
+        super().__init__("The running verification was stopped")
+        self.request = request
+
+
+def _wait(process, deadline, cancellation):
+    """Poll only cancellable commands, preserving their original absolute deadline."""
+    while True:
+        if cancellation is not None and (request := cancellation()):
+            raise CheckCancelled(request)
+        remaining = None if deadline is None else max(0, deadline - time.monotonic())
+        interval = (
+            min(remaining, processes.STOP_CHECK_SECONDS) if remaining is not None else processes.STOP_CHECK_SECONDS
+        )
+        try:
+            return process.wait(timeout=remaining if cancellation is None else interval)
+        except subprocess.TimeoutExpired:
+            if cancellation is None or (deadline is not None and time.monotonic() >= deadline):
+                raise
 
 
 def shell():
@@ -211,6 +236,10 @@ def run(
     deadline_monotonic=None,
 ):
     """Execute with durable ownership; return the exclusive capture path in output."""
+    # Capture before any watchdog starts: ContextVars do not follow its thread.
+    cancellation = CANCELLATION.get()
+    if cancellation is not None and (request := cancellation()):
+        raise CheckCancelled(request)
     in_process_script = None
     # A test-only in-process seam cannot provide native ownership, deadline
     # enforcement or admission callbacks. Those calls retain supervision.
@@ -222,6 +251,7 @@ def run(
         and deadline_monotonic is None
         and checkpoint is None
         and CHECKPOINT.get() is None
+        and cancellation is None
     ):
         in_process_script = _python_script(command, env, cwd)
     if in_process_script is not None:
@@ -245,6 +275,13 @@ def run(
     exit_code = None
     timed_out = False
     ownership_error = None
+    interrupted = None
+    observed_request = None
+
+    def stop_requested():
+        nonlocal observed_request
+        observed_request = cancellation()
+        return bool(observed_request)
 
     def admit(value):
         nonlocal metadata
@@ -292,7 +329,11 @@ def run(
                         ) as process:
                             remaining = None if deadline is None else max(0, deadline - time.monotonic())
                             try:
-                                exit_code = process.wait(timeout=remaining)
+                                exit_code = (
+                                    process.wait(timeout=remaining)
+                                    if cancellation is None
+                                    else _wait(process, deadline, cancellation)
+                                )
                             except subprocess.TimeoutExpired:
                                 timed_out = True
                                 # The keeper owns deadline escalation. Reap only this actual
@@ -321,7 +362,10 @@ def run(
                                     on_root=on_root,
                                     activity=activity,
                                     activity_checkpoint=activity_checkpoint,
+                                    stop_requested=stop_requested if cancellation is not None else None,
                                 )
+                                if timed_out and observed_request:
+                                    raise CheckCancelled(observed_request)
                             if deadline is not None and time.monotonic() >= deadline:
                                 timed_out = True
                 finally:
@@ -329,8 +373,16 @@ def run(
                     stats = watch.finish()
     except BaseException as error:
         if metadata is not None:
-            final = reconcile(metadata)
-            if final["cause"] == "stage_deadline" and isinstance(error, supervision.SupervisionError):
+            try:
+                final = reconcile(metadata)
+            except receipts.OwnershipUncertain as uncertain:
+                if isinstance(error, CheckCancelled):
+                    uncertain.check_cancelled = True
+                raise
+            if isinstance(error, CheckCancelled):
+                interrupted = error
+                timed_out = False
+            elif final["cause"] == "stage_deadline" and isinstance(error, supervision.SupervisionError):
                 timed_out = True
             elif isinstance(error, supervision.SupervisionError):
                 ownership_error = str(error)
@@ -365,5 +417,9 @@ def run(
     if ownership_error:
         result["error"] = ownership_error
         result["exit_code"] = None
+    if interrupted is not None:
+        result.update(interrupted=True, exit_code=None)
     util.atomic_json(directory / "result.json", result)
+    if interrupted is not None:
+        raise interrupted
     return result

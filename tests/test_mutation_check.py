@@ -16,6 +16,7 @@ from unittest import mock
 
 import autocode_changed_code_proof as changed_code_proof
 import autocode_check_replay as check_replay
+import autocode_command_supervision as command_supervision
 import autocode_diff_coverage as diff_coverage
 import autocode_mutation_check as mutation_check
 import autocode_python_tests as python_tests
@@ -112,6 +113,21 @@ class RunnerTests(unittest.TestCase):
             for item in check["files"]
             for row in item["mutants"]
         ]
+
+    def test_stop_now_unwinds_mutation_fallbacks_restores_source_and_never_runs_the_next_mutant(self):
+        original = (self.tree / "app.py").read_bytes()
+        reference = FakeRun(self.tree, STRONG)
+
+        def run(command, label, timeout):
+            if label != "unmutated":
+                raise command_supervision.CheckCancelled({"id": "stop-mutation"})
+            return reference(command, label, timeout)
+
+        with self.assertRaises(command_supervision.CheckCancelled) as stopped:
+            self.collect(run)
+        self.assertEqual({"id": "stop-mutation"}, stopped.exception.request)
+        self.assertEqual(original, (self.tree / "app.py").read_bytes())
+        self.assertEqual(1, len(reference.calls))
 
     def test_weak_proving_tests_leave_survivors_and_strong_ones_kill_every_mutant(self):
         weak = self.collect(FakeRun(self.tree, WEAK))
