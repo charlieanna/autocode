@@ -26,6 +26,8 @@ all is known. It is also a floor while parallel Builders still run, since their 
 run only when their batch is accounted. The cap compares the known spend, so an unpriced stage
 cannot trip it; `unpriced_stages` and the cost line say so.
 
+Finished attempts include a stopped attempt retained in active_stage for reconciliation. Its
+saved metrics count toward the cap before its report is accepted or the attempt is archived.
 The running stage is in none of these until it finishes, so a run on its first stage would show
 nothing spent while its tokens climb. `running_usd` is that stage's spend so far, read from the live
 usage the status view already has (`usage.accounting`): what its provider reported, or else its
@@ -131,12 +133,12 @@ def view(state: RunState, accounting=None):
         "reported_usd": known["reported_usd"],
         "inherited_usd": known["inherited_usd"],
         "spent_usd": None if unpriced and nothing_known else round(float(known["known_usd"]), 6),
-        "running_usd": running(accounting) if state.get("active_stage") else None,
+        "running_usd": running(accounting) if usage.running_stage(state) else None,
         "cap_usd": cap(state.get("settings")),
         "unpriced_stages": unpriced,
         "complete": unpriced == 0
         and known["partial_stages"] == 0
-        and not state.get("active_stage")
+        and not usage.running_stage(state)
         and not usage.pending_workers(state),
         "prices_as_of": as_of,
         "breakdown": {**breakdown.summary(rows, state), "price_bases": price_bases(rows)},

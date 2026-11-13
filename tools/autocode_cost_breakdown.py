@@ -1,6 +1,7 @@
 """Attribute the money-cap ledger without guessing whether an attempt was useful.
 
-Only finished stage rows already charged by autocode_cost are grouped here.
+Only finished attempt rows already charged by autocode_cost are grouped here,
+including stopped attempts still retained for reconciliation.
 Checkpoint-inherited money has no stage attribution; the cost view keeps it
 separate. A repeated stage can be required work, and a successful process can
 return a rejecting review. Neither implies productivity or acceptance.
@@ -88,7 +89,8 @@ def summary(rows, state: RunState):
                 {row["model"] for row in unpriced if row["unpriced_reason"] == "rate_unavailable"}
             ),
         },
-        "basis": "Finished stage ledger only; excludes inherited spend and active attempts. "
+        "basis": "Finished attempt ledger, including stopped attempts retained for reconciliation; "
+        "excludes inherited spend and running attempts. "
         "Groupings overlap: do not add them together. Process completion is not acceptance; "
         "repetition is not evidence of waste.",
     }

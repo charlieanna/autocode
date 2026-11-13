@@ -39,10 +39,10 @@ def attempt(name="builder", identity="one", *, start=0, end=10, **extra):
         "iteration": 1,
         "started_at": start,
         "finished_at": end,
-        "duration_seconds": end - start,
+        "duration_seconds": end - start if end is not None else None,
         "model": "unpriced-model",
         "task_id": "T1",
-        "exit_code": 0,
+        "exit_code": 0 if end is not None else None,
         "metrics": {"request_context": {"accounting": requests.accounting(rows)}},
         **extra,
     }
@@ -198,16 +198,20 @@ class NativeAccountingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "events.jsonl"
             path.write_text(json.dumps(finish()) + '\n{"type":"step_start"}\n{"partial":')
-            record = attempt(events=str(path), engine="opencode")
-            result = usage.accounting({"active_stage": record})
-            self.assertEqual(1, result["active_attempts"])
-            self.assertEqual(33, result["tokens"]["input_tokens"]["known"])
-            self.assertIsNone(result["tokens"]["input_tokens"]["value"])
-            self.assertIsNone(result["provider_requests"]["value"])
-            self.assertTrue(any("truncated" in issue for issue in result["issues"]))
+            for end in (None, 10):
+                with self.subTest(end=end):
+                    record = attempt(end=end, events=str(path), engine="opencode")
+                    result = usage.accounting({"active_stage": record})
+                    self.assertEqual(int(end is None), result["active_attempts"])
+                    self.assertEqual(33, result["tokens"]["input_tokens"]["known"])
+                    self.assertIsNone(result["tokens"]["input_tokens"]["value"])
+                    self.assertIsNone(result["provider_requests"]["value"])
+                    self.assertTrue(any("truncated" in issue for issue in result["issues"]))
 
     def test_missing_event_file_does_not_turn_unseen_usage_into_zero(self):
-        result = usage.accounting({"active_stage": attempt(events="/does-not-exist/events", engine="opencode")})
+        result = usage.accounting(
+            {"active_stage": attempt(end=None, events="/does-not-exist/events", engine="opencode")}
+        )
         self.assertIsNone(result["tokens"]["input_tokens"]["value"])
         self.assertIsNone(result["provider_requests"]["value"])
         self.assertFalse(result["complete"])
@@ -761,7 +765,7 @@ class InjectedVisualProjectionTests(unittest.TestCase):
             with self.subTest(missing=missing):
                 state = self.state()
                 if missing == "active":
-                    state["active_stage"] = attempt("resolve", "unfinished", start=25, end=30)
+                    state["active_stage"] = attempt("resolve", "unfinished", start=25, end=None)
                 else:
                     state["stages"] = []
                 result = self.measure(state, self.projection(state))
@@ -776,6 +780,28 @@ class InjectedVisualProjectionTests(unittest.TestCase):
                 self.assertIsNone(combined["unit_metrics"]["reported_usd"]["value"])
                 self.assertIsNone(combined["unit_metrics"]["input_tokens"]["value"])
                 self.assertFalse(combined["usage"]["complete"])
+
+    def test_finished_retained_usage_matches_archived_usage_in_public_efficiency(self):
+        for placement in ("retained", "both", "archived"):
+            with self.subTest(placement=placement):
+                state = self.state()
+                if placement == "retained":
+                    state["active_stage"] = state["stages"].pop()
+                elif placement == "both":
+                    state["active_stage"] = deepcopy(state["stages"][-1])
+                view = run_view.view(state, completion_current=True, visual_acceptance=self.projection(state))
+                result = view["efficiency"]
+                self.assertEqual(33, result["unit_metrics"]["per_accepted_state"]["input_tokens"]["value"])
+                self.assertAlmostEqual(0.6, result["unit_metrics"]["per_accepted_frame"]["reported_usd"]["value"])
+                first = result["visual"]["first_independently_accepted_screen"]["usage"]
+                self.assertEqual(66, first["tokens"]["input_tokens"]["value"])
+                combined = efficiency.aggregate([view])
+                self.assertEqual(1, combined["verified_deliveries"])
+                self.assertEqual(66, combined["unit_metrics"]["input_tokens"]["value"])
+                self.assertAlmostEqual(0.6, combined["unit_metrics"]["reported_usd"]["value"])
+                self.assertTrue(combined["usage"]["complete"])
+                self.assertEqual(0, combined["usage"]["active_attempts"])
+                self.assertEqual(2, combined["usage"]["attempt_count"])
 
     def test_current_completion_and_zero_denominators_remain_independent_guards(self):
         state = self.state()
@@ -947,9 +973,7 @@ class TimingAndProvenanceTests(unittest.TestCase):
         self.assertEqual(4, timing["provider_request_union_seconds"])
 
     def test_active_elapsed_uses_fake_clock_without_waiting_or_finished_estimates(self):
-        record = attempt()
-        record.pop("finished_at")
-        record.pop("duration_seconds")
+        record = attempt(end=None)
         result = efficiency.summary({"active_stage": record}, now=12)
         self.assertEqual(12, result["time"]["wall_union_seconds"])
         self.assertEqual(12, result["time"]["summed_execution_seconds"])
@@ -1298,8 +1322,9 @@ class PublicAggregationTests(unittest.TestCase):
         record = attempt()
         parent = run_view.view({"run_dir": "/parent", "status": "RUNNING", "stages": [record]})
         worker = run_view.view(
-            {"run_dir": "/worker", "parent_run": "/parent", "status": "RUNNING", "active_stage": record}
+            {"run_dir": "/worker", "parent_run": "/parent", "status": "RUNNING", "active_stage": attempt(end=None)}
         )
+        self.assertEqual(1, worker["usage"]["accounting"]["active_attempts"])
         result = efficiency.aggregate([worker, parent])
         self.assertEqual(1, result["usage"]["attempt_count"])
         self.assertEqual(0, result["usage"]["active_attempts"])

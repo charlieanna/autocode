@@ -151,8 +151,9 @@ BOUNDARY_LIMITS = frozenset(
     }
 )
 PLANNING = roles.ALL_PLANNING_STAGES
-# Diagnosticians are never themselves investigated.
-NEVER = (STAGE, "diagnose", "resolve")
+# The Investigator and operational diagnosis cannot investigate themselves. A stuck repair
+# Resolver still needs the independent Investigator, under the same per-problem and run bounds.
+NEVER = (STAGE, "diagnose")
 TEXT = {"type": "string"}
 TEXTS = {"type": "array", "items": TEXT}
 SCHEMA = {

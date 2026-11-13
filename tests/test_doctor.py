@@ -540,9 +540,11 @@ class WorkspaceTests(unittest.TestCase):
     def test_a_folder_that_is_not_a_repository_is_missing(self):
         self.assertEqual({"workspace": doctor.MISSING}, self.statuses())
 
-    def test_a_repository_needs_a_commit(self):
+    def test_a_repository_with_no_commit_is_ready_and_names_no_command(self):
         self.git("init", "-q")
-        self.assertEqual({"workspace": doctor.MISSING}, self.statuses())
+        (check,) = doctor.workspace_check(self.root)
+        self.assertEqual((doctor.OK, ""), (check.status, check.fix))
+        self.assertIn("no commit yet; a task makes the first", check.detail)
         self.git("commit", "-q", "--allow-empty", "-m", "start")
         self.assertEqual({"workspace": doctor.OK}, self.statuses())
 

@@ -1,6 +1,10 @@
 """A run's spend against its money cap (#721): the pure projection. End to end: tests/test_cost_cap.py."""
 
+import copy
 import json
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,6 +12,7 @@ from pathlib import Path
 import autocode_cost as cost
 import autocode_prices as prices
 import autocode_run_view as run_view
+import autocode_support as support
 import autocode_usage as usage
 
 TOKENS = {"input_tokens": 1000, "output_tokens": 200}
@@ -149,6 +154,135 @@ class RunningStageSpendTests(unittest.TestCase):
         self.assertIsNone(finished["running_usd"])
         self.assertIsNone(cost.running({"attempts": [{"active": False, "model": MIMO}]}))
         self.assertIsNone(cost.running("damaged"))
+
+    def test_a_stopped_retained_attempt_counts_toward_spend_and_the_cap(self):
+        for status in ("WAITING_FOR_USER", "PAUSED_UNCERTAIN_STAGE", "RESOLVER_PENDING", "RUNNING"):
+            with self.subTest(status=status):
+                state = self.running(rows=[step_finish(0)], status=status)
+                in_flight_accounting = usage.accounting(state)
+                active = state["active_stage"]
+                active.update(
+                    finished_at="2026-11-11T01:25:28+00:00",
+                    exit_code=-15,
+                    interrupted=True,
+                    metrics=support.event_metrics(active["events"]),
+                )
+                active["metrics"]["provider_tokens_partial"] = True
+                state["stages"] = [stage(metrics={"provider_cost_usd": 0.431212})]
+                expected = 0.431212 + prices.estimate(MIMO, active["metrics"]["provider_tokens"])
+                state["settings"]["limits"]["max_cost_usd"] = expected - 0.000001
+                before = copy.deepcopy(state)
+                shown = run_view.view(state)
+                self.assertIsNone(shown["cost"]["running_usd"])
+                self.assertIsNone(cost.view(state, accounting=in_flight_accounting)["running_usd"])
+                self.assertEqual(round(expected, 6), shown["cost"]["spent_usd"])
+                self.assertFalse(shown["cost"]["complete"])
+                self.assertIn("at least", cost.line(shown["cost"]))
+                self.assertAlmostEqual(expected, cost.exceeded(state)[0])
+                self.assertAlmostEqual(expected, cost.crossing(state, MIMO, active)["spent"])
+                self.assertEqual(0, shown["usage"]["accounting"]["active_attempts"])
+                self.assertIsNone(shown["usage"]["active_stage"])
+                self.assertEqual(2, shown["usage"]["accounting"]["attempt_count"])
+                groups = shown["cost"]["breakdown"]["by_stage"]
+                self.assertAlmostEqual(round(expected, 6), sum(row["spent_usd"] for row in groups))
+                self.assertEqual(before, state, "reading spend must not reconcile or mutate the attempt")
+
+    def test_retained_spend_is_counted_once_before_and_after_archival(self):
+        state = self.running(rows=[step_finish(0, cost_usd=0.75)], status="WAITING_FOR_USER")
+        active = state["active_stage"]
+        # Reconciliation can account a stopped legacy attempt without a finish timestamp.
+        active.update(accounted=True, metrics=support.event_metrics(active["events"]))
+        held = run_view.view(state)["cost"]
+        self.assertEqual(0.75, held["spent_usd"])
+        self.assertIsNone(held["running_usd"])
+        self.assertFalse(held["complete"], "the cut stream's spend remains a floor after it stops")
+        self.assertEqual(0.75, cost.carried(state)["usd"])
+        state["stages"].append(copy.deepcopy(active))
+        self.assertEqual(held, run_view.view(state)["cost"], "a saved copy is the same attempt")
+        state.pop("active_stage")
+        self.assertEqual(held, run_view.view(state)["cost"])
+        self.assertEqual(0.75, cost.spent(state))
+
+        # A fully recorded terminal amount can be complete while its report awaits reconciliation.
+        state["active_stage"] = state["stages"].pop()
+        state["active_stage"]["metrics"] = {"provider_cost_usd": 0.75}
+        self.assertTrue(cost.view(state)["complete"])
+        self.assertTrue(usage.summary(state)["cost_usd"]["complete"])
+
+    def test_a_retained_unpriced_attempt_is_unknown_and_never_running(self):
+        state = self.running(model="mystery/model", rows=[step_finish(0)], status="PAUSED_UNCERTAIN_STAGE")
+        active = state["active_stage"]
+        active.update(finished_at="2026-11-11T01:25:28+00:00", metrics=support.event_metrics(active["events"]))
+        state["settings"]["limits"]["max_cost_usd"] = 0.000001
+        shown = run_view.view(state)["cost"]
+        self.assertIsNone(shown["running_usd"])
+        self.assertIsNone(shown["spent_usd"])
+        self.assertEqual(1, shown["unpriced_stages"])
+        self.assertFalse(shown["complete"])
+        self.assertIsNone(cost.exceeded(state))
+
+    def test_paused_status_alone_does_not_claim_the_active_process_finished(self):
+        state = self.running(rows=[step_finish(0, cost_usd=0.75)], status="PAUSED_PROCESS_CLEANUP")
+        state["active_stage"]["accounted"] = "false"
+        shown = run_view.view(state)["cost"]
+        self.assertEqual(0.75, shown["running_usd"])
+        self.assertEqual(0, shown["spent_usd"])
+        self.assertFalse(shown["complete"])
+
+    def test_public_cli_reports_retained_spend_without_changing_the_checkpoint(self):
+        state = self.running(rows=[step_finish(0, cost_usd=0.75)], status="WAITING_FOR_USER")
+        active = state["active_stage"]
+        active.update(
+            finished_at="2026-11-11T01:25:28+00:00",
+            exit_code=-15,
+            interrupted=True,
+            metrics=support.event_metrics(active["events"]),
+        )
+        root = Path(active["events"]).parent.resolve()
+        active.update(iteration=1, role="requirements", output=str(root / "requirements-gather-01.json"))
+        workspace = root / "project"
+        run_dir = workspace / ".autocode/runs/stopped-attempt"
+        run_dir.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(workspace)], check=True, capture_output=True)
+        state.update(
+            workspace=str(workspace),
+            run_dir=str(run_dir),
+            task="Verify retained attempt spend",
+            iteration=1,
+            sessions={},
+            history=[],
+            next_stage="requirements_gather",
+            phase="DISCOVERING",
+        )
+        state["settings"]["limits"]["max_cost_usd"] = 0.5
+        checkpoint = run_dir / "state.json"
+        checkpoint.write_text(json.dumps(state))
+        before = checkpoint.read_bytes()
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(Path(__file__).resolve().parents[1] / "tools/autocode.py"),
+                "--workspace",
+                str(workspace),
+                "--run-dir",
+                str(run_dir),
+                "--status",
+                "--json",
+            ],
+            env={**os.environ, "AUTOCODE_HOME": str(root / "home")},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        shown = json.loads(result.stdout)["view"]
+        self.assertEqual(
+            (0.75, None, 0.5), tuple(shown["cost"][key] for key in ("spent_usd", "running_usd", "cap_usd"))
+        )
+        self.assertFalse(shown["cost"]["complete"])
+        self.assertEqual(0, shown["usage"]["accounting"]["active_attempts"])
+        self.assertIn("Cost: at least $0.75 so far; cap $0.50.", result.stderr)
+        self.assertEqual(before, checkpoint.read_bytes())
 
 
 class CostProjectionTests(unittest.TestCase):

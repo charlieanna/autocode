@@ -483,13 +483,9 @@ def workspace_check(workspace: Path, runner=run) -> list[Check]:
             )
         ]
     if runner(["git", "rev-parse", "--verify", "HEAD"], cwd=workspace).returncode != 0:
+        # Nothing for the person to do: a task there makes the empty first commit itself (workspaces.first_commit).
         return [
-            Check(
-                "workspace",
-                MISSING,
-                f"{workspace} has no commit yet",
-                f"git -C {workspace} commit --allow-empty -m 'Start'",
-            )
+            Check("workspace", OK, f"Git repository at {top.stdout.strip()}, no commit yet; a task makes the first")
         ]
     checks = [Check("workspace", OK, f"Git repository at {top.stdout.strip()}")]
     dirty = [

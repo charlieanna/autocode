@@ -20,8 +20,14 @@ import os
 import subprocess
 from pathlib import Path, PurePosixPath
 
-# The lockfile a toolchain creates on its own, and the manifest it resolves beside it.
-LOCKFILES = {"Cargo.lock": "Cargo.toml"}
+try:
+    from . import autocode_project_kinds as project_kinds
+except ImportError:
+    import autocode_project_kinds as project_kinds
+
+# The lockfile a toolchain creates on its own, and the manifest it resolves beside it: each language's
+# ``lockfiles`` in autocode_project_kinds.
+LOCKFILES = project_kinds.LOCKFILES
 
 
 def _untracked(workspace) -> list[str]:

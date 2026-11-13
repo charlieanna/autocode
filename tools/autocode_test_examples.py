@@ -16,8 +16,10 @@ tracked files are read. Imports nothing from the runner.
 from __future__ import annotations
 
 try:
+    from . import autocode_project_kinds as project_kinds
     from . import autocode_prompts as prompts
 except ImportError:
+    import autocode_project_kinds as project_kinds
     import autocode_prompts as prompts
 
 
@@ -30,12 +32,12 @@ from pathlib import Path, PurePosixPath
 MAX_FILES = 2
 MAX_LINES = 60
 MAX_CHARS = 3000
-TEST_FILE = re.compile(r"(^test_.*|.*_test|.*\.test|.*\.spec|.*_spec)\.(py|go|js|jsx|ts|tsx|rb|rs)$")
 HEADER = prompts.get("fragments/test-examples/header.md")
 
 
 def is_test_file(path: str) -> bool:
-    return bool(TEST_FILE.match(PurePosixPath(path).name))
+    """A test file by its name, in any language autocode_project_kinds knows."""
+    return project_kinds.is_test_file(path)
 
 
 def tracked_tests(workspace) -> list[str]:

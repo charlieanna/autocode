@@ -165,7 +165,6 @@ class InterceptTests(unittest.TestCase):
             ("PAUSED_REPEATED_FAILURE", {"version": 2}),
             ("PAUSED_REPEATED_FAILURE", {"next_stage": stuck.STAGE}),
             ("PAUSED_REPEATED_FAILURE", {"next_stage": "diagnose"}),
-            ("PAUSED_REPEATED_FAILURE", {"next_stage": "resolve"}),
             ("PAUSED_REPEATED_FAILURE", {"settings": {"stuck_investigation": {"max_calls_per_run": 0}}}),
         ):
             with self.subTest(status=status, extra=extra):
@@ -184,15 +183,18 @@ class InterceptTests(unittest.TestCase):
         self.assertEqual(before, state, "declining never touches the state")
 
     def test_one_investigation_per_problem_and_a_run_budget(self):
-        state = state_for()
-        self.assertTrue(stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "x"))
-        state.update(next_stage="builder", status="RUNNING")
-        self.assertFalse(stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "x again"))
-        for stage in ("tester", "review_completion"):
-            state["next_stage"] = stage
-            self.assertTrue(stuck.intercept(state, "PAUSED_INVALID_OUTPUT", "x"))
-        state["next_stage"] = "review_plan"
-        self.assertFalse(stuck.intercept(state, "PAUSED_PLANNING_BUDGET", "x"), "three per run by default")
+        for stuck_stage in ("builder", "resolve"):
+            with self.subTest(stage=stuck_stage):
+                state = state_for(next_stage=stuck_stage)
+                self.addCleanup(shutil.rmtree, state["workspace"])
+                self.assertTrue(stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "x"))
+                state.update(next_stage=stuck_stage, status="RUNNING")
+                self.assertFalse(stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "x again"))
+                for stage in ("tester", "review_completion"):
+                    state["next_stage"] = stage
+                    self.assertTrue(stuck.intercept(state, "PAUSED_INVALID_OUTPUT", "x"))
+                state["next_stage"] = "review_plan"
+                self.assertFalse(stuck.intercept(state, "PAUSED_PLANNING_BUDGET", "x"), "three per run by default")
 
     def test_the_same_problem_on_changed_source_is_a_new_problem(self):
         state = state_for()
@@ -1131,14 +1133,80 @@ class DriveTests(unittest.TestCase):
         self.assertEqual(["builder", stuck.STAGE, "builder"], calls)
         self.assertEqual("TASK_COMPLETE", done["status"])
 
+    def test_a_stuck_resolver_retries_once_with_guidance_and_retains_its_evidence(self):
+        for status in ("PAUSED_TIMEOUT_RECOVERY", "PAUSED_INVALID_OUTPUT"):
+            with self.subTest(status=status):
+                state = state_for(
+                    next_stage="resolve",
+                    automatic_recoveries_since_resume=3,
+                    consecutive_timeout_recoveries=3,
+                    automatic_timeout_recoveries=[{"stage": "resolve"}] * 3,
+                    resolution_request={"source_revision": "rev-a", "review": {"status": "REWORK"}},
+                )
+                self.addCleanup(shutil.rmtree, state["workspace"])
+                settings = copy.deepcopy(state["settings"])
+                resolution = copy.deepcopy(state["resolution_request"])
+                guidance = "Keep the existing evidence and return a read-only diagnosis of the timeout."
+
+                def retry(current):
+                    self.assertIn(guidance, stuck.guidance(current, "resolve"))
+                    expected = 2 if status == "PAUSED_TIMEOUT_RECOVERY" else 3
+                    self.assertEqual(expected, recovery_accounting.spent(current))
+                    self.assertEqual(expected, recovery_accounting.consecutive_timeouts(current))
+                    self.assertEqual(3, len(current["automatic_timeout_recoveries"]))
+                    self.assertEqual(resolution, current["resolution_request"])
+                    self.assertEqual(settings, current["settings"])
+                    return "resolved"
+
+                failed = (
+                    "!" + status
+                    if status == "PAUSED_TIMEOUT_RECOVERY"
+                    else self.rejected("Resolver diagnosis is missing")
+                )
+                done, calls = self.run_loop(
+                    state, {"resolve": [failed, retry], stuck.STAGE: [report(guidance=guidance)]}
+                )
+                self.assertEqual(["resolve", stuck.STAGE, "resolve"], calls)
+                self.assertEqual("TASK_COMPLETE", done["status"])
+                self.assertEqual(["resolve"], [row["stage"] for row in done["stages"]])
+                self.assertEqual("", stuck.guidance(done, "resolve"), "successful recovery spends the guidance")
+
     def test_the_same_problem_twice_pauses_with_the_diagnosis(self):
-        state = state_for()
-        with self.assertRaises(Paused) as caught:
-            self.run_loop(
-                state, {"builder": ["!PAUSED_REPEATED_FAILURE", "!PAUSED_REPEATED_FAILURE"], stuck.STAGE: [report()]}
-            )
-        self.assertEqual("PAUSED_REPEATED_FAILURE", caught.exception.status)
-        self.assertIn("Investigator (retried): The Planner cites", str(caught.exception))
+        for stage, status in (("builder", "PAUSED_REPEATED_FAILURE"), ("resolve", "PAUSED_TIMEOUT_RECOVERY")):
+            with self.subTest(stage=stage, status=status):
+                state = state_for(next_stage=stage)
+                self.addCleanup(shutil.rmtree, state["workspace"])
+                with self.assertRaises(Paused) as caught:
+                    self.run_loop(state, {stage: ["!" + status, "!" + status], stuck.STAGE: [report()]})
+                self.assertEqual(status, caught.exception.status)
+                self.assertIn("Investigator (retried): The Planner cites", str(caught.exception))
+                self.assertEqual(1, len(state["stuck_investigations"]), "the same problem has no second grant")
+                self.assertEqual(2, len(state["stages"]), "both failed attempts remain recorded")
+
+    def test_a_resolver_investigation_that_pauses_or_fails_restores_the_resolver_timeout(self):
+        def malformed(current):
+            try:
+                stuck.check(report(diagnosis=""), [])
+            except ValueError as error:
+                return self.rejected(str(error))(current)
+            self.fail("the malformed Investigator report must be rejected")
+
+        for outcome, action, detail in (
+            ("pause", report("pause"), "Investigator (paused)"),
+            ("malformed", malformed, "An investigation must say what it found"),
+            ("timeout", "!PAUSED_TIMEOUT_RECOVERY", "The Investigator could not finish"),
+        ):
+            with self.subTest(outcome=outcome):
+                state = state_for(next_stage="resolve")
+                self.addCleanup(shutil.rmtree, state["workspace"])
+                with self.assertRaises(Paused) as caught:
+                    self.run_loop(state, {"resolve": ["!PAUSED_TIMEOUT_RECOVERY"], stuck.STAGE: [action]})
+                self.assertEqual("PAUSED_TIMEOUT_RECOVERY", caught.exception.status)
+                self.assertIn("PAUSED_TIMEOUT_RECOVERY at resolve", str(caught.exception))
+                self.assertIn(detail, str(caught.exception))
+                self.assertEqual(("PAUSED_TIMEOUT_RECOVERY", "resolve"), (state["status"], state["next_stage"]))
+                self.assertEqual(1, len(state["stuck_investigations"]), "the Investigator cannot investigate itself")
+                self.assertNotIn("stuck_investigation", state)
 
     @staticmethod
     def rejected(error):
@@ -1162,32 +1230,35 @@ class DriveTests(unittest.TestCase):
     def test_answers_rejected_in_turn_are_retried_by_autocode_then_stop_without_a_retry_question(self):
         # Two answers, each fixing what the other broke: the errors alternate, so the exact-repeat check
         # never fires. AutoCode retries itself, the Investigator looks again at the limit, then it stops.
-        first, second = self.rejected("missing AC1"), self.rejected("AC2 is not traced")
-        state = state_for()
-        with self.assertRaises(Paused) as caught:
-            self.run_loop(
-                state,
-                {"builder": [first, second, first, second, first], stuck.STAGE: [report(), report()]},
-            )
-        calls = [row["stage"] for row in state["stages"]]
-        self.assertEqual(5, calls.count("builder"), "LIMIT attempts, then the second look's one retry")
-        self.assertEqual(2, len(state["stuck_investigations"]))
-        self.assertIn("second look", state["stuck_investigations"][1]["reason"])
-        self.assertEqual("PAUSED_INVALID_OUTPUT", caught.exception.status)
-        message = str(caught.exception)
-        self.assertNotIn("Resume explicitly", message)
-        self.assertIn("ran the Builder 5 times at this source and asked the Investigator twice", message)
-        self.assertIn("missing AC1 | AC2 is not traced", message)
-        retries = [
-            item["attempt"]
-            for entry in state["failure_history"].values()
-            for item in entry.get("automatic_retries", [])
-        ]
-        self.assertEqual([3, 4], sorted(retries))
-        actions = [row["action"] for row in recovery_history.project(state) if row["kind"] == "rejected"]
-        self.assertTrue(
-            any("ran the Builder again itself (attempt 4 of at most 4" in text for text in actions), actions
-        )
+        for stage, job in (("builder", "Builder"), ("resolve", "Resolver")):
+            with self.subTest(stage=stage):
+                first, second = self.rejected("missing AC1"), self.rejected("AC2 is not traced")
+                state = state_for(next_stage=stage)
+                self.addCleanup(shutil.rmtree, state["workspace"])
+                with self.assertRaises(Paused) as caught:
+                    self.run_loop(
+                        state,
+                        {stage: [first, second, first, second, first], stuck.STAGE: [report(), report()]},
+                    )
+                calls = [row["stage"] for row in state["stages"]]
+                self.assertEqual(5, calls.count(stage), "LIMIT attempts, then the second look's one retry")
+                self.assertEqual(2, len(state["stuck_investigations"]))
+                self.assertIn("second look", state["stuck_investigations"][1]["reason"])
+                self.assertEqual("PAUSED_INVALID_OUTPUT", caught.exception.status)
+                message = str(caught.exception)
+                self.assertNotIn("Resume explicitly", message)
+                self.assertIn(f"ran the {job} 5 times at this source and asked the Investigator twice", message)
+                self.assertIn("missing AC1 | AC2 is not traced", message)
+                retries = [
+                    item["attempt"]
+                    for entry in state["failure_history"].values()
+                    for item in entry.get("automatic_retries", [])
+                ]
+                self.assertEqual([3, 4], sorted(retries))
+                actions = [row["action"] for row in recovery_history.project(state) if row["kind"] == "rejected"]
+                self.assertTrue(
+                    any(f"ran the {job} again itself (attempt 4 of at most 4" in text for text in actions), actions
+                )
 
     def test_an_answer_accepted_after_autocode_retried_it_finishes_the_run(self):
         state = state_for()
