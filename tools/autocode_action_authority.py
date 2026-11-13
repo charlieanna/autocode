@@ -185,6 +185,22 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
         )
     )
     if (
+        getattr(args, "run_dir", None)
+        and getattr(args, "task", None) is None
+        and getattr(args, "_explicit_budget_flags", None)
+        and not args.resume_paused
+        and not decision_action
+        and not any(runner.cli_args.user_actions(args).values())
+        and not explicit_recovery_requested(args, state)
+        and str(state.get("status", "")).startswith("PAUSED_")
+        and not state.get(resolver_human.PUBLIC)
+        and not state.get(resolver_human.PRIVATE)
+    ):
+        # Saving an unrelated bound is not a request to reconcile the held failure or ask Resolver.
+        # Published requests retain their own binding/recovery path; no new request is made here.
+        print(f"{state['status']}: {state.get('stop_reason') or 'Explicit resume required'}")
+        return 2
+    if (
         args.resume_paused
         and not decision_action
         and not explicit_recovery_requested(args, state)

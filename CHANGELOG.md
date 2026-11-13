@@ -95,6 +95,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **Saving an unrelated limit keeps an investigated failure paused** (#3417): a
+  standalone stage-limit save at a raw stopped boundary could ask Resolver a new
+  machinery question. It now keeps that pause and records only the settings
+  change; resuming and retrying still require their existing authority.
 - **Verification timeouts stop repeating unchanged checks** (#3264, #3400): the fallback suite now includes existing Python tests that import changed product modules, using the original source graph. A detected whole or focused baseline that timed out is not rerun with the same base, command and limit; missing evidence stays unverified. Two unchanged Tester or completion-review timeouts reach the Investigator before another identical review, while keeping attempts, usage and model choices.
 - **Automatic recovery no longer tells you to resume** (#3351): when AutoCode sets a stopped attempt aside before retrying it or asking the Investigator, the progress log says that partial work was retained for automatic recovery. Explicit abandonment still reports the pause and its resume action; the intermediate recovery checkpoint remains safe to resume after a crash.
 

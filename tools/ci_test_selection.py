@@ -914,6 +914,15 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (("tools/autocode_plan_chat.py",), ("tests.test_plan_chat_cli",)),
     (
+        (
+            "tools/autocode_action_authority.py",
+            "tools/autocode_run_setup.py",
+            "tools/autocode_args.py",
+            "tests/test_repeated_tester_timeout_cli.py",
+        ),
+        ("tests.test_standalone_limit_pause_cli",),
+    ),
+    (
         ("tools/autocode_stage_stalls.py", "tools/autocode_stage_recovery.py"),
         ("tests.test_repeated_tester_timeout_cli",),
     ),
