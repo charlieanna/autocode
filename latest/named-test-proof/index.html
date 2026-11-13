@@ -2230,7 +2230,10 @@ not downgrade an approved named criterion to prose to make a run finish. A
 draft whose test files the proof's suite would never run, such as RSpec specs in
 a repository whose root suite is Node, is refused when it is drafted unless one
 directory with its own suite holds them all (see the monorepo packages section of
-<a href="../workflow/">workflow</a>), so the Planner settles it before a Builder runs.</p>
+<a href="../workflow/">workflow</a>), so the Planner settles it before a Builder runs. So is a
+build or bug-fix draft that names code files and no test in a project with no test
+code: every change to code needs a test, and nothing there can guard the change
+instead (<code>tools/autocode_plan_test_suite.py</code>, <code>untested_code</code>).</p>
 <h2 id="junit-xml-from-other-test-runners">JUnit XML from other test runners<a class="headerlink" href="#junit-xml-from-other-test-runners" title="Permanent link">&para;</a></h2>
 <p>Use <code>--test-report junit:RELATIVE_PATH</code> with an explicit <code>--test-command</code> to
 attribute Java, Kotlin, .NET, Rust or Ruby tests through their runner's JUnit
