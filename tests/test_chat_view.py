@@ -1063,6 +1063,12 @@ class ChatViewTests(unittest.TestCase):
         self.assertEqual(
             "/tmp/empty was not a Git repository, so I made it one; what I build is written there.", rows[-1]["text"]
         )
+        # A repository that existed with no commit is not told it was made one.
+        state["workspace_bootstrap"]["first_commit"] = True
+        self.assertEqual(
+            "/tmp/empty had no commit yet, so I made an empty first one; what I build is written there.",
+            self.project(state, "continue")["messages"][-1]["text"],
+        )
 
 
 if __name__ == "__main__":

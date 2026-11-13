@@ -102,18 +102,16 @@ claude auth login
 autocode doctor --engine claude
 ```
 
-**3. Make a project and check everything.** A task works in a Git repository with at
-least one commit:
+**3. Make a project and check everything.** A task works in a Git repository:
 
 ```sh
 mkdir hello-autocode && cd hello-autocode
 git init
-git commit --allow-empty -m "Start"
 autocode doctor
 ```
 
-If Git asks who you are, run `git config --global user.name "Your Name"` and
-`git config --global user.email you@example.com` once, then commit again. `doctor`
+A repository with no commit is enough: the first task makes an empty first commit itself
+and works in the folder, leaving any files you have there uncommitted. `doctor`
 prints ✔ or ✖ for Python, psutil, Git, the engine and the project, with the fix next to
 each ✖, and ends with `ready for a first task`. For OpenCode it also reads
 `opencode models` (this can take up to a minute) and shows a ✖ `routes` line naming the

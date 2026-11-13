@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 import autocode_support as support
@@ -89,15 +90,88 @@ class TaskWorkspaces(unittest.TestCase):
         self.assertFalse(Path(unused["workspace"]).exists())
         self.assertEqual("", w.git(self.project, "branch", "--list", unused["branch"]))
 
-    def test_empty_repository_has_actionable_error_and_no_worktree(self):
-        empty = self.root / "empty"
-        empty.mkdir()
-        w.git(empty, "init", "-q")
-        with self.assertRaisesRegex(ValueError, "initial Git commit") as refused:
-            w.create(empty, "task")
-        # The refusal names the command that fixes it, the same one autocode doctor prints.
-        self.assertIn(f"git -C {empty.resolve()} commit --allow-empty -m 'Start'", str(refused.exception))
-        self.assertFalse((empty / ".autocode").exists())
+    def unborn(self, name="unborn"):
+        folder = self.root / name
+        folder.mkdir()
+        w.git(folder, "init", "-q")
+        return folder
+
+    def test_a_repository_with_no_commit_gets_an_empty_first_one_and_keeps_the_persons_files_as_they_are(self):
+        # A run there stopped and told the person to type `git commit --allow-empty -m 'Start'`.
+        folder = self.unborn()
+        (folder / "pager.py").write_text("def page_count(total, size):\n    return total // size\n")
+        (folder / "staged.py").write_text("x = 1\n")
+        w.git(folder, "add", "staged.py")
+        before = self.untracked(folder)
+        self.assertEqual(["pager.py", "staged.py"], w.own_files(folder))
+        self.assertTrue(w.first_commit(folder))
+        self.assertEqual(w.BASELINE, w.git(folder, "log", "--format=%s"))
+        self.assertEqual("", w.git(folder, "ls-tree", "-r", "HEAD"))  # the person's staged file was not committed
+        self.assertEqual(before, self.untracked(folder))
+        self.assertIn("A  staged.py", before)
+        self.assertIn("?? pager.py", before)
+        # Once is enough, and a repository with a commit of its own is never given one.
+        self.assertFalse(w.first_commit(folder))
+        self.assertFalse(w.first_commit(self.project))
+        self.assertEqual("1", w.git(folder, "rev-list", "--count", "HEAD"))
+        self.assertEqual("1", w.git(self.project, "rev-list", "--count", "HEAD"))
+        self.assertFalse(w.first_commit(self.root))  # not a repository
+
+    def test_a_first_commit_made_in_between_is_kept(self):
+        # Two starts at once, or the person committing meanwhile: the commit already there stays.
+        folder = self.unborn()
+        real = w.git
+
+        def racing(root, *args, **options):
+            if args[:1] == ("update-ref",):
+                real(
+                    folder,
+                    "-c",
+                    "user.name=T",
+                    "-c",
+                    "user.email=t@example.test",
+                    "commit",
+                    "--allow-empty",
+                    "-qm",
+                    "mine",
+                )
+            return real(root, *args, **options)
+
+        with unittest.mock.patch.object(w, "git", racing):
+            self.assertFalse(w.first_commit(folder))
+        self.assertEqual("mine", w.git(folder, "log", "--format=%s"))
+
+    def test_a_refusal_from_git_is_raised_as_it_is(self):
+        folder = self.unborn()
+        real = w.git
+
+        def refusing(root, *args, **options):
+            if args[:1] == ("update-ref",):
+                raise ValueError("cannot lock ref")
+            return real(root, *args, **options)
+
+        with unittest.mock.patch.object(w, "git", refusing), self.assertRaisesRegex(ValueError, "cannot lock ref"):
+            w.first_commit(folder)
+
+    def test_a_task_worktree_starts_from_the_first_commit_autocode_made(self):
+        folder = self.unborn()
+        created = w.create(folder, "task")
+        self.assertEqual(w.git(folder, "rev-parse", "HEAD"), created["base_commit"])
+        self.assertEqual(w.BASELINE, w.git(folder, "log", "--format=%s"))
+        self.assertEqual([], w.own_files(folder))
+
+    def test_a_branch_with_no_commit_in_a_repository_that_has_some_is_left_alone(self):
+        # The person's own arrangement (git checkout --orphan): nothing is committed for them, and the
+        # refusal says what is so without a command to type.
+        w.git(self.project, "checkout", "-q", "--orphan", "fresh")
+        self.assertFalse(w.first_commit(self.project))
+        with self.assertRaisesRegex(ValueError, "has no commit yet, and a task starts from a commit") as refused:
+            w.create(self.project, "task")
+        self.assertNotIn("git -C", str(refused.exception))
+        self.assertNotIn("--allow-empty", str(refused.exception))
+        with self.assertRaises(ValueError):
+            w.git(self.project, "rev-parse", "--verify", "HEAD")
+        self.assertFalse((self.project / ".autocode/worktrees").exists())
 
     def test_non_git_folder_bootstraps_a_safe_task_project(self):
         empty = self.root / "new-project"
@@ -180,6 +254,67 @@ class IsolatedCli(unittest.TestCase):
         self.assertEqual(1, len(projects))
         self.assertTrue((projects[0] / ".git").is_dir())
         self.assertFalse((folder / ".git").exists())
+
+    def test_a_repository_with_no_commit_starts_the_task_in_the_folder(self):
+        # `git init` and nothing more. A start stopped with a Git command for the person to type, and a
+        # chat's start (--build-in-worktree) with Git's own "ambiguous argument 'HEAD'".
+        flow = test_subprocess.SubprocessFlow()
+        flow.setUp()
+        self.addCleanup(flow.doCleanups)
+        for name, files, flags in (
+            ("empty", {}, ()),
+            ("empty-chat", {}, ("--build-in-worktree",)),
+            ("code", {"pager.py": "def page_count(total, size):\n    return total // size\n"}, ()),
+            ("code-chat", {"pager.py": "x = 1\n", "staged.py": "y = 2\n"}, ("--build-in-worktree",)),
+        ):
+            with self.subTest(name=name):
+                folder = flow.root / name
+                folder.mkdir()
+                w.git(folder, "init", "-q")
+                for path, text in files.items():
+                    (folder / path).write_text(text)
+                if "staged.py" in files:
+                    w.git(folder, "add", "staged.py")
+                before = w.git(folder, "status", "--porcelain", "--untracked-files=all")
+                result = subprocess.run(
+                    [*flow.entry, "--workspace", str(folder), "--engine", "codex", "--no-chat", *flags, "Build it"],
+                    cwd=flow.root,
+                    env={**flow.env, "AUTOCODE_FIXTURE_MODE": "no-human"},
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                output = result.stdout + result.stderr
+                self.assertIn("This repository had no commit, so AutoCode made an empty first one", output)
+                self.assertNotIn("--allow-empty", output)
+                self.assertNotIn("ambiguous argument", output)
+                self.assertEqual(w.BASELINE, w.git(folder, "log", "--format=%s"))
+                self.assertEqual("", w.git(folder, "ls-tree", "-r", "HEAD"))
+                # The run was saved and works in the folder itself: a worktree of the empty commit would
+                # hide what the person has there.
+                self.assertEqual(1, len(list((folder / ".autocode" / "runs").glob("*/state.json"))), output)
+                self.assertFalse((folder / ".autocode" / "worktrees").exists())
+                self.assertEqual(before, w.git(folder, "status", "--porcelain", "--untracked-files=all"))
+                self.assertEqual(bool(files), "your files were not added to it" in output)
+
+    def test_read_only_commands_never_make_the_first_commit(self):
+        flow = test_subprocess.SubprocessFlow()
+        flow.setUp()
+        self.addCleanup(flow.doCleanups)
+        folder = flow.root / "unborn"
+        folder.mkdir()
+        w.git(folder, "init", "-q")
+        for flag in ("--dry-run", "--explain"):
+            subprocess.run(
+                [*flow.entry, "--workspace", str(folder), "--engine", "codex", flag, "Build calculator"],
+                cwd=flow.root,
+                env=flow.env,
+                capture_output=True,
+                text=True,
+                timeout=35,
+            )
+            with self.assertRaises(ValueError):
+                w.git(folder, "rev-parse", "--verify", "HEAD")
 
     def test_read_only_commands_never_bootstrap_a_plain_folder(self):
         flow = test_subprocess.SubprocessFlow()
