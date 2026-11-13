@@ -10,7 +10,7 @@ provider (`scenarios/run.py run --fake`). Eight of them then ran once on Claude 
 (`--profile claude-tiers`: Sonnet 5.5 Requirements, Planner and Tester, Opus 5.5 reviewers,
 Haiku 4.5 Builder), $9.15 in all, and $12.59 more for the eight runs after a fix. Sections 5 to 7
 (JavaScript) are six later runs, $10.86, section 8 (RSpec) four more, $5.51, and section 9 (Minitest)
-two, $3.94.
+three, $4.82.
 
 ## Scripted stops that real models do not hit
 
@@ -238,10 +238,13 @@ with named guards (`autocode_command_guards`). The command must run tests the or
 checked when the plan is drafted; a bug fix still needs a test that fails without it; a change with
 a test file is proven as before; a project whose runner names its tests keeps naming them.
 
-On the fixed tree the Planner wrote ``guard: `ruby test/pager_test.rb` `` and a criterion for the
-Tester to read, the first proof passed with the guard's command at exit 0 on both sides, and the run
-completed without a question: 160 s, $0.90, 8 stages (manifest
-`f65d7c79103a8dc82babad76d2165269c6f2bb5bc3f9f12bbe8e5f3c33be06e4`).
+On the fixed tree the Planner wrote ``guard: run `ruby test/pager_test.rb` `` and two criteria for the
+Tester, the first proof passed with the guard's command at exit 0 on both sides, and the run completed
+without a question: 142 s, $0.88, 8 stages (manifest
+`7adb00ce5a6656d0ef855594ebcce3fdbbb966adcd1a22e2b9bce050d23a04b9`). A first form without the word "run"
+completed the same way (160 s, $0.90, manifest
+`f65d7c79103a8dc82babad76d2165269c6f2bb5bc3f9f12bbe8e5f3c33be06e4`) but could not be told from a
+test's name or title, which plans also write in backticks.
 
 ## Also seen, not yet run on real models
 
