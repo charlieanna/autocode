@@ -1662,7 +1662,7 @@ test('the run header sits above the conversation with the pipeline, where the ru
   assert.equal(ui.document.querySelector('#pipeline tfoot').textContent, '', 'no total before the run has worked or spent');
   assert.equal(ui.document.querySelector('#header-label').textContent, 'Working');
   assert.equal(ui.document.querySelector('#header-sentence').textContent, 'Builder working.');
-  assert.equal(ui.document.querySelector('#header-facts').textContent, 'Cost: Builder 100% · checking 0% · 1 thing went wrong, handled');
+  assert.equal(ui.document.querySelector('#header-facts').textContent, 'Cost: Builder 100% · checking 0% · 1 recovery event');
   assert.equal(ui.document.querySelector('#header-details').hidden, true, 'details start folded');
   assert.equal(ui.document.querySelector('#run-header img'), null);
   assert.doesNotMatch(header.textContent, /RUNNING|--status/);

@@ -1514,14 +1514,15 @@ run carried on by itself: a list, oldest first and at most the newest 20, built 
 | Key | Meaning |
 | --- | --- |
 | `id` | Stable for the entry, so a client says each one once |
-| `kind` | `rejected` (a stage's answer was not accepted), `report_repaired` (the work stood and only its report was rewritten), `sent_back` (the changed-code gate returned the Builder for lines with no test that fails when they break and no checked reason), `investigated` (a stage stopped making progress and went to the Investigator), `resolved` (the Resolver chose the next step by its rules) |
+| `kind` | `rejected` (a stage's answer was not accepted), `report_repaired` (the work stood and only its report was rewritten), `sent_back` (the changed-code gate returned the Builder for lines with no test that fails when they break and no checked reason), `investigated` (a stage stopped making progress and went to the Investigator), `resolver_decision` (the Resolver chose a next step; a retry or hold is not a successful resolution) |
 | `at` | When it was recorded (UTC), or null |
 | `job` | The stage's screen name (`autocode_roles`) |
 | `headline` | One line, such as `Builder stuck`, `Tester rewrote its report` or `Builder sent back for untested lines (round 1 of 2)` (the round the record names, out of the rounds the gate allows; a record saved before rounds were recorded has none) |
 | `problem` | What went wrong, or null |
 | `action` | What AutoCode did about it |
-| `by` | The job that handled it: the stage itself, `Investigator` or `Resolver` |
+| `by` | The job that recorded or handled the entry: the stage itself, `Investigator` or `Resolver` |
 | `detail` | The Investigator's diagnosis and advice, or null |
+| `handled` | True only when the saved record proves the recovery succeeded; a Resolver retry or hold is false |
 
 The text is redacted and bounded, and a sentence that names a command is left out, since a client
 never shows a person a command to type. A rejection the Investigator was called for appears once,

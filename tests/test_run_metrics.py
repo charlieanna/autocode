@@ -75,7 +75,7 @@ def view():
             # Only what a provider itself reported (none here): report repairs are priced like every other stage.
             "by_category": {"report_repair": {"reported_usd": quantity(0, complete=False)}},
         },
-        "recoveries": [{"id": "r1", "kind": "builder_sent_back"}],
+        "recoveries": [{"id": "r1", "kind": "report_repaired", "handled": True}],
         "evidence": {
             "regression_proof": {"verdict": "PASS", "fail_to_pass": ["t1", "t2"]},
             "check_replay": {"verdict": "PASS", "checks": [{"id": "c1"}]},
@@ -184,6 +184,17 @@ class RunMetricsTests(unittest.TestCase):
             },
             single["produced"],
         )
+
+    def test_only_recoveries_with_explicit_success_evidence_count_as_handled(self):
+        stopped = view()
+        stopped["recoveries"] = [
+            {"id": f"retry-{index}", "kind": "resolver_decision", "handled": False} for index in range(4)
+        ] + [{"id": f"hold-{index}", "kind": "resolver_decision", "handled": False} for index in range(2)]
+
+        self.assertEqual(0, run_metrics.project(stopped)["single_model"]["produced"]["problems_handled"])
+
+        stopped["recoveries"].append({"id": "accepted-repair", "kind": "report_repaired", "handled": True})
+        self.assertEqual(1, run_metrics.project(stopped)["single_model"]["produced"]["problems_handled"])
 
     def test_planning_is_named_apart_from_the_checking_after_it(self):
         # #3268: "Builder 18% · checking 82%" counted Requirements and the Planner ($2.1 of $3.1) as checking.

@@ -135,8 +135,9 @@ test("what went wrong lists every recovery with what AutoCode did, as /why does"
     "  Then: AutoCode called the Investigator.",
     "  What it found: The fixture path was wrong.",
   ]);
-  assert.equal(section(header, "wrong")!.summary, "2 so far, each handled by AutoCode");
-  assert.ok(header.facts.includes("2 things went wrong, handled"));
+  assert.equal(section(header, "wrong")!.summary, "2 recovery events recorded");
+  assert.ok(header.facts.includes("2 recovery events"));
+  assert.ok(!JSON.stringify(header).includes("handled"));
   assert.equal(section(runHeader(view()), "wrong"), undefined, "nothing went wrong: no section");
 });
 

@@ -217,6 +217,18 @@ class RunViewTests(unittest.TestCase):
             },
             set(run_view.view({"status": "RUNNING"})),
         )
+        recoveries = run_view.view(
+            {
+                "status": "RUNNING",
+                "report_repair_history": [
+                    {"at": "2026-11-12T00:00:00+00:00", "result": "accepted", "repair": {"stage": "builder"}}
+                ],
+            }
+        )["recoveries"]
+        self.assertEqual(
+            {"id", "kind", "at", "job", "headline", "problem", "action", "by", "detail", "handled"},
+            set(recoveries[0]),
+        )
         external_part = run_view.view(
             {
                 "status": "RUNNING",
