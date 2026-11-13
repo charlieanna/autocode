@@ -2777,13 +2777,13 @@ class MonorepoPackageOracleTests(unittest.TestCase):
 
 
 class BugfixMonorepoPackageOracleTests(unittest.TestCase):
-    """bugfix-monorepo-package (#711): a --package bug fix investigated first, judged as feature-monorepo-package
+    """bugfix-monorepo-package (#711): a --package bug fix follows the unified build path, judged as feature-monorepo-package
     judges its package. The runner's diagnosis note (the path the run's saved investigation names) is the
     workflow's own file, not a change outside the package; any other file under docs/bugs/ is one."""
 
     FINDING = "Files outside the package packages/invoices/ changed: "
     NOTE = "docs/bugs/scripted-diagnosis.json"
-    STAGES = ["requirements_gather", "investigate_bug", "draft_plan", "review_plan", "builder", "tester"]
+    STAGES = ["requirements_gather", "draft_plan", "review_plan", "builder", "tester"]
 
     def score(self, overlay, findings, stages=STAGES, package="packages/invoices", model_stages=None, extra=()):
         from harness.project import materialize
@@ -2849,16 +2849,19 @@ class BugfixMonorepoPackageOracleTests(unittest.TestCase):
         )
         self.assertFalse(other["nothing_changed_outside_the_package"].ok)
 
-    def test_the_investigator_runs_before_any_other_model_stage_but_requirements(self):
+    def test_the_planner_runs_before_any_other_model_stage_but_requirements(self):
         for stages, model_stages, ok in (
             (self.STAGES, None, True),
             (self.STAGES[1:], None, True),
             (["requirements_gather", "requirements_gather_report_repair", *self.STAGES[1:]], None, True),
             # A runner-owned record is not a model stage.
             (["requirements_gather", "model_preflight", *self.STAGES[1:]], self.STAGES, True),
-            (["requirements_gather", "draft_plan", "investigate_bug", "builder"], None, False),
-            (self.STAGES, ["requirements_gather", "draft_plan", "investigate_bug"], False),
-            (["requirements_gather", "draft_plan", "builder"], None, False),
+            (["requirements_gather", "builder", "draft_plan", "tester"], None, False),
+            (self.STAGES, ["requirements_gather", "tester", "draft_plan"], False),
+            (["requirements_gather", "builder", "tester"], None, False),
+            # Neither a retired workflow entry nor a recovery stage may precede the Planner.
+            (["requirements_gather", "investigate_bug", *self.STAGES[1:]], None, False),
+            (["requirements_gather", "investigate_stuck", *self.STAGES[1:]], None, False),
         ):
             with self.subTest(stages=stages, model_stages=model_stages):
                 checks = self.score("reference", [], stages=stages, model_stages=model_stages)
