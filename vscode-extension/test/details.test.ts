@@ -98,6 +98,56 @@ test("where the run is uses the core's summary and plain meaning, never its stat
   assert.equal(runHeader(null), null);
 });
 
+test("stage costs distinguish unreported, partial, running and genuinely zero spend", () => {
+  for (const done of [false, true]) {
+    const shown = view({
+      done,
+      pipeline: [
+        step("requirements", "Requirements", "ran", { spent_usd: 0 }),
+        step("planner", "Planner", "ran", { spent_usd: 1.25 }),
+        step("tester", "Tester", "ran", { spent_usd: 0 }),
+      ],
+      cost: { breakdown: { by_stage: [
+        { stage: "requirements_gather", spent_usd: null, complete: false },
+        { stage: "draft_plan", spent_usd: 1.25, complete: true },
+        { stage: "revise_plan", spent_usd: null, complete: false },
+        { stage: "tester", spent_usd: 0, complete: true },
+      ] } },
+      usage: { accounting: { attempts: [
+        attempt("requirements_gather", "Requirements"),
+        attempt("draft_plan", "Planner"),
+        attempt("revise_plan", "Planner"),
+        attempt("tester", "Tester"),
+      ] } },
+    });
+    assert.deepEqual(pipelineSteps(shown).map((row) => row.cost), ["", "$1.25+", "$0"]);
+  }
+  for (const running of [0, 0.12]) {
+    const shown = working({ cost: { running_usd: running } });
+    assert.equal(pipelineSteps(shown, STARTED)[1]!.cost, running ? "$0.12+" : "$0+");
+  }
+});
+
+test("pipeline-only costs honor completeness, including zero and old cores", () => {
+  const costs = [
+    { spent_usd: null, spent_complete: false },
+    { spent_usd: 0, spent_complete: true },
+    { spent_usd: 0, spent_complete: false },
+    { spent_usd: 1.25, spent_complete: false },
+    { spent_usd: 1.25, spent_complete: true },
+    { spent_usd: 0 },
+    { spent_usd: 1.25 },
+  ];
+  assert.deepEqual(costs.map((extra) => pipelineSteps(view({
+    pipeline: [step("planner", "Planner", "ran", extra)],
+  }))[0]!.cost), ["", "$0", "$0+", "$1.25+", "$1.25", "", "$1.25"]);
+});
+
+test("the spend footer marks incomplete totals as a floor", () => {
+  const partial = { ...METRICS, complete: false, single_model: {} };
+  assert.equal(spendSummary(view({ run_metrics: partial })), "$2.50+ across 3 jobs");
+});
+
 test("a stopped step's details say the core's reason, next action and saved cause, never a flag", () => {
   const notice = "I couldn’t finish this step. The step failed. Your work so far is saved; continue to try this step again.";
   const stopped = (saved: string) => runHeader(view({
@@ -272,7 +322,7 @@ function working(extra: Record<string, unknown> = {}) {
     cost: {
       spent_usd: 0.05, running_usd: 0.12, estimated_usd: 0.05, reported_usd: null, cap_usd: 5, complete: false,
       prices_as_of: "2026-11-09", unpriced_stages: 0,
-      breakdown: { by_stage: [{ stage: "requirements_gather", job: "Requirements", spent_usd: 0.05 }], by_billing: [{ billing: "subscription", spent_usd: 0.17 }] },
+      breakdown: { by_stage: [{ stage: "requirements_gather", job: "Requirements", spent_usd: 0.05, complete: true }], by_billing: [{ billing: "subscription", spent_usd: 0.17 }] },
     },
     usage: {
       accounting: {
@@ -312,12 +362,12 @@ test("each stage shows the model, level, time, tokens and spend its own attempts
   assert.deepEqual(steps.map((row) => [row.label, row.model, row.level, row.time, row.tokens, row.cost, row.now]), [
     ["Requirements", "claude-sonnet-5-5", "high", "1m00s", "13k", "$0.05", ""],
     // The running attempt: its time so far, its tokens as a floor and the core's running spend.
-    ["Planner", "claude-opus-5-5", "high", "30s", "29k+", "$0.12", "reading files"],
+    ["Planner", "claude-opus-5-5", "high", "30s", "29k+", "$0.12+", "reading files"],
     ["Plan Reviewer", "claude-opus-5-5", "medium", "", "", "", ""],
   ]);
   assert.deepEqual(steps.map((row) => row.detail), [
     "claude-sonnet-5-5 · high · 1m00s · 13k tokens · $0.05",
-    "claude-opus-5-5 · high · 30s · 29k+ tokens · $0.12",
+    "claude-opus-5-5 · high · 30s · 29k+ tokens · $0.12+",
     "claude-opus-5-5 · medium",
   ]);
   const header = runHeader(working(), STARTED);

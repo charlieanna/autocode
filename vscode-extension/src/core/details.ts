@@ -113,6 +113,7 @@ function clock(value: unknown): string {
 /** A job's launched attempts as the meter reads them (`usage.accounting.attempts`), several stages of one job together. */
 interface JobUse {
   model: string; level: string; seconds: number | null; tokens: number; tokensComplete: boolean; spent: number | null;
+  costComplete: boolean;
   attempts: number; failed: number; repairs: number; why: string; active: boolean;
 }
 
@@ -129,6 +130,7 @@ function jobUse(view: Row, now: number): Map<string, JobUse> {
       tokens: (seen?.tokens ?? 0) + row.tokens,
       tokensComplete: (seen?.tokensComplete ?? true) && row.tokensComplete,
       spent: add(seen?.spent ?? null, row.spentUsd),
+      costComplete: (seen?.costComplete ?? true) && row.costComplete,
       attempts: (seen?.attempts ?? 0) + row.attempts,
       failed: (seen?.failed ?? 0) + row.failedAttempts,
       repairs: (seen?.repairs ?? 0) + row.repairs,
@@ -169,8 +171,11 @@ function stepOf(label: string, state: StepState, row: Row, use: JobUse | undefin
   }
   if (use?.seconds && use.seconds >= 1) step.time = duration(use.seconds);
   if (use?.tokens) step.tokens = `${stageTokens(use.tokens)}${use.tokensComplete ? "" : "+"}`;
-  const spent = use?.spent ?? (isNumber(row.spent_usd) ? row.spent_usd : null);
-  if (spent !== null && (spent > 0 || use)) step.cost = stageMoney(spent);
+  const spent = use ? use.spent : (isNumber(row.spent_usd) ? row.spent_usd : null);
+  const complete = use ? use.costComplete : row.spent_complete !== false;
+  if (spent !== null && (spent > 0 || use || typeof row.spent_complete === "boolean")) {
+    step.cost = `${stageMoney(spent)}${complete ? "" : "+"}`;
+  }
   // A stage that ran again after succeeding (a second plan-review round) is not a retry, and a report
   // repair only rewrote a rejected report: it is never another run of the stage.
   const again = use && use.attempts > 1 ? (use.failed ? `${use.attempts} attempts, ${use.failed} failed` : `ran ${use.attempts} times`) : "";
@@ -383,7 +388,7 @@ export function spendSummary(view: Row): string | null {
     }
     return `${builder}${single.planning_share ? ` · planning ${percent(single.planning_share)}` : ""} · checking ${percent(single.review_share)}`;
   }
-  return `${money(metrics.spent_usd)} across ${rows(metrics.by_job).length} jobs`;
+  return `${money(metrics.spent_usd)}${metrics.complete === true ? "" : "+"} across ${rows(metrics.by_job).length} jobs`;
 }
 
 function spendSection(view: Row): DetailSection | null {
