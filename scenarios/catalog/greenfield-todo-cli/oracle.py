@@ -3,7 +3,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from harness.oracle import Check, non_stdlib_imports, run
+from harness.oracle import Check, non_stdlib_imports, normal_failure, run
 
 DELIVERABLES = ("todo.py", "test_todo.py", "README.md")
 
@@ -38,20 +38,22 @@ def check(project, scenario):
         checks.append(
             Check(
                 "complete_marks_done",
-                completed.returncode == 0 and listed.stdout == "1 buy milk [done]\n",
+                completed.returncode == 0 and listed.returncode == 0 and listed.stdout == "1 buy milk [done]\n",
                 listed.stdout[:200],
             )
         )
 
         fresh()
-        todo("add", "first")
-        todo("add", "second")
+        added_first = todo("add", "first")
+        added_second = todo("add", "second")
         before = store.read_bytes() if store.exists() else b""
         first, second = todo("list"), todo("list")
         checks.append(
             Check(
                 "ids_stable_across_restarts",
-                first.stdout == second.stdout == "1 first [open]\n2 second [open]\n" and store.read_bytes() == before,
+                added_first.returncode == added_second.returncode == first.returncode == second.returncode == 0
+                and first.stdout == second.stdout == "1 first [open]\n2 second [open]\n"
+                and store.read_bytes() == before,
                 first.stdout[:200],
             )
         )
@@ -61,7 +63,7 @@ def check(project, scenario):
         checks.append(
             Check(
                 "unknown_id_fails_without_writing",
-                unknown.returncode != 0 and store.read_bytes() == before,
+                normal_failure(unknown) and store.read_bytes() == before,
                 f"exit {unknown.returncode}",
             )
         )
@@ -72,7 +74,7 @@ def check(project, scenario):
             checks.append(
                 Check(
                     f"malformed_store_{args[0]}",
-                    result.returncode != 0 and store.read_text() == "{not valid json!!!",
+                    normal_failure(result) and store.read_text() == "{not valid json!!!",
                     f"exit {result.returncode}",
                 )
             )
