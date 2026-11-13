@@ -2144,7 +2144,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/e071dd21916cc2110688a6ce930acdc415c98ca5/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/e144b26f64d82e4d6f29df02727b83aa26ee77a2/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2312,7 +2312,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/e071dd21916cc2110688a6ce930acdc415c98ca5/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/e144b26f64d82e4d6f29df02727b83aa26ee77a2/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2986,8 +2986,11 @@ at <code>medium</code> reasoned for 64,003 tokens and wrote nothing). The model 
 is, so the runner sets the attempt aside and runs the stage again on the same model at the highest
 level the model offers below the one it ran at. It records the move in the run's evidence and as the
 stage's <code>effort_choice</code>, the live log says so, and the stage keeps that level on that model for the
-rest of the run. Each level is lowered once, so a stage that runs out at the model's lowest level, a
-level typed as a flag, a long report and an attempt that changed source still ask as above.</p>
+rest of the run. Each level is lowered once. When the stage runs out that way again at the model's
+lowest level (a live Tester on MiMo v2.6 Pro did at <code>medium</code> and then at <code>low</code>), the runner sets the
+attempt aside and the Investigator looks at it before you are asked (#3349); it may run the stage once
+more with its guidance. Only after it has looked does the model question above stand. A level typed as
+a flag, a long report and an attempt that changed source still ask as above.</p>
 <h2 id="a-parallel-builder-stopped-on-its-model">A parallel Builder stopped on its model<a class="headerlink" href="#a-parallel-builder-stopped-on-its-model" title="Permanent link">&para;</a></h2>
 <p>A Builder in a parallel batch that stops on quota, a content-filter refusal or an authenticated
 output limit asks the same model question, naming its milestone:</p>
