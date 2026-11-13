@@ -2144,7 +2144,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/bde7dcec6135754c7424277d745fe68367a1f74f/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/40fc82a623f4dcecc074782d7d7b25b3eaa827d1/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2312,7 +2312,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/bde7dcec6135754c7424277d745fe68367a1f74f/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/40fc82a623f4dcecc074782d7d7b25b3eaa827d1/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2480,14 +2480,20 @@ pick against the others as they will all stand and saves all of them, or none (#
 <p>A client can show a chat that has not started the model and level each stage will run, and let the
 person change them for that chat alone (owner request 2026-11-11):</p>
 <pre><code class="language-sh">autocode stages list --chat-stage builder claude-sonnet-5-5 high   # what a new chat runs with that Builder
+autocode stages list -- --builder-model zai-coding-plan/glm-5.3     # include new-run model flags without saving
 </code></pre>
-<p>Each <code>--chat-stage STAGE MODEL EFFORT</code> is checked as <code>autocode stages set</code> checks a saved choice (a
+<p>When a workspace sets explicit stage models or levels in <code>.autocode/config.toml</code> or <code>pyproject.toml</code>,
+or new-run model/engine/provider options follow <code>--</code>, <code>stages list</code> resolves them into <code>configured</code>
+(<code>(project)</code> or <code>(settings)</code>) without altering your saved Stage models (<code>stages.toml</code>). Each
+<code>--chat-stage STAGE MODEL EFFORT</code> is checked as <code>autocode stages set</code> checks a saved choice (a
 model the backend offers, a level it takes, a checker never sharing its producer's model, judged
-against the chat's other stages) and saved nowhere: other new tasks keep the saved choices. The list
-marks the stage <code>(this chat)</code> and, with <code>--json</code>, names <code>chat.start_args</code>, the stage flags
+against the chat's other effective stages) and saved nowhere: other new tasks keep the saved choices.
+When <code>single-model</code> fixes every stage, <code>stages list</code> marks chat stage choices fixed (<code>chat.changeable: false</code>)
+and refuses <code>--chat-stage</code> unless a role model flag overrides it. The list marks per-chat picks
+<code>(this chat)</code> and, with <code>--json</code>, names <code>chat.start_args</code>, the stage flags
 (<code>--builder-model claude-sonnet-5-5 --builder-reasoning-effort high</code>) the chat's run starts with. They
-are typed flags, so the start checks them again, the level is exact, and the saved choice for that
-stage is not taken; every other stage takes its saved choice or default as usual.</p>
+are typed flags, so the start checks them again, the level is exact, and the saved or configured choice
+for that stage is not taken; every other stage takes its configured setting, saved choice, or default as usual.</p>
 <h3 id="changing-a-started-runs-models">Changing a started run's models<a class="headerlink" href="#changing-a-started-runs-models" title="Permanent link">&para;</a></h3>
 <p>A task already running keeps its routes, so <code>autocode stages</code> reaches only new tasks. To change
 what one stage runs in a started run (owner request 2026-11-10), change it between stages:</p>
