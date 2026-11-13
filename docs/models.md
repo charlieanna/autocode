@@ -217,7 +217,10 @@ own `.autocode/config.toml` still win for that run; `--single-model` takes no sa
 a shared `--reasoning-effort` keeps the saved levels out. A task already running keeps the
 routes it started with. A stage you have not chosen keeps its default, or the route automatic
 selection picks for it (below). `autocode stages set STAGE --model MODEL --effort LEVEL` and
-`autocode stages reset [STAGE]` change one stage without asking.
+`autocode stages reset [STAGE]` change one stage without asking. To move a stage and the stages
+that check it to new models at once, where every single change would be refused, name each in one
+command: `autocode stages set --stage builder MODEL LEVEL --stage tester MODEL LEVEL` checks every
+pick against the others as they will all stand and saves all of them, or none (#3312).
 
 A saved level differs from a typed one in one way: for the three review stages it is a ceiling
 ([reasoning effort](#reasoning-effort)). Every other stage runs at the level you saved.

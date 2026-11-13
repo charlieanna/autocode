@@ -692,7 +692,7 @@ class CommandProviderTests(unittest.TestCase):
         outcomes = (
             (
                 command.subprocess.TimeoutExpired(["fake-auth"], 30, output=b"secret-output", stderr=b"secret-error"),
-                "timed out after 30 seconds",
+                "timed out after 30 seconds and again after 60 seconds",
             ),
             (OSError("secret-path"), "could not start"),
             (SimpleNamespace(returncode=7, stdout="secret-output", stderr="secret-error"), "failed (exit 7)"),
@@ -703,7 +703,7 @@ class CommandProviderTests(unittest.TestCase):
                 with mock.patch.object(command.env_prep, "preflight_run", **kwargs) as probe:
                     with self.assertRaises(RuntimeError) as caught:
                         provider.check_subscription_routes(roles, self.home)
-                    self.assertEqual(30, probe.call_args.kwargs["timeout"])
+                    self.assertEqual(30, probe.call_args_list[0].kwargs["timeout"])
                 message = str(caught.exception)
                 self.assertIn(category, message)
                 self.assertIn("no provider request was launched", message)
@@ -711,6 +711,34 @@ class CommandProviderTests(unittest.TestCase):
                 for secret in ("secret-output", "secret-error", "secret-path"):
                     self.assertNotIn(secret, message)
                     self.assertNotIn(secret, diagnostic)
+
+    def test_an_auth_listing_that_overruns_its_bound_once_does_not_stop_the_run(self):
+        # #3313: `kilo auth list` exited 0 at 15.265 s against its 15 s bound, and a six-hour run paused
+        # PAUSED_BILLING_ROUTE to ask a person about it; a second read with twice the bound settles it.
+        auth = (
+            '[auth]\ncommand = ["fake-auth"]\ntimeout_seconds = 15\n'
+            '[[auth.routes]]\nmodels = "demo/"\npattern = "(api)"\nexpect = "api"\n'
+        )
+        write_config(self.home, "slow", 'name = "slow"\ncommand = ["tool"]\n' + auth + ROLES)
+        provider = command.load("slow")
+        answers = [
+            command.subprocess.TimeoutExpired(["fake-auth"], 15),
+            SimpleNamespace(returncode=0, stdout="api", stderr=""),
+        ]
+        with mock.patch.object(command.env_prep, "preflight_run", side_effect=answers) as probe:
+            self.assertIsNone(provider.check_subscription_routes({"builder": {"model": "demo/x"}}, self.home))
+        self.assertEqual([15, 30], [call.kwargs["timeout"] for call in probe.call_args_list])
+
+    def test_a_failed_auth_listing_is_not_asked_again(self):
+        # Only a timeout is retried: an exit status is the tool's answer.
+        auth = '[auth]\ncommand = ["fake-auth"]\n[[auth.routes]]\nmodels = "demo/"\npattern = "(api)"\nexpect = "api"\n'
+        write_config(self.home, "fails", 'name = "fails"\ncommand = ["tool"]\n' + auth + ROLES)
+        provider = command.load("fails")
+        failed = SimpleNamespace(returncode=1, stdout="", stderr="")
+        with mock.patch.object(command.env_prep, "preflight_run", return_value=failed) as probe:
+            with self.assertRaisesRegex(RuntimeError, "failed \\(exit 1\\)"):
+                provider.check_subscription_routes({"builder": {"model": "demo/x"}}, self.home)
+        self.assertEqual(1, probe.call_count)
 
     def test_a_model_matching_no_route_cannot_launch(self):
         # #888, decided 2026-10-10: a role model no declared route covers used to skip

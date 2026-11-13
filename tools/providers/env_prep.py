@@ -48,6 +48,7 @@ from pathlib import Path
 
 REUSE_SECONDS = 3600  # owner decision 2026-10-20: an hour
 REUSE_FOLDER = "preflight-reuse"
+LISTING_RETRY_FACTOR = 2  # a timed-out listing's second attempt gets twice its bound (#3313)
 # Set by the shell or terminal for its own session; a tool's answer never depends on them.
 SESSION_VARIABLES = frozenset(
     {
@@ -129,6 +130,28 @@ def preflight_run(command, env: Mapping[str, str], *, require_executable=False, 
     if key and result.returncode == 0 and (complete is None or complete(result.stdout)):
         _keep(key, result)
     return result
+
+
+def preflight_listing(command, env: Mapping[str, str], *, timeout, **kwargs):
+    """A model-free listing (a login summary or a model roster), asked once more when it times out (#3313).
+
+    Under load these reads overran their bound by a fraction of a second (`kilo auth list` exited 0
+    after 15.3 s against 15 s; `kilo models --verbose` took 21.5 s against 30 s), and the single cut
+    refused a person's `autocode stages set` or paused a run to ask about machinery a second read
+    settles. The second attempt gets twice the bound, after ``subprocess.run`` has killed the first.
+    Only a timeout is retried: a nonzero exit or an OS error is the answer. The caller passes only a
+    listing command, never one that runs a model; the final ``TimeoutExpired`` names the last bound.
+    """
+    try:
+        return preflight_run(command, env, timeout=timeout, **kwargs)
+    except subprocess.TimeoutExpired:
+        pass
+    return preflight_run(command, env, timeout=timeout * LISTING_RETRY_FACTOR, **kwargs)
+
+
+def listing_bounds(timeout) -> str:
+    """How long both attempts of :func:`preflight_listing` waited, for its caller's message."""
+    return f"{timeout:g} seconds and again after {timeout * LISTING_RETRY_FACTOR:g} seconds"
 
 
 @contextlib.contextmanager

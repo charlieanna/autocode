@@ -206,7 +206,8 @@ class CommandProvider:
         self.check_forbidden_environment(env)
         timeout_seconds = auth.get("timeout_seconds", 15)
         try:
-            result = env_prep.preflight_run(
+            # Asked once more when it overruns its bound under load, instead of pausing the run (#3313).
+            result = env_prep.preflight_listing(
                 auth["command"],
                 self._preflight_environment(env),
                 cwd=workspace,
@@ -217,7 +218,7 @@ class CommandProvider:
             )
         except subprocess.TimeoutExpired:
             raise RuntimeError(
-                f"cannot verify {name} login; auth listing timed out after {timeout_seconds} seconds; "
+                f"cannot verify {name} login; auth listing timed out after {env_prep.listing_bounds(timeout_seconds)}; "
                 "no provider request was launched"
             ) from None
         except OSError:
@@ -417,7 +418,8 @@ class CommandProvider:
         if not command:
             return None
         try:
-            result = env_prep.preflight_run(
+            # Asked once more when it overruns its bound under load (#3313).
+            result = env_prep.preflight_listing(
                 command,
                 self._preflight_environment(env),
                 cwd=workspace,
@@ -427,7 +429,10 @@ class CommandProvider:
                 timeout=30,
             )
         except subprocess.TimeoutExpired as error:
-            raise RuntimeError(f"{self._config['name']} model listing timed out; no agent was launched") from error
+            raise RuntimeError(
+                f"{self._config['name']} model listing timed out after {env_prep.listing_bounds(30)}; "
+                "no agent was launched"
+            ) from error
         except OSError as error:
             # The models command could not even be spawned (issue #226's failure
             # class): report the honest prelaunch state, never the raw OSError.
