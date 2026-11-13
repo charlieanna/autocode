@@ -232,15 +232,21 @@ person change them for that chat alone (owner request 2026-11-11):
 
 ```sh
 autocode stages list --chat-stage builder claude-sonnet-5-5 high   # what a new chat runs with that Builder
+autocode stages list -- --builder-model zai-coding-plan/glm-5.3     # include new-run model flags without saving
 ```
 
-Each `--chat-stage STAGE MODEL EFFORT` is checked as `autocode stages set` checks a saved choice (a
+When a workspace sets explicit stage models or levels in `.autocode/config.toml` or `pyproject.toml`,
+or new-run model/engine/provider options follow `--`, `stages list` resolves them into `configured`
+(`(project)` or `(settings)`) without altering your saved Stage models (`stages.toml`). Each
+`--chat-stage STAGE MODEL EFFORT` is checked as `autocode stages set` checks a saved choice (a
 model the backend offers, a level it takes, a checker never sharing its producer's model, judged
-against the chat's other stages) and saved nowhere: other new tasks keep the saved choices. The list
-marks the stage `(this chat)` and, with `--json`, names `chat.start_args`, the stage flags
+against the chat's other effective stages) and saved nowhere: other new tasks keep the saved choices.
+When `single-model` fixes every stage, `stages list` marks chat stage choices fixed (`chat.changeable: false`)
+and refuses `--chat-stage` unless a role model flag overrides it. The list marks per-chat picks
+`(this chat)` and, with `--json`, names `chat.start_args`, the stage flags
 (`--builder-model claude-sonnet-5-5 --builder-reasoning-effort high`) the chat's run starts with. They
-are typed flags, so the start checks them again, the level is exact, and the saved choice for that
-stage is not taken; every other stage takes its saved choice or default as usual.
+are typed flags, so the start checks them again, the level is exact, and the saved or configured choice
+for that stage is not taken; every other stage takes its configured setting, saved choice, or default as usual.
 
 ### Changing a started run's models
 

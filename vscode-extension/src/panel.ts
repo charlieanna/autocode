@@ -2476,6 +2476,7 @@ function renderChatModels(data) {
   if (info.busy && !info.stages.length) body.appendChild(el('div', 'model-note', 'Reading the stages…'));
   if (!info.stages.length) return;
   body.appendChild(el('div', 'model-note', info.optionsStop ? 'Models cannot be listed: ' + info.optionsStop
+    : info.reason ? info.reason
     : info.changeable ? 'Change a stage here for this chat only; Stage models still sets every other new chat.'
     : 'Update AutoCode to change these for one chat; Stage models sets them for new chats.'));
   info.stages.forEach((stage) => {
@@ -2499,6 +2500,9 @@ function renderChatModels(data) {
       if (!stage.model) {
         const automatic = el('option', null, 'Chosen when the chat starts'); automatic.value = ''; automatic.disabled = true; automatic.selected = true;
         models.appendChild(automatic);
+      } else if (!stage.options.some((option) => option.model === stage.model)) {
+        const custom = el('option', null, stage.model); custom.value = stage.model; custom.disabled = true; custom.selected = true;
+        models.appendChild(custom);
       }
       stage.options.forEach((option) => {
         const item = el('option', null, option.model + (option.family ? ' · ' + option.family : '') + (option.unavailable ? ' — not available: ' + option.unavailable : ''));
@@ -2508,7 +2512,7 @@ function renderChatModels(data) {
       const fill = (wanted) => {
         levels.textContent = '';
         const option = stage.options.find((row) => row.model === models.value);
-        const choices = option ? option.effortChoices : [];
+        const choices = option ? option.effortChoices : [stage.effort || 'default'];
         choices.forEach((level) => {
           const item = el('option', null, level); item.value = level;
           item.selected = level === (choices.includes(wanted) ? wanted : choices[0]);
@@ -2524,7 +2528,7 @@ function renderChatModels(data) {
       row.appendChild(pick);
     }
     if (stage.resettable) {
-      const reset = el('button', 'link', 'Use Stage models');
+      const reset = el('button', 'link', stage.resetLabel || 'Use Stage models');
       reset.type = 'button'; reset.disabled = info.busy;
       reset.addEventListener('click', () => vscode.postMessage({ type: 'chat_stage_reset', stage: stage.id }));
       row.appendChild(reset);

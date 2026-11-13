@@ -22,6 +22,7 @@ try:
     from . import autocode_first_reply_budget as first_reply_budget
     from . import autocode_leaked_markup_report as leaked_markup
     from . import autocode_opencode as opencode
+    from . import autocode_plan_revision_reference as revision_reference
     from . import autocode_report_syntax as report_syntax
     from . import autocode_requirements_report as requirements_report
     from . import autocode_requirements_triage as requirements_triage
@@ -34,6 +35,7 @@ except ImportError:
     import autocode_first_reply_budget as first_reply_budget
     import autocode_leaked_markup_report as leaked_markup
     import autocode_opencode as opencode
+    import autocode_plan_revision_reference as revision_reference
     import autocode_report_syntax as report_syntax
     import autocode_requirements_report as requirements_report
     import autocode_requirements_triage as requirements_triage
@@ -351,6 +353,19 @@ def load_stage_report(runtime, record, workspace=None, evidence_record=None, sta
     )
     reported = copy.deepcopy(runtime.cmd_only.refuse(value, record.get("schema")))  # never a report, never run (#512)
     value = runtime.report_edits.expand(value, record)
+    pinned_schema = None
+    stage = str(record.get("original_stage") or record.get("stage", "")).removesuffix("_report_repair")
+    body = value.get("contract") if isinstance(value, dict) else None
+    if stage == "revise_plan" and isinstance(body, dict) and "revise_contract" in body:
+        changes = body.get("changes")
+        if any(body.get(field, False) is None for field in ("acceptance_criteria", "retain_requirement_trace")) or (
+            isinstance(changes, dict)
+            and any(changes[field] is None for field in revision_reference.FIELDS & changes.keys())
+        ):
+            # Normalize against the exact pin before planning metadata expands
+            # criteria deltas. Never apply this meaning to old, non-nullable pins.
+            pinned_schema = runtime.report_edits.validation_schema(runtime.read_json(Path(record["schema"])))
+            value = revision_reference.normalize_nullable_reference(value, pinned_schema)
     value = (
         runtime.planning.fill_trace_id(state, str(record.get("stage", "")).removesuffix("_report_repair"), value)
         if state
@@ -380,7 +395,12 @@ def load_stage_report(runtime, record, workspace=None, evidence_record=None, sta
         value, record, state
     )  # a mistyped echo on a bound launch is no repair (#2135)
     schema = runtime.support.review_validation_schema(
-        runtime.report_edits.validation_schema(runtime.read_json(Path(record["schema"]))), state, record, value
+        pinned_schema
+        if pinned_schema is not None
+        else runtime.report_edits.validation_schema(runtime.read_json(Path(record["schema"]))),
+        state,
+        record,
+        value,
     )
     value = runtime.support.normalize_loaded_report(value, schema, record)
     value = requirements_report.normalize(value, state, schema, record)

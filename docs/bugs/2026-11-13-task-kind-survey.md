@@ -10,7 +10,7 @@ provider (`scenarios/run.py run --fake`). Eight of them then ran once on Claude 
 (`--profile claude-tiers`: Sonnet 5.5 Requirements, Planner and Tester, Opus 5.5 reviewers,
 Haiku 4.5 Builder), $9.15 in all, and $12.59 more for the eight runs after a fix. Sections 5 to 7
 (JavaScript) are six later runs, $10.86, section 8 (RSpec) four more, $5.51, and section 9 (Minitest)
-three, $4.82.
+three, $4.82. Sections 10 to 12 are fifteen runs on master `c6b9f7f`, $17.59, and section 14 four more, $5.10.
 
 ## Scripted stops that real models do not hit
 
@@ -245,6 +245,137 @@ without a question: 142 s, $0.88, 8 stages (manifest
 completed the same way (160 s, $0.90, manifest
 `f65d7c79103a8dc82babad76d2165269c6f2bb5bc3f9f12bbe8e5f3c33be06e4`) but could not be told from a
 test's name or title, which plans also write in backticks.
+
+## 10. More kinds of task, on Claude models
+
+Twelve more kinds on master `c6b9f7f`. A question the harness answered for the person
+counts as asking the person.
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| Jest: bug fix with a regression test | complete, 142 s, $0.87 | `1eacda67c99dba3c3a15a07afa1ad6bcb4ce2a7a192a8f5fc280be7803705683` |
+| Jest: refactor | complete, 158 s, $0.94 | `239c5133bb27636f92c64fd1783b32ed48697c9b45e4caa96e4bd61288c76119` |
+| Documentation only (README section) | complete, 116 s, $0.66 | `d0d3dfd1107a11a0eb3a8dd69ec26a7701816e6617fd8fec8705f499be23a9d6` |
+| CI workflow only | complete, 159 s, $0.75 | `da9fee47bb16965b7e79da9904042061492f765260d0447758c1c29ca1b9cb22` |
+| Tests only (Python) | complete, 117 s, $0.72 | `2d5f451eecdba97870c0ed05a6a12b7e162dd938beea812b38590add85fbf648` |
+| CSS change in a static site with no tests | complete, 139 s, $0.72 | `1328921765433c26b4f0c9ec3ba8b40f67d19906e960678280c90f470282f854` |
+| Add a Dockerfile and .dockerignore | complete, 178 s, $0.84 | `bc3015eb14cfa2a20ef19318c441623b496858141805a11f77d7801ad2051591` |
+| Add a SQL migration | complete, 215 s, $1.31 | `d3946f93fa2d5241d810bebdf7739fcdcac88d64bf46ac4e76a55dbf4666c217` |
+| "This test fails, fix the code, do not change the tests" (Python) | complete, 109 s, $0.69 | `c6678043b526dd9a0c11528c5a1f1fe01b8814c2be7a80a89978955b3b9334b3` |
+| The same in a Jest project | asks the person (section 11) | `c6afa2cbbca195dcc315394a5f633f07d5fa372c79605e46cf6634f274e655f0` |
+| "Make this slow function fast" (Python) | complete, 221 s, $1.55, on the second run | `fbe91e7d494838c5170f656a064d0afc10e6d0308613927c15495da135d9b689` |
+| Add an option to a script in a project with no tests | complete after asking the person, 394 s, $2.91 | `5b748731f3a0361cac4f1a9495765f0af660d2ccfd543f45c7dcfb3438669633` |
+
+Both Jest plans were sent back once when drafted: the Planner first guarded with test titles, as it
+does for `node:test` and Vitest, and the plan check told it that Jest names no test. The refactor then
+used ``guard: run `npm test --silent` `` (section 9).
+
+The first run of the performance task did not finish in the harness's 30 minutes ($0.84). Its new test
+called `count_primes(2000000)` with no time bound, and the proof ran that test on the original, slow
+code, where it runs for hours; each such run ends at the proof's limit, 30 minutes in this run. The
+second run's test bounded its own time and the task completed (section 13).
+
+The script with no tests planned `hello.py` alone, with shell commands as its criteria. A project with
+no test has nothing to guard the change with, so the proof failed twice with "No regression test was added
+or changed", and the Resolver asked "Allow one new test file, tests/test_hello.py, as an exception to
+'Edit only hello.py'?" The run finished after 20 stages. This is known when the plan is drafted (section 12).
+
+## 11. A failing test to repair, where no test is named: the person is asked (fixed)
+
+"The test 'counts a partial last page' in tests/pager.test.js fails. Fix src/pager.js so that it passes. Do
+not change the tests." In a Python project the plan names the failing test (`test: test_partial_last_page`),
+it fails on the original code and passes with the change, and that is the proof
+(`first_suite.existing_flip`). Jest reports only an exit code, so the plan's criterion was "`npm test
+--silent` fails on the original code and passes with the fix", and the change was `src/pager.js` alone.
+The proof failed twice with "No regression test was added or changed", and the Resolver asked the person to
+set a regression command (256 s, $1.57).
+
+Fixed: a suite that names no test shows the same repair as a whole. When the change is code alone and
+touches no test, and the suite failed on the original code, the proof needs it to pass with the change,
+with the suite's own files (its tests, manifests and runner configs) as the original code had them
+(`first_suite.exit_flip`). That holds for the suites whose inputs AutoCode knows: Jest, Mocha, Minitest
+files, and a test script the approved plan names where no runner is detected. `make test` and a
+package.json script run whatever a recipe says, so those keep the old judgement (a shell test that
+sources the product did too, until section 14). On the fixed tree the same request completed
+without a question (346 s, $2.20, of which about half was a Tester report repair unrelated to the proof;
+manifest `3cacb2fc3b57d06c8fba7b474c3d94e3576ac73e8c0c515f2376af2e48560521`).
+
+## 12. A project with no tests: the plan changes code and plans no test (fixed)
+
+"Add a --shout option to hello.py that prints the greeting in upper case", in a folder that holds
+`hello.py` and nothing else. The plan named `hello.py` alone, with shell commands as its criteria and the
+constraint "Edit only hello.py". Every change to code owes the proof a test, and a project with no test
+has none to guard the change with either, so that plan could not pass: the proof failed twice with "No
+regression test was added or changed", the Resolver asked the person to allow `tests/test_hello.py`, and
+the run finished after 20 stages (394 s, $2.91).
+
+Fixed: such a plan goes back to the Planner when it is drafted (`autocode_plan_test_suite.untested_code`).
+Only the certain case is judged: a build or bug fix, in a project with no test code, whose plan names a
+code file, names no test file or test directory, and has no `test:` or `guard:` criterion. A project that
+has tests is not judged, since its tests may guard the change or already hold the failing test.
+
+On the fixed tree the same request completed without a question (154 s, $1.02, 8 stages, manifest
+`173589766bdd2b0910947f4a63c38f0b769ddb2ee4fbbb8a75a9f41c286e897a`). In that run the Planner planned
+`test_hello.py` in its first draft, so the new check had nothing to refuse; what a plan of code alone
+gets is shown by the unit tests.
+
+## 13. A new test that never finishes on the original code holds the run (fixed)
+
+"count_primes(2000000) is too slow, make it fast." The Builder's test called `count_primes(2000000)` and
+compared the count, with no time limit. With the change it passes in under a second. The proof then runs
+the same test on the original code, where it must fail, and there it only runs: until the suite's limit,
+which follows the run's tool-call limit and was 30 minutes. A proof whose cases name tests would have run
+it there twice more to check the result is stable, and once more with the whole suite for the plan's
+guards, and would then have said that the command did not complete. A fix for a loop that never ends
+meets the same wait.
+
+Fixed (`tools/autocode_base_bound.py`): the run with the change says how long the proving tests take when
+they finish, and on the original code they get thirty times that, never less than five minutes, since
+tests that fail there may first wait out timeouts of their own. Past that the run is stopped. The proof
+is unverified, as for any run that does not complete on the original code, and says why in words the
+Builder can act on: give the test its own time limit, so that it fails on the original code. Nothing
+repeats a run that timed out there, and the guards do not run the suite with the same test again. A
+stopped run is never counted as a failing test.
+
+Not run again on real models: whether a Builder writes an unbounded test is the model's choice (one run
+of two did), and the proof's part is shown by `tests/test_base_bound.py`, which proves a real Python
+project whose original code never returns.
+
+Still open: a project whose runner names no test and has no targeted command proves with the whole suite
+on the original code, which is run under the suite's own limit.
+
+## 14. Shell: three more runs, and a failing shell test to repair asks the person (fixed)
+
+Three runs on the tree with the fixes above, $4.28, and one after this fix, $0.82:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| Shell bug fix with a regression test (`pager.sh`, `tests/test_pager.sh`) | complete, 268 s, $1.65; one question (below) | `d1965f9eb89e8133dd69e1eca028a1e7e746a1c70772f9797b0e1754d7596503` |
+| "`sh tests/test_pager.sh` fails, fix `pager.sh`, do not change the tests" | asked the person, 195 s, $1.21 | `45c40a2554d79b47d85b26e247fbb490af423cae5ce895ac85dea87dddd64bc6` |
+| Python: "drain() never returns for a list with items", with a regression test | complete, 191 s, $1.42 | `126d298960b227cd3f9ea3077e4ba2366ab5a9ad9ec9334773c1814b8178e1ba` |
+
+The repair of the failing shell test is section 11 again. The test sources the code it tests
+(`. ./pager.sh`), and the suite's definition held every file a test script names at the original, so the
+original test never ran the fixed `pager.sh`: the proof failed twice with "the suite that fails on the
+original code is not shown to pass with the change", and the Resolver asked the person to allow a new test
+file. Fixed: when a repair rests on the suite's exit code, a file the original shell tests source is the
+code under test, as a file a JavaScript test imports is (#587), and the original test runs over the
+changed file (`autocode_suite_definition_scan.sourced_product`). A script the test runs
+(`sh ./checks.sh`) is still one of the suite's own files, so a change that drops a check from it shows no
+repair.
+
+On the fixed tree the same request completed without a question (132 s, $0.82, 8 stages, manifest
+`a20978095797ba616679c3e3e61681cbce444751750d1edd3c7a1019b544478f`): the proof ran the original test over
+the changed `pager.sh` and passed with "its suite `sh tests/test_pager.sh` fails on the original code
+(exit 1) and passes with the change".
+
+In the fix for the function that never returns, the Builder's test gave itself a time limit, so the
+bound of section 13 had nothing to stop.
+
+The shell bug fix asked one question, which the harness answered: the Plan Reviewer had asked for a
+different proof of an unchanged criterion (a `guard:` on the test command replaced by an inline
+command), and the person was asked to accept "the new wording" of a criterion whose words were the
+same. Not fixed here.
 
 ## Also seen, not yet run on real models
 

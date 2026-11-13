@@ -497,8 +497,10 @@ class RepairTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "correction also malformed"):
                 runner.execute_report_repair(self.state, self.run, self.root)
         self.assertEqual(0, self.state["pending_report_repair"]["attempts"])
-        prompt = self.repair_request()["prompt"]
-        self.assertIn("CURRENT HANDOFF DATA", prompt)
+        self.assertTrue(self.state["pending_report_repair"].get("correction_failed"))
+        kwargs = self.repair_request()
+        self.assertIsNone(kwargs.get("resume_session"))
+        self.assertIn("CURRENT HANDOFF DATA", kwargs["prompt"])
         self.assertEqual(1, self.state["pending_report_repair"]["attempts"])
 
     def test_without_a_session_thread_the_full_repair_runs_directly(self):
@@ -506,12 +508,170 @@ class RepairTests(unittest.TestCase):
         self.queue(error=self.FORMAT_ERROR, engine="opencode", event_rows=[{"type": "turn.completed"}])
         self.assertIn("CURRENT HANDOFF DATA", self.repair_request()["prompt"])
 
-    def test_non_format_errors_never_resume_the_session(self):
+    def test_non_format_errors_skip_correction_and_resume_full_repair_session(self):
         self.state["next_stage"] = "builder"
-        self.queue(error=ValueError("$.requirements[48]: unexpected fields"), engine="opencode")
+        pending = self.queue(error=ValueError("$.requirements[48]: unexpected fields"), engine="opencode")
         kwargs = self.repair_request()
-        self.assertIsNone(kwargs.get("resume_session"))
+        self.assertNotIn("correction_attempted", pending)
+        self.assertEqual("t-session", kwargs.get("resume_session"))
         self.assertIn("CURRENT HANDOFF DATA", kwargs["prompt"])
+
+    def test_repair_session_selection_and_fallback_reasons(self):
+        import types
+
+        import autocode_format_correction as fc
+
+        self.state["next_stage"] = "builder"
+        self.state["settings"]["roles"]["builder"]["engine"] = "codex"
+        pending = self.queue(error=ValueError("Missing summary"), engine="codex")
+        pending["original"]["launch_route"] = dict(self.state["settings"]["roles"]["builder"])
+        self.assertEqual(("t-session", None), fc.repair_session(self.state, pending, "builder"))
+
+        # Fresh fallbacks with exact recorded reasons:
+        self.assertEqual(
+            (None, "native_role_isolation"), fc.repair_session(self.state, pending, "builder", native=object())
+        )
+
+        changed_route = copy.deepcopy(self.state)
+        changed_route["settings"]["roles"]["builder"]["model"] = "different/model"
+        self.assertEqual((None, "route_changed"), fc.repair_session(changed_route, pending, "builder"))
+
+        truncated = copy.deepcopy(pending)
+        truncated["original"]["truncated_output"] = True
+        self.assertEqual((None, "truncated_attempt"), fc.repair_session(self.state, truncated, "builder"))
+
+        budget = copy.deepcopy(pending)
+        budget["first_reply_budget"] = True
+        self.assertEqual((None, "budget_stopped_attempt"), fc.repair_session(self.state, budget, "builder"))
+
+        incomplete = copy.deepcopy(pending)
+        incomplete_events = self.run / "incomplete-events.jsonl"
+        incomplete_events.write_text(json.dumps({"type": "thread.started", "thread_id": "t-session"}) + "\n")
+        incomplete["original"]["events"] = str(incomplete_events)
+        self.assertEqual((None, "incomplete_attempt"), fc.repair_session(self.state, incomplete, "builder"))
+
+        corr_failed = copy.deepcopy(pending)
+        corr_failed["correction_failed"] = True
+        self.assertEqual((None, "correction_failed"), fc.repair_session(self.state, corr_failed, "builder"))
+
+        timed_out_state = copy.deepcopy(self.state)
+        timed_out_state["stages"].append(
+            {
+                "stage": "builder_report_repair",
+                "original_stage": "builder",
+                "report_only": True,
+                "iteration": pending["original"]["iteration"],
+                "timed_out": True,
+            }
+        )
+        self.assertEqual((None, "timed_out_prior_repair"), fc.repair_session(timed_out_state, pending, "builder"))
+
+        kilo_pending = copy.deepcopy(pending)
+        kilo_pending["original"].update(engine="opencode", provider="kilocode")
+        self.assertEqual((None, "kilo_restricted_stage"), fc.repair_session(self.state, kilo_pending, "builder"))
+
+        sessionless = copy.deepcopy(pending)
+        sessionless["original"]["supports_sessions"] = False
+        self.assertEqual((None, "sessionless_route"), fc.repair_session(self.state, sessionless, "builder"))
+
+        no_thread = copy.deepcopy(pending)
+        no_thread_events = self.run / "no-thread-events.jsonl"
+        no_thread_events.write_text(json.dumps({"type": "turn.completed"}) + "\n")
+        no_thread["original"]["events"] = str(no_thread_events)
+        self.assertEqual((None, "missing_session_thread"), fc.repair_session(self.state, no_thread, "builder"))
+
+        custom_pending = copy.deepcopy(pending)
+        custom_pending["original"].update(engine="opencode", provider="custom")
+        with patch.object(
+            fc.providers,
+            "resolve",
+            return_value=types.SimpleNamespace(SUPPORTS_SESSIONS=True, SUPPORTS_REPORT_RECOVERY=False),
+        ):
+            self.assertEqual(
+                (None, "provider_without_report_recovery"), fc.repair_session(self.state, custom_pending, "builder")
+            )
+
+        replay_state = copy.deepcopy(self.state)
+        replay_state["settings"]["replay_recording"] = {
+            "path": "t.json",
+            "sha256": "a" * 64,
+            "checks": "recorded",
+            "dispatch_ids": [],
+        }
+        fake_tape = types.SimpleNamespace(document={"dispatches": [{"session": {"kind": "fresh"}}]})
+        with patch("autocode_replay_transport.selected", return_value=fake_tape):
+            self.assertEqual((None, "replay_fresh_dispatch"), fc.repair_session(replay_state, pending, "builder"))
+
+        resumed_record = {"expected_session": "t-session"}
+        fc.record_repair_session(resumed_record, "t-session", None)
+        self.assertEqual("resumed", resumed_record["repair_session_mode"])
+        self.assertNotIn("repair_fresh_reason", resumed_record)
+
+        fresh_record = {"expected_session": None}
+        fc.record_repair_session(fresh_record, None, "route_changed")
+        self.assertEqual("fresh", fresh_record["repair_session_mode"])
+        self.assertEqual("route_changed", fresh_record["repair_fresh_reason"])
+
+    def test_rejected_report_repairs_in_same_codex_session_with_tools_disabled(self):
+        import os
+
+        schema_path = self.run / "builder-repair.schema.json"
+        schema_path.write_text(
+            json.dumps(
+                {
+                    "type": "object",
+                    "properties": {"summary": {"type": "string"}},
+                    "required": ["summary"],
+                    "additionalProperties": False,
+                }
+            )
+        )
+        self.state["next_stage"] = "builder"
+        self.state["settings"]["roles"]["builder"]["engine"] = "codex"
+        pending = self.queue(
+            stage="builder",
+            role="builder",
+            engine="codex",
+            schema=str(schema_path),
+            report=json.dumps({"summary": "Repaired report without replaying implementation"}),
+            error=ValueError("Missing summary"),
+        )
+        pending["original"]["launch_route"] = dict(self.state["settings"]["roles"]["builder"])
+        bin_dir = self.run / "fake-bin"
+        bin_dir.mkdir(exist_ok=True)
+        fake_codex = bin_dir / "codex"
+        fake_codex.write_text(
+            f"#!{sys.executable}\n"
+            "import json, sys\n"
+            "from pathlib import Path\n"
+            "out = None\n"
+            "args = sys.argv[1:]\n"
+            "for idx, arg in enumerate(args):\n"
+            "    if arg in ('-o', '--output-last-message') and idx + 1 < len(args):\n"
+            "        out = Path(args[idx + 1])\n"
+            "if out is not None:\n"
+            "    out.write_text(json.dumps({'summary': 'Repaired report without replaying implementation'}))\n"
+            "print(json.dumps({'type': 'thread.started', 'thread_id': 't-session'}))\n"
+            "print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 1, 'output_tokens': 1}}))\n"
+        )
+        fake_codex.chmod(0o755)
+        with (
+            patch.dict(os.environ, {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}),
+            patch.object(runner, "accept_repaired_report") as accepted,
+        ):
+            runner.execute_report_repair(self.state, self.run, self.root)
+        accepted.assert_called_once()
+        repair_record = accepted.call_args.args[4]
+        import autocode_format_correction as fc
+
+        self.assertTrue(repair_record["report_only"])
+        self.assertEqual("t-session", repair_record["expected_session"])
+        self.assertEqual("t-session", fc.event_thread_id(Path(repair_record["events"])))
+        self.assertEqual("resumed", repair_record["repair_session_mode"])
+        self.assertNotIn("repair_fresh_reason", repair_record)
+        cmd = repair_record["command"]
+        self.assertEqual("shell_tool", cmd[cmd.index("--disable") + 1])
+        self.assertEqual("t-session", cmd[cmd.index("resume") + 1])
 
     def test_requirements_repair_receives_authoritative_user_sources(self):
         self.state["task"] = "Build a planner."
@@ -2386,7 +2546,10 @@ raise SystemExit(subprocess.run([sys.executable, {str(real)!r}, *sys.argv[1:]], 
         repairs = [r for r in state["stages"] if r["stage"] == "builder_report_repair"]
         self.assertEqual(1, len(repairs))
         self.assertIn("read-only", repairs[0]["command"])
-        self.assertNotIn("resume", repairs[0]["command"])
+        self.assertEqual("shell_tool", repairs[0]["command"][repairs[0]["command"].index("--disable") + 1])
+        self.assertIn("resume", repairs[0]["command"])
+        self.assertEqual("resumed", repairs[0]["repair_session_mode"])
+        self.assertNotIn("repair_fresh_reason", repairs[0])
         self.assertEqual(1, len(state["report_repair_history"]))
 
     def test_planning_report_repair_does_not_restart_discovery_or_approve_goal(self):

@@ -388,6 +388,71 @@ class ProviderLaunchTests(unittest.TestCase):
         self.assertIsNone(worker["provider_session"])
         self.assertIn("fresh session", launch.stage_record(worker)["fresh_session_reason"])
 
+    def test_report_only_launch_disables_tools_and_preserves_resumable_sessions(self):
+        from providers import claude, kilocode, opencode
+
+        with tempfile.TemporaryDirectory() as root:
+            ws = Path(root)
+            run_dir = ws / ".autocode/runs/one"
+            schema = ws / "schema.json"
+            schema.write_text('{"type":"object"}')
+            report = ws / "report.json"
+            prompt_file = ws / "prompt.txt"
+            common = dict(
+                role="tester",
+                route_role="tester",
+                workspace=ws,
+                run_dir=run_dir,
+                session="ses_saved",
+                effort="medium",
+                allow_write=False,
+                planning=True,
+                report=report,
+                schema=schema,
+                prompt_file=prompt_file,
+                sandbox="read-only",
+                transport_args=[],
+                chatgpt=False,
+                planning_report_recovery=True,
+                report_only=True,
+            )
+            cmd, _env, _ovr, worker = launch.prepare(
+                **common, engine="codex", adapter=None, model="gpt-5.6-sol", provider=None
+            )
+            self.assertEqual("shell_tool", cmd[cmd.index("--disable") + 1])
+            self.assertEqual("ses_saved", cmd[cmd.index("resume") + 1])
+            self.assertEqual("ses_saved", worker["provider_session"])
+
+            cmd, env, ovr, worker = launch.prepare(
+                **common, engine="opencode", adapter=opencode, model="zai-coding-plan/glm-5.3", provider=None
+            )
+            self.assertEqual("ses_saved", cmd[cmd.index("--session") + 1])
+            self.assertEqual("ses_saved", worker["provider_session"])
+            agent = cmd[cmd.index("--agent") + 1]
+            self.assertEqual("deny", json.loads(env["OPENCODE_CONFIG_CONTENT"])["agent"][agent]["permission"]["*"])
+            self.assertEqual("deny", ovr["agent"][agent]["permission"]["bash"])
+
+            fake_claude = ws / "claude"
+            fake_claude.write_text("#!/bin/sh\n")
+            fake_claude.chmod(0o755)
+            with mock.patch.dict(launch.os.environ, {"PATH": str(ws)}):
+                cmd, _env, _ovr, worker = launch.prepare(
+                    **common, engine="opencode", adapter=claude, model="claude-haiku-4-5-20251001", provider="claude"
+                )
+            self.assertEqual("", cmd[cmd.index("--tools") + 1])
+            self.assertEqual("ses_saved", cmd[cmd.index("--resume") + 1])
+            self.assertEqual("ses_saved", worker["provider_session"])
+
+            kilo = object.__new__(kilocode.KiloProvider)
+            kilo.NAME = "kilocode"
+            kilo.launch = mock.Mock(return_value=(["kilo", "run"], {}, {}))
+            _cmd, _env, _ovr, worker = launch.prepare(
+                **common, engine="opencode", adapter=kilo, model="zai-coding-plan/glm-5.3", provider="kilocode"
+            )
+            self.assertTrue(kilo.launch.call_args.kwargs["report_recovery"])
+            self.assertIsNone(worker["provider_session"])
+            self.assertIn("kilo", (worker.get("fresh_session_reason") or "").lower())
+
     def test_retired_or_unknown_engine_cannot_fall_back_to_codex(self):
         for engine in ("gocode", "qwen", "unknown"):
             with self.subTest(engine=engine), self.assertRaisesRegex(RuntimeError, "providers live in .*--provider"):

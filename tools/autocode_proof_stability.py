@@ -117,11 +117,12 @@ def repeat(
     ``on_candidate`` and ``on_base`` are the judged first runs. ``run(command, side, label)`` runs
     one more narrowed command in the scratch tree for ``side`` (``candidate`` or ``base``) and returns
     its receipt; ``base_tree`` says whether a base tree with the tests exists. Nothing repeats when
-    no due case names a test, or when the first candidate run did not report its tests. ``directory``
-    is the run's package when the command is its detected suite (``narrow``).
+    no due case names a test, when the first candidate run did not report its tests, or when the first run
+    on the original code timed out: it would again, and the proof is unverified whatever a repeat shows.
+    ``directory`` is the run's package when the command is its detected suite (``narrow``).
     """
     results = (on_candidate or {}).get("results") or {}
-    if not cases or not command or not results.get("complete"):
+    if not cases or not command or not results.get("complete") or (on_base or {}).get("timed_out"):
         return [], None
     base_results = (on_base or {}).get("results") or {}
     selected = proving_tests(

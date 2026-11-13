@@ -3,6 +3,7 @@
 No test runs a real ``claude``: each uses a fake on an explicit PATH, or doctor's injected runner.
 """
 
+import copy
 import json
 import os
 import sys
@@ -144,6 +145,43 @@ class LaunchTests(FakeClaude, unittest.TestCase):
         self.assertGreater(resumed.index("--resume"), resumed.index("--"))
         self.assertEqual("1", child["DISABLE_AUTOUPDATER"])
         self.assertEqual("1", child["FORCE_PROMPT_CACHING_5M"])
+
+    def test_report_recovery_disables_all_tools_and_keeps_policy_hash(self):
+        before_policy = copy.deepcopy(claude.POLICY)
+        argv, _child, _facts = claude.launch(
+            "tester",
+            self.workspace,
+            self.root / "run",
+            "s1",
+            "claude-haiku-4-5-20251001",
+            "medium",
+            False,
+            planning=True,
+            report=self.root / "run" / "iterations" / "repair-01.json",
+            schema=self.root / "schema.json",
+            sandbox="read-only",
+            env=self.env(),
+            report_recovery=True,
+        )
+        self.assertEqual("", self.after(argv, "--tools"))
+        self.assertEqual("s1", self.after(argv, "--resumed"))
+        self.assertEqual("s1", self.after(argv, "--resume"))
+        self.assertNotIn("--allowedTools", argv)
+        self.assertNotIn("--disallowedTools", argv)
+        self.assertEqual(before_policy, claude.POLICY)
+        with self.assertRaisesRegex(ValueError, "read-only stage"):
+            claude.launch(
+                "builder",
+                self.workspace,
+                self.root,
+                "s1",
+                "claude-haiku-4-5-20251001",
+                "medium",
+                True,
+                schema=self.root / "schema.json",
+                env=self.env(),
+                report_recovery=True,
+            )
 
     def test_launch_refuses_before_any_request(self):
         with self.assertRaisesRegex(ValueError, "reasoning effort must be one of"):

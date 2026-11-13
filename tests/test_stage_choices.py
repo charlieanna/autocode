@@ -658,6 +658,437 @@ class StagesCommandTests(unittest.TestCase):
         self.assertEqual(2, code)
         self.assertIn("nobody is not a stage", err)
 
+    def test_list_reads_project_model_and_effort_settings_without_touching_saved_choices(self):
+        workspace = self.home / "project"
+        (workspace / ".autocode").mkdir(parents=True)
+        (workspace / "pyproject.toml").write_text(
+            '[tool.autocode]\nglm-model = "openai/gpt-6-sol"\nterra-model = "zai-coding-plan/glm-5.3"\n'
+            'sol-model = "opencode/plain"\n'
+        )
+        (workspace / ".autocode" / "config.toml").write_text(
+            'planner-model = "zai-coding-plan/glm-5.3"\n'
+            'builder-model = "xiaomi-token-plan-sgp/mimo-v2.6-pro"\n'
+            'builder-reasoning-effort = "xhigh"\n'
+        )
+        self.assertEqual(
+            0,
+            self.run_cli("set", "tester", "--model", "openai/gpt-6-sol", "--effort", "high", "--backend", "opencode")[
+                0
+            ],
+        )
+        code, out, err = self.run_cli("list", "--workspace", str(workspace), "--backend", "opencode", "--json")
+        self.assertEqual(0, code, err)
+        by_id = {stage["id"]: stage for stage in json.loads(out)["stages"]}
+        self.assertEqual(
+            {"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro", "effort": "xhigh", "source": "project"},
+            by_id["builder"]["configured"],
+            ".autocode/config.toml wins over pyproject.toml",
+        )
+        self.assertIsNone(by_id["builder"]["chosen"])
+        self.assertEqual(
+            {"model": "zai-coding-plan/glm-5.3", "effort": "high", "source": "project"},
+            by_id["planner"]["configured"],
+            "default medium effort fits to GLM's nearest offered level (high)",
+        )
+        self.assertEqual(
+            {"model": "zai-coding-plan/glm-5.3", "effort": "high", "source": "project"},
+            by_id["requirements"]["configured"],
+            "requirements inherits planner-model when neither requirements nor stages.toml sets it",
+        )
+        self.assertEqual(
+            {"model": "opencode/plain", "effort": None, "source": "project"},
+            by_id["tester"]["configured"],
+            "a model declaring no levels runs at its own default",
+        )
+        self.assertEqual(
+            {"model": "openai/gpt-6-sol", "effort": "high"},
+            by_id["tester"]["chosen"],
+            "stages.toml stays untouched",
+        )
+        glm_on_reviewer = next(o for o in by_id["plan_reviewer"]["options"] if o["model"] == "zai-coding-plan/glm-5.3")
+        self.assertIn(
+            "checks the Planner's work, and the Planner runs zai-coding-plan/glm-5.3", glm_on_reviewer["unavailable"]
+        )
+        code, _out, err = self.run_cli(
+            "list",
+            "--workspace",
+            str(workspace),
+            "--backend",
+            "opencode",
+            "--chat-stage",
+            "plan_reviewer",
+            "zai-coding-plan/glm-5.3",
+            "high",
+        )
+        self.assertEqual(2, code)
+        self.assertIn("cannot run zai-coding-plan/glm-5.3", err)
+        # Saved requirements stops planner->requirements inheritance; explicit requirements-model overrides both.
+        self.assertEqual(
+            0,
+            self.run_cli(
+                "set", "requirements", "--model", "openai/gpt-6-sol", "--effort", "medium", "--backend", "opencode"
+            )[0],
+        )
+        by_id = {
+            stage["id"]: stage
+            for stage in json.loads(
+                self.run_cli("list", "--workspace", str(workspace), "--backend", "opencode", "--json")[1]
+            )["stages"]
+        }
+        self.assertIsNone(by_id["requirements"]["configured"])
+        (workspace / ".autocode" / "config.toml").write_text(
+            'planner-model = "zai-coding-plan/glm-5.3"\n'
+            'requirements-model = "opencode/plain"\n'
+            'builder-model = "xiaomi-token-plan-sgp/mimo-v2.6-pro"\n'
+        )
+        code, text_out, err = self.run_cli("list", "--workspace", str(workspace), "--backend", "opencode")
+        self.assertEqual(0, code, err)
+        self.assertIn("Requirements: opencode/plain at its own default level (project)", text_out)
+        unlisted_by_id = {
+            stage["id"]: stage
+            for stage in json.loads(
+                self.run_cli("list", "--workspace", str(workspace), "--backend", "opencode", "--json")[1]
+            )["stages"]
+        }
+        self.assertEqual(
+            {"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro", "effort": "medium", "source": "project"},
+            unlisted_by_id["builder"]["configured"],
+            "unoffered model without explicit effort keeps the stage fallback effort",
+        )
+
+    def test_list_resolves_codex_inheritance_and_shared_reasoning_effort_overrides(self):
+        workspace = self.home / "project"
+        (workspace / ".autocode").mkdir(parents=True)
+        self.assertEqual(
+            0, self.run_cli("set", "builder", "--model", "gpt-5.6-terra", "--effort", "medium", "--backend", "codex")[0]
+        )
+        self.assertEqual(
+            0, self.run_cli("set", "planner", "--model", "gpt-5.6-sol", "--effort", "xhigh", "--backend", "codex")[0]
+        )
+        (workspace / ".autocode" / "config.toml").write_text(
+            'engine = "codex"\ntask-planner-model = "gpt-5.6-terra"\n'
+            'task-planner-reasoning-effort = "high"\nreasoning-effort = "low"\n'
+        )
+        by_id = {
+            stage["id"]: stage
+            for stage in json.loads(self.run_cli("list", "--workspace", str(workspace), "--json")[1])["stages"]
+        }
+        self.assertEqual(
+            {"model": "gpt-5.6-terra", "effort": "high", "source": "project"}, by_id["requirements"]["configured"]
+        )
+        self.assertEqual(
+            {"model": "gpt-5.6-sol", "effort": "high", "source": "project"}, by_id["planner"]["configured"]
+        )
+        self.assertEqual(
+            {"model": "gpt-6-astra", "effort": "high", "source": "project"}, by_id["plan_reviewer"]["configured"]
+        )
+        self.assertEqual(
+            {"model": "gpt-5.6-terra", "effort": "low", "source": "project"}, by_id["builder"]["configured"]
+        )
+        self.assertEqual(
+            {"model": "gpt-5.6-sol", "effort": "low", "source": "project"}, by_id["completion"]["configured"]
+        )
+        # On OpenCode, reasoning-effort overrides execution roles and strips saved planning efforts to default.
+        self.assertEqual(
+            0,
+            self.run_cli("set", "planner", "--model", "openai/gpt-6-sol", "--effort", "xhigh", "--backend", "opencode")[
+                0
+            ],
+        )
+        self.assertEqual(
+            0,
+            self.run_cli(
+                "set",
+                "builder",
+                "--model",
+                "zai-coding-plan/glm-5.3",
+                "--effort",
+                "high",
+                "--stage",
+                "completion",
+                "opencode/plain",
+                "default",
+                "--backend",
+                "opencode",
+            )[0],
+        )
+        (workspace / ".autocode" / "config.toml").write_text(
+            'reasoning-effort = "low"\ntester-reasoning-effort = "medium"\n'
+        )
+        opencode_by_id = {
+            stage["id"]: stage
+            for stage in json.loads(
+                self.run_cli("list", "--workspace", str(workspace), "--backend", "opencode", "--json")[1]
+            )["stages"]
+        }
+        self.assertEqual(
+            {"model": "zai-coding-plan/glm-5.3", "effort": "low", "source": "project"},
+            opencode_by_id["builder"]["configured"],
+        )
+        self.assertEqual(
+            {"model": "openai/gpt-6-sol", "effort": "medium", "source": "project"},
+            opencode_by_id["planner"]["configured"],
+        )
+        self.assertEqual(
+            {"model": "openai/gpt-6-sol", "effort": "medium", "source": "project"},
+            opencode_by_id["tester"]["configured"],
+        )
+        with mock.patch.object(choices.route_discovery, "discover", side_effect=RuntimeError("offline")):
+            offline_by_id = {
+                stage["id"]: stage
+                for stage in json.loads(
+                    self.run_cli("list", "--workspace", str(workspace), "--backend", "opencode", "--json")[1]
+                )["stages"]
+            }
+        self.assertIsNone(offline_by_id["tester"]["configured"], "unoffered defaults stay unconfigured when offline")
+
+    def test_list_applies_trailing_new_run_options_and_refuses_invalid_uses(self):
+        workspace = self.home / "project"
+        (workspace / ".autocode").mkdir(parents=True)
+        (workspace / ".autocode" / "config.toml").write_text(
+            'engine = "codex"\nplanner-model = "zai-coding-plan/glm-5.3"\nbuilder-model = "opencode/plain"\n'
+        )
+        tail = [
+            "--",
+            "--provider=opencode",
+            "--builder-model",
+            "openai/gpt-6-sol",
+            "--builder-reasoning-effort=high",
+            "--resolver-model",
+            "openai/gpt-6-sol",
+            "--resolver-reasoning-effort",
+            "high",
+            "--plan-reviewer-model",
+            "opencode/plain",
+            "--completion-model",
+            "opencode/plain",
+        ]
+        code, out, err = self.run_cli("list", "--workspace", str(workspace), "--json", *tail)
+        self.assertEqual(0, code, err)
+        current = json.loads(out)
+        self.assertEqual("opencode", current["backend"])
+        by_id = {stage["id"]: stage for stage in current["stages"]}
+        self.assertEqual(
+            {"model": "openai/gpt-6-sol", "effort": "high", "source": "settings"}, by_id["builder"]["configured"]
+        )
+        self.assertEqual(
+            {"model": "zai-coding-plan/glm-5.3", "effort": "high", "source": "project"}, by_id["planner"]["configured"]
+        )
+        self.assertEqual(
+            [
+                "stages",
+                "list",
+                "--json",
+                "--workspace",
+                str(workspace),
+                "--chat-stage",
+                "builder",
+                "MODEL",
+                "EFFORT",
+                *tail,
+            ],
+            by_id["builder"]["chat_set"]["next_command"],
+        )
+        # Following the named chat_set command checks against configured options and preserves the tail.
+        fill = {"MODEL": "zai-coding-plan/glm-5.3", "EFFORT": "high"}
+        step = [fill.get(word, word) for word in by_id["builder"]["chat_set"]["next_command"][1:]]
+        code, picked_out, err = self.run_cli(*step)
+        self.assertEqual(0, code, err)
+        picked = json.loads(picked_out)
+        picked_by_id = {stage["id"]: stage for stage in picked["stages"]}
+        self.assertEqual({"model": "zai-coding-plan/glm-5.3", "effort": "high"}, picked_by_id["builder"]["chat"])
+        self.assertEqual(
+            ["stages", "list", "--json", "--workspace", str(workspace), *tail],
+            picked_by_id["builder"]["chat_reset"]["next_command"],
+        )
+        # --engine opencode overrides project engine = "codex"; --reasoning-effort after -- sets shared effort; --engine claude selects claude.
+        from tools import autocode_stages_cli as package_stages_cli
+
+        self.assertEqual("builder", package_stages_cli._ROLE_MODEL_FLAGS["--builder-model"])
+        shared = json.loads(
+            self.run_cli(
+                "list",
+                "--workspace",
+                str(workspace),
+                "--json",
+                "--",
+                "--engine",
+                "opencode",
+                "--reasoning-effort",
+                "low",
+            )[1]
+        )
+        self.assertEqual("opencode", shared["backend"])
+        shared_by_id = {stage["id"]: stage for stage in shared["stages"]}
+        self.assertEqual(
+            {"model": "openai/gpt-6-sol", "effort": "low", "source": "settings"},
+            shared_by_id["tester"]["configured"],
+        )
+        self.assertEqual(
+            "claude",
+            json.loads(self.run_cli("list", "--workspace", str(workspace), "--json", "--", "--engine", "claude")[1])[
+                "backend"
+            ],
+        )
+        self.assertEqual(
+            "codex",
+            json.loads(self.run_cli("list", "--workspace", str(workspace), "--json", "--", "--engine", "codex")[1])[
+                "backend"
+            ],
+        )
+        for bad_argv, message in (
+            (
+                (
+                    "set",
+                    "builder",
+                    "--model",
+                    "openai/gpt-6-sol",
+                    "--effort",
+                    "high",
+                    "--",
+                    "--builder-model",
+                    "opencode/plain",
+                ),
+                "nothing is saved",
+            ),
+            (("list", "--run-dir", str(workspace), "--", "--builder-model", "opencode/plain"), "nothing is saved"),
+            (("list", "--workspace", str(workspace), "--", "positional"), "unexpected argument after --"),
+            (("list", "--workspace", str(workspace), "--", "--builder-model"), "needs a value"),
+            (("list", "--workspace", str(workspace), "--", "--unknown-flag", "x"), "unsupported new-run option"),
+            (("list", "--workspace", str(workspace), "--", "--engine", "bad"), "--engine must be one of"),
+            (("list", "--workspace", str(workspace), "--", "--provider="), "--provider is not valid"),
+            (("list", "--workspace", str(workspace), "--", "--provider", "codex"), "codex is an engine"),
+            (
+                ("list", "--workspace", str(workspace), "--", "--engine", "claude", "--provider", "kilocode"),
+                "cannot run --provider kilocode",
+            ),
+            (("list", "--workspace", str(workspace), "--", "--builder-model", "bad model"), "not a valid model name"),
+            (("list", "--workspace", str(workspace), "--", "--builder-reasoning-effort", "turbo"), "must be one of"),
+            (
+                (
+                    "list",
+                    "--workspace",
+                    str(workspace),
+                    "--",
+                    "--single-model",
+                    "openai/gpt-6-sol",
+                    "--builder-model",
+                    "opencode/plain",
+                ),
+                "cannot be combined",
+            ),
+        ):
+            with self.subTest(bad_argv=bad_argv):
+                bad_code, _out, bad_err = self.run_cli(*bad_argv)
+                self.assertEqual(2, bad_code)
+                self.assertIn(message, bad_err)
+
+    def test_single_model_locks_chat_stage_changes_while_role_flag_drops_project_single_model(self):
+        workspace = self.home / "project"
+        (workspace / ".autocode").mkdir(parents=True)
+        (workspace / ".autocode" / "config.toml").write_text('single-model = "zai-coding-plan/glm-5.3"\n')
+        self.assertEqual(
+            0,
+            self.run_cli("set", "planner", "--model", "openai/gpt-6-sol", "--effort", "high", "--backend", "opencode")[
+                0
+            ],
+        )
+        current = json.loads(self.run_cli("list", "--workspace", str(workspace), "--backend", "opencode", "--json")[1])
+        self.assertEqual(False, current["chat"]["changeable"])
+        self.assertIn("single-model", current["chat"]["reason"])
+        self.assertEqual([], current["chat"]["start_args"])
+        for stage in current["stages"]:
+            self.assertEqual(
+                {"model": "zai-coding-plan/glm-5.3", "effort": "high", "source": "project"}, stage["configured"]
+            )
+            self.assertIsNone(stage["chat_set"])
+            self.assertTrue(all(o["unavailable"] is None for o in stage["options"]))
+        # Global stages.toml remains editable in view() even when workspace single-model is set.
+        self.assertNotIn("changeable", choices.view("opencode", workspace))
+        code, _out, err = self.run_cli(
+            "list",
+            "--workspace",
+            str(workspace),
+            "--backend",
+            "opencode",
+            "--chat-stage",
+            "builder",
+            "openai/gpt-6-sol",
+            "high",
+        )
+        self.assertEqual(2, code)
+        self.assertIn("--single-model cannot be combined", err)
+        # A per-role model flag in new-run options drops project single-model cleanly.
+        overridden = json.loads(
+            self.run_cli(
+                "list",
+                "--workspace",
+                str(workspace),
+                "--backend",
+                "opencode",
+                "--json",
+                "--",
+                "--builder-model",
+                "openai/gpt-6-sol",
+            )[1]
+        )
+        self.assertNotIn("changeable", overridden["chat"])
+        by_id = {stage["id"]: stage for stage in overridden["stages"]}
+        self.assertEqual(
+            {"model": "openai/gpt-6-sol", "effort": "medium", "source": "settings"}, by_id["builder"]["configured"]
+        )
+        self.assertIsNone(by_id["tester"]["configured"])
+        # Conversely, --single-model in new-run options drops project role models, and invalid project combo is refused.
+        (workspace / ".autocode" / "config.toml").write_text('builder-model = "openai/gpt-6-sol"\n')
+        single_override = json.loads(
+            self.run_cli(
+                "list",
+                "--workspace",
+                str(workspace),
+                "--backend",
+                "opencode",
+                "--json",
+                "--",
+                "--single-model",
+                "zai-coding-plan/glm-5.3",
+                "--builder-reasoning-effort",
+                "low",
+            )[1]
+        )
+        self.assertEqual(False, single_override["chat"]["changeable"])
+        self.assertEqual(
+            [
+                "stages",
+                "list",
+                "--json",
+                "--backend",
+                "opencode",
+                "--workspace",
+                str(workspace),
+                "--",
+                "--single-model",
+                "zai-coding-plan/glm-5.3",
+                "--builder-reasoning-effort",
+                "low",
+            ],
+            single_override["chat"]["next_command"],
+        )
+        single_by_id = {stage["id"]: stage for stage in single_override["stages"]}
+        self.assertEqual(
+            {"model": "zai-coding-plan/glm-5.3", "effort": "high", "source": "settings"},
+            single_by_id["planner"]["configured"],
+        )
+        self.assertEqual(
+            {"model": "zai-coding-plan/glm-5.3", "effort": "low", "source": "settings"},
+            single_by_id["builder"]["configured"],
+        )
+        (workspace / ".autocode" / "config.toml").write_text(
+            'single-model = "zai-coding-plan/glm-5.3"\nbuilder-model = "openai/gpt-6-sol"\n'
+        )
+        bad_code, _out, bad_err = self.run_cli("list", "--workspace", str(workspace), "--backend", "opencode", "--json")
+        self.assertEqual(2, bad_code)
+        self.assertIn(f"{workspace / '.autocode' / 'config.toml'}: single-model cannot be combined", bad_err)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -145,6 +145,13 @@ class OracleTests(unittest.TestCase):
         self.assertTrue(any(f.startswith("report_schema") for f in self.assess(report=None)["failures"]))
         self.assertIn("output_contents", self.assess(output=None)["failures"])
 
+    def test_repair_resume_requires_zero_tool_calls(self):
+        repair_data = {**self.data, "phase": "repair_resume", "commands": []}
+        clean_rows = [self.rows[0], self.rows[-1]]
+        self.assertEqual("PASS", self.assess(data=repair_data, rows=clean_rows, after=self.before)["status"])
+        with_tool = self.assess(data=repair_data, after=self.before)
+        self.assertIn("unexpected_tool_execution", with_tool["failures"])
+
 
 class CliTests(unittest.TestCase):
     def invoke(self, directory, *args):
@@ -165,15 +172,20 @@ class CliTests(unittest.TestCase):
             for route in summary["routes"]:
                 # The direct engine keeps no session to resume, so it proves the two
                 # stage boundaries a sessionless launch can; every sessioned tool does three.
-                expected = 2 if route["provider"] == "autocode" else 3
+                expected = 2 if route["provider"] == "autocode" else 3 if route["provider"] == "kilocode" else 4
                 self.assertEqual(["PASS"] * expected, [p["status"] for p in route["phases"]])
                 self.assertNotEqual(route["phases"][0]["session"], route["phases"][1]["session"])
-                if expected == 3:
+                if expected >= 3:
                     self.assertEqual(route["phases"][1]["session"], route["phases"][2]["session"])
+                if expected == 4:
+                    self.assertEqual(route["phases"][1]["session"], route["phases"][3]["session"])
                 self.assertTrue(all(p["usage"]["output_tokens"] == 30 for p in route["phases"]))
                 for phase in route["phases"]:
                     prompt = (Path(phase["artifacts"]) / "prompt.txt").read_text()
-                    self.assertIn("Execute each listed command exactly once as a separate shell call", prompt)
+                    if phase["phase"] == "repair_resume":
+                        self.assertIn("All tools are disabled", prompt)
+                    else:
+                        self.assertIn("Execute each listed command exactly once as a separate shell call", prompt)
                     self.assertNotIn("capture_command", prompt)
 
     def test_cli_preserves_parse_and_process_failures(self):
@@ -236,13 +248,18 @@ class CliTests(unittest.TestCase):
             self.assertEqual("2.0.20", result["identity"]["version"])
             for phase in result["phases"]:
                 activity = phase["metrics"]["request_context"]["accounting"]["tool_activity"]
-                self.assertEqual(2, activity["observed_calls"])
-                self.assertEqual({"succeeded": 1, "failed": 1, "unknown": 0}, activity["outcomes"])
-                self.assertEqual({"nonzero_exit": 1, "tool_error": 0}, activity["error_classes"])
+                if phase["phase"] == "repair_resume":
+                    self.assertEqual(0, activity["observed_calls"])
+                    self.assertEqual({"succeeded": 0, "failed": 0, "unknown": 0}, activity["outcomes"])
+                    self.assertEqual({"nonzero_exit": 0, "tool_error": 0}, activity["error_classes"])
+                else:
+                    self.assertEqual(2, activity["observed_calls"])
+                    self.assertEqual({"succeeded": 1, "failed": 1, "unknown": 0}, activity["outcomes"])
+                    self.assertEqual({"nonzero_exit": 1, "tool_error": 0}, activity["error_classes"])
                 self.assertTrue(activity["complete"], activity)
 
     def test_claude_fixture_runs_print_mode_and_resumes_its_own_session(self):
-        """#717: the built-in claude provider's translator wraps `claude -p`; only the resume phase resumes."""
+        """#717: the built-in claude provider's translator wraps `claude -p`; resume and repair_resume resume."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             env = fake.environment(root, os.environ)
@@ -260,10 +277,14 @@ class CliTests(unittest.TestCase):
                 self.assertEqual("stream-json", claude_argv[claude_argv.index("--output-format") + 1])
                 self.assertEqual("claude-haiku-4-5-20251001", claude_argv[claude_argv.index("--model") + 1])
                 self.assertNotIn("--dir", argv)
-                if phase["phase"] == "resume":
+                if phase["phase"] in ("resume", "repair_resume"):
                     self.assertEqual(sessions[1], claude_argv[claude_argv.index("--resume") + 1])
                 else:
                     self.assertNotIn("--resume", argv)
+                if phase["phase"] == "repair_resume":
+                    self.assertEqual("", claude_argv[claude_argv.index("--tools") + 1])
+                    self.assertNotIn("--allowedTools", claude_argv)
+                    self.assertNotIn("--disallowedTools", claude_argv)
             self.assertEqual(("0.0.1", 2), (result["identity"]["version"], result["identity"]["identity_version"]))
 
     def test_live_requires_explicit_authorization_before_any_launch(self):

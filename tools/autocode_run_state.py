@@ -53,6 +53,8 @@ class StageObservationMetadata(TypedDict, total=False):
     # report_source writes a trailing-comma normalization receipt; response_text retains
     # its exact source. Ordinary schema/evidence admission still owns acceptance.
     syntax_corrections: dict
+    repair_session_mode: str
+    repair_fresh_reason: str
 
 
 # Every key tools/ reads or writes on a run state dict.

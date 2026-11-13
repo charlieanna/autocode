@@ -74,10 +74,21 @@ def fixture(directory: Path) -> tuple[Path, str]:
 
 
 def handoff(workspace: Path, phase: str) -> dict:
-    return {"probe_id": secrets.token_hex(16), "workspace": str(workspace), "phase": phase, "commands": list(COMMANDS)}
+    commands = [] if phase == "repair_resume" else list(COMMANDS)
+    return {"probe_id": secrets.token_hex(16), "workspace": str(workspace), "phase": phase, "commands": commands}
 
 
 def prompt(data: dict) -> str:
+    if data["phase"] == "repair_resume":
+        return (
+            "This is a resumed tools-off report-repair probe inside the exact workspace below. "
+            "All tools are disabled; do not call any tool or shell command. "
+            "Do not edit or touch any file. Reuse the exact nonce and both check results already "
+            "observed earlier in this session.\n"
+            "Return one JSON object matching the schema, with the current probe_id, exact workspace, "
+            "nonce and both previously executed checks. No prose or code fences.\n"
+            "REPORT SCHEMA\n" + json.dumps(SCHEMA) + "\nCURRENT HANDOFF DATA\n" + json.dumps(data)
+        )
     action = (
         "Copy input.txt into output.txt, byte for byte. Only output.txt may change."
         if data["phase"] == "build"
@@ -167,25 +178,35 @@ def assess(*, report, rows, data, nonce, before, after, output, expected_session
         reported = {c["command"]: c["exit_code"] for c in report["checks"]}
         if reported != COMMANDS:
             failures.append("reported_checks")
-        items = [
-            r["item"]
-            for r in rows
-            if r.get("type") == "item.completed" and r.get("item", {}).get("type") == "command_execution"
-        ]
-        for command, code in COMMANDS.items():
-            matches = [i for i in items if isinstance(i.get("command"), str) and same_command(i["command"], command)]
-            marker = "PROBE_OK" if code == 0 else "EXPECTED_FAILURE"
-            if (
-                len(matches) != 1
-                or type(matches[0].get("exit_code")) is not int
-                or matches[0]["exit_code"] != code
-                or not matches[0].get("id")
-                or not isinstance(matches[0].get("aggregated_output"), str)
-                or marker not in matches[0]["aggregated_output"]
+        if data["phase"] == "repair_resume":
+            if any(
+                r.get("type") in ("item.started", "item.completed")
+                and (r.get("item") or {}).get("type") in ("command_execution", "tool_call", "mcp_tool_call")
+                for r in rows
             ):
-                failures.append("command_evidence: " + command)
-            else:
-                evidence.append({"command": command, "exit_code": code, "event_id": matches[0]["id"]})
+                failures.append("unexpected_tool_execution")
+        else:
+            items = [
+                r["item"]
+                for r in rows
+                if r.get("type") == "item.completed" and r.get("item", {}).get("type") == "command_execution"
+            ]
+            for command, code in COMMANDS.items():
+                matches = [
+                    i for i in items if isinstance(i.get("command"), str) and same_command(i["command"], command)
+                ]
+                marker = "PROBE_OK" if code == 0 else "EXPECTED_FAILURE"
+                if (
+                    len(matches) != 1
+                    or type(matches[0].get("exit_code")) is not int
+                    or matches[0]["exit_code"] != code
+                    or not matches[0].get("id")
+                    or not isinstance(matches[0].get("aggregated_output"), str)
+                    or marker not in matches[0]["aggregated_output"]
+                ):
+                    failures.append("command_evidence: " + command)
+                else:
+                    evidence.append({"command": command, "exit_code": code, "event_id": matches[0]["id"]})
     return {
         "status": "FAIL" if failures else "PASS",
         "failures": failures,

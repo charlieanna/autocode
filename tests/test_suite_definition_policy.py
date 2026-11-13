@@ -7,7 +7,46 @@ from contextlib import nullcontext
 from unittest import mock
 
 import autocode_suite_definition_policy as policy
+import autocode_suite_definition_scan as scan
 import autocode_verify as verify
+
+
+class ShellSourceTests(unittest.TestCase):
+    def test_a_statement_that_sources_a_literal_path_names_that_file(self):
+        script = (
+            '#!/bin/sh\n. ./pager.sh\nsource lib/round.sh\n  . "./quoted.sh"  # helpers\n'
+            '. "$DIR/computed.sh"\necho . ./echoed.sh\n# . ./commented.sh\n. /etc/profile\n. ../outside.sh\n'
+            "true && . ./chained.sh\n. ./two.sh ./words.sh\n"
+        )
+        self.assertEqual(["pager.sh", "lib/round.sh", "quoted.sh"], scan.shell_sources("tests/test_pager.sh", script))
+        self.assertEqual([], scan.shell_sources("tests/pager.test.js", ". ./pager.sh\n"))
+        self.assertEqual(["pager.sh"], scan.shell_sources("tests/check", "#!/usr/bin/env bash\n. ./pager.sh\n"))
+
+    def test_what_the_tests_source_is_followed_and_never_holds_a_test_or_a_missing_file(self):
+        files = {
+            "tests/test_pager.sh": ". ./pager.sh\n. ./tests/helpers.sh\n. ./missing.sh\nsh ./run.sh\n",
+            "tests/helpers.sh": ". ./assert.sh\n",
+            "pager.sh": ". ./lib/round.sh\n",
+            "lib/round.sh": "round() { :; }\n",
+            "assert.sh": "",
+            "run.sh": ". ./selector.sh\n",
+            "selector.sh": "",
+        }
+        tests = {"tests/test_pager.sh", "tests/helpers.sh"}
+        self.assertEqual(
+            {"pager.sh", "lib/round.sh", "assert.sh"}, scan.sourced_product(tests, set(files), files.__getitem__)
+        )
+
+    def test_the_definition_keeps_a_sourced_file_and_says_it_is_sourced(self):
+        files = {"tests/test_pager.sh": ". ./pager.sh\n", "pager.sh": "page_count() { :; }\n"}
+        entries = {path: ("100644", "object") for path in files}
+        with mock.patch.object(
+            verify, "_effective_base", return_value=nullcontext((entries, files.__getitem__, set()))
+        ):
+            found = verify._base_suite_definition("unused-workspace", "base", "sh tests/test_pager.sh")
+        self.assertEqual("", found.boundary)
+        self.assertEqual({"tests/test_pager.sh", "pager.sh"}, found.paths)
+        self.assertEqual({"pager.sh"}, found.sourced)
 
 
 class ScannerConsumerTests(unittest.TestCase):

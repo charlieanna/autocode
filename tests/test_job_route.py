@@ -445,6 +445,45 @@ class JobModelRouteTests(JobHarness):
         )
         self.assertEqual(["gpt-6-sol"], self.models())
 
+    def test_consuming_a_queued_stop_keeps_the_exact_job_model_correction(self):
+        run = self.refused(kind="quota")
+        original = self.stopped(run)
+        submitted = self.cli(
+            run, "intervention", "submit", "--request-id", "route-stop", "--kind", "pause", "--now", "--json"
+        )
+        self.assertEqual(0, submitted.returncode, submitted.stdout + submitted.stderr)
+        self.rejected(
+            run,
+            "--answer",
+            "route-architect=gpt-6-luna",
+            "--job-retry-token",
+            original["job_retry_token"],
+            message="Apply the queued intervention before answering",
+        )
+        held = run.retry_job(original["job_retry_token"])
+        self.assertEqual("PAUSED_INTERVENTION", held["status"])
+        self.assertEqual(["gpt-6-sol"], self.models(), "consuming Stop launches no provider")
+        self.assertEqual("retry_job", held["needs"]["kind"])
+        self.assertEqual(original["job_retry_token"], held["needs"]["job_retry_token"])
+        self.assertEqual("architect", held["needs"]["route"]["role"])
+
+        (self.workspace / "calc.py").write_text(BROKEN)
+        with self.assertRaisesRegex(TaskRunError, "Source changed"):
+            run.assign_model("architect", "gpt-6-luna")
+        (self.workspace / "calc.py").write_text(ORIGINAL)
+        assigned = run.assign_model("architect", "gpt-6-luna")
+        self.assertEqual("PAUSED_INTERVENTION", assigned["status"], "a model correction does not resume Stop")
+        self.assertEqual("retry_job", assigned["needs"]["kind"])
+        self.assertEqual("gpt-6-luna", assigned["needs"]["route"]["current_model"])
+        fresh = assigned["needs"]["job_retry_token"]
+        self.assertNotEqual(original["job_retry_token"], fresh)
+        self.assertEqual(["gpt-6-sol"], self.models(), "the correction only saves its new exact retry")
+        with self.assertRaisesRegex(TaskRunError, "token"):
+            run.retry_job(original["job_retry_token"])
+        done = run.retry_job(fresh)
+        self.assertEqual("PAUSED_DESIGN_CONFLICT", done["status"])
+        self.assertEqual(["gpt-6-sol", "gpt-6-luna"], self.models())
+
     def test_after_an_answer_the_route_lists_only_models_it_can_still_take(self):
         run = self.refused()
         listed = self.stopped(run)["route"]["candidates"]

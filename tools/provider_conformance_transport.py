@@ -125,6 +125,7 @@ def execute(
     deadline=None,
     prepare=None,
     role=None,
+    report_recovery=False,
 ):
     """``prepare(argv, env) -> (argv, env)`` adjusts a tool launch before it runs (the access probe's bare agent).
 
@@ -154,12 +155,16 @@ def execute(
             "-c",
             f'model_reasoning_effort="{effort}"',
         ]
+        if report_recovery:
+            argv += ["--disable", "shell_tool"]
         if session:
             argv += ["resume", session]
         argv += ["-", "--json", "--output-schema", str(schema_path), "-o", str(report_path), "--model", model]
     else:
         # The probe supplies its schema and matches native shell calls, not capture wrappers.
         launch_kwargs = {}
+        if report_recovery:
+            launch_kwargs.update(report_recovery=True, planning=True)
         if hasattr(adapter, "parse_opencode_version"):
             launch_kwargs["opencode_version"] = adapter.local_settings(workspace, env=env)["version"]
         try:

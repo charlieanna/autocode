@@ -43,13 +43,13 @@ try:
     from . import autocode_leaked_markup_report as leaked_markup
     from . import autocode_providers as providers
     from . import autocode_support as support
-    from .autocode_run_records import stage_supports_sessions
+    from .autocode_run_records import stage_completed, stage_supports_sessions
 except ImportError:
     import autocode_cmd_only_report as cmd_only
     import autocode_leaked_markup_report as leaked_markup
     import autocode_providers as providers
     import autocode_support as support
-    from autocode_run_records import stage_supports_sessions
+    from autocode_run_records import stage_completed, stage_supports_sessions
 
 FORMAT_ERROR = "OpenCode final message is not a JSON report"
 
@@ -101,6 +101,85 @@ def same_route(state: RunState, original, route_role=None) -> bool:
     return isinstance(route, dict) and launched == {key: route.get(key) for key in launched}
 
 
+def repair_session(state: RunState, pending, route_role=None, *, native=None) -> tuple[str | None, str | None]:
+    """Return ``(session_id, None)`` to resume for a tools-off report repair, or ``(None, reason)``."""
+    original = pending.get("original") or {}
+    if native is not None or original.get("native_role_isolation"):
+        return None, "native_role_isolation"
+    settings = state.get("settings") or {}
+    if settings.get("replay_recording"):
+        try:
+            from . import autocode_replay_transport as replay_transport
+        except ImportError:
+            import autocode_replay_transport as replay_transport
+        tape = replay_transport.selected(settings)
+        consumed = sum(isinstance(row.get("replay"), dict) for row in state.get("stages", []))
+        dispatches = tape.document.get("dispatches") or []
+        if not (0 <= consumed < len(dispatches)) or (dispatches[consumed].get("session") or {}).get("kind") != "resume":
+            return None, "replay_fresh_dispatch"
+    role = route_role or original.get("route_role") or original.get("role")
+    route = (settings.get("roles") or {}).get(role) or {}
+    provider = original.get("provider") or route.get("provider") or settings.get("provider")
+    if original.get("engine") == "opencode" and provider and providers.kilo_connection(provider):
+        return None, "kilo_restricted_stage"
+    if original.get("engine") not in (None, "opencode", "codex") or not stage_supports_sessions(state, original):
+        return None, "sessionless_route"
+    if original.get("engine") == "opencode" and provider not in (None, "opencode"):
+        try:
+            adapter = providers.resolve(provider)
+        except Exception:
+            adapter = None
+        if adapter is None or not getattr(adapter, "SUPPORTS_SESSIONS", False):
+            return None, "sessionless_route"
+        if not getattr(adapter, "SUPPORTS_REPORT_RECOVERY", False):
+            return None, "provider_without_report_recovery"
+    if not same_route(state, original, route_role):
+        return None, "route_changed"
+    latest = pending.get("latest_rejected")
+    if pending.get("first_reply_budget") or original.get("first_reply_budget"):
+        return None, "budget_stopped_attempt"
+    if (
+        original.get("truncated")
+        or original.get("truncated_output")
+        or (isinstance(latest, dict) and (latest.get("truncated") or latest.get("truncated_output")))
+    ):
+        return None, "truncated_attempt"
+    if not stage_completed(state, original) or (isinstance(latest, dict) and not stage_completed(state, latest)):
+        return None, "incomplete_attempt"
+    if pending.get("correction_failed"):
+        return None, "correction_failed"
+    stages = state.get("stages", [])
+    indices = [i for i, row in enumerate(stages) if row.get("events") == original.get("events")]
+    if len(indices) == 1:
+        for row in stages[indices[0] + 1 :]:
+            if (
+                row.get("report_only")
+                and row.get("iteration") == original.get("iteration")
+                and row.get("original_stage", str(row.get("stage", "")).removesuffix("_report_repair"))
+                == original.get("stage")
+                and (row.get("timed_out") or row.get("abandoned") or not stage_completed(state, row))
+            ):
+                return None, "timed_out_prior_repair"
+    events_path = Path(original["events"]) if original.get("events") else None
+    thread = event_thread_id(events_path) if events_path and events_path.is_file() else None
+    if not thread:
+        return None, "missing_session_thread"
+    return thread, None
+
+
+def record_repair_session(record, session: str | None, fresh_reason: str | None) -> None:
+    """Record on the repair attempt record whether its provider session was resumed or started fresh."""
+    if not isinstance(record, dict):
+        return
+    actual = record.get("expected_session") if "expected_session" in record else session
+    if actual:
+        record["repair_session_mode"] = "resumed"
+        record.pop("repair_fresh_reason", None)
+    else:
+        record["repair_session_mode"] = "fresh"
+        record["repair_fresh_reason"] = fresh_reason or record.get("fresh_session_reason") or "fresh_session"
+
+
 def prompt(error: str) -> str:
     if cmd_only.matches(error):
         return cmd_only.CORRECTION
@@ -126,20 +205,30 @@ def execute(runtime, state: RunState, run_dir, workspace) -> bool:
     pending["correction_attempted"] = True  # one shot per rejection, surviving restarts
     state.update({"phase": "REPORT_REPAIR"})
     runtime.write_json(run_dir / "state.json", state)
-    value, record = runtime.run_role(
-        role=role,
-        prompt=prompt(pending.get("error") or ""),
-        sandbox="read-only",
-        workspace=workspace,
-        run_dir=run_dir,
-        state=state,
-        schema=Path(original["schema"]),
-        model=state["settings"]["roles"][route_role]["model"],
-        allow_write=False,
-        dry_run=False,
-        report_only=True,
-        resume_session=thread,
-    )
+    try:
+        value, record = runtime.run_role(
+            role=role,
+            prompt=prompt(pending.get("error") or ""),
+            sandbox="read-only",
+            workspace=workspace,
+            run_dir=run_dir,
+            state=state,
+            schema=Path(original["schema"]),
+            model=state["settings"]["roles"][route_role]["model"],
+            allow_write=False,
+            dry_run=False,
+            report_only=True,
+            resume_session=thread,
+        )
+    except BaseException:
+        pending["correction_failed"] = True
+        active = state.get("active_stage")
+        if isinstance(active, dict) and active.get("report_only"):
+            record_repair_session(active, thread, None)
+        if (Path(run_dir) / "state.json").is_file():
+            runtime.write_json(Path(run_dir) / "state.json", state)
+        raise
+    record_repair_session(record, thread, None)
     runtime.account_stage(state, record)
     runtime.accept_repaired_report(state, run_dir, workspace, value, record)
     return True

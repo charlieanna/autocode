@@ -418,10 +418,9 @@ def run_role(
     base = artifacts.reserve(run_dir, iteration, stage, attempt)
     output, events, prompt_file = base.with_suffix(".json"), base.with_suffix(".jsonl"), base.with_suffix(".prompt.md")
     prompt_file.parent.mkdir(parents=True, exist_ok=True)
-    if not report_only and original_stage in ("tester", "review_completion", "review_checkpoint"):
-        bound_schema = support.review_generation_schema(read_json(schema), state, original_stage)
-        schema = base.with_suffix(".schema.json")
-        save(schema, bound_schema)
+    schema, prompt = role_launch.prepare_schema_and_report_check(
+        state, original_stage, workspace, run_dir, base, schema, prompt, report_only, dry_run, native, save
+    )
     fallback_route = reviewer_fallback.pending_route(state, original_stage) if joint_stage and not report_only else None
     if fallback_route:
         route_role = fallback_route["role"]
@@ -507,6 +506,7 @@ def run_role(
             source_paths=source_scope.paths(state),
             settings=state["settings"],  # the launcher applies the saved #413 opt-out
             planning_report_recovery=report_only or planning_recovery_policy.active(state, original_stage),
+            report_only=report_only,
             replay_context=role_launch.replay_context(
                 state,
                 stage=stage,
@@ -1170,6 +1170,7 @@ def _execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
         state["settings"],
         route_role,
     )
+    repair_thread, fresh_reason = format_correction.repair_session(state, pending, route_role, native=native)
     try:
         value, record = runtime.run_role(
             role=role,
@@ -1183,8 +1184,14 @@ def _execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
             allow_write=False,
             dry_run=False,
             report_only=True,
+            resume_session=repair_thread,
         )
     except support.Paused as error:
+        active = state.get("active_stage")
+        if isinstance(active, dict) and active.get("report_only"):
+            format_correction.record_repair_session(active, repair_thread, fresh_reason)
+            if (run_dir / "state.json").is_file():
+                runtime.write_json(run_dir / "state.json", state)
         if error.status in ("PAUSED_INTERVENTION_PENDING", "PAUSED_REPORT_REPAIR_INPUT") and not state.get(
             "active_stage"
         ):
@@ -1195,6 +1202,7 @@ def _execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
         if native is None and automatically_recover_report_repair_timeout(state, run_dir, workspace, error):
             raise ReportRepairQueued() from error
         raise
+    format_correction.record_repair_session(record, repair_thread, fresh_reason)
     account_stage(state, record)
     runtime.accept_repaired_report(state, run_dir, workspace, value, record)
 

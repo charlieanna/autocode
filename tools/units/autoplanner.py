@@ -1113,7 +1113,7 @@ def repair_rules(stage, schema):
             else ""
         )
         + report_policy.concern_rule(schema)
-        + (retention.revision_reference.RULE if retention.revision_reference.offered(schema) else "")
+        + (retention.revision_reference.rule(schema) if retention.revision_reference.offered(schema) else "")
         + (retention.delta_rule(schema) if retention.allows_delta(schema) else "")
         + prompts.get("fragments/autoplanner/repair-citations.md")
         + (RESPONSE_EVIDENCE_RULE if "responses" in fields else "")
@@ -1562,7 +1562,7 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
             retention.compact_final_packet(packet)
             retain_rule = retention.final_rule()
         elif stage == "revise_plan":
-            retain_rule = retention.revision_reference.RULE + retention.delta_rule()
+            retain_rule = retention.revision_reference.rule(response_schema) + retention.delta_rule()
             packet["retained_requirement_trace_available"] = retention.validated_trace(state) is not None
         else:
             retain_rule = retention.RULE + retention.delta_rule()
