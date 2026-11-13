@@ -69,6 +69,10 @@ class StopNowCliTests(unittest.TestCase):
         self.assertEqual(1, len(builder))
         self.assertEqual(("person", "Stopped by you"), (builder[0]["timeout_kind"], builder[0]["timeout_reason"]))
         self.assertTrue(builder[0].get("abandoned"), "the stopped attempt is archived, its partial work kept")
+        # "Resume runs it again" (#3334): the stopped Builder is next, with its partial work handed on,
+        # not the Completion Reviewer.
+        self.assertEqual("builder", state["next_stage"])
+        self.assertIn("partial_work", state["recovery_context"])
 
         before = len(state["stages"])
         resumed_run = subprocess.run(
@@ -82,6 +86,8 @@ class StopNowCliTests(unittest.TestCase):
         self.assertIn(resumed_run.returncode, (0, 2), resumed_run.stdout + resumed_run.stderr)
         resumed = flow.saved()[1]
         self.assertGreater(len(resumed["stages"]), before, "resuming runs again")
+        ran = [row["stage"] for row in resumed["stages"][before:] if row["stage"] != "model_preflight"]
+        self.assertEqual("builder", ran[0], f"resuming runs the stopped Builder again, not {ran}")
         self.assertNotEqual(stop.STOPPED_NOW_REASON, resumed.get("stop_reason"))
 
 

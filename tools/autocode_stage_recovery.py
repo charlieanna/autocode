@@ -736,7 +736,8 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
     # workflow's own verification stage instead — a final-audit-only run has no separate Validator, so
     # there its own audit stage re-produces the evidence. Asked only here: this route consults the
     # workflow approval, which no writer's timeout recovery has any reason to raise over.
-    if had_validation and not keep_evidence and next_stage == semantic_stage:
+    stopped_writer = record.get("timeout_kind") == "person" and semantic_stage == "builder"
+    if had_validation and not keep_evidence and next_stage == semantic_stage and not stopped_writer:
         verification_stage = workflow.review_stage(state)
         if verification_stage in ("tester", "review_checkpoint"):
             next_stage = verification_stage
@@ -768,16 +769,6 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
         "checks, or fix the identified stall. Preserve all acceptance checks; do not replay the same "
         "task under unchanged limits. Do not extend limits or reset budgets without authorization.",
     }
-    if semantic_stage == "builder" and record.get("timeout_kind", "stage") == "stage" and not record.get("report_only"):
-        recovery["partial_work"] = partial_work.recovery(record, before, after, workspace, run_dir)
-        recovery["instruction"] += (
-            " The partial_work packet records capture availability and, when available, the stopped Builder's "
-            "source delta and deletions. "
-            "Continue from the retained workspace, review that delta and its deletions, and repair it rather "
-            "than restart the implementation. A truncated patch requires inspecting the named retained tree. "
-            "An unavailable capture is an evidence gap to retain and report, never verified source. "
-            "This packet is unverified source, not a completed report or passing test evidence."
-        )
     if record.get("timeout_kind") == "person":
         # The person ended the attempt (#3263); nothing timed out, so the next one keeps its plan and limits.
         recovery["instruction"] = (
@@ -791,6 +782,20 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
             "Execute the required checks for this attempt, using the current runner proof to focus inspection. "
             "Partial work remains archived and is not a completed report. Completion Review still needs the "
             "new independent report. Preserve the approved checks and saved execution limits."
+        )
+    if (
+        semantic_stage == "builder"
+        and record.get("timeout_kind", "stage") in ("stage", "person")
+        and not record.get("report_only")
+    ):
+        recovery["partial_work"] = partial_work.recovery(record, before, after, workspace, run_dir)
+        recovery["instruction"] += (
+            " The partial_work packet records capture availability and, when available, the stopped Builder's "
+            "source delta and deletions. "
+            "Continue from the retained workspace, review that delta and its deletions, and repair it rather "
+            "than restart the implementation. A truncated patch requires inspecting the named retained tree. "
+            "An unavailable capture is an evidence gap to retain and report, never verified source. "
+            "This packet is unverified source, not a completed report or passing test evidence."
         )
     records.count_automatic_recovery(state)
     state.setdefault("automatic_timeout_recoveries", []).append(recovery)
