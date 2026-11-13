@@ -156,7 +156,7 @@ def bound(cases: list[dict], framework) -> list[dict]:
 # page, RSpec's full description, and a plan names it by that or by its last words, which are the example's
 # own. On real runs in an RSpec project (2026-11-13) a bug fix copied its two existing examples under
 # test_ac2_... names after two failed proofs, as the node:test runs had.
-TITLE_RUNNERS = frozenset({"node", "vitest", "rspec"})
+TITLE_RUNNERS = frozenset({"node", "vitest", "jest", "rspec"})
 _ANNOTATION = re.compile(r"\s+(?:[—–-]\s+.+|\(.+\))", re.DOTALL)
 # FILE.rb::FULL DESCRIPTION (autocode_rspec_tests): the descriptions of the example's groups, then its own.
 _RUBY_ID = re.compile(r"^[^:]*\.rb::(.+)$", re.DOTALL)

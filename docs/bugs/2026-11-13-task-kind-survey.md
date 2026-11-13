@@ -402,7 +402,7 @@ Reviewer raising that concern.
 Not fixed: the Plan Reviewer's concern itself. The prompt note on command guards does not say which
 files a guard's command runs on the original code.
 
-## 16. A requested change that an existing test contradicts (fixed for Python, Node, RSpec and Vitest)
+## 16. A requested change that an existing test contradicts (fixed for Python, Node, Jest, RSpec and Vitest)
 
 "pageCount(0, 5) returns 0. An empty list should still show one page: make pageCount return 1 when total
 is 0. Update the tests to match." The project has a test that says an empty list has no pages. Four runs
@@ -449,6 +449,37 @@ The same requests on the fixed tree, $2.12, no question and one plan approval ea
 
 Both proofs passed first time with "Tests the approved plan replaces are no longer in the suite", and
 the check of the original tests accepted the one listed failure.
+
+## 17. A Jest suite reports no test by name (fixed)
+
+A Jest run gave the proof only an exit code, so a plan could not name a Jest test as proof, as a guard
+or as a test it replaces. The Jest run of section 16 therefore ended with the Resolver asking the person
+to approve a hand-built plan revision, and every earlier Jest run proved its criteria with whole commands.
+
+Jest ships a JSON report. The proof now adds `--json --outputFile` to a plain Jest command (`jest`,
+`npx --no-install jest`, `node node_modules/jest/bin/jest.js`, an `npm test` whose script is one) and
+reads it (`tools/autocode_jest_tests.py`): ids are `FILE::describe > title`, as Vitest's are. Nothing is
+installed. Checked against Jest 30.5.2's own report, including a file that does not load, tests that
+share a name, skipped and todo tests, and a run that fails outside every test.
+
+Two runs on the fixed tree, $1.63, each complete at its first proof with one plan approval and no question:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| The change of section 16 | complete, 8 stages, 161 s, $0.82 (before: a question after 276 s, $1.69); the plan listed `an empty list has no pages` as replaced, the proof named six tests by title | `28741c5118595607cc32a4c66f1ffe8f2c871b2554e9da9f65cc9ccf6a5936ad` |
+| Bug fix with a regression test | complete, 8 stages, 141 s, $0.80; two new tests named by title, two existing tests as guards | `2b047541cd0d95311cf66f8fb4193ee186ed84e8f081913d02a21f95ef1e268e` |
+
+Open:
+
+- A package script that runs more than Jest (`jest && eslint .`, `react-scripts test`) is left as written
+  and proves by its exit code, while the plan rules now take a Jest project's tests to be named. A new or
+  changed test is still proven by name, by the targeted `npx --no-install jest FILE`; a guard on an
+  existing test is not. Vitest has the same limit.
+- The proving tests are not repeated for stability in a Jest project: the repeat cannot yet select tests
+  by name there (`autocode_proof_stability.narrow`), so each ran once and the proof says so.
+- Jest run in the project folder itself also collects test copies under `.autocode/`; the proof runs in
+  clean trees, so it is not affected.
+- Mocha (its JSON reporter) and Minitest (verbose output) could be read the same way.
 
 ## Also seen, not yet run on real models
 

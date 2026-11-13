@@ -435,7 +435,8 @@ def repaired_by_flip(base_suite, on_base_with_tests, on_candidate):
     return sorted(set(base_results.get("failed") or []) & ran_and_failed & set(candidate.get("passed") or []))
 
 
-# Runners that report only an exit code and run the project's test files themselves, so what such a suite
+# Runners that report only an exit code (Jest only for a command the proof cannot add its report to,
+# autocode_jest_tests) and run the project's test files themselves, so what such a suite
 # runs is decided by its test files and the manifests and runner configs the definition scan pins
 # (autocode_verify._base_suite_definition). ``make test`` and a script package.json names run anything a
 # recipe says, which that scan does not read, so they are left out.
@@ -456,7 +457,7 @@ def exit_repair_suite(framework, suite, adopted) -> bool:
 def repairable_exit(base_suite, suite_command) -> bool:
     """Whether the base suite, run with the proof's suite command, failed there as a whole, naming no test.
 
-    The twin of repairable_failures for a runner that reports only an exit code (a Jest or Mocha suite,
+    The twin of repairable_failures for a run that reports only an exit code (a Mocha suite, a Jest script,
     Minitest files run one by one, a test script the plan names): its health is ``failing`` when the command
     ran to completion, exited nonzero and reported no per-test result (autocode_suite_health). A repair
     whose regression test the project already had changes no test, and a live Jest run of "this test

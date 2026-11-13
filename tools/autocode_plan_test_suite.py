@@ -84,7 +84,7 @@ def unnamed_cases(workspace, framework, tests, body, detect_in) -> str | None:
 
     The proof matches such a criterion to a test only from a runner's per-test results
     (autocode_regression.check_cases). A runner that reports only an exit code (``make test``,
-    Ruby test files run one by one, a Jest or Mocha suite) leaves every such criterion
+    Ruby test files run one by one, a Mocha suite) leaves every such criterion
     unproven after a full Builder and Tester round, and the Resolver then asked the person how to prove
     it (a Ruby Minitest bug fix, 2026-11-13). It is known when the plan is drafted, so the Planner gets
     it instead: the same criterion is proven by the exit code of the command that runs its test file.
