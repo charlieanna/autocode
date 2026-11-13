@@ -12,14 +12,13 @@ import re
 import shlex
 from pathlib import Path
 
+try:
+    from . import autocode_npm_scripts as npm_scripts
+except ImportError:
+    import autocode_npm_scripts as npm_scripts
 
-def _words(command):
-    if not isinstance(command, str) or re.search(r"[;&|<>`$()\n\r]", command):
-        return None
-    try:
-        return shlex.split(command)
-    except ValueError:
-        return None
+
+_words = npm_scripts.words
 
 
 def _vitest(words):
@@ -52,35 +51,9 @@ def command_words(command, tree=None):
     words = _words(command)
     if _vitest(words):
         return words
-    if not words or Path(words[0]).name not in ("npm", "npm.cmd") or tree is None:
-        return None
-    at = words.index("--") if "--" in words else len(words)
-    args, extra = words[1:at], words[at + 1 :]
-    prefix, selected = ".", []
-    while args:
-        arg, *args = args
-        if arg in ("--silent", "-s"):
-            continue
-        if arg == "--prefix":
-            if not args:
-                return None
-            prefix, *args = args
-        elif arg.startswith("--prefix="):
-            prefix = arg.partition("=")[2]
-        else:
-            selected.append(arg)
-    if selected not in (["test"], ["t"], ["run", "test"], ["run-script", "test"]):
-        return None
-    try:
-        root = Path(tree).resolve()
-        package_root = (root / prefix).resolve()
-        if not package_root.is_relative_to(root):
-            return None
-        package = json.loads((package_root / "package.json").read_text())
-        script = _words(package.get("scripts", {}).get("test"))
-    except (OSError, ValueError, TypeError, AttributeError, RuntimeError):
-        return None
-    if script is None or extra is None or not _vitest([*script, *extra]):
+    found = npm_scripts.test_script(command, tree)
+    script = _words(found[0].get("test")) if found else None
+    if script is None or not _vitest([*script, *found[1]]):
         return None
     return words
 

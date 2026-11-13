@@ -510,6 +510,143 @@ def planned(current, accepted=(), batch=None, hash_="h1"):
         )
 
 
+class JavaScriptTestNameTests(unittest.TestCase):
+    """A JavaScript test's own name is its title, never a word of its file's name."""
+
+    def test_the_name_is_the_title_or_the_test_name_it_begins_with(self):
+        for test, name in (
+            ("tests/pager.test.js::counts a partial last page", "counts a partial last page"),
+            ("tests/pager.test.js::pageCount::counts a partial last page", "counts a partial last page"),
+            ("src/pager.test.ts::pageCount > rejects a page size", "rejects a page size"),
+            ("tests/pager.test.js::tests that the last page is partial", "tests that the last page is partial"),
+            ("tests/pager.test.cjs::adds", "adds"),
+            ("tests/pager.test.mjs::test_c1_adds", "test_c1_adds"),
+            ("tests/pager.test.js::suite::test_c1_adds two numbers", "test_c1_adds"),
+            ("src/pager.test.tsx::suite > test_c2_renders", "test_c2_renders"),
+            # Every other runner's id is read as before.
+            ("tests/test_pager.py::TestPager::test_counts[a b]", "test_counts"),
+            ("tests.test_pager.PagerTests.test_counts", "test_counts"),
+            ("tests/pages.rs::exact_multiple", "exact_multiple"),
+        ):
+            with self.subTest(test=test):
+                self.assertEqual(name, test_cases.function_name(test))
+
+    def test_a_file_names_a_titled_test_only_by_spelling_its_title(self):
+        titled = "tests/pager.test.js::counts a partial last page"
+        other = "const {test} = require('node:test');\ntest('rejects a page', () => {});\n"
+        self.assertFalse(test_cases.named_in(titled, other), "the word test names no titled test")
+        self.assertTrue(test_cases.named_in(titled, other + "test('counts a partial last page', () => {});\n"))
+        named = "tests/pager.test.js::test_c1_adds"
+        self.assertTrue(test_cases.named_in(named, "test('test_c1_adds', () => {});"))
+        self.assertFalse(test_cases.named_in(named, "test('test_c1_adds_more', () => {});"))
+        self.assertFalse(test_cases.named_in("", other))
+
+
+class TitledCasesTests(unittest.TestCase):
+    """A node:test or Vitest test is named by a free-text title; a plan names an existing one by it."""
+
+    EXISTING = [
+        "tests/pager.test.js::returns the page count for an exact multiple",
+        "tests/pager.test.js::rejects a page size that is not positive",
+        "tests/pager.test.js::counts a partial last page",
+    ]
+    NEW = "tests/pager.guard.test.js::test_ac5_invalid_sizes_throw_same_message"
+
+    def cases(self, *methods):
+        rows = [{"id": f"AC{n}", "criterion": f"c{n}", "verification_method": m} for n, m in enumerate(methods, 1)]
+        return test_cases.plan_cases({"acceptance_criteria": rows})
+
+    def refactor(self):
+        # The criteria a real Planner wrote for a refactor of a node:test project.
+        return self.cases(
+            "Validator reads src/pager.js",
+            "guard: returns the page count for an exact multiple",
+            "guard: counts a partial last page",
+            "guard: rejects a page size that is not positive",
+            "guard: test_ac5_invalid_sizes_throw_same_message",
+        )
+
+    def test_a_declared_title_is_bound_only_where_a_test_has_it(self):
+        cases = self.refactor()
+        ids = [*self.EXISTING, self.NEW]
+        self.assertEqual(
+            {"AC2": [ids[0]], "AC3": [ids[2]], "AC4": [ids[1]], "AC5": [ids[3]]},
+            test_cases.match_cases(cases, ids, framework="node"),
+        )
+        self.assertEqual(
+            [
+                "returns the page count for an exact multiple",
+                "counts a partial last page",
+                "rejects a page size that is not positive",
+                "test_ac5_invalid_sizes_throw_same_message",
+            ],
+            [case["test_name"] for case in test_cases.titled(cases, "node", ids)],
+        )
+        # A runner whose tests are identifiers never reads a declaration as a title.
+        for framework in ("pytest", "go", "cargo", None):
+            with self.subTest(framework=framework):
+                self.assertEqual(cases, test_cases.titled(cases, framework, ids))
+                self.assertEqual([], test_cases.match_cases(cases, ids, framework=framework)["AC2"])
+
+    def test_a_declaration_that_is_no_tests_title_keeps_the_criterion_id(self):
+        cases = self.cases("guard: the existing tests keep passing", "guard: counts a partial")
+        ids = [*self.EXISTING, "tests/pager.test.js::test_ac1_existing_behavior", "tests/pager.test.js::test_ac2_x"]
+        self.assertEqual(cases, test_cases.titled(cases, "node", ids))
+        self.assertEqual({"AC1": [ids[3]], "AC2": [ids[4]]}, test_cases.match_cases(cases, ids, framework="node"))
+
+    def test_a_title_may_be_quoted_annotated_or_nested_in_a_suite(self):
+        ids = [
+            "tests/pager.test.js::pageCount::counts a partial last page",
+            "tests/pager.test.ts::pageCount > rejects a page size (zero or negative)",
+            "tests/other.test.js::counts a partial last page - with a remainder",
+        ]
+        for declared, framework, expected in (
+            ("guard: counts a partial last page", "node", [ids[0]]),
+            ('guard: "counts a partial last page"', "node", [ids[0]]),
+            ("guard: `counts a partial last page` (tests/pager.test.js)", "node", [ids[0]]),
+            ("guard: counts a partial last page — the existing test", "node", [ids[0]]),
+            # The longest title a declaration spells out is the one it names.
+            ("guard: counts a partial last page - with a remainder", "node", [ids[2]]),
+            ("guard: rejects a page size (zero or negative)", "vitest", [ids[1]]),
+            ("guard: pageCount > rejects a page size (zero or negative)", "vitest", [ids[1]]),
+            ("test: 'counts a partial last page", "node", []),  # an unclosed quote names nothing
+        ):
+            with self.subTest(declared=declared):
+                (case,) = self.cases(declared)
+                self.assertEqual(expected, test_cases.match_cases([case], ids, framework=framework)["AC1"])
+
+    def checked(self, cases, framework="node", **lists):
+        proof = {"framework": {"name": framework}, "verdict": "PASS", "failures": [], "unverified": []}
+        proof.update(fail_to_pass=lists.pop("fail_to_pass", []), pass_to_pass=lists.pop("pass_to_pass", []))
+        regression.check_cases(proof, cases, **lists)
+        return proof
+
+    def test_a_guard_on_an_existing_titled_test_rests_on_the_suite(self):
+        # The refactor added one test file, so only it ran in the targeted proof; the existing tests are
+        # in the suite. Each guard was looked for as test_ac2_..., and the run copied the tests to pass.
+        cases = [case for case in self.refactor() if case.get("kind")]
+        proof = self.checked(cases, pass_to_pass=[self.NEW], suite_passing=[*self.EXISTING, self.NEW])
+        self.assertEqual("PASS", proof["verdict"], proof)
+        self.assertEqual(
+            {"AC2": [self.EXISTING[0]], "AC3": [self.EXISTING[2]], "AC4": [self.EXISTING[1]], "AC5": [self.NEW]},
+            proof["case_tests"],
+        )
+        other = self.checked(cases, "pytest", pass_to_pass=[self.NEW], suite_passing=[*self.EXISTING, self.NEW])
+        self.assertEqual("FAIL", other["verdict"])
+
+    def test_a_guard_whose_titled_test_fails_with_the_change_is_broken(self):
+        cases = self.cases("guard: counts a partial last page")
+        proof = self.checked(cases, suite_passing=self.EXISTING[:2], failing=[self.EXISTING[2]])
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertIn("has no test named counts a partial last page", " ".join(proof["failures"]))
+
+    def test_a_new_test_declared_by_its_title_proves_a_restored_case(self):
+        cases = self.cases("test: counts a partial last page", "guard: rejects a page size that is not positive")
+        proof = self.checked(cases, fail_to_pass=[self.EXISTING[2]], pass_to_pass=[self.EXISTING[1]])
+        self.assertEqual("PASS", proof["verdict"], proof)
+        self.assertEqual({"AC1": [self.EXISTING[2]], "AC2": [self.EXISTING[1]]}, proof["case_tests"])
+
+
 class MilestoneScopeTests(unittest.TestCase):
     """A case is due once its milestone is current or accepted; unassigned ones at the end."""
 

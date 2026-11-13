@@ -131,6 +131,52 @@ def bound(cases: list[dict], framework) -> list[dict]:
     ]
 
 
+# The runners whose tests are named by a free-text title: test('counts a partial last page', ...). A plan
+# names a test the project already has by that title, "guard: counts a partial last page", as the test file
+# spells it. On real runs of a refactor and a bug fix in a node:test project, such guards were looked for as
+# test_ac2_..., found nowhere, and each run copied its existing tests under those names after a failed proof.
+TITLE_RUNNERS = frozenset({"node", "vitest"})
+_ANNOTATION = re.compile(r"\s+(?:[—–-]\s+.+|\(.+\))", re.DOTALL)
+
+
+def _titles(test_id: str) -> tuple[str, ...]:
+    """The titles a runner's id ends with: FILE::suite::title (node:test), FILE::suite > title (Vitest)."""
+    last = test_id.rsplit("::", 1)[-1]
+    return (last, last.rsplit(" > ", 1)[-1])
+
+
+def _unquoted(text: str) -> str:
+    """``"a title" (note)`` as ``a title (note)``: a declared title may be quoted."""
+    if text[:1] in ('"', "'", "`"):
+        end = text.find(text[0], 1)
+        if end > 0 and (not text[end + 1 :] or _ANNOTATION.fullmatch(text[end + 1 :])):
+            return text[1:end] + text[end + 1 :]
+    return text
+
+
+def _declares(declared: str, title: str) -> bool:
+    """Whether a declaration is exactly ``title``, alone or before an annotation ("title (tests/a.test.js)")."""
+    return any(
+        text == title or (text.startswith(title) and _ANNOTATION.fullmatch(text[len(title) :]) is not None)
+        for text in (declared, _unquoted(declared))
+    )
+
+
+def titled(cases: list[dict], framework, test_ids) -> list[dict]:
+    """``cases`` with a declared title bound as the ``test_name`` where ``framework`` names tests by title
+    (TITLE_RUNNERS) and one of ``test_ids`` has exactly that title: the longest such title. A declaration
+    that is no test's title is prose, and its case keeps the criterion-id convention."""
+    if framework not in TITLE_RUNNERS:
+        return list(cases)
+    known = {title for test in test_ids for title in _titles(test)}
+    result = []
+    for case in cases:
+        declared = case.get("title")
+        found = [] if case.get("test_name") or not declared else [t for t in known if _declares(declared, t)]
+        result.append({**case, "test_name": max(found, key=len)} if found else case)
+    return result
+
+
 def contract_cases(state: RunState, *, all_due: bool = False) -> list[dict]:
     """The approved plan's criteria marked ``test:`` or ``guard:`` that are due now (every one with ``all_due``,
     as at final completion), as ``plan_cases``. None in a design-only job: nothing there is proven by a test the
@@ -145,7 +191,8 @@ def contract_cases(state: RunState, *, all_due: bool = False) -> list[dict]:
 
 def plan_cases(body) -> list[dict]:
     """A plan body's criteria marked ``test:`` or ``guard:``, as cases: id, text, the test it names when that
-    is a test name (else a ``native_name``, see ``bound``), and kind "preserve" for a guard."""
+    is a test name (else a ``native_name``, see ``bound``, and the declaration itself as a ``title``, see
+    ``titled``), and kind "preserve" for a guard."""
     cases = []
     for row in (body.get("acceptance_criteria") if isinstance(body, dict) else None) or []:
         found = mark(row.get("verification_method")) if isinstance(row, dict) else None
@@ -159,6 +206,7 @@ def plan_cases(body) -> list[dict]:
                     "text": row.get("criterion", ""),
                     **({"test_name": test_name} if test_name else {}),
                     **({"native_name": native} if native else {}),
+                    **({"title": declared} if declared and not test_name else {}),
                     **({"kind": "preserve"} if found == GUARD_MARK else {}),
                 }
             )
@@ -332,11 +380,29 @@ _RUST_ID = re.compile(
 )
 
 
+# FILE.js::suite::title (node:test) or FILE.ts::suite > title (Vitest): the file is never the test's name.
+_JS_ID = re.compile(r"^[^:]*\.(?:[cm]?[jt]s|[jt]sx)::(.+)$", re.DOTALL)
+_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
+
+
 def _test_function(test_id: str) -> str:
-    """The test's own name inside a runner's id (module.Class.test_x, path::Class::test_x[param], ...)."""
+    """The test's own name inside a runner's id (module.Class.test_x, path::Class::test_x[param], ...).
+
+    A JavaScript test is named by its title, which is free text: ``tests/pager.test.js::counts a partial
+    last page`` is "counts a partial last page", and a title that begins with a ``test_`` name
+    (``test_c1_adds two numbers``) is that name. Read from the whole id, every such test was "test",
+    from its file's ``.test.js``: any changed file that says ``test(`` then named every test of the
+    suite, so none of them could guard a change (live run, 2026-11-13).
+    """
     if found := _RUST_ID.match(test_id):
         return found.group(1) or found.group(2)
-    names = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", re.sub(r"\[.*\]$", "", test_id))
+    if _JS_ID.match(test_id):
+        title = _titles(test_id)[1]
+        if re.fullmatch(_NAME, title):
+            return title
+        named = re.findall(r"(?<![A-Za-z0-9_])[Tt]est_[A-Za-z0-9_]+", title)
+        return named[-1] if named else title
+    names = re.findall(_NAME, re.sub(r"\[.*\]$", "", test_id))
     tests = [name for name in names if name.lower().startswith("test")]
     return tests[-1] if tests else (names[-1] if names else "")
 
@@ -347,15 +413,19 @@ def function_name(test_id: str) -> str:
 
 
 def named_in(test_id: str, text: str) -> bool:
-    """Whether ``text`` (a file's source) names the test's own function."""
+    """Whether ``text`` (a file's source) names the test's own function, or spells its free-text title."""
     name = _test_function(test_id)
-    return bool(name) and re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", text) is not None
+    if not name:
+        return False
+    if not re.fullmatch(_NAME, name):
+        return name in text
+    return re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", text) is not None
 
 
 def match_cases(cases: list[dict], test_ids: list[str], *, framework=None) -> dict[str, list[str]]:
     """Match an approved exact test name, or a diagnosis case's id-based test name."""
     matched = {}
-    for case in bound(cases, framework):
+    for case in titled(bound(cases, framework), framework, test_ids):
         if case.get("test_name"):
             matched[case["id"]] = [
                 test
@@ -364,6 +434,7 @@ def match_cases(cases: list[dict], test_ids: list[str], *, framework=None) -> di
                     _test_function(test) == case["test_name"]
                     or test.rsplit("::", 1)[-1] == case["test_name"]
                     or (framework in NATIVE_RUNNERS and test.endswith("::" + case["test_name"]))
+                    or (framework in TITLE_RUNNERS and case["test_name"] in _titles(test))
                     or (
                         framework == "go"
                         and case["test_name"].startswith("test_")
