@@ -171,7 +171,7 @@ the existing participant gates still govern continuation.
   cannot drive two existing sibling repositories.
 - **A parent folder is not a multi-repository workspace.** If you start AutoCode
   in a plain folder that holds several repositories, it works in a new, empty
-  private project instead of in them. The terminal chat adds such a folder as a
+  private project instead of in them, even when the folder also holds code of its own. The terminal chat adds such a folder as a
   source folder for discovery; VS Code warns before a chat starts there, naming
   the checkouts, so you can open the one to change instead. If the parent is itself a
   Git repository with the services as nested repositories or submodules, changes

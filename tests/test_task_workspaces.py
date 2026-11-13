@@ -229,6 +229,37 @@ class TaskWorkspaces(unittest.TestCase):
         self.assertFalse((populated / ".git").exists())
         self.assertEqual("do not version this folder", (populated / "keep.txt").read_text())
 
+    def test_a_folder_of_code_is_made_a_repository_where_it_is_with_nothing_committed(self):
+        code = self.root / "pager"
+        (code / "tests").mkdir(parents=True)
+        (code / "pager.py").write_text("def page_count(total, size):\n    return total // size\n")
+        (code / "tests" / "test_pager.py").write_text("import pager\n")
+        (code / "node_modules" / "left").mkdir(parents=True)
+        (code / "node_modules" / "left" / "index.js").write_text("module.exports = 1\n")
+        self.assertEqual(code.resolve(), w.bootstrap(code, in_place=True))
+        # AutoCode's empty first commit and none of the person's files: they are as they were, untracked.
+        self.assertTrue(w.only_first_commit(code))
+        self.assertEqual("", w.git(code, "ls-files"))
+        self.assertEqual(
+            ["pager.py", "tests/test_pager.py"],
+            w.git(code, "ls-files", "--others", "--exclude-standard").splitlines(),
+        )
+        self.assertFalse((code / ".gitignore").exists())
+        self.assertFalse((code / ".autocode" / "projects").exists())
+        self.assertEqual("module.exports = 1\n", (code / "node_modules" / "left" / "index.js").read_text())
+        # A folder that is not one project of code keeps the private project, as does any caller that
+        # does not ask for the folder itself.
+        papers = self.root / "papers"
+        papers.mkdir()
+        (papers / "notes.txt").write_text("mine")
+        self.assertEqual(papers.resolve() / ".autocode" / "projects", w.bootstrap(papers, in_place=True).parent)
+        self.assertFalse((papers / ".git").exists())
+        other = self.root / "other"
+        other.mkdir()
+        (other / "tool.py").write_text("x = 1\n")
+        self.assertEqual(other.resolve() / ".autocode" / "projects", w.bootstrap(other).parent)
+        self.assertFalse((other / ".git").exists())
+
     def untracked(self, tree):
         return w.git(tree, "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=none")
 
@@ -279,6 +310,57 @@ class IsolatedCli(unittest.TestCase):
         self.assertEqual(1, len(projects))
         self.assertTrue((projects[0] / ".git").is_dir())
         self.assertFalse((folder / ".git").exists())
+
+    def test_a_folder_of_code_outside_git_is_worked_on_where_it_is(self):
+        # A bug fix in a folder of code that was not a repository ran in an empty private project: on a
+        # real run Requirements could not find the file the person named, and the Planner asked where it was.
+        flow = test_subprocess.SubprocessFlow()
+        flow.setUp()
+        self.addCleanup(flow.doCleanups)
+        for name, flags in (("plain", ()), ("chat", ("--build-in-worktree",))):
+            with self.subTest(name=name):
+                folder = flow.root / name
+                (folder / "tests").mkdir(parents=True)
+                (folder / "pager.py").write_text("def page_count(total, size):\n    return total // size\n")
+                (folder / "tests" / "test_pager.py").write_text("import pager\n")
+                (folder / "node_modules" / "left").mkdir(parents=True)
+                (folder / "node_modules" / "left" / "index.js").write_text("module.exports = 1\n")
+                result = subprocess.run(
+                    [*flow.entry, "--workspace", str(folder), "--engine", "codex", "--no-chat", *flags, "Fix it"],
+                    cwd=flow.root,
+                    env={**flow.env, "AUTOCODE_FIXTURE_MODE": "no-human"},
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                output = result.stdout + result.stderr
+                self.assertIn(f"{folder} was not a Git repository, so AutoCode made it one", output)
+                self.assertIn("your files were not added to it. The task works on the files there.", output)
+                self.assertNotIn("Created task project", output)
+                # The run is saved in the folder and works there: no private project, no task worktree.
+                [run] = (folder / ".autocode" / "runs").iterdir()
+                self.assertTrue((run / "state.json").is_file(), output)
+                self.assertFalse((folder / ".autocode" / "projects").exists())
+                self.assertFalse((folder / ".autocode" / "worktrees").exists())
+                self.assertTrue(w.only_first_commit(folder))
+                # The run starts from the person's files: its base holds them, and no installed dependency.
+                base = w.git(folder, "rev-parse", f"refs/autocode/launch/{run.name}")
+                self.assertEqual(
+                    ["pager.py", "tests/test_pager.py"],
+                    w.git(folder, "ls-tree", "-r", "--name-only", base).splitlines(),
+                )
+                status = subprocess.run(
+                    [*flow.entry, "--workspace", str(folder), "--run-dir", str(run), "--status", "--json"],
+                    cwd=flow.root,
+                    env=flow.env,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                view = json.loads(status.stdout)
+                view = view.get("view", view)
+                self.assertEqual(str(folder), view["workspace"])
+                self.assertEqual("folder", view["worktree"]["kind"])
 
     def test_a_repository_with_no_commit_starts_the_task_in_the_folder(self):
         # `git init` and nothing more. A start stopped with a Git command for the person to type, and a

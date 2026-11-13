@@ -537,7 +537,31 @@ class WorkspaceTests(unittest.TestCase):
     def statuses(self):
         return {c.name: c.status for c in doctor.workspace_check(self.root)}
 
-    def test_a_folder_that_is_not_a_repository_is_missing(self):
+    def test_a_folder_that_is_not_a_repository_is_ready_and_names_no_command(self):
+        # A task sets such a folder up itself (workspaces.bootstrap): there is no Git command to type.
+        expected = (
+            ({}, "is not a Git repository; a task makes it one and works there"),
+            (
+                {"pager.py": "x = 1\n"},
+                "is not a Git repository; a task makes it one, commits none of your files and works on the files there",
+            ),
+            (
+                {"notes.txt": "mine"},
+                "is not a Git repository; it holds no code, so a task builds in a private project of its own",
+            ),
+        )
+        for files, detail in expected:
+            with self.subTest(files=files):
+                for name, text in files.items():
+                    (self.root / name).write_text(text)
+                (check,) = doctor.workspace_check(self.root)
+                self.assertEqual((doctor.OK, ""), (check.status, check.fix))
+                self.assertEqual(f"{self.root} {detail}", check.detail)
+                for name in files:
+                    (self.root / name).unlink()
+
+    def test_a_repository_git_cannot_read_is_still_reported(self):
+        (self.root / ".git").write_text("gitdir: /nowhere\n")
         self.assertEqual({"workspace": doctor.MISSING}, self.statuses())
 
     def test_a_repository_with_no_commit_is_ready_and_names_no_command(self):
@@ -789,8 +813,10 @@ class CliTests(unittest.TestCase):
         version = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())["project"]["version"]
         self.assertTrue(proc.stdout.startswith(f"autocode {version} ("), proc.stdout)
 
-    def test_doctor_reports_json_and_fails_without_a_repository(self):
+    def test_doctor_reports_json_and_fails_on_a_repository_git_cannot_read(self):
+        # A folder outside Git is ready (a task sets it up itself); a repository Git cannot read is not.
         with tempfile.TemporaryDirectory() as folder:
+            Path(folder, ".git").write_text("gitdir: /nowhere\n")
             proc = self.autocode("doctor", "--json", "--workspace", folder)
         self.assertEqual(1, proc.returncode, proc.stderr)
         report = json.loads(proc.stdout)

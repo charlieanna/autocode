@@ -125,6 +125,18 @@ Vitest names are free text): a guard on an existing test there still falls back 
   offered the same worktree as its default place. Reproduced with the scripted provider. Fixed:
   while the branch holds nothing but that commit, a task works in the folder itself
   (`autocode_workspaces.only_first_commit`), and `worktrees list` offers only the folder.
-- **A folder of code that is not a Git repository starts an empty project**: `bootstrap` gives a
-  populated non-Git folder a private scratch project, so a task about the code there cannot see it,
-  and nothing says so.
+- **A folder of code that is not a Git repository started an empty project**: `bootstrap` gave a
+  populated non-Git folder a private scratch project, so a task about the code there could not see
+  it. On a real run of the paging bug fix in such a folder (`pager.py`, `tests/test_pager.py`),
+  Requirements wrote "the workspace contains no files, so I could not find pager.py" and still rated
+  the request clear, and the Planner then asked the person "The workspace repository contains no
+  files, so pager.py and its page_count function cannot be found. Where is the code…?" (33 s, $0.17;
+  bundle manifest `af95aa04832c4d5908e414b156673db1968af43657e3b3fd4182e57fab19a29b`). Fixed, owner
+  decision 2026-11-13 ("work on the code there"): a folder of code outside Git is made a repository
+  where it is, with an empty first commit and none of the person's files added, and the task works
+  on the files there (`autocode_folder_adoption`). A home folder, a folder of Git checkouts, a
+  folder without code and a very large folder keep the private project. The same request in the
+  same folder on the fixed tree: Requirements understood the defect from `pager.py`, the plan named
+  `pager.py:5` and the existing guard test, and the run completed with the fix and four new tests
+  written in the folder, nothing committed for the person ($0.83, under four minutes; bundle
+  manifest `4f13a30471d960a4ce98a43b66f5ab40198adadb62d535d8fd8f9a0ee9b94a8e`).

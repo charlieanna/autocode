@@ -17,9 +17,11 @@ import uuid
 from pathlib import Path
 
 try:
+    from . import autocode_folder_adoption as folder_adoption
     from . import autocode_scratch_projects as scratch_projects
     from . import autocode_util as util
 except ImportError:
+    import autocode_folder_adoption as folder_adoption
     import autocode_scratch_projects as scratch_projects
     import autocode_util as util
 
@@ -266,14 +268,17 @@ def own_files(project) -> list[str]:
     return sorted(entry.name for entry in Path(project).iterdir() if entry.name not in NOT_THE_PERSONS)
 
 
-def bootstrap(selected):
+def bootstrap(selected, *, in_place: bool = False):
     """Create a local Git-backed task project without taking over user files.
 
     An empty folder is a safe project root. A populated folder (including a
     home directory) receives a private scratch project in its own AutoCode
     store (``autocode_scratch_projects``), leaving its existing files and Git
     state untouched: nothing appears among them until a build delivers a named
-    project (``autocode_project_delivery``). A missing path is refused so a
+    project (``autocode_project_delivery``). With ``in_place``, a populated folder
+    that is one project of code (``autocode_folder_adoption``) is made a repository
+    where it is instead, with an empty first commit and none of its files added, so
+    a task works on them (owner decision 2026-11-13). A missing path is refused so a
     mistyped --workspace cannot create directories, and a folder inside an
     existing repository is refused so no nested repository is created in it.
     """
@@ -287,7 +292,9 @@ def bootstrap(selected):
         raise ValueError(
             f"workspace is inside the Git repository {inside.stdout.strip()}; select that repository root instead"
         )
-    if any(entry.name != ".DS_Store" for entry in selected.iterdir()):
+    populated = any(entry.name != ".DS_Store" for entry in selected.iterdir())
+    adopted = populated and in_place and folder_adoption.in_place(selected)
+    if populated and not adopted:
         # Named by a random id, not by the first message: a chat that opens with "hi" may
         # never build, and a build is delivered under a name taken from what it built.
         keep_out_of_git(selected)
@@ -296,6 +303,13 @@ def bootstrap(selected):
     else:
         project = selected
     git(project, "init", "-q")
+    if adopted:
+        # Installed dependencies stay out of the new repository without a .gitignore among the person's files.
+        exclude = project / ".git" / "info" / "exclude"
+        exclude.parent.mkdir(exist_ok=True)
+        with exclude.open("a") as rules:
+            rules.write("# Added by AutoCode: installed dependencies are not source.\n")
+            rules.writelines(f"{rule}\n" for rule in folder_adoption.EXCLUDED)
     git(
         project,
         "-c",

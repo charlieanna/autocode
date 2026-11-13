@@ -124,6 +124,11 @@ def _bootstrap_notice(state: RunState) -> dict | None:
             f"{selected} is not in Git, so I build in a private project of my own and leave your files as "
             f"they are. When the build is done, I put it in a new folder in {selected}."
         )
+    elif selected == project and record.get("kept_files"):
+        text = (
+            f"{project} was not a Git repository, so I made it one and committed none of your files; "
+            "I work on the files there."
+        )
     elif selected == project and record.get("first_commit"):
         text = f"{project} had no commit yet, so I made an empty first one; what I build is written there."
     elif selected == project:

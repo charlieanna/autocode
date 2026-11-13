@@ -91,6 +91,9 @@ class WhereTests(unittest.TestCase):
 
         project = choice.where({"workspace": str(root), "workspace_bootstrap": {"selected": "x", "project": str(root)}})
         self.assertEqual("project", project["kind"])
+        # A folder of the person's code AutoCode made a repository is still their folder.
+        kept = {"selected": str(root), "project": str(root), "kept_files": True}
+        self.assertEqual("folder", choice.where({"workspace": str(root), "workspace_bootstrap": kept})["kind"])
         self.assertIsNone(choice.where({}), "no workspace yet")
 
         git(root, "checkout", "-q", "--detach")
@@ -227,6 +230,35 @@ class OptionsTests(unittest.TestCase):
                     self.assertIsNotNone(warning)
                 else:
                     self.assertIsNone(warning)
+
+    def test_a_folder_outside_git_says_where_the_chat_will_work(self):
+        parent = checkout(self).parent
+        expected = {
+            "empty": ({}, "This folder is not the top of a Git checkout with a commit, so the chat works here."),
+            "code": (
+                {"pager.py": "x = 1\n"},
+                "This folder is not a Git repository. AutoCode makes it one, commits none of your files, and the "
+                "chat works on the files here.",
+            ),
+            "papers": (
+                {"notes.txt": "mine"},
+                "This folder is not a Git repository and holds no code, so the chat builds in a private project "
+                "of its own and puts a finished build in a new folder here.",
+            ),
+        }
+        for name, (files, does) in expected.items():
+            with self.subTest(name=name):
+                folder = parent / name
+                folder.mkdir()
+                for path, text in files.items():
+                    (folder / path).write_text(text)
+                (place,) = choice.options(folder)["places"]
+                self.assertEqual(("folder", does, None), (place["id"], place["does"], place["warning"]))
+                self.assertFalse((folder / ".git").exists(), "listing the places changes nothing")
+        # The folder of checkouts itself: the reason is in its sentence, and the warning names the checkout.
+        (place,) = choice.options(parent)["places"]
+        self.assertIn("holds Git checkouts of its own, so the chat builds in a private project", place["does"])
+        self.assertIsNotNone(place["warning"])
 
     def test_a_project_with_nothing_committed_offers_only_the_folder(self):
         # A worktree would start from AutoCode's empty first commit, without anything the folder holds.
