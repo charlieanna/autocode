@@ -16,9 +16,11 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_pause_authority as pause_authority
     from . import autocode_recovery_accounting as accounting
     from . import autocode_util as util
 except ImportError:
+    import autocode_pause_authority as pause_authority
     import autocode_recovery_accounting as accounting
     import autocode_util as util
 
@@ -44,6 +46,8 @@ def eligible(state: RunState, *, previous_settings=None, current_request, count,
     """Whether ``--grant-recovery`` would be accepted at this stop."""
     if state.get("status") == "PAUSED_TIMEOUT_RECOVERY":
         return True
+    if _unpublished_timeout_exhaustion(state, count, maximum):
+        return True
     if issued is None:
         issued = current_request(state)
         if issued is None and previous_settings is not None:
@@ -55,6 +59,17 @@ def eligible(state: RunState, *, previous_settings=None, current_request, count,
     # An audited grant may replenish a spent automatic-recovery budget at the
     # operational-exhaustion stop that names it, whatever the originating pause.
     return cause in GRANTABLE_CAUSES or count >= maximum or _consecutive_exhausted(state)
+
+
+def _unpublished_timeout_exhaustion(state, count, maximum):
+    """A queued exhaustion proposal still holds the timeout pause before its request is published."""
+    return (
+        state.get("status") == "RESOLVER_PENDING"
+        and type(count) is int
+        and type(maximum) is int
+        and count >= maximum
+        and pause_authority.held_origin(state).get("pause_status") == "PAUSED_TIMEOUT_RECOVERY"
+    )
 
 
 def _consecutive_exhausted(state: RunState) -> bool:

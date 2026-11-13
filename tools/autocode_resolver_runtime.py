@@ -636,8 +636,8 @@ def record_operational_exhaustion(runner, state: RunState, run_dir, error, *, re
         f"recover{'y' if attempts == 1 else 'ies'}. "
         if attempts
         else f"AutoResolver could not resolve {shown}; no automatic operational recovery ran. "
-    ) + "Provide corrective information or leave the run paused."
-    options = ["Provide corrective information", "Leave paused"]
+    ) + "The run remains paused."
+    options = ["Leave paused"]
     if error.status == "PAUSED_PLANNING_BUDGET":
         options.insert(0, "Allow more plan reviews with --planning-review-call-limit N")
     count = runner.recovery_count(state) if callable(getattr(runner, "recovery_count", None)) else attempts

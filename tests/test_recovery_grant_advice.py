@@ -286,8 +286,11 @@ class AdviceMatchesEligibility(unittest.TestCase):
                     )
                 request = queue.call_args.kwargs["request"]
                 decision = request["decision_needed"]
+                self.assertNotIn("Provide corrective information", decision)
+                self.assertNotIn("Provide corrective information", request["options"])
                 if expect_grant:
                     self.assertIn("--grant-recovery", decision)
+                    self.assertIn("Authorize more recoveries with --grant-recovery N", request["options"])
                 else:
                     self.assertNotIn("--grant-recovery", decision)
                     bound = {"PAUSED_TIME_LIMIT": "--max-seconds", "PAUSED_NO_PROGRESS": "--no-progress-limit"}[
