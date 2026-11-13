@@ -29,17 +29,21 @@ def _artifact(artifact, moved, run_dir):
         return False
     root = Path(run_dir).absolute() / "context"
     path = Path(artifact["path"])
+    # Compare locations, not spellings: Core writes the path from the state file's
+    # directory, which a caller may pass resolved or through a symlinked parent.
     if (
-        root.is_symlink()
+        not path.is_absolute()
+        or root.is_symlink()
         or root.resolve().parent != Path(run_dir).resolve()
-        or path.parent != root
+        or path.parent.is_symlink()
+        or path.parent.resolve() != root.resolve()
         or path.is_symlink()
         or path.resolve().parent != root.resolve()
     ):
         return False
     raw = path.read_bytes()
     saved = json.loads(raw)
-    if not isinstance(saved, dict) or path != root / (util.digest(saved) + ".json"):
+    if not isinstance(saved, dict) or path.name != util.digest(saved) + ".json":
         return False
     expected = {
         "path": str(path),
@@ -82,7 +86,7 @@ def matches(data, canonical, run_dir=None):
                     source["_projection_pointer"] = detail.POINTER  # local formatter input, never serialized
                 projected, moved = copy.deepcopy(source), {}
                 if deduplicated:
-                    handoff._changed_code_references(projected)
+                    handoff.changed_code_references(projected)
                 context.proof_receipts(source, projected, moved)
                 detail.move(source, projected, moved)
                 if _same(presented, projected["regression_proof"]) and (
