@@ -730,14 +730,28 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
     )
     if retry_missing_tester_report:
         next_stage = "tester"
+    # The predicate that retains a stopped Builder's source delta below (#3326). Tying the route to
+    # it is the point: a packet written for a Builder that no route relaunches is never read.
+    continues_builder = (
+        semantic_stage == "builder"
+        and record.get("timeout_kind", "stage") in ("stage", "person")
+        and not record.get("report_only")
+    )
+    if continues_builder and next_stage != "builder":
+        # A Builder the stage wall stopped produced no report, so its implementation is unfinished
+        # whether or not files changed. Routing it to the Completion Reviewer asks a reviewer to
+        # certify work no Builder reported: across four wall-killed runs that cost 16.14 h of
+        # reviewer and Resolver churn against 3.60 h of killed Builder time, and none of the four
+        # launched another accepted Builder (#3284). The bounded automatic-recovery budget and the
+        # stage-stall pause still apply, so this cannot relaunch forever.
+        next_stage = "builder"
     # Final-audit-only runs keep the Builder in charge of implementation. Other routing
     # modes retain the established Plan Reviewer recovery review before another writer.
     # The completion retry this route chose needs the evidence just retired, so it goes to the
     # workflow's own verification stage instead — a final-audit-only run has no separate Validator, so
     # there its own audit stage re-produces the evidence. Asked only here: this route consults the
     # workflow approval, which no writer's timeout recovery has any reason to raise over.
-    stopped_writer = record.get("timeout_kind") == "person" and semantic_stage == "builder"
-    if had_validation and not keep_evidence and next_stage == semantic_stage and not stopped_writer:
+    if had_validation and not keep_evidence and next_stage == semantic_stage and not continues_builder:
         verification_stage = workflow.review_stage(state)
         if verification_stage in ("tester", "review_checkpoint"):
             next_stage = verification_stage
@@ -783,11 +797,7 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
             "Partial work remains archived and is not a completed report. Completion Review still needs the "
             "new independent report. Preserve the approved checks and saved execution limits."
         )
-    if (
-        semantic_stage == "builder"
-        and record.get("timeout_kind", "stage") in ("stage", "person")
-        and not record.get("report_only")
-    ):
+    if continues_builder:
         recovery["partial_work"] = partial_work.recovery(record, before, after, workspace, run_dir)
         recovery["instruction"] += (
             " The partial_work packet records capture availability and, when available, the stopped Builder's "
