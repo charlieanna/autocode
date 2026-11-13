@@ -32,6 +32,7 @@ export interface StageRow {
   tokens: number;
   tokensComplete: boolean;
   spentUsd: number | null;
+  costComplete: boolean;
   /** Why the newest attempt (or, while one runs, the one before it) did not succeed. */
   why: string;
 }
@@ -171,8 +172,9 @@ export function stages(view: unknown, now = Date.now()): StageRow[] {
       }
     }
     // A repaired stage's cost is its own stage row and its repair's: separate stages of one ledger.
-    const costs = [...new Set(group.map((row) => String(row.stage)))]
-      .map((name) => mapping(spend.get(name)).spent_usd).filter(isNumber);
+    const costRows = [...new Set(group.map((row) => String(row.stage)))]
+      .map((name) => mapping(spend.get(name)));
+    const costs = costRows.map((row) => row.spent_usd).filter(isNumber);
     if (newest.active && running !== null) costs.push(running);
     const working = state === "working" || state === "retrying";
     const runs = group.filter((row) => !repair(row));
@@ -190,6 +192,7 @@ export function stages(view: unknown, now = Date.now()): StageRow[] {
       tokens: used,
       tokensComplete: complete,
       spentUsd: costs.length ? costs.reduce((a, b) => a + b, 0) : null,
+      costComplete: !working && costRows.every((row) => isNumber(row.spent_usd) && row.complete === true),
       why: failed(newest) ? why(newest) : working && group.length > 1 ? why(group[group.length - 2]!) : "",
     };
   });

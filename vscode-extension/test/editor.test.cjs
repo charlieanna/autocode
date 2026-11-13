@@ -1770,7 +1770,7 @@ test('the run header shows the working stage and what it does, and its details t
   const row = ui.document.querySelector('#pipeline tr.working');
   assert.deepEqual([...row.querySelectorAll('td.model, td.num')].map((cell) => cell.textContent).slice(0, 1), ['claude-sonnet-5-5 medium']);
   assert.match(row.querySelector('td.time').textContent, /^1m1\ds$/);
-  assert.deepEqual([row.querySelector('td.tokens').textContent, row.querySelector('td.cost').textContent], ['9.4k+', '$0.04']);
+  assert.deepEqual([row.querySelector('td.tokens').textContent, row.querySelector('td.cost').textContent], ['9.4k+', '$0.04+']);
   assert.equal(row.querySelector('td.name .sub').textContent, 'claude-sonnet-5-5 medium', 'a narrow sidebar shows the model under the name');
   assert.deepEqual([...ui.document.querySelectorAll('#pipeline tfoot td')].map((cell) => cell.textContent), ['', 'Total', '', '', '9.4k+', '$0.04+']);
   assert.equal(ui.document.querySelector('#header-stage').textContent, 'Requirements: reading the issue list');
@@ -6161,7 +6161,7 @@ function meteredView(extra = {}) {
       ],
       tokens: { input_tokens: { value: 610000, complete: true }, output_tokens: { value: 41000, complete: true } },
     } },
-    cost: { spent_usd: 1.21, cap_usd: 5, complete: true, breakdown: { by_stage: [{ stage: 'terra', spent_usd: 0.31 }, { stage: 'sol', spent_usd: 0.2 }] } },
+    cost: { spent_usd: 1.21, cap_usd: 5, complete: true, breakdown: { by_stage: [{ stage: 'terra', spent_usd: 0.31, complete: true }, { stage: 'sol', spent_usd: 0.2, complete: true }] } },
     ...extra,
   };
 }
@@ -6182,7 +6182,7 @@ test('the run header lists every stage the run launched in one aligned table, wi
   assert.equal(tester.querySelector('.mark').textContent, '↻');
   const badge = tester.querySelector('.runs');
   assert.deepEqual([badge.textContent, badge.className, badge.title], ['×2', 'runs failed', '2 attempts, 1 failed']);
-  assert.deepEqual([...tester.querySelectorAll('td.num')].map((cell) => cell.textContent), ['42s', '2.4k', '$0.20']);
+  assert.deepEqual([...tester.querySelectorAll('td.num')].map((cell) => cell.textContent), ['42s', '2.4k', '$0.20+']);
   assert.match(tester.title, /last one answer rejected/);
   assert.equal(rows[0].querySelector('.runs'), null, 'a stage that launched once has no count');
   assert.deepEqual([...ui.document.querySelectorAll('#pipeline tfoot td.num')].map((cell) => cell.textContent), ['', '651k', '$1.21']);
