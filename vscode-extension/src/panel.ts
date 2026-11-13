@@ -819,7 +819,9 @@ const METER_STYLES = `
   #pipeline td.model, #pipeline .sub { opacity: .75; }
   #pipeline .sub { font-size: .7rem; overflow: hidden; text-overflow: ellipsis; }
   #pipeline .sub:empty { display: none; }
-  #pipeline .runs { margin-left: 5px; padding: 0 5px; border-radius: 8px; font-size: .64rem; font-weight: 400;
+  #pipeline .name-line { display: flex; align-items: baseline; }
+  #pipeline .stage-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  #pipeline .runs { flex: none; margin-left: 5px; padding: 0 5px; border-radius: 8px; font-size: .64rem; font-weight: 400;
                     background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
   #pipeline .runs.failed { background: transparent; color: var(--vscode-editorWarning-foreground, #cc8800);
                            border: 1px solid var(--vscode-editorWarning-foreground, #cc8800); }
@@ -1333,7 +1335,9 @@ function renderHeader(data) {
     item.dataset.job = step.label;
     item.appendChild(el('td', 'mark', step.state === 'working' && step.why ? '↻' : step.mark));
     const route = step.state === 'skipped' ? 'skipped' : [step.model, step.level].filter(Boolean).join(' ');
-    const name = el('td', 'name', step.label);
+    const name = el('td', 'name');
+    const nameLine = el('div', 'name-line');
+    nameLine.appendChild(el('span', 'stage-name', step.label));
     if (step.attempts > 1 || step.repairs) {
       // A small count of the stage's own launches, and its report repairs apart (a repair only rewrote a
       // rejected report); the words are its tooltip and Show details. Amber when an attempt failed.
@@ -1342,8 +1346,9 @@ function renderHeader(data) {
       const badge = el('span', 'runs' + (step.failed ? ' failed' : ''), count);
       badge.title = step.runs;
       badge.setAttribute('aria-label', step.runs);
-      name.appendChild(badge);
+      nameLine.appendChild(badge);
     }
+    name.appendChild(nameLine);
     // A narrow sidebar has no model column: a stage that used something shows its model under its
     // name, and one that has not (still to come or skipped) beside it, where its figures would be.
     const idle = !step.time && !step.tokens && !step.cost;
