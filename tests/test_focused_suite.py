@@ -114,6 +114,34 @@ class FocusedFallbackProofTests(unittest.TestCase):
         self.assertEqual(verify.PASS, again["verdict"], again)
         self.assertEqual(fallback["command"], again["suite_fallback"]["command"])
 
+    def test_a_later_proof_does_not_time_the_whole_suite_out_again_when_the_runtime_changed(self):
+        # The runtime a proof binds can change between proofs (a shared virtualenv) or be one the cache cannot
+        # bind (an editable install): the whole suite's timeout on the same original code is still settled.
+        real = verify.baseline_identity
+        calls = []
+
+        def unbound(*args, **kwargs):
+            identity = real(*args, **kwargs)
+            calls.append(1)
+            return {**identity, "environment_hash": f"changed-{len(calls)}", "reuse_supported": False}
+
+        state = self.state(test_timeout=1800)
+        with mock.patch.object(verify, "baseline_identity", side_effect=unbound):
+            first = self.prove(state)
+            self.project.write({"calc.py": "def add(a, b):\n    return a + b\n"})
+            again = self.prove(state)
+        self.assertEqual(["suite-on-base"], self.whole_runs)
+        self.assertEqual(verify.PASS, first["verdict"], first)
+        self.assertEqual(verify.PASS, again["verdict"], again)
+        self.assertEqual(first["suite_fallback"]["command"], again["suite_fallback"]["command"])
+
+        # A longer limit is a different question, so the whole suite runs again under it.
+        state["settings"]["regression"]["test_timeout"] = 3600
+        self.project.write({"calc.py": "def add(a, b):\n    return b + a\n"})
+        with mock.patch.object(verify, "baseline_identity", side_effect=unbound):
+            self.prove(state)
+        self.assertEqual(["suite-on-base", "suite-on-base"], self.whole_runs)
+
     def test_explicit_test_command_is_kept_even_when_it_times_out(self):
         command = shlex.quote(sys.executable) + " -m unittest discover -v"
         proof = self.prove(self.state(test_command=command))
