@@ -131,8 +131,10 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   private readonly pausing = new Set<string>();
   /** Tabs whose message for the next boundary is being saved; it never waits on `busy` (#3259). */
   private readonly messaging = new Set<string>();
-  /** Wait identities already announced, keyed by run key: a new tab for the same run does not re-announce. */
-  private readonly notified = new Map<string, Set<string>>();
+  /** Last announced identity per run, retained when a tab is reopened. */
+  private readonly notified = new Map<string, string>();
+  private readonly notices = new Map<string, { identity: string; id: string; close: () => void }>();
+  private readonly openNotice: vscode.Disposable;
   private sequence = 0;
   private refreshing: Promise<void> | null = null;
   private timer: NodeJS.Timeout | undefined;
@@ -157,8 +159,18 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     // shared by windows opened on the same workspace.
     this.legacyRun = storage.get<RunRef>("autocode.chat.run");
     this.startPolling();
+    this.openNotice = vscode.commands.registerCommand("autocode.openNeedNotice", (id: string) => {
+      const entry = [...this.notices.entries()].find(([, notice]) => notice.id === id);
+      const tab = entry && this.tabs.find((candidate) => candidate.run && runKey(candidate.run) === entry[0]);
+      if (tab?.run) this.show(tab.run);
+    });
     this.configuration = vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration("autocode.pollSeconds")) this.startPolling();
+      if (event.affectsConfiguration("autocode.notify")) {
+        if (!vscode.workspace.getConfiguration("autocode").get<boolean>("notify", true)) {
+          for (const key of this.notices.keys()) this.closeNotice(key, true);
+        } else void this.refresh();
+      }
     });
   }
 
@@ -204,6 +216,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   forget(run: RunRef): void {
     const key = runKey(run);
     if (!this.tabs.some((tab) => tab.key === key)) return;
+    this.closeNotice(key);
     if (this.tabs.length === 1) {
       this.tabs = [newTab("new")];
       this.activeKey = "new";
@@ -231,6 +244,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   private close(key: string): void {
     const index = this.tabs.findIndex((tab) => tab.key === key);
     if (index < 0 || this.tabs.length === 1) return;
+    const run = this.tabs[index]?.run;
+    if (run) this.closeNotice(runKey(run));
     this.tabs.splice(index, 1);
     if (this.activeKey === key) {
       const neighbor = this.tabs[Math.min(index, this.tabs.length - 1)] ?? this.tabs[0]!;
@@ -297,6 +312,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     this.disposed = true;
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
+    for (const key of this.notices.keys()) this.closeNotice(key);
+    this.openNotice.dispose();
     this.configuration.dispose();
     this.stageListsChanged.dispose();
   }
@@ -567,7 +584,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
           const status = await this.controller.pollStatus(tab.run!);
           tab.startingLabel = "";
           const before = tab.status;
-          if (this.tabs.includes(tab)) {
+          if (!this.disposed && this.tabs.includes(tab)) {
             this.announce(tab, status);
             void this.continueWhenReady(tab, before, status);
           }
@@ -602,20 +619,34 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     tab.status = status;
     tab.readError = "";
     this.noteStreaming(tab);
-    if (!notice || !tab.run || (status.needs?.kind === "continue" && this.busy.has(tab.key))) return;
+    if (!tab.run) return;
     const run = tab.run;
     const key = runKey(run);
-    let seen = this.notified.get(key);
-    if (!seen) { seen = new Set(); this.notified.set(key, seen); }
-    if (seen.has(notice.identity)) return;
-    seen.add(notice.identity);
+    const current = this.notices.get(key);
+    const eligible = notice && !(status.needs?.kind === "continue" && this.busy.has(tab.key)) ? notice : null;
+    if (current && current.identity !== eligible?.identity) this.closeNotice(key);
+    if (!eligible) { this.notified.delete(key); return; }
     if (vscode.workspace.getConfiguration("autocode").get<boolean>("notify", true) === false) return;
-    void (async () => {
-      const choice = await vscode.window.showInformationMessage(
-        `AutoCode: ${tabName(tab)} ${notice.outcome}`, "Open chat",
-      );
-      if (choice === "Open chat") this.show(run);
-    })();
+    if (this.notified.get(key) === eligible.identity) return;
+    this.notified.set(key, eligible.identity);
+    const id = randomBytes(16).toString("hex");
+    const link = `command:autocode.openNeedNotice?${encodeURIComponent(JSON.stringify([id]))}`;
+    const text = `AutoCode: ${tabName(tab)} ${eligible.outcome}`.replace(/[\[\]]/g, "");
+    let close!: () => void;
+    const pending = new Promise<void>((resolve) => { close = resolve; });
+    this.notices.set(key, { identity: eligible.identity, id, close });
+    void vscode.window.withProgress({
+      location: vscode.ProgressLocation.Notification,
+      title: `${text} [Open chat](${link})`,
+    }, () => pending);
+  }
+
+  private closeNotice(key: string, forgetIdentity = false): void {
+    const notice = this.notices.get(key);
+    if (!notice) return;
+    this.notices.delete(key);
+    if (forgetIdentity) this.notified.delete(key);
+    notice.close();
   }
 
   private async receive(message: ChatMessage): Promise<void> {
@@ -777,6 +808,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       .map((row) => ({ key: typeof row.key === "string" ? row.key : "", run: asRunRef(row.run) }))
       .filter((row) => row.key && (row.run || row.key.startsWith("new")));
     if (saved.length) {
+      const retained = new Set(saved.filter((row) => row.run).map((row) => runKey(row.run!)));
+      for (const key of this.notices.keys()) if (!retained.has(key)) this.closeNotice(key);
       this.tabs = saved.map((row) => newTab(row.key, row.run));
       this.activeKey = this.tabs.some((tab) => tab.key === message.activeKey)
         ? message.activeKey! : this.tabs[0]!.key;
@@ -784,6 +817,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     }
     const restored = message.hasSelectedRun ? asRunRef(message.selectedRun) : this.legacyRun;
     if (restored) {
+      for (const key of this.notices.keys()) if (key !== runKey(restored)) this.closeNotice(key);
       this.tabs = [newTab(runKey(restored), restored)];
       this.activeKey = this.tabs[0]!.key;
     }
