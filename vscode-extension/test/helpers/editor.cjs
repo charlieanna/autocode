@@ -38,6 +38,17 @@ function editor() {
       showInformationMessage: (message, ...items) => new Promise((resolve) => {
         notices.push({ message, items, resolve });
       }),
+      withProgress: (options, task) => {
+        const match = /^(.*) \[Open chat\]\(command:autocode\.openNeedNotice\?([^)]+)\)$/.exec(options.title);
+        if (!match) throw new Error(`Unexpected progress notification: ${options.title}`);
+        const args = JSON.parse(decodeURIComponent(match[2]));
+        const notice = {
+          message: match[1], items: ['Open chat'], closed: false,
+          resolve: () => commands.get('autocode.openNeedNotice')?.(...args),
+        };
+        notices.push(notice);
+        return Promise.resolve(task({}, {})).then(() => { notice.closed = true; });
+      },
       showQuickPick: async () => undefined,
       showWorkspaceFolderPick: async () => undefined,
       createTerminal: () => ({ show() {} }),
@@ -66,11 +77,11 @@ function editor() {
       },
     },
     commands: {
-      registerCommand: (name, handler) => { commands.set(name, handler); return { dispose() {} }; },
+      registerCommand: (name, handler) => { commands.set(name, handler); return { dispose() { if (commands.get(name) === handler) commands.delete(name); } }; },
       executeCommand: async () => {},
     },
     env: { clipboard: { writeText: async () => {}, readText: async () => '' } },
-    StatusBarAlignment: { Left: 1 }, ViewColumn: { One: 1 }, ConfigurationTarget: { Global: 1, Workspace: 2 },
+    StatusBarAlignment: { Left: 1 }, ProgressLocation: { Notification: 15 }, ViewColumn: { One: 1 }, ConfigurationTarget: { Global: 1, Workspace: 2 },
     TreeItem: class { constructor(label, collapsibleState) { this.label = label; this.collapsibleState = collapsibleState; } },
     TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
     Uri: { file: (value) => value }, MarkdownString: class {},
