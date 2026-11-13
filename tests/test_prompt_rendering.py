@@ -320,7 +320,7 @@ def rendered_cases():
                 "content": {"summary": "fixed draft"},
             }
             with (
-                patch.object(cli, "repair_limit", return_value=5),
+                patch.object(cli.report_repair_queue, "repair_limit", return_value=5),
                 patch.object(cli, "stale_report_repair", return_value=False),
                 patch.object(cli.resolver_runtime, "boundary"),
                 patch.object(cli.format_correction, "execute", return_value=False),

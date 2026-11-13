@@ -120,8 +120,8 @@
     "sha256": "cf5515f6a823c8090f371d81f819144f2f1ddde24cacccf380a6b79a7e8f8399"
   },
   "full-repair/requirements_gather": {
-    "bytes": 14547,
-    "sha256": "44cda91d0af67f8b70b4492875cb182c5db788698c6c8a893d8e6cc38e7cab54"
+    "bytes": 14647,
+    "sha256": "3e212a8f4cb67e50d5fdc375232c83dd94e2c44ee47df0c5c0256e2b3a4e5a3f"
   },
   "full-repair/review_completion": {
     "bytes": 7287,
@@ -364,24 +364,24 @@
     "sha256": "cec667e2731bab99f90b90a8361d2d70970ee22c6acb96e66157d7d7a73a23fc"
   },
   "planning/requirements_gather/adaptive": {
-    "bytes": 25179,
-    "sha256": "11b2f5c534b61c292e4b43c9bda25f48fbf5e2a7997edbdc8665af48a3c5fd84"
+    "bytes": 25885,
+    "sha256": "d4c703c5991255681563842264d672591674127d922f523c75475e5d39074190"
   },
   "planning/requirements_gather/design": {
-    "bytes": 26291,
-    "sha256": "19f405f5464f62f7efa6e8d68c715048fdcf57f386b3091b059beb1716caf295"
+    "bytes": 26997,
+    "sha256": "1fb9e00ae4422a449efaba80934ff133e2624b2dc856ea713a323bf5d2c99475"
   },
   "planning/requirements_gather/figma": {
-    "bytes": 26067,
-    "sha256": "feb757a78c3389794603ea16908a1ff0722a41f5010c9b2ae64142166b7e9274"
+    "bytes": 26773,
+    "sha256": "4d89fd0aca0522f7bd19bdf30a6d9bfa3430a4827e7cabfce231d7d0c77ab38e"
   },
   "planning/requirements_gather/investigation": {
-    "bytes": 26095,
-    "sha256": "cddaa364af10d91c0a289335415cdaddec24dfb4cea4560cacb0cf0e93db6e19"
+    "bytes": 26801,
+    "sha256": "2e716f4ab0d1c2775840b3849a4b974b2423bcca50c51acfd754d4da24583520"
   },
   "planning/requirements_gather/ordinary": {
-    "bytes": 25179,
-    "sha256": "11b2f5c534b61c292e4b43c9bda25f48fbf5e2a7997edbdc8665af48a3c5fd84"
+    "bytes": 25885,
+    "sha256": "d4c703c5991255681563842264d672591674127d922f523c75475e5d39074190"
   },
   "planning/review_plan/adaptive": {
     "bytes": 54841,
@@ -468,8 +468,8 @@
     "sha256": "7c6c2451e26ebbaa94d9a600c424fb72138a8a4c9b309774e011fc5400b6fd16"
   },
   "repair/baseline/requirements_gather": {
-    "bytes": 1142,
-    "sha256": "1e2189b8117c99080c451ed4995a411564974512eafed8a7c65345f928653763"
+    "bytes": 1242,
+    "sha256": "8bd400076c3aa848bdd47c1c40ad519e2b37518b14c6329799dabd9648f9974c"
   },
   "repair/baseline/review_plan": {
     "bytes": 4394,
@@ -572,12 +572,12 @@
     "sha256": "c41533aa11c59e369e71b775ec1edd4c59fa33cf236de6573ae2bd63670b4b30"
   },
   "requirements-final/batch": {
-    "bytes": 31430,
-    "sha256": "bc4ff3fe4e9cccd45cddc9b796c5140fb07b6c6c2da2aa0c08d8d7e9099a8a56"
+    "bytes": 32136,
+    "sha256": "38e97ae2ed953254775c75b836678e17c54ab782c505c34f9092d90b40d10a7a"
   },
   "requirements-final/conversational": {
-    "bytes": 32237,
-    "sha256": "1b027e3849a1efd050fa3a213d2b86ac2622bb2bf910eba50351b2d268901f22"
+    "bytes": 32943,
+    "sha256": "9842c59423a5550dc90e4d27492ce0f7b02a19ac7f03c60c3b76e9729c18389e"
   },
   "resolver/diagnose": {
     "bytes": 18641,
