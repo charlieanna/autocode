@@ -38,16 +38,28 @@ def run(
     ``env`` is None for every existing caller, so children keep inheriting
     this process's environment unchanged; acceptance phases pass the declared
     phase environment built by ``harness.phase_env``.
+
+    ``observed_normal_exit`` distinguishes an actual nonnegative child exit
+    from a signal, timeout or launch error without changing the legacy codes.
     """
     try:
-        return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, input=input, env=env)
+        result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, input=input, env=env)
+        result.observed_normal_exit = result.returncode >= 0
+        return result
     except subprocess.TimeoutExpired as error:
         out = error.stdout.decode(errors="replace") if isinstance(error.stdout, bytes) else error.stdout or ""
-        return subprocess.CompletedProcess(cmd, -1, out, f"TIMEOUT after {timeout}s")
+        result = subprocess.CompletedProcess(cmd, -1, out, f"TIMEOUT after {timeout}s")
     except FileNotFoundError as error:
-        return subprocess.CompletedProcess(cmd, 127, "", str(error))
+        result = subprocess.CompletedProcess(cmd, 127, "", str(error))
     except OSError as error:
-        return subprocess.CompletedProcess(cmd, 126, "", str(error))
+        result = subprocess.CompletedProcess(cmd, 126, "", str(error))
+    result.observed_normal_exit = False
+    return result
+
+
+def normal_failure(result: subprocess.CompletedProcess) -> bool:
+    """A failed product command must have actually exited, rather than failed to run."""
+    return result.returncode > 0 and getattr(result, "observed_normal_exit", False) is True
 
 
 def tail(proc: subprocess.CompletedProcess, limit: int = 600) -> str:
@@ -431,10 +443,12 @@ def python_change_checks(project: Path, scenario, package: str) -> list[Check]:
         checks.append(
             Check(
                 "new_tests_fail_on_original_code",
-                against_seed.returncode != 0,
+                normal_failure(against_seed),
                 "delivered tests fail on the original code"
-                if against_seed.returncode
-                else "delivered tests still pass on the original code",
+                if normal_failure(against_seed)
+                else "delivered tests still pass on the original code"
+                if against_seed.returncode == 0
+                else f"original-code check did not complete normally: {tail(against_seed)}",
             )
         )
     missing = sorted(test_names(scenario.seed / "tests") - test_names(project / "tests"))

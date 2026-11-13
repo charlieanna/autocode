@@ -55,6 +55,15 @@ SUITE_CONSUMERS = (
 # map; its producer and top-level scenario files also select the map-discovery guard.
 SCENARIO_RUNTIME_CONSUMERS = {
     **{
+        f"scenarios/catalog/{scenario}/oracle.py": ("scenarios.test_reliability_oracle_outcomes",)
+        for scenario in (
+            "greenfield-todo-cli",
+            "feature-timesheet-by-project",
+            "bugfix-iso-weeks",
+            "bugfix-realrepo-docutils-number-lines",
+        )
+    },
+    **{
         f"scenarios/catalog/{scenario}/{resource}": (
             "scenarios.test_harness.AdaptiveCompletionTests.test_progressive_delegations_retain_the_review_that_authorizes_execution",
         )

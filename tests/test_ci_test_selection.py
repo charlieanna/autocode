@@ -8,6 +8,18 @@ import run_suite
 
 
 class AccessTransportConsumerTests(unittest.TestCase):
+    def test_required_reliability_oracles_keep_their_process_outcome_counterexamples(self):
+        consumer = "scenarios.test_reliability_oracle_outcomes"
+        for scenario in (
+            "greenfield-todo-cli",
+            "feature-timesheet-by-project",
+            "bugfix-iso-weeks",
+            "bugfix-realrepo-docutils-number-lines",
+        ):
+            with self.subTest(scenario=scenario):
+                selected, _ = run_suite.scenario_selection([f"scenarios/catalog/{scenario}/oracle.py"], {})
+                self.assertIn(consumer, selected)
+
     def test_transport_changes_keep_the_public_startup_failure_regression_when_slow(self):
         consumer = "tests.test_model_preflight_budgets"
         selected = run_suite.select_tests(["tools/provider_conformance_transport.py"], {consumer: ""})
