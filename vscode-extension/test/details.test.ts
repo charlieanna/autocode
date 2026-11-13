@@ -511,3 +511,54 @@ test("cost and usage restate the core's accounting, tokens, time and attempts as
   assert.equal(section(runHeader(view()), "usage"), undefined);
   assert.equal(section(runHeader(view()), "routes"), undefined);
 });
+
+test("a stage whose newest attempt failed gets no tick, and a stopped run names where it stopped", () => {
+  // #3309's run, 2026-11-13: every Builder and Resolver attempt timed out and 0 of 13 criteria passed,
+  // yet the table ticked every stage and its summary read "7 of 7 ran".
+  const timedOut = { rejected: true, timed_out: true };
+  const paused = view({
+    status: "WAITING_FOR_USER",
+    pipeline: [
+      step("requirements", "Requirements", "ran"),
+      step("planner", "Planner", "ran"),
+      step("plan_reviewer", "Plan Reviewer", "ran"),
+      step("builder", "Builder", "ran"),
+      step("tester", "Tester", "ran"),
+      step("completion", "Completion Reviewer", "ran"),
+    ],
+    usage: { accounting: { attempts: [
+      attempt("requirements_gather", "Requirements"),
+      attempt("draft_plan", "Planner"),
+      attempt("review_plan", "Plan Reviewer"),
+      // The Builder did once finish a task, so its later failures are what the row shows.
+      attempt("builder", "Builder"),
+      attempt("tester", "Tester"),
+      attempt("review_completion", "Completion Reviewer"),
+      attempt("builder", "Builder", timedOut),
+      attempt("resolve", "Resolver", timedOut),
+      attempt("resolve", "Resolver", timedOut),
+    ] } },
+  });
+  const steps = pipelineSteps(paused, STARTED);
+  assert.deepEqual(steps.map((row) => [row.mark, row.label, row.stopped]), [
+    ["✓", "Requirements", false],
+    ["✓", "Planner", false],
+    ["✓", "Plan Reviewer", false],
+    ["✗", "Builder", true],
+    ["✓", "Tester", false],
+    ["✓", "Completion Reviewer", false],
+    ["✗", "Resolver", true],
+  ]);
+  const stages = section(runHeader(paused, STARTED), "pipeline");
+  assert.equal(stages?.summary, "Stopped at Resolver");
+  assert.equal(stages?.lines[3]?.slice(0, 9), "✗ Builder");
+  // A finished run still counts what ran, and says how many stopped on a failed attempt.
+  const ended = section(runHeader({ ...paused, done: true }, STARTED), "pipeline");
+  assert.equal(ended?.summary, "7 of 7 ran, 2 stopped on a failed attempt");
+  // A stage that failed and then succeeded keeps its tick.
+  const recovered = pipelineSteps(view({
+    pipeline: [step("builder", "Builder", "ran")],
+    usage: { accounting: { attempts: [attempt("builder", "Builder", timedOut), attempt("builder", "Builder")] } },
+  }), STARTED);
+  assert.deepEqual(recovered.map((row) => [row.mark, row.stopped]), [["✓", false]]);
+});

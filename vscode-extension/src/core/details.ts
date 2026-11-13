@@ -46,6 +46,8 @@ export interface PipelineStep {
   runs: string;
   /** Why the newest failed attempt did not succeed, while the stage retries or after it failed. */
   why: string;
+  /** The stage launched and its newest attempt failed, and it is not running again now: it gets no tick. */
+  stopped: boolean;
 }
 
 /** The stage table's last row: the run's working time, tokens and accounted spend, as the core totals them. */
@@ -82,6 +84,8 @@ export interface RunHeader {
 }
 
 export const STEP_MARKS: Record<StepState, string> = { working: "●", next: "›", ran: "✓", skipped: "–", pending: "·", not_run: "·" };
+/** A stage whose newest attempt failed: "ran" says it launched, never that its work stood (#3309's run, "7 of 7 ran"). */
+export const STOPPED_MARK = "✗";
 const STEP_STATES = new Set(Object.keys(STEP_MARKS));
 
 const mapping = (value: unknown): Row => (value && typeof value === "object" && !Array.isArray(value) ? value as Row : {});
@@ -114,6 +118,8 @@ function clock(value: unknown): string {
 interface JobUse {
   model: string; level: string; seconds: number | null; tokens: number; tokensComplete: boolean; spent: number | null;
   attempts: number; failed: number; repairs: number; why: string; active: boolean;
+  /** The job's newest stage row ended on a failed attempt (the meter's `failed` state). */
+  lastFailed: boolean;
 }
 
 function jobUse(view: Row, now: number): Map<string, JobUse> {
@@ -134,6 +140,8 @@ function jobUse(view: Row, now: number): Map<string, JobUse> {
       repairs: (seen?.repairs ?? 0) + row.repairs,
       why: row.why || seen?.why || "",
       active: Boolean(seen?.active) || row.state === "working" || row.state === "retrying",
+      // Rows come in the order each stage first ran, so a job's later stage (a revised plan) decides.
+      lastFailed: row.state === "failed",
     });
   }
   return used;
@@ -162,7 +170,9 @@ function stepOf(label: string, state: StepState, row: Row, use: JobUse | undefin
     label, state, mark: STEP_MARKS[state], detail: "", now: state === "working" ? nowFor(view, label) : "",
     model: shortModel(model), level, route: [model, level].filter(Boolean).join(" "),
     time: "", tokens: "", cost: "", attempts: use?.attempts ?? 0, failed: use?.failed ?? 0, repairs: use?.repairs ?? 0, runs: "", why: "",
+    stopped: state === "ran" && Boolean(use?.lastFailed),
   };
+  if (step.stopped) step.mark = STOPPED_MARK;
   if (state === "skipped") {
     step.detail = "skipped" + (text(row.reason) ? `: ${text(row.reason)}` : "");
     return step;
@@ -227,7 +237,12 @@ function pipelineSection(view: Row, steps: PipelineStep[]): DetailSection | null
   const working = steps.find((step) => step.state === "working");
   const next = steps.find((step) => step.state === "next");
   const ran = steps.filter((step) => step.state === "ran").length;
-  const summary = working ? `${working.label} working` : next ? `${next.label} next` : `${ran} of ${steps.length} ran`;
+  const stopped = steps.filter((step) => step.stopped);
+  // A stopped run names where it stopped; "7 of 7 ran" with ticks read as a finished, passing run.
+  const summary = working ? `${working.label} working`
+    : next ? `${next.label} next`
+    : stopped.length && view.done !== true ? `Stopped at ${stopped[stopped.length - 1]!.label}`
+    : `${ran} of ${steps.length} ran` + (stopped.length ? `, ${stopped.length} stopped on a failed attempt` : "");
   const lines: string[] = [];
   for (const step of steps) {
     lines.push(`${step.mark} ${stageDetail(step)}`);

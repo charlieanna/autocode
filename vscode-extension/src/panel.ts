@@ -830,6 +830,7 @@ const METER_STYLES = `
   #pipeline tbody tr.working td:last-child { border-radius: 0 4px 4px 0; }
   #pipeline tbody tr.working td.mark { color: var(--vscode-charts-blue, #1a6fb0); }
   #pipeline tbody tr.retrying td.mark { color: var(--vscode-editorWarning-foreground, #cc8800); }
+  #pipeline tbody tr.ran.stopped td.mark { color: var(--vscode-errorForeground, #c72e2e); }
   #pipeline tbody tr.working td.name, #pipeline tbody tr.next td.name { font-weight: 600; }
   #pipeline tbody tr.pending, #pipeline tbody tr.not_run, #pipeline tbody tr.skipped { opacity: .55; }
   #pipeline tbody tr.skipped td.name { text-decoration: line-through; }
@@ -1329,7 +1330,7 @@ function renderHeader(data) {
   body.textContent = '';
   header.pipeline.forEach((step) => {
     // A working stage after a failed attempt is retrying: its badge and mark say so.
-    const item = el('tr', step.state + (step.state === 'working' && step.why ? ' retrying' : ''));
+    const item = el('tr', step.state + (step.state === 'working' && step.why ? ' retrying' : '') + (step.stopped ? ' stopped' : ''));
     item.dataset.job = step.label;
     item.appendChild(el('td', 'mark', step.state === 'working' && step.why ? '↻' : step.mark));
     const route = step.state === 'skipped' ? 'skipped' : [step.model, step.level].filter(Boolean).join(' ');
