@@ -265,7 +265,19 @@ refactor of a Minitest, `make test` or shell project is proven this way. A bug f
 still needs a test that fails without it, a change with a test file is proven as
 before, and changed product lines still need the Tester's evidence. A project whose
 runner names its tests keeps naming them: a command guard there is refused when the
-plan is drafted (`tools/autocode_command_guards.py`, owner decision 2026-11-13). When AutoCode detects no runner and nothing was typed, the regression
+plan is drafted (`tools/autocode_command_guards.py`, owner decision 2026-11-13).
+
+A repair whose regression test the project already had changes no test. Where the runner
+names its tests, the tests that fail on the original code and pass with the change are
+the proof. A Jest or Mocha suite, Minitest files and a test script the approved plan
+names report only an exit code, so there the suite shows the repair as a whole: it
+failed on the original code and passes with the change. That counts when the change is
+code alone and touches no test, and the suite's own files (its tests, manifests and
+runner configs) are the ones the original code had, or the original definition also
+passes over the new code. `make test` and a script package.json names run whatever a
+recipe says, so they do not show a repair this way, and a change that also edits
+another kind of file is judged as before (`tools/autocode_first_suite.py`,
+`exit_flip`). When AutoCode detects no runner and nothing was typed, the regression
 proof runs the approved plan's own test command and judges its exit code
 (`tools/autocode_plan_proof_command.py`), recording that choice in the proof's
 notes and review reasons; it never asks the person to pass `--test-command`. Do

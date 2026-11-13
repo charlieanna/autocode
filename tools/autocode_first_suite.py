@@ -435,6 +435,69 @@ def repaired_by_flip(base_suite, on_base_with_tests, on_candidate):
     return sorted(set(base_results.get("failed") or []) & ran_and_failed & set(candidate.get("passed") or []))
 
 
+# Runners that report only an exit code and run the project's test files themselves, so what such a suite
+# runs is decided by its test files and the manifests and runner configs the definition scan pins
+# (autocode_verify._base_suite_definition). ``make test`` and a script package.json names run anything a
+# recipe says, which that scan does not read, so they are left out.
+EXIT_REPAIR_RUNNERS = frozenset({"jest", "mocha", "minitest"})
+
+
+def exit_repair_suite(framework, suite, adopted) -> bool:
+    """Whether ``suite`` can show a repair by its exit code alone (exit_flip): the suite of a detected runner
+    of EXIT_REPAIR_RUNNERS, or, with no runner detected, the approved plan's command ``adopted``, which
+    names test files the original code has (autocode_plan_proof_command.choose)."""
+    if not suite:
+        return False
+    if framework is None:
+        return suite == adopted
+    return framework.name in EXIT_REPAIR_RUNNERS and suite == framework.suite
+
+
+def repairable_exit(base_suite, suite_command) -> bool:
+    """Whether the base suite, run with the proof's suite command, failed there as a whole, naming no test.
+
+    The twin of repairable_failures for a runner that reports only an exit code (a Jest or Mocha suite,
+    Minitest files run one by one, a test script the plan names): its health is ``failing`` when the command
+    ran to completion, exited nonzero and reported no per-test result (autocode_suite_health). A repair
+    whose regression test the project already had changes no test, and a live Jest run of "this test
+    fails, fix the code, do not change the tests" then failed its proof for want of a new test and asked the
+    person to type a regression command (2026-11-13). exit_flip decides its proof.
+    """
+    suite = base_suite or {}
+    return bool(suite_command) and suite.get("command") == suite_command and suite.get("health") == "failing"
+
+
+def existing_repair(base_suite, suite_command, code_only):
+    """What a repair that changed no test may rest on: (the base suite's failing tests, whether instead its
+    failing exit code). The exit code counts only for a suite verify() was told can show it, and a change
+    of code alone (``code_only``): another kind of file may be one the suite reads."""
+    failing = repairable_failures(base_suite, suite_command)
+    return failing, bool(not failing and code_only and repairable_exit(base_suite, suite_command))
+
+
+def exit_flip(passes, base_suite, fail, unverified, notes, review_reasons, allow_no_test):
+    """The base's failing suite is the regression test of a repair that changed no test, where none is named.
+
+    It ran and failed on the original code (repairable_exit). ``passes`` says the same suite passes with the
+    change: the candidate's run exited 0, and the suite's own files are the original ones or the original
+    definition also passes over the new code (verify's base-definition run), so the change did not make
+    the suite pass by running less of it. That is the bug reproduced by tests the project already had and
+    fixed by the change; otherwise the ordinary missing-test judgement stands.
+    """
+    if not passes:
+        (unverified if allow_no_test else fail).append(
+            "No regression test was added or changed, and the suite that fails on the original code is not "
+            "shown to pass with the change, so the bug is not shown to be reproduced"
+        )
+        return
+    command, code = base_suite["command"], base_suite["receipt"]["exit_code"]
+    notes.append(
+        f"No test changed, and this project's runner names no test: its suite `{command}` fails on the original "
+        f"code (exit {code}) and passes with the change, so the tests the project already has show the repair"
+    )
+    review_reasons.append("the repair rests on the whole suite's exit code on the original code and with the change")
+
+
 def repaired_evidence(proof, existing_failures, base_suite, checks, on_candidate):
     """The repair evidence for the preservation verdict: the proof's fail-to-pass flip when the base
     suite already proves the repair (``existing_failures``), else the flip the changed tests still

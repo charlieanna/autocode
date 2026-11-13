@@ -10,7 +10,7 @@ provider (`scenarios/run.py run --fake`). Eight of them then ran once on Claude 
 (`--profile claude-tiers`: Sonnet 5.5 Requirements, Planner and Tester, Opus 5.5 reviewers,
 Haiku 4.5 Builder), $9.15 in all, and $12.59 more for the eight runs after a fix. Sections 5 to 7
 (JavaScript) are six later runs, $10.86, section 8 (RSpec) four more, $5.51, and section 9 (Minitest)
-three, $4.82.
+three, $4.82. Sections 10 and 11 are fourteen runs on master `c6b9f7f`, $16.57.
 
 ## Scripted stops that real models do not hit
 
@@ -245,6 +245,60 @@ without a question: 142 s, $0.88, 8 stages (manifest
 completed the same way (160 s, $0.90, manifest
 `f65d7c79103a8dc82babad76d2165269c6f2bb5bc3f9f12bbe8e5f3c33be06e4`) but could not be told from a
 test's name or title, which plans also write in backticks.
+
+## 10. More kinds of task, on Claude models
+
+Twelve more kinds on master `c6b9f7f`. A question the harness answered for the person
+counts as asking the person.
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| Jest: bug fix with a regression test | complete, 142 s, $0.87 | `1eacda67c99dba3c3a15a07afa1ad6bcb4ce2a7a192a8f5fc280be7803705683` |
+| Jest: refactor | complete, 158 s, $0.94 | `239c5133bb27636f92c64fd1783b32ed48697c9b45e4caa96e4bd61288c76119` |
+| Documentation only (README section) | complete, 116 s, $0.66 | `d0d3dfd1107a11a0eb3a8dd69ec26a7701816e6617fd8fec8705f499be23a9d6` |
+| CI workflow only | complete, 159 s, $0.75 | `da9fee47bb16965b7e79da9904042061492f765260d0447758c1c29ca1b9cb22` |
+| Tests only (Python) | complete, 117 s, $0.72 | `2d5f451eecdba97870c0ed05a6a12b7e162dd938beea812b38590add85fbf648` |
+| CSS change in a static site with no tests | complete, 139 s, $0.72 | `1328921765433c26b4f0c9ec3ba8b40f67d19906e960678280c90f470282f854` |
+| Add a Dockerfile and .dockerignore | complete, 178 s, $0.84 | `bc3015eb14cfa2a20ef19318c441623b496858141805a11f77d7801ad2051591` |
+| Add a SQL migration | complete, 215 s, $1.31 | `d3946f93fa2d5241d810bebdf7739fcdcac88d64bf46ac4e76a55dbf4666c217` |
+| "This test fails, fix the code, do not change the tests" (Python) | complete, 109 s, $0.69 | `c6678043b526dd9a0c11528c5a1f1fe01b8814c2be7a80a89978955b3b9334b3` |
+| The same in a Jest project | asks the person (section 11) | `c6afa2cbbca195dcc315394a5f633f07d5fa372c79605e46cf6634f274e655f0` |
+| "Make this slow function fast" (Python) | complete, 221 s, $1.55, on the second run | `fbe91e7d494838c5170f656a064d0afc10e6d0308613927c15495da135d9b689` |
+| Add an option to a script in a project with no tests | complete after asking the person, 394 s, $2.91 | `5b748731f3a0361cac4f1a9495765f0af660d2ccfd543f45c7dcfb3438669633` |
+
+Both Jest plans were sent back once when drafted: the Planner first guarded with test titles, as it
+does for `node:test` and Vitest, and the plan check told it that Jest names no test. The refactor then
+used ``guard: run `npm test --silent` `` (section 9).
+
+The first run of the performance task did not finish in the harness's 30 minutes ($0.84). Its new test
+called `count_primes(2000000)` with no time bound, and the proof ran that test on the original, slow
+code, where it runs for hours; each such run ends at the proof's 15-minute limit. The second run's test
+bounded its own time and the task completed.
+
+The script with no tests planned `hello.py` alone, with shell commands as its criteria. A project with
+no test has nothing to guard the change with, so the proof failed twice with "No regression test was added
+or changed", and the Resolver asked "Allow one new test file, tests/test_hello.py, as an exception to
+'Edit only hello.py'?" The run finished after 20 stages. This is known when the plan is drafted.
+
+## 11. A failing test to repair, where no test is named: the person is asked (fixed)
+
+"The test 'counts a partial last page' in tests/pager.test.js fails. Fix src/pager.js so that it passes. Do
+not change the tests." In a Python project the plan names the failing test (`test: test_partial_last_page`),
+it fails on the original code and passes with the change, and that is the proof
+(`first_suite.existing_flip`). Jest reports only an exit code, so the plan's criterion was "`npm test
+--silent` fails on the original code and passes with the fix", and the change was `src/pager.js` alone.
+The proof failed twice with "No regression test was added or changed", and the Resolver asked the person to
+set a regression command (256 s, $1.57).
+
+Fixed: a suite that names no test shows the same repair as a whole. When the change is code alone and
+touches no test, and the suite failed on the original code, the proof needs it to pass with the change,
+with the suite's own files (its tests, manifests and runner configs) as the original code had them
+(`first_suite.exit_flip`). That holds for the suites whose inputs AutoCode knows: Jest, Mocha, Minitest
+files, and a test script the approved plan names where no runner is detected. `make test` and a
+package.json script run whatever a recipe says, and a shell test that sources the product holds the
+product at its original, so those keep the old judgement. On the fixed tree the same request completed
+without a question (346 s, $2.20, of which about half was a Tester report repair unrelated to the proof;
+manifest `3cacb2fc3b57d06c8fba7b474c3d94e3576ac73e8c0c515f2376af2e48560521`).
 
 ## Also seen, not yet run on real models
 
