@@ -141,6 +141,65 @@ class StatusTests(unittest.TestCase):
         self.assertEqual("Builder", entry["speaker"])
         self.assertIn("Repairing", entry["text"])
 
+    def test_only_the_current_runner_abandonment_announces_automatic_recovery(self):
+        automatic = {"kind": "stage_abandoned", "actor": "runner", "attempt_id": "001/tester-01"}
+        cases = (
+            ("automatic", [automatic], "001/tester-01", "PAUSED_STAGE_ABANDONED", True),
+            ("unrelated event", [automatic, {"kind": "note"}], "001/tester-01", "PAUSED_STAGE_ABANDONED", True),
+            ("manual", [{**automatic, "actor": "user_cli"}], "001/tester-01", "PAUSED_STAGE_ABANDONED", False),
+            ("legacy", [], "001/tester-01", "PAUSED_STAGE_ABANDONED", False),
+            ("stale attempt", [automatic], "002/tester-01", "PAUSED_STAGE_ABANDONED", False),
+            ("missing attempt", [automatic], None, "PAUSED_STAGE_ABANDONED", False),
+            (
+                "missing event identity",
+                [{"kind": "stage_abandoned", "actor": "runner"}],
+                None,
+                "PAUSED_STAGE_ABANDONED",
+                False,
+            ),
+            (
+                "later manual abandonment",
+                [automatic, {**automatic, "actor": "user_cli"}],
+                "001/tester-01",
+                "PAUSED_STAGE_ABANDONED",
+                False,
+            ),
+            ("other pause", [automatic], "001/tester-01", "PAUSED_REQUESTED", False),
+        )
+        reason = "Partial work retained. Resume explicitly for Tester to inspect it and choose the next step."
+        for label, events, attempt, paused, recovering in cases:
+            with self.subTest(label=label):
+                state = {
+                    **self.state,
+                    "active_stage": None,
+                    "next_stage": "tester",
+                    "status": paused,
+                    "stop_reason": reason,
+                    "user_events": events,
+                    "recovery_context": {"attempt_id": attempt},
+                }
+                entry = status.record(state, timestamp=100)
+                if recovering:
+                    self.assertIn("set aside for automatic recovery", entry["text"])
+                    self.assertIn("partial work retained", entry["text"])
+                    self.assertNotIn("Resume explicitly", entry["text"])
+                    self.assertNotIn("Paused", entry["text"])
+                else:
+                    self.assertIn("Paused", entry["text"])
+                    self.assertIn(reason, entry["text"])
+                self.assertEqual((paused, reason), (state["status"], state["stop_reason"]))
+
+    def test_a_current_public_question_takes_precedence_over_automatic_abandonment(self):
+        self.state.update(
+            status="PAUSED_STAGE_ABANDONED",
+            recovery_context={"attempt_id": "001/tester-01"},
+            user_events=[{"kind": "stage_abandoned", "actor": "runner", "attempt_id": "001/tester-01"}],
+        )
+        public = {"scope": "clarification", "request": {"question": "Which project?"}, "questions": []}
+        with patch.object(human, "current", return_value=public):
+            entry = status.record(self.state, timestamp=100)
+        self.assertEqual("Resolver: Which project? Answer its question.", entry["text"])
+
     def test_role_name_translates_stage_codes(self):
         self.assertEqual("Builder", status.role_name("builder"))
         self.assertEqual("Builder", status.role_name("builder_report_repair"))

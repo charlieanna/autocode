@@ -93,6 +93,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **Automatic recovery no longer tells you to resume** (#3351): when AutoCode sets a stopped attempt aside before retrying it or asking the Investigator, the progress log says that partial work was retained for automatic recovery. Explicit abandonment still reports the pause and its resume action; the intermediate recovery checkpoint remains safe to resume after a crash.
+
 - **A Kilo agent without capture permission is refused before task spend** (#3366): model-free readiness checks every selected ordinary Kilo transport, including a Kilo-only Tester behind another tool. An unusable shell policy stops with configuration guidance before planning; operator asks and denials, selected routes and caps stay unchanged. Ordinary launches recheck the policy, and native-owned isolated agents retain their own conformance checks.
 
 - **A Resolver that repeatedly times out reaches the Investigator** (#3367): repair Resolvers now use the same bounded, independent investigation as other stuck stages. Attempts, partial usage, routes and saved work stay in the history; reopening cannot launch another identical model attempt. The Investigator still cannot investigate itself.

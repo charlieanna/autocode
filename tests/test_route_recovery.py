@@ -5,10 +5,12 @@ With GLM, MiMo and the ChatGPT login connected, selection builds on GPT-6 Sol an
 because its only other candidate, Sol, is the Builder's family, so that pause stands as before.
 """
 
+import io
 import json
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -159,6 +161,7 @@ class RouteRecoveryTests(unittest.TestCase):
         import autocode_stage_recovery as stage_recovery
 
         state = self.state()
+        state.update(task="Build the change", workspace=str(self.root))
         state["active_stage"]["duration_seconds"] = 7
         before = self.root / "validator-01.before.json"
         before.write_text(json.dumps({"revision": "before", "files": {}}))
@@ -167,10 +170,16 @@ class RouteRecoveryTests(unittest.TestCase):
         partial.write_text("keep this work")
         self.runtime.abandon_stage = stage_recovery.abandon_stage
         self.runtime.count_automatic_recovery = accounting.count
-        with mock.patch.object(
-            stage_recovery.source_scope,
-            "snapshot",
-            return_value={"revision": "after", "files": {"partial.txt": "hash"}},
+        self.runtime.write_json = stage_recovery.records.write_json
+        output, log = io.StringIO(), io.StringIO()
+        with (
+            mock.patch.object(
+                stage_recovery.source_scope,
+                "snapshot",
+                return_value={"revision": "after", "files": {"partial.txt": "hash"}},
+            ),
+            redirect_stdout(output),
+            redirect_stderr(log),
         ):
             self.assertTrue(
                 route_recovery.recover(
@@ -187,6 +196,10 @@ class RouteRecoveryTests(unittest.TestCase):
         self.assertEqual(["partial.txt"], saved["stages"][-1]["changed_files"])
         self.assertEqual("runner", saved["user_events"][-1]["actor"])
         self.assertEqual("builder", saved["next_stage"])
+        self.assertIn("set aside for automatic recovery", log.getvalue())
+        self.assertIn(f"switched to {MIMO}", output.getvalue())
+        self.assertNotIn("Resume explicitly", log.getvalue() + output.getvalue())
+        self.assertNotIn("Paused Stage Abandoned", log.getvalue() + output.getvalue())
 
     def test_a_live_attempt_cannot_change_the_route(self):
         state = self.state()

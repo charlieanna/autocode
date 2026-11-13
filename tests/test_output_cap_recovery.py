@@ -6,10 +6,12 @@ to name another model. The fixture holds that attempt's own step events (its rea
 tool calls removed).
 """
 
+import io
 import json
 import shutil
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -20,6 +22,7 @@ import autocode_quota_route as quota_route
 import autocode_recovery_accounting as accounting
 import autocode_recovery_dispatch as dispatch
 import autocode_review_effort as review_effort
+import autocode_run_view as run_view
 import autocode_stage_recovery as stage_recovery
 import autocode_stuck_job as stuck_job
 import autocode_support as support
@@ -134,6 +137,68 @@ class ReasoningExhaustionTests(unittest.TestCase):
         self.assertEqual(("medium", "low"), (row["from"], row["to"]))
         # The read answer is kept for the rest of the run, beside a launch's own listing.
         self.assertEqual(["low", "medium", "high"], saved["settings"]["declared_variants"][MIMO])
+
+    def test_automatic_retry_and_investigation_never_announce_a_manual_resume(self):
+        self.runtime.write_json = stage_recovery.records.write_json
+        for level, next_stage, continuation in (
+            ("medium", "tester", "running it again at low on the same model without asking"),
+            ("low", stuck_job.STAGE, "the Investigator looks before anyone is asked"),
+        ):
+            with self.subTest(level=level):
+                state = self.state(level=level)
+                state.update(task="Check the change", workspace=str(self.root), version=3, phase="IMPLEMENTING")
+                state["settings"]["roles"]["tester"] = state["settings"]["roles"].pop("requirements")
+                state["active_stage"].update(stage="tester", role="tester", route_role="tester")
+                output, log = io.StringIO(), io.StringIO()
+                with redirect_stdout(output), redirect_stderr(log):
+                    self.assertEqual(
+                        "reasoning_exhaustion", dispatch.recover(self.runtime, state, self.root, self.root, STOP)
+                    )
+                saved = json.loads((self.root / "state.json").read_text())
+                public = run_view.view(saved, run_dir=self.root, workspace=self.root)
+                self.assertEqual(("RUNNING", next_stage), (public["status"], public["next_stage"]))
+                self.assertIsNone(public["stop_reason"])
+                self.assertIn("set aside for automatic recovery", log.getvalue())
+                self.assertIn("partial work retained", log.getvalue())
+                self.assertIn(continuation, output.getvalue())
+                messages = "\n".join(row["text"] for row in saved["progress_messages"])
+                for text in (log.getvalue(), output.getvalue(), messages):
+                    self.assertNotIn("Resume explicitly", text)
+                    self.assertNotIn("Paused Stage Abandoned", text)
+                self.assertTrue(Path(saved["stages"][-1]["events"]).is_file())
+                self.assertEqual(1, public["usage"]["accounting"]["attempt_count"])
+
+    def test_explicit_abandonment_still_announces_and_exposes_the_pause(self):
+        state = self.state()
+        state.update(task="Clarify the change", workspace=str(self.root))
+        selected = stage_recovery.records.attempt_id(state["active_stage"])
+        log = io.StringIO()
+        with redirect_stderr(log):
+            stage_recovery.abandon_stage(state, self.root, self.root, selected)
+        public = run_view.view(state, run_dir=self.root, workspace=self.root)
+        self.assertEqual("PAUSED_STAGE_ABANDONED", public["status"])
+        self.assertIn("--resume-paused", public["next_command"])
+        self.assertIn("Resume explicitly", public["stop_reason"])
+        self.assertIn("Paused Stage Abandoned", log.getvalue())
+        self.assertIn("Resume explicitly", log.getvalue())
+
+    def test_a_crash_before_continuation_keeps_the_archived_attempt_and_resumable_checkpoint(self):
+        state = self.state()
+        state.update(task="Clarify the change", workspace=str(self.root))
+        self.runtime.write_json = mock.Mock(side_effect=OSError("continuation save failed"))
+        output, log = io.StringIO(), io.StringIO()
+        with redirect_stdout(output), redirect_stderr(log), self.assertRaisesRegex(OSError, "continuation save"):
+            recovery.recover(self.runtime, state, self.root, self.root, STOP)
+        saved = json.loads((self.root / "state.json").read_text())
+        public = run_view.view(saved, run_dir=self.root, workspace=self.root)
+        self.assertEqual("PAUSED_STAGE_ABANDONED", public["status"])
+        self.assertIn("--resume-paused", public["next_command"])
+        self.assertIn("Resume explicitly", public["stop_reason"])
+        self.assertTrue(Path(saved["stages"][-1]["events"]).is_file())
+        self.assertEqual(1, public["usage"]["accounting"]["attempt_count"])
+        self.assertEqual(1, accounting.spent(saved))
+        self.assertIn("set aside for automatic recovery", log.getvalue())
+        self.assertNotIn("running it again", output.getvalue())
 
     def test_a_listing_that_will_not_read_leaves_the_pause_standing(self):
         state = self.state(origin="runner_default")

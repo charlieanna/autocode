@@ -45,6 +45,17 @@ def _model(active):
     return None
 
 
+def _automatic_abandonment(state: RunState):
+    """Whether the latest abandonment event belongs to this recovery checkpoint."""
+    selected = (state.get("recovery_context") or {}).get("attempt_id")
+    if not selected:
+        return False
+    for event in reversed(state.get("user_events") or []):
+        if event.get("kind") == "stage_abandoned":
+            return event.get("attempt_id") == selected and event.get("actor") == "runner"
+    return False
+
+
 def record(state: RunState, *, timestamp=None):
     if not all(key in state for key in ("task", "workspace", "status")):
         return None
@@ -102,6 +113,10 @@ def record(state: RunState, *, timestamp=None):
     elif status == "RESOLVER_PENDING" or (status in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL") and not public):
         role = roles.SCREEN["resolver"]
         text = "The Resolver is deciding the next step. Nothing is needed from you yet."
+    elif status == "PAUSED_STAGE_ABANDONED" and not public and _automatic_abandonment(state):
+        # Recovery saves the archive before continuing, so a crash leaves a safe pause.
+        # Announce the completed archival action, not a manual resume that is not needed.
+        text = "Attempt set aside for automatic recovery; partial work retained."
     elif status.startswith("PAUSED") or status in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL", "BLOCKED"):
         detail = (
             request.get("question")
