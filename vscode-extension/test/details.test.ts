@@ -148,6 +148,66 @@ test("the spend footer marks incomplete totals as a floor", () => {
   assert.equal(spendSummary(view({ run_metrics: partial })), "$2.50+ across 3 jobs");
 });
 
+test("incomplete spend details do not present unknown builder and failed-attempt floors as free", () => {
+  const metrics = {
+    ...METRICS, complete: false,
+    by_job: [{ job: "Builder", spent_usd: 0, complete: false }, ...METRICS.by_job.slice(1)],
+    waste: { ...METRICS.waste, failed_attempts: 4, failed_usd: 0, failed_usd_complete: false },
+    single_model: { ...METRICS.single_model, builder_usd: 0, builder_share: 0,
+      planning_usd: 2.25, planning_share: 0.49, review_usd: 2.33, review_share: 0.51 },
+  };
+  const shown = view({
+    run_metrics: metrics,
+    cost: { breakdown: { by_stage: [{ stage: "builder", job: "Builder", spent_usd: null, complete: false }] } },
+    usage: { accounting: { attempts: [
+      attempt("builder", "Builder", { exit_code: 1, attributed_reported_usd: { known: 0, known_items: 0, unknown_items: 1, complete: false } }),
+    ] } },
+  });
+  assert.equal(spendSummary(shown), "$2.50+ across 3 jobs");
+  const lines = section(runHeader(shown), "spend")!.lines;
+  assert.ok(lines.includes("  4 failed attempts cost not reported; ran again: Builder ×2"));
+  assert.ok(lines.includes("  Builder cost not reported; planning $2.25 (known part); checking $2.33 (known part)"));
+  assert.ok(!lines.some((line) => /Builder 0%|Builder \$0|% of cost/.test(line)));
+});
+
+test("incomplete comparisons and failed attempts distinguish known zero from wholly unknown", () => {
+  for (const [amount, expected] of [[null, "cost not reported"], [0, "$0.00 (known part)"], [0.2, "$0.20 (known part)"]] as const) {
+    const metrics = {
+      ...METRICS, complete: false,
+      by_job: [{ job: "Builder", spent_usd: amount ?? 0, complete: false }, ...METRICS.by_job.slice(1)],
+      waste: { ...METRICS.waste, failed_attempts: 1, failed_usd: amount ?? 0, failed_usd_complete: false, repeated_jobs: [] },
+      single_model: { ...METRICS.single_model, builder_usd: amount ?? 0, builder_share: 0, checking_usd: 2 },
+    };
+    const shown = view({
+      run_metrics: metrics,
+      cost: { breakdown: { by_stage: [{ stage: "builder", spent_usd: amount, complete: false }] } },
+      usage: { accounting: { attempts: [
+        attempt("builder", "Builder", { exit_code: 1, attributed_reported_usd: {
+          known: amount ?? 0, known_items: amount === null ? 0 : 1, unknown_items: 1, complete: false,
+        } }),
+      ] } },
+    });
+    const lines = section(runHeader(shown), "spend")!.lines;
+    assert.ok(lines.includes(`  1 failed attempt ${expected}`));
+    assert.ok(lines.includes(`  Builder ${expected}; planning and checking $2.00 (known part)`));
+  }
+  const complete = view({
+    run_metrics: { ...METRICS, waste: { ...METRICS.waste, failed_usd: 0 }, single_model: { ...METRICS.single_model, builder_usd: 0, builder_share: 0 } },
+  });
+  assert.equal(spendSummary(complete), "Cost: Builder 0% · everything else 100%");
+  assert.ok(section(runHeader(complete), "spend")!.lines.includes("  Builder $0.00 (0%); planning and checking $1.00"));
+});
+
+test("incomplete comparisons identify a completely reported builder zero without inventing unknown zero splits", () => {
+  const shown = view({
+    run_metrics: { ...METRICS, complete: false, by_job: [{ job: "Builder", spent_usd: 0, complete: true }],
+      single_model: { ...METRICS.single_model, builder_usd: 0, builder_share: 0, planning_usd: 0, review_usd: 0 } },
+    cost: { breakdown: { by_stage: [{ stage: "builder", spent_usd: 0, complete: true }] } },
+  });
+  assert.ok(section(runHeader(shown), "spend")!.lines
+    .includes("  Builder $0.00; planning cost not reported; checking cost not reported"));
+});
+
 test("a stopped step's details say the core's reason, next action and saved cause, never a flag", () => {
   const notice = "I couldn’t finish this step. The step failed. Your work so far is saved; continue to try this step again.";
   const stopped = (saved: string) => runHeader(view({
