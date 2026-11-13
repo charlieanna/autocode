@@ -351,13 +351,17 @@ class BriefAcceptanceTests(unittest.TestCase):
 
     def test_source_shapes_kinds_and_duplicate_ids_reject(self):
         for records in [
-            sources(kind="builder"),
             sources(kind=[]),
             self.sources * 2,
             [{**self.sources[0], "hash": "invented"}],
         ]:
             with self.subTest(records=records), self.assertRaises(ValueError):
                 brief.inventory(records)
+
+    def test_a_source_that_is_not_the_persons_own_text_declares_nothing(self):
+        # A linked issue is a source too (#3396); only the person's own text can declare a command.
+        self.assertEqual([], brief.inventory(sources(kind="linked issue")))
+        self.assertEqual(1, len(brief.inventory(sources() + sources(ident="issue", kind="linked issue"))))
 
     def test_changed_source_and_rehashed_forged_pattern_cannot_replay(self):
         with self.assertRaises(ValueError):
