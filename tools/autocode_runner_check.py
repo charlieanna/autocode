@@ -20,12 +20,16 @@ from pathlib import Path
 
 try:
     from . import autocode_command_supervision as command_supervision
+    from . import autocode_interventions as interventions
     from . import autocode_process as processes
+    from . import autocode_stop as stop_policy
     from . import autocode_util as util
     from . import autocode_verification_schedule as schedule
 except ImportError:
     import autocode_command_supervision as command_supervision
+    import autocode_interventions as interventions
     import autocode_process as processes
+    import autocode_stop as stop_policy
     import autocode_util as util
     import autocode_verification_schedule as schedule
 
@@ -131,11 +135,49 @@ def track(state: RunState, run_dir, stage, summary, persist, *, deferred=False):
         persist(Path(run_dir) / "state.json", state)
 
     token = command_supervision.CHECKPOINT.set(checkpoint)
+
+    def cancellation():
+        applied = {item.get("id") for item in state.get("applied_interventions", [])}
+        try:
+            return next(
+                (
+                    item
+                    for item in interventions.pending(run_dir)
+                    if item["id"] not in applied and item["kind"] == "pause" and item.get("now") is True
+                ),
+                None,
+            )
+        except (interventions.InterventionError, OSError):
+            return None
+
+    cancellation_token = command_supervision.CANCELLATION.set(cancellation)
+    cancelled = False
     try:
         if not deferred:
             update(summary)
         yield update
-    finally:
-        command_supervision.CHECKPOINT.reset(token)
+    except command_supervision.CheckCancelled as error:
+        cancelled = True
+        # Uncertain cleanup must keep its owner and unacknowledged request.
+        # clear() alone also permits audit retirement, which is insufficient here.
+        _reconcile(record)
         if published:
+            clear(state, run_dir, persist)
+        with interventions.serialized(run_dir):
+            if error.request not in interventions.pending(run_dir):
+                raise util.Paused(
+                    "PAUSED_INTERVENTION_PENDING", "The observed stop request changed before application"
+                ) from None
+            stop_policy.consume(
+                state, Path(run_dir), Path(state["workspace"]), write_json=persist, now=util.now, lock_held=True
+            )
+        raise util.Paused(state["status"], state.get("stop_reason")) from None
+    except command_supervision.receipts.OwnershipUncertain as error:
+        if getattr(error, "check_cancelled", False):
+            cancelled = True  # retain even a dead uncertain inventory until cancellation cleanup is authenticated
+        raise
+    finally:
+        command_supervision.CANCELLATION.reset(cancellation_token)
+        command_supervision.CHECKPOINT.reset(token)
+        if published and not cancelled:
             clear(state, run_dir, persist)

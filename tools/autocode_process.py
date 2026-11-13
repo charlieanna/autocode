@@ -764,7 +764,7 @@ def wait_for_stage(
 ):
     """Wait for a provider stage under its deadlines; returns (exit code, whether the supervisor stopped it).
 
-    ``stop_requested`` (no arguments) is asked about once a second while an activity monitor supervises the
+    ``stop_requested`` (no arguments) is asked about once a second while the supervisor owns the
     stage; when it answers true the stage is ended as at a deadline, with kind ``person`` (#3263)."""
     receipts = process_receipts.ReceiptWorker()
     tree = ProcessTree(child.pid, receipts.record)
@@ -1011,7 +1011,9 @@ def wait_for_stage(
         if timeout
         else None
     )
-    watchdog = threading.Thread(target=supervise, daemon=True) if activity is not None else None
+    watchdog = (
+        threading.Thread(target=supervise, daemon=True) if activity is not None or stop_requested is not None else None
+    )
     observer = threading.Thread(target=observe, daemon=True) if activity is not None else None
     try:
         if hard_timer:
