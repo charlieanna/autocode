@@ -728,6 +728,14 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (("tools/autocode_python_tests.py", "tools/autocode_verify.py"), ("tests.test_acceptance_tests",)),
     (
+        (
+            "tools/autocode_acceptance_reference.py",
+            "tools/autocode_acceptance_tests_job.py",
+            "tools/units/autoreview.py",
+        ),
+        ("tests.test_acceptance_reference",),
+    ),
+    (
         ("tools/autocode_coordinate.py", "tools/autocode_chat_history.py"),
         ("tests.test_coordinate_receipt_cli",),
     ),

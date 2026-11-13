@@ -11,9 +11,11 @@ case says, and changes only test files and validated Go loading metadata. The ru
   test passes; anything else rejects the report, so the Tester's retry gets the runner's evidence,
 - archives the files and records the receipt, and returns the run to the build it was routed from.
 
-A ``test:`` case the Tester reports already working (``already_passing``, its test still delivered) and
-the runner sees pass goes back to plan review once, relabelled ``guard:`` in a runner-built draft (ORIGIN);
-the user approves the corrected plan. That holds for a bug fix too: its plan can add ``test:`` cases of
+A passing ``test:`` case on a retained candidate is checked on the original reference before any
+report repair or plan correction. A fresh original failure keeps its approved meaning; a fresh
+original pass goes back to plan review once, relabelled ``guard:`` in a runner-built draft (ORIGIN).
+Missing original evidence holds verification. The final proof is always still required.
+That holds for a bug fix too: its plan can add ``test:`` cases of
 its own beside the Investigator's reproduction (autocode_acceptance_tests._cases), and one of those that
 already works is the same disagreement as in a build (#1868). A second disagreement on that case, a case no
 test can show (``cannot_write``) and a bug's reproduction that already passes pause the run
@@ -48,6 +50,7 @@ from pathlib import Path
 
 try:
     from . import autocode_acceptance_provenance as provenance
+    from . import autocode_acceptance_reference as reference
     from . import autocode_acceptance_tests as acceptance
     from . import autocode_go_test_prerequisites as go_prerequisites
     from . import autocode_handoff_dedup as handoff
@@ -60,6 +63,7 @@ try:
     from .autocode_verify import is_test_path, run_command
 except ImportError:
     import autocode_acceptance_provenance as provenance
+    import autocode_acceptance_reference as reference
     import autocode_acceptance_tests as acceptance
     import autocode_go_test_prerequisites as go_prerequisites
     import autocode_handoff_dedup as handoff
@@ -124,6 +128,10 @@ class TestsNeedRewriting(ExecutionEvidenceRequired):
     def __init__(self, message: str, *, skipped=()):
         super().__init__(message)
         self.skipped = sorted(skipped)
+
+
+class ReferenceEvidenceRequired(ExecutionEvidenceRequired):
+    """The original-reference execution is unresolved, not a new person decision."""
 
 
 def _case(case: dict, inherited=False) -> dict:
@@ -280,7 +288,9 @@ def _output_excerpt(run: dict, *, keep: int = 3, limit: int = 400) -> str:
     return "\n".join(kept[-keep:])[-limit:]
 
 
-def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: dict, *, inherited=()) -> dict[str, str]:
+def _verdicts(
+    state: RunState, cases: list[dict], value: dict, workspace, run: dict, *, inherited=(), retained=()
+) -> dict[str, str]:
     """Per case, how the runner saw its test on today's code; raises ValueError naming what is wrong."""
     if run.get("error"):
         raise ExecutionEvidenceRequired(
@@ -335,6 +345,8 @@ def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: d
                     if skipped[case["id"]]
                     else _guard_not_passing(case, rows[case["id"]]["file"], run, results)
                 )
+        elif case["id"] in retained and passed[case["id"]]:
+            verdicts[case["id"]] = "passes candidate; fails original reference"
         elif case["id"] in inherited and passed[case["id"]]:
             verdicts[case["id"]] = "already passes"
         elif case["id"] in already:
@@ -484,12 +496,19 @@ def _not_run(case: dict, file: str, source: str, run: dict, results: dict) -> st
 
 
 def apply(
-    state: RunState, value: dict, record: dict, workspace, run_tests=None, evidence_dir=None, send_back=None
+    state: RunState,
+    value: dict,
+    record: dict,
+    workspace,
+    run_tests=None,
+    evidence_dir=None,
+    send_back=None,
+    run_reference=None,
 ) -> None:
     """Accept the Tester's files only when the runner sees each case behave as approved on today's code.
 
-    ``send_back(body, changes)`` installs a runner-corrected draft and restarts plan review (the unit passes
-    it); a case the runner saw already pass is sent back once, relabelled guard:, else the run pauses."""
+    ``send_back(body, changes)`` installs a runner-corrected draft only after a fresh original pass.
+    ``run_reference`` classifies current passing cases without another model or candidate execution."""
     stray = sorted(str(path) for path in record.get("changed_files") or [] if not is_test_path(str(path)))
     prerequisites = {}
     if stray and all(Path(path).name in ("go.mod", "go.sum") for path in stray):
@@ -519,8 +538,35 @@ def apply(
         raise ValueError(f"Each test file must exist in the workspace and be a test file: {bad}")
     run = (run_tests or (lambda tests: {"error": "no test runner was given"}))(files)
     inherited = provenance.inherited_cases(state, reports=value["tests"], workspace=workspace)
+    original_reference, retained = None, set()
     try:
-        verdicts = _verdicts(state, cases, value, workspace, run, inherited=inherited)
+        selected = reference.passing(cases, value["tests"], run, inherited)
+        if selected and run_reference is not None:
+            if problem := reference.candidate_problem(run):
+                raise ReferenceEvidenceRequired(problem)
+            # Reject broken guards and invalid names before spending on another execution.
+            # This temporary verdict is pure; it grants no receipt or transition.
+            _verdicts(state, cases, value, workspace, run, inherited=inherited, retained=selected)
+            original_reference = run_reference(selected, files)
+            if original_reference.get("error"):
+                raise ReferenceEvidenceRequired(original_reference["error"])
+            classifications = original_reference.get("verdicts") or {}
+            if set(classifications) != set(selected) or any(
+                v not in ("passes", "fails") for v in classifications.values()
+            ):
+                raise ReferenceEvidenceRequired("Missing original reference classification for passing tests")
+            retained = {cid for cid, verdict in classifications.items() if verdict == "fails"}
+            value = copy.deepcopy(value)
+            value["already_passing"] = [row for row in value["already_passing"] if row["case_id"] not in selected]
+            value["already_passing"].extend(
+                {
+                    "case_id": cid,
+                    "evidence": "The runner observed this exact test pass on the candidate and original reference",
+                }
+                for cid, verdict in classifications.items()
+                if verdict == "passes"
+            )
+        verdicts = _verdicts(state, cases, value, workspace, run, inherited=inherited, retained=retained)
     except ExecutionEvidenceRequired as error:
         if isinstance(error, TestsNeedRewriting):
             if _rewrite(state, error, record):
@@ -538,7 +584,12 @@ def apply(
                 + ".",
                 skipped=error.skipped,
             ) from error
-        if "no test command runs these files" in str(error):
+        if isinstance(error, ReferenceEvidenceRequired):
+            remedy = (
+                "The approved plan and retained tests are unchanged. Original-reference verification remains "
+                "required; this execution gap is not a Requirements or plan question."
+            )
+        elif "no test command runs these files" in str(error):
             # The run's suite cannot name these files: a binding gap, not a fault in the tests (#2609).
             remedy = (
                 "The tests are not at fault: the run's test suite cannot run them. Resume with a saved "
@@ -594,9 +645,9 @@ def apply(
     kept = {}
     for path in sorted(set(files) | prerequisites.keys()):
         digest = util.file_hash(Path(workspace) / path)
-        copy = archive / digest
-        shutil.copyfile(Path(workspace) / path, copy)
-        kept[path] = {"sha256": digest, "archive": str(copy)}
+        archived_file = archive / digest
+        shutil.copyfile(Path(workspace) / path, archived_file)
+        kept[path] = {"sha256": digest, "archive": str(archived_file)}
     acceptance.record_receipt(
         state,
         cases,
@@ -608,6 +659,7 @@ def apply(
             "command": run.get("command", ""),
             "output": record.get("output"),
             "source_revision": record.get("source_revision"),
+            **({"original_reference": original_reference} if original_reference else {}),
         },
     )
     if acceptance.is_blind(state):
