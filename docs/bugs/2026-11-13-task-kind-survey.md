@@ -8,7 +8,8 @@ one-function paging library with a one-line change, so a stop is AutoCode's and 
 Method: master `6d8f4e4`, Linux cloud container. Twelve task kinds ran with the scripted
 provider (`scenarios/run.py run --fake`). Eight of them then ran once on Claude Code
 (`--profile claude-tiers`: Sonnet 5.5 Requirements, Planner and Tester, Opus 5.5 reviewers,
-Haiku 4.5 Builder), $9.15 in all, and $12.59 more for the eight runs after a fix.
+Haiku 4.5 Builder), $9.15 in all, and $12.59 more for the eight runs after a fix. Sections 5 to 7
+(JavaScript) are six later runs, $10.86.
 
 ## Scripted stops that real models do not hit
 
@@ -108,8 +109,77 @@ completed all three with no rework and no question:
 | Bug fix, tests inside `src/lib.rs` | `3d0c2a9117f2dd7904b49efd35ac3c8f3e8e6bc07e00f615f8b917c76f615d71` | complete, 123 s, $0.74 |
 | Refactor (extract a helper) | `bd1c857047013f9e3103f1d0c489435216e9b0081cbc26a00d702ed3f133912b` | complete, 116 s, $0.77 |
 
-The same limit holds for other runners whose tests need no `test_` prefix (RSpec, node:test and
-Vitest names are free text): a guard on an existing test there still falls back to the criterion id.
+The same limit holds for RSpec, whose examples are named by free text: a guard on an existing
+example there still falls back to the criterion id. For node:test and Vitest it is fixed in section 5.
+
+## 5. JavaScript: a guard on a test with a free-text title is not found (fixed)
+
+The catalog's Node and Vitest seeds name their tests `test_base_...`, which real projects do not. Two
+probes used a node:test project whose tests have ordinary titles (`test('counts a partial last
+page', ...)`). Both completed, but each only after a failed proof and a second build, at about twice
+the usual cost:
+
+| Task | Manifest | Result |
+| --- | --- | --- |
+| Bug fix | `746bad32c0b13c66c125e89e28511db3c50049ed30dc49a7a5541783d7fc4c80` | complete, 336 s, $2.38, 18 stages |
+| Refactor (extract a helper) | `228193c9454e2d38fcc1e57d4415dbc34bf4c2bc7e8cfe1705419c6b87bba42e` | complete, 332 s, $1.98, 18 stages |
+
+The Planner wrote what a person would: `guard: returns the page count for an exact multiple`. The
+proof looked for a test named `test_ac2_...`, found none, and failed ("Preserve case AC2 … has no
+test named test_ac2_<what it checks>"). The Investigator's diagnosis says it plainly: "the runner maps
+preserve cases to tests only through the test_acN_ prefix". Both runs then copied the existing tests
+under `test_acN_...` names (the refactor into a new `tests/pager.guard.test.js`), which is what the
+rule against renaming tests to fit a case id is meant to prevent.
+
+A declaration is now bound to a test when the runner names tests by title (node:test, Vitest) and a
+test the proof ran has exactly that title (`autocode_test_cases.titled`); otherwise the criterion
+keeps the id convention. The planning and Builder note says to guard existing behavior with the
+existing test and never to copy it.
+
+On the same models the bug fix then bound each guard to the existing test and completed in one pass
+(manifest `e62b16d6c57f7ed901b497083987f1f8dc8f87771a2efa03830766cf002796d9`, 194 s, $1.24, 10
+stages). The refactor planned the right thing, three guards on the three existing tests and no test
+changed, and that exposed the next gap.
+
+## 6. JavaScript: `npm test` names no test, so a refactor asks the person (fixed)
+
+Manifest `48dac0d65894394c9d3c1c38fed38068800553f6295aa163d0e59485ccc14724` (252 s, $1.47). The
+project's suite is `npm test`, whose script is `node --test tests/*.test.js`. AutoCode attached its
+reporter only to a direct `node --test` command: to the changed test files of a bug fix, never to
+`npm test`. A refactor changes no test file, so its proof ran only the suite, got an exit code and no
+test names, and was `UNVERIFIED` ("the test run reported no per-test results"). The Resolver asked the
+person to choose between the proof and the plan, a question about machinery, with every existing
+test passing.
+
+Node reads a reporter option only before the test paths, so one appended after `npm test --` is
+ignored. When the package's `test` script is a direct `node --test` command, alone or after build
+steps (`tsc -p . && node --test out/*.test.js`), the runner now runs that command with its reporter,
+the build steps first as `npm test` runs them (`autocode_node_tests.npm_test`,
+`tests.test_node_tests`). A package with a `pretest` or `posttest` script or an `.npmrc`, and a
+script behind `--prefix`, keep `npm test` as written.
+
+The same task then completed without a question, but again only after a failed proof and a second
+build (manifest `21a7888e60c48d908411c1dc857c59384299e6a796f6fb6fa67d5038a644f10f`, 413 s, $2.94, 20 stages): this plan added one new test file
+beside its three guards on the existing tests, and that showed the last gap.
+
+## 7. JavaScript: a new test file takes every titled test out of the guards (fixed)
+
+Same run. The suite now named its tests, and the three guarded tests passed on the original code and
+with the change, yet the proof bound none of them ("has no test named counts a partial last page").
+The proof drops a suite test from the guards when a changed file names it, because that file may have
+redefined it. A test's name was read from its whole id, where
+`tests/pager.test.js::counts a partial last page` is "test", from `.test.js`. The new test file says
+`test(`, so it "named" every test of the suite. The Resolver diagnosed the proof's limit and had the
+Builder copy the three existing tests into the new file under `test_acN_...` names.
+
+A JavaScript test's own name is now its title, and a changed file names a titled test only by spelling
+that title (`autocode_test_cases.function_name`, `named_in`).
+
+With the three fixes the same task, planned the same way (three guards on the existing tests and one
+new test file), bound every guard to its test in the first proof and completed in one pass (manifest
+`ba45fa34ba020074129cbfbc89834c324e80078d447dd95a108e57587a495b7b`, 149 s, $0.85, 8 stages).
+
+RSpec, whose examples are also named by free text, still falls back to the criterion id.
 
 ## Also seen, not yet run on real models
 

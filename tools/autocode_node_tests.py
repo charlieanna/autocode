@@ -8,10 +8,16 @@ Unsupported shell wrappers keep their normal exit-code-only behavior.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+
+try:
+    from . import autocode_npm_scripts as npm_scripts
+except ImportError:
+    import autocode_npm_scripts as npm_scripts
 
 VALUE_OPTIONS = {
     "--require",
@@ -162,21 +168,72 @@ def build_command(steps):
     return "npm exec --call " + shlex.quote(steps)
 
 
+def _reporter_options(result_path):
+    reporter = Path(__file__).with_name("autocode_node_reporter.cjs").resolve()
+    return [
+        "--test-reporter=spec",
+        "--test-reporter-destination=stdout",
+        f"--test-reporter={reporter}",
+        f"--test-reporter-destination={Path(result_path).resolve()}",
+    ]
+
+
 def instrument(command, result_path):
     words = command_words(command)
     if not words:
         return command
-    reporter = Path(__file__).with_name("autocode_node_reporter.cjs").resolve()
-    return shlex.join(
-        [
-            words[0],
-            "--test-reporter=spec",
-            "--test-reporter-destination=stdout",
-            f"--test-reporter={reporter}",
-            f"--test-reporter-destination={Path(result_path).resolve()}",
-            *words[1:],
-        ]
+    return shlex.join([words[0], *_reporter_options(result_path), *words[1:]])
+
+
+def npm_test(command, tree):
+    """What ``npm test`` runs in ``tree`` when its ``test`` script is node's own test runner: (the build
+    steps before it or None, the ``node --test`` command as package.json writes it). None otherwise.
+
+    The suite of such a project is ``npm test`` (autocode_toolchain_suite.detect), and node reads a
+    reporter option only before the test paths, so one appended after ``npm test --`` is ignored. A
+    change that touched no test file ran only that suite and had no per-test results: a refactor guarded
+    by the project's existing tests stayed unproven and the person was asked (live run, 2026-11-13).
+    The runner therefore runs the script's own command, as it already does for changed test files.
+
+    None when npm would run more than that command, run it differently or run it elsewhere: a ``pretest``
+    or ``posttest`` script, an ``.npmrc`` in the package (it can set the script's shell or node's options),
+    words after ``--``, or a ``--prefix`` package.
+    """
+    found = npm_scripts.test_script(command, tree)
+    if not found:
+        return None
+    scripts, extra, prefix = found
+    script = scripts.get("test")
+    if extra or prefix != "." or scripts.get("pretest") or scripts.get("posttest") or not isinstance(script, str):
+        return None
+    if os.path.lexists(os.path.join(tree, ".npmrc")):
+        return None
+    if command_words(script):
+        return None, script.strip()
+    steps = script_steps(script)
+    return (steps[0], steps[1].command) if steps else None
+
+
+def instrument_npm(command, result_path, tree):
+    """The command that runs what ``npm test`` runs (``npm_test``) with the runner's reporter, or None.
+
+    The script's text after the runtime is kept as written, so the shell expands a path pattern
+    (``tests/*.test.js``) exactly as it does for ``npm test``."""
+    found = npm_test(command, tree)
+    if not found:
+        return None
+    build, script = found
+    runtime, _, rest = script.partition(" ")
+    try:
+        plain = shlex.split(runtime) == command_words(script)[:1]
+    except ValueError:
+        plain = False
+    actual = (
+        " ".join([runtime, shlex.join(_reporter_options(result_path)), rest.strip()])
+        if plain and rest.strip()
+        else instrument(script, result_path)
     )
+    return f"{build_command(build)} && {actual}" if build else actual
 
 
 def test_files(root, paths):

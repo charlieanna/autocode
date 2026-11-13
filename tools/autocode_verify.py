@@ -739,8 +739,10 @@ def run_command(
     )
 
 
-def _with_results(framework, command, xml_path, tree=None):
-    if instrumented := reporters.instrument(command, xml_path):
+def _with_results(framework, command, xml_path, tree=None, *, scripts=True):
+    """``command`` asking its runner for per-test results. ``scripts`` false leaves an ``npm test`` whose
+    script is node's own test runner as written (a native check runs exactly the command it planned)."""
+    if instrumented := reporters.instrument(command, xml_path, tree if scripts else None):
         return instrumented
     if vitest_tests.command_words(command, tree):
         return vitest_tests.instrument(command, xml_path, tree)
@@ -756,11 +758,11 @@ def _with_results(framework, command, xml_path, tree=None):
     return python_tests.verbose_unittest(command)
 
 
-def expects_results(framework, command, tree=None):
+def expects_results(framework, command, tree=None, *, scripts=True):
     """True when this command, run by the runner, must yield per-test results."""
     if framework is not None and framework.name == "junit":
         return bool(command)
-    if reporters.reports(command):
+    if reporters.reports(command, tree if scripts else None):
         return True
     if vitest_tests.command_words(command, tree):
         return True
@@ -1559,7 +1561,8 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_
         )
     package, command = package_scope.split(framework, command)  # a package's suite runs from its directory
     root = Path(tree) / package if package else tree
-    extension = reporters.extension(command) or (
+    scripts = native_execution is None  # a native check runs exactly the command it planned
+    extension = reporters.extension(command, root if scripts else None) or (
         "vitest.json" if vitest_tests.command_words(command, root) else "junit.xml"
     )
     xml = Path(evidence_dir) / f"{label}.{extension}"
@@ -1568,7 +1571,7 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_
             raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Original concrete native check owner required")
         xml = native_execution.result_path(tree, xml)
     xml.unlink(missing_ok=True)  # never parse a previous run's results
-    actual = _with_results(framework, command, xml, root)
+    actual = _with_results(framework, command, xml, root, scripts=scripts)
     if native_execution is not None:
         planned = native_execution.instrument(framework.name if framework else None, command, xml, tree)
         if planned != actual:
@@ -1580,7 +1583,7 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_
         actual, tree, Path(evidence_dir) / f"{label}.log", timeout=timeout, native_execution=native_execution
     )
     receipt["results"] = per_test_results(framework, receipt, xml, tree=root)
-    receipt["results_expected"] = expects_results(framework, command, root)
+    receipt["results_expected"] = expects_results(framework, command, root, scripts=scripts)
     if native_execution is not None:
         native_execution.retain_results(receipt)
     return receipt

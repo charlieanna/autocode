@@ -21,26 +21,33 @@ except ImportError:
     import autocode_package_scope as package_scope
     import autocode_rspec_tests as rspec_tests
 
-REPORTERS = (("node.jsonl", node_tests), ("rspec.json", rspec_tests))
+NODE = "node.jsonl"
+REPORTERS = ((NODE, node_tests), ("rspec.json", rspec_tests))
 
 
-def extension(command) -> str | None:
-    """The result file extension of the reporter ``command`` runs with, or None for another command."""
-    return next((found for found, runner in REPORTERS if runner.command_words(command)), None)
+def extension(command, tree=None) -> str | None:
+    """The result file extension of the reporter ``command`` runs with, or None for another command.
+
+    With ``tree``, an ``npm test`` there whose script is node's own test runner reports as node:test does
+    (``node_tests.npm_test``)."""
+    found = next((found for found, runner in REPORTERS if runner.command_words(command)), None)
+    return found or (NODE if tree is not None and node_tests.npm_test(command, tree) else None)
 
 
-def reports(command) -> bool:
+def reports(command, tree=None) -> bool:
     """True when ``command`` must yield per-test results: a reporter's file, or Cargo's own output."""
-    return extension(command) is not None or cargo_tests.command_words(command) is not None
+    return extension(command, tree) is not None or cargo_tests.command_words(command) is not None
 
 
-def instrument(command, result_path) -> str | None:
+def instrument(command, result_path, tree=None) -> str | None:
     """``command`` writing its reporter's results to ``result_path``, or None for another command.
 
     A ``cargo test`` command writes no file; it is made to run every test binary."""
     runner = next((runner for _, runner in REPORTERS if runner.command_words(command)), None)
     if runner:
         return runner.instrument(command, result_path)
+    if tree is not None and (actual := node_tests.instrument_npm(command, result_path, tree)):
+        return actual
     return cargo_tests.instrument(command) if cargo_tests.command_words(command) else None
 
 
