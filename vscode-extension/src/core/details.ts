@@ -46,6 +46,8 @@ export interface PipelineStep {
   runs: string;
   /** Why the newest failed attempt did not succeed, while the stage retries or after it failed. */
   why: string;
+  /** The stage launched and its newest attempt failed, and it is not running again now: it gets no tick. */
+  stopped: boolean;
 }
 
 /** The stage table's last row: the run's working time, tokens and accounted spend, as the core totals them. */
@@ -82,6 +84,8 @@ export interface RunHeader {
 }
 
 export const STEP_MARKS: Record<StepState, string> = { working: "●", next: "›", ran: "✓", skipped: "–", pending: "·", not_run: "·" };
+/** A stage whose newest attempt failed: "ran" says it launched, never that its work stood (#3309's run, "7 of 7 ran"). */
+export const STOPPED_MARK = "✗";
 const STEP_STATES = new Set(Object.keys(STEP_MARKS));
 
 const mapping = (value: unknown): Row => (value && typeof value === "object" && !Array.isArray(value) ? value as Row : {});
@@ -115,6 +119,8 @@ interface JobUse {
   model: string; level: string; seconds: number | null; tokens: number; tokensComplete: boolean; spent: number | null;
   costComplete: boolean;
   attempts: number; failed: number; repairs: number; why: string; active: boolean;
+  /** The job's newest stage row ended on a failed attempt (the meter's `failed` state). */
+  lastFailed: boolean;
 }
 
 function jobUse(view: Row, now: number): Map<string, JobUse> {
@@ -136,6 +142,8 @@ function jobUse(view: Row, now: number): Map<string, JobUse> {
       repairs: (seen?.repairs ?? 0) + row.repairs,
       why: row.why || seen?.why || "",
       active: Boolean(seen?.active) || row.state === "working" || row.state === "retrying",
+      // Rows come in the order each stage first ran, so a job's later stage (a revised plan) decides.
+      lastFailed: row.state === "failed",
     });
   }
   return used;
@@ -164,7 +172,9 @@ function stepOf(label: string, state: StepState, row: Row, use: JobUse | undefin
     label, state, mark: STEP_MARKS[state], detail: "", now: state === "working" ? nowFor(view, label) : "",
     model: shortModel(model), level, route: [model, level].filter(Boolean).join(" "),
     time: "", tokens: "", cost: "", attempts: use?.attempts ?? 0, failed: use?.failed ?? 0, repairs: use?.repairs ?? 0, runs: "", why: "",
+    stopped: state === "ran" && Boolean(use?.lastFailed),
   };
+  if (step.stopped) step.mark = STOPPED_MARK;
   if (state === "skipped") {
     step.detail = "skipped" + (text(row.reason) ? `: ${text(row.reason)}` : "");
     return step;
@@ -232,7 +242,12 @@ function pipelineSection(view: Row, steps: PipelineStep[]): DetailSection | null
   const working = steps.find((step) => step.state === "working");
   const next = steps.find((step) => step.state === "next");
   const ran = steps.filter((step) => step.state === "ran").length;
-  const summary = working ? `${working.label} working` : next ? `${next.label} next` : `${ran} of ${steps.length} ran`;
+  const stopped = steps.filter((step) => step.stopped);
+  // A stopped run names where it stopped; "7 of 7 ran" with ticks read as a finished, passing run.
+  const summary = working ? `${working.label} working`
+    : next ? `${next.label} next`
+    : stopped.length && view.done !== true ? `Stopped at ${stopped[stopped.length - 1]!.label}`
+    : `${ran} of ${steps.length} ran` + (stopped.length ? `, ${stopped.length} stopped on a failed attempt` : "");
   const lines: string[] = [];
   for (const step of steps) {
     lines.push(`${step.mark} ${stageDetail(step)}`);
@@ -262,6 +277,16 @@ function stageTotal(view: Row): StageTotal | null {
 
 // ---- Where the run is: `summary` and `explanation` -----------------------------------------
 
+/**
+ * A core reason with the commands it names for a terminal left out: a parenthesis that names a flag, then
+ * any sentence that still does. #3309's run showed "Waiting for: … change it with autocode resume
+ * --max-idle-seconds N … authorize more recoveries explicitly with autocode resume --grant-recovery N".
+ */
+export function withoutCommands(value: string): string {
+  const unbracketed = value.replace(/\s*\([^()]*\)/g, (group) => (FLAG.test(group) ? "" : group));
+  return unbracketed.split(/(?<=[.!?])\s+/).filter((sentence) => !FLAG.test(sentence)).join(" ").trim();
+}
+
 function where(view: Row): { state: string; label: string; sentence: string; section: DetailSection } {
   const summary = mapping(view.summary);
   const progress = mapping(view.progress);
@@ -273,7 +298,7 @@ function where(view: Row): { state: string; label: string; sentence: string; sec
   // `what_the_command_does` names CLI flags, which a client never shows.
   const means = text(mapping(view.explanation).what_it_means);
   if (means && means !== sentence) lines.push(means);
-  const reason = text(mapping(view.needs).reason);
+  const reason = withoutCommands(text(mapping(view.needs).reason));
   if (reason && !lines.includes(reason) && state === "needs_you") lines.push(`Waiting for: ${reason}`);
   if (view.done !== true && String(view.status ?? "").startsWith("PAUSED")) {
     // A stopped step: the core's own reason and next action, then the cause it saved. A line that

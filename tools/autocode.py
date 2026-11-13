@@ -745,6 +745,7 @@ def run_role(
                 reporter=verbose.reporter(autocode_status.role_name(stage, state), model),
                 idle_origin=idle_origin,
                 idle_hint=JOB_IDLE_LIMIT if stage in jobs.STAGES else CHANGE_IDLE_LIMIT,
+                plain_text=configured_tool and getattr(adapter, "OUTPUT", None) == "report_file",
             )
             activity_checkpoint = role_launch.activity_reporter(
                 state,
