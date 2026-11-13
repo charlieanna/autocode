@@ -1223,6 +1223,23 @@ Three recovery failures without a valid saved stage still stop. A grant remains
 available after inspecting an actually exhausted streak; ordinary resume never
 grants more attempts to an unchanged failure.
 
+A stopped Tester carries a bounded continuation packet into its next matching
+attempt (#3309). It contains completed-tool commands and outcomes (including
+failures), partial assistant notes, and hashes and paths for the archived logs
+and report artifacts. The inline packet is at most 64 KiB, with the latest 24
+commands; omitted or shortened material stays in the pinned originals. Up to
+three preceding attempts' artifact sets remain linked across repeated stalls.
+An intervening review does not erase this context, but a later Tester, a changed
+source, task, contract or criteria revision does. Missing or changed artifacts
+are reported as evidence gaps.
+
+This is investigation context, not a passing verdict or permission to cite old
+event IDs as new execution. The Tester continues its inspection, reuses only
+evidence already authorized by the current runner proof, executes missing
+checks, and still produces a fresh independent report. Model routes, timeout
+limits, recovery accounting and the repeated-stall Investigator boundary do not
+change.
+
 Older runs may already be held by the former run-wide counter even after successful
 stages. When the retained recovery/grant ledger balances and proves intervening
 success, status offers ordinary Resume. The core rechecks that request under its
