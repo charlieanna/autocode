@@ -95,6 +95,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **Resuming an older run keeps a known baseline timeout** (#3428): after an upgrade, the same detected base-suite check no longer spends its allowance again because its saved timeout used an older cache key. AutoCode verifies the saved inputs and record hash, retains that negative evidence under the current key, and still requires completed checks before accepting the change.
 - **Recovery-exhaustion stops advertise and accept `--grant-recovery` across every surface** (#3358): when automatic recovery ran out after `resolve` had a pending `resolution_request`, reopening stranded the run at `RESOLVER_PENDING` instead of publishing `WAITING_FOR_USER`, and neither `RESOLVER_PENDING` nor published `operational_exhaustion` offered or accepted `--grant-recovery N`. Publication now exempts `operational_exhaustion`, held and published recovery-exhaustion stops expose the `grant_recovery` offer in `--status` (`next_command` or separate `command`), VS Code (**Grant and continue**) and `autocode chat`, and `autocode resume --grant-recovery N` / `--resume-paused --grant-recovery N` cleanly supersedes the hold while keeping history, limits and plan approval. Without duplicating the grant hint when the underlying pause already carries it.
 
 - **Saving an unrelated limit keeps an investigated failure paused** (#3417): a

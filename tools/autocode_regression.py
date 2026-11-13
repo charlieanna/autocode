@@ -474,13 +474,22 @@ def _baseline(
         except (OSError, ValueError, TypeError, KeyError):
             pass
     timeouts = dict(cached.get("settled_timeouts") or {})
-    settled = timeouts.get(_settled_key(binding)) if settled_timeout else None
+    timeout_key = _settled_key(binding)
+    settled = timeouts.get(timeout_key) if settled_timeout else None
+    # Older runs indexed this negative evidence by the complete runtime binding. Only the
+    # last baseline retains that binding, so migrate its entry when the stable inputs match;
+    # other historical keys cannot be re-derived safely. The original entry stays readable.
+    previous = cached.get("binding")
+    if settled_timeout and not settled and isinstance(previous, dict) and _settled_key(previous) == timeout_key:
+        settled = timeouts.get(util.digest(previous))
     if settled:
         try:
             result = util.read(settled["path"])
             # A timeout is never completed evidence (command_receipt.completed), so it cannot pass
             # schedule.intact; its pinned record decides only not to repeat this original-code command.
             if util.file_hash(settled["path"]) == settled.get("sha256") and focused_suite.timed_out(result):
+                timeouts[timeout_key] = settled
+                state["regression_baseline"] = {**cached, "settled_timeouts": timeouts}
                 return result
         except (OSError, ValueError, TypeError, KeyError):
             pass

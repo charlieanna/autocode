@@ -4,6 +4,7 @@ The proof chooses the bounded command itself and records why; it never leaves th
 person to pick a timeout or a test command.
 """
 
+import json
 import shlex
 import sys
 import unittest
@@ -149,6 +150,31 @@ class FocusedFallbackProofTests(unittest.TestCase):
         self.assertEqual(verify.UNVERIFIED, proof["verdict"])
         self.assertIsNone(proof["suite_fallback"])
         self.assertTrue(any("timed out" in reason for reason in proof["unverified"]), proof["unverified"])
+
+    def test_old_runtime_timeout_is_reused_after_upgrade_and_checkpoint_reload(self):
+        state = self.state(test_timeout=1800)
+        with mock.patch.object(focused_suite, "choose_from_git", return_value=None):
+            first = self.prove(state)
+        self.assertEqual(verify.UNVERIFIED, first["verdict"])
+        cached = state["regression_baseline"]
+        legacy_key = util.digest(cached["binding"])
+        legacy_record = {"path": cached["path"], "sha256": cached["sha256"]}
+        cached["settled_timeouts"] = {legacy_key: legacy_record}
+        real = verify.baseline_identity
+
+        def upgraded(*args, **kwargs):
+            return {**real(*args, **kwargs), "environment_hash": "upgraded-runtime", "reuse_supported": False}
+
+        with mock.patch.object(verify, "baseline_identity", side_effect=upgraded):
+            for attempt in range(2):
+                state = json.loads(json.dumps(state))
+                self.project.write({"calc.py": f"# upgraded attempt {attempt}\ndef add(a, b): return a + b\n"})
+                proof = self.prove(state)
+                self.assertEqual(["suite-on-base"], self.whole_runs)
+                self.assertEqual(verify.PASS, proof["verdict"], proof["unverified"])
+                self.assertEqual(["test_calc.py"], proof["suite_fallback"]["tests"])
+                self.assertTrue(any(name.endswith("test_add") for name in proof["fail_to_pass"]))
+                self.assertEqual(legacy_record, state["regression_baseline"]["settled_timeouts"][legacy_key])
 
     def test_focused_baseline_timeout_is_retained_without_repeating_it_or_passing_the_candidate(self):
         state = self.state(test_timeout=1800)
