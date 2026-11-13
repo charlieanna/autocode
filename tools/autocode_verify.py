@@ -53,6 +53,7 @@ from urllib.parse import unquote, urlparse
 
 try:
     from . import autocode_agent_env as agent_env
+    from . import autocode_base_bound as base_bound
     from . import autocode_changed_tests as changed_tests
     from . import autocode_command_receipt as command_receipt
     from . import autocode_command_supervision as command_supervision
@@ -101,6 +102,7 @@ try:
     from .autocode_verification_commands import _mentions_tests as _mentions_tests
 except ImportError:
     import autocode_agent_env as agent_env
+    import autocode_base_bound as base_bound
     import autocode_changed_tests as changed_tests
     import autocode_command_receipt as command_receipt
     import autocode_command_supervision as command_supervision
@@ -2239,26 +2241,22 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
     ignored_inputs, new_behavior, preserve, fail = run.ignored_inputs, run.new_behavior, run.preserve, run.fail
     unverified, notes, review_reasons, checks = run.unverified, run.notes, run.review_reasons, run.checks
     proof = run.proof
-    on_candidate = run_suite(
-        framework,
-        commands["regression"],
-        trees["candidate"],
-        run_dir,
-        "regression-on-candidate",
-        timeout=timeout,
+    on_candidate, took = base_bound.timed(
+        lambda: run_suite(
+            framework, commands["regression"], trees["candidate"], run_dir, "regression-on-candidate", timeout=timeout
+        )
     )
     checks["regression_on_candidate"] = on_candidate
     on_base = None
     if "base_with_tests" in trees:
+        # A test that never finishes on the original code is stopped there, not waited for (autocode_base_bound).
+        allowed = base_bound.limit(on_candidate, took, timeout)
         on_base = run_suite(
-            framework,
-            commands["regression"],
-            trees["base_with_tests"],
-            run_dir,
-            "regression-on-base",
-            timeout=timeout,
+            framework, commands["regression"], trees["base_with_tests"], run_dir, "regression-on-base", timeout=allowed
         )
         checks["regression_on_base"] = on_base
+        if said := base_bound.stopped(on_base, took, allowed, timeout):
+            unverified.append(said)
 
     def repeat(command, side, label):
         tree = trees["candidate" if side == "candidate" else "base_with_tests"]
@@ -2525,18 +2523,18 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
         )
     with_tests = None
     if guards and "base_with_tests" in trees and not hidden:
-        # Without a targeted command the whole suite already ran there (regression_on_base).
-        with_tests = (checks.get("regression_on_base") if not commands["regression"] else None) or run_suite(
-            framework,
-            commands["suite"],
-            trees["base_with_tests"],
-            run_dir,
-            "suite-on-base-with-tests",
-            timeout=timeout,
-        )
-        checks.setdefault(
-            "regression_on_base" if not commands["regression"] else "suite_on_base_with_tests", with_tests
-        )
+        # Without a targeted command the whole suite already ran there; tests that timed out there are in it too.
+        with_tests = base_bound.ran_with_tests(checks, commands["regression"])
+        if with_tests is None:
+            label = "suite_on_base_with_tests" if commands["regression"] else "regression_on_base"
+            with_tests = checks[label] = run_suite(
+                framework,
+                commands["suite"],
+                trees["base_with_tests"],
+                run_dir,
+                "suite-on-base-with-tests",
+                timeout=timeout,
+            )
     first_suite.suite_guards(on_candidate, comparable, proof, unchanged=existing_guards, with_tests=with_tests)
     return hidden
 

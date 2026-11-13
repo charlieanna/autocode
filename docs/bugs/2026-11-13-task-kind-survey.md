@@ -272,8 +272,8 @@ used ``guard: run `npm test --silent` `` (section 9).
 
 The first run of the performance task did not finish in the harness's 30 minutes ($0.84). Its new test
 called `count_primes(2000000)` with no time bound, and the proof ran that test on the original, slow
-code, where it runs for hours; each such run ends at the proof's 15-minute limit. The second run's test
-bounded its own time and the task completed.
+code, where it runs for hours; each such run ends at the proof's limit, 30 minutes in this run. The
+second run's test bounded its own time and the task completed (section 13).
 
 The script with no tests planned `hello.py` alone, with shell commands as its criteria. A project with
 no test has nothing to guard the change with, so the proof failed twice with "No regression test was added
@@ -318,6 +318,31 @@ On the fixed tree the same request completed without a question (154 s, $1.02, 8
 `173589766bdd2b0910947f4a63c38f0b769ddb2ee4fbbb8a75a9f41c286e897a`). In that run the Planner planned
 `test_hello.py` in its first draft, so the new check had nothing to refuse; what a plan of code alone
 gets is shown by the unit tests.
+
+## 13. A new test that never finishes on the original code holds the run (fixed)
+
+"count_primes(2000000) is too slow, make it fast." The Builder's test called `count_primes(2000000)` and
+compared the count, with no time limit. With the change it passes in under a second. The proof then runs
+the same test on the original code, where it must fail, and there it only runs: until the suite's limit,
+which follows the run's tool-call limit and was 30 minutes. A proof whose cases name tests would have run
+it there twice more to check the result is stable, and once more with the whole suite for the plan's
+guards, and would then have said that the command did not complete. A fix for a loop that never ends
+meets the same wait.
+
+Fixed (`tools/autocode_base_bound.py`): the run with the change says how long the proving tests take when
+they finish, and on the original code they get thirty times that, never less than five minutes, since
+tests that fail there may first wait out timeouts of their own. Past that the run is stopped. The proof
+is unverified, as for any run that does not complete on the original code, and says why in words the
+Builder can act on: give the test its own time limit, so that it fails on the original code. Nothing
+repeats a run that timed out there, and the guards do not run the suite with the same test again. A
+stopped run is never counted as a failing test.
+
+Not run again on real models: whether a Builder writes an unbounded test is the model's choice (one run
+of two did), and the proof's part is shown by `tests/test_base_bound.py`, which proves a real Python
+project whose original code never returns.
+
+Still open: a project whose runner names no test and has no targeted command proves with the whole suite
+on the original code, which is run under the suite's own limit.
 
 ## Also seen, not yet run on real models
 

@@ -496,7 +496,12 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.
   ref of a run whose directory is gone, after a day's grace. Each
   suite run may take as long as the run's tool-call limit, at least 900 seconds
   and with no limit when the run turned that limit off;
-  `settings.regression.test_timeout` overrides it. When the detected whole
+  `settings.regression.test_timeout` overrides it. The changed tests get less
+  on the original code: thirty times as long as they took to pass with the
+  change, and at least five minutes. A test that does not finish there is
+  stopped, the proof is unverified and tells the Builder to give the test its
+  own time limit, and nothing runs that test on the original code again for
+  the same proof (`tools/autocode_base_bound.py`). When the detected whole
   suite does not finish on the original code within that limit, the proof
   does not stop to ask for a longer limit or a narrower command: it runs
   instead with the original tests nearest the change (changed tests the base
