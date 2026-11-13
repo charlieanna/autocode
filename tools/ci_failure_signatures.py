@@ -10,6 +10,7 @@ from pathlib import Path
 
 HEADER = re.compile(r"^={70}\n(FAIL|ERROR|UNEXPECTED SUCCESS): (\S+) \(([^\n()]+)\)([^\n]*)\n", re.M)
 FOOTER = re.compile(r"^-{70}\nRan \d+ tests? in [^\n]*\n\n(?:FAILED|OK)\b", re.M)
+GENERATED_START_REF = re.compile(r"(?<!\S)(refs/autocode/partial-work/start/)[0-9a-f]{40}(?!\S)")
 
 
 def signatures(output: str, root: Path) -> list[dict[str, str]]:
@@ -26,6 +27,8 @@ def signatures(output: str, root: Path) -> list[dict[str, str]]:
         for directory in sorted({str(root.absolute()), str(root.resolve())}, key=len, reverse=True):
             detail = detail.replace(directory, "<checkout>")
         detail = re.sub(r'(File "[^"\n]+", line )\d+', r"\1<line>", detail)
+        # A fresh fixture commit changes this generated pin's suffix, not the assertion that failed.
+        detail = GENERATED_START_REF.sub(r"\1<commit>", detail)
         result.append(
             {"test": test_id + suffix, "kind": kind, "signature": hashlib.sha256(detail.encode()).hexdigest()}
         )

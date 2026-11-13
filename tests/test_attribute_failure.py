@@ -10,7 +10,7 @@ from unittest import mock
 import attribute_failure
 import run_suite
 
-from .ci_failure_fixture import failure_output
+from .ci_failure_fixture import failure_output, ref_failure_output
 
 
 class FirstSkipTests(unittest.TestCase):
@@ -85,6 +85,25 @@ class ClassifyTests(unittest.TestCase):
         )
         result = type("Probe", (), {"returncode": 1, "stdout": "", "stderr": failure_output(str(self.base))})()
         with mock.patch.object(attribute_failure.subprocess, "run", return_value=result):
+            self.assertEqual(
+                attribute_failure.DIFFERENT,
+                attribute_failure.classify("tests.value", self.base, 60, head_failures=head),
+            )
+
+    def test_a_fresh_generated_start_ref_is_the_same_pre_existing_failure(self):
+        self.module("value", "# fixture exists\n")
+        prefix = "refs/autocode/partial-work/start/"
+        head = attribute_failure.failure_signatures.signatures(
+            ref_failure_output("/head", prefix + "a" * 40), Path("/head")
+        )
+        output = ref_failure_output(str(self.base), prefix + "b" * 40)
+        probe = type("Probe", (), {"returncode": 1, "stdout": "", "stderr": output})()
+        with mock.patch.object(attribute_failure.subprocess, "run", return_value=probe):
+            self.assertEqual(
+                attribute_failure.PRE_EXISTING,
+                attribute_failure.classify("tests.value", self.base, 60, head_failures=head),
+            )
+            probe.stderr = output.replace("self.assertTrue(allowed, ref)", "self.assertTrue(verified, ref)")
             self.assertEqual(
                 attribute_failure.DIFFERENT,
                 attribute_failure.classify("tests.value", self.base, 60, head_failures=head),

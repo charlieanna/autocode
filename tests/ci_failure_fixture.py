@@ -11,3 +11,11 @@ def failure_output(root, message="old failure", method="test_value", line=12):
         + "-" * 70
         + "\nRan 1 test in 0.01s\n\nFAILED (failures=1)\n"
     )
+
+
+def ref_failure_output(root, reference, *, method="test_value", line=12):
+    """A constructed ref appears in the diagnostic, not as a literal in the assertion's source."""
+    message = f"False is not true : {reference}"
+    return failure_output(root, message, method, line).replace(
+        f"    self.fail({message!r})", "    self.assertTrue(allowed, ref)"
+    )
