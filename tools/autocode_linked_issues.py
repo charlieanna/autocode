@@ -193,10 +193,10 @@ def origin_repo(workspace: str | Path, *, api: str | None = None) -> tuple[str, 
 def _client(api: str | None = None, transport=None) -> github.Client:
     selected_api = (api or os.environ.get("AUTOCODE_GITHUB_API") or github.API).rstrip("/")
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-    kwargs = {"token": token, "api": selected_api}
-    if transport is not None:
-        kwargs["transport"] = transport
-    client = github.Client(**kwargs)
+    if transport is None:
+        client = github.Client(token=token, api=selected_api)
+    else:
+        client = github.Client(token=token, api=selected_api, transport=transport)
     try:
         server = urlsplit(client.api)
     except ValueError:

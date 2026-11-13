@@ -136,7 +136,8 @@ def _live_records(state: RunState):
     feedback = state.get("brief_feedback") or []
     user_events = state.get("user_events") or []
     answers = state.get("answers") or {}
-    live, order = {}, []
+    live: dict[str, dict] = {}
+    order = []
     for record in log:
         if not isinstance(record, dict) or not record.get("id") or not record.get("text"):
             continue
