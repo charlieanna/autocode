@@ -680,12 +680,19 @@ def cmd_build_compare(args) -> int:
             else:
                 scenarios.append(scenario)
         if args.prepare:
-            protocol = build_compare.prepare(scenarios, args, out, revision=autocode_revision())
+            protocol = build_compare.prepare(scenarios, args, out, revision=autocode_revision(comparison=True))
             print(
                 f"Prepared {2 * len(protocol['pairs'])} attempts; no model calls\n  protocol: {out / 'protocol.json'}"
             )
             return 0
-        report = build_compare.run(scenarios, args, out, run_one=run_one, revision=autocode_revision())
+        report = build_compare.run(
+            scenarios,
+            args,
+            out,
+            run_one=run_one,
+            revision=autocode_revision(comparison=True),
+            revision_reader=lambda: autocode_revision(comparison=True),
+        )
         print((out / "comparison.md").read_text())
         print(f"evidence: {out}")
     return 0 if report["all_passed"] else 1
@@ -846,14 +853,18 @@ def finish(out: Path, result: dict, outcome: str, summary: str) -> dict:
     return result
 
 
-def autocode_revision() -> dict:
+def autocode_revision(*, comparison=False) -> dict:
     def git(*args):
-        return subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, text=True).stdout.strip()
+        result = subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, text=True)
+        return None if comparison and result.returncode else result.stdout.strip()
 
+    paths = ("tools", "pyproject.toml", "scenarios/run.py", "scenarios/harness") if comparison else ("tools",)
+    commit, branch = git("rev-parse", "HEAD"), git("rev-parse", "--abbrev-ref", "HEAD")
+    status = git("status", "--porcelain", "--", *paths)
     return {
-        "commit": git("rev-parse", "HEAD"),
-        "branch": git("rev-parse", "--abbrev-ref", "HEAD"),
-        "dirty": bool(git("status", "--porcelain", "--", "tools")),
+        "commit": commit,
+        "branch": branch,
+        "dirty": None if status is None else bool(status),
     }
 
 

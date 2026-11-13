@@ -6779,7 +6779,8 @@ class BuildCompareTests(unittest.TestCase):
                 args,
                 Path(tmp),
                 run_one=run.run_one,
-                revision={"commit": "test"},
+                revision=run.autocode_revision(comparison=True),
+                revision_reader=lambda: run.autocode_revision(comparison=True),
             )
             self.assertTrue(result["all_passed"], result["records"])
             self.assertEqual(4, len({row["evidence"] for row in result["records"]}))
