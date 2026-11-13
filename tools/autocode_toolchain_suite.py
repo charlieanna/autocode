@@ -15,10 +15,12 @@ from pathlib import Path, PurePosixPath
 
 try:
     from . import autocode_node_tests as node_tests
+    from . import autocode_project_kinds as project_kinds
     from . import autocode_python_tests as python_tests
     from .autocode_test_framework import Framework
 except ImportError:
     import autocode_node_tests as node_tests
+    import autocode_project_kinds as project_kinds
     import autocode_python_tests as python_tests
     from autocode_test_framework import Framework
 
@@ -103,7 +105,7 @@ def detect(root, files, is_test_path) -> Framework | None:
         return Framework("node", "node --test " + " ".join(map(shlex.quote, node_files)), node_files=node_files)
     if "Cargo.toml" in files:
         return Framework("cargo", "cargo test")
-    if "Gemfile" in files and any(p.endswith("_spec.rb") for p in files):
+    if "Gemfile" in files and any(project_kinds.collected_by(p) == "ruby" for p in files):
         return Framework("rspec", "bundle exec rspec", runner="bundle exec rspec")
     if "Makefile" in files and re.search(r"^test\s*:", _read(root / "Makefile"), re.M):
         return Framework("make", "make test")

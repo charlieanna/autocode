@@ -13,18 +13,18 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 try:
+    from . import autocode_project_kinds as project_kinds
     from . import autocode_python_packaging as packaging
     from . import autocode_python_tests as python_tests
 except ImportError:
+    import autocode_project_kinds as project_kinds
     import autocode_python_packaging as packaging
     import autocode_python_tests as python_tests
 
 VERSION = 4
 PRODUCT, TEST, AMBIGUOUS = "product", "test", "ambiguous"
-TEST_DIRS = frozenset({"tests", "__tests__", "__snapshots__", "testdata", "test_data"})
-
-
-ROOT_TEST_DIRS = frozenset({"test", "spec"})
+TEST_DIRS = project_kinds.TEST_DIRS
+ROOT_TEST_DIRS = project_kinds.ROOT_TEST_DIRS
 
 
 def _packages(paths):

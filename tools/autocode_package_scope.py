@@ -19,7 +19,7 @@ package (``own``).
 Mostly helpers over command strings and repository-relative paths. Two read the checkout:
 ``directory_in`` checks each step of the path with ``lstat``, and ``require`` lists the package's
 files with ``git ls-tree`` or ``git ls-files``. The rest is the framework wrapper the detection
-returns. It imports only the test-root path rules and the test-runner descriptions, never the
+returns. It imports only the test-root path rules, the project-kind table and the test-runner descriptions, never the
 controller or the proof.
 """
 
@@ -32,9 +32,11 @@ import subprocess
 from pathlib import Path, PurePosixPath
 
 try:
+    from . import autocode_project_kinds as project_kinds
     from . import autocode_test_root as test_roots
     from .autocode_test_framework import Framework
 except ImportError:
+    import autocode_project_kinds as project_kinds
     import autocode_test_root as test_roots
     from autocode_test_framework import Framework
 
@@ -272,7 +274,7 @@ def detect(root, package, detect_in) -> PackageFramework | None:
 
 
 # Files that make a directory a project of its own, with a suite detection can find there.
-MANIFESTS = ("package.json", "go.mod", "Cargo.toml", "pyproject.toml", "setup.py", "setup.cfg", "Gemfile")
+MANIFESTS = project_kinds.MANIFESTS
 
 
 def enclosing(root, tests, detect_in, *, runs=None) -> PackageFramework | None:

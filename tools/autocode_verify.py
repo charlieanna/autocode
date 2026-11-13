@@ -70,6 +70,7 @@ try:
     from . import autocode_package_scope as package_scope
     from . import autocode_product_diff_stats as product_stats
     from . import autocode_project_inventory as project_inventory
+    from . import autocode_project_kinds as project_kinds
     from . import autocode_prompts as prompts
     from . import autocode_proof_seam as proof_seam
     from . import autocode_proof_stability as proof_stability
@@ -117,6 +118,7 @@ except ImportError:
     import autocode_package_scope as package_scope
     import autocode_product_diff_stats as product_stats
     import autocode_project_inventory as project_inventory
+    import autocode_project_kinds as project_kinds
     import autocode_prompts as prompts
     import autocode_proof_seam as proof_seam
     import autocode_proof_stability as proof_stability
@@ -147,55 +149,12 @@ except ImportError:
     from autocode_verification_commands import _mentions_tests as _mentions_tests
 
 PASS, FAIL, UNVERIFIED = "PASS", "FAIL", "UNVERIFIED"
-# Directories that hold tests wherever they appear, and ones that do only at the repository root:
-# numpy/testing/ and django/test/ are shipped product code, while a top-level test/ is not.
-TEST_DIRS = frozenset({"tests", "__tests__", "__snapshots__", "testdata", "test_data"})
-ROOT_TEST_DIRS = frozenset({"test", "spec"})
-TEST_NAME = re.compile(  # case-sensitive: Latest.java and Contest.kt are product code
-    r"^(test_.*\.py|.*_tests?\.py|conftest\.py|.*\.(test|spec)\.[cm]?[jt]sx?|.*\.snap|.*_test\.go"
-    r"|.*_(spec|test)\.rb|.*Tests?\.(java|kt|cs|swift|scala)|Test[A-Z_]\w*\.(java|kt|cs|swift|scala)"
-    r"|test_.*\.(rb|sh))$"
-)
+# Which files are tests, and which are code, by name: one row per language in autocode_project_kinds.
+TEST_DIRS = project_kinds.TEST_DIRS
+ROOT_TEST_DIRS = project_kinds.ROOT_TEST_DIRS
+TEST_NAME = project_kinds.TEST_ROLE
 PYTHON_TEST_MODULE = python_tests.TEST_MODULE
-CODE_SUFFIXES = frozenset(
-    {
-        ".py",
-        ".pyi",
-        ".js",
-        ".jsx",
-        ".mjs",
-        ".cjs",
-        ".ts",
-        ".tsx",
-        ".go",
-        ".rs",
-        ".rb",
-        ".java",
-        ".kt",
-        ".kts",
-        ".scala",
-        ".swift",
-        ".c",
-        ".h",
-        ".cc",
-        ".cpp",
-        ".hpp",
-        ".cs",
-        ".php",
-        ".m",
-        ".mm",
-        ".ex",
-        ".exs",
-        ".erl",
-        ".hs",
-        ".ml",
-        ".lua",
-        ".pl",
-        ".sh",
-        ".dart",
-        ".zig",
-    }
-)
+CODE_SUFFIXES = project_kinds.CODE_SUFFIXES
 DEPENDENCY_DIRS = dependency_dirs.NAMES
 COLLECTION_ERROR = python_tests.COLLECTION_ERROR
 UNITTEST_HEADER = python_tests.UNITTEST_HEADER

@@ -8,8 +8,10 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 try:
+    from . import autocode_project_kinds as project_kinds
     from . import autocode_test_setup as test_setup
 except ImportError:
+    import autocode_project_kinds as project_kinds
     import autocode_test_setup as test_setup
 
 COLLECTION_ERROR = re.compile(r"unittest\.loader\.(_FailedTest|ModuleImportFailure)|^::")
@@ -19,7 +21,8 @@ UNITTEST_STATUS = re.compile(r"\.\.\. (ok|FAIL|ERROR|skipped|expected failure|un
 UNITTEST_BARE_STATUS = re.compile(r"(ok|FAIL|ERROR|expected failure|unexpected success)|skipped( .*)?")
 UNITTEST_FIXTURES = frozenset({"setUpClass", "tearDownClass", "setUpModule", "tearDownModule"})
 
-TEST_MODULE = re.compile(r"^(tests|test_.*|.*_tests?)\.py$")
+# The Python test modules a targeted unittest or pytest command is given.
+TEST_MODULE = project_kinds.targets("unittest")
 
 
 def empty_package_marker(path: str, source: str) -> bool:

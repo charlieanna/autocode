@@ -19,7 +19,6 @@ job and the user's own edit of the plan are not judged here.
 
 from __future__ import annotations
 
-import re
 import subprocess
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
@@ -27,41 +26,29 @@ from typing import TYPE_CHECKING
 try:
     from . import autocode_native_test_names as native_test_names
     from . import autocode_package_scope as package_scope
+    from . import autocode_project_kinds as project_kinds
     from . import autocode_test_cases as test_cases
     from . import autocode_verify as verify
 except ImportError:
     import autocode_native_test_names as native_test_names
     import autocode_package_scope as package_scope
+    import autocode_project_kinds as project_kinds
     import autocode_test_cases as test_cases
     import autocode_verify as verify
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
-KINDS = (
-    ("python", re.compile(r"^(test_.*|.*_test)\.py$")),
-    ("go", re.compile(r"^.*_test\.go$")),
-    ("ruby", re.compile(r"^.*_spec\.rb$")),
-    ("javascript", re.compile(r"^.*\.(test|spec)\.[cm]?[jt]sx?$")),
-)
-# The kind of test file each runner AutoCode targets runs (autocode_test_framework.Framework.targeted).
-RUNNER_KIND = {
-    "pytest": "python",
-    "unittest": "python",
-    "go": "go",
-    "rspec": "ruby",
-    "node": "javascript",
-    "jest": "javascript",
-    "vitest": "javascript",
-    "mocha": "javascript",
-}
-SHOWN = {"python": "Python", "go": "Go", "ruby": "RSpec", "javascript": "JavaScript or TypeScript"}
+# The kind of test file each runner AutoCode targets runs (autocode_test_framework.Framework.targeted),
+# from the languages' rows in autocode_project_kinds.
+KINDS = project_kinds.COLLECTED
+RUNNER_KIND = project_kinds.RUNNER_LANGUAGE
+SHOWN = {language.name: language.shown for language in project_kinds.LANGUAGES if language.collected}
 
 
 def kind(path) -> str | None:
     """The kind of test file ``path`` is by its name, or None when its name says no kind."""
-    name = PurePosixPath(str(path)).name
-    return next((found for found, pattern in KINDS if pattern.match(name)), None)
+    return project_kinds.collected_by(path)
 
 
 def _plain(path) -> str | None:
