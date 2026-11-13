@@ -1856,7 +1856,7 @@
 
 
 <h1 id="queued-interventions">Queued interventions<a class="headerlink" href="#queued-interventions" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/a6ea3f425d7998f371838cdfe33acceac1dbe011/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/584b16f99548ac381f6a433732f19d4024dcd29c/README.md">← Back to README</a></p>
 <p>The browser can submit a durable change request without competing for the workspace
 writer lock or changing <code>state.json</code>:</p>
 <pre><code class="language-text">[&quot;autocode&quot;, &quot;intervention&quot;, &quot;submit&quot;, &quot;--workspace&quot;, &quot;/project&quot;, &quot;--run-dir&quot;, &quot;/project/.autocode/runs/run&quot;, &quot;--request-id&quot;, &quot;request-123&quot;, &quot;--kind&quot;, &quot;feedback&quot;, &quot;--text&quot;, &quot;Keep the partial implementation&quot;, &quot;--json&quot;]
@@ -1945,7 +1945,8 @@ applied under the held pause, the retry is not applied, and you send it again wi
 <code>--resume-paused</code>. A pause submitted with <code>--now</code> (#3263) does not wait for the running step: the stage
 supervisor checks the inbox once a second, ends the provider as at a time limit (kind <code>person</code>), keeps
 its partial work and logs as a timed-out attempt is kept, and the pause then applies at that boundary
-with the reason "Stopped by you…"; resuming runs the step again. The status view offers it as
+with the reason "Stopped by you…"; resuming runs the step again (a stopped Builder continues from its
+partial work, not the Completion Reviewer, #3334). The status view offers it as
 <code>view.pause.stop_now</code> when the run's runner records <code>supports_stop_now</code>. <code>--pause-after-stage</code> and the existing
 run-local <code>pause-requested</code> file continue to stop at saved boundaries. <code>--status</code> is
 read-only and adds <code>interventions</code> with inspector versus recorded-runner capability,
