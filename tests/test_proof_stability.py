@@ -128,6 +128,15 @@ class JudgingTests(unittest.TestCase):
         self.assertEqual([], unstable)
         self.assertIn("cannot select", record["note"])
 
+    def test_nothing_repeats_after_a_run_that_timed_out_on_the_original_code(self):
+        def run(*_):
+            raise AssertionError("must not run")
+
+        first = receipt(["tests.test_x.X::test_c1_answers_two"])
+        command = "python3 -m unittest -v tests/test_x.py"
+        stopped = {**receipt(), "timed_out": True}
+        self.assertEqual(([], None), stability.repeat("unittest", command, CASES, first, stopped, run, base_tree=True))
+
     def test_narrow_selects_the_proving_tests_and_never_the_whole_suite(self):
         self.assertEqual(
             "python3 -m unittest -v tests.test_clocked.ClockedTests.test_c1_answers_two",
