@@ -66,7 +66,9 @@ AUTH_STATUS = "PAUSED_AUTH"
 # Authentication rerouting is limited to retained workflow jobs with exact tokens.
 TIMEOUT_STATUS = "PAUSED_PROVIDER_TIMEOUT"
 JOB_STATUSES = STATUSES + (AUTH_STATUS, TIMEOUT_STATUS)
-JOB_PREFLIGHT_PAUSES = (AUTH_STATUS, "PAUSED_BILLING_ROUTE")
+# An exact retry can stop before launch to consume a queued pause. Its unconsumed
+# authorization keeps the same recovery available; it never grants a new attempt.
+JOB_PREFLIGHT_PAUSES = (AUTH_STATUS, "PAUSED_BILLING_ROUTE", "PAUSED_INTERVENTION")
 # The cross-model guard is the same kind of model question: a person names the
 # verifier's next model. It is not a provider stop, so it is kept out of STATUSES
 # (which classify attempt failures) and added to MODEL_STOPS for --answer.
@@ -198,12 +200,23 @@ def job_pause_current(state: RunState) -> bool:
     status = state.get("status")
     if status in JOB_PREFLIGHT_PAUSES:
         authorization = state.get("job_retry_authorization") or {}
+        pause = state.get("pause_intent") or {}
+        held = pause.get("held_pause") or {}
+        interrupted_job = (
+            status == "PAUSED_INTERVENTION" and not pause.get("acknowledged_at") and held.get("status") in _JOB_PAUSES
+        )
         if (
             state.get("active_stage")
-            or authorization.get("consumed") is not False
-            or authorization.get("token") != failure.get("job_retry_token")
-            or authorization.get("stage") != failure.get("stage")
+            or state.get("active_runner_check")
             or state.get("next_stage") != failure.get("stage")
+            or (
+                not interrupted_job
+                and (
+                    authorization.get("consumed") is not False
+                    or authorization.get("token") != failure.get("job_retry_token")
+                    or authorization.get("stage") != failure.get("stage")
+                )
+            )
         ):
             return False
     elif status not in _JOB_PAUSES:
