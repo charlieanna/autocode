@@ -2,7 +2,9 @@
 
 import copy
 import json
+import tempfile
 import unittest
+from pathlib import Path
 
 import autocode_contract_revision as revision
 import autocode_plan_retention as retention
@@ -11,6 +13,249 @@ import autocode_trace_coverage as coverage
 from units import autoplanner as planner
 
 from . import test_plan_retention as fixtures
+
+
+def validate_wire(value, schema):
+    """Check selected anyOf branches too; the core's small validator does not."""
+    from autocode_util import validate_schema
+
+    if "anyOf" in schema:
+        failures = []
+        for branch in schema["anyOf"]:
+            try:
+                validate_wire(value, branch)
+                return
+            except ValueError as error:
+                failures.append(str(error))
+        raise ValueError("No wire branch accepts this value: " + "; ".join(failures))
+    validate_schema(value, schema)
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key in schema.get("properties", {}):
+                validate_wire(child, schema["properties"][key])
+    elif isinstance(value, list):
+        for child in value:
+            validate_wire(child, schema.get("items", {}))
+
+
+class StrictRevisionReferenceTests(unittest.TestCase):
+    def setUp(self):
+        from autocode_util import model_output_schema
+        from goal_fixtures import body
+
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        saved = body()
+        self.state = {
+            "goal_contract": {
+                "revision": 1,
+                "hash": "fixture-hash",
+                "body": saved,
+                "approval_status": "draft",
+                "origin": "revise_plan",
+            },
+            "planning": {
+                "reports": {"revise_plan": {"report": {"contract": copy.deepcopy(saved), "requirement_trace": []}}}
+            },
+        }
+        canonical = copy.deepcopy(planner.SCHEMAS["revise_plan"])
+        # The live planning schema offers the first assignment too.
+        from autocode_goals import INITIAL_TASK
+
+        canonical["properties"]["contract"]["properties"]["initial_task"] = copy.deepcopy(INITIAL_TASK)
+        offered = retention.model_schema(canonical, self.state, "revise_plan")
+        self.reference = offered["properties"]["contract"]["anyOf"][0]
+        self.schema = model_output_schema(
+            {
+                "type": "object",
+                "properties": {
+                    "contract": offered["properties"]["contract"],
+                    "contract_changes": {"type": "array"},
+                    "requirement_trace": {"type": "array"},
+                },
+                "required": ["contract", "contract_changes", "requirement_trace"],
+                "additionalProperties": False,
+            }
+        )
+
+    def report(self):
+        return {
+            "contract": {
+                "revise_contract": retention.token(self.state),
+                "changes": {field: None for field in references.FIELDS},
+                "acceptance_criteria": None,
+                "retain_requirement_trace": None,
+            },
+            "contract_changes": [],
+            "requirement_trace": [],
+        }
+
+    def load(self, value, *, schema=None, stage="revise_plan"):
+        import autocode as runner
+
+        attempt = self.root / str(len(list(self.root.iterdir())))
+        attempt.mkdir()
+        schema_file, output = attempt / "pin.json", attempt / "report.json"
+        schema_file.write_text(json.dumps(self.schema if schema is None else schema))
+        output.write_text(json.dumps(value))
+        record = {"schema": str(schema_file), "output": str(output), "stage": stage, "engine": "codex"}
+        loaded = runner.load_stage_report(record, state=self.state)
+        if loaded != value:
+            self.assertEqual(value, json.loads(Path(record["reported_output"]).read_text()))
+        return loaded
+
+    def test_strict_wire_can_retain_every_engineering_field_without_copying_it(self):
+        from autocode_goal_lifecycle import validate_body
+
+        report = self.report()
+        before = copy.deepcopy((self.state, report, self.schema))
+        validate_wire(report, self.schema)
+        loaded = self.load(report)
+        self.assertEqual({"revise_contract": retention.token(self.state), "changes": {}}, loaded["contract"])
+        expanded = retention.expand(self.state, "revise_plan", loaded)
+        self.assertEqual(self.state["goal_contract"]["body"], expanded["contract"])
+        validate_body(self.state, expanded["contract"], origin="revise_plan")
+        self.assertEqual(before, (self.state, report, self.schema))
+
+    def test_nullable_objects_remain_strict_through_every_wire_branch(self):
+        def check(node):
+            if isinstance(node, dict):
+                if node.get("type") == "object":
+                    self.assertEqual(set(node.get("properties", {})), set(node.get("required", [])))
+                    self.assertIs(False, node.get("additionalProperties"))
+                for child in node.values():
+                    check(child)
+            elif isinstance(node, list):
+                for child in node:
+                    check(child)
+
+        check(self.schema)
+        criteria = self.schema["properties"]["contract"]["anyOf"][0]["properties"]["acceptance_criteria"]
+        delta = next(branch for branch in criteria["anyOf"] if branch.get("type") == "object")
+        self.assertIn("proofs", delta["required"])
+
+    def test_strict_wire_can_change_one_field_and_retain_the_other_four(self):
+        report = self.report()
+        report["contract"]["changes"]["technical_approach"] = ["Inspect before editing"]
+        validate_wire(report, self.schema)
+        loaded = self.load(report)
+        expected = {**self.state["goal_contract"]["body"], "technical_approach": ["Inspect before editing"]}
+        self.assertEqual(expected, retention.expand(self.state, "revise_plan", loaded)["contract"])
+        self.assertEqual({"technical_approach": ["Inspect before editing"]}, loaded["contract"]["changes"])
+
+    def test_loader_normalizes_before_expanding_a_real_criteria_delta(self):
+        report = self.report()
+        delta = {
+            "retain_from": retention.token(self.state),
+            "upsert": [],
+            "remove": [],
+            "proofs": [{"id": "C1", "verification_method": "python3 -m unittest test_greeting.py"}],
+        }
+        report["contract"]["acceptance_criteria"] = delta
+        report["requirement_trace"] = [{"requirement_id": "R1", "disposition": "covered", "evidence": "C1"}]
+        validate_wire(report, self.schema)
+        loaded = self.load(report)
+        self.assertEqual(delta, loaded["contract"]["acceptance_criteria"])
+        self.assertNotIn("retain_requirement_trace", loaded["contract"])
+        expanded = retention.expand(self.state, "revise_plan", loaded)
+        self.assertEqual(report["requirement_trace"], expanded["requirement_trace"])
+        self.assertEqual(
+            delta["proofs"][0]["verification_method"],
+            expanded["contract"]["acceptance_criteria"][0]["verification_method"],
+        )
+
+    def test_nulls_are_not_a_permission_to_clear_required_fields_or_change_the_reference(self):
+        from autocode_goal_lifecycle import validate_body
+
+        for field, message in (
+            ("deliverables", "Contract is missing deliverables"),
+            ("end_to_end_flow", "Build brief is missing end_to_end_flow"),
+        ):
+            with self.subTest(field=field):
+                report = self.report()
+                report["contract"]["changes"][field] = []
+                loaded = self.load(report)
+                self.assertEqual([], loaded["contract"]["changes"][field])
+                expanded = retention.expand(self.state, "revise_plan", loaded)
+                with self.assertRaisesRegex(ValueError, message):
+                    validate_body(self.state, expanded["contract"], origin="revise_plan")
+        stale = self.report()
+        stale["contract"]["revise_contract"] = "r0:stale"
+        with self.assertRaisesRegex(ValueError, "reference_mismatch"):
+            retention.expand(self.state, "revise_plan", self.load(stale))
+
+    def test_nonnull_trace_reuse_keeps_its_existing_availability_guard(self):
+        report = self.report()
+        report["contract"]["retain_requirement_trace"] = True
+        loaded = self.load(report)
+        self.assertIs(True, loaded["contract"]["retain_requirement_trace"])
+        self.assertEqual([], retention.expand(self.state, "revise_plan", loaded)["requirement_trace"])
+        self.state["planning"]["reports"] = {}
+        with self.assertRaisesRegex(ValueError, "validated trace"):
+            retention.expand(self.state, "revise_plan", loaded)
+
+    def test_schema_guidance_is_bound_to_nullable_offers_including_legacy_reference_pins(self):
+        legacy = copy.deepcopy(self.schema)
+        reference = legacy["properties"]["contract"]["anyOf"][0]
+        for field in ("acceptance_criteria", "retain_requirement_trace"):
+            prop = reference["properties"][field]
+            if "anyOf" in prop:
+                reference["properties"][field] = next(item for item in prop["anyOf"] if item != {"type": "null"})
+        for field, prop in reference["properties"]["changes"]["properties"].items():
+            if "anyOf" in prop:
+                reference["properties"]["changes"]["properties"][field] = next(
+                    item for item in prop["anyOf"] if item != {"type": "null"}
+                )
+        new_rule = planner.repair_rules("revise_plan", self.schema)
+        old_rule = planner.repair_rules("revise_plan", legacy)
+        new_reference_rule = new_rule.split("REVISE ONLY CHANGED FIELDS.", 1)[1].split("CRITERIA DELTA.", 1)[0]
+        old_reference_rule = old_rule.split("REVISE ONLY CHANGED FIELDS.", 1)[1].split("CRITERIA DELTA.", 1)[0]
+        self.assertIn("null", new_reference_rule)
+        self.assertNotIn("null", old_reference_rule)
+        legacy_report = self.report()
+        loaded = self.load(legacy_report, schema=legacy)
+        self.assertEqual(legacy_report["contract"], loaded["contract"])
+        with self.assertRaises(ValueError):
+            retention.expand(self.state, "revise_plan", loaded)
+
+    def test_unknown_or_protected_null_changes_remain_refused(self):
+        before = copy.deepcopy(self.state)
+        for field in ("permission_boundaries", "required_behaviors", "unknown_field"):
+            with self.subTest(field=field):
+                report = self.report()
+                report["contract"]["changes"][field] = None
+                loaded = self.load(report)
+                self.assertIn(field, loaded["contract"]["changes"])
+                with self.assertRaisesRegex(ValueError, "unexpected_change_fields"):
+                    retention.expand(self.state, "revise_plan", loaded)
+        self.assertEqual(before, self.state)
+
+    def test_full_contract_nulls_keep_their_existing_type_errors(self):
+        from autocode_goal_lifecycle import validate_body
+
+        for field, message in (("deliverables", "expected array"), ("initial_task", "expected object")):
+            with self.subTest(field=field):
+                report = self.report()
+                report["contract"] = copy.deepcopy(self.state["goal_contract"]["body"])
+                report["contract"][field] = None
+                loaded = self.load(report)
+                self.assertIsNone(loaded["contract"][field])
+                with self.assertRaisesRegex(ValueError, message):
+                    validate_body(self.state, loaded["contract"], origin="revise_plan")
+
+    def test_nullable_meaning_requires_the_actual_pin_and_correct_stage(self):
+        report = self.report()
+        foreign = copy.deepcopy(self.schema)
+        foreign["properties"]["contract"]["anyOf"][0]["properties"]["revise_contract"]["enum"] = ["r9:foreign"]
+        unoffered = {"type": "object", "properties": {"contract": {"type": "object"}}}
+        for kwargs in ({"schema": foreign}, {"stage": "builder"}, {"schema": unoffered}):
+            with self.subTest(kwargs=kwargs):
+                loaded = self.load(report, **kwargs)
+                self.assertEqual(report["contract"], loaded["contract"])
+        report["contract"]["retain_requirement_trace"] = False
+        with self.assertRaisesRegex(ValueError, "validated trace"):
+            retention.expand(self.state, "revise_plan", self.load(report))
 
 
 class RevisionReferenceTests(unittest.TestCase):
