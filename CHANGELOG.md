@@ -95,6 +95,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **VS Code Requirements interviews use the chat composer without a competing answer card** (#3378): open-ended Requirements clarifications and greetings that hold the chat open are answered directly in the composer (`--feedback`) without showing a second answer card (`--answer`) or dropping spoken `assistant_reply` context, while finite choices keep the decision card without repeating backticked question text. Clarifying Requirements prompts also keep `required_behaviors=[]` and `acceptance_tests=[]` while gathering intent.
+
 - **Automatic recovery no longer tells you to resume** (#3351): when AutoCode sets a stopped attempt aside before retrying it or asking the Investigator, the progress log says that partial work was retained for automatic recovery. Explicit abandonment still reports the pause and its resume action; the intermediate recovery checkpoint remains safe to resume after a crash.
 
 - **A Kilo agent without capture permission is refused before task spend** (#3366): model-free readiness checks every selected ordinary Kilo transport, including a Kilo-only Tester behind another tool. An unusable shell policy stops with configuration guidance before planning; operator asks and denials, selected routes and caps stay unchanged. Ordinary launches recheck the policy, and native-owned isolated agents retain their own conformance checks.
