@@ -1561,6 +1561,13 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         ):
             need["retry_unavailable"] = blocked
             need["action"] = "--resume-paused"
+        if (
+            status == "RESOLVER_PENDING"
+            and need.get("action") in (None, "--resume-paused")
+            and (operational_information.projection(state) or {}).get("status") != "pending"
+            and command_inputs.recovery_grant_available(state)
+        ):
+            need["action"] = command_inputs.GRANT_ACTION
         if "action" not in need and pause_authority.requested_only(state):
             need["confirmation_required"] = False
         return need

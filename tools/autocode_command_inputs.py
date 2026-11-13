@@ -26,6 +26,7 @@ try:
     from . import autocode_planning_calls as planning_calls
     from . import autocode_planning_review_usage as review_usage
     from . import autocode_recovery_accounting as accounting
+    from . import autocode_recovery_grants as recovery_grants
     from . import autocode_recovery_limits as recovery_limits
 except ImportError:
     import autocode_cost as cost
@@ -34,6 +35,7 @@ except ImportError:
     import autocode_planning_calls as planning_calls
     import autocode_planning_review_usage as review_usage
     import autocode_recovery_accounting as accounting
+    import autocode_recovery_grants as recovery_grants
     import autocode_recovery_limits as recovery_limits
 
 MAX_INTEGER = 9007199254740991  # Exact in the Python and JavaScript clients.
@@ -152,7 +154,7 @@ def project(state: RunState, need, resume_flags):
     """Describe one explicit finite total, never infer a value from human prose."""
     if state.get("status") == "PAUSED_PLANNING_BUDGET":
         return _planning(state, need, resume_flags)
-    if state.get("status") == "PAUSED_TIMEOUT_RECOVERY":
+    if pause_authority.held_origin(state).get("pause_status") == "PAUSED_TIMEOUT_RECOVERY":
         return _grant(state, need, resume_flags)
     return _bound(state, need, resume_flags)
 
@@ -245,6 +247,11 @@ def _planning(state: RunState, need, resume_flags):
     ]
 
 
+def recovery_grant_available(state: RunState) -> bool:
+    """Whether a resume at this saved frontier can take the explicit recovery grant."""
+    return bool(_grant(state, {"kind": "resume", "action": GRANT_ACTION}, None))
+
+
 def has_planning_allowance(state: RunState):
     """A saved finite choice already leaves review calls available; no new choice."""
     counts = _planning_counts(state)
@@ -276,6 +283,7 @@ def _grant(state: RunState, need, resume_flags):
             state.get(key)
             for key in ("active_stage", "active_runner_check", "pending_report_repair", "uncertain_artifacts")
         )
+        or pause_authority.held_origin(state).get("pause_status") != "PAUSED_TIMEOUT_RECOVERY"
     ):
         return None
     try:
@@ -283,6 +291,18 @@ def _grant(state: RunState, need, resume_flags):
     except (TypeError, ValueError):
         return None
     if type(used) is not int or not 1 <= used <= MAX_INTEGER:
+        return None
+    request = state.get("resolver_human_request")
+    entry = ((state.get("resolver") or {}).get("human_escalations") or {}).get((request or {}).get("request_id"))
+    current_request = (
+        request if isinstance(request, dict) and isinstance(entry, dict) and entry.get("status") == "pending" else None
+    )
+    if not recovery_grants.eligible(
+        state,
+        current_request=lambda _state: current_request,
+        count=used,
+        maximum=accounting.MAX_AUTOMATIC_RECOVERIES,
+    ):
         return None
     return [
         {

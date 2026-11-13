@@ -54,7 +54,13 @@ class CommandInputTests(unittest.TestCase):
             ],
             view["needs"]["command_inputs"],
         )
-        self.assertIn("--resume-paused --grant-recovery N --expected-recovery-token -", view["next_command"])
+        words = shlex.split(view["next_command"])
+        variable, token = words.pop(0).split("=", 1)
+        self.assertEqual(("AUTOCODE_EXPECTED_RECOVERY_TOKEN", view["recovery"]["token"]), (variable, token))
+        words[words.index("N")] = "1"
+        with mock.patch.dict("os.environ", {variable: token}):
+            args, _ = autocode_args.parse(None, words[1:], autocode_configure.DEFAULT_ROLE_MODELS)
+        self.assertEqual((1, token), (args.grant_recovery, args.expected_recovery_token))
         self.assertEqual(before, state)
         for used in (None, True, 0, -1, 3.5, inputs.MAX_INTEGER + 1, 10**1000):
             bad = copy.deepcopy(state)
@@ -68,6 +74,49 @@ class CommandInputTests(unittest.TestCase):
             self.assertIsNone(inputs.project(bad, {"kind": "resume"}, inputs.GRANT_ACTION))
         with mock.patch.object(run_view.operational_information, "projection", return_value={"status": "pending"}):
             self.assertNotIn("command_inputs", run_view.view(state)["needs"])
+
+    def test_unpublished_timeout_exhaustion_names_the_grant_action(self):
+        state = self.grant_checkpoint()
+        state.update(
+            status="RESOLVER_PENDING",
+            next_stage="resolve",
+            stop_reason="Automatic recovery budget exhausted; no further provider will launch.",
+            automatic_recoveries_since_resume=4,
+            resolver_human_proposal={
+                "scope": "operational_exhaustion",
+                "origin": {"pause_status": "PAUSED_TIMEOUT_RECOVERY", "stage": "resolve"},
+                "evidence": {"resolver_receipt_id": "receipt"},
+            },
+        )
+
+        view = run_view.view(state)
+
+        self.assertEqual("resume", view["needs"]["kind"])
+        self.assertEqual(inputs.GRANT_ACTION, view["needs"]["action"])
+        self.assertEqual(
+            [
+                {
+                    "id": "grant_recovery",
+                    "kind": "integer",
+                    "flag": "--grant-recovery",
+                    "placeholder": "N",
+                    "arg_index": 2,
+                    "label": "Additional recoveries",
+                    "current": 3,
+                    "used": 4,
+                    "minimum": 1,
+                    "maximum": 4,
+                }
+            ],
+            view["needs"]["command_inputs"],
+        )
+        words = shlex.split(view["next_command"])
+        variable, token = words.pop(0).split("=", 1)
+        self.assertEqual(("AUTOCODE_EXPECTED_RECOVERY_TOKEN", view["recovery"]["token"]), (variable, token))
+        words[words.index("N")] = "1"
+        with mock.patch.dict("os.environ", {variable: token}):
+            args, _ = autocode_args.parse(None, words[1:], autocode_configure.DEFAULT_ROLE_MODELS)
+        self.assertEqual((1, token), (args.grant_recovery, args.expected_recovery_token))
 
     def test_recovery_spend_fallbacks_and_grant_history_expire_numeric_offer(self):
         state = self.grant_checkpoint()

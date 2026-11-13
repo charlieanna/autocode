@@ -130,6 +130,72 @@ class RecoveryGrantTests(unittest.TestCase):
             )
         )
 
+    def test_unpublished_resolver_exhaustion_on_timeout_pause_can_be_granted(self):
+        self.state.update(
+            status="RESOLVER_PENDING",
+            next_stage="resolve",
+            automatic_recoveries_since_resume=4,
+            resolver_human_proposal={
+                "scope": "operational_exhaustion",
+                "origin": {"pause_status": "PAUSED_TIMEOUT_RECOVERY", "stage": "resolve"},
+                "evidence": {"resolver_receipt_id": "receipt"},
+            },
+        )
+        self.current = Mock(return_value=None)
+        before = copy.deepcopy(self.state)
+        self.assertTrue(
+            grants.eligible(
+                self.state,
+                current_request=self.current,
+                count=4,
+                maximum=3,
+            )
+        )
+        remaining = grants.grant(
+            self.state,
+            Path("/run"),
+            1,
+            previous_settings=None,
+            current_request=self.current,
+            count=4,
+            maximum=3,
+            supersede=self.supersede,
+            persist=self.persist,
+        )
+        self.assertEqual(3, remaining)
+        self.assertEqual(before["automatic_timeout_recoveries"], self.state["automatic_timeout_recoveries"])
+        self.assertEqual("RESOLVER_PENDING", self.state["status"])
+        self.assertEqual("receipt", self.state["resolver_human_proposal"]["evidence"]["resolver_receipt_id"])
+        self.assertEqual(
+            (None, 4, 3, 1),
+            tuple(
+                self.state["recovery_grants"][-1][key]
+                for key in ("request_id", "previous_count", "remaining_count", "amount")
+            ),
+        )
+        self.persist.assert_called_once_with(Path("/run/state.json"), self.state)
+
+    def test_unpublished_resolver_exhaustion_does_not_authorize_another_pause_or_unspent_budget(self):
+        state = {
+            "status": "RESOLVER_PENDING",
+            "automatic_recoveries_since_resume": 2,
+            "resolver_human_proposal": {
+                "scope": "operational_exhaustion",
+                "origin": {"pause_status": "PAUSED_TIMEOUT_RECOVERY", "stage": "resolve"},
+            },
+        }
+        for count, pause_status in ((2, "PAUSED_TIMEOUT_RECOVERY"), (3, "PAUSED_OUTPUT_CAP")):
+            with self.subTest(count=count, pause_status=pause_status):
+                state["resolver_human_proposal"]["origin"]["pause_status"] = pause_status
+                self.assertFalse(
+                    grants.eligible(
+                        state,
+                        current_request=lambda _state: None,
+                        count=count,
+                        maximum=3,
+                    )
+                )
+
     def test_a_grant_is_still_refused_before_any_recovery_budget_is_exhausted(self):
         self.state["settings"]["limits"] = {"no_progress_batches": 3}
         self.state["consecutive_timeout_recoveries"] = 0

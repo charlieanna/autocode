@@ -16,9 +16,7 @@ import autocode_run_view as run_view
 
 from . import test_blocker_next_action, test_resolver_human
 
-PERSON = (
-    "AutoResolver could not resolve the Builder's model limit. Provide corrective information or leave the run paused."
-)
+PERSON = "AutoResolver could not resolve the Builder's model limit. The run remains paused."
 ATTEMPT = "001/builder-01"
 
 

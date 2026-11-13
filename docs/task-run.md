@@ -1786,7 +1786,9 @@ routes and plan approval. It does not reset a cycle, change allowance policy or
 approve the plan. Ordinary CLI callers retain their existing explicit zero
 semantics.
 
-An exhausted `PAUSED_TIMEOUT_RECOVERY` can name one additional finite choice:
+An exhausted `PAUSED_TIMEOUT_RECOVERY` can name one additional finite choice.
+The same held timeout pause remains eligible when an unpublished operational
+exhaustion proposal has temporarily left the run at `RESOLVER_PENDING`:
 
 ```json
 {"id":"grant_recovery","kind":"integer","flag":"--grant-recovery","placeholder":"N",

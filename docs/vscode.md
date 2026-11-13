@@ -334,7 +334,9 @@ fractional or stale choices cannot run.
 
 At an exhausted operational-recovery boundary, **Additional recoveries** is a
 separate blank finite input. It shows the existing recovery allowance and counted
-spend. Choose from 1 through the spent count and confirm **Grant and continue**.
+spend. It is also offered when the held timeout pause is represented by an
+unpublished Resolver exhaustion proposal (`RESOLVER_PENDING`). Choose from 1
+through the spent count and confirm **Grant and continue**.
 Choosing 1 replenishes one spent slot; it does not raise the fixed allowance or
 bank excess. History stays retained and the existing consecutive-timeout streak
 is cleared by that grant. Other limits, routes and plan approval still apply.
