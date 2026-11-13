@@ -254,7 +254,18 @@ reports only an exit code (`make test`, Ruby test files run one by
 one, or a runner AutoCode does not detect) cannot prove a `test:` or `guard:`
 criterion by name, so a draft that has one there is refused when it is drafted,
 and the Planner writes the criterion as the command that runs its test file
-instead. When AutoCode detects no runner and nothing was typed, the regression
+instead. Behavior that must keep working is guarded there by the command that runs
+the existing tests, ``guard: run `ruby test/pager_test.rb` `` (or the detected suite,
+``guard: run `make test` ``): the proof runs that command on the original code and with
+the change, and both must pass. The command must run tests the original code has,
+which is checked when the plan is drafted. When every criterion the proof is given
+is such a guard and the change touches no test file, the change is coverage of
+existing behavior, as one guarded by named tests is, and needs no new test: a
+refactor of a Minitest, `make test` or shell project is proven this way. A bug fix
+still needs a test that fails without it, a change with a test file is proven as
+before, and changed product lines still need the Tester's evidence. A project whose
+runner names its tests keeps naming them: a command guard there is refused when the
+plan is drafted (`tools/autocode_command_guards.py`, owner decision 2026-11-13). When AutoCode detects no runner and nothing was typed, the regression
 proof runs the approved plan's own test command and judges its exit code
 (`tools/autocode_plan_proof_command.py`), recording that choice in the proof's
 notes and review reasons; it never asks the person to pass `--test-command`. Do

@@ -9,7 +9,8 @@ Method: master `6d8f4e4`, Linux cloud container. Twelve task kinds ran with the 
 provider (`scenarios/run.py run --fake`). Eight of them then ran once on Claude Code
 (`--profile claude-tiers`: Sonnet 5.5 Requirements, Planner and Tester, Opus 5.5 reviewers,
 Haiku 4.5 Builder), $9.15 in all, and $12.59 more for the eight runs after a fix. Sections 5 to 7
-(JavaScript) are six later runs, $10.86, and section 8 (RSpec) four more, $5.51.
+(JavaScript) are six later runs, $10.86, section 8 (RSpec) four more, $5.51, and section 9 (Minitest)
+three, $4.82.
 
 ## Scripted stops that real models do not hit
 
@@ -214,9 +215,36 @@ refactor in 185 s, $1.19, 10 stages (manifest
 `ccb0c9e87921dda10a1378a664e8bdac4b5fb288fb5b2bfc38ab00047c92c350`), with one new spec file for the
 helper and the three existing examples as guards.
 
-Not yet run: the same refactor in a project whose runner names no test (Minitest, `make test`). The
-refactor above, planned with commands alone, suggests a change to product code with no test file
-would stop there the same way.
+A refactor in a project whose runner names no test is section 9.
+
+## 9. Minitest: a refactor cannot be guarded, and the person is asked (fixed)
+
+Manifest `390c97ca66d6ca6dfd91d921defcef0c42832c0c2e726d671c73c1389e9c627d`. The same refactor (extract
+`require_positive`) in a project with one Minitest file. Minitest results are not read per test, so
+the plan could name no guard: it checked the change with `ruby test/pager_test.rb` and a `ruby -e`
+probe and allowed `lib/pager.rb` alone. The proof failed twice with "No regression test was added or
+changed", and after the Completion Reviewer, the Resolver and the Investigator the Resolver asked
+"Allow add-only edits to test/pager_test.rb? ... Without a new test, the regression proof stays FAIL".
+The scenario's stand-in person allowed it, the plan was revised, the Builder added tests and the run
+finished: 431 s, $3.04, 20 stages. A project whose tests are named guards such a change with its
+existing tests; one that reports only an exit code (Minitest, `make test`, a shell suite) could not,
+so a change that alters no behavior could only be proven with a new test.
+
+Owner decision, 2026-11-13 ("existing tests pass before and after"): there a plan guards with the
+command that runs the existing tests, ``guard: run `ruby test/pager_test.rb` ``, or the detected suite. The
+proof runs it on the original code and with the change, and both must pass. When every criterion the
+proof is given is such a guard and the change touches no test file, the change needs no new test, as
+with named guards (`autocode_command_guards`). The command must run tests the original code has,
+checked when the plan is drafted; a bug fix still needs a test that fails without it; a change with
+a test file is proven as before; a project whose runner names its tests keeps naming them.
+
+On the fixed tree the Planner wrote ``guard: run `ruby test/pager_test.rb` `` and two criteria for the
+Tester, the first proof passed with the guard's command at exit 0 on both sides, and the run completed
+without a question: 142 s, $0.88, 8 stages (manifest
+`7adb00ce5a6656d0ef855594ebcce3fdbbb966adcd1a22e2b9bce050d23a04b9`). A first form without the word "run"
+completed the same way (160 s, $0.90, manifest
+`f65d7c79103a8dc82babad76d2165269c6f2bb5bc3f9f12bbe8e5f3c33be06e4`) but could not be told from a
+test's name or title, which plans also write in backticks.
 
 ## Also seen, not yet run on real models
 

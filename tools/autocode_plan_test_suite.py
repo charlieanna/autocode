@@ -24,12 +24,14 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
 try:
+    from . import autocode_command_guards as command_guards
     from . import autocode_native_test_names as native_test_names
     from . import autocode_package_scope as package_scope
     from . import autocode_project_kinds as project_kinds
     from . import autocode_test_cases as test_cases
     from . import autocode_verify as verify
 except ImportError:
+    import autocode_command_guards as command_guards
     import autocode_native_test_names as native_test_names
     import autocode_package_scope as package_scope
     import autocode_project_kinds as project_kinds
@@ -106,21 +108,27 @@ def unnamed_cases(workspace, framework, tests, body, detect_in) -> str | None:
         "which reports only whether the whole run passed, never which test passed, so the runner could never match "
         "a test to these criteria. Write each of them without test: or guard:, as the command that runs its test "
         'file and what it shows, such as "`ruby test/pager_test.rb` fails on the original code and passes with '
-        'the fix" (or "passes before and after the change" for behavior that must keep working), and name the '
-        "test file in its milestone's affected_paths. The regression proof runs that command on the original code "
-        "and with the change and judges its exit code"
+        "the fix\", and name the test file in its milestone's affected_paths. For behavior that already works and "
+        'must keep working, write "guard: run `ruby test/pager_test.rb`", the command that runs its existing test '
+        "file. The regression proof runs each command on the original code and with the change and judges its "
+        "exit code"
     )
 
 
-def _existing_tests(workspace) -> bool:
-    """Whether the workspace already holds test code (a test path that is a code file), tracked or not."""
+def _test_paths(workspace) -> list[str]:
+    """The workspace's test paths, tracked or not."""
     listed = subprocess.run(
         ["git", "-C", str(workspace), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
         capture_output=True,
         text=True,
     )
     names = listed.stdout.split("\0") if listed.returncode == 0 else []
-    return any(name and verify.is_test_path(name) and verify.is_code_path(name) for name in names)
+    return [name for name in names if name and verify.is_test_path(name)]
+
+
+def _existing_tests(workspace) -> bool:
+    """Whether the workspace already holds test code (a test path that is a code file), tracked or not."""
+    return any(verify.is_code_path(name) for name in _test_paths(workspace))
 
 
 def check(state: RunState, body, *, origin=None) -> None:
@@ -139,6 +147,9 @@ def check(state: RunState, body, *, origin=None) -> None:
     detect = lambda directory: verify.detect_framework(directory, python=python)  # noqa: E731
     if unnamed := unnamed_cases(workspace, framework, tests, body, detect):
         raise ValueError(unnamed)
+    # A guard that is a command runs tests the project already has, where no runner names them.
+    if unusable := command_guards.problem(command_guards.plan_guards(body), framework, _test_paths(workspace)):
+        raise ValueError(unusable)
     if not tests:
         return
     unrun = problems(workspace, framework, tests, detect, scoped=package_scope.of(settings) is not None)

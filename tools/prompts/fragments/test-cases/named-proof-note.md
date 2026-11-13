@@ -35,3 +35,8 @@ avoid proof. If the project's tests run with none of these runners (`make test`,
 run one by one), the runner cannot match a test to a test: or guard: criterion: write that criterion as the
 command that runs its test file and what it shows ("`ruby test/pager_test.rb` fails on the original code and
 passes with the fix"); the runner proves it by that command's exit code before and after the change.
+Behavior that already works and must keep working is guarded there by the command that runs its existing
+test file, written "guard: run `ruby test/pager_test.rb`" (or the project's suite, "guard: run `make test`"):
+the runner needs that command to pass on the original code and with the change. A change that must not
+alter behavior (a refactor, a rename) whose criteria are such guards needs no new test and no test file in
+affected_paths; a change that adds or fixes behavior still needs a test file that shows it.
