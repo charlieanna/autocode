@@ -341,7 +341,8 @@ class RunState(TypedDict, total=False):
     changeset_approval: dict  # changeset_barrier.approve writes exact set/standalone grant; checkpoint publication and execution guard read it
     project_workspace: str  # the project a task worktree belongs to
     # The folder a launch selected that held no Git repository, and the project AutoCode created to
-    # run in: {selected, project}, equal when an empty folder became the project itself. Written once
+    # run in: {selected, project}, equal when an empty folder became the project itself, with
+    # first_commit when the folder was a repository with no commit and nothing of the person's. Written once
     # by autocode_run_setup when it bootstraps; read only by autocode_chat_history, which says so once
     # in the conversation instead of leaving a client to infer it from workspace (#1908).
     workspace_bootstrap: dict

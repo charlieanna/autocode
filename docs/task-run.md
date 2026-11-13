@@ -339,6 +339,14 @@ are refused before a provider launches. The optional destination is used by
 [saved-run replay](replay.md); the run is created there without moving bound
 artifacts afterward.
 
+When the workspace is a Git repository with no commit at all (`git init` and nothing
+more), the core makes an empty first commit itself, without the index, so files the
+person has staged or left untracked stay as they are, and the run works in the folder:
+a worktree of the empty commit would hide what is there. A folder that holds nothing of
+the person's is the run's own project, as an empty folder outside Git is, and its
+`workspace-bootstrap` message says the first commit was made. No client is told to type
+a Git command.
+
 When the workspace is a plain, non-empty folder, the core bootstraps a private
 scratch task project in the folder's own store, `workspace/.autocode/projects/ID`,
 and runs there, so a chat that never builds leaves nothing among the person's
