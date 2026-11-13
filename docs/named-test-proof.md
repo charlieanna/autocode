@@ -285,7 +285,10 @@ not downgrade an approved named criterion to prose to make a run finish. A
 draft whose test files the proof's suite would never run, such as RSpec specs in
 a repository whose root suite is Node, is refused when it is drafted unless one
 directory with its own suite holds them all (see the monorepo packages section of
-[workflow](workflow.md)), so the Planner settles it before a Builder runs.
+[workflow](workflow.md)), so the Planner settles it before a Builder runs. So is a
+build or bug-fix draft that names code files and no test in a project with no test
+code: every change to code needs a test, and nothing there can guard the change
+instead (`tools/autocode_plan_test_suite.py`, `untested_code`).
 
 ## JUnit XML from other test runners
 

@@ -10,7 +10,7 @@ provider (`scenarios/run.py run --fake`). Eight of them then ran once on Claude 
 (`--profile claude-tiers`: Sonnet 5.5 Requirements, Planner and Tester, Opus 5.5 reviewers,
 Haiku 4.5 Builder), $9.15 in all, and $12.59 more for the eight runs after a fix. Sections 5 to 7
 (JavaScript) are six later runs, $10.86, section 8 (RSpec) four more, $5.51, and section 9 (Minitest)
-three, $4.82. Sections 10 and 11 are fourteen runs on master `c6b9f7f`, $16.57.
+three, $4.82. Sections 10 to 12 are fifteen runs on master `c6b9f7f`, $17.59.
 
 ## Scripted stops that real models do not hit
 
@@ -278,7 +278,7 @@ bounded its own time and the task completed.
 The script with no tests planned `hello.py` alone, with shell commands as its criteria. A project with
 no test has nothing to guard the change with, so the proof failed twice with "No regression test was added
 or changed", and the Resolver asked "Allow one new test file, tests/test_hello.py, as an exception to
-'Edit only hello.py'?" The run finished after 20 stages. This is known when the plan is drafted.
+'Edit only hello.py'?" The run finished after 20 stages. This is known when the plan is drafted (section 12).
 
 ## 11. A failing test to repair, where no test is named: the person is asked (fixed)
 
@@ -299,6 +299,25 @@ package.json script run whatever a recipe says, and a shell test that sources th
 product at its original, so those keep the old judgement. On the fixed tree the same request completed
 without a question (346 s, $2.20, of which about half was a Tester report repair unrelated to the proof;
 manifest `3cacb2fc3b57d06c8fba7b474c3d94e3576ac73e8c0c515f2376af2e48560521`).
+
+## 12. A project with no tests: the plan changes code and plans no test (fixed)
+
+"Add a --shout option to hello.py that prints the greeting in upper case", in a folder that holds
+`hello.py` and nothing else. The plan named `hello.py` alone, with shell commands as its criteria and the
+constraint "Edit only hello.py". Every change to code owes the proof a test, and a project with no test
+has none to guard the change with either, so that plan could not pass: the proof failed twice with "No
+regression test was added or changed", the Resolver asked the person to allow `tests/test_hello.py`, and
+the run finished after 20 stages (394 s, $2.91).
+
+Fixed: such a plan goes back to the Planner when it is drafted (`autocode_plan_test_suite.untested_code`).
+Only the certain case is judged: a build or bug fix, in a project with no test code, whose plan names a
+code file, names no test file or test directory, and has no `test:` or `guard:` criterion. A project that
+has tests is not judged, since its tests may guard the change or already hold the failing test.
+
+On the fixed tree the same request completed without a question (154 s, $1.02, 8 stages, manifest
+`173589766bdd2b0910947f4a63c38f0b769ddb2ee4fbbb8a75a9f41c286e897a`). In that run the Planner planned
+`test_hello.py` in its first draft, so the new check had nothing to refuse; what a plan of code alone
+gets is shown by the unit tests.
 
 ## Also seen, not yet run on real models
 
