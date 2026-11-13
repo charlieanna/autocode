@@ -563,7 +563,8 @@ jobs:
           expected = {"python", "psutil", "git", "engine:opencode", "engine:codex", "engine", "workspace"}
           assert expected <= set(checks), sorted(expected - set(checks))
           assert all(checks[name] == "ok" for name in ("python", "psutil", "git")), checks
-          assert checks["workspace"] == "missing" and report["ok"] is False, report
+          # A folder outside Git is ready: a task sets it up itself. No engine is installed, so doctor is not ok.
+          assert checks["workspace"] == "ok" and report["ok"] is False, report
           PYTHON
       - name: Check installed provider-matrix rows outside the checkout
         run: |
