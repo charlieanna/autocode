@@ -8,13 +8,17 @@ from __future__ import annotations
 
 import copy
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
+import autocode_regression as regression
 import autocode_rspec_tests as rspec_tests
 import autocode_verify as verify
 from autocode_test_framework import Framework
+
+from tests.test_verify import Project
 
 
 def example(n, name, status, *, file="./spec/grader_spec.rb"):
@@ -154,6 +158,127 @@ class CommandTests(unittest.TestCase):
             path = Path(folder) / "suite-on-base.rspec.json"
             path.write_text(json.dumps(REPORT))
             self.assertEqual(4, verify.per_test_results(rspec, {}, path)["total"])
+
+
+PAGER = (
+    "module Pager\n  def self.page_count(total, size)\n"
+    "    raise ArgumentError, 'size' unless size.positive?\n\n"
+    "    (total + size - 1) / size\n  end\nend\n"
+)
+HELPER = PAGER.replace("    raise ArgumentError, 'size' unless size.positive?\n", "    need(size)\n").replace(
+    "  end\nend\n",
+    "  end\n\n  def self.need(size)\n    raise ArgumentError, 'size' unless size.positive?\n  end\nend\n",
+)
+PAGER_SPEC = (
+    "require_relative '../lib/pager'\n\nRSpec.describe Pager do\n  describe '.page_count' do\n"
+    "    it 'returns the page count for an exact multiple' do\n      expect(Pager.page_count(10, 5)).to eq(2)\n    end\n\n"
+    '    it "counts a partial last page" do\n      expect(Pager.page_count(11, 5)).to eq(3)\n    end\n  end\nend\n'
+)
+EXACT = "spec/pager_spec.rb::Pager.page_count returns the page count for an exact multiple"
+PARTIAL = "spec/pager_spec.rb::Pager.page_count counts a partial last page"
+
+
+@unittest.skipUnless(shutil.which("bundle") and shutil.which("rspec"), "Bundler and RSpec run the project's suite")
+class ExistingExampleTests(unittest.TestCase):
+    """A plan guards a change with the examples an RSpec project already has, named by what each says.
+
+    On real runs (2026-11-13) a bug fix's guards on existing examples were looked for as test_ac2_..., found
+    nowhere, and the Builder copied both examples under those names after two failed proofs; a refactor was
+    planned with no named test at all, could not be proved and asked the person to widen its scope.
+    """
+
+    def prove(self, files, guards, tests=(), *, pager=PAGER, spec=PAGER_SPEC, kind="build"):
+        """The proof of ``files`` written over a project of ``pager`` and ``spec``, whose plan is ``tests`` and
+        then ``guards``, each as the plan declares it."""
+        project = Project(
+            {
+                "Gemfile": "source 'https://rubygems.org'\ngem 'rspec'\n",
+                "lib/pager.rb": pager,
+                "spec/pager_spec.rb": spec,
+            }
+        )
+        self.addCleanup(project.close)
+        self.assertEqual("bundle exec rspec", verify.detect_framework(project.root).suite)
+        project.write(files)
+        methods = [*("test: " + test for test in tests), *("guard: " + guard for guard in guards)]
+        criteria = [
+            {"id": f"AC{n}", "criterion": text, "verification_method": text} for n, text in enumerate(methods, 1)
+        ]
+        state = {
+            "goal_contract": {"body": {"task_kind": kind, "acceptance_criteria": criteria}},
+            "base_commit": project.base,
+            "settings": {"regression": {"test_timeout": 60}},
+        }
+        return regression.prove(state, project.root, project.evidence / "proof")
+
+    def test_a_refactor_that_changes_no_spec_is_proved_by_the_examples_it_guards(self):
+        # By the example's own words, and by its full description.
+        proof = self.prove(
+            {"lib/pager.rb": HELPER},
+            ["returns the page count for an exact multiple", '"Pager.page_count counts a partial last page"'],
+        )
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual({"AC1": [EXACT], "AC2": [PARTIAL]}, proof["case_tests"])
+
+    def test_a_refactor_that_breaks_a_guarded_example_is_not_proved(self):
+        proof = self.prove(
+            {"lib/pager.rb": HELPER.replace("(total + size - 1) / size", "total / size")},
+            ["returns the page count for an exact multiple", "counts a partial last page"],
+        )
+        self.assertNotEqual(verify.PASS, proof["verdict"], proof)
+        self.assertIn("AC2", " ".join(proof["failures"]), proof)
+
+    def test_a_guard_that_no_example_says_is_not_proved(self):
+        proof = self.prove({"lib/pager.rb": HELPER}, ["counts a partial", "partial last page counts"])
+        self.assertNotEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual({"AC1": [], "AC2": []}, proof["case_tests"])
+
+    def test_a_new_spec_file_does_not_take_the_existing_examples_out_of_the_suite(self):
+        # Each example of spec/pager_spec.rb was "page" by name, the last word of its description, so a new spec
+        # file that says "page" named them all and none could guard the change.
+        added = (
+            "require_relative '../lib/pager'\n\nRSpec.describe Pager do\n"
+            "  it 'test_ac3_one_page for a short list' do\n    expect(Pager.page_count(1, 5)).to eq(1) # one page\n  end\nend\n"
+        )
+        proof = self.prove(
+            {"lib/pager.rb": HELPER, "spec/short_spec.rb": added},
+            ["returns the page count for an exact multiple", "counts a partial last page", "test_ac3_one_page"],
+        )
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual(
+            {"AC1": [EXACT], "AC2": [PARTIAL], "AC3": ["spec/short_spec.rb::Pager test_ac3_one_page for a short list"]},
+            proof["case_tests"],
+        )
+
+    def test_a_fix_is_guarded_by_the_examples_its_spec_file_already_had(self):
+        # The fix adds its example to the project's one spec file, whose other examples guard it.
+        sizes = (
+            "    it 'rejects a size that is not positive' do\n"
+            "      expect { Pager.page_count(10, 0) }.to raise_error(ArgumentError)\n    end\n"
+        )
+        partial = '    it "counts a partial last page" do\n      expect(Pager.page_count(11, 5)).to eq(3)\n    end\n'
+        spec = PAGER_SPEC.replace(partial, sizes)
+        self.assertIn(sizes, spec)
+        fixed = spec.replace(
+            sizes, sizes + "\n" + partial.replace('"counts a partial last page"', "'test_ac1_partial'")
+        )
+        proof = self.prove(
+            {"lib/pager.rb": PAGER, "spec/pager_spec.rb": fixed},
+            ["returns the page count for an exact multiple", "rejects a size that is not positive"],
+            ["test_ac1_partial"],
+            pager=PAGER.replace("(total + size - 1) / size", "total / size"),
+            spec=spec,
+            kind="bug",
+        )
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual(
+            {
+                "AC1": ["spec/pager_spec.rb::Pager.page_count test_ac1_partial"],
+                "AC2": [EXACT],
+                "AC3": ["spec/pager_spec.rb::Pager.page_count rejects a size that is not positive"],
+            },
+            proof["case_tests"],
+        )
 
 
 if __name__ == "__main__":
