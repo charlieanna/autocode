@@ -129,7 +129,7 @@ def progress(
         # regression proof). Naming the next job there showed "Next: Tester" for minutes while
         # the runner was busy, as if nothing were running.
         headline = str(check["summary"])
-    elif _unchosen(state):
+    elif unchosen(state):
         # A new run's first save holds the default next stage until the run chooses its first one,
         # a moment later; naming it put "Next: Planner" ahead of Requirements in the chat's log.
         headline, stage = "Starting the run", None
@@ -156,7 +156,7 @@ def progress(
     }
 
 
-def _unchosen(state: RunState) -> bool:
+def unchosen(state: RunState) -> bool:
     """A new run saved before it chose its first stage: no phase, no stage run, no contract, and the
     creation default (``autocode_run_setup``) still in ``next_stage``."""
     return (
