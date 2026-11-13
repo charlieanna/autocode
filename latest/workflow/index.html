@@ -2322,7 +2322,7 @@
 
 
 <h1 id="workflow-planning-approval-and-handoffs">Workflow: planning, approval, and handoffs<a class="headerlink" href="#workflow-planning-approval-and-handoffs" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/52fef759ff4586ad8184d260490dd53952cb6891/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/8d1f119d27e09a7b266992a6ee09b8998f5d7b47/README.md">← Back to README</a></p>
 <p>This page covers the end-to-end conversation flow: how a rough idea becomes an
 approved plan, how that plan is implemented and reviewed, and what Autopilot
 coordinates along the way.</p>
@@ -2511,6 +2511,12 @@ recommendation. A proposed <code>recovery_change</code> the incident packet cann
 as <code>unattested_change</code>, with the reason: advice for the Builder that neither blocks the
 retry nor counts as a new experiment.</p>
 <h2 id="when-a-stage-stops-making-progress">When a stage stops making progress<a class="headerlink" href="#when-a-stage-stops-making-progress" title="Permanent link">&para;</a></h2>
+<p>Two Tester or completion-review timeouts on unchanged source without an accepted report
+go to the Investigator before a third identical attempt, including consecutive retries
+with no intervening successful stage. Archived attempts, usage and check evidence stay
+recorded; the existing bounded diagnosis and retry rules apply. A source correction or an
+accepted report from that stage starts a new count. This does not change model routes,
+spending caps or verification requirements.</p>
 <p>Before investigating a spent small-plan review allowance, the runner can grant one further
 review round when external feedback corrects an exactly approved plan and a fresh, materially
 changed draft has been accepted. A repaired report must retain its accepted original-source
@@ -2821,12 +2827,19 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.</p>
   does not stop to ask for a longer limit or a narrower command: it runs
   instead with the original tests nearest the change (changed tests the base
   already holds, and base tests named after a changed file, such as
-  <code>test_calc.py</code> for <code>calc.py</code>), and records the decision, the timed-out command and
+  <code>test_calc.py</code> for <code>calc.py</code>, plus existing Python tests that import changed
+  product modules directly or transitively). Import selection reads the pinned original
+  code, keeps every ambiguous target and conservatively includes uncertain imports.
+  It records the decision, the timed-out command and
   the reason as the proof's <code>suite_fallback</code>, a note and a review reason. A later
   proof of the same run goes straight to those tests while the original code, the
   whole suite's command and its limit are unchanged, even when the test environment
   changed or cannot be bound for reuse (an editable install). An explicit
-  <code>--test-command</code> is never replaced. The new or changed tests
+  <code>--test-command</code> is never replaced. If the focused baseline also times out, or
+  no focused suite exists, the detected baseline's timeout remains negative evidence:
+  later proofs do not repeat that original-code check under the same command and limit,
+  and the proof stays UNVERIFIED. Changing the command, original code or limit permits
+  a fresh attempt. The new or changed tests
   must fail on the original code and pass on the current code, and every test
   that passed on base must still pass (not fail, be skipped or disappear). A
   repair that changes no test is proved by the tests the project already had:
@@ -3070,7 +3083,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   root, normally the package (<code>test_greet.TestGreet.test_x</code>), and a node:test file there that runs another test runner is still not named
   proof (#380). A feature that adds the first Go module in the package, on a
   base with no Go project, is not held to a base Go suite that cannot exist,
-  as at the root (<a href="https://github.com/charlieanna/autocode/blob/52fef759ff4586ad8184d260490dd53952cb6891/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
+  as at the root (<a href="https://github.com/charlieanna/autocode/blob/8d1f119d27e09a7b266992a6ee09b8998f5d7b47/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
 <li>Only the package's existing tests are retained as
   <a href="../protected-tests/">original test gates</a>, with the package suite as their
   command unless <code>--test-command</code> gives one, so a large repository does not bind
@@ -3148,7 +3161,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   also leaves a change outside the package <code>UNVERIFIED</code>, because the package
   suite never ran it.</p>
 <p>The <code>feature-monorepo-package</code> scenario
-(<a href="https://github.com/charlieanna/autocode/blob/52fef759ff4586ad8184d260490dd53952cb6891/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
+(<a href="https://github.com/charlieanna/autocode/blob/8d1f119d27e09a7b266992a6ee09b8998f5d7b47/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
 one package of a two-package repository with <code>--package</code> and the scripted
 model. Its reference completes; its broken variant, which also edits the other
 package, stops with each of those files named in the open <code>runner</code> finding.
@@ -3457,7 +3470,7 @@ it is generated from the front matter so reviewers can read the plan.</p>
 holds it. A plan read back from the file has the same goal hash as the run's. The scenario runner
 (<code>scenarios/run.py</code>) checks this at every plan approval its catalog runs reach: it exports the plan
 and reads the file back with <code>--check</code> before it approves the plan
-(<a href="https://github.com/charlieanna/autocode/blob/52fef759ff4586ad8184d260490dd53952cb6891/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
+(<a href="https://github.com/charlieanna/autocode/blob/8d1f119d27e09a7b266992a6ee09b8998f5d7b47/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
 committing it approves nothing. Text that looks like a credential is masked before the file is
 written, with the same policy as <code>autocode bundle</code>; the export then says that the file's goal hash
 differs from the run's.</p>
