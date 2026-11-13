@@ -2164,6 +2164,15 @@ file may have redefined it: for a titled test that means a changed file spells t
 title. Read from the whole id, <code>tests/pager.test.js::counts a partial last page</code> was
 named "test", so any changed file that says <code>test(</code> took every test of the suite out
 (<code>autocode_test_cases.function_name</code>).</p>
+<p>An RSpec example the project already has is named the same way, by what it says. RSpec
+reports an example by its full description, the descriptions of its groups followed by
+its own: <code>it "counts a partial last page"</code> in <code>describe ".page_count"</code> of
+<code>RSpec.describe Pager</code> is <code>spec/pager_spec.rb::Pager.page_count counts a partial last page</code>.
+A plan writes <code>guard: counts a partial last page</code>, and AutoCode binds it to each example
+the proof ran whose full description is that text or ends with it at a word. Words from
+the middle of a description, or a sentence about the example, name nothing. An example's
+own name is its full description (or the <code>test_*</code> name in it), and a changed file names
+it only by quoting the description or its last words, as a spec file does.</p>
 <p>A <code>node:test</code> case must assert the behavior itself. A case that runs another
 test runner through <code>child_process</code> (<code>npm test -- -t NAME</code>, <code>npx vitest</code>, Jest,
 Mocha or <code>node --test</code>) passes on that runner's exit code, and Vitest exits 0
