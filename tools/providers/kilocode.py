@@ -48,6 +48,7 @@ class KiloProvider(command.CommandProvider):
     # session grows stage after stage until Kilo compacts it on a context overflow. Read-only stages were
     # already fresh (#1739); a same-stage correction still resumes (autocode_provider_launch.prepare).
     RESUME_ACROSS_STAGES = False
+    SUPPORTS_REPORT_RECOVERY = True
 
     def check_tools(self, routes, workspace, run_dir, *, env, capture_command):
         """Read effective native policies before task spend, without a model or reasoning-variant check."""

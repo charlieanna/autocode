@@ -153,6 +153,7 @@ def main():
     data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
     repair = bool(data.get("report_repair"))
     stage = data["original"]["stage"] if repair else data["stage"]
+    session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
     if repair and stage == "draft_plan" and os.environ["STAGE_REPAIR_CASE"] == "discovery-trailing-comma":
         text = data["rejected_report"]["content"]
         assert text.endswith(",}")
@@ -160,7 +161,7 @@ def main():
         output = Path(sys.argv[sys.argv.index("-o") + 1])
         output.write_text(json.dumps(value))
         append_trace({"stage": stage, "repair": True, "output": str(output)})
-        print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}))
+        print(json.dumps({"type": "thread.started", "thread_id": session}))
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
         return 0
     if repair and stage == "revise_plan" and os.environ["STAGE_REPAIR_CASE"].startswith("empty-planning-repair"):
@@ -193,7 +194,7 @@ def main():
                 "output": str(output),
             }
         )
-        print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}))
+        print(json.dumps({"type": "thread.started", "thread_id": session}))
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
         return 0
     if repair and stage == "revise_plan" and os.environ["STAGE_REPAIR_CASE"] == "json-syntax-diagnostic":
@@ -217,7 +218,7 @@ def main():
         output = Path(sys.argv[sys.argv.index("-o") + 1])
         output.write_text(text)
         append_trace({**row, "output": str(output)})
-        print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}))
+        print(json.dumps({"type": "thread.started", "thread_id": session}))
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
         return 0
     if repair and stage == "tester" and os.environ["STAGE_REPAIR_CASE"] == "criterion-evidence":
@@ -236,7 +237,6 @@ def main():
                 "output": str(output),
             }
         )
-        session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
         print(json.dumps({"type": "thread.started", "thread_id": session}))
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
         return 0
@@ -278,7 +278,7 @@ def main():
                 "rule": ("BOUNDED JSON TEXT REPAIR" if text_mode else "BOUNDED REPORT EDITS") in prompt,
             }
         )
-        print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}))
+        print(json.dumps({"type": "thread.started", "thread_id": session}))
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
         return 0
     if repair and stage == "revise_plan" and os.environ["STAGE_REPAIR_CASE"].startswith("bounded-report-edits"):
@@ -299,7 +299,7 @@ def main():
         append_trace(
             {"stage": stage, "repair": True, "error": data.get("error", ""), "patch": value, "output": str(output)}
         )
-        print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}))
+        print(json.dumps({"type": "thread.started", "thread_id": session}))
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
         return 0
     if repair and stage == "revise_plan" and os.environ["STAGE_REPAIR_CASE"].startswith("malformed-text-edits"):
@@ -336,7 +336,7 @@ def main():
                 "patch_bytes": len(json.dumps(value).encode()),
             }
         )
-        print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}))
+        print(json.dumps({"type": "thread.started", "thread_id": session}))
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
         return 0
     # The runner already launched this provider process. Reuse it for the fake,

@@ -22,6 +22,7 @@ completion_case = os.environ.get("REVIEW_REPAIR_COMPLETION") == "1"
 text_case = os.environ.get("REVIEW_REPAIR_TEXT") == "1"
 prefix, suffix, expression = "All checks complete.\n```json\n", "\n```", '.replace("unused","")'
 stage = data["original"]["stage"] if repair else data["stage"]
+session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
 target_stage = "review_completion" if completion_case else "tester"
 output = Path(sys.argv[sys.argv.index("-o") + 1])
 if repair and stage == target_stage:
@@ -40,7 +41,7 @@ if repair and stage == target_stage:
             stream.write(json.dumps({"offered": offered, "patch": report, "output": str(output),
                                      "checks": source_report["checks"], "source_path": source["path"],
                                      "source_text": raw}) + "\n")
-        print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}))
+        print(json.dumps({"type": "thread.started", "thread_id": session}))
         print(json.dumps({"type": "turn.completed"}))
         raise SystemExit(0)
     target = ["checks", len(source["content"]["checks"]) - 1] if array_case else ["extraneous_field"]
@@ -56,7 +57,7 @@ if repair and stage == target_stage:
     with Path(os.environ["REVIEW_REPAIR_TRACE"]).open("a") as stream:
         stream.write(json.dumps({"offered": offered, "patch": report, "output": str(output),
                                  "checks": source["content"]["checks"][:-1] if array_case else source["content"].get("checks", [])}) + "\n")
-    print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}))
+    print(json.dumps({"type": "thread.started", "thread_id": session}))
     print(json.dumps({"type": "turn.completed"}))
 else:
     sys.stdin = io.StringIO(prompt)

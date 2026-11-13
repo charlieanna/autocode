@@ -506,6 +506,7 @@ def run_role(
             source_paths=source_scope.paths(state),
             settings=state["settings"],  # the launcher applies the saved #413 opt-out
             planning_report_recovery=report_only or planning_recovery_policy.active(state, original_stage),
+            report_only=report_only,
             replay_context=role_launch.replay_context(
                 state,
                 stage=stage,
@@ -1169,6 +1170,7 @@ def _execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
         state["settings"],
         route_role,
     )
+    repair_thread, fresh_reason = format_correction.repair_session(state, pending, route_role, native=native)
     try:
         value, record = runtime.run_role(
             role=role,
@@ -1182,8 +1184,14 @@ def _execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
             allow_write=False,
             dry_run=False,
             report_only=True,
+            resume_session=repair_thread,
         )
     except support.Paused as error:
+        active = state.get("active_stage")
+        if isinstance(active, dict) and active.get("report_only"):
+            format_correction.record_repair_session(active, repair_thread, fresh_reason)
+            if (run_dir / "state.json").is_file():
+                runtime.write_json(run_dir / "state.json", state)
         if error.status in ("PAUSED_INTERVENTION_PENDING", "PAUSED_REPORT_REPAIR_INPUT") and not state.get(
             "active_stage"
         ):
@@ -1194,6 +1202,7 @@ def _execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
         if native is None and automatically_recover_report_repair_timeout(state, run_dir, workspace, error):
             raise ReportRepairQueued() from error
         raise
+    format_correction.record_repair_session(record, repair_thread, fresh_reason)
     account_stage(state, record)
     runtime.accept_repaired_report(state, run_dir, workspace, value, record)
 

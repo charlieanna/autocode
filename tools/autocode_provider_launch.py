@@ -70,6 +70,7 @@ def prepare(
     native_image_preparation=None,
     replay_context=None,
     planning_report_recovery=False,
+    report_only=False,
 ):
     """Return (command, environment, overrides, worker) for one stage launch.
 
@@ -221,7 +222,12 @@ def prepare(
             # The person accepted uncontained tools (#413): the planner's shell runs under OpenCode's own
             # permissions with edits denied, like every other stage of this run.
             launch_kwargs["planning_shell"] = True
-        if type(adapter) is KiloProvider and not kilo_owner and planning_report_recovery:
+        report_recovery = (
+            planning_report_recovery
+            if type(adapter) is KiloProvider
+            else bool(report_only and native_role_isolation is None)
+        )
+        if getattr(adapter, "SUPPORTS_REPORT_RECOVERY", False) and not kilo_owner and report_recovery:
             launch_kwargs["report_recovery"] = True
         if kilo_portable and enforce_tool_boundary:
             launch_kwargs["portable_shell"] = True
@@ -285,6 +291,8 @@ def prepare(
             command += ["-c", f'model_reasoning_effort="{effort}"']
         if provider:
             command += ["-c", f'model_provider="{provider}"']
+        if report_only:
+            command += ["--disable", "shell_tool"]
         if session:
             command += ["resume", session]
         command += ["-", "--json", "--output-schema", str(schema), "-o", str(report)]
