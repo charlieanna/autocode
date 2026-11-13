@@ -526,14 +526,21 @@ class ContentHashes:
     times back, so nothing there proves the bytes unchanged: ``REUSE`` is off and
     every snapshot reads every file.
 
-    Hashes stay in this process and only for the last ``ROOTS`` workspaces
-    snapshotted; a file on disk would let any process that can write the workspace
-    change what a snapshot reports. Hash values are unchanged: sha256 of the bytes.
+    Hashes stay in this process for the last ``ROOTS`` workspaces snapshotted, and for
+    older ones too while all of them fit in ``ENTRY_BUDGET``; beyond both, they are dropped
+    a workspace at a time oldest first. A file on disk would let any process that can write
+    the workspace change what a snapshot reports. Hash values are unchanged: sha256 of the bytes.
     """
 
     SETTLE_NS = 10 * 10**9
     CLOCK_TOLERANCE_NS = 10**9
+    # The last ROOTS workspaces are always kept, as before. A machine running a dozen jobs passes
+    # that count, and then the workspace a chat polls every few seconds is read from disk again for
+    # every status view (#3308), so older workspaces are kept too while every remembered hash fits
+    # in ENTRY_BUDGET (about 300 bytes an entry, roughly 60 MB). The budget only ever adds
+    # workspaces: two large worktrees that together exceed it still both stay warm.
     ROOTS = 8
+    ENTRY_BUDGET = 200_000
     REUSE = os.name != "nt"
 
     def __init__(self, wall_ns=time.time_ns, monotonic_ns=time.monotonic_ns):
@@ -563,8 +570,9 @@ class ContentHashes:
             if epoch != self._epoch:
                 return  # the clock jumped after this snapshot began: keep nothing from it
             self._roots[root] = kept
-            while len(self._roots) > self.ROOTS:
-                del self._roots[next(iter(self._roots))]
+            # Past the last ROOTS workspaces, keep older ones only while every hash fits the budget.
+            while len(self._roots) > self.ROOTS and sum(map(len, self._roots.values())) > self.ENTRY_BUDGET:
+                self._roots.pop(next(iter(self._roots)))
 
     @staticmethod
     def content(path, info, known, kept, settled_before):
