@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
-import re
 import shlex
 from pathlib import PurePosixPath
 
 try:
+    from . import autocode_project_kinds as project_kinds
     from . import autocode_python_tests as python_tests
 except ImportError:
+    import autocode_project_kinds as project_kinds
     import autocode_python_tests as python_tests
 
 PYTHON_TEST_MODULE = python_tests.TEST_MODULE
+# The test files each targeted runner is given, from its language's row (autocode_project_kinds).
+GO_TEST = project_kinds.targets("go")
+JS_TEST = project_kinds.targets("jest")
+RSPEC_TEST = project_kinds.targets("rspec")
 
 
 class Framework:
@@ -43,7 +48,7 @@ class Framework:
 
     @property
     def per_test(self):
-        return self.name in ("pytest", "unittest", "go", "node", "vitest", "rspec", "cargo")
+        return self.name in project_kinds.PER_TEST_RUNNERS
 
     def targeted(self, test_paths):
         files = sorted(test_paths)
@@ -67,7 +72,7 @@ class Framework:
                 {
                     "./" + str(PurePosixPath(p).parent) if str(PurePosixPath(p).parent) != "." else "."
                     for p in files
-                    if p.endswith("_test.go")
+                    if GO_TEST.match(PurePosixPath(p).name)
                 }
             )
             if not packages:
@@ -93,13 +98,13 @@ class Framework:
                 else None
             )
         if self.name in ("jest", "vitest", "mocha"):
-            scripts = [p for p in files if re.search(r"\.(test|spec)\.[cm]?[jt]sx?$", p) or p.endswith((".js", ".ts"))]
+            scripts = [p for p in files if JS_TEST.match(PurePosixPath(p).name) or p.endswith((".js", ".ts"))]
             if not scripts:
                 return None
             verb = {"jest": "jest", "vitest": "vitest run", "mocha": "mocha"}[self.name]
             return f"npx --no-install {verb} " + " ".join(map(shlex.quote, scripts))
         if self.name == "rspec":
-            specs = [p for p in files if p.endswith("_spec.rb")]
+            specs = [p for p in files if RSPEC_TEST.match(PurePosixPath(p).name)]
             return (f"{self.runner} " + " ".join(map(shlex.quote, specs))) if specs else None
         return None
 

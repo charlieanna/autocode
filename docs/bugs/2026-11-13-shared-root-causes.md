@@ -64,5 +64,20 @@ AGENTS.md calls such a question a defect; each new gap found its own way to it.
   criteria without another change. The named-proof prompt no longer tells the Planner to raise a
   blocker for the person.
 
-Still open: one shared table for test-file kinds (cause 1), inline Rust tests (cause 2), and the
-by-product table's growth to other lockfiles and Go's special cases.
+## One table of project kinds
+
+What cause 1 lists by hand is now one table, `tools/autocode_project_kinds.py`, one row per language:
+its source suffixes, its test file names, the files only its tests use (`conftest.py`, a Jest snapshot),
+the test files its targeted runners collect, which runners report per-test results, its manifests and the
+lockfiles its toolchain writes on its own. `autocode_verify` (test role, code suffixes, test directories),
+`autocode_python_test_roles`, `autocode_python_tests`, `autocode_test_examples`, `autocode_plan_test_suite`,
+`autocode_test_framework`, `autocode_toolchain_suite`, `autocode_package_scope` and
+`autocode_toolchain_byproducts` derive their lists from it, so a language or test layout is added in one
+row. Every derived list matches the copy it replaces, except that the test files shown to a stage as
+examples (`autocode_test_examples`) now follow the same names as everywhere else: Java, Kotlin, C#, Swift,
+Scala, `.mjs`/`.cjs` and `test_*.sh` tests are shown, and `x_test.rs`, `test_x.go` or `x_spec.py`, which no
+runner collects, are not.
+
+Still open: suite detection order (`autocode_toolchain_suite.detect`) and the Minitest layout are still
+logic in that module, Go's `go.mod`/`go.sum` special cases and the `__pycache__` exclusions are still
+written in each module, inline Rust tests (cause 2), and the by-product table's growth to other lockfiles.
