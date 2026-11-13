@@ -542,6 +542,69 @@ class JavaScriptTestNameTests(unittest.TestCase):
         self.assertFalse(test_cases.named_in("", other))
 
 
+class RSpecExampleNameTests(unittest.TestCase):
+    """An RSpec example's own name is what it says, never the last word of its description."""
+
+    EXACT = "spec/pager_spec.rb::Pager.page_count returns the page count for an exact multiple"
+    PARTIAL = "spec/pager_spec.rb::Pager.page_count counts a partial last page"
+    NAMED = "spec/pager_spec.rb::Pager.page_count test_ac7_rounds_up for eleven items"
+
+    def cases(self, *methods):
+        rows = [{"id": f"AC{n}", "criterion": f"c{n}", "verification_method": m} for n, m in enumerate(methods, 1)]
+        return test_cases.plan_cases({"acceptance_criteria": rows})
+
+    def test_the_name_is_the_full_description_or_the_test_name_in_it(self):
+        for test, name in (
+            (self.PARTIAL, "Pager.page_count counts a partial last page"),
+            (self.NAMED, "test_ac7_rounds_up"),
+            ("spec/test_pager_spec.rb::Pager tests the last page", "Pager tests the last page"),
+            ("spec/models/grader_spec.rb::Grader test_grades_case_insensitively", "test_grades_case_insensitively"),
+            ("spec/pager_spec.rb::works", "works"),
+        ):
+            with self.subTest(test=test):
+                self.assertEqual(name, test_cases.function_name(test))
+
+    def test_a_file_names_an_example_only_by_quoting_what_it_says(self):
+        spec = "RSpec.describe Pager do\n  it 'rejects a page' do\n    expect(Pager.page).to eq(1) # last page\n  end\nend\n"
+        self.assertFalse(test_cases.named_in(self.PARTIAL, spec), "a word of the description names no example")
+        self.assertTrue(test_cases.named_in(self.PARTIAL, spec + '  it "counts a partial last page" do\n  end\n'))
+        self.assertTrue(test_cases.named_in(self.PARTIAL, spec + "  it 'counts a partial last page' do\n  end\n"))
+        self.assertTrue(test_cases.named_in(self.PARTIAL, "it('Pager.page_count counts a partial last page') { }"))
+        self.assertFalse(test_cases.named_in(self.PARTIAL, "it 'a partial last' do\nend\n"))
+        self.assertTrue(test_cases.named_in(self.NAMED, "it 'test_ac7_rounds_up for eleven items' do"))
+        self.assertFalse(test_cases.named_in(self.NAMED, "it 'test_ac7_rounds_up_twice' do"))
+
+    def test_a_guard_names_an_existing_example_by_what_it_says(self):
+        ids = [self.EXACT, self.PARTIAL, self.NAMED]
+        for declared, expected in (
+            ("guard: counts a partial last page", [self.PARTIAL]),
+            ('guard: "counts a partial last page"', [self.PARTIAL]),
+            ("guard: Pager.page_count counts a partial last page", [self.PARTIAL]),
+            ("guard: counts a partial last page (spec/pager_spec.rb)", [self.PARTIAL]),
+            ("guard: returns the page count for an exact multiple", [self.EXACT]),
+            ("test: test_ac7_rounds_up", [self.NAMED]),
+            # Words from inside a description, or a sentence about the example, name nothing.
+            ("guard: counts a partial", []),
+            ("guard: a partial last page counts", []),
+            ("guard: the existing example 'counts a partial last page' in spec/pager_spec.rb", []),
+        ):
+            with self.subTest(declared=declared):
+                (case,) = self.cases(declared)
+                self.assertEqual(expected, test_cases.match_cases([case], ids, framework="rspec")["AC1"])
+        # Minitest and every runner whose tests are identifiers read no declaration as a description.
+        (case,) = self.cases("guard: counts a partial last page")
+        for framework in ("pytest", "go", None):
+            with self.subTest(framework=framework):
+                self.assertEqual([], test_cases.match_cases([case], ids, framework=framework)["AC1"])
+
+    def test_two_examples_that_say_the_same_are_both_the_guards(self):
+        ids = [self.PARTIAL, "spec/offset_spec.rb::Pager.offset counts a partial last page"]
+        (case,) = self.cases("guard: counts a partial last page")
+        self.assertEqual(ids, test_cases.match_cases([case], ids, framework="rspec")["AC1"])
+        (case,) = self.cases("guard: Pager.offset counts a partial last page")
+        self.assertEqual(ids[1:], test_cases.match_cases([case], ids, framework="rspec")["AC1"])
+
+
 class TitledCasesTests(unittest.TestCase):
     """A node:test or Vitest test is named by a free-text title; a plan names an existing one by it."""
 

@@ -9,7 +9,7 @@ Method: master `6d8f4e4`, Linux cloud container. Twelve task kinds ran with the 
 provider (`scenarios/run.py run --fake`). Eight of them then ran once on Claude Code
 (`--profile claude-tiers`: Sonnet 5.5 Requirements, Planner and Tester, Opus 5.5 reviewers,
 Haiku 4.5 Builder), $9.15 in all, and $12.59 more for the eight runs after a fix. Sections 5 to 7
-(JavaScript) are six later runs, $10.86.
+(JavaScript) are six later runs, $10.86, and section 8 (RSpec) four more, $5.51.
 
 ## Scripted stops that real models do not hit
 
@@ -109,8 +109,8 @@ completed all three with no rework and no question:
 | Bug fix, tests inside `src/lib.rs` | `3d0c2a9117f2dd7904b49efd35ac3c8f3e8e6bc07e00f615f8b917c76f615d71` | complete, 123 s, $0.74 |
 | Refactor (extract a helper) | `bd1c857047013f9e3103f1d0c489435216e9b0081cbc26a00d702ed3f133912b` | complete, 116 s, $0.77 |
 
-The same limit holds for RSpec, whose examples are named by free text: a guard on an existing
-example there still falls back to the criterion id. For node:test and Vitest it is fixed in section 5.
+The same limit held for RSpec, whose examples are named by free text. It is fixed in section 5 for
+node:test and Vitest and in section 8 for RSpec.
 
 ## 5. JavaScript: a guard on a test with a free-text title is not found (fixed)
 
@@ -179,7 +179,44 @@ With the three fixes the same task, planned the same way (three guards on the ex
 new test file), bound every guard to its test in the first proof and completed in one pass (manifest
 `ba45fa34ba020074129cbfbc89834c324e80078d447dd95a108e57587a495b7b`, 149 s, $0.85, 8 stages).
 
-RSpec, whose examples are also named by free text, still falls back to the criterion id.
+RSpec, whose examples are also named by free text, is section 8.
+
+## 8. Ruby with RSpec: the plan is never told RSpec names its tests (fixed)
+
+The proof has read RSpec's results per example since #2889, but the planning note on named tests listed
+Python, Go, node:test, Vitest and Cargo, and told the Planner to write a command for a project "with
+none of these runners". Two tasks in a paging library with a `Gemfile`, a `.rspec` and one spec file:
+
+- **Refactor (extract a helper)**: manifest
+  `91e6a760613716de56b8d389e9cd7fede59d2e39e6488eeeec09245ff19d3ab9`. The plan checked both criteria
+  with `ruby -e` commands and `bundle exec rspec`, no `test:` or `guard:`, and allowed `lib/pager.rb`
+  alone. The proof failed twice with "No regression test was added or changed", and the Resolver
+  asked the person "Should the approved scope be widened so the Builder may add one new test-only
+  file, spec/pager_require_positive_spec.rb?" (254 s, $1.58). That is a question about machinery.
+- **Bug fix**: manifest `de3bc8b1c7da031cf6a5d02234892f5b1e636b8de079458f717eeda4d0d9c941`. The plan
+  guarded the two existing examples in prose ("guard: the existing example 'returns the page count
+  for an exact multiple' in spec/pager_spec.rb; run ..."). Each was looked for as `test_ac2_...`,
+  two proofs failed, and after the Completion Reviewer, the Resolver and the Investigator the
+  Builder copied both examples under those names (312 s, $1.89, 16 stages).
+
+The note now names RSpec, how to name a new example (`it "test_c2_example" do`) and an existing one
+(by its own description). A guard written as an existing example's description, or its full
+description, names that example (`autocode_test_cases.titled`): RSpec's id is the full description,
+so the example's own words are its last words. An example's own name was the last word of its
+description ("page"), so any changed file using that word took every example out of the guards; it
+is now the full description, which a file names by quoting it or its last words
+(`autocode_test_cases.function_name`, `named_in`).
+
+On the fixed tree both tasks were planned with `test:` and `guard:` criteria, bound every guard to
+its existing example in the first proof and completed without a question: the bug fix in 138 s,
+$0.84, 8 stages (manifest `5fc86af1253c48a6d3014697c2ac0964d16702271f06ef2fe2f121695b0b04ad`) and the
+refactor in 185 s, $1.19, 10 stages (manifest
+`ccb0c9e87921dda10a1378a664e8bdac4b5fb288fb5b2bfc38ab00047c92c350`), with one new spec file for the
+helper and the three existing examples as guards.
+
+Not yet run: the same refactor in a project whose runner names no test (Minitest, `make test`). The
+refactor above, planned with commands alone, suggests a change to product code with no test file
+would stop there the same way.
 
 ## Also seen, not yet run on real models
 

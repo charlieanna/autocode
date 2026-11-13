@@ -135,12 +135,30 @@ def bound(cases: list[dict], framework) -> list[dict]:
 # names a test the project already has by that title, "guard: counts a partial last page", as the test file
 # spells it. On real runs of a refactor and a bug fix in a node:test project, such guards were looked for as
 # test_ac2_..., found nowhere, and each run copied its existing tests under those names after a failed proof.
-TITLE_RUNNERS = frozenset({"node", "vitest"})
+#
+# An RSpec example is named the same way, by what it says: `it "counts a partial last page"` in
+# `describe ".page_count"` of `RSpec.describe Pager` has the id FILE::Pager.page_count counts a partial last
+# page, RSpec's full description, and a plan names it by that or by its last words, which are the example's
+# own. On real runs in an RSpec project (2026-11-13) a bug fix copied its two existing examples under
+# test_ac2_... names after two failed proofs, as the node:test runs had.
+TITLE_RUNNERS = frozenset({"node", "vitest", "rspec"})
 _ANNOTATION = re.compile(r"\s+(?:[—–-]\s+.+|\(.+\))", re.DOTALL)
+# FILE.rb::FULL DESCRIPTION (autocode_rspec_tests): the descriptions of the example's groups, then its own.
+_RUBY_ID = re.compile(r"^[^:]*\.rb::(.+)$", re.DOTALL)
+
+
+def _last_words(description: str) -> tuple[str, ...]:
+    """An RSpec full description, then each shorter run of its last words: the id does not say where the
+    groups' descriptions end and the example's own begins."""
+    words = description.split(" ")
+    return tuple(" ".join(words[at:]) for at in range(len(words)))
 
 
 def _titles(test_id: str) -> tuple[str, ...]:
-    """The titles a runner's id ends with: FILE::suite::title (node:test), FILE::suite > title (Vitest)."""
+    """The titles a runner's id ends with: FILE::suite::title (node:test), FILE::suite > title (Vitest),
+    FILE::groups title (RSpec)."""
+    if found := _RUBY_ID.match(test_id):
+        return _last_words(found.group(1))
     last = test_id.rsplit("::", 1)[-1]
     return (last, last.rsplit(" > ", 1)[-1])
 
@@ -392,12 +410,13 @@ def _test_function(test_id: str) -> str:
     last page`` is "counts a partial last page", and a title that begins with a ``test_`` name
     (``test_c1_adds two numbers``) is that name. Read from the whole id, every such test was "test",
     from its file's ``.test.js``: any changed file that says ``test(`` then named every test of the
-    suite, so none of them could guard a change (live run, 2026-11-13).
+    suite, so none of them could guard a change (live run, 2026-11-13). An RSpec example is named by its
+    full description in the same way; read from the whole id it was that description's last word.
     """
     if found := _RUST_ID.match(test_id):
         return found.group(1) or found.group(2)
-    if _JS_ID.match(test_id):
-        title = _titles(test_id)[1]
+    if (script := _JS_ID.match(test_id)) or _RUBY_ID.match(test_id):
+        title = _titles(test_id)[1 if script else 0]
         if re.fullmatch(_NAME, title):
             return title
         named = re.findall(r"(?<![A-Za-z0-9_])[Tt]est_[A-Za-z0-9_]+", title)
@@ -418,6 +437,9 @@ def named_in(test_id: str, text: str) -> bool:
     if not name:
         return False
     if not re.fullmatch(_NAME, name):
+        if _RUBY_ID.match(test_id):
+            # A spec file spells an example's own description, never RSpec's full one: its last words, quoted.
+            return any(quote + words + quote in text for words in _last_words(name) for quote in "\"'")
         return name in text
     return re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", text) is not None
 
