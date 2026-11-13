@@ -62,10 +62,16 @@ def cap(state: RunState) -> int | None:
     return saved if type(saved) is int and saved > 0 else None
 
 
+def _records(state: RunState, key: str) -> list:
+    """A saved list of records, or none when the saved value is not a list (a damaged state stays readable)."""
+    value = state.get(key)
+    return value if isinstance(value, list) else []
+
+
 def renewed_at(state: RunState) -> str | None:
     """When the person last gave new input, which starts the count again; None before any."""
     latest, text = None, None
-    for event in state.get("user_events") or []:
+    for event in _records(state, "user_events"):
         if not isinstance(event, dict) or event.get("kind") not in RENEWING_KINDS or event.get("actor") not in PEOPLE:
             continue
         moment = _time(event.get("at"))
@@ -83,14 +89,14 @@ def used(state: RunState) -> int:
     """The planning model calls since the person's last new input."""
     since = _time(renewed_at(state))
     calls = 0
-    for row in state.get("stages") or []:
+    for row in _records(state, "stages"):
         if not isinstance(row, dict) or row.get("runner_owned") or row.get("dry_run"):
             continue
         if planning_stage(row.get("original_stage") or row.get("stage")) and _counts(
             _time(row.get("started_at")), since
         ):
             calls += 1
-    for entry in state.get("stuck_investigations") or []:
+    for entry in _records(state, "stuck_investigations"):
         if not isinstance(entry, dict) or not entry.get("model") or not planning_stage(entry.get("stage")):
             continue
         if _counts(_time(entry.get("requested_at")), since):
