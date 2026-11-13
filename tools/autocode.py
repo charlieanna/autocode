@@ -453,7 +453,7 @@ def run_role(
             source_scope.snapshot(workspace, state, base_snapshot=support.snapshot) if native is not None else None
         )
         native_proof = (
-            regression.complete(state, cast(dict[str, Any], native_before)["revision"])
+            regression.complete(state, cast(dict[str, Any], native_before)["revision"], require_changed_code=False)
             if native is not None and original_stage == "tester" and regression.required(state)
             else False
         )
@@ -537,7 +537,7 @@ def run_role(
             save(base.with_suffix(".opencode.json"), overrides)
         elif engine == "opencode":
             prompt = role_launch.decorate_prompt(
-                state, original_stage, workspace, adapter, prompt, read_json(schema), events, worker_context
+                state, original_stage, workspace, adapter, prompt, schema, events, worker_context, run_dir=run_dir
             )
             if not configured_tool:
                 save(base.with_suffix(".opencode.json"), overrides)

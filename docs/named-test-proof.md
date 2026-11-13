@@ -588,14 +588,22 @@ tests exercise real HTTP/end-to-end behavior, it must not run that network-depen
 regression command again: inspect the named tests and cite the runner's existing
 clean-copy proof, not a model claim of execution. At launch, the runner checks
 the proof's source revision against the current source, its receipt hash, and
-the integrity of its check artifacts using the existing completion-proof
-validator. The entire presented proof must also match the runner's fresh handoff
-projection, including JSON types. Only then is `runner_regression_proof_current`
+the integrity of its check artifacts using the existing regression validator,
+without requiring the independent changed-line decisions this Tester is about
+to supply. The full completion gate still requires those decisions. The entire
+presented proof must also match the runner's fresh handoff or a deterministic
+Core projection, including JSON types. A compact projection must bind every
+moved original field, receipt index and count to the run-owned, content-addressed
+context artifact and its exact byte hash; an arbitrary summary cannot supply
+that authentication. Only then is `runner_regression_proof_current`
 true; missing or altered handoff evidence is not authenticated even when the
 saved runner proof is valid. A PASS receipt alone is not sufficient authority.
 The tests must assert the approved flow, not only health or static behavior;
 missing, stale, incomplete, failed, skipped or zero-test proof cannot establish
-HTTP PASS.
+HTTP PASS. A current executed regression PASS with pending changed-line review
+is evidence for that execution, not permission to complete the task. Generic
+workloads with unavailable evidence are told to retain BLOCKED/NOT_VERIFIED,
+rather than receiving an unrelated HTTP failure instruction.
 
 The Tester still executes permitted independent non-network checks and captures
 their receipts in `tool_containment.scratch`. It cites `regression_proof` directly

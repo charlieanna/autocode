@@ -623,7 +623,7 @@ class TesterProofRequest(unittest.TestCase):
                     output.write_text("model-declared PASS, not executed output\n")
                 instruction, handoff = self.request()
                 self.assertIs(False, handoff["runner_regression_proof_current"])
-                self.assertIn("Do not report HTTP PASS", instruction)
+                self.assertIn("Do not infer regression PASS", instruction)
                 self.assertIn("missing, stale, incomplete, failed, skipped or zero-test evidence cannot", instruction)
 
     def test_valid_state_does_not_authenticate_a_different_presented_proof(self):
@@ -651,7 +651,7 @@ class TesterProofRequest(unittest.TestCase):
                 instruction, handoff = self.request(alter_handoff=mutate)
                 self.assertIs(False, handoff["runner_regression_proof_current"])
                 self.assertNotIn("The runner authenticated the current regression PASS", instruction)
-                self.assertIn("Do not report HTTP PASS", instruction)
+                self.assertIn("Do not infer regression PASS", instruction)
                 self.assertEqual(original, regression.handoff(self.state))
                 self.assertNotEqual(
                     json.dumps(original, sort_keys=True), json.dumps(handoff.get("regression_proof"), sort_keys=True)
@@ -717,7 +717,7 @@ class TesterProofRequest(unittest.TestCase):
                 )
                 instruction, handoff = self.request()
                 self.assertIs(False, handoff["runner_regression_proof_current"])
-                self.assertIn("Do not report HTTP PASS", instruction)
+                self.assertIn("Do not infer regression PASS", instruction)
 
 
 if __name__ == "__main__":

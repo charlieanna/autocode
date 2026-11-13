@@ -52,6 +52,7 @@ try:
     from . import autocode_support as support
     from . import autocode_tool_handoff as tool_handoff
     from . import autocode_toolchain_byproducts as toolchain_byproducts
+    from . import autocode_util as util
     from . import autocode_visual_profile as visual_profile
     from . import autocode_visual_runtime as visual_runtime
 except ImportError:
@@ -85,6 +86,7 @@ except ImportError:
     import autocode_support as support
     import autocode_tool_handoff as tool_handoff
     import autocode_toolchain_byproducts as toolchain_byproducts
+    import autocode_util as util
     import autocode_visual_profile as visual_profile
     import autocode_visual_runtime as visual_runtime
 
@@ -172,18 +174,25 @@ def replay_context(state: RunState, *, stage, iteration, report_only, original_s
     return context
 
 
-def decorate_prompt(state: RunState, stage, workspace, adapter, prompt, schema, events, worker_context):
+def decorate_prompt(
+    state: RunState, stage, workspace, adapter, prompt, schema, events, worker_context, *, run_dir=None
+):
     """The existing schema/containment decoration, before provider admission."""
+    if not isinstance(schema, dict):
+        schema = util.read(schema)
     prompt = adapter.prompt_for_schema(prompt, schema, events)
     current_proof = False
     if stage == "tester" and worker_context.get("tool_containment") and regression.required(state):
-        current_proof = regression.complete(state, source_scope.snapshot(workspace, state)["revision"])
+        current_proof = regression.complete(
+            state, source_scope.snapshot(workspace, state)["revision"], require_changed_code=False
+        )
     return provider_launch.containment_prompt(
         prompt,
         worker_context,
         stage=stage,
         regression_proof_current=current_proof,
         regression_handoff=regression.handoff(state) if current_proof else None,
+        regression_context_root=run_dir,
     )
 
 

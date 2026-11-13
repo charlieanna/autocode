@@ -157,6 +157,7 @@ class NativeImagePreparation:
             boundary=boundary,
             regression_proof_current=self.regression_proof_current,
             regression_handoff=self.regression_handoff,
+            regression_context_root=self.run,
         )
         target = Path(self._staged["manifest_path"]).parent
         pins = dict(

@@ -1,1 +1,1 @@
-The runner authenticated the current regression PASS at launch; inspect its coverage before citing it.
+The runner authenticated the current regression PASS at launch; inspect its coverage before citing it. This authenticates executed regression evidence, not completion. Independently assess any pending changed-code obligations and supply only the exact source-bound decisions required; a passing regression does not settle those obligations.

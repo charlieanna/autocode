@@ -5,6 +5,10 @@ import json
 from pathlib import Path
 
 HISTORY_FIELDS = ("brief_feedback", "saved_answers")
+ARTIFACT_INSTRUCTION = (
+    "Full material is preserved here. Retrieve relevant fields before relying on their evidence. "
+    "This index does not change requirements or authorize skipping checks."
+)
 
 
 def proof_receipts(source, result, moved):
@@ -99,7 +103,7 @@ def compact(base, state_path):
                     key: {"total": len(value) if isinstance(value, (dict, list)) else None}
                     for key, value in moved.items()
                 },
-                "instruction": "Full material is preserved here. Retrieve relevant fields before relying on their evidence. This index does not change requirements or authorize skipping checks.",
+                "instruction": ARTIFACT_INSTRUCTION,
             }
         return result, moved
 
