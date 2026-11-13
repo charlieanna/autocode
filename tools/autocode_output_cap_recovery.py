@@ -13,8 +13,10 @@ runner sets the attempt aside through the existing abandonment boundary and runs
 on the same model at the highest level it offers below that one. The decision is recorded in
 ``reasoning_exhaustion_recoveries`` and, at the next launch, as the stage's ``effort_choice``
 (``decide``, via autocode_review_effort.launch). It keeps applying to that stage on that model
-for the rest of the run. Each (stage, model, level) is lowered once, so the scale bounds it:
-a stage that exhausts its limit at the model's lowest level pauses as before.
+for the rest of the run. Each (stage, model, level) is lowered once, so the scale bounds it.
+A stage that exhausts its limit at the model's lowest level (or at a level already lowered from) is
+set aside for the Investigator (``_investigate``, #3349), which may run it once more with guidance;
+once it has looked at that stop, the pause and its model question stand as before.
 
 The model is never changed here; that stays the person's (autocode_quota_route). Imports only
 lower-level modules; the runtime is passed in, keeping this below the controller.
@@ -43,6 +45,7 @@ try:
     from . import autocode_route_fit as route_fit
     from . import autocode_run_status as run_status
     from . import autocode_source_scope as source_scope
+    from . import autocode_stuck_job as stuck_job
     from . import autocode_support as support
 except ImportError:
     import autocode_output_cap as output_cap
@@ -51,6 +54,7 @@ except ImportError:
     import autocode_route_fit as route_fit
     import autocode_run_status as run_status
     import autocode_source_scope as source_scope
+    import autocode_stuck_job as stuck_job
     import autocode_support as support
 
 KEY: Final = "reasoning_exhaustion_recoveries"
@@ -171,12 +175,12 @@ def recover(runtime, state: RunState, run_dir, workspace, error) -> bool:
     if level not in route_fit.SCALE or not offered:
         return False
     lower = [value for value in offered if route_fit.SCALE.index(value) < route_fit.SCALE.index(level)]
-    if not lower or any(
+    # No lower level is left, or this one was lowered from already: the Investigator looks next (#3349).
+    exhausted = not lower or any(
         row.get("from") == level
         for row in state.get(KEY) or []
         if row.get("stage") == stage and row.get("model") == model
-    ):
-        return False
+    )
     tokens = _reasoning_bound(record)
     if tokens is None:
         return False
@@ -188,6 +192,9 @@ def recover(runtime, state: RunState, run_dir, workspace, error) -> bool:
         return False  # the attempt changed source; setting it aside is a person's call
     if state.get("pause_requested") or (Path(run_dir) / "pause-requested").exists():
         return False
+    job = quota_route.roles.screen_name(stage or role or "", state)
+    if exhausted:
+        return _investigate(runtime, state, run_dir, workspace, error, stopped, job, model, level, tokens)
     runtime.timeout_recovery_guard(state)
     candidate = copy.deepcopy(state)
     candidate.setdefault(KEY, []).append(
@@ -208,11 +215,46 @@ def recover(runtime, state: RunState, run_dir, workspace, error) -> bool:
     runtime.write_json(Path(run_dir) / "state.json", candidate)
     cast(dict, state).clear()
     state.update(candidate)
-    job = quota_route.roles.screen_name(stage or role or "", state)
     print(
         f"{job}: {model} at {level} spent its whole output limit on reasoning "
         f"({tokens['reasoning_tokens']} of {tokens['output_tokens']} output tokens); "
         f"running it again at {lower[-1]} on the same model without asking",
+        flush=True,
+    )
+    return True
+
+
+def _investigate(runtime, state: RunState, run_dir, workspace, error, stopped, job, model, level, tokens) -> bool:
+    """At the lowest level, set the attempt aside for the Investigator rather than ask for a model (#3349).
+
+    Live run, 2026-11-13: the Tester on MiMo v2.6 Pro spent 63,999 of 64,000 output tokens on
+    reasoning at medium, ran again at low and did the same, and the run asked the person to name another
+    model. The Investigator now looks first and may run the stage once more with its guidance; once it
+    has looked at this stop (one look per stage and stop on a source revision), the pause and its model
+    question stand as before. False, changing nothing, when the Investigator would not take it."""
+    stage = stopped.get("stage")
+    reason = (
+        f"{job} on {model} spent its whole output limit on reasoning at {level} "
+        f"({tokens['reasoning_tokens']} of {tokens['output_tokens']} output tokens), and no lower level is left "
+        f"to run it at. {error}"
+    )
+    probe = copy.deepcopy(state)
+    probe.pop("active_stage", None)
+    probe["next_stage"] = stage
+    if not stuck_job.intercept(probe, output_cap.STATUS, reason, routed=True):
+        return False
+    runtime.timeout_recovery_guard(state)
+    candidate = copy.deepcopy(state)
+    runtime.count_automatic_recovery(candidate)
+    runtime.abandon_stage(candidate, Path(run_dir), Path(workspace), stopped["attempt_id"], actor="runner")
+    run_status.running(candidate, state.get("phase") or "PLANNING", next_stage=stage)
+    stuck_job.intercept(candidate, output_cap.STATUS, reason, routed=True)
+    runtime.write_json(Path(run_dir) / "state.json", candidate)
+    cast(dict, state).clear()
+    state.update(candidate)
+    print(
+        f"{job}: {model} spent its whole output limit on reasoning at {level}, its lowest level; "
+        "the Investigator looks before anyone is asked",
         flush=True,
     )
     return True

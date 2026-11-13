@@ -120,8 +120,15 @@ RETRYABLE = frozenset(
         # The automatic timeout recoveries ran out. Without this the run asked a person to grant more
         # (--grant-recovery), a question about AutoCode's own retries (2026-11-06 live run).
         "PAUSED_TIMEOUT_RECOVERY",
+        # A stage that spent its whole output limit on reasoning at the lowest level its model offers
+        # asked the person for another model (#3349). Only the runner's own recoverer sends it here
+        # (autocode_output_cap_recovery), after setting the attempt aside: RUNNER_ROUTED.
+        "PAUSED_OUTPUT_CAP",
     }
 )
+# Statuses the Investigator takes only when the runner's own recoverer routes them (``routed``), never
+# from a raised pause: their stopped attempt must first be set aside by that recoverer.
+RUNNER_ROUTED = frozenset({"PAUSED_OUTPUT_CAP"})
 # These have operator-only resume semantics; the Investigator explains them, the user decides.
 DIAGNOSE_ONLY = frozenset(
     {"PAUSED_REPORT_REPAIR_LIMIT", "PAUSED_BUILDER_RETRY_LIMIT", "PAUSED_MILESTONE_STALLED", "PAUSED_MILESTONE_REPLAN"}
@@ -250,7 +257,7 @@ def same_problem(entry: dict, key: str, revision) -> bool:
     return seen is None or revision is None or seen == revision
 
 
-def intercept(state: RunState, status: str, reason: str) -> bool:
+def intercept(state: RunState, status: str, reason: str, *, routed: bool = False) -> bool:
     """Send a run about to pause with a non-convergence ``status`` to the Investigator.
 
     Returns False (pause as before) when the feature is off, the status is not one of
@@ -258,6 +265,8 @@ def intercept(state: RunState, status: str, reason: str) -> bool:
     investigated, or the run's investigation budget is spent.
     """
     stuck = state.get("next_stage")
+    if status in RUNNER_ROUTED and not routed:
+        return False
     if progressive.retained_review_budget_pause(state, status) or persons_review_total(state, status):
         return False
     if (
