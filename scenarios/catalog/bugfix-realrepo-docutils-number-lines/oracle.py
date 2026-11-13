@@ -18,6 +18,7 @@ from harness.oracle import (
     bugfix_entry,
     changed_since_seed,
     hidden_tests,
+    normal_failure,
     run,
     run_checks,
     scratch_copy,
@@ -88,9 +89,11 @@ def check(project, scenario, run_record=None):
         checks.append(
             Check(
                 "new_tests_fail_on_original_code",
-                against_seed.returncode != 0,
+                normal_failure(against_seed),
                 f"delivered tests {'fail' if against_seed.returncode else 'still pass'} on the original code: "
-                + ", ".join(modules),
+                + ", ".join(modules)
+                if normal_failure(against_seed) or against_seed.returncode == 0
+                else f"original-code check did not complete normally: {tail(against_seed)}",
             )
         )
     missing = sorted(test_names(scenario.seed / ROOT / "test") - test_names(project / ROOT / "test"))
