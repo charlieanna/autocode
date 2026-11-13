@@ -2354,7 +2354,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/ffdad21e05b68411fdf97c02a0f4a13d885e0339/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/99b3fbefd452f882af92b5484a6f0cab979fee8a/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2470,6 +2470,10 @@ See <a href="../task-run/#worktrees-for-clients">Worktrees for clients</a>.</p>
 <tr>
 <td><code>autocode compare-baseline</code></td>
 <td>Compare Vitest failure evidence (see <a href="../execution/#baseline-comparison">Execution</a>).</td>
+</tr>
+<tr>
+<td><code>autocode report-check [REPORT] [--spec FILE] [--schema FILE --stage STAGE --workspace PATH] [--json]</code></td>
+<td>Read-only pre-submit validation of a candidate stage JSON report (from <code>REPORT</code> or stdin <code>-</code>) against the stage schema, source/checklist quotes, citation/DAG rules, passing evidence refs and stuck-investigation retry requirements; exits 0 when valid or 1 with actionable errors.</td>
 </tr>
 <tr>
 <td><code>autocode review --workspace PATH [--run-dir RUN]</code></td>
@@ -2594,7 +2598,7 @@ they do not represent charges.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/ffdad21e05b68411fdf97c02a0f4a13d885e0339/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/99b3fbefd452f882af92b5484a6f0cab979fee8a/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3220,7 +3224,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/ffdad21e05b68411fdf97c02a0f4a13d885e0339/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/99b3fbefd452f882af92b5484a6f0cab979fee8a/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3932,6 +3936,11 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 <td><code>--once</code>, <code>--project</code>, <code>--poll-seconds</code>, <code>--json</code></td>
 <td>With <code>run</code>: one poll then exit (for tests and cron-style operation), the persistent checkout to build in (default: <code>AUTOCODE_BRIDGE_PROJECT</code> or the daemon's directory) and seconds between polls (default 10, or <code>AUTOCODE_BRIDGE_POLL_SECONDS</code>); with <code>status</code>, JSON output. See <a href="../channels/">Channel bridge</a>.</td>
 </tr>
+<tr>
+<td><code>autocode report-check</code></td>
+<td><code>--spec</code>, <code>--schema</code>, <code>--stage</code>, <code>--workspace</code>, <code>--json</code></td>
+<td>Runner-written validation spec JSON, or standalone stage schema, stage name and workspace root; structured JSON validation output. Reads a file or stdin (<code>-</code>) without mutating files or <code>state.json</code>.</td>
+</tr>
 </tbody>
 </table>
 <h2 id="terminal-chat">Terminal chat<a class="headerlink" href="#terminal-chat" title="Permanent link">&para;</a></h2>
@@ -4295,7 +4304,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/ffdad21e05b68411fdf97c02a0f4a13d885e0339/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/99b3fbefd452f882af92b5484a6f0cab979fee8a/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
@@ -4499,6 +4508,11 @@ FILE</code> and requires fresh approval when a remaining failure or classificati
 limit prevents retry.
 Older checkpoints that discarded the failed request also require a plan
 correction or a new run; plain resume cannot reconstruct the missing proposal.</p>
+<p>If an exact job retry consumes a queued Stop or boundary pause before launching,
+the paused run keeps that job's retry and model-correction actions. They still
+require the matching unconsumed authorization, original source and configuration;
+changing the model issues a fresh token and launches nothing. An unrelated pause
+does not revive an older job's retry.</p>
 <p>A job its provider's content filter refused (<code>PAUSED_CONTENT_FILTER</code>) or that ran
 out of quota (<code>PAUSED_BUDGET</code>) pauses the same way, and its stop names the cause
 and the model. The same model is likely to refuse again, so <code>needs.route</code> carries
