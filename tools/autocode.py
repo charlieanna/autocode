@@ -176,8 +176,9 @@ try:
     from .autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE, retained as retained_dispositions  # noqa: F401 - compatibility API
     from .autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,  # noqa: F401 - compatibility API
         authorize_failure_retry, automatically_recover_capacity_stage,
-        automatically_recover_external_directory_denial, automatically_recover_report_repair_timeout,
-        automatically_recover_timed_out_stage, automatically_recover_truncated_review,
+        automatically_recover_external_directory_denial, automatically_recover_first_reply_budget,
+        automatically_recover_report_repair_timeout, automatically_recover_timed_out_stage,
+        automatically_recover_truncated_review,
         archive_stale_report_repair, prepare_abandoned_completion_revalidation, stale_report_repair,
         prepare_exhausted_execution_report_retry, prepare_timeout_archived_completion, prepare_planning_retry, reconcile_rate_limited_stage,
         recover_legacy_report_repair, restart_unlaunchable_repair, retry_format_failed_report)  # noqa: F401 - compatibility API
@@ -227,8 +228,9 @@ except ImportError:
     from autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE, retained as retained_dispositions  # noqa: F401 - compatibility API
     from autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,  # noqa: F401 - compatibility API
         authorize_failure_retry, automatically_recover_capacity_stage,
-        automatically_recover_external_directory_denial, automatically_recover_report_repair_timeout,
-        automatically_recover_timed_out_stage, automatically_recover_truncated_review,
+        automatically_recover_external_directory_denial, automatically_recover_first_reply_budget,
+        automatically_recover_report_repair_timeout, automatically_recover_timed_out_stage,
+        automatically_recover_truncated_review,
         archive_stale_report_repair, prepare_abandoned_completion_revalidation, stale_report_repair,
         prepare_exhausted_execution_report_retry, prepare_timeout_archived_completion, prepare_planning_retry, reconcile_rate_limited_stage,
         recover_legacy_report_repair, restart_unlaunchable_repair, retry_format_failed_report)  # noqa: F401 - compatibility API
@@ -436,7 +438,9 @@ def run_role(
     effort, effort_choice = review_effort.launch(state, original_stage, route_role, report_only, route)  # #1710
     effort = route_fit.launch(state["settings"], route_role, effort, original_stage, model=route.get("model"))  # #2057
     limits = state["settings"].get("limits", {})
-    stage_timeout = job_failure.launch_deadline(state, stage, limits.get("stage_timeout_seconds"), report_only)
+    stage_timeout, budget_meta, progress_budget = role_launch.stage_deadline_and_progress(
+        state, original_stage, limits.get("stage_timeout_seconds"), report_only=report_only
+    )
     idle_timeout = limits.get("idle_timeout_seconds", 300)
     idle_limit, idle_origin = idle_policy.effective(
         idle_timeout,
@@ -605,6 +609,8 @@ def run_role(
     record["output_mode"] = getattr(adapter, "OUTPUT", "opencode_events") if engine == "opencode" else "codex_events"
     if report_only:
         record.update(report_only=True, original_stage=original_stage)
+    if budget_meta:
+        record["first_reply_budget_active"] = budget_meta
     if joint_stage:
         record["planning"] = True
     if engine == "opencode" and not configured_tool:
@@ -738,18 +744,10 @@ def run_role(
                 f"{autocode_status.role_name(stage, state)}: started; model={model or 'default'}; log={events}",
                 flush=True,
             )
-            activity = ActivityMonitor(
-                events,
-                idle_seconds=idle_limit,
-                tool_seconds=tool_timeout,
-                reporter=verbose.reporter(autocode_status.role_name(stage, state), model),
-                idle_origin=idle_origin,
-                idle_hint=JOB_IDLE_LIMIT if stage in jobs.STAGES else CHANGE_IDLE_LIMIT,
-                plain_text=configured_tool and getattr(adapter, "OUTPUT", None) == "report_file",
-            )
-            activity_checkpoint = role_launch.activity_reporter(
+            activity, activity_checkpoint = role_launch.supervision(
                 state,
                 record,
+                events,
                 stage=stage,
                 model=model,
                 idle_limit=idle_limit,
@@ -759,6 +757,11 @@ def run_role(
                 state_path=run_dir / "state.json",
                 save=save,
                 clock=now,
+                reporter=verbose.reporter(autocode_status.role_name(stage, state), model),
+                idle_origin=idle_origin,
+                idle_hint=JOB_IDLE_LIMIT if stage in jobs.STAGES else CHANGE_IDLE_LIMIT,
+                progress=progress_budget,
+                plain_text=configured_tool and getattr(adapter, "OUTPUT", None) == "report_file",
             )
 
             def checkpoint(owned):
@@ -987,7 +990,7 @@ def _execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
         raise support.Paused(
             "PAUSED_STALE_REPORT_ROUTE", "Saved report repair belongs to a different stage; reconcile before retrying"
         )
-    if pending["attempts"] >= repair_limit(state):
+    if pending["attempts"] >= report_repair_queue.effective_repair_limit(state, pending):
         raise support.Paused("PAUSED_REPORT_REPAIR_LIMIT", "Bounded report-only repair attempts exhausted")
     if pending["attempts"] and not pending.get("latest_rejected"):
         # Old checkpoints kept the latest error but only the first report pointer.
@@ -1103,6 +1106,7 @@ def _execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
                         "contract_revision",
                         "task_id",
                         "truncated_output",
+                        "first_reply_budget",
                     )
                     if key in original
                 },

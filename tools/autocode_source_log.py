@@ -30,9 +30,11 @@ import hashlib
 
 try:
     from . import autocode_conversation as conversation
+    from . import autocode_linked_issues as linked_issues
     from . import autocode_requirements_chat as requirements_chat
 except ImportError:
     import autocode_conversation as conversation
+    import autocode_linked_issues as linked_issues
     import autocode_requirements_chat as requirements_chat
 
 KEY: Final = "source_log"
@@ -40,6 +42,18 @@ KEY: Final = "source_log"
 
 def _record(ident, kind, text):
     return {"id": ident, "kind": kind, "text": text, "sha256": hashlib.sha256(text.encode()).hexdigest()}
+
+
+def _existing_linked_ids(state: RunState) -> set[str]:
+    return {row["id"] for row in sources(state) or () if row.get("kind") == linked_issues.LINKED_ISSUE_KIND}
+
+
+def _append_linked_issues(state: RunState, parent_id: str, text: str) -> None:
+    workspace = state.get("workspace")
+    if not workspace or KEY not in state or not text:
+        return
+    seen = _existing_linked_ids(state)
+    state[KEY].extend(linked_issues.fetch_linked_records(workspace, parent_id, text, existing_ids=seen))
 
 
 def task_records(task):
@@ -53,9 +67,12 @@ def task_records(task):
 
 
 def seed(state: RunState):
-    """Record the run's initial task texts once. Never rewrites an existing log."""
+    """Record the run's initial task texts once, plus any origin GitHub issue/PR links they name."""
     if KEY not in state:
-        state[KEY] = task_records(state.get("task") or "")
+        initial = task_records(state.get("task") or "")
+        state[KEY] = initial
+        for row in list(initial):
+            _append_linked_issues(state, row["id"], row["text"])
 
 
 def save_feedback(state: RunState, event):
@@ -69,7 +86,9 @@ def save_feedback(state: RunState, event):
     if KEY not in state or not event.get("id") or not event.get("text"):
         return
     kind = "user_intervention" if event.get("actor") == "user_intervention" else "user_feedback"
-    state[KEY].append(_record("feedback:" + event["id"], kind, event["text"]))
+    ident = "feedback:" + event["id"]
+    state[KEY].append(_record(ident, kind, event["text"]))
+    _append_linked_issues(state, ident, event["text"])
 
 
 def save_answer(state: RunState, question_id, event):
@@ -83,7 +102,9 @@ def save_answer(state: RunState, question_id, event):
         return
     if not event.get("text"):
         return
-    state[KEY].append(_record("answer:" + question_id, "user_answer", event["text"]))
+    ident = "answer:" + question_id
+    state[KEY].append(_record(ident, "user_answer", event["text"]))
+    _append_linked_issues(state, ident, event["text"])
 
 
 def records(state: RunState):
@@ -91,10 +112,24 @@ def records(state: RunState):
     return log if isinstance(log, list) else None
 
 
-def sources(state: RunState):
-    """The live sources from the log, or None when the run predates it.
+def _linked_issue_authentic(record: dict, live: dict) -> bool:
+    parent = live.get(record.get("parent_id"))
+    if not isinstance(parent, dict) or not isinstance(record.get("url"), str):
+        return False
+    text = record.get("text") or ""
+    if hashlib.sha256(text.encode()).hexdigest() != record.get("sha256"):
+        return False
+    ident_lower = record["id"].lower()
+    for link in linked_issues.extract_links(parent["text"]):
+        if link["id"].lower() == ident_lower or (
+            link["route"] == "issues"
+            and ident_lower == linked_issues.source_id(link["owner"], link["repo"], "pull", link["number"]).lower()
+        ):
+            return True
+    return False
 
-    The last record for an id wins, mirroring the answer ledger's replacement."""
+
+def _live_records(state: RunState):
     log = records(state)
     if log is None:
         return None
@@ -114,6 +149,8 @@ def sources(state: RunState):
         elif kind == "user_answer":
             saved = answers.get(ident.removeprefix("answer:"))
             found = isinstance(saved, dict) and saved.get("text") == text
+        elif kind == linked_issues.LINKED_ISSUE_KIND:
+            found = _linked_issue_authentic(record, live)
         else:
             # Task texts are immutable once logged; a follow-up's rewrite of
             # state["task"] is exactly what the log protects them from.
@@ -122,5 +159,25 @@ def sources(state: RunState):
             continue
         if ident not in live:
             order.append(ident)
-        live[ident] = {"id": ident, "kind": kind, "text": text}
+        live[ident] = record
     return [live[ident] for ident in order]
+
+
+def sources(state: RunState):
+    """The live sources from the log, or None when the run predates it.
+
+    The last record for an id wins, mirroring the answer ledger's replacement."""
+    live = _live_records(state)
+    if live is None:
+        return None
+    return [{"id": row["id"], "kind": row["kind"], "text": row["text"]} for row in live]
+
+
+def linked_issue_records(state: RunState) -> list[dict]:
+    """Authenticated live linked-issue/PR metadata records (with url, fetched_at, sha256) for handoffs."""
+    live = _live_records(state) or []
+    return [
+        {key: row[key] for key in ("id", "kind", "url", "fetched_at", "sha256", "text") if key in row}
+        for row in live
+        if row.get("kind") == linked_issues.LINKED_ISSUE_KIND
+    ]

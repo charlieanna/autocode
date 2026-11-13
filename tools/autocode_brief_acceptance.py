@@ -130,15 +130,12 @@ def _source_records(sources):
     for source in sources:
         _exact(source, ("id", "kind", "text"), "Trusted human source")
         ident = _string(source["id"], "Source ID")
-        if (
-            not _ID.fullmatch(ident)
-            or ident in ids
-            or not isinstance(source["kind"], str)
-            or source["kind"] not in _SOURCE_KINDS
-        ):
+        if not _ID.fullmatch(ident) or ident in ids or not isinstance(source["kind"], str):
             raise ValueError("Sources need unique stable IDs and a supported human-source kind")
-        text = _string(source["text"], "Source text")
         ids.add(ident)
+        if source["kind"] not in _SOURCE_KINDS:
+            continue
+        text = _string(source["text"], "Source text")
         result.append({**source, "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()})
     return result  # Caller-authenticated human chronology determines inheritance.
 

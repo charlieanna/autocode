@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_cmd_only_report as cmd_only
+    from . import autocode_first_reply_budget as first_reply_budget
     from . import autocode_leaked_markup_report as leaked_markup
     from . import autocode_opencode as opencode
     from . import autocode_report_syntax as report_syntax
@@ -30,6 +31,7 @@ try:
     from .providers import claude as claude_provider
 except ImportError:
     import autocode_cmd_only_report as cmd_only
+    import autocode_first_reply_budget as first_reply_budget
     import autocode_leaked_markup_report as leaked_markup
     import autocode_opencode as opencode
     import autocode_report_syntax as report_syntax
@@ -166,6 +168,16 @@ def repair_report_source(record, *, allow_empty=False):
     """Return a bounded report artifact or an explicitly incomplete transcript."""
     output = Path(record["output"])
     response = Path(record.get("response_text") or output.with_suffix(".response.txt"))
+    if record.get("first_reply_budget"):
+        event_path = Path(record["events"])
+        return {
+            "path": str(event_path),
+            "sha256": support.file_hash(event_path),
+            "format": "first_reply_budget_partial",
+            "bytes": event_path.stat().st_size,
+            "truncated": True,
+            "content": first_reply_budget.extract_partial_evidence(event_path, record),
+        }
     if record.get("truncated_output"):
         event_path = Path(record["events"])
         facade = _event_facade(record)
@@ -305,6 +317,17 @@ def repair_report_instruction(pending):
         return cmd_only.REPAIR_INSTRUCTION
     if leaked_markup.matches(pending.get("error")):
         return leaked_markup.REPAIR_INSTRUCTION
+    if pending.get("first_reply_budget"):
+        return (
+            "FIRST-REPLY BUDGET REPORT-ONLY FINISH (#3345). The live requirements_gather pass stopped "
+            "at its per-pass reply budget so the user does not wait behind exhaustive reads; no tools "
+            "are available here. Immediately emit one schema-valid requirements_gather JSON report "
+            "synthesized strictly from rejected_report.content (inspected_paths, inspected_commands, "
+            "assistant_notes), original_executed_checks and source_texts. Ask concise open_questions "
+            "if genuine product ambiguity remains; otherwise return a complete grounded handoff citing "
+            "only task, linked_issues and repository paths actually observed in inspected_paths or "
+            "original_executed_checks. Never invent uninspected files, symbols or command outputs.\n"
+        )
     truncated = bool(
         (pending.get("original") or {}).get("truncated_output")
         or (pending.get("latest_rejected") or {}).get("truncated_output")

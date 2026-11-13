@@ -102,6 +102,29 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
         except ImportError:
             import autocode_project_memory_lifecycle as project_memory
         base["project_memory"] = project_memory.context(state)
+    if stage == "requirements_gather":
+        try:
+            from . import autocode_first_reply_budget as first_reply_budget
+            from . import autocode_source_log as source_log
+        except ImportError:
+            import autocode_first_reply_budget as first_reply_budget
+            import autocode_source_log as source_log
+        base["reply_budget"] = first_reply_budget.handoff_spec(state)
+        if linked := source_log.linked_issue_records(state):
+            base["linked_issues"] = linked
+            base["linked_issues_note"] = (
+                "Origin-repository GitHub issues/PRs named in the user's messages were already fetched "
+                "and are included in linked_issues and source_texts. Do not re-fetch them via shell/network; "
+                "quote their text verbatim in source_quote and cite their id in source_refs if needed."
+            )
+    if stage == "draft_plan" and (budget_meta := (state.get("requirements_handoff") or {}).get("first_reply_budget")):
+        base["requirements_reply_budget"] = {
+            **budget_meta,
+            "note": (
+                "Requirements finished under its first-reply budget after bounded exploration; "
+                "inspect any remaining repository files needed to complete the implementation plan."
+            ),
+        }
     try:
         from . import autocode_project_notes_lifecycle as project_notes
     except ImportError:

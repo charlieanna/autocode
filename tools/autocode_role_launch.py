@@ -22,10 +22,12 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_activity as activity_monitor_mod
     from . import autocode_agent_env as agent_env
     from . import autocode_changed_code_evidence as changed_code_evidence
     from . import autocode_classification_recovery as classification_recovery
     from . import autocode_draft_failure_correction as failure_correction
+    from . import autocode_first_reply_budget as first_reply_budget
     from . import autocode_format_correction as format_correction
     from . import autocode_job_failure as job_failure
     from . import autocode_output_cap as output_cap
@@ -50,10 +52,12 @@ try:
     from . import autocode_visual_profile as visual_profile
     from . import autocode_visual_runtime as visual_runtime
 except ImportError:
+    import autocode_activity as activity_monitor_mod
     import autocode_agent_env as agent_env
     import autocode_changed_code_evidence as changed_code_evidence
     import autocode_classification_recovery as classification_recovery
     import autocode_draft_failure_correction as failure_correction
+    import autocode_first_reply_budget as first_reply_budget
     import autocode_format_correction as format_correction
     import autocode_job_failure as job_failure
     import autocode_output_cap as output_cap
@@ -277,6 +281,81 @@ def admit_launch(
     if original_stage == "builder" and not report_only and not record.get("dry_run"):
         partial_work.capture_start(record, before, workspace, run_dir, state=state)
     return native_prepared
+
+
+def stage_deadline_and_progress(state: RunState, stage: str, configured_timeout, *, report_only: bool):
+    """Return ``(stage_timeout, budget_meta, progress_budget)`` for a stage launch."""
+    stage_timeout = job_failure.launch_deadline(state, stage, configured_timeout, report_only)
+    if not first_reply_budget.applies(state, stage, report_only=report_only):
+        return stage_timeout, None, None
+    max_seconds, max_calls = first_reply_budget.limits(state)
+    if isinstance(stage_timeout, (int, float)) and stage_timeout > 0:
+        stage_timeout = min(int(stage_timeout), max_seconds)
+    else:
+        stage_timeout = max_seconds
+    budget_meta = {"max_seconds": stage_timeout, "max_tool_calls": max_calls}
+    return stage_timeout, budget_meta, first_reply_budget.ProgressBudget(max_calls)
+
+
+def activity_monitor(events, *, idle_limit, tool_timeout, reporter, idle_origin, idle_hint, progress, plain_text):
+    """Construct an ActivityMonitor with optional per-stage progress budget."""
+    return activity_monitor_mod.ActivityMonitor(
+        events,
+        idle_seconds=idle_limit,
+        tool_seconds=tool_timeout,
+        reporter=reporter,
+        idle_origin=idle_origin,
+        idle_hint=idle_hint,
+        progress=progress,
+        plain_text=plain_text,
+    )
+
+
+def supervision(
+    state: RunState,
+    record,
+    events,
+    *,
+    stage,
+    model,
+    idle_limit,
+    tool_timeout,
+    stage_timeout,
+    started,
+    state_path,
+    save,
+    clock,
+    reporter,
+    idle_origin,
+    idle_hint,
+    progress,
+    plain_text,
+):
+    """Build ``(activity_monitor, activity_checkpoint)`` for a supervised stage wait."""
+    monitor = activity_monitor(
+        events,
+        idle_limit=idle_limit,
+        tool_timeout=tool_timeout,
+        reporter=reporter,
+        idle_origin=idle_origin,
+        idle_hint=idle_hint,
+        progress=progress,
+        plain_text=plain_text,
+    )
+    checkpoint = activity_reporter(
+        state,
+        record,
+        stage=stage,
+        model=model,
+        idle_limit=idle_limit,
+        tool_timeout=tool_timeout,
+        stage_timeout=stage_timeout,
+        started=started,
+        state_path=state_path,
+        save=save,
+        clock=clock,
+    )
+    return monitor, checkpoint
 
 
 def activity_reporter(

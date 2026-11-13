@@ -83,7 +83,13 @@ _STANDARD = re.compile(
 # An issue or pull-request reference names the report, not a value the request states:
 # a criterion about the ragged-row defect satisfies "Fix issue #474" without repeating
 # 474 (#1874). A value stated beside the reference ("process exactly 7 rows") still survives.
-_REFERENCE = re.compile(r"(?:(?<!\w)#\d+|\b(?:issue|pull request|pr|gh)[- ]?#?\d+)(?!\w)", re.I)
+_REFERENCE = re.compile(
+    r"(?:https?://[^\s<>()\"'\]]+/(?:issues|pull)/[1-9]\d*(?:#[A-Za-z0-9_-]+)?"
+    r"|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9]\d*"
+    r"|(?<!\w)#\d+"
+    r"|\b(?:issue|pull request|pr|gh)[- ]?#?\d+)(?!\w)",
+    re.I,
+)
 _NEGATION = re.compile(r"\b(?:must not|never|do not|don't|cannot|can't|not|no)\b", re.I)
 
 
@@ -134,10 +140,17 @@ def reviewer_evidence(record):
 
 
 def quoted(quote, text) -> bool:
-    """Whether ``quote`` appears in ``text`` word for word; runs of whitespace match each other (#1777).
+    """Whether ``quote`` appears in ``text`` word for word; runs of whitespace and ``> `` line prefixes match (#1777).
 
-    A hard-wrapped brief puts line breaks inside its sentences, and a model quoting the sentence writes a space."""
-    return " ".join(str(quote).split()) in " ".join(str(text).split())
+    A hard-wrapped brief puts line breaks inside its sentences, and a formatted linked issue prefixes lines with ``> ``;
+    a model quoting a sentence across lines omits those prefixes."""
+    needle = " ".join(str(quote).split())
+    if not needle:
+        return False
+    raw = str(text)
+    if needle in " ".join(raw.split()):
+        return True
+    return needle in " ".join(re.sub(r"(?m)^[ \t]*>[ \t]?", " ", raw).split())
 
 
 def check_citations(body, records):
@@ -410,6 +423,15 @@ def quotable(records):
     return [row for row in records if not control_replies.control_record(row)]
 
 
+def _coverage_scoped(records):
+    """Direct human sources subject to mandatory sentence-by-sentence coverage.
+
+    Linked GitHub issues/PRs (kind="linked issue") remain citable in criteria and checked by
+    citation/survival rules, while their reporter/commenter prose never forces out_of_scope noise (#3344).
+    """
+    return [row for row in records if row.get("kind") != "linked issue"]
+
+
 def _turn_scoped(state: RunState, records):
     """A receipted follow-up that changed jobs scopes obligations to its own turn
     (requirement_cues.new_workflow_turn); same-kind revisions keep every source."""
@@ -432,7 +454,7 @@ def sentence_rows(state: RunState, records, requirement_rows=(), criteria=None):
     maps rows to sentences by id instead of by comparing text (#1630). When ``criteria`` is supplied,
     ``criterion_ids`` names every criterion whose citation covers the sentence. The text is in source_inventory too."""
     rows = []
-    for record in _turn_scoped(state, records):
+    for record in _coverage_scoped(_turn_scoped(state, records)):
         for number, sentence in enumerate(cues.sentences(record["text"]), 1):
             row = {
                 "id": f"{record['id']}#{number}",
@@ -507,7 +529,7 @@ def uncited_sentences(state: RunState, body, records):
     if not any(row.get("sources") for row in criteria):
         return []  # a contract that cites nothing predates the trace, as in check_ready
     rows = []
-    for record in _turn_scoped(state, records):
+    for record in _coverage_scoped(_turn_scoped(state, records)):
         quotes = [
             citation["quote"]
             for row in criteria
@@ -550,7 +572,12 @@ def check_ready(body, records, wrapper, *, coverage_records=None):
     uncited = [row.get("id", "?") for row in criteria if not row.get("sources")]
     if uncited:
         raise ValueError("Every criterion must cite its source; uncited: " + ", ".join(uncited))
-    errors = _coverage_errors(body, records, wrapper["out_of_scope"], coverage_records=coverage_records)
+    errors = _coverage_errors(
+        body,
+        records,
+        wrapper["out_of_scope"],
+        coverage_records=_coverage_scoped(records if coverage_records is None else coverage_records),
+    )
     errors += _survival_errors(
         body, records if coverage_records is None else coverage_records, wrapper["negation_waivers"]
     )

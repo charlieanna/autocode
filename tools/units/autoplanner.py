@@ -1355,6 +1355,28 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
         packet["workspace_inventory"] = workspace_inventory(state["workspace"], state["task"], limit=20)
     if stage == "requirements_gather":
         packet["requirement_coverage_checklist"] = requirement_cues.coverage_checklist(state)
+        try:
+            from .. import autocode_first_reply_budget as first_reply_budget
+            from .. import autocode_source_log as source_log
+        except ImportError:
+            import autocode_first_reply_budget as first_reply_budget
+            import autocode_source_log as source_log
+        packet["reply_budget"] = first_reply_budget.handoff_spec(state)
+        if linked := source_log.linked_issue_records(state):
+            packet["linked_issues"] = linked
+            packet["linked_issues_note"] = (
+                "Origin-repository GitHub issues/PRs named in the user's messages were already fetched "
+                "and are included in linked_issues and source_texts. Do not re-fetch them via shell/network; "
+                "quote their text verbatim in source_quote and cite their id in source_refs if needed."
+            )
+    if stage == "draft_plan" and (budget_meta := (state.get("requirements_handoff") or {}).get("first_reply_budget")):
+        packet["requirements_reply_budget"] = {
+            **budget_meta,
+            "note": (
+                "Requirements finished under its first-reply budget after bounded exploration; "
+                "inspect any remaining repository files needed to complete the implementation plan."
+            ),
+        }
     rows = trace_rows(state, stage)
     if rows:
         packet["requirement_trace_rows"] = rows

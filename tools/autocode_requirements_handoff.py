@@ -34,6 +34,7 @@ try:
     from . import autocode_requirements_review as requirements_review
     from . import autocode_requirements_triage as requirements_triage
     from . import autocode_run_status as run_status
+    from . import autocode_source_log as source_log
     from . import autocode_technical_questions as technical_questions
     from . import autocode_util as util
     from . import autocode_workspace_scope as workspace_scope
@@ -48,6 +49,7 @@ except ImportError:
     import autocode_requirements_review as requirements_review
     import autocode_requirements_triage as requirements_triage
     import autocode_run_status as run_status
+    import autocode_source_log as source_log
     import autocode_technical_questions as technical_questions
     import autocode_util as util
     import autocode_workspace_scope as workspace_scope
@@ -125,7 +127,7 @@ def _accept(state: RunState, value: dict, record: dict, *, check_code_refs, queu
     if previous:
         state.setdefault("requirements_history", []).append(copy.deepcopy(previous))
     goals.check_requirement_handoff(state, value)
-    input_refs = {"task", *state.get("answers", {})}
+    input_refs = {"task", *state.get("answers", {}), *(row["id"] for row in source_log.linked_issue_records(state))}
     input_refs.update(event["id"] for event in state.get("user_events", []) if event.get("id"))
     # External design/spec references may accompany local inspection evidence;
     # they are not filesystem paths and do not satisfy the source-inspection gate.
@@ -149,6 +151,8 @@ def _accept(state: RunState, value: dict, record: dict, *, check_code_refs, queu
     if local_refs or (builds_code and not intent_only and not catalog_refs):
         check_code_refs(state, local_refs, "source_refs")
     state["requirements_handoff"] = {"report": copy.deepcopy(value), "output": record["output"]}
+    if isinstance(record.get("first_reply_budget"), dict):
+        state["requirements_handoff"]["first_reply_budget"] = copy.deepcopy(record["first_reply_budget"])
     if "workspace_scope" in value:
         workspace_scope.record(
             state, value["workspace_scope"], record, stage="requirements_gather", dropped=dropped or []

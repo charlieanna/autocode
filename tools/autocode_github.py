@@ -184,6 +184,21 @@ class Client:
             raise GitHubError("GitHub returned an invalid pull request")
         return result
 
+    def pull_request_with_comments(self, ref: IssueRef, max_comments: int = 30) -> dict:
+        """Read a pull request with up to max_comments of its most recent issue comments under "comments_list"."""
+        pull = self.pull_request(ref)
+        comments = []
+        if max_comments:
+            per_page = min(max_comments, 100)
+            total = pull.get("comments")
+            page = max(1, -(-int(total) // per_page)) if total else 1
+            raw = self._call(
+                "GET", f"/repos/{ref.owner}/{ref.repo}/issues/{ref.number}/comments?per_page={per_page}&page={page}"
+            )
+            if isinstance(raw, list):
+                comments = raw
+        return {**pull, "comments_list": comments[-max_comments:]}
+
     def pull_request_files(self, ref: IssueRef) -> list[dict]:
         """Every changed file, including GitHub's new-side patch anchors."""
         files = []
