@@ -131,6 +131,7 @@ START_FLAGS = (
     "--max-milestone-seconds",
     "--max-milestone-stalled-reviews",
     "--max-parallel-builders",
+    "--max-planning-calls",
     "--max-seconds",
     "--max-stage-seconds",
     "--max-tool-seconds",

@@ -36,6 +36,11 @@ class DecisionFlagTests(unittest.TestCase):
         self.assertIn("--planning-review-call-limit", flags.DECISION_FLAGS)
         for flag in ("--max-seconds", "--unlimited-iterations", "--no-progress-limit", "--builder-model"):
             self.assertIn(flag, flags.START_FLAGS)
+        # The spending caps start a run with a bound. Raising one at its pause needs --resume-paused, a decision.
+        for flag in ("--max-cost-usd", "--max-planning-calls"):
+            self.assertIn(flag, flags.START_FLAGS)
+            self.assertNotIn(flag, flags.DECISION_FLAGS)
+        self.assertIn("--resume-paused", flags.DECISION_FLAGS)
 
     def test_triage_flow_switches_configure_start_without_recording_a_decision(self):
         for flag in ("--requirements-triage", "--no-requirements-triage"):
