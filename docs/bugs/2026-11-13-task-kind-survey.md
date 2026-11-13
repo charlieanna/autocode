@@ -372,10 +372,35 @@ the changed `pager.sh` and passed with "its suite `sh tests/test_pager.sh` fails
 In the fix for the function that never returns, the Builder's test gave itself a time limit, so the
 bound of section 13 had nothing to stop.
 
-The shell bug fix asked one question, which the harness answered: the Plan Reviewer had asked for a
-different proof of an unchanged criterion (a `guard:` on the test command replaced by an inline
-command), and the person was asked to accept "the new wording" of a criterion whose words were the
-same. Not fixed here.
+The shell bug fix asked one question, which the harness answered (section 15).
+
+## 15. The person is asked to accept "new wording" when only a proof changed (fixed)
+
+In the shell bug fix the plan guarded the existing behavior with ``guard: run `sh tests/test_pager.sh` ``
+and changed that test file. The Plan Reviewer raised a blocking concern: it took the guard to run the
+changed test file on the original code, where it would fail. (It does not: a guard's command runs the
+original code's own files there, and that proof later passed.) The Planner answered by replacing the
+guard with an inline command. A proof the runner checks may not become a plain command, and because a
+blocking concern had asked for the change, the refusal became a question to the person (#1630):
+
+    AC2 approved: "Given pager.sh sourced, when `page_count 10 5` runs, then it prints exactly 2 ..."
+    AC2 proposed: "Given pager.sh sourced, when `page_count 10 5` runs, then it prints exactly 2 ..."
+    AC2 approved proof: "guard: run `sh tests/test_pager.sh`"
+    AC2 proposed proof: "sh -c '. ./pager.sh; [ \"$(page_count 10 5)\" = 2 ]'"
+    Reply 'Accept the new wording' to let the next plan use it, or 'Keep the approved wording'.
+
+The two sentences are the same. What is asked is how AutoCode proves a criterion, which is its own
+machinery (owner decision, 2026-10-29).
+
+Fixed: a revision that leaves a criterion's words and its human review as they were is not the
+person's question. It is refused as before and goes back to the Planner with the hint that names what
+to keep (`autocode_contract_revision._review_question`). A revision the Plan Reviewer asked for that
+changes the words, or hands the criterion to the person to review, still asks. Shown by
+`tests/test_rewording_question.py`; not rerun on real models, since the question depends on the Plan
+Reviewer raising that concern.
+
+Not fixed: the Plan Reviewer's concern itself. The prompt note on command guards does not say which
+files a guard's command runs on the original code.
 
 ## Also seen, not yet run on real models
 

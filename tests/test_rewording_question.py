@@ -67,14 +67,16 @@ def reviewed_draft(*concerns):
 class ReviewBackedChangeTests(unittest.TestCase):
     """A refused change the Plan Reviewer asked for, in a plan nobody approved, is the person's question (#1630)."""
 
-    def downgrade(self, state):
+    def downgrade(self, state, criterion=PROPOSED):
+        """An undeclared revision of AC2: its runner-checked proof becomes a command, and its words ``criterion``."""
         body = state["goal_contract"]["body"]
         body["acceptance_criteria"][0]["verification_method"] = "test: test_ac2_report_total"
         after = copy.deepcopy(body)
         after["acceptance_criteria"][0]["verification_method"] = "Run python3 -m unittest discover"
+        after["acceptance_criteria"][0]["criterion"] = criterion
         return after
 
-    def test_an_undeclared_proof_change_a_blocking_concern_asked_for_asks_the_person(self):
+    def test_an_undeclared_change_of_words_and_proof_a_blocking_concern_asked_for_asks_the_person(self):
         state = reviewed_draft(concern())
         after = self.downgrade(state)
         with self.assertRaises(rewording.ProtectedRewording) as caught:
@@ -84,7 +86,7 @@ class ReviewBackedChangeTests(unittest.TestCase):
                 {
                     "item": "AC2",
                     "approved": APPROVED,
-                    "proposed": APPROVED,
+                    "proposed": PROPOSED,
                     "approved_proof": "test: test_ac2_report_total",
                     "proposed_proof": "Run python3 -m unittest discover",
                     "concern": "C2",
@@ -93,6 +95,29 @@ class ReviewBackedChangeTests(unittest.TestCase):
             caught.exception.rewordings,
         )
         self.assertIn("as the Plan Reviewer asked", str(caught.exception))
+
+    def test_a_change_of_proof_alone_goes_back_to_the_planner_and_never_to_the_person(self):
+        # A shell bug fix (Claude models, 2026-11-13): the Plan Reviewer asked for another proof of AC2, the
+        # Planner replaced its guard with a command, and the person was asked to accept "the new wording" of
+        # a criterion whose approved and proposed words were the same.
+        state = reviewed_draft(concern())
+        after = self.downgrade(state, criterion=APPROVED)
+        with self.assertRaises(ValueError) as caught:
+            revision_guard(state, after, [], "revise_plan")
+        self.assertNotIsInstance(caught.exception, rewording.ProtectedRewording)
+        self.assertIn("drops or changes 'AC2' without a user-backed contract change", str(caught.exception))
+        self.assertIn("a revision cannot replace it with an unmarked command", str(caught.exception))
+        self.assertIn("Keep a test:/guard: name", str(caught.exception))
+
+    def test_a_criterion_handed_to_the_person_to_review_is_still_their_question(self):
+        state = reviewed_draft(concern())
+        after = self.downgrade(state, criterion=APPROVED)
+        after["acceptance_criteria"][0]["human_review"] = True
+        with self.assertRaises(rewording.ProtectedRewording) as caught:
+            revision_guard(state, after, [], "revise_plan")
+        self.assertEqual(
+            (APPROVED, APPROVED), tuple(caught.exception.rewordings[0][k] for k in ("approved", "proposed"))
+        )
 
     def test_a_declared_rewording_that_drops_a_quote_asks_when_a_concern_asked_for_it(self):
         state = reviewed_draft(concern(text="AC2 pins a space count the request never states."))

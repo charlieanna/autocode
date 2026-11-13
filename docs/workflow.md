@@ -381,6 +381,13 @@ contract changes" with the concern that asked for it; the final review judges it
 behaviors, scope exclusions, failure cases and any line that repeats your words still need
 your saved answer or feedback, and so does every line once a plan was approved or edited.
 
+A revision that changes only how a criterion is proven is never your question. When the
+Plan Reviewer asks for another proof and the Planner would replace a proof the runner
+checks (`test:`, `guard:`) with a plain command, the revision is refused and goes back to
+the Planner with what to keep; the criterion's words and who reviews it are as they were,
+so there is nothing for you to accept. You are asked when a revision the Plan Reviewer
+asked for changes a criterion's words or hands it to you to review.
+
 A fresh first-review receipt may also correct an exact failure-case inference that the
 model invented in an unapproved draft. That receipt can compose with independently
 permitted draft criterion wording, baseline observations and engineering proof corrections.
