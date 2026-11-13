@@ -193,3 +193,77 @@ class NamedCasesTests(unittest.TestCase):
         self.assertIn(
             "make suite `make test`", plan_test_suite.unnamed_cases(str(project.root), make, [], body, detect)
         )
+
+
+SCRIPT = {"hello.py": 'print("Hello, world!")\n', "README.md": "# hello\n"}
+SHELL_CHECK = 'test "$(python3 hello.py --shout)" = "HELLO, WORLD!"'
+
+
+def paths(method, *affected, first_task=()):
+    body = named(method)
+    body["milestones"][0]["affected_paths"] = list(affected)
+    if first_task:
+        body["initial_task"] = {"affected_paths": list(first_task)}
+    return body
+
+
+class UntestedCodeTests(unittest.TestCase):
+    """A plan that changes code in a project with no tests, and plans no test, goes back to the Planner.
+
+    A live run asked to add an option to a script (2026-11-13) planned the script alone with shell commands
+    as its criteria. The proof failed twice with "No regression test was added or changed", the Resolver
+    asked the person to allow a test file, and the run finished after 20 stages.
+    """
+
+    refusal = (
+        r"This plan changes code \(hello\.py\) and plans no test, and the project has no tests yet\. Every change "
+        r"to code needs a test that fails on the original code and passes with the change.*name a new test file "
+        r"in the affected_paths of the milestone that changes the code"
+    )
+
+    def state(self, files=SCRIPT, **more):
+        project = Project(files)
+        self.addCleanup(project.close)
+        return {**CheckTests.state(self, project), **more}
+
+    def test_code_alone_in_a_project_with_no_tests_is_refused_when_drafted(self):
+        for body in (paths(SHELL_CHECK, "hello.py"), paths(SHELL_CHECK, "./hello.py", "README.md")):
+            with self.subTest(paths=body["milestones"][0]["affected_paths"]):
+                with self.assertRaisesRegex(ValueError, self.refusal):
+                    lifecycle.validate_body(self.state(), body, ready=True)
+        for kind in ("build", "bugfix"):
+            with self.subTest(kind=kind), self.assertRaisesRegex(ValueError, self.refusal):
+                plan_test_suite.check(self.state(workflow={"kind": kind}), paths(SHELL_CHECK, "hello.py"))
+
+    def test_a_planned_test_file_or_test_directory_is_enough(self):
+        for body in (
+            paths(SHELL_CHECK, "hello.py", "tests/test_hello.py"),
+            paths(SHELL_CHECK, "hello.py", "test_hello.py"),
+            paths(SHELL_CHECK, "hello.py", "tests/"),
+            paths(SHELL_CHECK, "hello.py", first_task=["tests/test_hello.py"]),
+        ):
+            with self.subTest(paths=body["milestones"][0]["affected_paths"]):
+                plan_test_suite.check(self.state(), body)
+
+    def test_a_named_criterion_says_a_test_is_planned(self):
+        lifecycle.validate_body(self.state(), paths("test: test_ac1_shout", "hello.py"), ready=True)
+
+    def test_a_change_to_no_code_owes_no_test(self):
+        site = {"index.html": "<h1>Pager</h1>\n", "styles.css": ".primary { color: #888; }\n"}
+        lifecycle.validate_body(self.state(site), paths("`grep -q 0a66c2 styles.css`", "styles.css"), ready=True)
+        lifecycle.validate_body(self.state(), paths("`grep -q Usage README.md`", "README.md"), ready=True)
+        lifecycle.validate_body(self.state(), paths("`grep -q Usage README.md`"), ready=True)
+
+    def test_a_project_that_has_tests_is_not_judged(self):
+        # Its tests may guard the change, or already hold the failing test (first_suite.existing_repair).
+        tested = {**SCRIPT, "tests/test_hello.py": "import unittest\n"}
+        lifecycle.validate_body(self.state(tested), paths("`python3 -m unittest`", "hello.py"), ready=True)
+        self.assertIsNone(plan_test_suite.untested_code(self.state(tested)["workspace"], paths("x", "hello.py")))
+
+    def test_a_review_a_design_and_the_persons_own_commands_are_not_judged(self):
+        body = paths(SHELL_CHECK, "hello.py")
+        for kind in ("review", "discuss", "design"):
+            with self.subTest(kind=kind):
+                plan_test_suite.check(self.state(workflow={"kind": kind}), body)
+        plan_test_suite.check(self.state(settings={"regression": {"test_command": "python3 hello.py"}}), body)
+        plan_test_suite.check(self.state(), body, origin=native_test_names.USER_EDIT)
