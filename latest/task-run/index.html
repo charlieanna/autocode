@@ -2898,7 +2898,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/400adf5ad751def1d0d97c66791a0bc7bf37eacf/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/fcac3fde7cb1b5ae9b9245f3f6508b06e89aa0d6/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3219,7 +3219,18 @@ uncommitted. A new task then works in the folder itself, whether it was started 
 or with <code>--build-in-worktree</code>, because a task worktree would start from the empty commit
 without any of it. <code>--worktree-branch</code> still names its branch. Once the branch has a
 commit of the person's, tasks get worktrees of their own again.</p>
-<p>When the workspace is a plain, non-empty folder, the core bootstraps a private
+<p>When the workspace is a folder of code that is not a Git repository, the core makes it
+one where it is (<code>git init</code> and an empty first commit, with none of the person's files
+added) and the run works on the files there, starting from what the folder holds
+(owner decision, 2026-11-13). Installed dependency directories (<code>node_modules</code>, <code>.venv</code>,
+<code>venv</code>) are kept out of the new repository through its own <code>.git/info/exclude</code>, never a
+<code>.gitignore</code> among the person's files. The core decides this itself from the folder's
+entries (<code>autocode_folder_adoption</code>) and never asks: the folder holds code, holds no Git
+checkouts of its own, is not the person's home folder or a folder above it, and holds at
+most 2,000 files and 100 MB outside installed dependencies. The launch says so, and so
+does the chat history after the first approved plan (<code>workspace-bootstrap</code>). The status
+view's <code>worktree.kind</code> is <code>folder</code>. <code>conversation start</code> keeps the private project below.</p>
+<p>When the workspace is any other plain, non-empty folder, the core bootstraps a private
 scratch task project in the folder's own store, <code>workspace/.autocode/projects/ID</code>,
 and runs there, so a chat that never builds leaves nothing among the person's
 files. When a build or bug fix completes there, the core delivers its source to a
@@ -4123,7 +4134,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/400adf5ad751def1d0d97c66791a0bc7bf37eacf/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/fcac3fde7cb1b5ae9b9245f3f6508b06e89aa0d6/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -4910,7 +4921,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/400adf5ad751def1d0d97c66791a0bc7bf37eacf/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/fcac3fde7cb1b5ae9b9245f3f6508b06e89aa0d6/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -6240,7 +6251,10 @@ list: <code>folder</code>, <code>branch</code> (the folder's current branch), <c
 <code>branches</code>, the local branches most recently committed first, each with <code>name</code>, <code>start_args</code> and
 <code>unavailable</code> (why it is not offered, with <code>start_args</code> null): a branch checked out in a worktree,
 the folder's own included, or one another chat will plan on. A folder that is not the top of a Git
-checkout with a commit lists only <code>folder</code>, which works there as every chat there does. So does a
+checkout with a commit lists only <code>folder</code>, which works there as every chat there does; outside Git, its
+<code>does</code> says which of the two a chat there gets: the folder itself, made a repository with none of the
+person's files committed, or a private project, with the reason (it holds no code, holds Git checkouts,
+is the home folder, or is too large). So does a
 checkout where nothing is committed yet, whose branch holds only the empty first commit AutoCode
 made: a worktree there would start without anything the folder holds. When that
 folder is outside Git but holds Git checkouts among its children or grandchildren, a chat there works
