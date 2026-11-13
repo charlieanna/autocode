@@ -108,7 +108,7 @@ def selected_tools(fallback, state: RunState, workspace, run_dir):
     settings = state.get("settings") or {}
     if settings.get("replay_recording"):
         return
-    groups = []
+    groups: list[tuple] = []
     for facade, routes, identity in role_transport.groups(settings, fallback, workspace):
         if type(facade) is not KiloProvider:
             continue
