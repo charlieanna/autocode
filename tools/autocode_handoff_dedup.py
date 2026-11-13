@@ -61,7 +61,7 @@ def _claim_references(packet, criteria):
     return changed
 
 
-def _changed_code_references(packet):
+def changed_code_references(packet):
     """Reference changed-line reason text and receipts repeated byte for byte in this packet.
 
     The obligation that first states a gap's reason keeps it; a later record of the same gap_id
@@ -204,7 +204,7 @@ def deduplicate(base):
                     del row["command"]
                     row["command_ref"] = ref
                     changed = True
-    changed_code = _changed_code_references(result)
+    changed_code = changed_code_references(result)
     changed = changed or changed_code
     if changed:
         result["handoff_reference_policy"] = REFERENCE_POLICY
