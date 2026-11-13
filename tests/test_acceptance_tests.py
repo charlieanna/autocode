@@ -942,6 +942,70 @@ class RunnerCollectionTests(unittest.TestCase):
             )
             self.assertEqual("builder", state["next_stage"])
 
+    def test_a_failing_test_that_would_skip_after_the_change_goes_back_to_the_tester(self):
+        # Live run, 2026-11-12 (#3333): told its skipUnless test skipped, the Tester wrote one that called
+        # self.fail while the function was missing and only then skipTest on a host without /proc. It failed
+        # today and was accepted, but after the Builder's change it would skip on that host, so the regression
+        # proof could not pass. A skip above the failing line was reached today and is no reason to refuse.
+        import autocode_acceptance_tests_job as job
+        import autocode_verify as verify
+
+        with tempfile.TemporaryDirectory() as root:
+            workspace, evidence = Path(root) / "workspace", Path(root) / "evidence"
+            workspace.mkdir()
+            evidence.mkdir()
+            (workspace / "procinfo.py").write_text("def pid():\n    return 1\n")
+            head = "import os\nimport unittest\n\nimport procinfo\n\n\nclass ProcTests(unittest.TestCase):\n"
+            unreached = (
+                "    def test_ac1_reads_rss(self):\n"
+                "        if not hasattr(procinfo, 'rss_kib'):\n"
+                "            self.fail('rss_kib is missing')\n"
+                "        if not os.path.exists('/no/such/proc'):\n"
+                "            self.skipTest('this host has no /proc')\n"
+                "        self.assertGreater(procinfo.rss_kib(), 0)\n"
+            )
+            reached = (
+                "    def test_ac1_reads_rss(self):\n"
+                "        if not os.path.exists('/'):\n"
+                "            self.skipTest('no root directory')\n"
+                "        self.assertGreater(procinfo.rss_kib(), 0)\n"
+            )
+            test_file = workspace / "test_procinfo.py"
+            test_file.write_text(head + "    def test_pid(self):\n        self.assertEqual(1, procinfo.pid())\n")
+            git = ["git", "-C", str(workspace), "-c", "user.name=t", "-c", "user.email=t@t"]
+            for args in (("init", "-q"), ("add", "-A"), ("commit", "-qm", "base")):
+                subprocess.run([*git, *args], check=True)
+            state = approved({"AC1": "test: test_ac1_reads_rss"}, task="t")
+            acceptance.route(state)
+            value = {
+                "tests": [{"case_id": "AC1", "test_name": "test_ac1_reads_rss", "file": "test_procinfo.py"}],
+                "cannot_write": [],
+                "already_passing": [],
+            }
+            record = {"output": str(evidence / "tester.json"), "changed_files": ["test_procinfo.py"]}
+
+            def run_tests(files):
+                return verify.scratch_run(workspace, evidence / "acceptance-proof", tests=files)
+
+            test_file.write_text(head + unreached)
+            job.apply(state, dict(value), record, workspace, run_tests=run_tests, evidence_dir=evidence)
+            self.assertEqual(("RUNNING", job.STAGE), (state["status"], state["next_stage"]))
+            [feedback] = job.packet(state)["runner_feedback"]
+            self.assertIn("AC1: test_ac1_reads_rss in test_procinfo.py fails today, but below the line", feedback)
+            self.assertIn("line 12: self.skipTest('this host has no /proc')", feedback)
+            self.assertFalse(acceptance.receipts(state))
+
+            # The same skip again ends the rewrites for the Investigator, as a skipped test does (#3331).
+            with self.assertRaisesRegex(job.TestsNeedRewriting, "the same cases were skipped again") as caught:
+                job.apply(state, dict(value), record, workspace, run_tests=run_tests, evidence_dir=evidence)
+            self.assertEqual(["AC1"], caught.exception.skipped)
+
+            # A skip the test reached today, above the line that failed, did not skip here: it is accepted.
+            test_file.write_text(head + reached)
+            job.apply(state, dict(value), record, workspace, run_tests=run_tests, evidence_dir=evidence)
+            self.assertEqual({"AC1": "fails"}, next(iter(acceptance.receipts(state).values()))["results"])
+            self.assertEqual("builder", state["next_stage"])
+
     def test_only_the_same_skips_again_end_the_runners_rewrites(self):
         # #3261: a round whose skips changed (the Tester fixed one) is still worth a rewrite; a repeat is not.
         import autocode_acceptance_tests_job as job

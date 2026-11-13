@@ -287,6 +287,21 @@ class PartialWorkTests(unittest.TestCase):
                 packet[key], self.git("rev-parse", f"refs/autocode/partial-work/{kind}/{packet[key]}").decode().strip()
             )
 
+    def test_a_person_stop_returns_to_the_builder_with_its_partial_work_even_after_a_validation(self):
+        # #3334: "Resume runs it again" meant the Completion Reviewer, or the Tester when an earlier
+        # validation was retired; a person's stop is not a failure, so the stopped Builder continues.
+        self.admit()
+        self.change_source()
+        self.state["validation"] = {"verdict": "FAIL"}
+        self.record.update(timeout_kind="person", timeout_reason="Stopped by you")
+        recovery = self.timeout()
+        self.assertEqual(("builder", "EXECUTING"), (self.state["next_stage"], self.state["phase"]))
+        self.assertEqual("builder", recovery["next_stage"])
+        self.assertTrue(recovery["partial_work"]["available"], recovery["partial_work"])
+        self.assertIn("The person stopped this request", recovery["instruction"])
+        self.assertIn("repair it rather than restart", recovery["instruction"])
+        self.assertNotIn("validation", self.state)
+
     def test_inline_patch_is_bounded_and_keeps_the_complete_retained_tree(self):
         self.admit()
         (self.root / "app.py").write_text("new content\n" * 10000)

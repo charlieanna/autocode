@@ -201,12 +201,39 @@ def account(state: RunState, record):
     if row is None or record.get("task_id") != cast(dict, state.get("current_task", {})).get("id"):
         return
     seconds = record.get("duration_seconds", 0) or 0
-    row["seconds"] += seconds
     role = record.get("role", "unknown")
     row["seconds_by_role"][role] = row["seconds_by_role"].get(role, 0) + seconds
+    if not building(row):
+        # The budget bounds building the milestone. Planning, plan review and writing the wave's tests
+        # before its first Builder launch are kept apart: on AutoCode's own repository they took
+        # 11,824 s before any Builder ran, and the milestone stopped at its first writer launch.
+        row["before_build_seconds"] = row.get("before_build_seconds", 0) + seconds
+        return
+    row["seconds"] += seconds
     if acceptance_test_work(state, record):
         # Writing a wave's tests first is not an attempt at the milestone (attempted_seconds).
         row["acceptance_test_seconds"] = row.get("acceptance_test_seconds", 0) + seconds
+
+
+WRITER_ROLES = ("builder", "orchestrator")
+
+
+def building(row) -> bool:
+    """Whether the milestone's Builder has launched, so its time counts against the milestone budget.
+
+    A row saved before ``build_started`` existed counts as building once it has a writer's time, so
+    an in-flight run's count is never restarted, and a row that was counted whole keeps counting.
+    """
+    if row.get("build_started"):
+        return True
+    return any(row.get("seconds_by_role", {}).get(role) for role in WRITER_ROLES) or (
+        "before_build_seconds" not in row and bool(row.get("seconds"))
+    )
+
+
+def start_building(row):
+    """Mark the milestone's first writer launch: its time counts against the budget from here on."""
+    row["build_started"] = True
 
 
 def acceptance_test_work(state: RunState, record) -> bool:
@@ -686,13 +713,14 @@ def dispatch_guard(state: RunState, stage, *, current=None, visual_proof=None):
         raise s.Paused(
             "PAUSED_WORKFLOW_CONFLICT", "Milestone checkpoints require Builder → Validator → Plan Reviewer routing"
         )
-    if stage in ("builder", "orchestrator"):
+    if stage in WRITER_ROLES:
         row = progress(state)
         if row is None:
             raise s.Paused(
                 "PAUSED_MILESTONE_TASK", "The Plan Reviewer must assign a bounded milestone task before implementation"
             )
         check_budget(state)
+        start_building(row)
         if replan.pending(row, settings(state)):
             raise s.Paused(
                 "PAUSED_MILESTONE_REPLAN",

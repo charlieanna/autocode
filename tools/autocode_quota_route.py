@@ -53,6 +53,7 @@ except ImportError:
     import autocode_verifier_independence as verifier_independence
 
 PREFIX = "route-"
+INVESTIGATOR = "investigate_stuck"  # autocode_stuck_job.STAGE; that module imports more than this one may
 CATEGORY = "quota"  # a non-inferable question category (autocode_goals); all model stops use it
 QUOTA_STATUS = "PAUSED_BUDGET"
 REFUSAL_STATUS = provider_refusal.STATUS
@@ -307,7 +308,11 @@ def stopped_attempt(state: RunState, *, failure_status) -> dict | None:
             (
                 row
                 for row in reversed(state.get("stages") or [])
-                if isinstance(row, dict) and not row.get("runner_owned") and not row.get("worker_attempt")
+                if isinstance(row, dict)
+                and not row.get("runner_owned")
+                and not row.get("worker_attempt")
+                # The Investigator that looked at this stop (#3349) is not a later attempt of the role.
+                and (row.get("original_stage") or row.get("stage")) != INVESTIGATOR
             ),
             None,
         )

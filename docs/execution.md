@@ -250,8 +250,12 @@ integrated batch, both statements name the member milestones. A task is on the b
 `next_task.milestone_id` is a member, and the batch's own `batch:<digest>` id is never one.
 
 Milestones have a 5,400-second active-time budget by default. This includes writer,
-reviewer and report-repair attempts after the milestone is assigned (or after an
-existing run adopts checkpoints). The budget is checked at stage boundaries and
+reviewer and report-repair attempts from the milestone's first Builder launch (or after an
+existing run adopts checkpoints). Time spent after the milestone is assigned but before its
+first Builder launch, such as plan review or writing a spec-first wave's tests, is recorded
+in `milestone_progress` as `before_build_seconds` and does not count: the budget bounds
+building the milestone, and that work had already taken longer than the budget before any
+Builder ran. A milestone saved by an earlier version that counted everything keeps its count. The budget is checked at stage boundaries and
 prevents further writing; the Tester and Plan Reviewer can still validate finished work. It does not
 replace per-stage timeouts. Use `--max-milestone-seconds N` to change the saved
 budget or `0` to disable this time limit. `--status` includes `milestone_checkpoint`

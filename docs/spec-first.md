@@ -46,7 +46,8 @@ it is:
 
 A report that breaks this is rejected, and the Tester's retry gets the runner's result. When the fault is in
 the tests themselves (a guard that does not pass, a test the runner's command did not run, or one it collected
-and then skipped on this host), the runner sends them back to the Tester itself, at most twice. When those
+and then skipped on this host, or a Python test that fails today above a skip call it never reached, so it would
+skip once the change is made, #3333), the runner sends them back to the Tester itself, at most twice. When those
 rewrites are spent, or the same cases come back skipped after the Tester was told they skip, the attempt is
 rejected and the Investigator looks at it before you are asked anything (#3261).
 

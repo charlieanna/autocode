@@ -302,6 +302,12 @@ def _sum(values):
     return sum(value for value in values if value is not None)
 
 
+ESTIMATE_BASIS = (
+    "estimated is a comparison figure: every input token, cached or not, at flat input rates. "
+    "It is not the run's spend; the spend, at the dated price table, is cost.spent_usd."
+)
+
+
 def summary(state: RunState):
     """Totals for one run. Sums cover the stages that reported; `unknown_stages` counts those that did not."""
     rows = stage_rows(state)
@@ -319,6 +325,8 @@ def summary(state: RunState):
             "reported": round(reported, 6),
             "estimated": round(guessed, 6),
             "complete": unknown == 0 and partial == 0 and not state.get("active_stage"),
+            # Said in the view itself (#3335): read beside `cost`, this looked like a second estimate of the spend.
+            "basis": ESTIMATE_BASIS,
         },
         "unknown_stages": unknown,
         "partial_stages": partial,

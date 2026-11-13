@@ -763,6 +763,12 @@ class JobRecoveryRouteTests(unittest.TestCase):
             with self.subTest(stage=stage):
                 self.assertEqual(expected, records.timeout_recovery_route({}, {"stage": stage, "role": role}))
 
+    def test_a_person_stop_keeps_the_stopped_stage(self):
+        for stage, role in (("builder", "builder"), ("tester", "tester"), ("review_completion", "task_planner")):
+            with self.subTest(stage=stage):
+                record = {"stage": stage, "role": role, "timeout_kind": "person"}
+                self.assertEqual((stage, "EXECUTING"), records.timeout_recovery_route({}, record))
+
     def test_every_job_keeps_its_stage(self):
         for stage in ("check_design", "investigate_stuck", "collect_design", "write_acceptance_tests"):
             with self.subTest(stage=stage):
