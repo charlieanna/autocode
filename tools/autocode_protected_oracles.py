@@ -34,6 +34,7 @@ from pathlib import Path, PurePosixPath
 try:
     from . import autocode_command_receipt as command_receipt
     from . import autocode_package_scope as package_scope
+    from . import autocode_plan_proof_command as plan_command
     from . import autocode_protected_commands as commands
     from . import autocode_protected_paths as paths
     from . import autocode_protected_store as store
@@ -47,6 +48,7 @@ try:
 except ImportError:
     import autocode_command_receipt as command_receipt
     import autocode_package_scope as package_scope
+    import autocode_plan_proof_command as plan_command
     import autocode_protected_commands as commands
     import autocode_protected_paths as paths
     import autocode_protected_store as store
@@ -338,14 +340,18 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
         result["meaning"] = "Original test files unchanged; ordinary independent checks remain required."
         return result
     directory = Path(out) / "protected-tests" / uuid.uuid4().hex
-    if not record["command"]:
+    original = record["command"] or _plan_suite(state, record)
+    if not original:
         result.update(
             verdict="NOT_VERIFIED", error="No original suite command was available; explicit user revision required"
         )
     else:
+        if not record["command"]:
+            # Nothing was typed or detected at launch, before the plan existed (autocode_plan_proof_command).
+            result["plan_command"] = original
         replaced = superseded_tests.approved(state)
-        command = replay_command(record["command"], changed, workspace)
-        if command != record["command"]:
+        command = replay_command(original, changed, workspace)
+        if command != original:
             result["replayed_command"] = command
         policy = {
             "binding_hash": record["binding_hash"],
@@ -408,6 +414,18 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
             result,
         )
     return result
+
+
+def _plan_suite(state: RunState, record):
+    """The approved plan's command that runs only original protected tests, for a binding retained with no
+    command: no runner was typed or detected when the run started, before any plan existed. The command was
+    approved before any Builder ran, and the binding still fixes which original test bytes it runs."""
+    chosen = plan_command.choose(
+        plan_command.approved_commands(state.get("goal_contract")),
+        original_tests=list(record["files"]),
+        changed_tests=[],
+    )
+    return chosen["suite"] if chosen else None
 
 
 def _failed(row):
