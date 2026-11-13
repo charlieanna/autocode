@@ -12,7 +12,7 @@ import { chosenMode, type RunModes } from "./core/modes";
 import { isWorking, RunStarting, waitsForFolder, type StatusView } from "./core/view";
 import { transitionNotice, waitsForPerson } from "./notify";
 import { runTotal, sessionTotal, totalText } from "./core/meter";
-import { applyEngine, engineOf, ENGINES, readSettings, type Engine } from "./settings";
+import { applyEngine, engineOf, ENGINES, readSettings, selectIsolatedController, type Engine } from "./settings";
 import { invoke, tail, STAGES_TIMEOUT_MS } from "./core/cli";
 import { chatRoute, chatSource, fillChatSet, fillSet, readStages, runListCommand, runRoute, type StageView } from "./core/stages";
 import { StageListCache } from "./core/stage-cache";
@@ -1056,6 +1056,18 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     }
     const list = read.list;
     tab.places = list;
+    if (list.controller && !list.controller.ready) {
+      const action = list.controller.action;
+      if (!action) throw new Error(`${list.controller.detail} AutoCode names no supported setup action; update it.`);
+      await this.dialog(tab, "Select an isolated AutoCode CLI in the setup dialog.", async () => {
+        const chosen = await vscode.window.showWarningMessage(list.controller!.detail, { modal: true }, action.label);
+        if (chosen !== action.label) return;
+        if (await selectIsolatedController(list, list.folder)) {
+          void vscode.window.showInformationMessage("AutoCode CLI selected for this workspace. Send your message again to start with its models and placement.");
+        }
+      });
+      return undefined;
+    }
     const { place, args } = chosenPlacement(list, tab.placeChoice);
     if (place.warning) {
       const warning = place.warning;

@@ -34,9 +34,11 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_controller_isolation as isolation
     from . import autocode_folder_checkouts as folder_checkouts
     from . import autocode_util as util
 except ImportError:
+    import autocode_controller_isolation as isolation
     import autocode_folder_checkouts as folder_checkouts
     import autocode_util as util
 
@@ -154,6 +156,7 @@ def _place(kind, path, branch, folder, label, sentence, *, existing_branch=False
 def options(folder) -> dict:
     """The places a new chat in ``folder`` may work, with the chats already working there."""
     folder = Path(folder).resolve()
+    controller = isolation.setup_view(folder, Path(isolation.__file__))
     try:
         root = Path(util.git(folder, "rev-parse", "--show-toplevel", timeout=30)).resolve()
     except (OSError, ValueError):
@@ -179,6 +182,7 @@ def options(folder) -> dict:
             "default": FOLDER,
             "places": [place],
             "active": [],
+            "controller": controller,
         }
     current = branch_of(folder)
     active = _active(folder)
@@ -245,6 +249,7 @@ def options(folder) -> dict:
         "default": NEW_BRANCH,
         "places": [new_branch, branch, in_folder],
         "active": active,
+        "controller": controller,
     }
 
 
@@ -398,6 +403,8 @@ def parser() -> argparse.ArgumentParser:
 
 def text(listing: dict) -> str:
     lines = [f"A new chat in {listing['folder']} can work in:"]
+    if not listing["controller"]["ready"]:
+        lines.append(listing["controller"]["detail"])
     for place in listing["places"]:
         mark = " (default)" if place["id"] == listing["default"] else ""
         lines.append(f"- {place['label']}{mark}: {place['does']}")

@@ -30,6 +30,12 @@ export interface WorktreeList {
   branch: string | null;
   defaultPlace: string;
   places: Place[];
+  /** Absent on older cores. A blocked controller needs setup before any placement can start. */
+  controller?: {
+    ready: boolean;
+    detail: string;
+    action: { label: string; nextCommand: string[] } | null;
+  };
 }
 
 /** What a chat that has chosen nothing yet takes, and what an AutoCode without the list did. */
@@ -95,7 +101,27 @@ export function readWorktrees(raw: string): WorktreeList {
   }
   if (!places.length) throw new Error("AutoCode listed no place a chat can start; update AutoCode.");
   const defaultPlace = places.some((place) => place.id === parsed.default) ? text(parsed.default) : places[0]!.id;
-  return { folder: text(parsed.folder), branch: textOrNull(parsed.branch), defaultPlace, places };
+  let controller: WorktreeList["controller"];
+  if (parsed.controller !== undefined) {
+    if (!parsed.controller || typeof parsed.controller !== "object"
+      || typeof (parsed.controller as Record<string, unknown>).ready !== "boolean"
+      || typeof (parsed.controller as Record<string, unknown>).detail !== "string") {
+      throw new Error("AutoCode printed unreadable controller setup; update AutoCode.");
+    }
+    const row = parsed.controller as Record<string, unknown>;
+    const expected = ["worktrees", "list", "--workspace", text(parsed.folder), "--json"];
+    const offered = Array.isArray(row.actions) ? row.actions.find((item: unknown) => {
+      if (!item || typeof item !== "object") return false;
+      const action = item as Record<string, unknown>;
+      return action.id === "select_cli" && typeof action.label === "string" && action.label.length > 0
+        && JSON.stringify(action.next_command) === JSON.stringify(expected);
+    }) as Record<string, unknown> | undefined : undefined;
+    controller = {
+      ready: row.ready === true, detail: text(row.detail),
+      action: offered ? { label: text(offered.label), nextCommand: expected } : null,
+    };
+  }
+  return { folder: text(parsed.folder), branch: textOrNull(parsed.branch), defaultPlace, places, controller };
 }
 
 /** A person's choice: a place, and for `branch` the branch they picked. */
@@ -103,6 +129,7 @@ export interface PlaceChoice { place: string; branch?: string }
 
 /** The place and its start flags for a choice, or an error saying why it cannot start there now. */
 export function chosenPlacement(list: WorktreeList, choice: PlaceChoice | undefined): { place: Place; args: string[]; label: string } {
+  if (list.controller && !list.controller.ready) throw new Error(list.controller.detail);
   const place = list.places.find((row) => row.id === (choice?.place ?? list.defaultPlace))
     ?? list.places.find((row) => row.id === list.defaultPlace)!;
   if (place.branches.length || place.id === "branch") {

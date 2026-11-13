@@ -8,6 +8,13 @@ and `autocode COMMAND --help` shows that command's options. This reference lists
 controls. Role/model selection is in [Models](models.md); provider setup is in
 [Providers](providers.md). Every command accepts `-h` / `--help`.
 
+For an AutoCode self-build, `autocode worktrees list --workspace FOLDER --json`
+also reports `controller.ready`, `controller.detail` and a named `select_cli` action
+when the executing controller is editable from that folder. This read starts no
+run or model. The action lets a client select and verify an existing isolated CLI,
+without installing anything; new-worktree placement alone cannot make startup safe.
+See [Worktrees for clients](task-run.md#worktrees-for-clients).
+
 ## Entry points
 
 | Command | What it does |

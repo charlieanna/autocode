@@ -46,3 +46,25 @@ test("only an AutoCode without the command counts as having no place list", () =
   assert.equal(lacksPlaceList({ code: 2, stderr: "Input rejected: not a Git checkout" }), false, "the command's own refusal");
   assert.equal(lacksPlaceList({ code: 2, stderr: "usage: autocode worktrees list [-h]\nautocode worktrees list: error: unrecognized arguments: --x" }), false);
 });
+
+test("controller admission blocks every placement and keeps only the exact named setup action", () => {
+  const controller = { ready: false, detail: "Select an isolated CLI before starting.", actions: [
+    { id: "select_cli", label: "Select isolated AutoCode CLI",
+      next_command: ["worktrees", "list", "--workspace", "/p", "--json"] },
+  ] };
+  const list = readWorktrees(JSON.stringify({ ...LIST, controller }));
+  assert.deepEqual(list.controller, {
+    ready: false, detail: controller.detail, action: {
+      label: controller.actions[0]!.label, nextCommand: controller.actions[0]!.next_command,
+    },
+  });
+  for (const place of ["new_branch", "branch", "folder"]) {
+    assert.throws(() => chosenPlacement(list, { place, branch: "feature" }), /Select an isolated CLI/);
+  }
+  const hostile = readWorktrees(JSON.stringify({ ...LIST, controller: {
+    ...controller, actions: [{ ...controller.actions[0], next_command: ["setup", "--install", "opencode"] }],
+  } }));
+  assert.equal(hostile.controller!.action, null, "never run an invented setup command");
+  assert.throws(() => readWorktrees(JSON.stringify({ ...LIST, controller: { ready: "yes" } })), /controller setup/);
+  assert.equal(readWorktrees(JSON.stringify(LIST)).controller, undefined, "older cores still list placements");
+});

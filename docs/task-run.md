@@ -411,18 +411,16 @@ Builder's starting code separately. Legacy runs without a saved identity report
 revision for this saved identity. The existing resume warning names a change
 in the controller revision.
 
-To build AutoCode itself with the controller from that same source checkout, keep
-that checkout fixed and create a separate workspace:
-
-```sh
-git -C /path/to/autocode worktree add --detach /path/to/autocode-self-build HEAD
-/path/to/controller-venv/bin/python /path/to/autocode/tools/autocode.py \
-  "Fix the selected issue" --workspace /path/to/autocode-self-build --in-place
-```
-
-Use the existing provider and model flags for the run. Keep the controller
-checkout and its environment unchanged until the run has stopped. An installed
-controller is also safe when its package directory is outside the task worktree.
+Before a self-build, `autocode worktrees list --workspace FOLDER --json` checks the
+executing controller's resolved package location, including editable installations.
+Choosing **New worktree and branch** does not bypass this check: Requirements still
+starts in the opened folder. Select a CLI installed non-editably outside that folder,
+or sourced from a separate checkout kept fixed until the run stops. In VS Code the
+core's **Select isolated AutoCode CLI** action opens a file picker, verifies the
+candidate, and saves only workspace-local CLI settings. Nothing is installed.
+Send the message again after selection so models and placement are read from that CLI.
+Terminal callers use that installed CLI instead; no worktree or workspace-flag workaround
+is needed. See [Worktrees for clients](#worktrees-for-clients).
 
 Inputs fixed when a run starts, such as `--ui-run`, `--test-root` and `--package`, belong in `start_options`
 instead of `options`: `TaskRun.start(workspace, brief, options=("--engine", "codex"),
@@ -3088,6 +3086,22 @@ start the chat in the one to change (#2066). A client
 shows the places, preselects `default`, passes the chosen place's (or branch's) `start_args`
 unchanged in place of its own placement flag, and, when that place has a `warning`, shows it and
 starts only once the person confirms. It reads the list again just before the start.
+
+The additive `controller` object is pre-start admission, not saved-run state:
+`ready` (boolean), `detail` (display text), and `actions` (empty when ready).
+When the executing controller is inside an AutoCode task checkout, `ready` is false
+for every placement. Its `select_cli` action has `label` and
+`next_command: ["worktrees", "list", "--workspace", FOLDER, "--json"]`.
+This is a local executable-selection capability, not an install or a run command:
+the client lets the person pick an existing AutoCode executable and invokes it with
+that exact read-only array, an empty CLI prefix, the folder as cwd and a bounded timeout.
+It saves the executable and clears the old prefix only after the candidate reports
+the same folder and `controller.ready: true`. VS Code stores these as workspace
+`autocode.cliPath` and `autocode.cliArgs`; global settings remain untouched.
+Cancel or a failed, unsafe, missing or malformed admission read changes no settings
+and starts no run. After selection the person retries the message, so all start
+choices are freshly read from the selected CLI. Missing `controller` on older cores
+retains legacy placement behavior, but cannot verify a selected candidate.
 
 ## Run modes for clients
 
