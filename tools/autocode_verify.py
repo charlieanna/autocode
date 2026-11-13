@@ -53,6 +53,7 @@ from urllib.parse import unquote, urlparse
 
 try:
     from . import autocode_agent_env as agent_env
+    from . import autocode_changed_tests as changed_tests
     from . import autocode_command_receipt as command_receipt
     from . import autocode_command_supervision as command_supervision
     from . import autocode_dependency_dirs as dependency_dirs
@@ -99,6 +100,7 @@ try:
     from .autocode_verification_commands import _mentions_tests as _mentions_tests
 except ImportError:
     import autocode_agent_env as agent_env
+    import autocode_changed_tests as changed_tests
     import autocode_command_receipt as command_receipt
     import autocode_command_supervision as command_supervision
     import autocode_dependency_dirs as dependency_dirs
@@ -799,7 +801,7 @@ def expects_results(framework, command, tree=None):
     """True when this command, run by the runner, must yield per-test results."""
     if framework is not None and framework.name == "junit":
         return bool(command)
-    if reporters.extension(command):
+    if reporters.reports(command):
         return True
     if vitest_tests.command_words(command, tree):
         return True
@@ -830,11 +832,11 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
     Node and Vitest report as a collection error executed and is judged like any
     other failing test, so it is not in ``uncollected``.
     """
-    if read := reporters.reader(xml_path):
+    if read := reporters.reader(xml_path, receipt):
         return read(xml_path)
     if str(xml_path).endswith(".vitest.json"):
         return vitest_tests.results(xml_path, tree)
-    if not framework or not framework.per_test or framework.name in ("node", "vitest"):
+    if not framework or not framework.per_test or framework.name in ("node", "vitest", "cargo"):
         return None
     if framework.name == "go":
         invocation = go_tests.parse(package_scope.split(framework, receipt.get("command") or framework.suite)[1])
@@ -2351,11 +2353,7 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
             ignored_inputs=ignored_inputs,
         ),
         seam_names=lambda receipt: _seam_names(workspace, base, changes, receipt, roles=run.roles),
-        changed_tests=go_tests.changed_filter(
-            workspace, changes, lambda path: _git(workspace, "show", f"{base}:{path}", check=False)
-        )
-        if new_behavior and framework is not None and framework.name == "go"
-        else None,
+        changed_tests=changed_tests.changed_filter(run, _git) if new_behavior else None,
         base_suite_passed=lambda: first_suite.passed_on(base_suite, base),
     )
 

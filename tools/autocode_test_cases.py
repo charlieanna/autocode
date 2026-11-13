@@ -103,6 +103,34 @@ def declared_test_name(text: str) -> str | None:
     return match[1] if match else None
 
 
+# The runners whose tests need no test_ prefix. A Rust test is any function, so a plan names one the
+# project already has as it is: "guard: exact_multiple", or by its path "guard: tests::exact_multiple".
+NATIVE_RUNNERS = frozenset({"cargo"})
+_NATIVE_NAME = re.compile(
+    r"((?:[A-Za-z_][A-Za-z0-9_]*::)*[a-z_][a-z0-9_]*)(?:\s+(?:[—–-]\s+.+|\(.+\)))?",
+    re.DOTALL,
+)
+
+
+def native_test_name(text: str) -> str | None:
+    """A declared identifier that is no test_*/Test* name: one such a runner may know a test by.
+
+    A lone word ("guard: manual") is prose, so the name needs an underscore or a path."""
+    match = _NATIVE_NAME.fullmatch(text)
+    return match[1] if match and ("_" in match[1] or "::" in match[1]) else None
+
+
+def bound(cases: list[dict], framework) -> list[dict]:
+    """``cases`` as ``framework``'s runner binds them: a case's ``native_name`` is its ``test_name`` where
+    tests need no test_ prefix (NATIVE_RUNNERS). Every other runner keeps the criterion-id convention."""
+    if framework not in NATIVE_RUNNERS:
+        return list(cases)
+    return [
+        {**case, "test_name": case["native_name"]} if case.get("native_name") and not case.get("test_name") else case
+        for case in cases
+    ]
+
+
 def contract_cases(state: RunState, *, all_due: bool = False) -> list[dict]:
     """The approved plan's criteria marked ``test:`` or ``guard:`` that are due now (every one with ``all_due``,
     as at final completion), as ``plan_cases``. None in a design-only job: nothing there is proven by a test the
@@ -117,17 +145,20 @@ def contract_cases(state: RunState, *, all_due: bool = False) -> list[dict]:
 
 def plan_cases(body) -> list[dict]:
     """A plan body's criteria marked ``test:`` or ``guard:``, as cases: id, text, the test it names when that
-    is a test name, and kind "preserve" for a guard."""
+    is a test name (else a ``native_name``, see ``bound``), and kind "preserve" for a guard."""
     cases = []
     for row in (body.get("acceptance_criteria") if isinstance(body, dict) else None) or []:
         found = mark(row.get("verification_method")) if isinstance(row, dict) else None
         if found and row.get("id"):
-            test_name = declared_test_name(str(row["verification_method"]).strip()[len(found) :].strip())
+            declared = str(row["verification_method"]).strip()[len(found) :].strip()
+            test_name = declared_test_name(declared)
+            native = None if test_name else native_test_name(declared)
             cases.append(
                 {
                     "id": row["id"],
                     "text": row.get("criterion", ""),
                     **({"test_name": test_name} if test_name else {}),
+                    **({"native_name": native} if native else {}),
                     **({"kind": "preserve"} if found == GUARD_MARK else {}),
                 }
             )
@@ -294,8 +325,17 @@ def _go_words(name: str) -> list[str]:
     return [part for word in _words(name) for part in re.findall(r"[a-z]+|[0-9]+", word)]
 
 
+# FILE.rs::module::name, or a documentation test's "Doc-tests CRATE::FILE - item (line N)"
+# (autocode_cargo_tests): a Rust test need not be named test_*, while its tests/ directory is.
+_RUST_ID = re.compile(
+    r"^(?:[^:]*\.rs::(?:.*::)?([A-Za-z_][A-Za-z0-9_]*)|Doc-tests \S+::\S+ - (?:\S*::)?([A-Za-z_][A-Za-z0-9_]*) \(line \d+\).*)$"
+)
+
+
 def _test_function(test_id: str) -> str:
     """The test's own name inside a runner's id (module.Class.test_x, path::Class::test_x[param], ...)."""
+    if found := _RUST_ID.match(test_id):
+        return found.group(1) or found.group(2)
     names = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", re.sub(r"\[.*\]$", "", test_id))
     tests = [name for name in names if name.lower().startswith("test")]
     return tests[-1] if tests else (names[-1] if names else "")
@@ -315,7 +355,7 @@ def named_in(test_id: str, text: str) -> bool:
 def match_cases(cases: list[dict], test_ids: list[str], *, framework=None) -> dict[str, list[str]]:
     """Match an approved exact test name, or a diagnosis case's id-based test name."""
     matched = {}
-    for case in cases:
+    for case in bound(cases, framework):
         if case.get("test_name"):
             matched[case["id"]] = [
                 test
@@ -323,6 +363,7 @@ def match_cases(cases: list[dict], test_ids: list[str], *, framework=None) -> di
                 if (
                     _test_function(test) == case["test_name"]
                     or test.rsplit("::", 1)[-1] == case["test_name"]
+                    or (framework in NATIVE_RUNNERS and test.endswith("::" + case["test_name"]))
                     or (
                         framework == "go"
                         and case["test_name"].startswith("test_")

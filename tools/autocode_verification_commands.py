@@ -4,12 +4,14 @@ import shlex
 from pathlib import PurePosixPath
 
 try:
+    from . import autocode_cargo_tests as cargo_tests
     from . import autocode_go_tests as go_tests
     from . import autocode_junit_tests as junit_tests
     from . import autocode_node_tests as node_tests
     from . import autocode_python_tests as python_tests
     from .autocode_test_framework import Framework
 except ImportError:
+    import autocode_cargo_tests as cargo_tests
     import autocode_go_tests as go_tests
     import autocode_junit_tests as junit_tests
     import autocode_node_tests as node_tests
@@ -86,6 +88,8 @@ def command_framework(command, *, test_report=None):
     invocation = go_tests.parse(command)
     if invocation and not invocation.compile_only:
         return Framework("go", command, invocation=invocation)
+    if cargo_tests.command_words(command):
+        return Framework("cargo", command)
     return None
 
 
@@ -109,8 +113,8 @@ def cannot_run(framework, test_paths) -> bool:
     """True when ``framework`` chooses test files by kind and runs none of ``test_paths``.
 
     Its whole suite then never runs them, so it passing on the original code shows nothing about them.
-    A runner that cannot be targeted (``make test``, ``cargo test``, an unrecognised command) may hold
-    any test, so it is never said to exclude one.
+    A runner that cannot be targeted (``make test``, an unrecognised command) or that always runs every
+    test target (``cargo test``) may hold any test, so it is never said to exclude one.
     """
     paths = list(test_paths)
     return bool(paths) and framework is not None and framework.name in TARGETING and not framework.targeted(paths)
