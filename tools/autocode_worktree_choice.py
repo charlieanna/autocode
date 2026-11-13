@@ -35,11 +35,13 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_controller_isolation as isolation
+    from . import autocode_folder_adoption as folder_adoption
     from . import autocode_folder_checkouts as folder_checkouts
     from . import autocode_util as util
     from . import autocode_workspaces as workspaces
 except ImportError:
     import autocode_controller_isolation as isolation
+    import autocode_folder_adoption as folder_adoption
     import autocode_folder_checkouts as folder_checkouts
     import autocode_util as util
     import autocode_workspaces as workspaces
@@ -119,7 +121,8 @@ def where(state: RunState, workspace=None) -> dict | None:
             existing_branch=bool(target),
             moves_to_branch=target,
         )
-    if state.get("workspace_bootstrap"):
+    made = state.get("workspace_bootstrap")
+    if made and not (isinstance(made, dict) and made.get("kept_files")):  # kept_files: the person's own folder
         return _place(
             "project",
             path,
@@ -177,6 +180,8 @@ def options(folder) -> dict:
             "does": (
                 "Nothing in this folder is committed yet, so the chat works here."
                 if uncommitted
+                else _outside_git(folder)
+                if root is None
                 else "This folder is not the top of a Git checkout with a commit, so the chat works here."
             ),
             "start_args": [WORKTREE_FLAG],
@@ -258,6 +263,22 @@ def options(folder) -> dict:
         "active": active,
         "controller": controller,
     }
+
+
+def _outside_git(folder: Path) -> str:
+    """What a chat does in a folder outside Git (autocode_workspaces.bootstrap, autocode_folder_adoption)."""
+    why = folder_adoption.reason(folder)
+    if why == folder_adoption.EMPTY:
+        return "This folder is not the top of a Git checkout with a commit, so the chat works here."
+    if why == folder_adoption.PROJECT:
+        return (
+            "This folder is not a Git repository. AutoCode makes it one, commits none of your files, and the "
+            "chat works on the files here."
+        )
+    return (
+        f"This folder is not a Git repository and {folder_adoption.BECAUSE[why]}, so the chat builds in a "
+        "private project of its own and puts a finished build in a new folder here."
+    )
 
 
 def _parent_folder_warning(folder: Path) -> str | None:

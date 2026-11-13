@@ -63,6 +63,7 @@ from pathlib import Path
 try:
     from . import autocode_capability_startup as capability_startup
     from . import autocode_connected_engine as connected_engine
+    from . import autocode_folder_adoption as folder_adoption
     from . import autocode_install_drift
     from . import autocode_session_boundary as session_boundary
     from . import autocode_storage_budget as storage_budget
@@ -71,6 +72,7 @@ try:
 except ImportError:  # direct-script mode has no package parent
     import autocode_capability_startup as capability_startup
     import autocode_connected_engine as connected_engine
+    import autocode_folder_adoption as folder_adoption
     import autocode_install_drift
     import autocode_session_boundary as session_boundary
     import autocode_storage_budget as storage_budget
@@ -473,6 +475,14 @@ def workspace_check(workspace: Path, runner=run) -> list[Check]:
     if not workspace.is_dir():
         return [Check("workspace", MISSING, f"{workspace} is not a directory", "pass --workspace PATH")]
     top = runner(["git", "rev-parse", "--show-toplevel"], cwd=workspace)
+    if top.returncode != 0 and not (workspace / ".git").exists():
+        # Nothing for the person to do: a task there sets the folder up itself (workspaces.bootstrap).
+        why = folder_adoption.reason(workspace)
+        does = {
+            folder_adoption.EMPTY: "a task makes it one and works there",
+            folder_adoption.PROJECT: "a task makes it one, commits none of your files and works on the files there",
+        }.get(why) or f"it {folder_adoption.BECAUSE[why]}, so a task builds in a private project of its own"
+        return [Check("workspace", OK, f"{workspace} is not a Git repository; {does}")]
     if top.returncode != 0:
         return [
             Check(

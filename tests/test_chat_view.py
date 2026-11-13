@@ -1063,6 +1063,14 @@ class ChatViewTests(unittest.TestCase):
         self.assertEqual(
             "/tmp/empty was not a Git repository, so I made it one; what I build is written there.", rows[-1]["text"]
         )
+        # A folder of the person's code is told its files were not committed, and that the work is on them.
+        state["workspace_bootstrap"]["kept_files"] = True
+        self.assertEqual(
+            "/tmp/empty was not a Git repository, so I made it one and committed none of your files; "
+            "I work on the files there.",
+            self.project(state, "continue")["messages"][-1]["text"],
+        )
+        del state["workspace_bootstrap"]["kept_files"]
         # A repository that existed with no commit is not told it was made one.
         state["workspace_bootstrap"]["first_commit"] = True
         self.assertEqual(

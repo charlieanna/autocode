@@ -355,7 +355,19 @@ or with `--build-in-worktree`, because a task worktree would start from the empt
 without any of it. `--worktree-branch` still names its branch. Once the branch has a
 commit of the person's, tasks get worktrees of their own again.
 
-When the workspace is a plain, non-empty folder, the core bootstraps a private
+When the workspace is a folder of code that is not a Git repository, the core makes it
+one where it is (`git init` and an empty first commit, with none of the person's files
+added) and the run works on the files there, starting from what the folder holds
+(owner decision, 2026-11-13). Installed dependency directories (`node_modules`, `.venv`,
+`venv`) are kept out of the new repository through its own `.git/info/exclude`, never a
+`.gitignore` among the person's files. The core decides this itself from the folder's
+entries (`autocode_folder_adoption`) and never asks: the folder holds code, holds no Git
+checkouts of its own, is not the person's home folder or a folder above it, and holds at
+most 2,000 files and 100 MB outside installed dependencies. The launch says so, and so
+does the chat history after the first approved plan (`workspace-bootstrap`). The status
+view's `worktree.kind` is `folder`. `conversation start` keeps the private project below.
+
+When the workspace is any other plain, non-empty folder, the core bootstraps a private
 scratch task project in the folder's own store, `workspace/.autocode/projects/ID`,
 and runs there, so a chat that never builds leaves nothing among the person's
 files. When a build or bug fix completes there, the core delivers its source to a
@@ -3100,7 +3112,10 @@ list: `folder`, `branch` (the folder's current branch), `default` (a place id), 
 `branches`, the local branches most recently committed first, each with `name`, `start_args` and
 `unavailable` (why it is not offered, with `start_args` null): a branch checked out in a worktree,
 the folder's own included, or one another chat will plan on. A folder that is not the top of a Git
-checkout with a commit lists only `folder`, which works there as every chat there does. So does a
+checkout with a commit lists only `folder`, which works there as every chat there does; outside Git, its
+`does` says which of the two a chat there gets: the folder itself, made a repository with none of the
+person's files committed, or a private project, with the reason (it holds no code, holds Git checkouts,
+is the home folder, or is too large). So does a
 checkout where nothing is committed yet, whose branch holds only the empty first commit AutoCode
 made: a worktree there would start without anything the folder holds. When that
 folder is outside Git but holds Git checkouts among its children or grandchildren, a chat there works

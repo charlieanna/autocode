@@ -357,19 +357,27 @@ def resolve(runner, args, parser):
                 package_scope.require(workspace, args.package, committed=not (args.in_place or read_only))
             except ValueError as error:
                 parser.error(str(error))
-        created = fresh = first = False
+        created = fresh = first = kept = False
         selected = workspace
         if not (workspace / ".git").exists():
             if args.dry_run or args.status or args.explain:
                 parser.error(f"workspace is not a Git repository: {workspace}")
             try:
-                workspace = task_workspaces.bootstrap(workspace)
+                workspace = task_workspaces.bootstrap(workspace, in_place=True)
             except ValueError as error:
                 parser.error(str(error))
-            # A new task project is already private to this task. Avoid a
-            # second hidden worktree so users can find the generated files.
-            args.in_place = created = True
-            print(f"Created task project: {workspace}", flush=True)
+            # A folder of the person's code is worked on where it is, starting from the files there
+            # (autocode_folder_adoption); any other is a new task project, already private to this
+            # task. Neither gets a second hidden worktree, so users can find the generated files.
+            kept = workspace == selected and bool(task_workspaces.own_files(workspace))
+            args.in_place, args.build_in_worktree, created = True, args.build_in_worktree and not kept, not kept
+            print(
+                f"{workspace} was not a Git repository, so AutoCode made it one; your files were not added to "
+                "it. The task works on the files there."
+                if kept
+                else f"Created task project: {workspace}",
+                flush=True,
+            )
         elif not read_only:
             try:
                 first = task_workspaces.first_commit(workspace)
@@ -455,13 +463,15 @@ def resolve(runner, args, parser):
         except ImportError:
             import autocode_related_profile as related_profile
         related_profile.install(state, args)
-        if created:
+        if created or kept:
             # The selected folder held no repository, so the work happens in a project AutoCode
-            # created. A launch line on stdout never reaches a chat client (#1908).
+            # created, or in the folder itself, made a repository. A launch line on stdout never
+            # reaches a chat client (#1908).
             state["workspace_bootstrap"] = {
                 "selected": str(selected),
                 "project": str(workspace),
                 **({"first_commit": True} if first else {}),
+                **({"kept_files": True} if kept else {}),
             }
         elif getattr(args, "build_in_worktree", False) and not (args.dry_run or args.status or args.explain):
             try:  # Requirements here; planned and built in its own worktree, on --worktree-branch when named
