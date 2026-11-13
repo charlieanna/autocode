@@ -6188,6 +6188,27 @@ test('the run header lists every stage the run launched in one aligned table, wi
   assert.deepEqual([...ui.document.querySelectorAll('#pipeline tfoot td.num')].map((cell) => cell.textContent), ['', '651k', '$1.21']);
 });
 
+test('a long stage name gives its run badge room in the sidebar', async (t) => {
+  const base = meteredView();
+  const attempt = { ...base.usage.accounting.attempts[0], stage: 'review_completion', job: 'Completion Reviewer' };
+  const ui = await openChat(t, meteredView({ usage: { accounting: { ...base.usage.accounting, attempts: [attempt, attempt] } } }));
+  const row = ui.document.querySelector('#pipeline tbody tr');
+  const line = row.querySelector('.name-line');
+  assert.equal(line.querySelector('.stage-name').textContent, 'Completion Reviewer');
+  assert.equal(line.querySelector('.runs').textContent, '×2');
+  assert.equal(line.querySelector('.runs').title, 'ran 2 times');
+  assert.equal(row.querySelector('.sub').textContent, 'claude-sonnet-5-5 medium');
+  assert.deepEqual([...row.querySelectorAll('td.num')].map((cell) => cell.textContent), ['1m00s', '2.4k', '']);
+
+  const rules = [...ui.document.styleSheets].flatMap((sheet) => [...sheet.cssRules]);
+  const style = (selector) => rules.find((rule) => rule.selectorText === selector)?.style;
+  assert.equal(style('#pipeline .name-line')?.getPropertyValue('display'), 'flex');
+  assert.equal(style('#pipeline .stage-name')?.getPropertyValue('min-width'), '0');
+  assert.equal(style('#pipeline .stage-name')?.getPropertyValue('overflow'), 'hidden');
+  assert.equal(style('#pipeline .stage-name')?.getPropertyValue('text-overflow'), 'ellipsis');
+  assert.equal(style('#pipeline .runs')?.getPropertyValue('flex'), 'none');
+});
+
 test('a report repair shows on its stage row apart from the stage\'s own runs', async (t) => {
   // Live, 2026-11-12: the Tester's two runs and two report repairs read "Tester ×4" in the table.
   const base = meteredView();
