@@ -496,7 +496,9 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.
   already holds, and base tests named after a changed file, such as
   `test_calc.py` for `calc.py`), and records the decision, the timed-out command and
   the reason as the proof's `suite_fallback`, a note and a review reason. A later
-  proof of the same run goes straight to those tests. An explicit
+  proof of the same run goes straight to those tests while the original code, the
+  whole suite's command and its limit are unchanged, even when the test environment
+  changed or cannot be bound for reuse (an editable install). An explicit
   `--test-command` is never replaced. The new or changed tests
   must fail on the original code and pass on the current code, and every test
   that passed on base must still pass (not fail, be skipped or disappear). A
