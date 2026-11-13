@@ -807,8 +807,11 @@ at `medium` reasoned for 64,003 tokens and wrote nothing). The model is not at f
 is, so the runner sets the attempt aside and runs the stage again on the same model at the highest
 level the model offers below the one it ran at. It records the move in the run's evidence and as the
 stage's `effort_choice`, the live log says so, and the stage keeps that level on that model for the
-rest of the run. Each level is lowered once, so a stage that runs out at the model's lowest level, a
-level typed as a flag, a long report and an attempt that changed source still ask as above.
+rest of the run. Each level is lowered once. When the stage runs out that way again at the model's
+lowest level (a live Tester on MiMo v2.6 Pro did at `medium` and then at `low`), the runner sets the
+attempt aside and the Investigator looks at it before you are asked (#3349); it may run the stage once
+more with its guidance. Only after it has looked does the model question above stand. A level typed as
+a flag, a long report and an attempt that changed source still ask as above.
 
 ## A parallel Builder stopped on its model
 
