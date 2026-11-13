@@ -1914,7 +1914,7 @@ resulting finding's `id`, `milestone_id` and `criteria`, `contract_token`,
 (see [Execution](execution.md#open-findings)).
 
 `usage` is the run's tokens and cost so far: `stages` (finished), `active_stage` (the stage
-running now, or null), `tokens`, `cost_usd` (`reported`, `estimated`, `complete`), `unknown_stages`,
+running now, or null), `tokens`, `cost_usd` (`reported`, `estimated`, `complete`, and `basis`, which says in the view that `estimated` is a comparison figure, not the spend; #3335), `unknown_stages`,
 `by_role` (by route) and `by_job` (by the job on screen; see
 [Cost reporting](cost-reporting.md#every-task-continuously)). Unknown cost is
 not zero: `complete` is false while a stage has none or is running.
