@@ -95,6 +95,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **VS Code Requirements interviews use the chat composer without a competing answer card** (#3378): open-ended Requirements clarifications and greetings that hold the chat open are answered directly in the composer (`--feedback`) without showing a second answer card (`--answer`) or dropping spoken `assistant_reply` context, while finite choices keep the decision card without repeating backticked question text. Clarifying Requirements prompts also keep `required_behaviors=[]` and `acceptance_tests=[]` while gathering intent.
+
 - **Verification timeouts stop repeating unchanged checks** (#3264, #3400): the fallback suite now includes existing Python tests that import changed product modules, using the original source graph. A detected whole or focused baseline that timed out is not rerun with the same base, command and limit; missing evidence stays unverified. Two unchanged Tester or completion-review timeouts reach the Investigator before another identical review, while keeping attempts, usage and model choices.
 - **Automatic recovery no longer tells you to resume** (#3351): when AutoCode sets a stopped attempt aside before retrying it or asking the Investigator, the progress log says that partial work was retained for automatic recovery. Explicit abandonment still reports the pause and its resume action; the intermediate recovery checkpoint remains safe to resume after a crash.
 

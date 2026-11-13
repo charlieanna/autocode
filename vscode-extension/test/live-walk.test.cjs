@@ -1360,3 +1360,219 @@ test('walk: two windows on one workspace keep their own drafts and serialize the
     .split('\n').filter((line) => line.includes('autocode/checkpoint-'));
   assert.equal(branches.length, 1, 'one candidate branch, never two: ' + branches.join(' | '));
 });
+
+test('walk: a spec-first Requirements interview answers open questions in the composer and keeps spoken context', { skip }, async (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'walk-req-')));
+  const xdg = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'walk-req-xdg-')));
+  t.after(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(xdg, { recursive: true, force: true });
+  });
+  const git = (...args) => execFileSync('git', ['-C', root, ...args], { stdio: 'pipe' });
+  git('init', '-q');
+  git('config', 'user.email', 'walk@test');
+  git('config', 'user.name', 'Walk');
+  fs.writeFileSync(path.join(root, 'greet.py'), "print('hi')\n");
+  git('add', 'greet.py');
+  git('commit', '-qm', 'seed');
+  const providers = path.join(xdg, 'autocode', 'providers');
+  fs.mkdirSync(providers, { recursive: true });
+  const providerScript = path.join(xdg, 'req_provider.py');
+  fs.writeFileSync(providerScript, String.raw`#!/usr/bin/env python3
+import json, sys
+from pathlib import Path
+
+if sys.argv[1:] == ["login", "status"]:
+    print("Logged in (offline fixture)")
+    raise SystemExit(0)
+
+prompt = sys.stdin.read()
+data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+report_path = Path(sys.argv[sys.argv.index("-o") + 1])
+feedback = [row for row in (data.get("brief_feedback") or []) if isinstance(row, dict) and row.get("text")]
+base_extra = {
+    "project_conventions": [],
+    "ignored_requirements": [],
+    "machine_resolutions": [],
+    "access_blockers": [],
+    "task_kind": "build",
+    "workspace_scope": {"spans_repositories": False, "external_parts": []},
+}
+
+if len(feedback) == 0:
+    # Real glm-5.3 failure mode: undrafted clarification with empty behaviors and omitted acceptance_tests.
+    out = {
+        **base_extra,
+        "job": "none",
+        "design_document": "",
+        "clarity": "vague",
+        "summary": "The user wants to discuss product ideas.",
+        "assistant_reply": "I'd love to explore ideas with you. What kind of workflow or problem are you hoping to improve?",
+        "intended_outcome": "",
+        "requirements": [],
+        "required_behaviors": [],
+        "constraints": [],
+        "source_refs": [],
+        "proposed_assumptions": [],
+        "open_questions": [{
+            "id": "Q1",
+            "question": "What kind of workflow or problem are you hoping to improve?",
+            "why": "Establish the user's goal before drafting requirements.",
+            "options": [],
+            "proposed_default": "",
+            "kind": "decision",
+            "category": "requested_outcome",
+            "delegable": False,
+        }],
+        "ignored_statements": [],
+        "conflicts": [],
+        "proposed_reframes": [],
+    }
+elif len(feedback) == 1:
+    out = {
+        **base_extra,
+        "job": "build",
+        "design_document": "",
+        "clarity": "vague",
+        "summary": "Clarifying what the scratchpad idea captures.",
+        "assistant_reply": "A lightweight scratchpad sounds useful. What should it save when you jot an idea down?",
+        "intended_outcome": "Build a lightweight idea scratchpad",
+        "requirements": [],
+        "required_behaviors": [],
+        "acceptance_tests": [],
+        "constraints": [],
+        "source_refs": [],
+        "proposed_assumptions": [],
+        "open_questions": [{
+            "id": "Q2",
+            "question": "What should it save when you jot an idea down?",
+            "why": "Clarify what content each note stores.",
+            "options": [],
+            "proposed_default": "",
+            "kind": "decision",
+            "category": "requested_outcome",
+            "delegable": False,
+        }],
+        "ignored_statements": [],
+        "conflicts": [],
+        "proposed_reframes": [],
+    }
+else:
+    latest = feedback[-1]["text"]
+    out = {
+        **base_extra,
+        "job": "build",
+        "design_document": "",
+        "clarity": "clear",
+        "summary": "Build a scratchpad CLI that saves plain markdown notes.",
+        "assistant_reply": "Got it, you want a simple scratchpad CLI that appends plain markdown notes.",
+        "intended_outcome": "Build a scratchpad CLI that appends plain markdown notes",
+        "requirements": [{"id": "R1", "text": latest, "source_quote": latest}],
+        "required_behaviors": ["Append each captured note as a markdown entry"],
+        "acceptance_tests": ["Saving one note appends its plain markdown text to the notes file"],
+        "constraints": [],
+        "source_refs": ["greet.py:1"],
+        "proposed_assumptions": [],
+        "open_questions": [],
+        "ignored_statements": [],
+        "conflicts": [],
+        "proposed_reframes": [],
+    }
+
+report_path.write_text(json.dumps(out))
+`);
+  fs.chmodSync(providerScript, 0o755);
+  const toml = ['name = "fake"', 'output = "report_file"',
+    `command = ${JSON.stringify([CLI, providerScript, '--output-schema', '{schema}', '-o', '{report}', '--model', '{model}', '-'])}`,
+    '', '[roles]'];
+  for (const role of ['task_planner', 'planner', 'plan_reviewer', 'builder', 'tester', 'completion']) {
+    toml.push(`${role} = { model = "fake/${role}", effort = "medium" }`);
+  }
+  fs.writeFileSync(path.join(providers, 'fake.toml'), toml.join('\n') + '\n');
+
+  const prevXdg = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = xdg;
+  t.after(() => {
+    if (prevXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = prevXdg;
+  });
+
+  host.config.set('cliPath', CLI);
+  host.config.set('cliArgs', [SCRIPT]);
+  host.config.set('provider', 'fake');
+  host.config.set('confirmPersonOnly', false);
+  host.config.set('notify', false);
+  host.config.set('pollSeconds', 1);
+
+  const controller = new RunController(host.log);
+  let receive;
+  const webview = {
+    html: '', options: {},
+    onDidReceiveMessage: (callback) => { receive = callback; },
+    postMessage: async (data) => { webview.deliver?.(data); return true; },
+  };
+  const shell = { visible: true, webview, onDidChangeVisibility: () => {}, onDidDispose() {} };
+  const chat = new ChatView(controller, { get: () => undefined, update: async () => {} },
+    { pickWorkspace: async () => root, confirmStart: async () => true, changed() {}, selected() {} });
+  t.after(() => chat.dispose());
+  chat.resolveWebviewView(shell);
+  const dom = new JSDOM(webview.html, { runScripts: 'outside-only' });
+  t.after(() => dom.window.close());
+  let saved = {};
+  dom.window.acquireVsCodeApi = () => ({
+    postMessage: (message) => receive(message),
+    getState: () => saved,
+    setState: (value) => { saved = value; },
+  });
+  webview.deliver = (data) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
+  dom.window.eval(dom.window.document.querySelector('script').textContent);
+  await flush();
+
+  const submit = (value) => {
+    const field = dom.window.document.querySelector('#message');
+    field.value = value;
+    field.dispatchEvent(new dom.window.Event('input'));
+    dom.window.document.querySelector('#composer').dispatchEvent(new dom.window.Event('submit', { cancelable: true }));
+  };
+  const messagesText = () => dom.window.document.querySelector('#messages').textContent;
+  const hint = () => dom.window.document.querySelector('#send-hint').textContent;
+  const diag = () => `error=${dom.window.document.querySelector('#chat-error').textContent} | messages=${messagesText()} | app=${dom.window.document.querySelector('#app').textContent}`;
+
+  assert.ok(
+    await waitFor(() => dom.window.document.querySelector('#composer') && !dom.window.document.querySelector('#message').disabled, 15000),
+    `composer ready: ${diag()}`,
+  );
+
+  submit("let's have a discussion around ideas");
+  assert.ok(
+    await waitFor(() => messagesText().includes('What kind of workflow or problem are you hoping to improve?') && hint() === 'Send reply and continue', 30000),
+    `turn 1 question in #messages: ${diag()}`,
+  );
+  assert.equal(dom.window.document.querySelector('#chat-error').textContent, '');
+  assert.equal(dom.window.document.querySelector('#app .decision-card'), null, 'no duplicate decision card beside composer');
+  assert.equal(dom.window.document.querySelector('[data-question]'), null, 'no competing question input in #app');
+  assert.equal(hint(), 'Send reply and continue');
+
+  submit('A lightweight idea scratchpad while chatting');
+  assert.ok(
+    await waitFor(() => messagesText().includes('What should it save when you jot an idea down?') && hint() === 'Send reply and continue', 30000),
+    `turn 2 question in #messages: ${diag()}`,
+  );
+  assert.ok(messagesText().includes("I'd love to explore ideas with you. What kind of workflow or problem are you hoping to improve?"),
+    'turn 1 full assistant_reply stays in chat transcript after feedback');
+  assert.equal(dom.window.document.querySelector('#app .decision-card'), null);
+  assert.equal(dom.window.document.querySelector('[data-question]'), null);
+
+  submit('Save plain markdown notes with no flags');
+  assert.ok(
+    await waitFor(() => {
+      const btn = dom.window.document.querySelector('#take-action');
+      return btn && !btn.disabled && btn.textContent.includes('Approve understanding');
+    }, 30000),
+    `turn 3 approve understanding button: ${diag()}`,
+  );
+  assert.ok(messagesText().includes('A lightweight scratchpad sounds useful. What should it save when you jot an idea down?'),
+    'turn 2 full assistant_reply stays in chat transcript');
+  assert.equal(messagesText().split('Build a scratchpad CLI that appends plain markdown notes').length - 1, 1);
+  assert.equal(dom.window.document.querySelector('#app pre.understanding'), null, 'understanding is not duplicated in card');
+});
