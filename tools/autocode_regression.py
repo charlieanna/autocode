@@ -415,11 +415,11 @@ def proof_dependencies(state: RunState, workspace):
 
 
 def _settled_key(binding) -> str:
-    """The key of a whole suite's settled timeout: the command, the original code and the time limit.
+    """The key of a detected baseline's timeout: the command, the original code and the time limit.
 
     The runtime identity is left out on purpose. A settled timeout is never completed evidence; it
-    decides only that the focused suite runs in the whole suite's place, and that suite still runs
-    fresh under its own binding. Keyed by the runtime too, a timeout was never settled where the runtime
+    decides only not to repeat this original-code command. A different focused command still runs
+    under its own binding. Keyed by the runtime too, a timeout was never settled where the runtime
     cannot be bound completely (an editable install), and was missed whenever a shared environment changed
     between proofs, so every proof of the run spent the whole suite's time limit again (#3158).
     """
@@ -441,9 +441,10 @@ def _baseline(
 ):
     """The suite's result on the original code, reused while its binding holds.
 
-    A timed-out result is not reused, so a later proof tries the suite again, except with
-    ``settled_timeout``: the caller then has a focused suite to fall back to (autocode_focused_suite),
-    and the same suite timing out again under the same binding would only spend the time once more.
+    With ``settled_timeout``, a detected suite's timeout is retained as negative evidence. The
+    caller can fall back to a focused suite, or remain UNVERIFIED when that also timed out or no
+    fallback exists. It never authorizes candidate checks or completion; repeating the same
+    original-code check under the same command and limit would only spend the time once more.
     """
     cached = state.get("regression_baseline") or {}
     patch = str(base_patch) if base_patch else None
@@ -478,7 +479,7 @@ def _baseline(
         try:
             result = util.read(settled["path"])
             # A timeout is never completed evidence (command_receipt.completed), so it cannot pass
-            # schedule.intact; its pinned record decides only that the fallback runs instead.
+            # schedule.intact; its pinned record decides only not to repeat this original-code command.
             if util.file_hash(settled["path"]) == settled.get("sha256") and focused_suite.timed_out(result):
                 return result
         except (OSError, ValueError, TypeError, KeyError):
@@ -929,7 +930,7 @@ def _proving(
         # A detected whole suite that cannot finish on the original code falls back to the tests nearest
         # the change, chosen here and recorded, never asked of a person; an explicit command is kept.
         focus = (
-            focused_suite.choose(framework, role_inventory.entries(workspace, base), changes, roles)
+            focused_suite.choose_from_git(framework, workspace, base, changes, roles)
             if suite and not options.get("test_command")
             else None
         )
@@ -945,7 +946,7 @@ def _proving(
                 base_patch,
                 progress,
                 inputs,
-                settled_timeout=focus is not None,
+                settled_timeout=not options.get("test_command"),
             )
             if suite
             else None
@@ -965,6 +966,7 @@ def _proving(
                 base_patch,
                 progress,
                 inputs,
+                settled_timeout=True,
             )
         number = len(state.get("regression_proofs", [])) + 1
         # The physical canonical path: measurement pins reads through this root without symlink

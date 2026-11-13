@@ -913,6 +913,10 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_truncated_review_recovery",),
     ),
     (("tools/autocode_plan_chat.py",), ("tests.test_plan_chat_cli",)),
+    (
+        ("tools/autocode_stage_stalls.py", "tools/autocode_stage_recovery.py"),
+        ("tests.test_repeated_tester_timeout_cli",),
+    ),
     (("tools/autocode_coordination_request_runtime.py",), ("tests.test_coordination_request_cli",)),
     (
         (

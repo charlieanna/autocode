@@ -176,6 +176,13 @@ retry nor counts as a new experiment.
 
 ## When a stage stops making progress
 
+Two Tester or completion-review timeouts on unchanged source without an accepted report
+go to the Investigator before a third identical attempt, including consecutive retries
+with no intervening successful stage. Archived attempts, usage and check evidence stay
+recorded; the existing bounded diagnosis and retry rules apply. A source correction or an
+accepted report from that stage starts a new count. This does not change model routes,
+spending caps or verification requirements.
+
 Before investigating a spent small-plan review allowance, the runner can grant one further
 review round when external feedback corrects an exactly approved plan and a fresh, materially
 changed draft has been accepted. A repaired report must retain its accepted original-source
@@ -494,12 +501,19 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.
   does not stop to ask for a longer limit or a narrower command: it runs
   instead with the original tests nearest the change (changed tests the base
   already holds, and base tests named after a changed file, such as
-  `test_calc.py` for `calc.py`), and records the decision, the timed-out command and
+  `test_calc.py` for `calc.py`, plus existing Python tests that import changed
+  product modules directly or transitively). Import selection reads the pinned original
+  code, keeps every ambiguous target and conservatively includes uncertain imports.
+  It records the decision, the timed-out command and
   the reason as the proof's `suite_fallback`, a note and a review reason. A later
   proof of the same run goes straight to those tests while the original code, the
   whole suite's command and its limit are unchanged, even when the test environment
   changed or cannot be bound for reuse (an editable install). An explicit
-  `--test-command` is never replaced. The new or changed tests
+  `--test-command` is never replaced. If the focused baseline also times out, or
+  no focused suite exists, the detected baseline's timeout remains negative evidence:
+  later proofs do not repeat that original-code check under the same command and limit,
+  and the proof stays UNVERIFIED. Changing the command, original code or limit permits
+  a fresh attempt. The new or changed tests
   must fail on the original code and pass on the current code, and every test
   that passed on base must still pass (not fail, be skipped or disappear). A
   repair that changes no test is proved by the tests the project already had:

@@ -11,8 +11,10 @@ non-convergence pause (autocode_stuck_job.STATUSES).
 So this counts one stage's recoveries on one source revision since that stage last saved a valid
 report. When there are ``REPEATS`` of them and another stage's valid report ended the streak in
 between, the recovery pauses ``PAUSED_REPEATED_FAILURE``, the same failure repeated on unchanged
-source, and the Investigator diagnoses it before anyone is asked. Stops in an unbroken streak keep
-the streak's own bound. A changed source or a valid report from the stage starts the count again.
+source, and the Investigator diagnoses it before anyone is asked. Tester and completion-review
+retries also take this boundary in an unbroken streak: another identical review would repeat the
+same checks without a diagnosis. Other stages keep the streak's own bound. A changed source or a
+valid report from the stage starts the count again.
 Pure: reads the run state it is given.
 """
 
@@ -55,11 +57,15 @@ def repeated(state: RunState, stage: str, revision) -> list[dict]:
 
 
 def escapes_streak(state: RunState, rows: list[dict]) -> bool:
-    """``rows`` repeat the stop, and a valid report from another stage reset the streak among them.
+    """Repeated reviews require diagnosis even when no intervening report reset the streak.
 
     ``consecutive_timeout_recoveries`` already counts this recovery; when it covers every row, the
-    stops are one unbroken streak and its own limit bounds them."""
-    return len(rows) >= REPEATS and int(state.get("consecutive_timeout_recoveries") or 0) < len(rows)
+    stops are one unbroken streak. Writers keep that limit; unchanged reviewers reach the
+    Investigator before spending another stage/tool allowance on the same verification."""
+    return len(rows) >= REPEATS and (
+        all(_stage(row) in ("tester", "review_completion", "review_checkpoint") for row in rows)
+        or int(state.get("consecutive_timeout_recoveries") or 0) < len(rows)
+    )
 
 
 def reason(stage_name: str, rows: list[dict]) -> str:

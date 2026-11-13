@@ -95,6 +95,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **Verification timeouts stop repeating unchanged checks** (#3264, #3400): the fallback suite now includes existing Python tests that import changed product modules, using the original source graph. A detected whole or focused baseline that timed out is not rerun with the same base, command and limit; missing evidence stays unverified. Two unchanged Tester or completion-review timeouts reach the Investigator before another identical review, while keeping attempts, usage and model choices.
 - **Automatic recovery no longer tells you to resume** (#3351): when AutoCode sets a stopped attempt aside before retrying it or asking the Investigator, the progress log says that partial work was retained for automatic recovery. Explicit abandonment still reports the pause and its resume action; the intermediate recovery checkpoint remains safe to resume after a crash.
 
 - **A Kilo agent without capture permission is refused before task spend** (#3366): model-free readiness checks every selected ordinary Kilo transport, including a Kilo-only Tester behind another tool. An unusable shell policy stops with configuration guidance before planning; operator asks and denials, selected routes and caps stay unchanged. Ordinary launches recheck the policy, and native-owned isolated agents retain their own conformance checks.
