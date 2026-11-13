@@ -6974,3 +6974,67 @@ for (const source of ['saved', 'saved sentence case', 'streaming', 'absent', 'di
     assert.ok(launch.mock.calls[0].arguments[1].includes('Q2=They helped after I explained the problem'));
   });
 }
+
+test('Requirements clarification with feedback input uses only the composer without a competing decision card', async (t) => {
+  const question = 'What kind of discussion are you thinking of?';
+  const spoken = `I'd be happy to explore ideas with you. ${question}`;
+  const value = { status: 'WAITING_FOR_USER', done: false,
+    needs: { kind: 'answer', resolver_token: 'clarify-1', questions: [{ id: 'Q1', question, options: [], proposed_default: '' }] },
+    next_command: `autocode --answer Q1=ANSWER --resolver-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { phase: 'requirements', context: 'clarify-1', review: null,
+      input: { kind: 'feedback', label: 'Send reply', next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --feedback MESSAGE` },
+      messages: [
+        { id: 'initial', role: 'user', text: "let's have a discussion around ideas" },
+        { id: 'requirements-question-abc123', role: 'assistant', text: spoken },
+      ] } };
+  const ui = await openChat(t, value);
+  assert.equal(ui.document.getElementById('messages').textContent.split(question).length - 1, 1);
+  assert.equal(ui.document.querySelector('#app .decision-card'), null, 'no competing card renders above the composer');
+  assert.equal(ui.document.querySelector('[data-question]'), null, 'no duplicate text input renders inside #app');
+  assert.equal(ui.document.querySelector('#take-action'), null);
+  assert.equal(ui.document.getElementById('send-hint').textContent, 'Send reply and continue');
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  ui.type('Exploring product ideas for a lightweight scratchpad.');
+  ui.submit(); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1);
+  const [, args] = launch.mock.calls[0].arguments;
+  assert.ok(args.includes('--feedback') && args.includes('Exploring product ideas for a lightweight scratchpad.'));
+  assert.ok(!args.includes('--answer'), 'conversational reply uses --feedback so the core retains assistant_reply');
+});
+
+test('a Requirements greeting holding chat open hides the internal outcome question behind the composer', async (t) => {
+  const outcomeQuestion = 'What would you like me to help you build, change, fix, or review in this project?';
+  const value = { status: 'WAITING_FOR_USER', done: false,
+    needs: { kind: 'answer', resolver_token: 'outcome-1',
+      questions: [{ id: 'outcome-abc123', question: outcomeQuestion, options: [], proposed_default: '' }] },
+    next_command: `autocode --answer outcome-abc123=ANSWER --resolver-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { phase: 'requirements', context: 'outcome-1', review: null,
+      input: { kind: 'feedback', label: 'Send reply', next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --feedback MESSAGE` },
+      messages: [
+        { id: 'initial', role: 'user', text: 'hi' },
+        { id: 'requirements-question-hi', role: 'assistant', text: 'Hi! What can I do for you?' },
+      ] } };
+  const ui = await openChat(t, value);
+  assert.equal(ui.document.getElementById('messages').textContent.includes('Hi! What can I do for you?'), true);
+  assert.equal(ui.document.querySelector('#app .decision-card'), null);
+  assert.ok(!ui.document.getElementById('app').textContent.includes(outcomeQuestion));
+});
+
+test('Requirements finite options still show the select control without repeating backticked question text', async (t) => {
+  const question = 'Should settings live in config.json or sqlite?';
+  const value = { status: 'WAITING_FOR_USER', done: false,
+    needs: { kind: 'answer', resolver_token: 'choice-1',
+      questions: [{ id: 'Q1', question, options: ['config.json', 'sqlite'], proposed_default: 'config.json' }] },
+    next_command: `autocode --answer Q1=ANSWER --resolver-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { phase: 'requirements', context: 'choice-1', review: null,
+      input: { kind: 'feedback', label: 'Send reply', next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --feedback MESSAGE` },
+      messages: [
+        { id: 'initial', role: 'user', text: 'Persist settings' },
+        { id: 'requirements-question-choice', role: 'assistant', text: 'One quick choice: Should settings live in `config.json` or `sqlite`?' },
+      ] } };
+  const ui = await openChat(t, value);
+  const select = ui.document.querySelector('select[data-question="Q1"]');
+  assert.ok(select, 'finite option menus keep their select control');
+  assert.equal(ui.document.querySelectorAll('#app .q').length, 0, 'backticked match in thread suppresses duplicate card label');
+  assert.ok(ui.document.querySelector('#take-action'));
+});

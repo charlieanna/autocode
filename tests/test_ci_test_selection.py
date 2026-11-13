@@ -119,6 +119,12 @@ class DynamicDependenciesTests(unittest.TestCase):
                 selected = run_suite.select_tests([source], {name: "" for name in consumers})
                 kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
                 self.assertEqual(consumers, set(kept))
+        triage_consumers = {"tests.test_requirements_triage", "tests.test_requirements_chat"}
+        selected = run_suite.select_tests(
+            ["tools/prompts/requirements-triage.md"], {name: "" for name in triage_consumers}
+        )
+        kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in triage_consumers})
+        self.assertEqual(triage_consumers, set(kept))
 
     def test_leaf_timing_keeps_the_public_cli_consumer_when_slow(self):
         consumer = "tests.test_phase_timing_cli"

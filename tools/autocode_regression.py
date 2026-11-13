@@ -1328,7 +1328,17 @@ def check_cases(
     refused = refused or {}
     framework = proof.get("framework") or {}
     framework = framework.get("name") if isinstance(framework, dict) else framework
-    cases = test_cases.bound(cases, framework)
+    # A case that declares an existing test's title (node:test, Vitest) is bound to it here, from every
+    # test the proof saw, so the suite and the failing tests are then searched for it by that name.
+    seen = [
+        *(proof.get("fail_to_pass") or []),
+        *(proof.get("pass_to_pass") or []),
+        *(proof.get("not_run_on_base") or []),
+        *suite_passing,
+        *failing,
+        *refused,
+    ]
+    cases = test_cases.titled(test_cases.bound(cases, framework), framework, seen)
 
     def usable(tests):
         return [test for test in tests or [] if test not in refused]

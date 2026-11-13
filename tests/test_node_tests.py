@@ -56,6 +56,67 @@ class CommandTests(unittest.TestCase):
             with self.subTest(script=script):
                 self.assertIsNone(node_tests.script_steps(script))
 
+    def test_an_npm_test_script_that_is_nodes_own_runner_is_run_with_the_reporter(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+
+            def package(scripts):
+                (root / "package.json").write_text(json.dumps({"scripts": scripts}))
+
+            package({"test": "node --test tests/*.test.js"})
+            self.assertEqual((None, "node --test tests/*.test.js"), node_tests.npm_test("npm test --silent", root))
+            self.assertTrue(verify.expects_results(None, "npm test --silent", root))
+            self.assertFalse(verify.expects_results(None, "npm test --silent", root, scripts=False))
+            self.assertFalse(verify.expects_results(None, "npm test --silent"), "no tree, no package to read")
+            actual = node_tests.instrument_npm("npm test --silent", root / "proof.jsonl", root)
+            # The path pattern stays unquoted, for the shell to expand as it does under npm.
+            self.assertTrue(actual.startswith("node --test-reporter=spec "), actual)
+            self.assertTrue(
+                actual.endswith(f"--test-reporter-destination={root / 'proof.jsonl'} --test tests/*.test.js")
+            )
+            self.assertEqual(actual, verify._with_results(None, "npm test --silent", root / "proof.jsonl", root))
+            self.assertEqual(
+                "npm test --silent",
+                verify._with_results(None, "npm test --silent", root / "proof.jsonl", root, scripts=False),
+            )
+            package({"test": "node\t--test 'tests/a b.test.js'"})
+            self.assertEqual(
+                node_tests.instrument("node --test 'tests/a b.test.js'", root / "proof.jsonl"),
+                node_tests.instrument_npm("npm test", root / "proof.jsonl", root),
+                "a runtime the script does not write plainly is rebuilt from its words",
+            )
+            package({"test": "tsc -p . && node --test out/*.test.js"})
+            self.assertEqual(("tsc -p .", "node --test out/*.test.js"), node_tests.npm_test("npm test", root))
+            actual = node_tests.instrument_npm("npm test", root / "proof.jsonl", root)
+            self.assertTrue(actual.startswith("npm exec --call 'tsc -p .' && node --test-reporter=spec "), actual)
+            self.assertTrue(actual.endswith(" --test out/*.test.js"), actual)
+            (root / "web").mkdir()
+            (root / "web" / "package.json").write_text(json.dumps({"scripts": {"test": "node --test"}}))
+            self.assertIsNone(node_tests.npm_test("npm --prefix web test", root), "the script runs in its package")
+            package({"test": "node --test"})
+            (root / ".npmrc").write_text("node-options=--test-name-pattern=add\n")
+            self.assertIsNone(node_tests.npm_test("npm test", root), "npm's configuration changes what the script runs")
+            (root / ".npmrc").unlink()
+            self.assertEqual((None, "node --test"), node_tests.npm_test("npm test", root))
+            package({"test": "vitest run"})
+            self.assertIsNone(node_tests.npm_test("npm test", root), "Vitest reports through its own reporter")
+            for scripts, command in (
+                ({"test": "node --test", "pretest": "node build.js"}, "npm test"),  # npm runs more than the script
+                ({"test": "node --test", "posttest": "node clean.js"}, "npm test"),
+                ({"test": "node --test"}, "npm test -- tests/a.test.js"),  # appended after the script
+                ({"test": "node --test"}, "npm run build"),
+                ({"test": "mocha tests"}, "npm test"),
+                ({"test": "NODE_ENV=test node --test"}, "npm test"),
+                ({"test": "node --test | tap-spec"}, "npm test"),
+                ({"test": ["node", "--test"]}, "npm test"),
+                ({}, "npm test"),
+            ):
+                with self.subTest(scripts=scripts, command=command):
+                    package(scripts)
+                    self.assertIsNone(node_tests.npm_test(command, root))
+                    self.assertIsNone(node_tests.instrument_npm(command, root / "proof.jsonl", root))
+                    self.assertFalse(verify.expects_results(None, command, root))
+
     def test_configured_node_collector_keeps_runtime_and_options_for_changed_tests(self):
         command = "/configured/node --no-warnings --test --require ./setup.cjs --test-concurrency=1 old.test.cjs"
         framework = verify.command_framework(command)
@@ -543,6 +604,117 @@ class NodeTests(unittest.TestCase):
         )
         self.assertTrue(receipt["results_expected"])
         self.assertIsNone(receipt["results"])
+
+    PAGER = (
+        "function pageCount(total,size){if(size<=0)throw new RangeError('size');return Math.ceil(total/size);}\n"
+        "module.exports={pageCount};\n"
+    )
+    PAGER_TESTS = (
+        "const {test}=require('node:test');const assert=require('node:assert/strict');"
+        "const {pageCount}=require('../src/pager.js');\n"
+        "test('returns the page count for an exact multiple',()=>assert.equal(pageCount(10,5),2));\n"
+        "test('counts a partial last page',()=>assert.equal(pageCount(11,5),3));\n"
+    )
+
+    def refactor(self, pager, added=None):
+        """The proof of a change to src/pager.js, in a project whose suite is ``npm test``, guarded by the two
+        tests the project already has, each named by its title. ``added`` is a new test file's (name, guard,
+        source), whose test guards the change too."""
+        project = Project(
+            {
+                "package.json": json.dumps({"name": "pager", "scripts": {"test": "node --test tests/*.test.js"}}),
+                "src/pager.js": self.PAGER,
+                "tests/pager.test.js": self.PAGER_TESTS,
+            }
+        )
+        self.addCleanup(project.close)
+        self.assertEqual("npm test --silent", verify.detect_framework(project.root).suite)
+        project.write({"src/pager.js": pager, **({added[0]: added[2]} if added else {})})
+        criteria = [
+            {
+                "id": "AC1",
+                "criterion": "exact",
+                "verification_method": "guard: returns the page count for an exact multiple",
+            },
+            {"id": "AC2", "criterion": "partial", "verification_method": "guard: counts a partial last page"},
+            *([{"id": "AC3", "criterion": "sizes", "verification_method": "guard: " + added[1]}] if added else []),
+        ]
+        state = {
+            "goal_contract": {"body": {"task_kind": "build", "acceptance_criteria": criteria}},
+            "base_commit": project.base,
+            "settings": {"regression": {"test_timeout": 30}},
+        }
+        proof = regression.prove(state, project.root, project.evidence / "proof")
+        return proof, json.loads(Path(proof["path"]).read_text())["checks"]["suite_on_candidate"]
+
+    @unittest.skipUnless(shutil.which("npm"), "the project's suite is npm test")
+    def test_a_refactor_that_changes_no_test_is_proved_by_the_npm_suites_own_tests(self):
+        helper = "function need(size){if(size<=0)throw new RangeError('size');}\n"
+        proof, suite = self.refactor(
+            helper + self.PAGER.replace("if(size<=0)throw new RangeError('size');", "need(size);")
+        )
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual(
+            {
+                "AC1": ["tests/pager.test.js::returns the page count for an exact multiple"],
+                "AC2": ["tests/pager.test.js::counts a partial last page"],
+            },
+            proof["case_tests"],
+        )
+        self.assertEqual("npm test --silent", proof["commands"]["suite"])
+        self.assertTrue(suite["results_expected"], suite)
+        self.assertEqual(
+            [
+                "tests/pager.test.js::counts a partial last page",
+                "tests/pager.test.js::returns the page count for an exact multiple",
+            ],
+            suite["results"]["passed"],
+        )
+
+    @unittest.skipUnless(shutil.which("npm"), "the project's suite is npm test")
+    def test_a_new_test_file_does_not_take_the_existing_titled_tests_out_of_the_suite(self):
+        # Every test of tests/pager.test.js was "test" by name, from its file's .test.js, so a new test file,
+        # which says test(...), named them all and none could guard the change (live run, 2026-11-13).
+        added = (
+            "tests/pager-validation.test.js",
+            "test_ac3_sizes_throw",
+            "const {test}=require('node:test');const assert=require('node:assert/strict');"
+            "const {pageCount}=require('../src/pager.js');\n"
+            "test('test_ac3_sizes_throw',()=>assert.throws(()=>pageCount(10,0),RangeError));\n",
+        )
+        helper = "function need(size){if(size<=0)throw new RangeError('size');}\n"
+        proof, _ = self.refactor(
+            helper + self.PAGER.replace("if(size<=0)throw new RangeError('size');", "need(size);"), added
+        )
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual(
+            {
+                "AC1": ["tests/pager.test.js::returns the page count for an exact multiple"],
+                "AC2": ["tests/pager.test.js::counts a partial last page"],
+                "AC3": ["tests/pager-validation.test.js::test_ac3_sizes_throw"],
+            },
+            proof["case_tests"],
+        )
+
+    @unittest.skipUnless(shutil.which("npm"), "the project's suite is npm test")
+    def test_a_refactor_that_breaks_a_guarded_test_of_the_npm_suite_is_not_proved(self):
+        proof, suite = self.refactor(self.PAGER.replace("Math.ceil", "Math.floor"))
+        self.assertNotEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual(["tests/pager.test.js::counts a partial last page"], suite["results"]["failed"])
+
+    @unittest.skipUnless(shutil.which("npm"), "the build steps run through npm exec")
+    def test_an_npm_suite_that_builds_first_builds_before_its_named_results(self):
+        (self.root / "package.json").write_text(
+            json.dumps({"scripts": {"test": "node build.cjs && node --test out/*.test.cjs"}})
+        )
+        (self.root / "build.cjs").write_text(
+            "const fs=require('node:fs');fs.mkdirSync('out',{recursive:true});"
+            "fs.writeFileSync('out/a.test.cjs',\"require('node:test')('built first',()=>{});\");\n"
+        )
+        receipt = verify.run_suite(self.framework, "npm test --silent", self.root, self.evidence, "probe", timeout=60)
+        self.assertEqual(0, receipt["exit_code"], receipt)
+        self.assertTrue(receipt["results_expected"])
+        self.assertEqual(["out/a.test.cjs::built first"], receipt["results"]["passed"])
 
     def test_explicit_node_suite_overrides_mocha_and_proves_named_restore_and_preservation(self):
         preamble = "const {test}=require('node:test');const assert=require('node:assert/strict');"

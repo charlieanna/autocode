@@ -26,20 +26,30 @@ class RequirementsChatTests(unittest.TestCase):
         import autocode_requirements_triage as triage
 
         instructions = [
-            requirements_prompt.render(prompts.get("requirements-gather.md"), schema)
-            for schema in ({"properties": {"assistant_reply": {}}}, {"properties": {}})
+            (
+                "gather_conversational",
+                requirements_prompt.render(
+                    prompts.get("requirements-gather.md"), {"properties": {"assistant_reply": {}}}
+                ),
+            ),
+            ("gather_plain", requirements_prompt.render(prompts.get("requirements-gather.md"), {"properties": {}})),
+            (
+                "triage",
+                triage.prompt({"task": "Make AutoCode better", "workspace": "/project", "settings": {}}, [], "codex"),
+            ),
         ]
-        instructions.append(
-            triage.prompt({"task": "Make AutoCode better", "workspace": "/project", "settings": {}}, [], "codex")
-        )
-        for instruction in instructions:
+        for kind, instruction in instructions:
             text = " ".join(instruction.split())
-            with self.subTest(conversational="assistant_reply" in text):
-                self.assertIn("Ask one focused, open-ended question at a time", text)
-                self.assertIn("Follow the user's answer", text)
+            with self.subTest(kind=kind):
+                self.assertIn("open-ended question", text)
                 self.assertIn('options=[] and proposed_default=""', text)
                 self.assertIn("Do not invent a menu", text)
                 self.assertIn("concrete recent example", text)
+                if kind == "triage":
+                    self.assertIn("at most three questions", text)
+                else:
+                    self.assertIn("Ask one focused, open-ended question at a time", text)
+                    self.assertIn("Follow the user's answer", text)
 
     def test_a_garbled_message_is_quoted_back_with_no_guess_about_how_it_arrived(self):
         """#3074: Requirements told the person "sum" got lost before the text reached it, a guess

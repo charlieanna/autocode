@@ -1486,18 +1486,26 @@ function render(state) {
       return;
     }
 
+    const askedInThread = Boolean(state.chat && (state.chat.messages || []).some((row) => !row.streaming
+      && String(row.id || '').indexOf('requirements-question-') === 0));
+    // A free-text Requirements question already shown in the thread is answered in the chat composer
+    // when the core offers chat.input (feedback), matching autocode_chat_client.py. Model/effort
+    // choices, numeric bounds, finite option menus, defaults and inputless views keep the card.
+    const conversationalQuestion = state.needKind === 'answer' && !state.boundRaise
+      && Boolean(state.chat && state.chat.input && state.chat.input.kind === 'feedback')
+      && askedInThread
+      && state.decisions.length > 0
+      && state.decisions.every((row) => row.kind === 'answer' && row.options.length === 0 && !String(row.suggested || '').trim());
     if (state.chat && state.chat.phase === 'requirements' && !state.gap
         && (!state.pause || state.needKind === 'answer')
-        && (state.chat.review || state.needKind === 'continue')) {
+        && (state.chat.review || state.needKind === 'continue' || conversationalQuestion)) {
       if (state.chat.review) {
         const review = state.chat.review;
         // The thread already holds the Requirements question (docs/task-run.md: its id starts with
         // requirements-question-), and this summary is that same text: a second copy here showed
         // the whole understanding twice, the card's as a raw block. The card keeps it only when
         // the thread does not show it.
-        const asked = (state.chat.messages || []).some((row) => !row.streaming
-          && String(row.id || '').indexOf('requirements-question-') === 0);
-        if (review.summary && !asked) cardContent.appendChild(el('pre', 'understanding', review.summary));
+        if (review.summary && !askedInThread) cardContent.appendChild(el('pre', 'understanding', review.summary));
         const approve = el('button', null, review.label);
         approve.id = 'take-action';
         approve.disabled = state.taking || state.working || Boolean(state.unreadable);
@@ -1592,7 +1600,7 @@ function render(state) {
           const box = el('div', 'decision');
           // The core's current Requirements message already asks this question in the thread.
           // Keep the field named for assistive technology, without repeating the visible text.
-          const plain = (text) => String(text || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+          const plain = (text) => String(text || '').replace(/\\x60/g, '').replace(/\\s+/g, ' ').trim().toLowerCase();
           const asked = state.chat && state.chat.phase === 'requirements' && (state.chat.messages || []).some((row) =>
             !row.streaming && row.role === 'assistant' && String(row.id || '').startsWith('requirements-question-')
             && plain(decision.text) && plain(row.text).includes(plain(decision.text)));

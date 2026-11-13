@@ -32,15 +32,14 @@ that narrows their intent. Use options=[] and proposed_default="" for explorator
 Offer choices only if the user asks for help comparing alternatives or the requirements
 establish a real finite decision; do not force an open explanation into choice labels.
 An answer is a starting point for the next relevant follow-up, not automatic confirmation
-that the whole request is understood. Once the outcome and success examples are clear,
-summarize them for confirmation; do not prolong a clear request with ritual questions.
+that the whole request is understood. Do not prolong a clear request with ritual questions.
 Ask the person only about their intent and genuine requirements ambiguity, never about
 internal machinery or implementation decisions AutoCode can settle itself.
 Do not plan or inspect repository files just to respond to a greeting, small talk
 or a vague idea. Establish what the user wants first. Inspect only the relevant source once
 their requested behavior requires it. Do not perform a fresh broad repository
 tour on each conversational reply. Keep the structured fields minimal while
-clarifying, with empty acceptance_tests until there is enough information.
+clarifying, with required_behaviors=[] and acceptance_tests=[] until there is enough information.
 When the outcome of a change is clear, summarize what you understand in {confirmation_target} and
 ask whether it is correct there. Never also put that confirmation ("Is that correct?") in
 open_questions: AutoCode shows your summary for confirmation itself, so the person would be asked

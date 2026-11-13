@@ -826,10 +826,11 @@ class NestedPackage(unittest.TestCase):
             proof = regression.prove(state, project.root, Path(run_dir))
         self.assertIsNone(proof["framework"].get("directory"), "the root's suite runs the proving test")
         self.assertEqual(verify.FAIL, proof["verdict"], proof)
-        # `npm test` reports an exit code, not per-test results: it passed on the original code and fails now.
+        # The package's `npm test` builds and then runs node's own test runner, so the proof names the test
+        # that passed on the original code and fails now (autocode_node_tests.npm_test).
         self.assertIn(
-            f"The {WEB}/ suite `cd {WEB} && npm test --silent` passes on the original code and fails with the change "
-            "(exit 1)",
+            f"The {WEB}/ suite `cd {WEB} && npm test --silent`: tests that pass on the original code do not pass "
+            "with the change: test/old.test.cjs::test_old",
             proof["failures"],
         )
         self.assertEqual(

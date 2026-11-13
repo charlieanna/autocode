@@ -1801,12 +1801,17 @@ class VerifyCase(unittest.TestCase):
                 rejected = project.verify()
                 self.assertEqual(verify.FAIL, rejected["verdict"], rejected)
 
+    # After a package's `node --test` script: `npm test` then reports an exit code only. Without it the
+    # runner runs the script's own command with its reporter and judges the same candidates test by test
+    # (autocode_node_tests.npm_test).
+    UNNAMED = " && node -e 0"
+
     @staticmethod
-    def _narrowed_package_suite():
+    def _narrowed_package_suite(tail=""):
         # Existing Node project whose suite is `npm test --silent`. The candidate
         # breaks add() and narrows scripts.test so the old test never runs (#528).
         seed = {
-            "package.json": json.dumps({"scripts": {"test": "node --test"}}),
+            "package.json": json.dumps({"scripts": {"test": "node --test" + tail}}),
             "calc.js": "module.exports = {add: (a, b) => a + b};\n",
             "test/calc.test.js": (
                 "const {test}=require('node:test');\n"
@@ -1817,7 +1822,7 @@ class VerifyCase(unittest.TestCase):
         }
         candidate = {
             "calc.js": "module.exports = {add: (a, b) => a - b, mul: (a, b) => a * b};\n",
-            "package.json": json.dumps({"scripts": {"test": "node --test test/feature.test.js"}}),
+            "package.json": json.dumps({"scripts": {"test": "node --test test/feature.test.js" + tail}}),
             "test/feature.test.js": (
                 "const {test}=require('node:test');\n"
                 "const assert=require('node:assert/strict');\n"
@@ -1829,34 +1834,49 @@ class VerifyCase(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_narrowing_the_package_test_script_cannot_hide_a_break_from_the_suite(self):
-        seed, candidate = self._narrowed_package_suite()
-        project = self.project(seed)
-        project.write(candidate)
-        result = project.verify(new_behavior=True)
-        self.assertEqual("npm test --silent", result["commands"]["suite"], result)
-        self.assertEqual(["test/feature.test.js::mul"], result["fail_to_pass"], result)
-        self.assertEqual(verify.FAIL, result["verdict"], result)
-        self.assertEqual(
-            [
-                "The base suite definition fails against the candidate code: the candidate "
-                "changed which tests the suite runs, so tests the base ran no longer pass"
-            ],
-            result["failures"],
-            result,
-        )
-        self.assertEqual(1, result["checks"]["suite_base_definition_on_candidate"]["exit_code"], result)
+        for tail, failures in (
+            (
+                self.UNNAMED,
+                [
+                    "The base suite definition fails against the candidate code: the candidate "
+                    "changed which tests the suite runs, so tests the base ran no longer pass"
+                ],
+            ),
+            (
+                "",
+                [
+                    "Tests that pass on base did not pass on the candidate (skipped, deselected, renamed or "
+                    "missing): test/calc.test.js::add",
+                    "The base suite definition's runner inputs over the candidate code: tests that pass on base "
+                    "fail, so the candidate changed what they run: test/calc.test.js::add",
+                ],
+            ),
+        ):
+            with self.subTest(tail=tail):
+                seed, candidate = self._narrowed_package_suite(tail)
+                project = self.project(seed)
+                project.write(candidate)
+                result = project.verify(new_behavior=True)
+                self.assertEqual("npm test --silent", result["commands"]["suite"], result)
+                self.assertEqual(["test/feature.test.js::mul"], result["fail_to_pass"], result)
+                self.assertEqual(verify.FAIL, result["verdict"], result)
+                self.assertEqual(failures, result["failures"], result)
+                self.assertEqual(1, result["checks"]["suite_base_definition_on_candidate"]["exit_code"], result)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_the_same_break_without_narrowing_the_script_still_fails(self):
-        seed, candidate = self._narrowed_package_suite()
-        candidate = {**candidate, "package.json": seed["package.json"]}
-        project = self.project(seed)
-        project.write(candidate)
-        result = project.verify(new_behavior=True)
-        self.assertEqual(verify.FAIL, result["verdict"], result)
-        self.assertTrue(
-            any("passes on base but fails on the candidate" in reason for reason in result["failures"]), result
-        )
+        for tail, failure in (
+            (self.UNNAMED, "passes on base but fails on the candidate"),
+            ("", "Tests that pass on base fail on the candidate: test/calc.test.js::add"),
+        ):
+            with self.subTest(tail=tail):
+                seed, candidate = self._narrowed_package_suite(tail)
+                candidate = {**candidate, "package.json": seed["package.json"]}
+                project = self.project(seed)
+                project.write(candidate)
+                result = project.verify(new_behavior=True)
+                self.assertEqual(verify.FAIL, result["verdict"], result)
+                self.assertTrue(any(failure in reason for reason in result["failures"]), result)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_a_package_json_change_that_leaves_scripts_alone_still_passes(self):
@@ -2126,8 +2146,16 @@ class VerifyCase(unittest.TestCase):
         # new feature test so the broken function is never exercised. The base-definition
         # run used to start only when the base was green, so this case passed; a red base
         # cannot anchor preservation, and missing evidence is UNVERIFIED, never PASS.
+        for tail, reason in (
+            (self.UNNAMED, "base suite is not green"),
+            ("", "The base suite provided no complete passing-test evidence"),
+        ):
+            with self.subTest(tail=tail):
+                self._green_over_red(tail, reason)
+
+    def _green_over_red(self, tail, reason):
         seed = {
-            "package.json": json.dumps({"scripts": {"test": "node --test test/calc.test.js"}}),
+            "package.json": json.dumps({"scripts": {"test": "node --test test/calc.test.js" + tail}}),
             "calc.js": self.ADD_ONLY.replace("a + b", "a - b"),
             "test/calc.test.js": self.ADD_TEST,
         }
@@ -2135,7 +2163,7 @@ class VerifyCase(unittest.TestCase):
         project.write(
             {
                 "calc.js": self.ADD_BROKEN,
-                "package.json": json.dumps({"scripts": {"test": "node --test test/feature.test.js"}}),
+                "package.json": json.dumps({"scripts": {"test": "node --test test/feature.test.js" + tail}}),
                 "test/feature.test.js": self.MUL_TEST,
             }
         )
@@ -2163,7 +2191,7 @@ class VerifyCase(unittest.TestCase):
         self.assertIn("test/feature.test.js::mul", result["fail_to_pass"], result)
         self.assertEqual([], result["failures"], result)
         self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
-        self.assertTrue(any("base suite is not green" in reason for reason in result["unverified"]), result)
+        self.assertTrue(any(reason in text for text in result["unverified"]), result)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_inv_base_definition_run_governs_pass_and_redefinition_verdicts(self):
@@ -2412,22 +2440,25 @@ class VerifyCase(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_t8_break_without_definition_change_still_fails(self):
-        seed = {
-            "package.json": json.dumps({"scripts": {"test": "node --test test/calc.test.js"}}),
-            "calc.js": self.ADD_ONLY,
-            "test/calc.test.js": self.ADD_TEST,
-        }
-        candidate = {
-            "calc.js": self.ADD_BROKEN,
-            "test/feature.test.js": self.MUL_TEST,
-        }
-        project, base_suite, result = self.node_verify(seed, candidate)
-        self.assertEqual(0, base_suite["receipt"]["exit_code"])
-        self.assertEqual(1, result["checks"]["suite_on_candidate"]["exit_code"], result)
-        self.assertEqual(verify.FAIL, result["verdict"], result)
-        self.assertTrue(
-            any("passes on base but fails on the candidate" in reason for reason in result["failures"]), result
-        )
+        for tail, failure in (
+            (self.UNNAMED, "passes on base but fails on the candidate"),
+            ("", "Tests that pass on base fail on the candidate: test/calc.test.js::add"),
+        ):
+            with self.subTest(tail=tail):
+                seed = {
+                    "package.json": json.dumps({"scripts": {"test": "node --test test/calc.test.js" + tail}}),
+                    "calc.js": self.ADD_ONLY,
+                    "test/calc.test.js": self.ADD_TEST,
+                }
+                candidate = {
+                    "calc.js": self.ADD_BROKEN,
+                    "test/feature.test.js": self.MUL_TEST,
+                }
+                project, base_suite, result = self.node_verify(seed, candidate)
+                self.assertEqual(0, base_suite["receipt"]["exit_code"])
+                self.assertEqual(1, result["checks"]["suite_on_candidate"]["exit_code"], result)
+                self.assertEqual(verify.FAIL, result["verdict"], result)
+                self.assertTrue(any(failure in reason for reason in result["failures"]), result)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_t9_indirect_runner_edit_cannot_hide_a_break(self):

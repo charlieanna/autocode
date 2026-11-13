@@ -250,3 +250,78 @@ updated after comparing the rendered text against master. All 11 prompt-renderin
 tests passed. Typecheck, build, VSIX packaging, repository Ruff lint/format checks
 and `git diff --check` passed for the final extension fix. The native retest
 blocker is resolved; earlier failures remain recorded above.
+
+## Review follow-up: competing inputs, spoken context and prompt guardrails
+
+Follow-up testing of `8e09bc1b9560afdcba8c5f0918df4bf6ce5925d68ad28f10453fd12cb50093d6`
+against PR #3378 exposed four remaining UX and prompt-routing issues:
+
+1. **Competing inputs & lost spoken context**: for open-ended Requirements
+   questions (`options: []`, `proposed_default: ""`, `chat.input.kind: "feedback"`),
+   `vscode-extension/src/panel.ts` still rendered `#app .decision-card`
+   (`<input data-question>` + `#take-action`) above `#composer`, submitting
+   `--answer` instead of `--feedback` and dropping the model's spoken
+   `assistant_reply` turns.
+2. **Leaked internal `OUTCOME_QUESTION` on greetings**: when a greeting held chat
+   open (`holds_chat_open`), the internal `OUTCOME_QUESTION` was not in
+   `chat.messages`, so `panel.ts` rendered a competing `.decision-card` containing
+   internal prompt text.
+3. **Backticked duplicate question text**: `plain()` in `panel.ts` normalized
+   whitespace and case, not Markdown backticks, so finite-option questions
+   wrapping identifiers in backticks still repeated above `<select>`.
+4. **Prompt/CI guardrails & macOS symlink test portability**:
+   - `tools/prompts/requirements-gather.md` now instructs open clarifications to
+     supply `acceptance_tests: []` directly when no behaviors are drafted and to
+     preserve spoken `assistant_reply` continuity across `brief_feedback` and
+     `saved_answers`.
+   - `tools/prompts/requirements-triage.md` clarifies that concrete examples inside
+     a vague request keep `ready: false` while asking one follow-up about that
+     example.
+   - `tools/ci_test_selection.py` maps `tools/prompts/fragments/autoplanner/`
+     changes to its consumers (`tests/test_ci_test_selection.py`,
+     `tests/test_requirements_chat.py`, `tests/prompt_rendering_fixtures.json`).
+   - `tests/test_requirements_review.py` resolves `TemporaryDirectory` paths with
+     `.resolve()` for macOS `/var/folders` -> `/private/var/folders` symlinks.
+
+### Fix & verification
+
+When `chat.phase === 'requirements'`, `needs.kind === 'answer'`,
+`chat.input.kind === 'feedback'`, the question (or a `holds_chat_open` greeting)
+is already in the conversation thread, and every decision is an open free-text
+answer (`options === []`, empty `proposed_default`, no numeric bound),
+`vscode-extension/src/panel.ts` omits `.decision-card`, leaving `#composer`
+(`--feedback`) as the single input. Finite `options`, `proposed_default` values,
+numeric bounds, route/effort picks, and inputless views keep `.decision-card`,
+and `plain()` strips backticks alongside `**` when matching saved messages.
+
+- **Deterministic checks**: `vscode-extension` typecheck, `npm test` (`530`
+  tests: `512` passing, `0` failing, `18` skipped, including 3 new cases in
+  `vscode-extension/test/editor.test.cjs`), `npm run build`, and a new 3-turn
+  real-CLI interview test in `vscode-extension/test/live-walk.test.cjs`
+  (`walk: a spec-first Requirements interview answers open questions in the
+  composer and keeps spoken context`) pass. Python changed-suite checks,
+  `tests.test_requirements_review` (18/18), `tests.test_prompt_rendering`
+  (11/11), Ruff lint/format checks on `tools`/`tests`/`scenarios`,
+  `git diff --check`, and `check_prompt_evidence.disclosure` pass.
+- **Isolated VS Code Desktop live verification (`20261113-020148-vscode-f788c5`)**:
+  an isolated VS Code Desktop window (`--user-data-dir
+  /private/tmp/autocode-vscode-verify/user-data --extensions-dir
+  /private/tmp/autocode-vscode-verify/extensions`) ran the packaged extension
+  (`dist/extension.js` SHA-256
+  `d7815a735cb6e013dc5fbbd464d0622c6b7bcfe4b5973d9b1ccaaea0ab6449b4`) against
+  real Kilo `zai-coding-plan/glm-5.3` (`low`). Turn 1 (`33.01s`, `12,049` in /
+  `285` out tokens), Turn 2 (`43.59s`, `12,543` in / `814` out tokens), and
+  Turn 3 (`101.36s`, `26,323` in / `1,806` out tokens) completed with `0` report
+  repairs and `$0.03` estimated spend, settling at `WAITING_FOR_USER`
+  (`draft_plan` confirmation). Live Desktop webview DOM checks on Turns 1–2 and
+  compiled `ChatView`/`panel` verification of Turn 3's saved `--status --json`
+  confirmed `0` `.decision-card`s, `0` `[data-question]` inputs, `#composer`
+  active on Turns 1–2, `#take-action` `"Approve understanding and prepare
+  plan"` on Turn 3, and all 7 messages (including all 3 spoken
+  `assistant_reply` turns) preserved in `#messages`.
+- **Headless CLI triage check (`20261113-triage-live`)**: `requirements-triage.md`
+  ran on Kilo `zai-coding-plan/glm-5.3` (`low`, `30.65s`, `7,131` in / `448` out
+  tokens; plus one `17.22s` schema repair clearing `"source_refs": ["task
+  statement"]`) against a vague example-bearing brief, returned `ready: false`,
+  and paused at `WAITING_FOR_USER` with open follow-up question `Q1`
+  (`options: []`, `proposed_default: ""`).

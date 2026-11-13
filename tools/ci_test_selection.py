@@ -388,6 +388,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/providers/opencode_activity.mjs", ("tests.test_opencode_activity", "tests.test_kilo_progress")),
     ("tools/autocode_requirements_prompt.py", REQUIREMENTS_PROMPT_CONSUMERS),
     ("tools/prompts/requirements-gather.md", REQUIREMENTS_PROMPT_CONSUMERS),
+    ("tools/prompts/requirements-triage.md", ("tests.test_requirements_triage", "tests.test_requirements_chat")),
     ("tools/prompts/fragments/autoplanner/requirements-conversation.md", REQUIREMENTS_PROMPT_CONSUMERS),
     (
         "tools/prompts/fragments/provider-opencode/conversation-output.md",

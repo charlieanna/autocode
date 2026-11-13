@@ -12,6 +12,9 @@ The runner owns the reporter and checks actual named outcomes; missing, skipped 
 never pass. Do not create node:test wrappers just to relabel existing Vitest cases.
 For node:test register each case with `test('test_c2_example', async () => { /* assertions */ });`
 and run `node --test tests/example.cjs`. Keep fixture helpers and assertions; await every async check.
+A node:test or Vitest test the project already has is named by its exact title, as its test file spells it:
+test('counts a partial last page', ...) is "guard: counts a partial last page". Guard existing behavior
+with the existing test; never copy one under a test_* name, or into a new file, to name it.
 Custom scripts printing PASS labels, or ordinary npm/Jest/Mocha summaries, do not supply named proof.
 A node:test case must assert the behavior itself, never spawn another test runner (npm/pnpm/yarn test,
 npx vitest, jest, mocha or node --test through child_process): its pass would be that runner's exit code,
