@@ -251,9 +251,9 @@ class SnapshotContentHashTests(unittest.TestCase):
         self.assertEqual(polled, hashes.begin("/chat")[0])
 
     def test_the_entry_budget_forgets_the_least_recently_snapshotted_workspaces(self):
-        """The budget still bounds memory, or a machine running a hundred jobs would grow without end."""
+        """Past the last ROOTS workspaces, the budget still bounds memory, or a hundred jobs would grow without end."""
         hashes = util.ContentHashes(self.clock.wall_ns, self.clock.monotonic_ns)
-        hashes.ENTRY_BUDGET = 25
+        hashes.ROOTS, hashes.ENTRY_BUDGET = 2, 25
         for index in range(4):  # 40 entries in total, so the two oldest roots are dropped
             epoch = hashes.begin(f"/w{index}")[2]
             hashes.finish(f"/w{index}", {(index, slot): "h" for slot in range(10)}, epoch)
@@ -262,14 +262,31 @@ class SnapshotContentHashTests(unittest.TestCase):
         self.assertEqual(10, len(hashes.begin("/w2")[0]))
         self.assertEqual(10, len(hashes.begin("/w3")[0]))
 
-    def test_a_workspace_larger_than_the_budget_is_still_remembered(self):
-        """Evicting down to nothing would make every snapshot of it pay to forget the one before."""
+    def test_the_last_workspaces_stay_remembered_however_large(self):
+        """Two worktrees that together exceed the budget must not push each other out on every snapshot.
+
+        Evicting by the budget alone would forget whichever was snapshotted first, so alternating
+        snapshots of two large worktrees of one repository would each read every file again.
+        """
+        hashes = util.ContentHashes(self.clock.wall_ns, self.clock.monotonic_ns)
+        hashes.ENTRY_BUDGET = 15
+        trees = {f"/tree{n}": {(n, slot): "h" for slot in range(10)} for n in range(2)}
+        for _ in range(2):
+            for root, kept in trees.items():
+                epoch = hashes.begin(root)[2]
+                hashes.finish(root, kept, epoch)
+        for root, kept in trees.items():
+            self.assertEqual(kept, hashes.begin(root)[0])
+
+    def test_the_last_roots_bound_still_applies_when_over_budget(self):
+        """A workspace older than the last ROOTS is forgotten once the budget is exceeded."""
         hashes = util.ContentHashes(self.clock.wall_ns, self.clock.monotonic_ns)
         hashes.ENTRY_BUDGET = 0
-        big = {("dev", slot): "h" for slot in range(10)}
-        epoch = hashes.begin("/big")[2]
-        hashes.finish("/big", big, epoch)
-        self.assertEqual(big, hashes.begin("/big")[0])
+        for index in range(hashes.ROOTS + 1):
+            epoch = hashes.begin(f"/w{index}")[2]
+            hashes.finish(f"/w{index}", {("identity", index): "hash"}, epoch)
+        self.assertEqual({}, hashes.begin("/w0")[0])
+        self.assertEqual({("identity", hashes.ROOTS): "hash"}, hashes.begin(f"/w{hashes.ROOTS}")[0])
 
 
 if __name__ == "__main__":

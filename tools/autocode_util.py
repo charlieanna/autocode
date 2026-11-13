@@ -526,18 +526,20 @@ class ContentHashes:
     times back, so nothing there proves the bytes unchanged: ``REUSE`` is off and
     every snapshot reads every file.
 
-    Hashes stay in this process, at most ``ENTRY_BUDGET`` of them, dropped a workspace at
-    a time oldest first; a file on disk would let any process that can write the workspace
-    change what a snapshot reports. Hash values are unchanged: sha256 of the bytes.
+    Hashes stay in this process for the last ``ROOTS`` workspaces snapshotted, and for
+    older ones too while all of them fit in ``ENTRY_BUDGET``; beyond both, they are dropped
+    a workspace at a time oldest first. A file on disk would let any process that can write
+    the workspace change what a snapshot reports. Hash values are unchanged: sha256 of the bytes.
     """
 
     SETTLE_NS = 10 * 10**9
     CLOCK_TOLERANCE_NS = 10**9
-    # Remembered hashes are bounded by how many there are, not by how many workspaces hold them.
-    # A count of eight workspaces is passed by a machine running a dozen jobs, and once it is, the
-    # workspace a chat polls every few seconds is read from disk again for every status view
-    # (#3308). One entry costs about 300 bytes here, so this is a cap of roughly 60 MB -- twice
-    # what eight large checkouts already took under the count, which is the range meant to stay warm.
+    # The last ROOTS workspaces are always kept, as before. A machine running a dozen jobs passes
+    # that count, and then the workspace a chat polls every few seconds is read from disk again for
+    # every status view (#3308), so older workspaces are kept too while every remembered hash fits
+    # in ENTRY_BUDGET (about 300 bytes an entry, roughly 60 MB). The budget only ever adds
+    # workspaces: two large worktrees that together exceed it still both stay warm.
+    ROOTS = 8
     ENTRY_BUDGET = 200_000
     REUSE = os.name != "nt"
 
@@ -568,9 +570,8 @@ class ContentHashes:
             if epoch != self._epoch:
                 return  # the clock jumped after this snapshot began: keep nothing from it
             self._roots[root] = kept
-            # Never evict down to nothing: a single project larger than the budget is still worth
-            # remembering, or every snapshot of it would pay to forget the one before.
-            while len(self._roots) > 1 and sum(map(len, self._roots.values())) > self.ENTRY_BUDGET:
+            # Past the last ROOTS workspaces, keep older ones only while every hash fits the budget.
+            while len(self._roots) > self.ROOTS and sum(map(len, self._roots.values())) > self.ENTRY_BUDGET:
                 self._roots.pop(next(iter(self._roots)))
 
     @staticmethod
