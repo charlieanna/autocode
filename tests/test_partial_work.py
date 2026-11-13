@@ -302,6 +302,53 @@ class PartialWorkTests(unittest.TestCase):
         self.assertIn("repair it rather than restart", recovery["instruction"])
         self.assertNotIn("validation", self.state)
 
+    def test_a_wall_stopped_builder_returns_to_the_builder_not_the_completion_reviewer(self):
+        # #3284: the 3600 s wall archived Builders that were provably still working, and the route
+        # then sent each run to the Completion Reviewer, which audited files no Builder had reported.
+        # Four runs cost 16.14 h of reviewer and Resolver churn against 3.60 h of killed Builder time.
+        self.admit()
+        self.change_source()
+        self.record.update(timeout_kind="stage", timeout_reason="Stage exceeded its 3600-second hard runtime limit")
+        recovery = self.timeout()
+        self.assertEqual(("builder", "EXECUTING"), (self.state["next_stage"], self.state["phase"]))
+        self.assertEqual("builder", recovery["next_stage"])
+        self.assertTrue(recovery["partial_work"]["available"], recovery["partial_work"])
+        self.assertIn("repair it rather than restart", recovery["instruction"])
+
+    def test_a_wall_stopped_builder_that_changed_no_files_still_continues_at_the_builder(self):
+        # One of the four #3284 runs was killed with 42 tools completed, provider active and idle
+        # 1.98 s, but zero files changed. The implementation is unfinished either way, so the route
+        # cannot key on changed files.
+        self.admit()
+        recovery = self.timeout()
+        self.assertEqual([], recovery["changed_files"])
+        self.assertEqual(("builder", "EXECUTING"), (self.state["next_stage"], self.state["phase"]))
+        self.assertEqual("builder", recovery["next_stage"])
+
+    def test_a_wall_stopped_builder_keeps_its_route_when_a_retired_validation_would_reroute_it(self):
+        # The retired-validation reroute to the workflow's verification stage exists for a completion
+        # retry that needs the evidence just retired. It must not divert the Builder that is going to
+        # finish the retained work, or the reroute silently undoes the route above.
+        self.admit()
+        self.change_source()
+        self.state["validation"] = {"verdict": "FAIL"}
+        recovery = self.timeout()
+        self.assertEqual(("builder", "EXECUTING"), (self.state["next_stage"], self.state["phase"]))
+        self.assertEqual("builder", recovery["next_stage"])
+        self.assertNotIn("validation", self.state)
+        self.assertEqual(
+            [{"reason": stage_recovery.TIMEOUT_ARCHIVED_VALIDATION, "validation": {"verdict": "FAIL"}}],
+            self.state["validation_archive"],
+        )
+
+    def test_a_wall_stopped_tester_still_routes_to_the_completion_reviewer(self):
+        # The route change is the Builder's alone: a stopped read-only reviewer has no retained
+        # implementation to finish, and its recovery review before another writer stays.
+        self.admit(stage="tester")
+        self.change_source()
+        self.timeout()
+        self.assertEqual("review_completion", self.state["next_stage"])
+
     def test_inline_patch_is_bounded_and_keeps_the_complete_retained_tree(self):
         self.admit()
         (self.root / "app.py").write_text("new content\n" * 10000)
