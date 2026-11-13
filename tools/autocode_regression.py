@@ -48,8 +48,10 @@ import re
 
 try:
     from . import autocode_source_scope as source_scope
+    from . import autocode_superseded_tests as superseded_tests
 except ImportError:
     import autocode_source_scope as source_scope
+    import autocode_superseded_tests as superseded_tests
 
 
 import subprocess
@@ -1109,6 +1111,7 @@ def _proving(
             package=package_scope.of(state.get("settings")),
             package_exempt=package_writes.exempt(state, workspace, base),
             withheld=ahead,
+            replaced=superseded_tests.replaced(state),
             **rooted(options),
         )
         path = out / "verification.json"

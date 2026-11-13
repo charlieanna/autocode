@@ -462,8 +462,9 @@ def diff_stats(workspace, base, changes, *, roles=None, allow_ambiguous=False) -
     )
 
 
-def removed_python_tests(workspace, base, changes, *, roles=None) -> list[str]:
-    """Names of ``def test*`` functions deleted from modified Python test files."""
+def removed_python_tests(workspace, base, changes, *, roles=None, replaced=None) -> list[str]:
+    """Names of ``def test*`` functions deleted from modified Python test files, except the tests the approved
+    plan replaces (``replaced``, a test of an id)."""
     roles = roles or role_inventory.from_git(workspace, base, is_test_path, changes=changes)
     removed = []
     pattern = re.compile(r"^\s*(?:async\s+)?def\s+(test\w*)\s*\(", re.M)
@@ -474,7 +475,7 @@ def removed_python_tests(workspace, base, changes, *, roles=None) -> list[str]:
         after_file = Path(workspace) / path
         after = set(pattern.findall(after_file.read_text(errors="replace"))) if after_file.is_file() else set()
         removed += [f"{path}::{name}" for name in sorted(before - after)]
-    return removed
+    return [name for name in removed if not (replaced and replaced(name))]
 
 
 # --- project test frameworks -----------------------------------------------
@@ -2001,7 +2002,8 @@ def scratch_run(
             for root in dict.fromkeys((str(workspace.resolve()), str(workspace))):
                 command = command.replace(root, str(tree))
             framework = command_framework(command) or package_scope.recognize(command, command_framework)
-            if framework:
+            # A command whose reporter the runner owns (npm test, RSpec, Vitest) names its tests as well.
+            if framework or (native_execution is None and expects_results(None, command, tree)):
                 receipt = run_suite(
                     framework,
                     command,
@@ -2011,14 +2013,8 @@ def scratch_run(
                     timeout=timeout,
                     native_execution=native_execution,
                 )
-                if receipt["exit_code"] == 0 and not receipt["timed_out"] and not schedule.complete_results(receipt):
-                    return {**receipt, "error": "Test command reported zero tests or incomplete per-test results"}
-                if (
-                    receipt["exit_code"] == 0
-                    and not receipt["timed_out"]
-                    and not (receipt["results"]["passed"] or receipt["results"]["failed"])
-                ):
-                    return {**receipt, "error": "Test command reported only skipped tests"}
+                if framework and (nothing := schedule.shows_nothing(receipt)):
+                    return {**receipt, "error": nothing}
             else:
                 receipt = run_command(
                     command, tree, run_dir / "scratch-command.log", timeout=timeout, native_execution=native_execution
@@ -2230,6 +2226,7 @@ class _Run:
     existing_failures: Any
     existing_exit: Any
     roles: Any
+    replaced: Any
 
 
 def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
@@ -2333,10 +2330,9 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
     dependencies_from, independent_dependencies = run.dependencies_from, run.independent_dependencies
     generated_record, generated_unrecorded = run.generated_record, run.generated_unrecorded
     ignored_inputs, new_behavior, preserve = run.ignored_inputs, run.new_behavior, run.preserve
-    allow_no_test, test_root, suite_command = run.allow_no_test, run.test_root, run.suite_command
-    regression_command, guards, existing_guards = run.regression_command, run.guards, run.existing_guards
+    allow_no_test, test_root, guards = run.allow_no_test, run.test_root, run.guards
     existing_failures, fail, unverified, notes = run.existing_failures, run.fail, run.unverified, run.notes
-    checks, proof = run.checks, run.proof
+    checks, proof, existing_guards = run.checks, run.proof, run.existing_guards
     reuse = checks.get("regression_on_candidate") if commands["suite"] == commands["regression"] else None
     on_candidate = reuse or run_suite(
         framework, commands["suite"], trees["candidate"], run_dir, "suite-on-candidate", timeout=timeout
@@ -2435,8 +2431,8 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
         and new_behavior
         and not preserve
         and not base_patch
-        and suite_command is None
-        and regression_command is None
+        and run.suite_command is None
+        and run.regression_command is None
         and framework is not None
         and comparable
         and comparable.get("base") == base
@@ -2513,6 +2509,7 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
         untested=bool(base) and _untested_base(workspace, base),
         repaired=first_suite.repaired_evidence(proof, existing_failures, comparable, checks, on_candidate),
         quarantined=suite_flakes.for_proof(run, trees, on_candidate, comparable, (make_tree, run_suite, remove_tree)),
+        replaced=run.replaced,
     )
     judgment.judge_retained_runner(None if untyped else base_definition, comparable, fail, unverified)
     # make_tree copies ignored test files into both trees, so a guard could rest on a test base never held.
@@ -2597,6 +2594,7 @@ def verify(
     package_exempt=(),
     withheld=(),
     roles=None,
+    replaced=None,
 ) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
 
@@ -2715,7 +2713,7 @@ def verify(
     )
     if deleted:
         fail.append("Existing test files were deleted: " + ", ".join(deleted))
-    removed = removed_python_tests(workspace, base, changes, roles=roles)
+    removed = removed_python_tests(workspace, base, changes, roles=roles, replaced=replaced)
     if removed:
         fail.append("Existing tests were removed: " + ", ".join(removed[:20]))
     if not runnable_tests and not (existing_guards or existing_failures or existing_exit) and not ambiguous:
@@ -2771,6 +2769,7 @@ def verify(
         existing_failures=existing_failures,
         existing_exit=existing_exit,
         roles=roles,
+        replaced=replaced,
     )
     trees, hidden = {}, []
     baseline_timed_out = bool(base_suite and (base_suite.get("receipt") or {}).get("timed_out") is True)
