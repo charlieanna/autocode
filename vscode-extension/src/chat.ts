@@ -102,6 +102,8 @@ interface ChatTab {
   placeChoice?: PlaceChoice;
   /** Set while `stages` is the list every new chat here shares (no picks of its own): its cache key. */
   sharedStages?: string;
+  /** The `newChatCall().key` under which `stages` (shared or per-chat) was loaded. */
+  stagesKey?: string;
   /** While a confirmation dialog is open: its title, so the chat says what it waits for. */
   confirming: string;
 }
@@ -171,6 +173,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
           for (const key of this.notices.keys()) this.closeNotice(key, true);
         } else void this.refresh();
       }
+      if (event.affectsConfiguration("autocode")) this.configurationChanged();
     });
   }
 
@@ -398,8 +401,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       if (tab.starting || tab.stagesBusy) return;
       if (!tab.stages) await this.loadChatStages(tab);
       const view = tab.stages;
-      if (tab.run || !view?.chat) return;
-      const pick = await pickStageModel(view, chatRoute, (stage) => stage.chat ?? stage.chosen ?? stage.default, "for this chat");
+      if (tab.run || !view?.chat || !view.chat.changeable) return;
+      const pick = await pickStageModel(view, chatRoute, (stage) => stage.chat ?? stage.configured ?? stage.chosen ?? stage.default, "for this chat");
       if (pick && this.active === tab) await this.chatStage({ type: "chat_stage", stage: pick.stage.id, model: pick.model, effort: pick.effort });
       return;
     }
@@ -451,14 +454,18 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     if (sameWords(argv, shared.argv)) { await this.showSharedStages(tab, shared); return; }
     tab.stagesBusy = true;
     tab.stagesError = "";
+    tab.stagesKey = shared.key;
     this.post();
     try {
-      tab.stages = await readChatStages(argv);
-      tab.sharedStages = undefined;
+      const stages = await readChatStages(argv);
+      if (!tab.run && tab.stagesKey === shared.key) {
+        tab.stages = stages;
+        tab.sharedStages = undefined;
+      }
     } catch (error) {
-      tab.stagesError = messageOf(error);
+      if (tab.stagesKey === shared.key) tab.stagesError = messageOf(error);
     } finally {
-      tab.stagesBusy = false;
+      if (tab.stagesKey === shared.key) tab.stagesBusy = false;
       this.post();
     }
   }
@@ -496,24 +503,29 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
    */
   private async showSharedStages(tab: ChatTab, shared: NewChatList): Promise<void> {
     const cached = this.stageLists.peek(shared.key);
+    tab.sharedStages = shared.key;
+    tab.stagesKey = shared.key;
     if (cached) {
       tab.stages = cached;
-      tab.sharedStages = shared.key;
       tab.stagesError = "";
       this.post();
       if (this.stageLists.fresh(shared.key) || this.stageLists.loading(shared.key)) return;
     } else {
+      tab.stages = undefined;
       tab.stagesBusy = true;
       tab.stagesError = "";
       this.post();
     }
     try {
       const view = await this.stageLists.load(shared.key, () => readListText(shared));
-      if (!tab.run && (!tab.stages || tab.sharedStages === shared.key)) { tab.stages = view; tab.sharedStages = shared.key; }
+      if (!tab.run && tab.sharedStages === shared.key) {
+        tab.stages = view;
+        tab.stagesKey = shared.key;
+      }
     } catch (error) {
-      if (!cached) tab.stagesError = messageOf(error);
+      if (!cached && tab.sharedStages === shared.key) tab.stagesError = messageOf(error);
     } finally {
-      if (!cached) tab.stagesBusy = false;
+      if (!cached && tab.sharedStages === shared.key) tab.stagesBusy = false;
       this.post();
     }
   }
@@ -530,6 +542,30 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       changed = true;
     }
     if (changed) this.post();
+  }
+
+  /** Clear and reload unstarted tabs' stage lists when backend or model settings change. */
+  private configurationChanged(): void {
+    const shared = newChatCall();
+    let changed = false;
+    for (const tab of this.tabs) {
+      if (tab.run || tab.starting) continue;
+      if ((tab.stagesKey && tab.stagesKey !== shared.key) || (tab.sharedStages && tab.sharedStages !== shared.key)) {
+        tab.stages = undefined;
+        tab.sharedStages = undefined;
+        tab.stagesKey = undefined;
+        tab.stagesPick = undefined;
+        tab.stagesBusy = false;
+        tab.stagesError = "";
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    if (this.view?.visible && !this.active.run && !this.active.starting && !this.active.stages) {
+      void this.loadChatStages(this.active);
+    } else {
+      this.post();
+    }
   }
 
   /** A pick for this chat alone: only the stage's own `chat_set` (or `chat_reset`) from the list it shows. */
@@ -1297,19 +1333,21 @@ function chatStagesFor(tab: ChatTab) {
     error: tab.stagesError,
     label: view?.label ?? "",
     optionsStop: view?.optionsStop ?? null,
-    // An AutoCode without per-chat picks still lists the stages; it only offers no change.
-    changeable: Boolean(view?.chat),
+    // An AutoCode without per-chat picks (or a run fixed by --single-model) offers no change.
+    changeable: Boolean(view?.chat?.changeable),
+    reason: view?.chat?.reason ?? null,
     stages: (view?.stages ?? []).map((stage) => {
       const pick = tab.stagesPick?.stage === stage.id ? tab.stagesPick : undefined;
       // A reset being checked shows what the stage falls back to; a pick shows the pick.
       const route = pick?.model ? { model: pick.model, effort: pick.effort ?? null }
-        : (pick ? null : stage.chat) ?? stage.chosen ?? (stage.default.offered ? stage.default : null);
+        : (pick ? null : stage.chat) ?? stage.configured ?? stage.chosen ?? (stage.default.offered ? stage.default : null);
       return {
         id: stage.id, label: stage.label, does: stage.does, now: chatRoute(stage), source: chatSource(stage),
         picked: Boolean(stage.chat), checking: Boolean(pick),
         model: route?.model ?? "", effort: route?.effort ?? "",
         options: stage.options.map((option) => ({ model: option.model, family: option.family, unavailable: option.unavailable, effortChoices: option.effortChoices })),
         resettable: Boolean(stage.chatReset),
+        resetLabel: stage.configured ? (stage.configured.source === "project" ? "Use project model" : "Use settings") : "Use Stage models",
       };
     }),
   };
@@ -1322,6 +1360,9 @@ function chatStagesFor(tab: ChatTab) {
 function modelsChip(tab: ChatTab): { label: string; disabled: boolean; title: string } | null {
   if (!tab.run) {
     if (!tab.stages?.chat || !tab.stages.stages.length) return null;
+    if (!tab.stages.chat.changeable) {
+      return { label: "Models · fixed", disabled: true, title: tab.stages.chat.reason ?? "Per-stage models cannot change for this chat." };
+    }
     const picked = tab.stages.stages.filter((stage) => stage.chat).length;
     if (tab.stagesPick) return { label: "Models · checking…", disabled: true, title: "Checking this chat's pick" };
     // A greyed-out chip says why on its face, not only on hover: it was a dead "Models" button.

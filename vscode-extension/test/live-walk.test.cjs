@@ -22,6 +22,7 @@ const skip = !CLI || !SCRIPT ? 'set AUTOCODE_WALK_CLI and AUTOCODE_WALK_SCRIPT t
 const host = editor();
 const { RunController } = host.load('controller.js');
 const { ChatView } = host.load('chat.js');
+const { StageListCache } = host.load('core/stage-cache.js');
 const { RunItem } = host.load('runsView.js');
 const { activate } = host.load('extension.js');
 
@@ -1575,4 +1576,217 @@ report_path.write_text(json.dumps(out))
     'turn 2 full assistant_reply stays in chat transcript');
   assert.equal(messagesText().split('Build a scratchpad CLI that appends plain markdown notes').length - 1, 1);
   assert.equal(dom.window.document.querySelector('#app pre.understanding'), null, 'understanding is not duplicated in card');
+});
+
+test("walk: a new chat's model controls show explicit project GLM/MiMo and extraOptions routes and match the admitted run", { skip }, async (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'walk-f6-')));
+  const xdg = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'walk-f6-xdg-')));
+  t.after(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(xdg, { recursive: true, force: true });
+  });
+  const git = (...args) => execFileSync('git', ['-C', root, ...args], { stdio: 'pipe' });
+  git('init', '-q');
+  git('config', 'user.email', 'walk@test');
+  git('config', 'user.name', 'Walk');
+  fs.writeFileSync(path.join(root, 'greet.py'), "print('hi')\n");
+  fs.mkdirSync(path.join(root, '.autocode'), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, '.autocode', 'config.toml'),
+    'planner-model = "zai-coding-plan/glm-5.3"\n' +
+      'planner-reasoning-effort = "high"\n' +
+      'builder-model = "xiaomi-token-plan-sgp/mimo-v2.6-pro"\n' +
+      'builder-reasoning-effort = "xhigh"\n',
+  );
+  git('add', 'greet.py', '.autocode/config.toml');
+  git('commit', '-qm', 'seed');
+
+  const providers = path.join(xdg, 'autocode', 'providers');
+  fs.mkdirSync(providers, { recursive: true });
+  const providerScript = path.join(xdg, 'f6_provider.py');
+  fs.writeFileSync(
+    providerScript,
+    String.raw`#!/usr/bin/env python3
+import json, sys
+from pathlib import Path
+
+if sys.argv[1:] == ["login", "status"]:
+    print("Logged in (offline fixture)")
+    raise SystemExit(0)
+
+report_path = Path(sys.argv[sys.argv.index("-o") + 1])
+out = {
+    "project_conventions": [],
+    "ignored_requirements": [],
+    "machine_resolutions": [],
+    "access_blockers": [],
+    "task_kind": "build",
+    "workspace_scope": {"spans_repositories": False, "external_parts": []},
+    "job": "none",
+    "design_document": "",
+    "clarity": "vague",
+    "summary": "The user wants to discuss product ideas.",
+    "assistant_reply": "I'd love to explore ideas with you. What kind of workflow or problem are you hoping to improve?",
+    "intended_outcome": "",
+    "requirements": [],
+    "required_behaviors": [],
+    "constraints": [],
+    "source_refs": [],
+    "proposed_assumptions": [],
+    "open_questions": [{
+        "id": "Q1",
+        "question": "What kind of workflow or problem are you hoping to improve?",
+        "why": "Establish the user's goal before drafting requirements.",
+        "options": [],
+        "proposed_default": "",
+        "kind": "decision",
+        "category": "requested_outcome",
+        "delegable": False,
+    }],
+    "ignored_statements": [],
+    "conflicts": [],
+    "proposed_reframes": [],
+}
+report_path.write_text(json.dumps(out))
+`,
+  );
+  fs.chmodSync(providerScript, 0o755);
+  const fakeToml = [
+    'name = "fake"',
+    'output = "report_file"',
+    `command = ${JSON.stringify([CLI, providerScript, '--output-schema', '{schema}', '-o', '{report}', '--model', '{model}', '-'])}`,
+    `models = ${JSON.stringify([
+      'zai-coding-plan/glm-5.3',
+      'xiaomi-token-plan-sgp/mimo-v2.6-pro',
+      'fake/task_planner',
+      'fake/requirements',
+      'fake/planner',
+      'fake/plan_reviewer',
+      'fake/builder',
+      'fake/tester',
+      'fake/completion',
+      'fake/resolver',
+    ])}`,
+    '',
+    '[roles]',
+  ];
+  for (const role of ['task_planner', 'planner', 'plan_reviewer', 'builder', 'tester', 'completion']) {
+    fakeToml.push(`${role} = { model = "fake/${role}", effort = "medium" }`);
+  }
+  fs.writeFileSync(path.join(providers, 'fake.toml'), fakeToml.join('\n') + '\n');
+  const stagesTomlPath = path.join(xdg, 'autocode', 'stages.toml');
+  fs.writeFileSync(stagesTomlPath, '[fake]\nplanner = { model = "fake/planner", effort = "medium" }\n');
+
+  const prevXdg = process.env.XDG_CONFIG_HOME;
+  const prevFolders = host.vscode.workspace.workspaceFolders;
+  process.env.XDG_CONFIG_HOME = xdg;
+  host.vscode.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  t.after(() => {
+    if (prevXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = prevXdg;
+    host.vscode.workspace.workspaceFolders = prevFolders;
+  });
+
+  host.config.set('cliPath', CLI);
+  host.config.set('cliArgs', [SCRIPT]);
+  host.config.set('provider', 'fake');
+  host.config.set('confirmPersonOnly', false);
+  host.config.set('notify', false);
+  host.config.set('pollSeconds', 1);
+
+  const controller = new RunController(host.log);
+  let selectedRun;
+  let receive;
+  const webview = {
+    html: '',
+    options: {},
+    onDidReceiveMessage: (callback) => { receive = callback; },
+    postMessage: async (data) => { webview.deliver?.(data); return true; },
+  };
+  const shell = { visible: true, webview, onDidChangeVisibility: () => {}, onDidDispose() {} };
+  const chat = new ChatView(
+    controller,
+    { get: () => undefined, update: async () => {} },
+    {
+      pickWorkspace: async () => root,
+      confirmStart: async () => true,
+      changed() {},
+      selected: (ref) => { if (ref) selectedRun = ref; },
+    },
+    new StageListCache(),
+  );
+  t.after(() => chat.dispose());
+  chat.resolveWebviewView(shell);
+  const dom = new JSDOM(webview.html, { runScripts: 'outside-only' });
+  t.after(() => dom.window.close());
+  let saved = {};
+  dom.window.acquireVsCodeApi = () => ({
+    postMessage: (message) => receive(message),
+    getState: () => saved,
+    setState: (value) => { saved = value; },
+  });
+  webview.deliver = (data) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
+  dom.window.eval(dom.window.document.querySelector('script').textContent);
+  await flush();
+  chat.show();
+
+  const row = (stage) => dom.window.document.querySelector(`#chat-models [data-stage="${stage}"]`);
+  const diag = () => `error=${dom.window.document.querySelector('#chat-error')?.textContent} | models=${dom.window.document.querySelector('#chat-models')?.textContent}`;
+
+  assert.ok(
+    await waitFor(() => row('planner')?.querySelector('select.model') && row('builder')?.querySelector('select.model'), 15000),
+    `chat models ready: ${diag()}`,
+  );
+
+  assert.equal(row('planner').querySelector('select.model').value, 'zai-coding-plan/glm-5.3');
+  assert.equal(row('planner').querySelector('select.level').value, 'high');
+  assert.equal(row('planner').querySelector('.now').textContent.trim(), 'project');
+
+  assert.equal(row('requirements').querySelector('select.model').value, 'zai-coding-plan/glm-5.3');
+  assert.equal(row('requirements').querySelector('select.level').value, 'medium');
+  assert.equal(row('requirements').querySelector('.now').textContent.trim(), 'project');
+
+  assert.equal(row('builder').querySelector('select.model').value, 'xiaomi-token-plan-sgp/mimo-v2.6-pro');
+  assert.equal(row('builder').querySelector('select.level').value, 'xhigh');
+  assert.equal(row('builder').querySelector('.now').textContent.trim(), 'project');
+
+  const glmOption = Array.from(row('plan_reviewer').querySelectorAll('select.model option'))
+    .find((opt) => opt.value === 'zai-coding-plan/glm-5.3');
+  assert.ok(glmOption && glmOption.disabled, 'plan_reviewer disables planner GLM option');
+  assert.match(fs.readFileSync(stagesTomlPath, 'utf8'), /fake\/planner/, 'stages.toml keeps global choice untouched');
+
+  await host.vscode.workspace.getConfiguration('autocode').update(
+    'extraOptions',
+    ['--tester-model', 'fake/requirements', '--tester-reasoning-effort', 'low'],
+  );
+  assert.ok(
+    await waitFor(() => row('tester')?.querySelector('.now')?.textContent.trim() === 'settings', 15000),
+    `tester refreshes from extraOptions: ${diag()}`,
+  );
+  assert.equal(row('tester').querySelector('select.model').value, 'fake/requirements');
+  assert.equal(row('tester').querySelector('select.level').value, 'low');
+
+  const field = dom.window.document.querySelector('#message');
+  field.value = "let's have a discussion around ideas";
+  field.dispatchEvent(new dom.window.Event('input'));
+  dom.window.document.querySelector('#composer').dispatchEvent(new dom.window.Event('submit', { cancelable: true }));
+
+  assert.ok(
+    await waitFor(
+      () => selectedRun?.runDir && dom.window.document.querySelector('#send-hint')?.textContent === 'Send reply and continue',
+      30000,
+    ),
+    `admitted run settled at Requirements question: ${diag()}`,
+  );
+
+  const runStagesJson = execFileSync(
+    CLI,
+    [SCRIPT, 'stages', 'list', '--run-dir', selectedRun.runDir, '--json'],
+    { env: { ...process.env, XDG_CONFIG_HOME: xdg }, encoding: 'utf8' },
+  );
+  const runById = Object.fromEntries(JSON.parse(runStagesJson).stages.map((s) => [s.id, s]));
+  assert.deepEqual(runById.requirements.chosen, { model: 'zai-coding-plan/glm-5.3', effort: 'medium' });
+  assert.deepEqual(runById.planner.chosen, { model: 'zai-coding-plan/glm-5.3', effort: 'high' });
+  assert.deepEqual(runById.builder.chosen, { model: 'xiaomi-token-plan-sgp/mimo-v2.6-pro', effort: 'xhigh' });
+  assert.deepEqual(runById.tester.chosen, { model: 'fake/requirements', effort: 'low' });
 });

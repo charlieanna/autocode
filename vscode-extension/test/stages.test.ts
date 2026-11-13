@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { backendArgs, chatRoute, chatSource, currentRoute, fillChatSet, fillSet, readStages } from "../src/core/stages";
+import { backendArgs, chatRoute, chatSource, currentRoute, fillChatSet, fillSet, modelArgs, readStages } from "../src/core/stages";
 import { listKey, MAX_AGE_MS, StageListCache, STORAGE_KEY } from "../src/core/stage-cache";
 
 const OPUS = "claude-opus-5-5";
@@ -162,4 +162,63 @@ test("the newest lists are kept and the oldest dropped", async () => {
   for (let i = 0; i < 9; i++) await cache.load(`k${i}`, async () => view());
   assert.equal(cache.peek("k0"), undefined, "the oldest goes first");
   assert.ok(cache.peek("k8"), "the newest stays");
+});
+
+test("configured project and settings routes outrank Stage models for a new chat, without changing currentRoute", () => {
+  const fromProject = readStages(view({
+    chosen: { model: OPUS, effort: "high" },
+    configured: { model: "zai-coding-plan/glm-5.3", effort: "high", source: "project" },
+  })).stages[0]!;
+  assert.equal(chatRoute(fromProject), "zai-coding-plan/glm-5.3 at high (project)");
+  assert.equal(chatSource(fromProject), "project");
+  assert.equal(currentRoute(fromProject), `${OPUS} at high (your choice)`, "Stage models still reports stages.toml");
+
+  const fromSettings = readStages(view({
+    configured: { model: "xiaomi-token-plan-sgp/mimo-v2.6-pro", effort: null, source: "settings" },
+  })).stages[0]!;
+  assert.equal(chatRoute(fromSettings), "xiaomi-token-plan-sgp/mimo-v2.6-pro at its own default level (settings)");
+  assert.equal(chatSource(fromSettings), "settings");
+
+  const picked = readStages(view({
+    configured: { model: "zai-coding-plan/glm-5.3", effort: "high", source: "project" },
+    chat: { model: "claude-haiku-4-5-20251001", effort: "low" },
+  })).stages[0]!;
+  assert.equal(chatRoute(picked), "claude-haiku-4-5-20251001 at low (this chat)");
+  assert.equal(chatSource(picked), "this chat");
+});
+
+test("chat.changeable and modelArgs carry single-model locks and new-run model options", () => {
+  const list = ["stages", "list", "--json", "--backend", "opencode"];
+  const raw = JSON.parse(view());
+  raw.chat = {
+    next_command: [...list, "--", "--single-model", "zai-coding-plan/glm-5.3"],
+    start_args: [],
+    changeable: false,
+    reason: "single-model sets one model for every stage; remove it to change one stage for this chat.",
+  };
+  const parsed = readStages(JSON.stringify(raw));
+  assert.equal(parsed.chat?.changeable, false);
+  assert.match(parsed.chat?.reason ?? "", /single-model/);
+
+  assert.deepEqual(modelArgs(["--max-cost-usd", "5", "--in-place"]), []);
+  assert.deepEqual(
+    modelArgs([
+      "--engine", "opencode",
+      "--planner-model", "zai-coding-plan/glm-5.3",
+      "--terra-reasoning-effort=high",
+      "--single-model", "m",
+      "--reasoning-effort", "low",
+      "--builder-strong-model=s",
+      "--max-cost-usd", "3",
+      "--builder-model", "--dangling",
+    ]),
+    [
+      "--",
+      "--planner-model", "zai-coding-plan/glm-5.3",
+      "--terra-reasoning-effort=high",
+      "--single-model", "m",
+      "--reasoning-effort", "low",
+      "--builder-strong-model=s",
+    ],
+  );
 });

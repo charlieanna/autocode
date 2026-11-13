@@ -3059,16 +3059,23 @@ the reason on stderr and saves nothing. The view launches no model and reads no 
 task reads the choices when it starts; a running task keeps its own.
 
 A chat that has not started can show the stages it will run and change them for itself alone
-([Changing a new chat's models](models.md#changing-a-new-chats-models)). The `list` view also gives
-each stage `chat` (this chat's `model` and `effort`, or null), `chat_set` and `chat_reset` (null
-without a pick), and a top-level `chat` with `start_args` and `next_command`. `chat_set.next_command`
-is the list again with this stage's `--chat-stage ROLE MODEL EFFORT`, filled as `set` is, and the
-chat's other picks; `chat_reset.next_command` is the list without this stage's pick. Either prints
-the view for the chat, with `options` marked `unavailable` against the chat's own routes, and a
-refused pick exits 2 with the reason on stderr; nothing is saved. A client keeps the latest view per
-unstarted chat, reads its `chat.next_command` again just before the chat starts, and appends that
-view's `chat.start_args` unchanged to the start, after the mode's `start_args`. A pick is a typed flag:
-the start checks it again and its level is exact.
+([Changing a new chat's models](models.md#changing-a-new-chats-models)). On `list`, `autocode` also
+reads explicit project stage routes (`.autocode/config.toml` and `pyproject.toml [tool.autocode]`) and
+optional new-run model, reasoning-effort, `--engine`, or `--provider` flags passed after `--`,
+without changing saved choices in `stages.toml`. The `list` view gives each stage `configured`
+(`model`, `effort`, and `source`: `"project"` or `"settings"`, or null), `chat` (this chat's
+`model` and `effort`, or null), `chat_set` and `chat_reset` (null without a pick), and a top-level
+`chat` with `start_args` and `next_command`. When `single-model` fixes every stage, `chat` adds
+`changeable: false` and `reason` (why per-stage overrides are disabled) and each stage's `chat_set`
+is null. Otherwise, `chat_set.next_command` is the list again with this stage's
+`--chat-stage ROLE MODEL EFFORT`, filled as `set` is, and the chat's other picks;
+`chat_reset.next_command` is the list without this stage's pick; `chat.next_command`,
+`chat_set.next_command`, and `chat_reset.next_command` preserve any trailing `--` new-run options.
+Either prints the view for the chat, with `options` marked `unavailable` against the chat's own
+effective routes, and a refused pick exits 2 with the reason on stderr; nothing is saved. A client
+keeps the latest view per unstarted chat, reads its `chat.next_command` again just before the chat
+starts, and appends that view's `chat.start_args` unchanged to the start, after the mode's
+`start_args`. A pick is a typed flag: the start checks it again and its level is exact.
 
 A started run keeps its own routes, and the status view's `stage_models` says how a person changes
 them ([Changing a started run's models](models.md#changing-a-started-runs-models)): `changeable`

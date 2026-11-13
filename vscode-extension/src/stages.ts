@@ -2,7 +2,7 @@
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
 import { invoke, tail, STAGES_TIMEOUT_MS } from "./core/cli";
-import { backendArgs, currentRoute, fillSet, readStages, runListCommand, runRoute, type Stage, type StageRoute, type StageView } from "./core/stages";
+import { backendArgs, currentRoute, fillSet, modelArgs, readStages, runListCommand, runRoute, type Stage, type StageRoute, type StageView } from "./core/stages";
 import { listKey, type StageListCache } from "./core/stage-cache";
 import { readSettings, routeKeyOf, type Settings } from "./settings";
 
@@ -87,7 +87,7 @@ export class StagesPanel implements vscode.Disposable {
 
   async show(target?: RunStages): Promise<void> {
     this.target = target;
-    this.view = target ? undefined : this.lists?.peek(newChatCall().key); this.error = ""; this.note = "";
+    this.view = target ? undefined : this.lists?.peek(stageModelsCall().key); this.error = ""; this.note = "";
     if (this.panel) this.panel.reveal();
     else {
       const panel = vscode.window.createWebviewPanel("autocode.stages", "AutoCode Stage Models", vscode.ViewColumn.One, { enableScripts: true, localResourceRoots: [] });
@@ -109,7 +109,7 @@ export class StagesPanel implements vscode.Disposable {
   }
 
   private async refresh(): Promise<void> {
-    const call = newChatCall();
+    const call = stageModelsCall();
     // Bounded like every other stage read: this panel holds a busy flag across it, and a wedged
     // list would leave every button on it disabled until the window reloaded.
     const result = this.target
@@ -156,11 +156,20 @@ export class StagesPanel implements vscode.Disposable {
   }
 }
 
+function listCall(extraFor: (settings: Settings) => string[] = () => []): { settings: Settings; argv: string[]; key: string } {
+  const settings = inFolder(readSettings());
+  const argv = ["stages", "list", "--json", ...backendArgs(settings.runOptions, routeKeyOf(settings)), ...extraFor(settings)];
+  return { settings, argv, key: listKey(settings.cwd, settings.command, settings.prefix, argv) };
+}
+
+/** The global Stage models list (`stages list --json`), without a workspace's temporary new-run model overrides. */
+export function stageModelsCall(): { settings: Settings; argv: string[]; key: string } {
+  return listCall();
+}
+
 /** The list new chats here read (`stages list --json`), where it runs, and its key in the shared cache. */
 export function newChatCall(): { settings: Settings; argv: string[]; key: string } {
-  const settings = inFolder(readSettings());
-  const argv = ["stages", "list", "--json", ...backendArgs(settings.runOptions, routeKeyOf(settings))];
-  return { settings, argv, key: listKey(settings.cwd, settings.command, settings.prefix, argv) };
+  return listCall((settings) => modelArgs(settings.runOptions));
 }
 
 export function stagesHtml(): string {
