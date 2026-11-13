@@ -115,7 +115,12 @@ Vitest names are free text): a guard on an existing test there still falls back 
 
 - **A new repository with no commit is refused** with a Git command for the person to type
   (`autocode_workspaces.create`), while an empty folder that is not a repository is set up
-  automatically.
+  automatically. A chat's start there (`--build-in-worktree`) stopped with Git's own
+  "ambiguous argument 'HEAD'". Fixed: AutoCode makes the empty first commit itself, without the
+  index, and the task works in the folder (`autocode_workspaces.first_commit`). Still open: once
+  that commit exists and the person's files are uncommitted, the next task starts in a worktree
+  of the empty commit and sees none of them, as a second task in a folder AutoCode made a
+  project of does.
 - **A folder of code that is not a Git repository starts an empty project**: `bootstrap` gives a
   populated non-Git folder a private scratch project, so a task about the code there cannot see it,
   and nothing says so.

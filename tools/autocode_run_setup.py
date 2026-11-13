@@ -357,7 +357,7 @@ def resolve(runner, args, parser):
                 package_scope.require(workspace, args.package, committed=not (args.in_place or read_only))
             except ValueError as error:
                 parser.error(str(error))
-        created = fresh = False
+        created = fresh = first = False
         selected = workspace
         if not (workspace / ".git").exists():
             if args.dry_run or args.status or args.explain:
@@ -370,6 +370,27 @@ def resolve(runner, args, parser):
             # second hidden worktree so users can find the generated files.
             args.in_place = created = True
             print(f"Created task project: {workspace}", flush=True)
+        elif not read_only:
+            try:
+                first = task_workspaces.first_commit(workspace)
+            except ValueError as error:
+                parser.error(f"cannot make the first commit in {workspace}: {error}")
+            if first:
+                # A repository with no commit works where it is, as an empty folder does and as a chat is
+                # told before it starts (autocode_worktree_choice.options): a worktree of the empty first
+                # commit would hide whatever the person has there.
+                held = task_workspaces.own_files(workspace)
+                args.in_place, args.build_in_worktree, created = True, False, not held
+                print(
+                    "This repository had no commit, so AutoCode made an empty first one"
+                    + (
+                        f"; your files were not added to it. The task works in {workspace} itself, starting from "
+                        f"what is there ({len(held)} {'entry' if len(held) == 1 else 'entries'})."
+                        if held
+                        else f". The task works in {workspace}."
+                    ),
+                    flush=True,
+                )
         if not args.in_place and not args.dry_run and not args.status and not args.explain:
             repeated = run_finder.same_task(workspace, task)
             if repeated:  # a recalled start command most often means "continue", not "start another" (#2340)
@@ -428,7 +449,11 @@ def resolve(runner, args, parser):
         if created:
             # The selected folder held no repository, so the work happens in a project AutoCode
             # created. A launch line on stdout never reaches a chat client (#1908).
-            state["workspace_bootstrap"] = {"selected": str(selected), "project": str(workspace)}
+            state["workspace_bootstrap"] = {
+                "selected": str(selected),
+                "project": str(workspace),
+                **({"first_commit": True} if first else {}),
+            }
         elif getattr(args, "build_in_worktree", False) and not (args.dry_run or args.status or args.explain):
             try:  # Requirements here; planned and built in its own worktree, on --worktree-branch when named
                 build_worktree.request(state, workspace, getattr(args, "worktree_branch", None))

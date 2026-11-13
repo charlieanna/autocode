@@ -339,6 +339,14 @@ are refused before a provider launches. The optional destination is used by
 [saved-run replay](replay.md); the run is created there without moving bound
 artifacts afterward.
 
+When the workspace is a Git repository with no commit at all (`git init` and nothing
+more), the core makes an empty first commit itself, without the index, so files the
+person has staged or left untracked stay as they are, and the run works in the folder:
+a worktree of the empty commit would hide what is there. A folder that holds nothing of
+the person's is the run's own project, as an empty folder outside Git is, and its
+`workspace-bootstrap` message says the first commit was made. No client is told to type
+a Git command.
+
 When the workspace is a plain, non-empty folder, the core bootstraps a private
 scratch task project in the folder's own store, `workspace/.autocode/projects/ID`,
 and runs there, so a chat that never builds leaves nothing among the person's
@@ -1932,6 +1940,11 @@ far carries one (a zero is not a price), otherwise its tokens so far at the same
 when no stage runs or the running stage cannot be priced. It is not part of `spent_usd` or the cap
 check. A client showing spend so far adds it to `spent_usd` and to the running stage's row, as a
 floor, so a run on its first stage does not read as nothing spent while its tokens climb.
+A stopped attempt whose report is still awaiting reconciliation counts in `spent_usd`,
+its breakdown and the cap check, even while the checkpoint retains it in `active_stage`.
+The runner's saved finish timestamp or accounting marker establishes that boundary;
+the paused status alone does not. Archiving the attempt does not charge it again.
+Partial usage remains a floor, and an unpriced attempt remains unknown.
 `usage.cost_usd` keeps the frozen comparison rates its reports are bound to,
 so its `estimated` can differ from `cost.estimated_usd`. Those rates price every input token at the
 input rate, cached or not, so on a run whose input is mostly cache reads `usage.cost_usd.estimated`

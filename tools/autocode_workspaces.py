@@ -134,14 +134,16 @@ def create(project, task, branch=None):
         project = Path(previous["project_workspace"])
     if Path(git(project, "rev-parse", "--show-toplevel")).resolve() != project:
         raise ValueError("Select the root of a Git checkout")
+    if not branch:
+        first_commit(project)
     try:
         base = git(project, "rev-parse", "--verify", f"refs/heads/{branch}^{{commit}}" if branch else "HEAD")
     except ValueError as error:
         if branch:
             raise ValueError(f"There is no local branch {branch} in {project}") from error
         raise ValueError(
-            "Create an initial Git commit before starting an isolated task: "
-            f"git -C {project} commit --allow-empty -m 'Start' (autocode doctor checks this too)"
+            f"The branch checked out in {project} has no commit yet, and a task starts from a commit. "
+            "Check out a branch that has one, or commit on this one, then start again"
         ) from error
     name = (re.sub("[^a-z0-9]+", "-", task.lower()).strip("-") or "task")[:40]
     name += "-" + uuid.uuid4().hex[:10]
@@ -201,6 +203,50 @@ def discard_unused(data) -> bool:
     return True
 
 
+BASELINE = "Autocode project baseline"
+# What a folder may hold and still be nothing of the person's: Git's own directory, AutoCode's, a Finder file.
+NOT_THE_PERSONS = frozenset({".git", ".autocode", ".DS_Store"})
+
+
+def first_commit(project) -> bool:
+    """Give a repository with no commit at all its first one, an empty one; whether it was made.
+
+    ``git init`` and nothing more leaves nothing to start a task from: a worktree, the source snapshot
+    and the regression proof's base all name a commit. A run there stopped and told the person to type
+    ``git commit --allow-empty``, or, started from a chat, with Git's own "ambiguous argument 'HEAD'".
+    An empty folder outside Git gets this same commit (``bootstrap``), so the person is not asked for it
+    here either.
+
+    The commit holds no file and is made without the index, so files the person has staged or left
+    untracked stay exactly as they are: AutoCode never commits a person's files. A repository that has
+    commits but none on the branch checked out (an orphan branch) is the person's own arrangement and is
+    left alone. Git's refusal (a signing key that cannot be used, a read-only repository) is raised as it is.
+    """
+    project = Path(project)
+    if git(project, "rev-parse", "--verify", "--quiet", "HEAD", check=False):
+        return False
+    if git(project, "rev-list", "--max-count=1", "--all", check=False):
+        return False
+    branch = git(project, "symbolic-ref", "--quiet", "HEAD", check=False)
+    if not branch.startswith("refs/heads/"):
+        return False
+    tree = git(project, "hash-object", "-w", "-t", "tree", "--stdin", input="")
+    identity = ("-c", "user.name=Autocode", "-c", "user.email=autocode@localhost")
+    commit = git(project, *identity, "commit-tree", tree, "-m", BASELINE)
+    try:  # only when the branch still has no commit: one made meanwhile is never replaced
+        git(project, "update-ref", "-m", BASELINE, branch, commit, "")
+    except ValueError:
+        if git(project, "rev-parse", "--verify", "--quiet", "HEAD", check=False):
+            return False  # another start, or the person, made the first commit in between
+        raise
+    return True
+
+
+def own_files(project) -> list[str]:
+    """What ``project``'s folder holds besides Git's and AutoCode's own entries, by name."""
+    return sorted(entry.name for entry in Path(project).iterdir() if entry.name not in NOT_THE_PERSONS)
+
+
 def bootstrap(selected):
     """Create a local Git-backed task project without taking over user files.
 
@@ -240,7 +286,7 @@ def bootstrap(selected):
         "commit",
         "--allow-empty",
         "-qm",
-        "Autocode project baseline",
+        BASELINE,
     )
     return project
 
