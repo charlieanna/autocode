@@ -95,6 +95,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **Stalled Tester relaunches receive a bounded summary of archived tool calls** (#3309): when a Tester attempt stalls after executing checks, automatic timeout recovery now attaches `executed_work` — up to 40 completed tool calls from OpenCode/Kilo or Codex/Claude event logs with redacted commands/paths, exit codes and true output tails — as unverified context so the relaunch focuses instead of re-reading a multi-thousand-line JSONL log or restarting from scratch; the new report still binds its own executed checks.
+
 - **Recovery-exhaustion stops advertise and accept `--grant-recovery` across every surface** (#3358): when automatic recovery ran out after `resolve` had a pending `resolution_request`, reopening stranded the run at `RESOLVER_PENDING` instead of publishing `WAITING_FOR_USER`, and neither `RESOLVER_PENDING` nor published `operational_exhaustion` offered or accepted `--grant-recovery N`. Publication now exempts `operational_exhaustion`, held and published recovery-exhaustion stops expose the `grant_recovery` offer in `--status` (`next_command` or separate `command`), VS Code (**Grant and continue**) and `autocode chat`, and `autocode resume --grant-recovery N` / `--resume-paused --grant-recovery N` cleanly supersedes the hold while keeping history, limits and plan approval. Without duplicating the grant hint when the underlying pause already carries it.
 
 - **Saving an unrelated limit keeps an investigated failure paused** (#3417): a
