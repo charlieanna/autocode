@@ -191,8 +191,35 @@ def pending_workers(state: RunState):
     ]
 
 
+def running_stage(state: RunState):
+    """The saved in-flight attempt, excluding a finished attempt retained for reconciliation.
+
+    The runner saves finish metrics before applying a report; reconciliation also
+    accounts stopped legacy attempts that have no finish timestamp. Neither the
+    slot name nor a paused status establishes whether the attempt finished.
+    """
+    record = _dict(state.get("active_stage"))
+    return record if record and not record.get("finished_at") and record.get("accounted") is not True else None
+
+
+def finished_records(state: RunState):
+    """Saved finished attempts plus a retained stopped attempt, once by artifact identity."""
+    stages = state.get("stages")
+    records = [item for item in stages if isinstance(item, dict)] if isinstance(stages, list) else []
+    retained = _dict(state.get("active_stage"))
+    if retained and not running_stage(state):
+        namespace = run_identity(state.get("run_dir") or state.get("task_id")) or ""
+        identity = attempt_identity(retained, namespace=namespace, index=len(records))
+        if not any(
+            record is retained or attempt_identity(record, namespace=namespace, index=index) == identity
+            for index, record in enumerate(records)
+        ):
+            records.append(retained)
+    return records
+
+
 def stage_rows(state: RunState, estimator=None):
-    """One row per finished stage: role, model, tokens, cost and where the cost came from.
+    """One row per finished attempt, including one retained in active_stage for reconciliation.
 
     `estimator(model, tokens, finished_at)` prices a stage without a reported cost; the default is
     `estimate`, the frozen comparison rates. autocode_cost passes the dated price table instead, which
@@ -200,8 +227,7 @@ def stage_rows(state: RunState, estimator=None):
     """
     estimator = estimator or estimate
     rows = []
-    stages = state.get("stages")
-    for record in [item for item in stages if isinstance(item, dict)] if isinstance(stages, list) else []:
+    for record in finished_records(state):
         metrics = _dict(record.get("metrics"))
         tokens = dict(_dict(metrics.get("provider_tokens")))
         model = _model(record)
@@ -319,12 +345,12 @@ def summary(state: RunState):
     partial = sum(row["partial"] for row in rows)
     return {
         "stages": len(rows),
-        "active_stage": _dict(state.get("active_stage")).get("stage"),
+        "active_stage": _dict(running_stage(state)).get("stage"),
         "tokens": {key: _sum(row["tokens"][key] for row in rows) for key in TOKEN_KEYS},
         "cost_usd": {
             "reported": round(reported, 6),
             "estimated": round(guessed, 6),
-            "complete": unknown == 0 and partial == 0 and not state.get("active_stage"),
+            "complete": unknown == 0 and partial == 0 and not running_stage(state),
             # Said in the view itself (#3335): read beside `cost`, this looked like a second estimate of the spend.
             "basis": ESTIMATE_BASIS,
         },
@@ -403,9 +429,8 @@ def accounting(state: RunState):
     refreshed for live/partial usage; unreadable logs remain a coverage warning.
     Cross-run callers use combine_accounting with public status attempts.
     """
-    records = state.get("stages")
-    records = [row for row in records if isinstance(row, dict)] if isinstance(records, list) else []
-    active = _dict(state.get("active_stage"))
+    records = finished_records(state)
+    active = running_stage(state)
     if active:
         records = [*records, active]
     namespace = run_identity(state.get("run_dir") or state.get("task_id")) or ""

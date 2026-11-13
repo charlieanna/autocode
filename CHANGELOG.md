@@ -35,6 +35,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- **Stopped attempts count toward spend while recovery retains them** (#3352): a paused run no longer labels a finished attempt's cost as running or excludes it from the spending cap. Its known cost is counted once before and after archival, partial usage stays a lower bound, and unpriced usage stays unknown.
 - **Recovery history distinguishes a decision from a problem handled** (#3359): Resolver retries and holds now appear as next-step decisions, not resolved problems; each shows its recorded cause without command hints. The status view counts only recoveries with explicit success evidence, and the VS Code header reports recovery events without claiming they were handled.
 - **Keep stage retry counts readable in VS Code** (#3371): a long stage name in a narrow sidebar is shortened before its run-count badge, instead of clipping the count.
 - **Unknown stage cost no longer looks free in VS Code** (#3342): a stage whose usage was not reported shows no amount instead of `$0`. Partly known job costs and running costs show `$X+`, including a running zero floor (`$0+`); a genuinely reported zero stays `$0`. The pipeline status view keeps cost completeness, and the spend footer marks incomplete totals with `+`. Spend details no longer claim unknown Builder or failed-attempt costs are free or present incomplete cost shares as whole-run percentages.
