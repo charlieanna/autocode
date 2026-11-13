@@ -937,6 +937,7 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertEqual(original, support.read(self.run / "state.json")["validation"])
 
     def test_completion_review_timeout_revalidates_when_the_evidence_no_longer_binds(self):
+        initial = copy.deepcopy(self.state)
         for binding, expected in (
             ("source", "tester"),
             ("contract", "tester"),
@@ -946,6 +947,8 @@ class ActivityRuntimeTests(unittest.TestCase):
             ("absent", "review_completion"),
         ):
             with self.subTest(binding=binding):
+                # Each binding fault is a separate run, not another retry of the previous fault.
+                self.state = copy.deepcopy(initial)
                 record, evidence = self.completion_review_timeout()
                 if binding == "source":
                     (self.root / "greet.py").write_text("print('changed after the validation ran')\n")
@@ -977,12 +980,14 @@ class ActivityRuntimeTests(unittest.TestCase):
     def test_completion_review_timeout_routes_the_workflows_verification_stage(self):
         # The retry must ask the reviewer that this routing uses for independent verification, and a
         # final-audit-only run has no separate Validator: its own audit stage re-produces the evidence.
+        initial = copy.deepcopy(self.state)
         for mode, policy, expected in (
             (None, None, "tester"),
             (runner.workflow.MODE, runner.workflow.APPROVAL_TEXT, "review_checkpoint"),
             (runner.workflow.FINAL_MODE, runner.workflow.FINAL_APPROVAL, "review_completion"),
         ):
             with self.subTest(mode=mode):
+                self.state = copy.deepcopy(initial)
                 self.completion_review_timeout()
                 self.state["settings"]["milestone_checkpoints"] = {"enabled": False}
                 if mode:
