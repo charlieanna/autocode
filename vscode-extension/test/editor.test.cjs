@@ -6939,3 +6939,38 @@ test('the spend confirmation says "its default provider" instead of quoting the 
   assert.equal(await confirmSpend(), true);
   assert.ok(shown[1].includes('through provider "kilocode"?'), shown[1]);
 });
+
+for (const source of ['saved', 'saved sentence case', 'streaming', 'absent', 'different']) {
+  test(`Requirements clarification is shown once with accessible input (${source})`, async (t) => {
+    const question = 'What was different when choices helped you?';
+    const messages = source === 'absent' ? [] : [{ id: 'requirements-question-current', role: 'assistant',
+      text: source === 'different' ? 'What happened before that?'
+        : source === 'saved sentence case' ? `To ground this, ${question.toLowerCase()}` : `Tell me more. ${question}`,
+      streaming: source === 'streaming' }];
+    const value = { status: 'WAITING_FOR_USER', done: false,
+      needs: { kind: 'answer', questions: [{ id: 'Q2', question, options: [] }] },
+      next_command: `autocode --answer Q2=ANSWER --resolver-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+      chat: { phase: 'requirements', context: 'clarify-2', input: null, review: null, messages } };
+    const ui = await openChat(t, value);
+    const field = ui.document.querySelector('[data-question="Q2"]');
+    assert.ok(field);
+    assert.equal(field.getAttribute('aria-label'), question);
+    assert.equal(ui.document.querySelectorAll('#app .q').length, source.startsWith('saved') ? 0 : 1);
+    if (source.startsWith('saved')) {
+      assert.equal(ui.document.getElementById('messages').textContent.toLowerCase().split(question.toLowerCase()).length - 1, 1);
+      assert.ok(!ui.document.getElementById('app').textContent.includes(question));
+    }
+    if (source === 'streaming') {
+      ui.setView({ ...value, chat: { ...value.chat, messages: [{ ...messages[0], streaming: false }] } });
+      await ui.poll();
+      assert.equal(ui.document.querySelectorAll('#app .q').length, 0, 'a completed message replaces the repeated label');
+    }
+    const answerField = ui.document.querySelector('[data-question="Q2"]');
+    answerField.value = 'They helped after I explained the problem';
+    answerField.dispatchEvent(new ui.window.Event('input'));
+    const launch = t.mock.method(cli, 'stream', async () => ok);
+    ui.document.querySelector('#take-action').click(); await flush(); await flush();
+    assert.equal(launch.mock.callCount(), 1);
+    assert.ok(launch.mock.calls[0].arguments[1].includes('Q2=They helped after I explained the problem'));
+  });
+}

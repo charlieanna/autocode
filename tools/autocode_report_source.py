@@ -22,6 +22,7 @@ try:
     from . import autocode_leaked_markup_report as leaked_markup
     from . import autocode_opencode as opencode
     from . import autocode_report_syntax as report_syntax
+    from . import autocode_requirements_report as requirements_report
     from . import autocode_requirements_triage as requirements_triage
     from . import autocode_support as support
     from .autocode_report_bounds import MAX_REPORT_BYTES
@@ -32,6 +33,7 @@ except ImportError:
     import autocode_leaked_markup_report as leaked_markup
     import autocode_opencode as opencode
     import autocode_report_syntax as report_syntax
+    import autocode_requirements_report as requirements_report
     import autocode_requirements_triage as requirements_triage
     import autocode_support as support
     from autocode_report_bounds import MAX_REPORT_BYTES
@@ -358,6 +360,7 @@ def load_stage_report(runtime, record, workspace=None, evidence_record=None, sta
         runtime.report_edits.validation_schema(runtime.read_json(Path(record["schema"]))), state, record, value
     )
     value = runtime.support.normalize_loaded_report(value, schema, record)
+    value = requirements_report.normalize(value, state, schema, record)
     if (
         state is not None
         and requirements_triage.due(state)
