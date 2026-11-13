@@ -753,9 +753,9 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertEqual(1, failures[0]["output_probe"]["attempts"])
         self.assertNotIn("active_stage", self.state)
 
-    def stalled_tester(self, iteration):
+    def stalled_tester(self, iteration, *, stage="tester"):
         _, record = self.interrupted_attempt()
-        record.update(role="tester", stage="tester", iteration=iteration)
+        record.update(role="tester" if stage == "tester" else "task_planner", stage=stage, iteration=iteration)
         return runner.automatically_recover_timed_out_stage(
             self.state, self.run, self.root, support.Paused("PAUSED_PROVIDER_TIMEOUT", "idle")
         )
@@ -830,6 +830,34 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertTrue(self.stalled_tester(3))
         self.assertEqual("RUNNING", self.state["status"])
         self.assertEqual(3, len(self.state["automatic_timeout_recoveries"]))
+
+    def test_consecutive_tester_stalls_are_investigated_before_a_third_identical_attempt(self):
+        # #3233: the direct Tester retry bypassed the repeated-stage guard because no successful
+        # Completion Review reset the streak. Each attempt repeated the same long verification.
+        self.start_task()
+        self.state["next_stage"] = "tester"
+        self.assertTrue(self.stalled_tester(1))
+        self.assertEqual("RUNNING", self.state["status"])
+        self.assertTrue(self.stalled_tester(2))
+        self.assertEqual("PAUSED_REPEATED_FAILURE", self.state["status"])
+        self.assertEqual(2, len(self.state["automatic_timeout_recoveries"]))
+        self.assertTrue(all(Path(row["events"]).is_file() for row in self.state["automatic_timeout_recoveries"]))
+        self.assertTrue(stuck_job.intercept(self.state, self.state["status"], self.state["stop_reason"]))
+        self.assertEqual("investigate_stuck", self.state["next_stage"])
+        self.assertEqual("tester", self.state["stuck_investigation"]["stage"])
+
+    def test_consecutive_completion_stalls_reach_diagnosis_before_a_third_review(self):
+        for stage in ("review_completion", "review_checkpoint"):
+            with self.subTest(stage=stage):
+                self.start_task()
+                self.state["next_stage"] = stage
+                self.assertTrue(self.stalled_tester(1, stage=stage))
+                self.assertEqual("RUNNING", self.state["status"])
+                self.assertTrue(self.stalled_tester(2, stage=stage))
+                self.assertEqual("PAUSED_REPEATED_FAILURE", self.state["status"])
+                self.assertTrue(stuck_job.intercept(self.state, self.state["status"], self.state["stop_reason"]))
+                self.assertEqual("investigate_stuck", self.state["next_stage"])
+                self.assertEqual(stage, self.state["stuck_investigation"]["stage"])
 
     def completion_review_timeout(self):
         """A stopped non-terminal Completion Review over a source the Validator already passed."""
