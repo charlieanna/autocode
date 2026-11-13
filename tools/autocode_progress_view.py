@@ -370,8 +370,21 @@ def _raised_bound(needs) -> str | None:
     rows = needs.get("command_inputs")
     if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
         return None
+    if rows[0].get("id") == "grant_recovery":
+        return None
     label = rows[0].get("label")
     return label.split(" (")[0].lower() if isinstance(label, str) and label else None
+
+
+def _grant_offered(needs) -> bool:
+    """Whether ``needs`` carries the explicit ``grant_recovery`` recovery-slot offer."""
+    rows = (needs or {}).get("command_inputs")
+    return (
+        isinstance(rows, list)
+        and len(rows) == 1
+        and isinstance(rows[0], dict)
+        and rows[0].get("id") == "grant_recovery"
+    )
 
 
 def _asked(needs, state: RunState | None = None):
@@ -387,6 +400,8 @@ def _asked(needs, state: RunState | None = None):
             # Words for a person, never a flag (#2607); a limit is raised, not explained away.
             if bound := _raised_bound(needs):
                 return f"raise the {bound} to continue, or leave the run paused"
+            if _grant_offered(needs):
+                return "send AutoResolver corrective information, or authorize additional recoveries"
             return "send AutoResolver corrective information"
         return f"{_count(len(needs.get('questions') or []), 'question')} to answer"
     if kind == "review":
@@ -406,6 +421,8 @@ def _asked(needs, state: RunState | None = None):
         if needs.get("edit_required"):
             actions = " or ".join(action for action in (needs["action"], needs.get("feedback_action")) if action)
             return f"correct the plan with {actions}; fresh approval needed"
+        if _grant_offered(needs) and needs.get("action", "").endswith(" N"):
+            return "authorize additional recoveries to continue"
         if (bound := _raised_bound(needs)) and needs.get("action", "").endswith(" N"):
             return f"raise the {bound} to continue"
         if needs.get("action"):

@@ -228,6 +228,42 @@ for (const surface of ['chat', 'Run details']) {
     });
   }
 
+  test(`a WAITING_FOR_USER operational exhaustion with separate grant_recovery in ${surface} renders and launches Grant and continue`, async (t) => {
+    host.config.set('confirmPersonOnly', false);
+    const ownController = new RunController(host.log);
+    const grantCmd = `AUTOCODE_EXPECTED_RECOVERY_TOKEN=recovery:op autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused --grant-recovery N --expected-recovery-token -`;
+    const replyCmd = `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resolver-request req-1 --resolver-token - --resolver-response provide_information --resolver-message MESSAGE`;
+    const view = {
+      status: 'WAITING_FOR_USER', done: false, recovery: { token: 'recovery:op' },
+      needs: {
+        kind: 'answer', resolver_scope: 'operational_exhaustion', resolver_request_id: 'req-1', resolver_token: 'rk',
+        command_inputs: [{ id: 'grant_recovery', kind: 'integer', flag: '--grant-recovery', placeholder: 'N',
+          arg_index: 2, label: 'Additional recoveries', current: 3, used: 3, minimum: 1, maximum: 3, command: grantCmd }],
+      },
+      next_command: replyCmd.replace('MESSAGE', '"WHAT CHANGED"'),
+      chat: { context: 'chat-1', messages: [], input: { kind: 'resolver_response', label: 'Send recovery reply', next_command: replyCmd } },
+    };
+    const ui = surface === 'chat' ? await openChat(t, view, run, { controller: ownController }) : await openPanel(t, view, undefined, ownController);
+    const field = ui.document.querySelector('[data-question="raise:grant_recovery"]');
+    const raise = ui.document.querySelector('#raise-bound');
+    assert.ok(field, 'separate grant_recovery field renders beside operational reply');
+    assert.ok(ui.document.body.textContent.includes('Or authorize more recoveries instead: Additional recoveries'));
+    assert.equal(raise.textContent.trim(), 'Grant and continue');
+    field.value = '1'; field.dispatchEvent(new ui.window.Event('input'));
+    assert.equal(raise.disabled, false);
+    const launch = t.mock.method(cli, 'stream', async () => ok);
+    const confirm = t.mock.method(host.vscode.window, 'showWarningMessage', async (_title, _opts, button) => button);
+    raise.click(); await flush();
+    const [title, options, button] = confirm.mock.calls[0].arguments;
+    assert.equal(title, 'Replenish 1 recovery slot and continue?');
+    assert.equal(button, 'Grant and continue');
+    assert.ok(options.detail.includes('existing fixed allowance'), options.detail);
+    assert.equal(launch.mock.callCount(), 1);
+    const [, args, env] = launch.mock.calls[0].arguments;
+    assert.deepEqual(args, ['--resume-paused', '--grant-recovery', '1', '--expected-recovery-token', '-', '--workspace', run.workspace, '--run-dir', run.runDir]);
+    assert.deepEqual(env, { AUTOCODE_EXPECTED_RECOVERY_TOKEN: 'recovery:op' });
+  });
+
   test(`a malformed separate raise in ${surface} is not offered`, async (t) => {
     const view = heldCostView();
     view.needs.command_inputs[0].command = view.needs.command_inputs[0].command.replace(run.runDir, '/other/run');

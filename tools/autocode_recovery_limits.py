@@ -179,6 +179,29 @@ def published_request(state: RunState) -> dict | None:
     return public if isinstance(entry, dict) and entry.get("status") == "pending" else None
 
 
+def queued_operational_hold(state: RunState) -> dict | None:
+    """An unpublished runner-held operational_exhaustion proposal still queued at RESOLVER_PENDING."""
+    if state.get("status") != "RESOLVER_PENDING":
+        return None
+    proposal = state.get("resolver_human_proposal")
+    if not isinstance(proposal, dict) or proposal.get("scope") != "operational_exhaustion":
+        return None
+    evidence = proposal.get("evidence")
+    receipt_id = evidence.get("resolver_receipt_id") if isinstance(evidence, dict) else None
+    if not isinstance(receipt_id, str) or not receipt_id:
+        return None
+    receipt = ((state.get("resolver") or {}).get("operational_receipts") or {}).get(receipt_id)
+    if not (
+        isinstance(receipt, dict)
+        and receipt.get("runner_owned")
+        and receipt.get("stage") == "resolver"
+        and (receipt.get("decision") or {}).get("action") == "hold"
+        and isinstance((receipt.get("receipt") or {}).get("evaluation_binding"), dict)
+    ):
+        return None
+    return proposal
+
+
 def scoped_retry_refusal(state: RunState, public: dict | None) -> str | None:
     """Why the saved state cannot take an explicit scoped retry of its novelty hold now, else None.
 

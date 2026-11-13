@@ -1155,6 +1155,95 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("Nothing changed. The run is still paused.", out)
         self.assertEqual([], client.taken)
 
+    def _operational_recovery_exhaustion_view(self, status="WAITING_FOR_USER"):
+        grant_cmd = (
+            f"AUTOCODE_EXPECTED_RECOVERY_TOKEN=rt autocode {PLACE} --resume-paused --grant-recovery N "
+            "--expected-recovery-token -"
+        )
+        row = {
+            "id": "grant_recovery",
+            "kind": "integer",
+            "flag": "--grant-recovery",
+            "placeholder": "N",
+            "arg_index": 2,
+            "label": "Additional recoveries",
+            "current": 3,
+            "used": 3,
+            "minimum": 1,
+            "maximum": 3,
+        }
+        if status == "RESOLVER_PENDING":
+            return {
+                "status": "RESOLVER_PENDING",
+                "pause_category_label": "Recovery exhausted",
+                "needs": {
+                    "kind": "resume",
+                    "reason": "Automatic recovery exhausted.",
+                    "pause_origin": "PAUSED_TIMEOUT_RECOVERY",
+                    "command_inputs": [row],
+                },
+                "recovery": {"token": "rt"},
+                "next_command": grant_cmd,
+            }
+        reply_cmd = f"autocode {PLACE} --resolver-request req-1 --resolver-token - --resolver-response provide_information --resolver-message MESSAGE"
+        return {
+            "status": "WAITING_FOR_USER",
+            "needs": {
+                "kind": "answer",
+                "resolver_scope": "operational_exhaustion",
+                "resolver_request_id": "req-1",
+                "resolver_token": "rk",
+                "pause_origin": "PAUSED_TIMEOUT_RECOVERY",
+                "questions": [{"id": "Q1", "question": "Provide corrective information.", "why": "", "options": []}],
+                "command_inputs": [{**row, "command": grant_cmd}],
+            },
+            "recovery": {"token": "rt"},
+            "next_command": reply_cmd.replace("MESSAGE", '"WHAT CHANGED"'),
+            "chat": {
+                "context": "chat-1",
+                "messages": [],
+                "input": {"kind": "resolver_response", "label": "Send reply", "next_command": reply_cmd},
+            },
+        }
+
+    def test_operational_recovery_exhaustion_accepts_prose_or_grant_and_explains_confirm(self):
+        # Prose reply sends provide_information rather than refusing as a bound limit.
+        prose = ScriptedChat(self._operational_recovery_exhaustion_view(), DONE, replies=["check port 8080"])
+        self.assertEqual(0, prose.converse())
+        self.assertNotIn("A written reply can't lift a limit", prose.text())
+        self.assertEqual(
+            [
+                [
+                    "--resolver-request",
+                    "req-1",
+                    "--resolver-token",
+                    "-",
+                    "--resolver-response",
+                    "provide_information",
+                    "--resolver-message",
+                    "check port 8080",
+                ]
+            ],
+            prose.taken,
+        )
+
+        # Numeric reply grants recoveries via the separate grant command.
+        granted = ScriptedChat(self._operational_recovery_exhaustion_view(), DONE, replies=["1"])
+        self.assertEqual(0, granted.converse())
+        self.assertIn("Or type a number, 1 to 3, to authorize additional recoveries and continue.", granted.text())
+        self.assertEqual(
+            [["--resume-paused", "--grant-recovery", "1", "--expected-recovery-token", "-"]], granted.taken
+        )
+
+        # Held/paused confirm copy says automatic recovery was exhausted rather than "Additional recoveries limit".
+        held = ScriptedChat(self._operational_recovery_exhaustion_view("RESOLVER_PENDING"), DONE, replies=["1", "y"])
+        self.assertEqual(0, held.converse())
+        held_out = held.text()
+        self.assertIn("Additional recoveries (1 to 3): ", held_out)
+        self.assertIn("AutoCode stopped: automatic recovery was exhausted.", held_out)
+        self.assertNotIn("Additional recoveries limit", held_out)
+        self.assertEqual([["--resume-paused", "--grant-recovery", "1", "--expected-recovery-token", "-"]], held.taken)
+
     def test_a_number_below_the_bound_or_for_a_stale_offer_takes_nothing(self):
         low = ScriptedChat(self.held_time_pause(), DONE, replies=["2400"])
         low.converse()

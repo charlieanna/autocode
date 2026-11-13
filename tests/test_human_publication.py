@@ -15,8 +15,10 @@ import autocode as runner
 import autocode_action_authority as action_authority
 import autocode_args
 import autocode_dependency as dependency
+import autocode_recovery_limits as recovery_limits
 import autocode_resolver_human as human
 import autocode_run_actions as run_actions
+import autocode_run_view as run_view
 import autocode_support as support
 
 from . import test_resolver_human, test_subprocess
@@ -261,6 +263,29 @@ class HumanPublicationTests(unittest.TestCase):
         self.assertEqual("resolver", public["issuer"])
         self.assertIn("cannot continue safely", public["request"]["impact"])
         self.assertEqual(3, saved["failure_history"]["failure"]["count"])
+
+    def test_operational_exhaustion_publishes_with_pending_resolve_request_and_deduplicates_grant_advice(self):
+        self.state.update(
+            status="PAUSED_TIMEOUT_RECOVERY",
+            next_stage="resolve",
+            resolution_request={"reason": "need diagnosis"},
+            automatic_recoveries_since_resume=3,
+            consecutive_timeout_recoveries=3,
+        )
+        run = Path(self.state["run_dir"])
+        error = support.Paused("PAUSED_TIMEOUT_RECOVERY", f"Bounded recovery exhausted. {recovery_limits.GRANT_ADVICE}")
+        self.assertTrue(runner.resolver_runtime.record_operational_exhaustion(runner, self.state, run, error))
+        self.assertEqual("RESOLVER_PENDING", self.state["status"])
+        self.assertEqual(1, self.state["stop_reason"].count(recovery_limits.GRANT_ADVICE))
+        with contextlib.redirect_stderr(io.StringIO()):
+            runner.write_json(run / "state.json", self.state)
+        saved = support.read(run / "state.json")
+        self.assertEqual("WAITING_FOR_USER", saved["status"])
+        public = human.current(saved)
+        self.assertEqual("operational_exhaustion", public["scope"])
+        view = run_view.view(saved, run_dir=run, workspace=Path(saved["workspace"]))
+        self.assertEqual("grant_recovery", view["needs"]["command_inputs"][0]["id"])
+        self.assertEqual(1, view["stop_reason"].count(recovery_limits.GRANT_ADVICE))
 
     def test_a_time_limit_question_names_the_limit_without_its_flags(self):
         # #3145 shows a person only the sentences that name no flag, so the advice naming

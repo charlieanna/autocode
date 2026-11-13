@@ -179,6 +179,34 @@ class EveryPauseNumberIsDescribed(unittest.TestCase):
                     self.assertEqual(["--resume-paused", flag, "N", "--expected-recovery-token", "-"], command.argv)
                     self.check(view, status)
 
+    def test_exhausted_timeout_recovery_offers_grant_when_published_or_queued(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            run_dir = Path(temporary)
+            state = paused("PAUSED_TIMEOUT_RECOVERY", run_dir=str(run_dir))
+            error = support.Paused("PAUSED_TIMEOUT_RECOVERY", state["stop_reason"])
+            self.assertTrue(runner.resolver_runtime.record_operational_exhaustion(runner, state, run_dir, error))
+
+            queued_view = run_view.view(state, run_dir=RUN, workspace=WORKSPACE)
+            self.assertEqual("RESOLVER_PENDING", queued_view["status"])
+            self.assertEqual("PAUSED_TIMEOUT_RECOVERY", queued_view["needs"]["pause_origin"])
+            self.assertEqual("--resume-paused --grant-recovery N", queued_view["needs"]["action"])
+            self.assertEqual("grant_recovery", queued_view["needs"]["command_inputs"][0]["id"])
+            self.assertIn("--resume-paused --grant-recovery N --expected-recovery-token -", queued_view["next_command"])
+            self.check(queued_view, "PAUSED_TIMEOUT_RECOVERY (RESOLVER_PENDING)")
+
+            runner.write_json(run_dir / "state.json", state)
+            saved = support.read(run_dir / "state.json")
+            published_view = run_view.view(saved, run_dir=RUN, workspace=WORKSPACE)
+            self.assertEqual("WAITING_FOR_USER", published_view["status"])
+            self.assertEqual("answer", published_view["needs"]["kind"])
+            self.assertIn("--resolver-response provide_information", published_view["next_command"])
+            row, command = actions.bound_offer(published_view, WORKSPACE, RUN)
+            self.assertEqual(("grant_recovery", "--grant-recovery"), (row["id"], row["flag"]))
+            self.assertEqual(
+                ["--resume-paused", "--grant-recovery", "N", "--expected-recovery-token", "-"], command.argv
+            )
+            self.check(published_view, "PAUSED_TIMEOUT_RECOVERY (WAITING_FOR_USER)")
+
     def test_minimum_exceeds_both_the_saved_bound_and_what_it_counted(self):
         cases = {
             "PAUSED_COST_LIMIT": 3,  # $2.00 cap, nothing priced yet

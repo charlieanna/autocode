@@ -81,6 +81,8 @@ def raised_bound(need) -> dict | None:
     if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
         return None
     row = rows[0]
+    if row.get("id") == "grant_recovery":
+        return None
     return row if isinstance(row.get("label"), str) and row.get("minimum") is not None else None
 
 

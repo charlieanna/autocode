@@ -615,6 +615,18 @@ def explain(status: str, *, stop_reason: str = "", needs=None, held_cause: str =
         else (f"AutoCode stopped at {status!r}.", "Inspect the stop reason and resume when it is resolved.")
     )
     if (
+        status == "RESOLVER_PENDING"
+        and isinstance(needs, dict)
+        and needs.get("pause_origin") == "PAUSED_TIMEOUT_RECOVERY"
+    ):
+        means = "Automatic recovery reached its allowance before a decision request was published."
+        does = (
+            f"{needs['action']} replenishes spent recovery slots and continues the run; "
+            "saved history, limits and approvals stay intact."
+            if needs.get("action") == "--resume-paused --grant-recovery N"
+            else "Resolve the pause reason, then --resume-paused."
+        )
+    if (
         status == "PAUSED_PROCESS_CLEANUP"
         and isinstance(needs, dict)
         and needs.get("native_cleanup") is True

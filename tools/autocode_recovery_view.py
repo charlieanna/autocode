@@ -104,11 +104,20 @@ def _cause(state: RunState):
     published = _dict(state.get("resolver_human_request"))
     entry = _dict(_dict(_dict(state.get("resolver")).get("human_escalations")).get(published.get("request_id")))
     origin = _dict(_dict(_dict(entry.get("identity")).get("proposal")).get("origin"))
-    return (
-        origin.get("pause_status")
-        if entry.get("status") == "pending" and published.get("scope") == "operational_exhaustion"
-        else None
-    )
+    if entry.get("status") == "pending" and published.get("scope") == "operational_exhaustion":
+        return origin.get("pause_status")
+    if state.get("status") == "RESOLVER_PENDING":
+        proposal = _dict(state.get("resolver_human_proposal"))
+        if proposal.get("scope") == "operational_exhaustion":
+            receipt_id = _dict(proposal.get("evidence")).get("resolver_receipt_id")
+            receipt = (
+                _dict(_dict(_dict(state.get("resolver")).get("operational_receipts")).get(receipt_id))
+                if isinstance(receipt_id, str) and receipt_id
+                else {}
+            )
+            if receipt.get("runner_owned") and _dict(receipt.get("decision")).get("action") == "hold":
+                return _dict(proposal.get("origin")).get("pause_status")
+    return None
 
 
 def _explanation(status, role, recorded=True):

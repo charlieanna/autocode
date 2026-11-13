@@ -463,3 +463,33 @@ class QuotaStopAdviceNamesAbandon(unittest.TestCase):
         self.assertNotIn("--grant-recovery", text)
         text = limits.advice(allow_grant=False, pause_status="PAUSED_BUDGET")
         self.assertNotIn("--abandon-stage", text)
+
+    def test_record_operational_exhaustion_does_not_duplicate_grant_advice(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            run_dir = Path(temporary)
+            state = {
+                "version": 2,
+                "iteration": 1,
+                "workspace": str(run_dir),
+                "run_dir": str(run_dir),
+                "task_id": "t",
+                "status": "PAUSED_TIMEOUT_RECOVERY",
+                "source_revision": "rev-1",
+                "settings": {"limits": {}},
+                "automatic_recoveries_since_resume": accounting.MAX_AUTOMATIC_RECOVERIES,
+                "consecutive_timeout_recoveries": accounting.MAX_AUTOMATIC_RECOVERIES,
+                "resolver": {"human_escalations": {}},
+                "history": [],
+                "stages": [],
+            }
+            cause = f"Recovery exhausted. {limits.GRANT_ADVICE}"
+            self.assertTrue(
+                resolver_runtime.record_operational_exhaustion(
+                    None,
+                    state,
+                    run_dir,
+                    support.Paused("PAUSED_TIMEOUT_RECOVERY", cause),
+                )
+            )
+            self.assertEqual(1, state["stop_reason"].count(limits.GRANT_ADVICE), state["stop_reason"])
+            self.assertTrue(state["stop_reason"].startswith(cause), state["stop_reason"])

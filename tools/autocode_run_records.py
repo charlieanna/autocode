@@ -224,8 +224,14 @@ def normalize_human_boundary(state: RunState, run_dir):
     if not proposal:
         return
     # An internal diagnostic is already scheduled; repeated persistence must
-    # neither ask the user nor requeue the same provider call.
-    if state.get("next_stage") == "resolve" and state.get("resolution_request"):
+    # neither ask the user nor requeue the same provider call. An exhausted
+    # operational hold must still publish for the person instead of stranding
+    # the run at RESOLVER_PENDING (#3358).
+    if (
+        state.get("next_stage") == "resolve"
+        and state.get("resolution_request")
+        and proposal.get("scope") != "operational_exhaustion"
+    ):
         return
     disposition = resolver_human.evaluate(state)
     if disposition == "permission_loop":

@@ -1813,7 +1813,7 @@ routes and plan approval. It does not reset a cycle, change allowance policy or
 approve the plan. Ordinary CLI callers retain their existing explicit zero
 semantics.
 
-An exhausted `PAUSED_TIMEOUT_RECOVERY` can name one additional finite choice:
+An exhausted `PAUSED_TIMEOUT_RECOVERY` (whether still paused there, published as a `WAITING_FOR_USER` `operational_exhaustion` request, or held at `RESOLVER_PENDING` with a runner hold receipt) can name one additional finite choice:
 
 ```json
 {"id":"grant_recovery","kind":"integer","flag":"--grant-recovery","placeholder":"N",
@@ -1821,7 +1821,9 @@ An exhausted `PAUSED_TIMEOUT_RECOVERY` can name one additional finite choice:
 ```
 
 Its only remaining command is `--resume-paused --grant-recovery N
---expected-recovery-token -`, using the same current private token channel.
+--expected-recovery-token -`, using the same current private token channel
+(carried in the row's own `command` alongside `next_command` when published as
+`WAITING_FOR_USER`).
 `current` is the existing fixed automatic-recovery allowance; `used` is counted
 spend, including the existing legacy fallback. The finite input accepts 1 through
 `used`, validated as safe integers, and never supplies a default. Pending
