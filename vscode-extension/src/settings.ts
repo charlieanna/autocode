@@ -1,7 +1,8 @@
 /** Reading the extension's settings into a CLI launch. */
 
 import * as vscode from "vscode";
-import type { CliOptions } from "./core/cli";
+import { invoke, tail, STATUS_TIMEOUT_MS, type CliOptions } from "./core/cli";
+import { readWorktrees, type WorktreeList } from "./core/worktrees";
 
 export interface Settings extends CliOptions {
   pollMs: number;
@@ -24,6 +25,29 @@ export function readSettings(): Settings {
     pollMs: Math.max(1, config.get<number>("pollSeconds", 5)) * 1000,
     confirmPersonOnly: config.get<boolean>("confirmPersonOnly", true),
   };
+}
+
+/** Select an existing controller, verifying the core's named read before changing workspace settings. */
+export async function selectIsolatedController(list: WorktreeList, folder: string): Promise<boolean> {
+  const action = list.controller?.action;
+  if (!action || list.folder !== folder) throw new Error("AutoCode names no supported controller setup action.");
+  const selected = await vscode.window.showOpenDialog({
+    title: action.label, openLabel: "Check AutoCode CLI", canSelectFiles: true,
+    canSelectFolders: false, canSelectMany: false,
+  });
+  if (!selected?.length) return false;
+  const command = selected[0]!.fsPath;
+  const result = await invoke({ ...readSettings(), command, prefix: [], cwd: folder },
+    action.nextCommand, {}, STATUS_TIMEOUT_MS);
+  if (result.code !== 0) throw new Error(`Selected AutoCode CLI could not be checked: ${tail(result)}`);
+  const verified = readWorktrees(result.stdout);
+  if (verified.folder !== folder || verified.controller?.ready !== true) {
+    throw new Error(verified.controller?.detail ?? "Selected AutoCode CLI cannot verify controller isolation; update it.");
+  }
+  const config = vscode.workspace.getConfiguration("autocode");
+  await config.update("cliArgs", [], vscode.ConfigurationTarget.Workspace);
+  await config.update("cliPath", command, vscode.ConfigurationTarget.Workspace);
+  return true;
 }
 
 /** The engines the core's `--engine` accepts (tools/autocode_args.py). */

@@ -15,6 +15,13 @@ This extension does not bundle the CLI or model backends. Providers run on Linux
 and macOS (macOS without kernel session ownership); Windows is not yet qualified.
 Full interactive and live-model qualification is incomplete.
 
+When working on AutoCode itself, the CLI must be installed outside the opened
+checkout (not editable from it). Before starting, an unsafe controller offers
+**Select isolated AutoCode CLI**: pick an existing executable, let AutoCode check
+it, then send your message again. Only this workspace's CLI path and arguments
+are changed; nothing is installed and global settings are untouched. Choosing
+a new task worktree alone does not isolate the controller during startup.
+
 A thin client for AutoCode task runs. It starts the `autocode` CLI, reads the
 status view, and takes the action the view names. It imports nothing from
 `tools/` and never reads `state.json`.
