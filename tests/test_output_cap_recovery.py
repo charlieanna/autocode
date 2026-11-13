@@ -16,10 +16,12 @@ from unittest import mock
 
 import autocode_output_cap as output_cap
 import autocode_output_cap_recovery as recovery
+import autocode_quota_route as quota_route
 import autocode_recovery_accounting as accounting
 import autocode_recovery_dispatch as dispatch
 import autocode_review_effort as review_effort
 import autocode_stage_recovery as stage_recovery
+import autocode_stuck_job as stuck_job
 import autocode_support as support
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "output_cap" / "mimo-requirements-reasoning-length.jsonl"
@@ -179,6 +181,51 @@ class ReasoningExhaustionTests(unittest.TestCase):
                     self.assertFalse(recovery.recover(self.runtime, state, self.root, self.root, STOP))
                 self.assertEqual(before, json.dumps(state, sort_keys=True))
         self.assertFalse(recovery.recover(self.runtime, self.state(), self.root, self.root, support.Paused("X", "y")))
+
+    def test_at_the_lowest_level_the_investigator_looks_before_the_person_is_asked_for_a_model(self):
+        # Live run, 2026-11-13 (#3349): the Tester on MiMo spent its whole output on reasoning at medium,
+        # again at low, and the run asked the person to name another model.
+        state = self.state(level="low")
+        state["version"] = 3  # a run with investigations
+        self.assertEqual("reasoning_exhaustion", dispatch.recover(self.runtime, state, self.root, self.root, STOP))
+        saved = json.loads((self.root / "state.json").read_text())
+        self.assertEqual(
+            ("RUNNING", "INVESTIGATING", stuck_job.STAGE),
+            (saved["status"], saved["phase"], saved["next_stage"]),
+        )
+        self.assertNotIn("active_stage", saved)
+        self.assertTrue(saved["stages"][-1]["abandoned"])
+        request = saved["stuck_investigation"]
+        self.assertEqual(("requirements_gather", output_cap.STATUS), (request["stage"], request["status"]))
+        self.assertIn("no lower level is left", request["reason"])
+        self.assertNotIn(recovery.KEY, saved)  # the level is not lowered again; there is none
+        # Once the Investigator has looked, its row is not a later attempt: a restored pause still asks.
+        saved["stages"].append({"stage": stuck_job.STAGE, "role": "stuck_investigator"})
+        attempt = quota_route.stopped_attempt(saved, failure_status=support.failure_status)
+        self.assertEqual(
+            ("requirements", "abandoned", output_cap.STATUS),
+            (attempt["role"], attempt["kind"], attempt["pause_status"]),
+        )
+
+    def test_after_the_investigator_has_looked_the_pause_and_its_model_question_stand(self):
+        state = self.state(level="low")
+        state["version"] = 3
+        state["stuck_investigations"] = [
+            {
+                "identity": stuck_job.identity("requirements_gather", output_cap.STATUS),
+                "stage": "requirements_gather",
+                "status": output_cap.STATUS,
+                "outcome": "retry",
+            }
+        ]
+        before = json.dumps(state, sort_keys=True)
+        self.assertFalse(recovery.recover(self.runtime, state, self.root, self.root, STOP))
+        self.assertEqual(before, json.dumps(state, sort_keys=True))
+        # A raised output-cap pause never reaches the Investigator on its own: its attempt is still active.
+        fresh = self.state(level="low")
+        fresh["version"] = 3
+        fresh.pop("active_stage")
+        self.assertFalse(stuck_job.intercept(fresh, output_cap.STATUS, "stop"))
 
 
 if __name__ == "__main__":
