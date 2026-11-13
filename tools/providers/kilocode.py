@@ -49,6 +49,41 @@ class KiloProvider(command.CommandProvider):
     # already fresh (#1739); a same-stage correction still resumes (autocode_provider_launch.prepare).
     RESUME_ACROSS_STAGES = False
 
+    def check_tools(self, routes, workspace, run_dir, *, env, capture_command):
+        """Read effective native policies before task spend, without a model or reasoning-variant check."""
+        for index, part in enumerate(self._config["command"]):
+            selector = (
+                self._config["command"][index + 1]
+                if part == "--agent" and index + 1 < len(self._config["command"])
+                else part.removeprefix("--agent=")
+                if part.startswith("--agent=")
+                else None
+            )
+            if selector is not None:
+                fields = set(re.findall(r"\{([a-z_]+)\}", command._mask_literal_braces(selector)))
+                if fields - {"role", "model", "effort", "workspace", "run_dir"}:
+                    raise RuntimeError(
+                        "Kilo requires a static or role-based --agent selector for pre-dispatch tool verification; "
+                        "a per-stage sandbox or report destination cannot identify the future agent; "
+                        "no provider request was launched"
+                    )
+        observed = {}
+        for role, route in routes.items():
+            argv, child, _ = super().launch(
+                role,
+                workspace,
+                run_dir,
+                None,
+                route.get("model"),
+                route.get("reasoning_effort"),
+                role == "builder",
+                planning=role != "builder",
+                env=env,
+            )
+            _, original = kilocode_policy.effective_agent(argv, child, workspace, cache=observed)
+            policy = kilocode_policy.intersect(original.get("permission"), ("bash",))
+            kilocode_policy.require_capture(policy, role=role, capture_command=capture_command)
+
     def launch(
         self,
         role,

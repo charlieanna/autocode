@@ -93,6 +93,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **A Kilo agent without capture permission is refused before task spend** (#3366): model-free readiness checks every selected ordinary Kilo transport, including a Kilo-only Tester behind another tool. An unusable shell policy stops with configuration guidance before planning; operator asks and denials, selected routes and caps stay unchanged. Ordinary launches recheck the policy, and native-owned isolated agents retain their own conformance checks.
+
 - **A Resolver that repeatedly times out reaches the Investigator** (#3367): repair Resolvers now use the same bounded, independent investigation as other stuck stages. Attempts, partial usage, routes and saved work stay in the history; reopening cannot launch another identical model attempt. The Investigator still cannot investigate itself.
 
 - **A new repository with no commit starts a task without a Git command from you**: after `git init` and nothing more, a start stopped with "Create an initial Git commit before starting an isolated task: git -C … commit --allow-empty -m 'Start'", and a chat's start stopped with Git's own "ambiguous argument 'HEAD'". AutoCode now makes that empty first commit itself, as it does for an empty folder outside Git. It is made without the index, so files you have staged or left untracked stay exactly as they are, and the task works in the folder itself, where it can see them. `autocode doctor` no longer reports such a repository as missing a commit, and the install steps no longer ask for one. A branch with no commit in a repository that has commits elsewhere is left alone, and the refusal there names no command ([findings](docs/bugs/2026-11-13-task-kind-survey.md)).

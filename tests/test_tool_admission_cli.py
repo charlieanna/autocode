@@ -48,6 +48,7 @@ containment = module("autocode_tool_containment")
 support = module("autocode_support")
 providers = module("autocode_providers")
 KiloProvider = module("providers.kilocode").KiloProvider
+kilo_policy = module("providers.kilocode_policy")
 opposite = "" if prefix else "autocode_cli."
 assert not any(opposite + stem in sys.modules for stem in stems)
 
@@ -72,7 +73,7 @@ models = {role: "fixture/reviewer" for role in ("task_planner", "builder", "test
 models["builder"] = models["planner"] = "fixture/builder"
 adapter = KiloProvider({
     "name": "entryfixture",
-    "command": [sys.executable, "-c", "raise AssertionError('no native provider may spawn')"],
+    "command": [sys.executable, "run", "--agent", "fixture", "--model", "{model}"],
     "roles": {role: {"model": model, "effort": "high"} for role, model in models.items()},
     "auth": {"command": ["fixture", "auth", "list"]},
 }, root / "provider.toml")
@@ -143,6 +144,11 @@ with contextlib.ExitStack() as stack:
         stack.enter_context(patch.object(adapter, name, return_value=value))
     stack.enter_context(patch.object(preflight.transport, "execute", side_effect=probe))
     stack.enter_context(patch.object(adapter, "launch", side_effect=provider_launch))
+    # This fixture scripts native metadata, not a real Kilo executable. Its
+    # effective policy permits capture so selected-ELF admission remains the
+    # failure exercised below; the production readiness check still runs.
+    stack.enter_context(patch.object(kilo_policy, "effective_agent", side_effect=lambda argv, *_args, **_kwargs:
+        (argv, {"permission": [{"permission": "bash", "pattern": "*", "action": "allow"}]})))
     exact = [arg for role in ("task_planner", "builder", "tester", "planner", "plan_reviewer", "requirements", "completion", "resolver")
              for arg in ("--" + role.replace("_", "-") + "-reasoning-effort", "high")]
     initial = invoke(["--brief", "Build a greeting CLI", "--in-place", "--new-run-dir", str(run),

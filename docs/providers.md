@@ -130,6 +130,23 @@ The stage starts a fresh restricted session so earlier session grants cannot
 restore those tools. Mixed-session streams remain invalid; AutoCode never merges
 subagent reports or commands into the primary session's evidence.
 
+Before task-stage model calls, AutoCode reads the effective native agent policy
+for every selected Kilo transport, including a Kilo Tester behind another tool's
+Requirements stage. If that policy cannot permit the supplied capture command
+prefix, setup stops with `PAUSED_TOOL_CONTAINMENT`. Configure that selected
+agent's `bash` permissions in Kilo to permit capture; AutoCode never promotes an
+`ask` or `deny` to `allow`, switches routes, or asks a Tester model for permission.
+Ordinary stage launches read the policy again, so startup readiness does not
+authorize a later launch after the configuration changes. Tools-off report
+repairs and model-access probes retain their existing tool-free scope.
+Native-owned runs keep their original isolated agent construction and conformance
+checks; ordinary readiness never resolves those agents in the operator's config.
+
+An agent selector that depends on a per-stage sandbox or report/schema/prompt
+path cannot be verified before planning and is refused at setup. Use a static
+or role-based agent selector. The permission check covers the supplied capture
+prefix; it does not grant or certify every command a model might later request.
+
 If the selected Kilo agent has a positive `steps` limit, its restricted AutoCode
 agent keeps that bound. Kilo then forces a text-only response after that many
 tool rounds; the response still has to pass AutoCode's report and completion

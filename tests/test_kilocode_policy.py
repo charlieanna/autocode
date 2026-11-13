@@ -2,6 +2,7 @@
 
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -263,6 +264,225 @@ class KiloPolicyTests(unittest.TestCase):
             ):
                 policy.restrict(argv, child, Path.cwd(), role="requirements")
             self.assertEqual("{}", child["KILO_CONFIG_CONTENT"])
+
+
+class KiloToolReadinessTests(unittest.TestCase):
+    def setUp(self):
+        self.workspace = Path.cwd()
+        self.routes = {"tester": {"model": "fixture/check", "reasoning_effort": "high"}}
+        self.command = [sys.executable, "run", "--agent={role}", "--model", "{model}", "--dir", "{workspace}"]
+        self.provider = kilocode.KiloProvider(
+            {"name": "kilocode", "command": self.command, "roles": {}}, Path("/unused-provider.toml")
+        )
+        self.environment = {
+            "PATH": os.environ["PATH"],
+            "KILO_CONFIG_CONTENT": "{}",
+            "AUTOCODE_OUTPUT_MODE": "conservative",
+        }
+        self.capture = shlex.join(
+            [sys.executable, str(Path(policy.__file__).parents[1] / "autocode.py"), "capture", "--mode", "conservative"]
+        )
+        self.rules = [{"permission": "*", "pattern": "*", "action": "allow"}]
+        self.calls = []
+
+    def debug(self, argv, **kwargs):
+        self.calls.append((list(argv), dict(kwargs["env"])))
+        self.assertEqual("debug", argv[1], "readiness must never start a model")
+        return subprocess.CompletedProcess(argv, 0, json.dumps({"permission": self.rules}), "")
+
+    def check_tools(self, *, capture=None):
+        return self.provider.check_tools(
+            self.routes,
+            self.workspace,
+            self.workspace / ".autocode/runs/readiness",
+            env=self.environment,
+            capture_command=self.capture if capture is None else capture,
+        )
+
+    def test_readiness_checks_each_expanded_role_without_model_or_effort_validation(self):
+        self.routes["builder"] = {"model": "fixture/build", "reasoning_effort": "medium"}
+        before = dict(self.environment)
+        with (
+            patch.object(policy.subprocess, "run", side_effect=self.debug),
+            patch.object(self.provider, "launch", side_effect=AssertionError("readiness cannot launch a model")),
+            patch.object(self.provider, "validate_effort", side_effect=AssertionError("readiness cannot list models")),
+        ):
+            self.check_tools()
+        self.assertEqual(["tester", "builder"], [argv[3] for argv, _ in self.calls])
+        self.assertEqual(before, self.environment)
+        self.assertTrue(all(child == before for _, child in self.calls))
+
+    def test_readiness_refuses_asks_denials_and_an_unrelated_allowed_command(self):
+        for action, extra in (
+            ("ask", []),
+            ("deny", []),
+            ("deny", [{"permission": "bash", "pattern": "echo *", "action": "allow"}]),
+        ):
+            with self.subTest(action=action, extra=extra):
+                self.rules = [
+                    {"permission": "*", "pattern": "*", "action": "allow"},
+                    {"permission": "bash", "pattern": "*", "action": action},
+                    *extra,
+                ]
+                with (
+                    patch.object(policy.subprocess, "run", side_effect=self.debug),
+                    self.assertRaisesRegex(
+                        RuntimeError, "tester.*capture.*no provider request was launched"
+                    ) as refused,
+                ):
+                    self.check_tools()
+                self.assertIn("configure the selected Kilo agent", str(refused.exception))
+                self.assertIn("bash permissions", str(refused.exception))
+
+    def test_capture_permission_uses_ordered_native_wildcards_and_the_exact_mode(self):
+        literal = "/tools/[v1]/python /code/autocode.py capture --mode conservative"
+        for capture, patterns, allowed in (
+            (self.capture, [("*", "deny"), (self.capture + " *", "allow")], True),
+            (self.capture, [("*", "allow"), (self.capture + " *", "deny"), ("echo *", "allow")], False),
+            (self.capture, [("*", "deny"), (self.capture.replace("conservative", "raw") + " *", "allow")], False),
+            (literal, [("*", "deny"), (literal + " *", "allow")], True),
+            (literal.replace("[v1]", "v"), [("*", "deny"), (literal + " *", "allow")], False),
+            (literal.replace("/", "\\"), [("*", "deny"), (literal + " *", "allow")], True),
+            (
+                self.capture,
+                [("*", "deny"), (self.capture.replace("conservative", "conservativ?") + " *", "allow")],
+                True,
+            ),
+        ):
+            with self.subTest(capture=capture, patterns=patterns):
+                self.rules = [
+                    {"permission": "bash", "pattern": pattern, "action": action} for pattern, action in patterns
+                ]
+                with patch.object(policy.subprocess, "run", side_effect=self.debug):
+                    if allowed:
+                        self.check_tools(capture=capture)
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "capture"):
+                            self.check_tools(capture=capture)
+
+    def test_readiness_uses_the_actual_default_agents_policy(self):
+        self.command[:] = [part for part in self.command if not part.startswith("--agent")]
+
+        def debug(argv, **kwargs):
+            self.calls.append((list(argv), dict(kwargs["env"])))
+            answer = (
+                {"default_agent": "careful"}
+                if argv[2:] == ["config"]
+                else {
+                    "permission": [
+                        {"permission": "*", "pattern": "*", "action": "allow" if argv[3] == "code" else "deny"}
+                    ]
+                }
+            )
+            return subprocess.CompletedProcess(argv, 0, json.dumps(answer), "")
+
+        with (
+            patch.object(policy.subprocess, "run", side_effect=debug),
+            self.assertRaisesRegex(RuntimeError, "tester.*capture"),
+        ):
+            self.check_tools()
+        self.assertIn(["debug", "agent", "careful"], [argv[1:] for argv, _ in self.calls])
+
+    def test_each_tools_enabled_launch_rechecks_capture_before_changing_the_agent(self):
+        argv = [sys.executable, "run", "--agent=tester", "--model", "fixture/check"]
+        with patch.object(policy.subprocess, "run", side_effect=self.debug):
+            self.check_tools()
+            self.rules.append({"permission": "bash", "pattern": self.capture + " *", "action": "deny"})
+            for options in ({"portable_shell": True}, {"request": {}}, {"write_stage": True}):
+                child = dict(self.environment)
+                with (
+                    self.subTest(options=options),
+                    patch.object(policy.containment, "configure", return_value=(child, {})) as configure,
+                    self.assertRaisesRegex(RuntimeError, "tester.*capture.*no provider request was launched"),
+                ):
+                    policy.restrict(argv, child, self.workspace, role="tester", **options)
+                configure.assert_not_called()
+                self.assertEqual(self.environment, child, "refusal must preserve the operator's configuration")
+
+    def test_tools_enabled_launch_refuses_a_denied_capture_without_changing_policy(self):
+        argv = [sys.executable, "run", "--agent=tester", "--model", "fixture/check"]
+        for action in ("ask", "deny"):
+            self.rules = [{"permission": "bash", "pattern": "*", "action": action}]
+            for options in ({"portable_shell": True}, {"request": {}}, {"write_stage": True}):
+                child = dict(self.environment)
+                with (
+                    self.subTest(action=action, options=options),
+                    patch.object(policy.subprocess, "run", side_effect=self.debug),
+                    patch.object(policy.containment, "configure", return_value=(child, {})) as configure,
+                    self.assertRaisesRegex(RuntimeError, "tester.*capture.*no provider request was launched"),
+                ):
+                    policy.restrict(argv, child, self.workspace, role="tester", **options)
+                configure.assert_not_called()
+                self.assertEqual(self.environment, child)
+
+    def test_one_readiness_call_reuses_only_identical_agent_policy_inputs(self):
+        self.routes["builder"] = {"model": "fixture/build", "reasoning_effort": "medium"}
+        self.command[2] = "--agent=code"
+        with patch.object(policy.subprocess, "run", side_effect=self.debug):
+            self.check_tools()
+        self.assertEqual(["code"], [argv[3] for argv, _ in self.calls])
+        self.calls.clear()
+        with patch.object(policy.subprocess, "run", side_effect=self.debug):
+            self.check_tools()
+        self.assertEqual(["code"], [argv[3] for argv, _ in self.calls], "another call must observe policy afresh")
+
+    def test_readiness_does_not_share_an_agents_policy_across_different_prepared_environments(self):
+        self.routes["builder"] = {"model": "fixture/build", "reasoning_effort": "medium"}
+        self.command[2] = "--agent=code"
+        ordinary = kilocode.command.CommandProvider.launch
+
+        def prepared(provider, role, *args, **kwargs):
+            argv, child, saved = ordinary(provider, role, *args, **kwargs)
+            child["FIXTURE_POLICY_ROLE"] = role
+            return argv, child, saved
+
+        def debug(argv, **kwargs):
+            self.calls.append((list(argv), dict(kwargs["env"])))
+            action = "allow" if kwargs["env"]["FIXTURE_POLICY_ROLE"] == "tester" else "deny"
+            return subprocess.CompletedProcess(
+                argv, 0, json.dumps({"permission": [{"permission": "*", "pattern": "*", "action": action}]}), ""
+            )
+
+        with (
+            patch.object(kilocode.command.CommandProvider, "launch", autospec=True, side_effect=prepared),
+            patch.object(policy.subprocess, "run", side_effect=debug),
+            self.assertRaisesRegex(RuntimeError, "builder.*capture"),
+        ):
+            self.check_tools()
+        self.assertEqual(["tester", "builder"], [child["FIXTURE_POLICY_ROLE"] for _, child in self.calls])
+
+    def test_readiness_rejects_an_absent_or_non_text_capture_prefix(self):
+        for capture in ("", {}):
+            with (
+                self.subTest(capture=capture),
+                patch.object(policy.subprocess, "run", side_effect=self.debug),
+                self.assertRaisesRegex(ValueError, "capture command"),
+            ):
+                self.check_tools(capture=capture)
+
+    def test_readiness_refuses_an_agent_selector_depending_on_future_stage_files_or_sandbox(self):
+        for field in ("sandbox", "report", "schema", "prompt_file"):
+            for selector in (("--agent={" + field + "}",), ("--agent", "{" + field + "}")):
+                self.command[:] = [sys.executable, "run", *selector, "--model", "{model}"]
+                with (
+                    self.subTest(field=field, selector=selector),
+                    patch.object(policy.subprocess, "run") as debug,
+                    self.assertRaisesRegex(RuntimeError, "static or role-based.*selector"),
+                ):
+                    self.check_tools()
+                debug.assert_not_called()
+
+    def test_tools_off_repair_and_read_tools_only_launch_need_no_shell(self):
+        self.rules = [{"permission": "*", "pattern": "*", "action": "deny"}]
+        argv = [sys.executable, "run", "--agent=tester", "--model", "fixture/check"]
+        with patch.object(policy.subprocess, "run", side_effect=self.debug):
+            for options in ({"report_recovery": True}, {}):
+                with self.subTest(options=options):
+                    command, child = policy.restrict(
+                        argv, dict(self.environment), self.workspace, role="tester", **options
+                    )
+                    agent = json.loads(child["KILO_CONFIG_CONTENT"])["agent"][command[-1]]
+                    self.assertNotIn("bash", agent["permission"])
 
 
 class KiloContainmentPolicyTests(unittest.TestCase):
