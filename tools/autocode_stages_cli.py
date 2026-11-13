@@ -48,6 +48,8 @@ ALIASES = {
     "task-planner": "task_planner",
 }
 STAGE_NAMES = (*stage_choices.ORDER, *ALIASES)
+# Several stages in one `set`: each pick is checked against the table as it stands once all are saved (#3312).
+SET_FLAG = "--stage"
 
 
 def parser():
@@ -69,6 +71,15 @@ def parser():
     result.add_argument(
         "--run-dir",
         help="list: the stages of this started run instead, with the models it runs now; it never changes them",
+    )
+    result.add_argument(
+        SET_FLAG,
+        dest="stage_pick",
+        nargs=3,
+        action="append",
+        metavar=("STAGE", "MODEL", "EFFORT"),
+        help="set: one more stage's model and level, saved with the others in one change (repeatable), so stages "
+        "that check each other can move to new models together",
     )
     result.add_argument(
         stage_choices.CHAT_FLAG,
@@ -244,6 +255,9 @@ def cli(argv=None) -> int:
             file=sys.stderr,
         )
         return 2
+    if args.stage_pick and args.action != "set":
+        print(f"autocode stages: {SET_FLAG} names a stage for `autocode stages set`", file=sys.stderr)
+        return 2
     try:
         backend = args.backend or current_backend(args.workspace)
         if args.action == "choose":
@@ -256,14 +270,32 @@ def cli(argv=None) -> int:
                 print("\nNothing was saved.")
                 return 130
         if args.action == "set":
-            if not stage or not args.model or not args.effort:
-                print("autocode stages set needs a stage, --model and --effort", file=sys.stderr)
+            named = stage or args.model or args.effort
+            if (named and not (stage and args.model and args.effort)) or not (named or args.stage_pick):
+                print(
+                    f"autocode stages set needs a stage, --model and --effort, or {SET_FLAG} STAGE MODEL EFFORT",
+                    file=sys.stderr,
+                )
                 return 2
-            current = stage_choices.choose(backend, {stage: (args.model, args.effort)}, args.workspace)
+            picks = _picks(args.stage_pick, SET_FLAG)
+            if stage:
+                if stage in picks:
+                    raise ValueError(f"autocode stages set names {stage} twice")
+                picks = {stage: (args.model, args.effort), **picks}
+            try:
+                current = stage_choices.choose(backend, picks, args.workspace)
+            except stage_choices.CrossCheckError as error:
+                # One stage at a time can never reach a table where checker and producer both move (#3312).
+                raise ValueError(
+                    f"{error}. To change stages together, name each in one command: "
+                    f"autocode stages set {SET_FLAG} STAGE MODEL EFFORT {SET_FLAG} STAGE MODEL EFFORT"
+                ) from error
         elif args.action == "reset":
             current = stage_choices.reset(backend, stage, args.workspace)
         else:
-            current = stage_choices.chat_view(backend, _picks(args.chat_stage), _list_command(args), args.workspace)
+            current = stage_choices.chat_view(
+                backend, _picks(args.chat_stage, stage_choices.CHAT_FLAG), _list_command(args), args.workspace
+            )
     except ValueError as error:
         print(f"autocode stages: {error}", file=sys.stderr)
         return 2
@@ -271,13 +303,13 @@ def cli(argv=None) -> int:
     return 0
 
 
-def _picks(given) -> dict:
-    """``{role: (model, effort)}`` from each ``--chat-stage STAGE MODEL EFFORT``; a stage named twice is refused."""
+def _picks(given, flag) -> dict:
+    """``{role: (model, effort)}`` from each ``FLAG STAGE MODEL EFFORT``; a stage named twice is refused."""
     picks: dict = {}
     for name, model, effort in given or ():
         role = _stage(name)
         if role in picks:
-            raise ValueError(f"{stage_choices.CHAT_FLAG} names {role} twice")
+            raise ValueError(f"{flag} names {role} twice")
         picks[role] = (model, effort)
     return picks
 
