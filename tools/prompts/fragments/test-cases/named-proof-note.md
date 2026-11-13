@@ -23,4 +23,7 @@ module of a source file: the runner runs the changed test files against the orig
 src/ is part of that source, so it proves nothing.
 Keep the existing project suite and protected tests intact. Add supported named tests within the approved
 test paths; plan any needed test paths before approval. Do not replace test:/guard: criteria with prose to
-avoid proof. If no supported runner fits the project, raise the compatibility blocker before approval.
+avoid proof. If the project's tests run with none of these runners (`make test`, Ruby test files
+run one by one), the runner cannot match a test to a test: or guard: criterion: write that criterion as the
+command that runs its test file and what it shows ("`ruby test/pager_test.rb` fails on the original code and
+passes with the fix"); the runner proves it by that command's exit code before and after the change.

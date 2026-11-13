@@ -18,6 +18,7 @@ from types import SimpleNamespace
 import autocode_cargo_tests as cargo_tests
 import autocode_changed_tests as changed_tests
 import autocode_named_reporters as reporters
+import autocode_plan_test_suite as plan_test_suite
 import autocode_regression as regression
 import autocode_test_cases as test_cases
 import autocode_verify as verify
@@ -321,6 +322,13 @@ class PlanNameTests(unittest.TestCase):
             [(case.get("native_name"), case.get("test_name")) for case in cases],
         )
         self.assertEqual(["preserve", "preserve", None], [case.get("kind") for case in cases[:3]])
+
+    def test_a_plan_with_named_criteria_is_kept_for_a_cargo_suite(self):
+        # A runner that reports only an exit code sends such a plan back to the Planner; Cargo's is read per test.
+        body = {"acceptance_criteria": [{"id": "AC1", "criterion": "c", "verification_method": "test: test_ac1_x"}]}
+        cargo, make = Framework("cargo", "cargo test"), Framework("make", "make test")
+        self.assertIsNone(plan_test_suite.unnamed_cases(None, cargo, [], body, lambda directory: None))
+        self.assertIn("make suite `make test`", plan_test_suite.unnamed_cases(None, make, [], body, lambda d: None))
 
     def test_only_a_runner_whose_tests_need_no_prefix_binds_the_native_name(self):
         cases = self.cases("guard: exact_multiple", "guard: tests::zero_size_is_refused", "test: test_ac3_partial")

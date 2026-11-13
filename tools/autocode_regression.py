@@ -79,6 +79,7 @@ try:
     from . import autocode_package_scope as package_scope
     from . import autocode_package_writes as package_writes
     from . import autocode_pending_tests as pending_tests
+    from . import autocode_plan_proof_command as plan_command
     from . import autocode_python_test_roles as role_policy
     from . import autocode_recovery_review as recovery_review
     from . import autocode_regression_selection as selection
@@ -110,6 +111,7 @@ except ImportError:
     import autocode_package_scope as package_scope
     import autocode_package_writes as package_writes
     import autocode_pending_tests as pending_tests
+    import autocode_plan_proof_command as plan_command
     import autocode_python_test_roles as role_policy
     import autocode_recovery_review as recovery_review
     import autocode_regression_selection as selection
@@ -327,6 +329,28 @@ def rooted(options):
     return {"test_root": options["test_root"]} if options.get("test_root") else {}
 
 
+def _with_plan_command(options, adopted):
+    """``options`` with the approved plan's command in the roles ``choose`` gave it."""
+    if not adopted:
+        return options
+    return {
+        **options,
+        **({"test_command": adopted["suite"]} if adopted["suite"] else {}),
+        **({"regression_command": adopted["regression"]} if adopted["regression"] else {}),
+    }
+
+
+def _plan_command(state: RunState, workspace, base):
+    """The approved plan's test command and its roles (autocode_plan_proof_command.choose), or None."""
+    commands = plan_command.approved_commands(state.get("goal_contract"))
+    if not commands:
+        return None
+    changes = verify.changed_files(workspace, base, source_paths=source_scope.paths(state))
+    original = [path for path in role_inventory.entries(workspace, base) if verify.is_test_path(path)]
+    changed = [path for path, status in changes.items() if status != "deleted" and verify.is_test_path(path)]
+    return plan_command.choose(commands, original_tests=original, changed_tests=changed)
+
+
 def suite_timeout(state: RunState):
     """Seconds the runner lets one suite run take, or None for no limit.
 
@@ -524,6 +548,13 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
     # A package run's suite is detected in its package and runs from there (autocode_package_scope).
     detection.update(package_scope.detection(state.get("settings")))
     framework = framework or verify.detect_framework(workspace, python=python, **detection)
+    adopted = None
+    if framework is None and base and not command and not options.get("regression_command"):
+        # No runner AutoCode knows and nothing typed: the approved plan's own test command, never a
+        # question to the person about flags (autocode_plan_proof_command).
+        adopted = _plan_command(state, workspace, base)
+        options = _with_plan_command(options, adopted)
+        command = options.get("test_command")
     unscoped = "package" not in detection and "test_root" not in detection
     companions: list = []
     companion_notes: list = []
@@ -604,6 +635,7 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
         "test_command": options.get("test_command"),
         "test_report": options.get("test_report"),
         "regression_command": options.get("regression_command"),
+        **({"plan_command": adopted} if adopted else {}),
         "timeout": suite_timeout(state),
         "identity": verify.execution_identity(
             workspace,
@@ -842,7 +874,8 @@ def _proving(
 ):
     started_at, started = util.now(), time.monotonic()
     base = base_commit(state, workspace)
-    options = settings(state)
+    adopted = execution_context.get("plan_command")
+    options = _with_plan_command(settings(state), adopted)
     base_patch = reviewed_patch(state, workspace)
     operator = operator_patch.pinned(state)
     refused: str | dict = ""
@@ -1017,6 +1050,10 @@ def _proving(
         others = _run_guard_suites(
             guard_suites, result, workspace, base, out, kept, dependencies, base_patch, inputs, suite_timeout(state)
         )
+        if adopted:
+            chosen = plan_command.note(adopted)
+            proof["notes"] = [*(proof.get("notes") or []), chosen]
+            proof["review_reasons"] = [*(proof.get("review_reasons") or []), chosen]
         if fallback:
             proof["suite_fallback"] = fallback
             proof["notes"] = [*(proof.get("notes") or []), fallback["reason"]]
