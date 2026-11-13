@@ -71,6 +71,7 @@ try:
     from . import autocode_companion_suites as companion_suites
     from . import autocode_component_plan as component_plan
     from . import autocode_diff_coverage as diff_coverage
+    from . import autocode_first_suite as first_suite
     from . import autocode_focused_suite as focused_suite
     from . import autocode_follow_up as follow_up
     from . import autocode_follow_up_proof as follow_up_proof
@@ -104,6 +105,7 @@ except ImportError:
     import autocode_companion_suites as companion_suites
     import autocode_component_plan as component_plan
     import autocode_diff_coverage as diff_coverage
+    import autocode_first_suite as first_suite
     import autocode_focused_suite as focused_suite
     import autocode_follow_up as follow_up
     import autocode_follow_up_proof as follow_up_proof
@@ -1096,6 +1098,8 @@ def _proving(
             new_behavior=goals.task_kind(state) != "bugfix",
             preserve_only=coverage,
             test_only_allowed=test_only,
+            suite_repair=fallback is None
+            and first_suite.exit_repair_suite(proving, suite, (adopted or {}).get("suite")),
             base_patch=base_patch,
             source_paths=source_scope.paths(state),
             ignored_inputs=inputs,

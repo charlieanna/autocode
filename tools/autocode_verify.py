@@ -2222,6 +2222,7 @@ class _Run:
     guards: Any
     existing_guards: Any
     existing_failures: Any
+    existing_exit: Any
     roles: Any
 
 
@@ -2394,7 +2395,7 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
     )
     if (
         exit_zero
-        and (comparable or {}).get("health") == "passing"
+        and ((comparable or {}).get("health") == "passing" or run.existing_exit)  # or its own repair
         and not fail
         and (untyped or framework is None or framework.name != "junit")
     ):
@@ -2424,6 +2425,7 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
             "The base suite is not green, so the candidate's exit-code-only suite "
             "cannot prove the base definition still passes over the new code"
         )
+    _exit_repair(run, base_definition)
     empty_root = None
     if (
         test_root is not None
@@ -2539,6 +2541,48 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
     return hidden
 
 
+def _incomplete_receipts(checks) -> list[str]:
+    """What the proof's command receipts leave unverified: an interrupted command, a JUnit report not intact."""
+    unverified = []
+    for label, receipt in checks.items():
+        if not command_receipt.completed(receipt):
+            unverified.append(f"{label} has no complete owned-command evidence")
+        if receipt.get("results_format") == "junit" and not schedule.intact(receipt):
+            unverified.append(
+                f"{label}: {receipt.get('report_error') or 'JUnit report capture is missing, invalid or changed'}"
+            )
+    return unverified
+
+
+def _file_kind_reasons(stats) -> list[str]:
+    """The kinds of changed file a reviewer should look at: binary files and files that are not code."""
+    return [
+        f"{kind} files changed: " + ", ".join(stats[key][:5])
+        for kind, key in (("binary", "binary_files"), ("non-code", "non_code_files"))
+        if stats[key]
+    ]
+
+
+def _exit_repair(run: _Run, base_definition) -> None:
+    """Judge a repair that rests on the suite's exit code (``run.existing_exit``, first_suite.exit_flip).
+
+    The suite failed on the base as a whole; it shows the repair when it passes on the candidate with the
+    suite's own files as the base had them: the definition's inputs did not change (no definition run), or
+    the base's definition also passes over the candidate's code. _judge_suite reports that run itself.
+    """
+    if not run.existing_exit:
+        return
+    held = (base_definition or {}).get("run")
+    passes = bool(
+        base_definition is not None
+        and not base_definition["boundary"]
+        and (held is None or (command_receipt.completed(held) and not held["timed_out"] and held["exit_code"] == 0))
+    )
+    first_suite.exit_flip(
+        passes, run.base_suite, run.fail, run.unverified, run.notes, run.review_reasons, run.allow_no_test
+    )
+
+
 def verify(
     workspace,
     base,
@@ -2558,6 +2602,7 @@ def verify(
     base_patch=None,
     source_paths=(),
     test_only_allowed=False,
+    suite_repair=False,
     generated_record=None,
     generated_unrecorded=False,
     ignored_inputs=None,
@@ -2611,6 +2656,9 @@ def verify(
     the diff turns out to be test files alone, the proof runs in that same preserve mode
     instead of failing "a fix must change product code". A test that does not pass on the
     base then still blocks it, as a mis-tagged case or a failing regression.
+
+    ``suite_repair`` (first_suite.exit_repair_suite): a repair that changes code alone, no test, may be
+    shown by the exit-code-only suite failing on the base and passing on the candidate (exit_flip).
 
     ``ignored_inputs`` is make_tree's, for every scratch tree; its launch record also tells
     _document_only_base what ignored code an in-place checkout held at launch.
@@ -2668,12 +2716,12 @@ def verify(
     runnable_tests = [p for p in tests if changes[p] != "deleted"]
     # Coverage the source already has: no test changed, so nothing can flip; the guards must hold.
     existing_guards = preserve_only and not runnable_tests
-    # A repair whose regression test the project already had (first_suite.repairable_failures): the
-    # suite on the candidate decides below whether the base's failing tests pass now.
-    existing_failures = (
-        first_suite.repairable_failures(base_suite, commands["suite"])
+    # A repair whose regression test the project already had (first_suite.existing_repair): the suite on
+    # the candidate decides below whether the base's failing tests, or its failing exit code, pass now.
+    existing_failures, existing_exit = (
+        first_suite.existing_repair(base_suite, commands["suite"], suite_repair and all(map(is_code_path, changes)))
         if not runnable_tests and sources and not preserve
-        else []
+        else ([], False)
     )
     if not changes and not preserve_only:
         fail.append("No change: the candidate is identical to the base revision")
@@ -2687,7 +2735,7 @@ def verify(
     removed = removed_python_tests(workspace, base, changes, roles=roles)
     if removed:
         fail.append("Existing tests were removed: " + ", ".join(removed[:20]))
-    if not runnable_tests and not existing_guards and not existing_failures and not ambiguous:
+    if not runnable_tests and not (existing_guards or existing_failures or existing_exit) and not ambiguous:
         (unverified if allow_no_test else fail).append(
             "No regression test was added or changed, so the bug is not shown to be reproduced"
         )
@@ -2738,6 +2786,7 @@ def verify(
         guards=guards,
         existing_guards=existing_guards,
         existing_failures=existing_failures,
+        existing_exit=existing_exit,
         roles=roles,
     )
     trees, hidden = {}, []
@@ -2850,18 +2899,9 @@ def verify(
     after = source_snapshot.snapshot(workspace, paths=source_paths)["revision"]
     if after != before:
         unverified.append("The candidate changed while it was being verified; verify again")
-    for label, receipt in checks.items():
-        if not command_receipt.completed(receipt):
-            unverified.append(f"{label} has no complete owned-command evidence")
-        if receipt.get("results_format") == "junit" and not schedule.intact(receipt):
-            unverified.append(
-                f"{label}: {receipt.get('report_error') or 'JUnit report capture is missing, invalid or changed'}"
-            )
+    unverified += _incomplete_receipts(checks)
     stats = diff_stats(workspace, base, changes, roles=roles, allow_ambiguous=bool(ambiguous))
-    if stats["binary_files"]:
-        review_reasons.append("binary files changed: " + ", ".join(stats["binary_files"][:5]))
-    if stats["non_code_files"]:
-        review_reasons.append("non-code files changed: " + ", ".join(stats["non_code_files"][:5]))
+    review_reasons += _file_kind_reasons(stats)
     verdict = FAIL if fail else UNVERIFIED if unverified else PASS
     return verify_result.assemble(
         run,
