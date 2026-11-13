@@ -218,7 +218,9 @@ def _checked_environment(provider, env):
 
 def _run(command, name, workspace, env, timeout_seconds, checked=None, *, complete=None):
     try:
-        result = env_prep.preflight_run(
+        # A listing that overruns its bound under load is asked once more before a person's command
+        # or a run stops on it (#3313).
+        result = env_prep.preflight_listing(
             command,
             checked if checked is not None else env_prep.snapshot_environment(env),
             cwd=workspace,
@@ -230,7 +232,7 @@ def _run(command, name, workspace, env, timeout_seconds, checked=None, *, comple
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError(
-            f"cannot verify {name} login; auth listing timed out after {timeout_seconds} seconds; "
+            f"cannot verify {name} login; auth listing timed out after {env_prep.listing_bounds(timeout_seconds)}; "
             "no provider request was launched"
         ) from None
     except OSError:
