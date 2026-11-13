@@ -48,7 +48,9 @@ What to do:
    the test: keep it in tests and also report the case in already_passing with what showed it. The
    runner checks that it passes and sends the plan back to make that case a guard: case, except an explicitly
    identified inherited case, whose approved test: meaning and fresh original-reference proof are retained. If no automated
-   test can show a case, report it in cannot_write with the reason; that stops the run for the user.
+   test can show a case on the runner's host, report it in cannot_write with the reason; the runner rejects
+   the attempt for bounded recovery, including the Investigator when available. Do not substitute different behavior for the approved case merely to make a test
+   run on this host, such as asserting an unspecified error where the case requires a real /proc value.
 
 If runner_feedback is not empty, the runner already ran your earlier tests for these cases on today's code
 and rejected them for the reasons it lists, oldest first: correct the tests it names, in place.

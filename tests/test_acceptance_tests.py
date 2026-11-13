@@ -401,6 +401,56 @@ class BlindTestsCandidateExecutionTests(unittest.TestCase):
 
 
 class RunnerCollectionTests(unittest.TestCase):
+    def test_skipped_feedback_preserves_the_approved_case(self):
+        import autocode_acceptance_tests_job as job
+
+        case = {"id": "AC1", "test_name": "test_ac1_reads_rss"}
+        skipped = job._skipped(case, "test_procinfo.py", {"command": "python -m unittest"})
+        self.assertIn("Do not assert different or additional behavior", skipped)
+        self.assertIn("cannot_write", skipped)
+
+    def test_unreached_skip_feedback_preserves_the_approved_case(self):
+        import autocode_acceptance_tests_job as job
+
+        case = {"id": "AC1", "test_name": "test_ac1_reads_rss"}
+        source = (
+            "class Tests:\n"
+            "    def test_ac1_reads_rss(self):\n"
+            "        self.fail('missing')\n"
+            "        self.skipTest('no proc')\n"
+        )
+        tail = (
+            "FAIL: test_ac1_reads_rss (Tests)\n"
+            '  File "test_procinfo.py", line 3, in test_ac1_reads_rss\n'
+            "    self.fail('missing')\nAssertionError: missing\n"
+        )
+        feedback = job._skip_after_change(case, "test_procinfo.py", source, {"tail": tail})
+        self.assertIn("Do not assert different or additional behavior", feedback)
+        self.assertIn("cannot_write", feedback)
+
+    def test_cannot_write_is_rejected_for_investigation_without_builder_or_person_pause(self):
+        import autocode_acceptance_tests_job as job
+
+        state = approved({"AC1": "test: test_ac1_reads_rss"}, task="read real proc")
+        acceptance.route(state)
+        report = {
+            "tests": [],
+            "already_passing": [],
+            "cannot_write": [{"case_id": "AC1", "reason": "this host has no /proc"}],
+        }
+        with tempfile.TemporaryDirectory() as root:
+            with self.assertRaisesRegex(job.TestsNeedRewriting, "AC1.*this host has no /proc"):
+                job.apply(state, report, {"output": str(Path(root) / "report.json")}, root)
+        self.assertNotEqual(job.PAUSE, state.get("status"))
+        self.assertEqual(job.STAGE, state["next_stage"])
+        self.assertFalse(acceptance.receipts(state))
+
+    def test_tester_prompt_does_not_substitute_a_different_host_behavior(self):
+        import autocode_acceptance_tests_job as job
+
+        self.assertIn("Do not substitute different behavior", job.PROMPT)
+        self.assertIn("Investigator", job.PROMPT)
+
     """#1567: a test the run wrote in a form the runner's command does not collect must be fixable."""
 
     def test_execution_failures_require_execution_while_existing_result_metadata_is_repairable(self):
