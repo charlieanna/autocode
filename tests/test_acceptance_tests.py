@@ -433,10 +433,20 @@ class RunnerCollectionTests(unittest.TestCase):
                         job.apply(state, report, {"changed_files": [test.name]}, workspace, run_tests=lambda f: result)
                         self.assertEqual(("RUNNING", job.STAGE), (state["status"], state["next_stage"]))
                         self.assertEqual(attempt + 1, len(job.packet(state)["runner_feedback"]))
-                    job.apply(state, report, {"changed_files": [test.name]}, workspace, run_tests=lambda files: result)
-                    self.assertEqual(job.PAUSE, state["status"])
-                    self.assertEqual(job.STAGE, state["next_stage"])
-                    self.assertIn("report-only repair cannot", state["stop_reason"])
+                    if rewrites:
+                        # #3261: once the runner's own rewrites are spent the attempt is rejected, so the
+                        # Investigator takes it; the person is not asked to resume and correct the tests.
+                        with self.assertRaisesRegex(job.TestsNeedRewriting, "already sent these tests back 2 time"):
+                            job.apply(
+                                state, report, {"changed_files": [test.name]}, workspace, run_tests=lambda f: result
+                            )
+                        self.assertEqual(("RUNNING", job.STAGE), (state["status"], state["next_stage"]))
+                        self.assertEqual(rewrites, len(job.packet(state)["runner_feedback"]))
+                    else:
+                        job.apply(state, report, {"changed_files": [test.name]}, workspace, run_tests=lambda f: result)
+                        self.assertEqual(job.PAUSE, state["status"])
+                        self.assertEqual(job.STAGE, state["next_stage"])
+                        self.assertIn("report-only repair cannot", state["stop_reason"])
                     self.assertFalse(acceptance.receipts(state))
             state = approved({"T1": "test: test_example"})
             acceptance.route(state)
@@ -916,6 +926,14 @@ class RunnerCollectionTests(unittest.TestCase):
             self.assertNotIn("does not pass on today's code", feedback)
             self.assertFalse(acceptance.receipts(state))
 
+            # The same cases skipped again after the Tester was told: no identical round is granted (#3261). The
+            # attempt is rejected for the Investigator instead, and the run is not paused for the person.
+            with self.assertRaisesRegex(job.TestsNeedRewriting, "the same cases were skipped again") as caught:
+                job.apply(state, dict(value), record, workspace, run_tests=run_tests, evidence_dir=evidence)
+            self.assertEqual(["G1", "T1"], caught.exception.skipped)
+            self.assertEqual(("RUNNING", job.STAGE), (state["status"], state["next_stage"]))
+            self.assertEqual(1, len(job.packet(state)["runner_feedback"]))
+
             # The retry the feedback asks for: the same tests without the skip.
             test_file.write_text(head + guard + "\n" + new_test)
             job.apply(state, dict(value), record, workspace, run_tests=run_tests, evidence_dir=evidence)
@@ -923,6 +941,45 @@ class RunnerCollectionTests(unittest.TestCase):
                 {"G1": "passes", "T1": "fails"}, next(iter(acceptance.receipts(state).values()))["results"]
             )
             self.assertEqual("builder", state["next_stage"])
+
+    def test_only_the_same_skips_again_end_the_runners_rewrites(self):
+        # #3261: a round whose skips changed (the Tester fixed one) is still worth a rewrite; a repeat is not.
+        import autocode_acceptance_tests_job as job
+
+        with tempfile.TemporaryDirectory() as root:
+            workspace = Path(root)
+            test = workspace / "test_example.py"
+            test.write_text("def test_t1_one():\n    pass\n\n\ndef test_t2_two():\n    pass\n")
+            report = {
+                "tests": [
+                    {"case_id": "T1", "test_name": "test_t1_one", "file": test.name},
+                    {"case_id": "T2", "test_name": "test_t2_two", "file": test.name},
+                ],
+                "cannot_write": [],
+                "already_passing": [],
+            }
+            state = approved({"T1": "test: test_t1_one", "T2": "test: test_t2_two"}, task="t")
+            acceptance.route(state)
+
+            def attempt(skipped, failed=()):
+                job.apply(
+                    state,
+                    report,
+                    {"changed_files": [test.name]},
+                    workspace,
+                    run_tests=lambda files: {"results": {"passed": [], "failed": list(failed), "skipped": skipped}},
+                )
+
+            # A third rewrite would be allowed by count, so only the repeat can end them here.
+            self.enterContext(mock.patch.object(job, "MAX_REWRITES", 3))
+            attempt(["test_t1_one", "test_t2_two"])
+            attempt(["test_t2_two"], failed=["test_t1_one"])
+            self.assertEqual(("RUNNING", job.STAGE), (state["status"], state["next_stage"]))
+            self.assertEqual(2, len(job.packet(state)["runner_feedback"]))
+            with self.assertRaisesRegex(job.TestsNeedRewriting, "sent these tests back 2 time") as caught:
+                attempt(["test_t2_two"], failed=["test_t1_one"])
+            self.assertEqual(["T2"], caught.exception.skipped)
+            self.assertEqual(2, len(job.packet(state)["runner_feedback"]))
 
     def test_unconfigured_pytest_acceptance_is_collected_and_really_fails_before_building(self):
         import subprocess
