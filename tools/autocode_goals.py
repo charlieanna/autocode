@@ -58,7 +58,7 @@ try:
     from .autocode_git_delivery_policy import SCHEMA as GIT_DELIVERY
     from .autocode_requirement_coverage import missing_sentences
     from .autocode_requirement_coverage import requirement_coverage_text as requirement_coverage_text
-    from .autocode_requirement_cues import cue_sentences, earlier_job_handoff, scan_texts, source_texts
+    from .autocode_requirement_cues import coverage_checklist, earlier_job_handoff, scan_texts, source_texts
     from .autocode_trace_coverage import coverage_errors, recorded_conflict_sets, unrecorded_conflict_error
 except ImportError:
     import autocode_adaptive_planning as adaptive
@@ -86,7 +86,7 @@ except ImportError:
     from autocode_git_delivery_policy import SCHEMA as GIT_DELIVERY
     from autocode_requirement_coverage import missing_sentences
     from autocode_requirement_coverage import requirement_coverage_text as requirement_coverage_text
-    from autocode_requirement_cues import cue_sentences, earlier_job_handoff, scan_texts, source_texts
+    from autocode_requirement_cues import coverage_checklist, earlier_job_handoff, scan_texts, source_texts
     from autocode_trace_coverage import coverage_errors, recorded_conflict_sets, unrecorded_conflict_error
 
 # The state keys under which a Resolver proposal waits for the user and the request shown to them.
@@ -395,7 +395,7 @@ def check_requirement_handoff(state: RunState, report):
         if row["id"] in seen:
             raise ValueError(f"Duplicate requirement id {row['id']}")
         seen.add(row["id"])
-        quote = requirement_quotes.ground(row.get("source_quote", ""), sources)
+        quote = requirement_quotes.ground_cited(row.get("source_quote", ""), sources, state)
         if quote is None:
             unsupported.append(row)
             continue
@@ -411,9 +411,7 @@ def check_requirement_handoff(state: RunState, report):
     ignored = report.get("ignored_statements", [])
     if not isinstance(ignored, list):
         raise ValueError("ignored_statements must be an array")
-    missing = missing_sentences(
-        (sentence for source in scan_texts(state) for sentence in cue_sentences(source)), quotes, ignored
-    )
+    missing = missing_sentences(coverage_checklist(state), quotes, ignored)
     if missing:
         raise ValueError(
             "Requirement-like sentences were neither quoted nor explicitly ignored: "

@@ -9,6 +9,8 @@ from pathlib import Path
 
 import autocode as runner
 import autocode_goals as goals
+import autocode_requirement_cues as cues
+import autocode_requirement_quotes as quotes
 import autocode_support as support
 from units import autoplanner
 
@@ -40,7 +42,7 @@ class CoverageTests(unittest.TestCase):
         # model writes as a space. Both prompts say to copy the checklist sentence in full; master refused
         # both, and every repair repeated the quote until the run paused as invalid output.
         task = "## Domain lookups must not return ()\n\nThe API must return the domains\nfor the account.\n"
-        heading, wrapped = goals.cue_sentences(task)
+        heading, wrapped = cues.cue_sentences(task)
         self.assertEqual("Domain lookups must not return ().", heading)
         report = self.report(heading, " ".join(wrapped.split()))
         goals.check_requirement_handoff({"task": task}, report)
@@ -50,6 +52,63 @@ class CoverageTests(unittest.TestCase):
         )
         for row in report["requirements"]:
             self.assertIn(row["source_quote"], task)
+
+    def test_a_requirement_may_cite_a_checklist_id_instead_of_retyping_the_sentence(self):
+        # #3344: the runner already holds every checklist sentence, so a retyped copy is pure risk —
+        # a wrong copy cost a 25-minute repair (#2835). Citing the id saves the runner's own bytes,
+        # byte for byte what a character-perfect copy would have saved.
+        task = "## Domain lookups must not return ()\n\nThe API must return the domains\nfor the account.\n"
+        report = self.report("c1", "c2")
+        goals.check_requirement_handoff({"task": task}, report)
+        self.assertEqual(
+            ["Domain lookups must not return ()", "The API must return the domains\nfor the account."],
+            [row["source_quote"] for row in report["requirements"]],
+        )
+
+    def test_a_checklist_id_cites_the_same_sentence_the_handoff_listed(self):
+        # The handoff packet and the gate have to number one shared list. A drift between them would
+        # resolve an id to a neighbouring sentence and save a quote the person never wrote, so this
+        # cites the ids of the very list the packet publishes and no newly added helper.
+        state = {
+            "task": "The API must return domains. Errors must be logged. Retries must stop.",
+            "workspace": "/fixture",
+            "settings": {"engine": "codex", "joint_planning": True, "roles": {"requirements": {}}},
+        }
+        prompt, _ = autoplanner.context(state, "requirements_gather", Path("/fixture/state.json"))
+        checklist = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])["requirement_coverage_checklist"]
+        self.assertEqual(3, len(checklist))
+        report = self.report(*[f"c{index}" for index in range(1, len(checklist) + 1)])
+        goals.check_requirement_handoff(state, report)
+        self.assertEqual(checklist, [row["source_quote"] for row in report["requirements"]])
+
+    def test_a_typed_quote_still_saves_the_source_text_beside_the_id_form(self):
+        task = "The API must return the domains for the account. Errors must be logged."
+        for quote in ("The API must return the domains for the account.", "c1"):
+            with self.subTest(quote=quote):
+                report = self.report(quote, "Errors must be logged.")
+                goals.check_requirement_handoff({"task": task}, report)
+                self.assertEqual(
+                    "The API must return the domains for the account.", report["requirements"][0]["source_quote"]
+                )
+
+    def test_a_checklist_id_outside_the_list_is_refused_and_named(self):
+        # An id that names no sentence must not resolve to a neighbour: it is refused naming the id,
+        # so the repair can see exactly what to change.
+        state = {"task": "The API must return the domains for the account."}
+        with self.assertRaises(ValueError) as caught:
+            goals.check_requirement_handoff(state, self.report("c1", "c9"))
+        message = str(caught.exception)
+        self.assertIn('"c9"', message)
+        self.assertIn("names no sentence of requirement_coverage_checklist", message)
+        self.assertNotIn("closest source sentence", message)
+
+    def test_only_an_exact_in_range_checklist_id_resolves(self):
+        checklist = ["First must run.", "Second must stop."]
+        self.assertEqual("First must run.", quotes.resolve_checklist_id("c1", checklist))
+        self.assertEqual("Second must stop.", quotes.resolve_checklist_id("c2", checklist))
+        for value in ("c0", "c3", "c", "C1", "First must run.", "fix c1", "", None):
+            with self.subTest(value=value):
+                self.assertEqual(value, quotes.resolve_checklist_id(value, checklist))
 
     def test_every_unsupported_quote_is_named_with_its_closest_source_and_the_way_out(self):
         state = {"task": "The API must return the domains for the account. Errors must be logged."}
@@ -315,19 +374,19 @@ class HeadingCueTests(unittest.TestCase):
         # The live-run shape: the heading fused with an orphaned list marker into
         # one un-quotable "requirement-like sentence".
         task = "Add refunds.\n\n## Required behavior\n\n1. Refunds must credit the original payment method."
-        self.assertEqual(["Refunds must credit the original payment method."], goals.cue_sentences(task))
+        self.assertEqual(["Refunds must credit the original payment method."], cues.cue_sentences(task))
         goals.check_requirement_handoff({"task": task}, self.report("Refunds must credit the original payment method."))
 
     def test_substantive_heading_stays_a_clean_obligation(self):
         task = "Harden storage.\n\n## Files must be encrypted\n"
-        self.assertEqual(["Files must be encrypted."], goals.cue_sentences(task))
+        self.assertEqual(["Files must be encrypted."], cues.cue_sentences(task))
         with self.assertRaisesRegex(ValueError, "Files must be encrypted"):
             goals.check_requirement_handoff({"task": task}, self.report())
         goals.check_requirement_handoff({"task": task}, self.report("Files must be encrypted"))
 
     def test_plain_requirement_sentences_are_still_enforced(self):
         task = "Add refunds. Refunds must credit the original payment method."
-        self.assertEqual(["Refunds must credit the original payment method."], goals.cue_sentences(task))
+        self.assertEqual(["Refunds must credit the original payment method."], cues.cue_sentences(task))
         with self.assertRaisesRegex(ValueError, "Refunds must credit"):
             goals.check_requirement_handoff({"task": task}, self.report())
 
@@ -336,7 +395,7 @@ class HeadingCueTests(unittest.TestCase):
             'Build notes. Notes must be numbered from 1.\n\n```json\n{"note": "M4 must only test the journey."}\n```\n'
             "Search must ignore case."
         )
-        self.assertEqual(["Notes must be numbered from 1.", "Search must ignore case."], goals.cue_sentences(task))
+        self.assertEqual(["Notes must be numbered from 1.", "Search must ignore case."], cues.cue_sentences(task))
         goals.check_requirement_handoff(
             {"task": task}, self.report("Notes must be numbered from 1.", "Search must ignore case.")
         )
@@ -352,7 +411,7 @@ class HeadingCueTests(unittest.TestCase):
             "Paths you own: only notes/store.py\n\nApproved parent contract (read only):\n```json\n"
             '{"note": "M4 must only test the journey."}\n```\nKeep its exclusions; never merge branches.'
         )
-        sentences = goals.cue_sentences(task)
+        sentences = cues.cue_sentences(task)
         self.assertEqual(
             [
                 "Paths you own: only notes/store.py",
@@ -381,7 +440,7 @@ class HeadingCueTests(unittest.TestCase):
             ),
         ):
             with self.subTest(task=task):
-                self.assertEqual(owed, goals.cue_sentences(task))
+                self.assertEqual(owed, cues.cue_sentences(task))
                 self.assertTrue(all(sentence in task for sentence in owed))
                 with self.assertRaisesRegex(ValueError, "neither quoted nor explicitly ignored"):
                     goals.check_requirement_handoff({"task": task}, self.report())
