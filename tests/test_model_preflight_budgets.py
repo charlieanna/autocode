@@ -20,6 +20,7 @@ import autocode_model_preflight as preflight
 import autocode_support as support
 import autocode_tool_containment as containment
 import autocode_toolchain as toolchain
+from providers import kilocode_policy
 from providers.command import CommandProvider
 from providers.kilocode import KiloProvider
 
@@ -295,8 +296,24 @@ class ModelPreflightBudgetCliTests(unittest.TestCase):
 
     def use_kilo_selected_python(self):
         """Use the concrete readonly Kilo launch policy, with all native/model traffic fake."""
-        self.adapter = KiloProvider(self.adapter._config, self.adapter._path)
+        config = {
+            **self.adapter._config,
+            "command": [sys.executable, "run", "--agent", "fixture", "--model", "{model}"],
+        }
+        self.adapter = KiloProvider(config, self.adapter._path)
         runner.autocode_providers.resolve.return_value = self.adapter
+
+        # Readiness resolves native metadata from the configured command, not
+        # the mocked model launch below. Keep its real capture-policy check,
+        # while scripting a permitted agent so these cases reach ELF admission.
+        def effective_agent(argv, *_args, **_kwargs):
+            self.assertEqual([sys.executable, "run", "--agent", "fixture", "--model"], argv[:5])
+            return argv, {"permission": [{"permission": "bash", "pattern": "*", "action": "allow"}]}
+
+        self.stack.enter_context(patch.object(kilocode_policy, "effective_agent", side_effect=effective_agent))
+        self.tools_readiness = self.stack.enter_context(
+            patch.object(self.adapter, "check_tools", wraps=self.adapter.check_tools)
+        )
         for name, value in (
             (
                 "local_settings",
@@ -411,6 +428,7 @@ class ModelPreflightBudgetCliTests(unittest.TestCase):
         self.use_kilo_selected_python()
         with patch.object(toolchain, "discover", wraps=toolchain.discover) as discover:
             code, stdout, stderr = self.selected_python_start()
+            self.tools_readiness.assert_called_once()
             self.assertEqual([], self.probes, stdout + stderr)
             self.assertEqual([], self.stages)
             view = self.status()
@@ -425,6 +443,7 @@ class ModelPreflightBudgetCliTests(unittest.TestCase):
             self.selected_python.symlink_to(Path(sys.executable).resolve())
             code, stdout, stderr = self.invoke("--run-dir", str(self.run_dir), "--resume-paused", "--no-chat")
             self.assertEqual(2, code, stdout + stderr)
+            self.assertEqual(2, self.tools_readiness.call_count, "Resume inspects the native policy again")
             self.assertEqual(["fixture/builder"], self.probes)
             self.assertEqual(1, len(self.stages))
             self.assertEqual(3, discover.call_count, "Resume checks early and again at the actual launch")
@@ -449,6 +468,7 @@ class ModelPreflightBudgetCliTests(unittest.TestCase):
         self.on_probe = replace
         with patch.object(toolchain, "discover", wraps=toolchain.discover) as discover:
             code, stdout, stderr = self.selected_python_start()
+        self.tools_readiness.assert_called_once()
         self.assertEqual(2, code, stdout + stderr)
         self.assertEqual(["fixture/builder"], self.probes)
         self.assertEqual(1, len(self.stages))
@@ -470,6 +490,7 @@ class ModelPreflightBudgetCliTests(unittest.TestCase):
         self.adapter.check_subscription_routes.side_effect = auth
         with patch.object(toolchain, "discover", wraps=toolchain.discover) as discover:
             code, stdout, stderr = self.selected_python_start()
+        self.tools_readiness.assert_called_once()
         self.assertEqual(2, code, stdout + stderr)
         discover.assert_not_called()
         self.assertEqual([], self.probes)
@@ -485,6 +506,7 @@ class ModelPreflightBudgetCliTests(unittest.TestCase):
             patch.object(toolchain, "discover", wraps=toolchain.discover) as discover,
         ):
             code, stdout, stderr = self.selected_python_start()
+        self.tools_readiness.assert_called_once()
         self.assertEqual(2, code, stdout + stderr)
         discover.assert_not_called()
         self.assertEqual([], self.probes)
@@ -495,10 +517,12 @@ class ModelPreflightBudgetCliTests(unittest.TestCase):
     def test_stop_at_selected_tool_pause_precedes_resume_discovery(self):
         self.use_kilo_selected_python()
         self.selected_python_start()
+        self.tools_readiness.assert_called_once()
         self.submit_stop()
         with patch.object(toolchain, "discover", wraps=toolchain.discover) as discover:
             code, stdout, stderr = self.invoke("--run-dir", str(self.run_dir), "--resume-paused", "--no-chat")
         self.assertEqual(2, code, stdout + stderr)
+        self.assertEqual(1, self.tools_readiness.call_count, "A saved stop takes precedence over readiness on resume")
         discover.assert_not_called()
         self.assertEqual([], self.probes)
         self.assertEqual("PAUSED_INTERVENTION", self.status()["status"])

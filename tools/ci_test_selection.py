@@ -1134,6 +1134,18 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("tools/autocode_model_preflight",), ("tests.test_provider_credentials",)),
     # The CLI reaches access transport through model_preflight, beyond the direct import selector.
     (("tools/provider_conformance_transport.py",), ("tests.test_model_preflight_budgets",)),
+    # Concrete Kilo fixtures exercise early readiness before paid access probes,
+    # budget/billing refusal, and selected-ELF discovery across public resumes.
+    (
+        (
+            "tools/autocode_build_loop.py",
+            "tools/autocode_tool_admission.py",
+            "tools/autocode_tool_handoff.py",
+            "tools/providers/kilocode.py",
+            "tools/providers/kilocode_policy.py",
+        ),
+        ("tests.test_model_preflight_budgets",),
+    ),
     (
         ("tools/autocode_access_identity", "tools/autocode_access_evidence", "tools/autocode_model_preflight"),
         ("tests.test_preflight_relocation_cli", "tests.test_model_preflight"),
