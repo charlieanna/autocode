@@ -562,3 +562,22 @@ test("a stage whose newest attempt failed gets no tick, and a stopped run names 
   }), STARTED);
   assert.deepEqual(recovered.map((row) => [row.mark, row.stopped]), [["✓", false]]);
 });
+
+test("the reason a run waits for never shows a command to type", () => {
+  // #3309's run, 2026-11-13: "Waiting for:" carried the stop text's resume flags.
+  const reason = "Automatic recovery budget exhausted; no further provider will launch. Last cause: No new provider activity "
+    + "within the inactivity limit (300 seconds, runner default; change it with autocode resume --max-idle-seconds N). "
+    + "AutoResolver retained the diagnosis and failure history; this is an operational stop, not a request for approval. "
+    + "After fixing the cause, authorize more recoveries explicitly with autocode resume --grant-recovery N (with --run-dir RUN "
+    + "outside the run's project).";
+  const header = runHeader(view({ status: "PAUSED_TIMEOUT_RECOVERY", summary: { state: "needs_you", label: "Needs you", sentence: "Inspect the pause, then resume." },
+    needs: { kind: "resume", reason } }));
+  const waiting = section(header, "where")?.lines.find((line) => line.startsWith("Waiting for:"));
+  assert.equal(waiting, "Waiting for: Automatic recovery budget exhausted; no further provider will launch. Last cause: No new provider "
+    + "activity within the inactivity limit. AutoResolver retained the diagnosis and failure history; this is an operational stop, "
+    + "not a request for approval.");
+  // A reason with no command is shown whole, and a parenthesis without one stays.
+  const plain = runHeader(view({ summary: { state: "needs_you", label: "Needs you", sentence: "Answer the question." },
+    needs: { kind: "answer", reason: "The plan names two exports (CSV and JSON); pick one." } }));
+  assert.ok(section(plain, "where")?.lines.includes("Waiting for: The plan names two exports (CSV and JSON); pick one."));
+});

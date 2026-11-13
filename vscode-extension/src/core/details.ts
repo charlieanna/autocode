@@ -272,6 +272,16 @@ function stageTotal(view: Row): StageTotal | null {
 
 // ---- Where the run is: `summary` and `explanation` -----------------------------------------
 
+/**
+ * A core reason with the commands it names for a terminal left out: a parenthesis that names a flag, then
+ * any sentence that still does. #3309's run showed "Waiting for: … change it with autocode resume
+ * --max-idle-seconds N … authorize more recoveries explicitly with autocode resume --grant-recovery N".
+ */
+export function withoutCommands(value: string): string {
+  const unbracketed = value.replace(/\s*\([^()]*\)/g, (group) => (FLAG.test(group) ? "" : group));
+  return unbracketed.split(/(?<=[.!?])\s+/).filter((sentence) => !FLAG.test(sentence)).join(" ").trim();
+}
+
 function where(view: Row): { state: string; label: string; sentence: string; section: DetailSection } {
   const summary = mapping(view.summary);
   const progress = mapping(view.progress);
@@ -283,7 +293,7 @@ function where(view: Row): { state: string; label: string; sentence: string; sec
   // `what_the_command_does` names CLI flags, which a client never shows.
   const means = text(mapping(view.explanation).what_it_means);
   if (means && means !== sentence) lines.push(means);
-  const reason = text(mapping(view.needs).reason);
+  const reason = withoutCommands(text(mapping(view.needs).reason));
   if (reason && !lines.includes(reason) && state === "needs_you") lines.push(`Waiting for: ${reason}`);
   if (view.done !== true && String(view.status ?? "").startsWith("PAUSED")) {
     // A stopped step: the core's own reason and next action, then the cause it saved. A line that
