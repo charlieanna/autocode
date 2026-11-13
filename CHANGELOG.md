@@ -91,6 +91,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **Requirements clarification avoids empty-test report repairs and repeated questions**: while an unanswered interview question has no drafted behavior, an omitted acceptance-tests list is recorded as empty with the original report preserved. Work-bearing reports still require tests. VS Code shows the question once in the conversation and keeps an accessible answer field.
+
 - **Requirements can ask a clarification before drafting the outcome**: an initial question with no behaviors or acceptance tests can now wait for an answer even when its outcome is still blank, instead of entering report repair. The answer returns to Requirements before planning; completed handoffs still require an outcome.
 
 - **A Rust project without a `Cargo.lock` no longer pauses when a stage runs Cargo**: in a live run a bug fix in a Rust project that has no `Cargo.lock` paused 65 seconds in with "Repository changed during read-only review". The Planner had run Cargo to read the project, and Cargo wrote the lockfile. A Builder that ran `cargo test` was refused the same way, for a file outside its task. A `Cargo.lock` that Cargo creates beside a `Cargo.toml` while a stage runs is now removed before the stage's changes are read, and the stage record names it. A lockfile the project already had, or one the Builder's task covers, is never touched ([findings](docs/bugs/2026-11-13-task-kind-survey.md)).

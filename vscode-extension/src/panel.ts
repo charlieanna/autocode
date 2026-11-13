@@ -1446,6 +1446,7 @@ function render(state) {
     state.taking, state.working, state.plan, state.criteria, state.decisions, state.decisionContext,
     state.actionLabel, state.actionEffect, state.stopped, state.unreadable, state.confirming,
     state.chat && [state.chat.phase, state.chat.notice, state.chat.progress, state.chat.activity, state.chat.log, state.chat.now, state.chat.review, state.chat.input && state.chat.input.kind],
+    state.chat && (state.chat.messages || []).filter((row) => String(row.id || '').startsWith('requirements-question-')),
     state.workingDiff, state.boundRaise, state.done, state.finish,
     state.meter && state.meter.struggling, state.checkpoints,
   ] : state;
@@ -1589,7 +1590,13 @@ function render(state) {
         const form = el('div');
         state.decisions.forEach((decision) => {
           const box = el('div', 'decision');
-          box.appendChild(el('div', 'q', decision.text));
+          // The core's current Requirements message already asks this question in the thread.
+          // Keep the field named for assistive technology, without repeating the visible text.
+          const plain = (text) => String(text || '').replace(/\\s+/g, ' ').trim();
+          const asked = state.chat && state.chat.phase === 'requirements' && (state.chat.messages || []).some((row) =>
+            !row.streaming && row.role === 'assistant' && String(row.id || '').startsWith('requirements-question-')
+            && plain(decision.text) && plain(row.text).includes(plain(decision.text)));
+          if (!asked) box.appendChild(el('div', 'q', decision.text));
           if (decision.input) box.appendChild(el('div', 'why', numericHelp(decision.input)));
           if (decision.suggested) box.appendChild(el('div', 'why', 'proposed: ' + decision.suggested));
           const name = decision.questionId;
@@ -1616,6 +1623,7 @@ function render(state) {
             if (decision.kind === 'integer') { input.inputMode = 'numeric'; input.pattern = '[0-9]*'; input.setAttribute('aria-label', decision.text); }
             if (decision.suggested) input.placeholder = decision.suggested;
           }
+          input.setAttribute('aria-label', decision.text);
           input.dataset.question = name;
           if (answers[name]) input.value = answers[name];
           // A number the button will not take says why beside the field, as it is typed.
