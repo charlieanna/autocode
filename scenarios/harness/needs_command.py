@@ -19,6 +19,7 @@ REPO = Path(__file__).resolve().parents[2]
 _PERSON_INT = (
     "--planning-review-call-limit",
     "--no-progress-limit",
+    "--max-planning-calls",
     "--max-seconds",
     "--max-idle-seconds",
     "--max-cost-usd",

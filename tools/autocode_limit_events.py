@@ -31,6 +31,7 @@ LIMIT_FLAGS = {
     "tool_timeout_seconds": "--max-tool-seconds",
     "no_progress_batches": "--no-progress-limit",
     "max_findings_per_task": "--max-findings-per-task",
+    "planning_calls": "--max-planning-calls",
 }
 
 

@@ -46,6 +46,8 @@ export interface PipelineStep {
   runs: string;
   /** Why the newest failed attempt did not succeed, while the stage retries or after it failed. */
   why: string;
+  /** The stage launched and its newest attempt failed, and it is not running again now: it gets no tick. */
+  stopped: boolean;
 }
 
 /** The stage table's last row: the run's working time, tokens and accounted spend, as the core totals them. */
@@ -82,6 +84,8 @@ export interface RunHeader {
 }
 
 export const STEP_MARKS: Record<StepState, string> = { working: "●", next: "›", ran: "✓", skipped: "–", pending: "·", not_run: "·" };
+/** A stage whose newest attempt failed: "ran" says it launched, never that its work stood (#3309's run, "7 of 7 ran"). */
+export const STOPPED_MARK = "✗";
 const STEP_STATES = new Set(Object.keys(STEP_MARKS));
 
 const mapping = (value: unknown): Row => (value && typeof value === "object" && !Array.isArray(value) ? value as Row : {});
@@ -113,7 +117,10 @@ function clock(value: unknown): string {
 /** A job's launched attempts as the meter reads them (`usage.accounting.attempts`), several stages of one job together. */
 interface JobUse {
   model: string; level: string; seconds: number | null; tokens: number; tokensComplete: boolean; spent: number | null;
+  costComplete: boolean;
   attempts: number; failed: number; repairs: number; why: string; active: boolean;
+  /** The job's newest stage row ended on a failed attempt (the meter's `failed` state). */
+  lastFailed: boolean;
 }
 
 function jobUse(view: Row, now: number): Map<string, JobUse> {
@@ -129,11 +136,14 @@ function jobUse(view: Row, now: number): Map<string, JobUse> {
       tokens: (seen?.tokens ?? 0) + row.tokens,
       tokensComplete: (seen?.tokensComplete ?? true) && row.tokensComplete,
       spent: add(seen?.spent ?? null, row.spentUsd),
+      costComplete: (seen?.costComplete ?? true) && row.costComplete,
       attempts: (seen?.attempts ?? 0) + row.attempts,
       failed: (seen?.failed ?? 0) + row.failedAttempts,
       repairs: (seen?.repairs ?? 0) + row.repairs,
       why: row.why || seen?.why || "",
       active: Boolean(seen?.active) || row.state === "working" || row.state === "retrying",
+      // Rows come in the order each stage first ran, so a job's later stage (a revised plan) decides.
+      lastFailed: row.state === "failed",
     });
   }
   return used;
@@ -162,15 +172,20 @@ function stepOf(label: string, state: StepState, row: Row, use: JobUse | undefin
     label, state, mark: STEP_MARKS[state], detail: "", now: state === "working" ? nowFor(view, label) : "",
     model: shortModel(model), level, route: [model, level].filter(Boolean).join(" "),
     time: "", tokens: "", cost: "", attempts: use?.attempts ?? 0, failed: use?.failed ?? 0, repairs: use?.repairs ?? 0, runs: "", why: "",
+    stopped: state === "ran" && Boolean(use?.lastFailed),
   };
+  if (step.stopped) step.mark = STOPPED_MARK;
   if (state === "skipped") {
     step.detail = "skipped" + (text(row.reason) ? `: ${text(row.reason)}` : "");
     return step;
   }
   if (use?.seconds && use.seconds >= 1) step.time = duration(use.seconds);
   if (use?.tokens) step.tokens = `${stageTokens(use.tokens)}${use.tokensComplete ? "" : "+"}`;
-  const spent = use?.spent ?? (isNumber(row.spent_usd) ? row.spent_usd : null);
-  if (spent !== null && (spent > 0 || use)) step.cost = stageMoney(spent);
+  const spent = use ? use.spent : (isNumber(row.spent_usd) ? row.spent_usd : null);
+  const complete = use ? use.costComplete : row.spent_complete !== false;
+  if (spent !== null && (spent > 0 || use || typeof row.spent_complete === "boolean")) {
+    step.cost = `${stageMoney(spent)}${complete ? "" : "+"}`;
+  }
   // A stage that ran again after succeeding (a second plan-review round) is not a retry, and a report
   // repair only rewrote a rejected report: it is never another run of the stage.
   const again = use && use.attempts > 1 ? (use.failed ? `${use.attempts} attempts, ${use.failed} failed` : `ran ${use.attempts} times`) : "";
@@ -227,7 +242,12 @@ function pipelineSection(view: Row, steps: PipelineStep[]): DetailSection | null
   const working = steps.find((step) => step.state === "working");
   const next = steps.find((step) => step.state === "next");
   const ran = steps.filter((step) => step.state === "ran").length;
-  const summary = working ? `${working.label} working` : next ? `${next.label} next` : `${ran} of ${steps.length} ran`;
+  const stopped = steps.filter((step) => step.stopped);
+  // A stopped run names where it stopped; "7 of 7 ran" with ticks read as a finished, passing run.
+  const summary = working ? `${working.label} working`
+    : next ? `${next.label} next`
+    : stopped.length && view.done !== true ? `Stopped at ${stopped[stopped.length - 1]!.label}`
+    : `${ran} of ${steps.length} ran` + (stopped.length ? `, ${stopped.length} stopped on a failed attempt` : "");
   const lines: string[] = [];
   for (const step of steps) {
     lines.push(`${step.mark} ${stageDetail(step)}`);
@@ -257,6 +277,16 @@ function stageTotal(view: Row): StageTotal | null {
 
 // ---- Where the run is: `summary` and `explanation` -----------------------------------------
 
+/**
+ * A core reason with the commands it names for a terminal left out: a parenthesis that names a flag, then
+ * any sentence that still does. #3309's run showed "Waiting for: … change it with autocode resume
+ * --max-idle-seconds N … authorize more recoveries explicitly with autocode resume --grant-recovery N".
+ */
+export function withoutCommands(value: string): string {
+  const unbracketed = value.replace(/\s*\([^()]*\)/g, (group) => (FLAG.test(group) ? "" : group));
+  return unbracketed.split(/(?<=[.!?])\s+/).filter((sentence) => !FLAG.test(sentence)).join(" ").trim();
+}
+
 function where(view: Row): { state: string; label: string; sentence: string; section: DetailSection } {
   const summary = mapping(view.summary);
   const progress = mapping(view.progress);
@@ -268,7 +298,7 @@ function where(view: Row): { state: string; label: string; sentence: string; sec
   // `what_the_command_does` names CLI flags, which a client never shows.
   const means = text(mapping(view.explanation).what_it_means);
   if (means && means !== sentence) lines.push(means);
-  const reason = text(mapping(view.needs).reason);
+  const reason = withoutCommands(text(mapping(view.needs).reason));
   if (reason && !lines.includes(reason) && state === "needs_you") lines.push(`Waiting for: ${reason}`);
   if (view.done !== true && String(view.status ?? "").startsWith("PAUSED")) {
     // A stopped step: the core's own reason and next action, then the cause it saved. A line that
@@ -313,7 +343,7 @@ function wrongSection(view: Row): DetailSection | null {
     lines.push(`  Then: ${text(row.action)}`);
     if (text(row.detail)) lines.push(`  What it found: ${text(row.detail)}`);
   }
-  return { id: "wrong", title: "What went wrong", summary: `${found.length} so far, each handled by AutoCode`, lines };
+  return { id: "wrong", title: "What went wrong", summary: `${found.length} recovery events recorded`, lines };
 }
 
 // ---- Spend: `run_metrics` (the terminal's /spend) -------------------------------------------
@@ -323,13 +353,14 @@ function metricsOf(view: Row): Row | null {
   return metrics.schema === 1 && isNumber(metrics.spent_usd) && metrics.spent_usd > 0 ? metrics : null;
 }
 
-function jobLine(row: Row): string {
+function jobLine(row: Row, complete: boolean): string {
   const again = isCount(row.attempts) && row.attempts > 1 ? `, ${row.attempts} runs` : "";
   const known = row.complete === true ? "" : " (known part)";
   // Each job's own time beside its share of the cost, so a share is never read as a share of the time.
   let took = isNumber(row.seconds) ? duration(row.seconds) : "";
   if (took && row.seconds_complete !== true) took += " so far";
-  return `${text(row.job) || "Job unreported"} ${money(row.spent_usd)}${known} · ${percent(row.share)} of cost${took ? ` · ${took}` : ""}${again}`;
+  const share = complete ? ` · ${percent(row.share)} of cost` : "";
+  return `${text(row.job) || "Job unreported"} ${money(row.spent_usd)}${known}${share}${took ? ` · ${took}` : ""}${again}`;
 }
 
 function cacheLine(tokenRow: Row): string | null {
@@ -339,10 +370,21 @@ function cacheLine(tokenRow: Row): string | null {
   return parts.join(", ") + (tokenRow.complete === true ? "" : " (known part)");
 }
 
-function wasteLine(waste: Row): string {
+function wasteLine(waste: Row, view: Row): string {
   const failed = waste.failed_attempts;
+  const attempts = rows(mapping(mapping(view.usage).accounting).attempts)
+    .filter((row) => !row.runner_owned && !row.active
+      && (row.rejected || row.interrupted || row.timed_out || (Number.isInteger(row.exit_code) && row.exit_code !== 0)));
+  const hasKnown = attempts.some((row) => {
+    const quantity = mapping(row.attributed_reported_usd);
+    return quantity.complete === true && isNumber(quantity.value)
+      || (isNumber(quantity.known_items) && quantity.known_items > 0);
+  });
+  const amount = isNumber(waste.failed_usd) && (waste.failed_usd > 0 || waste.failed_usd_complete === true || hasKnown)
+    ? `${money(waste.failed_usd)}${waste.failed_usd_complete === true ? "" : " (known part)"}`
+    : "cost not reported";
   let line = !isCount(failed) || !failed ? "No failed attempts"
-    : `${failed} failed attempt${failed === 1 ? "" : "s"} ${money(waste.failed_usd)}${waste.failed_usd_complete === true ? "" : " known"}`;
+    : `${failed} failed attempt${failed === 1 ? "" : "s"} ${amount}`;
   // A report repair rewrote a rejected report; it is not another run of the job.
   const repeated = rows(waste.repeated_jobs);
   const again = repeated.map((row) => [text(row.job), isCount(row.runs) ? row.runs : row.attempts] as const)
@@ -375,7 +417,7 @@ export function spendSummary(view: Row): string | null {
   const metrics = metricsOf(view);
   if (!metrics) return null;
   const single = mapping(metrics.single_model);
-  if (isNumber(single.builder_share) && single.builder_share <= 1) {
+  if (metrics.complete === true && isNumber(single.builder_share) && single.builder_share <= 1) {
     // Planning is named apart from checking (#3268); an older core gives no split, so the rest is "everything else".
     const builder = `Cost: Builder ${percent(single.builder_share)}`;
     if (!isNumber(single.planning_share) || !isNumber(single.review_share)) {
@@ -383,15 +425,15 @@ export function spendSummary(view: Row): string | null {
     }
     return `${builder}${single.planning_share ? ` · planning ${percent(single.planning_share)}` : ""} · checking ${percent(single.review_share)}`;
   }
-  return `${money(metrics.spent_usd)} across ${rows(metrics.by_job).length} jobs`;
+  return `${money(metrics.spent_usd)}${metrics.complete === true ? "" : "+"} across ${rows(metrics.by_job).length} jobs`;
 }
 
 function spendSection(view: Row): DetailSection | null {
   const metrics = metricsOf(view);
   if (!metrics) return null;
-  const whole = metrics.complete === true ? "" : " (known part; some usage is not recorded)";
-  const lines = [`Where the money went: ${money(metrics.spent_usd)}${whole}`];
-  for (const row of rows(metrics.by_job)) if (isNumber(row.spent_usd) && row.spent_usd > 0) lines.push(`  ${jobLine(row)}`);
+  const coverage = metrics.complete === true ? "" : " (known part; some usage is not recorded)";
+  const lines = [`Where the money went: ${money(metrics.spent_usd)}${coverage}`];
+  for (const row of rows(metrics.by_job)) if (isNumber(row.spent_usd) && row.spent_usd > 0) lines.push(`  ${jobLine(row, metrics.complete === true)}`);
   const tokenRow = mapping(metrics.tokens);
   const split = ([["input", "input"], ["new", "new"], ["cache_write", "cache write"], ["cache_read", "cache read"], ["output", "output"]] as const)
     .map(([key, label]) => `${label} ${tokens(tokenRow[key])}`).join(", ");
@@ -399,13 +441,22 @@ function spendSection(view: Row): DetailSection | null {
   const cache = cacheLine(tokenRow);
   if (cache) lines.push(`  ${capitalize(cache)}`);
   const waste = mapping(metrics.waste);
-  lines.push("Spent again", `  ${wasteLine(waste)}`);
+  lines.push("Spent again", `  ${wasteLine(waste, view)}`);
   if (isNumber(waste.report_repair_usd) && waste.report_repair_usd) lines.push(`  Report repairs ${money(waste.report_repair_usd)}`);
   const single = mapping(metrics.single_model);
   lines.push("Compared with one model building it alone");
-  lines.push(`  Builder ${money(single.builder_usd)} (${percent(single.builder_share)}); ${isNumber(single.planning_usd)
-    ? `planning ${money(single.planning_usd)}; checking ${money(single.review_usd)}`
-    : `planning and checking ${money(single.checking_usd)}`}`);
+  const builderRows = rows(mapping(mapping(view.cost).breakdown).by_stage).filter((row) => row.stage === "builder");
+  const builderJob = rows(metrics.by_job).find((row) => row.job === "Builder");
+  const builderKnown = isNumber(single.builder_usd) && (builderRows.some((row) => isNumber(row.spent_usd))
+    || single.builder_usd > 0 || metrics.complete === true || builderJob?.complete === true);
+  const whole = metrics.complete === true;
+  const builderComplete = whole || builderJob?.complete === true;
+  const builder = builderKnown ? `${money(single.builder_usd)}${whole ? ` (${percent(single.builder_share)})` : builderComplete ? "" : " (known part)"}` : "cost not reported";
+  const part = (amount: unknown) => isNumber(amount) && (amount > 0 || whole)
+    ? `${money(amount)}${whole ? "" : " (known part)"}` : "cost not reported";
+  lines.push(`  Builder ${builder}; ${isNumber(single.planning_usd)
+    ? `planning ${part(single.planning_usd)}; checking ${part(single.review_usd)}`
+    : `planning and checking ${part(single.checking_usd)}`}`);
   const bought = checked(mapping(single.produced));
   lines.push(`  What that bought: ${bought.length ? bought.join("; ") : "nothing recorded yet"}`);
   if (text(single.basis)) lines.push(`  ${text(single.basis)}.`);
@@ -711,7 +762,7 @@ export function runHeader(view: unknown, at = Date.now()): RunHeader | null {
   if (spend) facts.push(spend);
   // The run's working time, tokens and spend are the stage table's total row.
   const wrong = recoveries(source).length;
-  if (wrong) facts.push(`${wrong} ${wrong === 1 ? "thing" : "things"} went wrong, handled`);
+  if (wrong) facts.push(`${wrong} recovery ${wrong === 1 ? "event" : "events"}`);
   const place = worktree(source);
   const sections = [
     now.section,

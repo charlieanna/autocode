@@ -114,6 +114,11 @@ requests; choosing one only fills the message box. A tab shows ● while its run
 waits for you and ✓ once it has finished, and the status bar names the working
 stage and the run's cost.
 
+Open chat tabs also notify you when a run needs attention or finishes. The
+notification's **Open chat** link selects that run; it closes when the need
+changes or clears, or when the tab closes. Set `autocode.notify` to false to
+turn these notifications off.
+
 Provider-reported cost and the core's historical comparison estimates are shown
 separately. These estimates are not current API prices or your token-plan bill.
 The extension reads the public accounting view and does not calculate its own
@@ -224,6 +229,10 @@ and then advance explicitly say **and continue**; advancing uses the run’s sav
 provider and per-role routes. Person-only recovery decisions still require their
 separate confirmation (`autocode.confirmPersonOnly`). Free text cannot bypass an
 operational stop or approve a plan.
+
+**Accept the reviewed criteria** also continues the run toward the Completion
+Reviewer, taking only the fresh status view's named Continue. Another review,
+question, plan approval or person-only stop still waits for you.
 
 **Change sets.** For a run linked with runs in other repositories (`scope.linked`,
 `autocode changeset link`), Run details reads `autocode changeset status --json`

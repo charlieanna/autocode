@@ -21,10 +21,12 @@ import codecs
 import hashlib
 import json
 import os
+import re
 import threading
 import time
 from pathlib import Path
 
+_ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 IDLE_REASON = "No new provider activity within the inactivity limit"
 # Internal clock binding for the process supervisor. poll() includes it, while
 # snapshot() and persisted/public activity never do. The instant is captured
@@ -135,6 +137,7 @@ class ActivityMonitor:
     MAX_LINE_BYTES = 1024 * 1024
     MAX_STRING_BYTES = 65536
     MAX_SEEN = 32768
+    MAX_PLAIN_BYTES = 4096
     MAX_ITEMS = 4096
     MAX_ACTIVE_TOOLS = 1024
     TOOL_TYPES = {
@@ -158,8 +161,15 @@ class ActivityMonitor:
         idle_origin=None,
         idle_hint=CHANGE_IDLE_LIMIT,
         progress=None,
+        plain_text=False,
     ):
         self.path = Path(events_path)
+        # A configured tool with no event protocol (``output = "report_file"``) writes its progress as plain
+        # lines, such as ``codex exec`` without ``--json``. Each new, distinct line is provider text then;
+        # otherwise such a stage reads as idle however hard it works (#3309's run: every Builder and Resolver
+        # on the GoCode tool stopped at the 300 s limit).
+        self._plain_text = plain_text
+        self._raw = bytearray()
         # Optional exploration budget with observe(row) and reason(); no stage passes one today.
         self._progress = progress
         self.idle_limit = max(0, float(idle_seconds))
@@ -363,9 +373,22 @@ class ActivityMonitor:
                     self.MAX_LINE_BYTES, min(self.MAX_STRING_BYTES, max(8, self.MAX_LINE_BYTES // 4))
                 )
             self._line.feed(fragment)
+            if self._plain_text and len(self._raw) < self.MAX_PLAIN_BYTES:
+                self._raw.extend(fragment[: self.MAX_PLAIN_BYTES - len(self._raw)])
             if index < len(fragments) - 1:
-                self._event(self._line.finish(), now)
+                row = self._line.finish()
+                if row is None and self._plain_text:
+                    self._plain(bytes(self._raw), now)
+                else:
+                    self._event(row, now)
                 self._line = None
+                self._raw.clear()
+
+    def _plain(self, line, now):
+        """A plain-text progress line: activity once per distinct line, never tool or report evidence."""
+        text = _ANSI.sub("", line.decode("utf-8", errors="replace")).strip()
+        if text:
+            self._text("plain:" + self._digest(text).hex(), text, now)
 
     def _read(self, now):
         try:

@@ -93,12 +93,14 @@ class RecoveryHistoryTests(unittest.TestCase):
                 ("report_repaired", "Investigator", "Investigator rewrote its report"),
                 ("sent_back", "Builder", "Builder sent back for untested lines"),
                 ("investigated", "Builder", "Builder stuck"),
-                ("resolved", "Resolver", "Resolver: try the stage again"),
+                ("resolver_decision", "Resolver", "Resolver: try the stage again"),
             ],
             [(row["kind"], row["job"], row["headline"]) for row in rows],
         )
         rejected, repaired, sent_back, stuck, resolved = rows
         self.assertEqual("A reproduced bug needs exactly one of probe or untestable", rejected["problem"])
+        self.assertTrue(repaired["handled"])
+        self.assertFalse(resolved["handled"])
         self.assertIn("It took 2 tries. AutoCode accepted the rewritten report.", repaired["action"])
         self.assertEqual(
             "Changed lines have no test that fails when they break, and no checked reason: resolver.go lines 48, 56-58, 77.",
@@ -120,6 +122,78 @@ class RecoveryHistoryTests(unittest.TestCase):
         self.assertEqual(len({row["id"] for row in rows}), len(rows))
         self.assertEqual(set(history.project(state())[0]), set(rows[0]))  # every row has the same keys
 
+    def test_a_resolver_hold_is_a_stop_with_its_cause_and_command_hints_removed(self):
+        run = state(
+            history=[
+                {
+                    "stage": "resolver",
+                    "engine": "runner",
+                    "finished_at": "2026-11-02T05:46:00+00:00",
+                    "decision": {
+                        "action": "hold",
+                        "rationale": (
+                            "AutoResolver cannot safely resolve this blocker under the current authority. "
+                            "Automatic recovery budget exhausted; no further provider will launch. "
+                            "Last cause: No new provider activity within the inactivity limit "
+                            "(300 seconds, runner default; change it with "
+                            "autocode resume --max-idle-seconds N). AutoResolver retained the diagnosis "
+                            "and failure history; this is an operational stop, not a request for approval. "
+                            "After fixing the cause, authorize more recoveries explicitly with "
+                            "autocode resume --grant-recovery N."
+                        ),
+                    },
+                }
+            ]
+        )
+        held = next(row for row in history.project(run) if row["by"] == "Resolver")
+
+        self.assertEqual(("resolver_decision", "Resolver: stop here"), (held["kind"], held["headline"]))
+        self.assertEqual("No new provider activity within the inactivity limit", held["problem"])
+        self.assertIn("chose to stop here", held["action"])
+        self.assertNotIn("autocode resume", json.dumps(held))
+        self.assertNotIn("--max-idle-seconds", json.dumps(held))
+        self.assertFalse(held["handled"])
+
+    def test_a_retry_reports_the_failed_attempt_cause_without_claiming_success(self):
+        run = state(
+            history=[
+                {
+                    "stage": "resolver",
+                    "engine": "runner",
+                    "finished_at": "2026-11-02T05:46:00+00:00",
+                    "decision": {
+                        "action": "retry",
+                        "rationale": "AutoResolver retained the stopped attempt and its diagnosis.",
+                    },
+                    "receipt": {
+                        "evidence": {
+                            "timeout_reason": (
+                                "No new provider activity within the inactivity limit "
+                                "(300 seconds; see autocode resume --max-idle-seconds N)."
+                            )
+                        }
+                    },
+                }
+            ]
+        )
+        retried = next(row for row in history.project(run) if row["by"] == "Resolver")
+
+        self.assertEqual("No new provider activity within the inactivity limit.", retried["problem"])
+        self.assertIn("chose to try the stage again", retried["action"])
+        self.assertFalse(retried["handled"])
+
+    def test_a_command_hint_in_parentheses_does_not_hide_the_cause(self):
+        reason = (
+            "Last cause: No new provider activity within the inactivity limit "
+            "(300 seconds, runner default; change it with autocode resume --max-idle-seconds N)."
+        )
+
+        shown = history.explain(reason)
+
+        self.assertIn("Last cause: No new provider activity within the inactivity limit", shown)
+        self.assertNotIn("autocode resume", shown)
+        self.assertNotIn("--max-idle-seconds", shown)
+
     def test_a_model_resolver_decision_is_not_called_a_rule(self):
         model_run = state(
             history=[
@@ -131,9 +205,11 @@ class RecoveryHistoryTests(unittest.TestCase):
                 }
             ]
         )
-        resolved = next(row for row in history.project(model_run) if row["kind"] == "resolved")
+        resolved = next(row for row in history.project(model_run) if row["kind"] == "resolver_decision")
 
         self.assertEqual("The Resolver chose to revise the plan: The milestone order blocks M2", resolved["action"])
+        self.assertEqual("The milestone order blocks M2", resolved["problem"])
+        self.assertFalse(resolved["handled"])
 
     def test_an_investigation_explains_the_rejection_it_was_called_for_and_drops_internal_text(self):
         stuck = next(row for row in history.project(state()) if row["kind"] == "investigated")
@@ -356,6 +432,7 @@ class RecoveryHistoryTests(unittest.TestCase):
         self.assertEqual(
             sorted(item["properties"]["kind"]["enum"]), sorted({row["kind"] for row in shown["recoveries"]})
         )
+        self.assertEqual("boolean", item["properties"]["handled"]["type"])
 
 
 if __name__ == "__main__":

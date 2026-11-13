@@ -1863,6 +1863,26 @@ class RepairTests(unittest.TestCase):
         self.assertIn("exactly one JSON object", call["prompt"])
         self.assertIn("independently executed Validator tool event", call["prompt"])
 
+    def test_a_repair_the_investigator_granted_carries_its_guidance(self):
+        # The Investigator's retry of a rejected report repairs that report (autocode_stuck_job.apply), so the
+        # repair request must say what the Investigator found, as a fresh request of the stage would.
+        self.queue()
+        self.state["stuck_investigation"] = {
+            "identity": "builder:PAUSED_INVALID_OUTPUT",
+            "stage": "builder",
+            "status": "PAUSED_INVALID_OUTPUT",
+            "diagnosis": "The report cites the check by its prose name.",
+            "guidance": "Cite check:1 exactly; keep the prose in the summary.",
+            "in_force": True,
+            **stuck_job.recovery_binding.binding(self.state, "builder"),
+        }
+        with patch.object(runner, "run_role", side_effect=RuntimeError("fixture stop")) as launch:
+            with self.assertRaises(RuntimeError):
+                runner.execute_report_repair(self.state, self.run, self.root)
+        instructions = launch.call_args.kwargs["prompt"].split("CURRENT HANDOFF DATA\n")[0]
+        self.assertIn("INVESTIGATOR GUIDANCE", instructions)
+        self.assertIn("Cite check:1 exactly; keep the prose in the summary.", instructions)
+
     def test_an_investigator_repair_repeats_where_its_probe_finds_the_cited_files(self):
         # Live run 2026-09-29: both repairs of a rejected probe guessed the cited file's path.
         self.queue(

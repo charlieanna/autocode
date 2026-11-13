@@ -29,6 +29,14 @@ def evidence_instruction(stage: str) -> str:
     return prompts.get("fragments/stuck-repair-context/evidence-instruction.md")
 
 
+def guidance(state: RunState, stage: str) -> str:
+    """The Investigator guidance in force for ``stage``, for a report-only repair of that stage's report.
+
+    The Investigator's retry of a rejected report repairs that report (autocode_stuck_job.apply), so the
+    repair, like a fresh request, must carry what the Investigator found."""
+    return stuck.guidance(state, stage)
+
+
 def evidence_files(refs, workspace, run_dir) -> list[dict]:
     """Describe only valid cited files, using the admission validator's run-file mapping."""
     workspace, run_dir = Path(workspace).resolve(), Path(run_dir).resolve()

@@ -45,7 +45,9 @@ _REPORT_EDIT = re.compile(r"^Report edits?\b")
 _REPORT_EDIT_TEXT = "its correction to the earlier answer was not in a form AutoCode can apply."
 # A sentence that tells someone to run something is machinery, not an explanation.
 _COMMAND = re.compile(r"\bautocode\s+[a-z-]+|(?:^|\s)--[a-z]")
+_PARENTHESIS = re.compile(r"\([^()]*\)")
 _SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-Z])")
+_LAST_CAUSE = re.compile(r"\bLast cause:\s*(?P<cause>.*?)(?:\.\s|$)")
 # Schema validation errors: "$: missing x", "$: unexpected fields: a, b", "$.path: reason".
 _SCHEMA_MISSING = re.compile(r"\bmissing\b")
 _SCHEMA_UNEXPECTED = re.compile(r"unexpected fields:\s*([^;]+)")
@@ -56,7 +58,11 @@ _RESOLVER_ACTIONS = {
     "retry": "try the stage again",
     "escalate": "stop the stage",
     "replan": "revise the plan",
+    "hold": "stop here",
 }
+
+
+_RETRIED = "again itself"  # autocode_rejection_retry: AutoCode ran the stage again itself
 
 
 def project(state: RunState) -> list[dict[str, Any]]:
@@ -64,7 +70,12 @@ def project(state: RunState) -> list[dict[str, Any]]:
     investigations = list(_investigations(state))
     explained = {(row["job"], row["problem"]) for row in investigations}
     entries = [
-        *(row for row in _rejections(state) if (row["job"], row["problem"]) not in explained),
+        # A rejection AutoCode retried itself after the investigation stays: that retry is not in the investigation's entry.
+        *(
+            row
+            for row in _rejections(state)
+            if (row["job"], row["problem"]) not in explained or _RETRIED in row["action"]
+        ),
         *_report_repairs(state),
         *_test_role_corrections(state),
         *_sent_back(state),
@@ -86,6 +97,7 @@ def _entry(
     action: str,
     by: str | None = None,
     detail: str | None = None,
+    handled: bool = False,
 ) -> dict[str, Any]:
     job = roles.screen_name(stage, state) if stage else None
     body = {
@@ -97,6 +109,7 @@ def _entry(
         "action": action,
         "by": by or job,
         "detail": _plain(detail, DETAIL),
+        "handled": handled,
     }
     identity = "\0".join(str(body[key] or "") for key in ("kind", "at", "job", "headline"))
     return {"id": hashlib.sha256(identity.encode()).hexdigest()[:16], **body}
@@ -141,6 +154,8 @@ def _plain(text, limit=TEXT):
     if not isinstance(text, str) or not text.strip():
         return None
     text = " ".join(text.split())
+    text = _PARENTHESIS.sub(lambda match: "" if _COMMAND.search(match.group()) else match.group(), text)
+    text = re.sub(r"\s+([.!?])", r"\1", text)
     match = _REJECTED.match(text)
     if match:
         text = match["why"]
@@ -185,6 +200,15 @@ def _rejections(state: RunState):
         if not stage or not problem:
             continue
         job = roles.screen_name(stage, state)
+        retried = [item for item in row.get("automatic_retries") or [] if isinstance(item, dict)]
+        last = retried[-1] if retried else {}
+        action = "AutoCode did not accept it."
+        if isinstance(last.get("attempt"), int) and isinstance(last.get("limit"), int):
+            # autocode_rejection_retry: AutoCode ran the stage again itself, within its limit.
+            action = (
+                f"AutoCode did not accept it and ran the {job} {_RETRIED} "
+                f"(attempt {last['attempt']} of at most {last['limit']} at this source)."
+            )
         yield _entry(
             "rejected",
             row.get("last_seen"),
@@ -192,7 +216,7 @@ def _rejections(state: RunState):
             state,
             headline=f"{job} answer rejected{_times(row.get('count'))}",
             problem=problem,
-            action="AutoCode did not accept it.",
+            action=action,
         )
 
 
@@ -221,6 +245,7 @@ def _report_repairs(state: RunState):
             headline=f"{job} rewrote its report",
             problem=None,
             action=f"Its work stood; only the report was rewritten.{took} {done}",
+            handled=row.get("result") == "accepted",
         )
     for row in state.get("report_repair_archive") or []:
         if not isinstance(row, dict) or row.get("kind") != "verification_inputs_changed":
@@ -338,7 +363,7 @@ def _investigations(state: RunState):
 
 
 def _resolver(state: RunState):
-    """The Resolver's decision on a failure its rules cover, and the reason it recorded."""
+    """The Resolver's next-step decision on a failure its rules cover; a decision is not a resolution."""
     for row in state.get("history") or []:
         if not isinstance(row, dict) or row.get("stage") not in ("resolver", "resolve"):
             continue
@@ -352,13 +377,27 @@ def _resolver(state: RunState):
         who = (
             "The Resolver's rules, with no model call, chose" if row.get("engine") == "runner" else "The Resolver chose"
         )
+        receipt = row.get("receipt")
+        evidence = receipt.get("evidence") if isinstance(receipt, dict) else None
+        evidence = evidence if isinstance(evidence, dict) else {}
+        cause = next(
+            (
+                evidence.get(key)
+                for key in ("timeout_reason", "capacity_error")
+                if isinstance(evidence.get(key), str) and evidence[key].strip()
+            ),
+            None,
+        )
+        if not cause and isinstance(decision.get("rationale"), str):
+            last_cause = _LAST_CAUSE.search(decision["rationale"])
+            cause = last_cause["cause"] if last_cause else decision["rationale"]
         yield _entry(
-            "resolved",
+            "resolver_decision",
             row.get("finished_at"),
             row["stage"],
             state,
             headline=f"Resolver: {choice}",
-            problem=None,
+            problem=cause,
             action=f"{who} to {choice}" + (f": {reason}" if reason else "."),
             by="Resolver",
         )

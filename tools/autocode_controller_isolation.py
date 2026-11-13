@@ -6,7 +6,6 @@ supply the executing module path; no controller or workflow imports belong here.
 
 from __future__ import annotations
 
-import shlex
 from pathlib import Path
 
 
@@ -23,6 +22,34 @@ def is_autocode_checkout(workspace: Path) -> bool:
     )
 
 
+def setup_view(workspace: Path, controller_file: Path) -> dict:
+    """Read-only admission and the public client action for selecting an isolated controller."""
+    workspace = workspace.resolve()
+    unsafe = is_autocode_checkout(workspace) and controller_file.resolve().is_relative_to(workspace)
+    detail = (
+        "Unsafe AutoCode self-build: the executing controller is inside the task workspace, "
+        "so the task could edit the code that runs it. A new worktree does not isolate the controller "
+        "during startup. Select an AutoCode CLI installed outside this checkout, then retry your chat. "
+        "Choose an existing non-editable installation, or one sourced from a separate checkout; "
+        "nothing will be installed automatically."
+        if unsafe
+        else "This controller is outside the task workspace or the workspace is not an AutoCode self-build."
+    )
+    return {
+        "ready": not unsafe,
+        "detail": detail,
+        "actions": [
+            {
+                "id": "select_cli",
+                "label": "Select isolated AutoCode CLI",
+                "next_command": ["worktrees", "list", "--workspace", str(workspace), "--json"],
+            }
+        ]
+        if unsafe
+        else [],
+    }
+
+
 def require_isolated(workspace: Path, controller_file: Path) -> None:
     """Refuse an AutoCode self-build whose edits could change the controller running it.
 
@@ -30,14 +57,6 @@ def require_isolated(workspace: Path, controller_file: Path) -> None:
     the task can edit the checkout in place, as any other project, and the running
     controller stays as it was (owner decision 2026-10-20).
     """
-    workspace = workspace.resolve()
-    if not is_autocode_checkout(workspace) or not controller_file.resolve().is_relative_to(workspace):
-        return
-    target = workspace.with_name(workspace.name + "-self-build")
-    command = shlex.join(["git", "-C", str(workspace), "worktree", "add", "--detach", str(target), "HEAD"])
-    raise ValueError(
-        "Unsafe AutoCode self-build: the executing controller is inside the task workspace, "
-        "so the task could edit the code that runs it. Run an installed autocode from outside "
-        f"this checkout, or create a separate workspace with: {command}. "
-        f"Then run this controller with --workspace {shlex.quote(str(target))} --in-place."
-    )
+    setup = setup_view(workspace, controller_file)
+    if not setup["ready"]:
+        raise ValueError(setup["detail"])

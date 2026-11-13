@@ -126,6 +126,10 @@ class RunViewTests(unittest.TestCase):
 
     def test_contract_fields(self):
         self.assertIn("gate", run_view.view({"status": "RUNNING"})["chat"])
+        self.assertEqual(
+            {"job", "label", "state", "model", "reasoning_effort", "spent_usd", "spent_complete", "reason"},
+            set(run_view.view({"status": "RUNNING"})["pipeline"][0]),
+        )
         copy_record = run_view.view(
             {"status": "RUNNING", "stages": [{"role": "tester", "events": "tester.jsonl", "verification_copy": {}}]}
         )["replay_source"]["records"][0]["verification_copy"]
@@ -158,6 +162,7 @@ class RunViewTests(unittest.TestCase):
                 "dependency",
                 "usage",
                 "cost",
+                "planning_calls",
                 "request_context",
                 "output_transport",
                 "direct_rework_assignments",
@@ -215,6 +220,18 @@ class RunViewTests(unittest.TestCase):
                 "proxied_requirements",
             },
             set(run_view.view({"status": "RUNNING"})),
+        )
+        recoveries = run_view.view(
+            {
+                "status": "RUNNING",
+                "report_repair_history": [
+                    {"at": "2026-11-12T00:00:00+00:00", "result": "accepted", "repair": {"stage": "builder"}}
+                ],
+            }
+        )["recoveries"]
+        self.assertEqual(
+            {"id", "kind", "at", "job", "headline", "problem", "action", "by", "detail", "handled"},
+            set(recoveries[0]),
         )
         external_part = run_view.view(
             {

@@ -253,7 +253,8 @@ On a route that honors the setting, another recovery option is to request a larg
 set the attempt aside with `--abandon-stage`, and `--resume-paused`. Model and provider
 limits still apply. Automatic report repair remains bounded to the existing read-only
 Tester and Completion Reviewer stages. An original attempt that spent its output on reasoning runs
-again one level lower on the same model, without a question
+again one level lower on the same model, without a question, and at the model's lowest level goes to the
+Investigator before anyone is asked
 ([models](models.md#when-a-response-reaches-its-output-limit)); no other output-limit stop is retried
 automatically. Ambiguous or interrupted output remains uncertain.
 The cap-setting rules are in `tools/autocode_output_cap.py`. Ordinary Kilo 7.8.3 uses
@@ -908,7 +909,10 @@ table Autocode does not inspect the tool's login. With one, before an OpenAI
 role starts, Autocode runs `command`, strips terminal color codes, and requires
 every match of `pattern` to equal `expect`. A mismatch, a failed listing, or a
 variable in `forbid_env` pauses the run with `PAUSED_BILLING_ROUTE` before any
-model is called:
+model is called. A listing that runs past `timeout_seconds` (default 15, at most 60)
+is asked once more with twice that bound before it counts as failed, as is the
+`models_command` roster (30 seconds, then 60): under load these reads overran their
+bound by a fraction of a second, and a second read settles it (#3313):
 
 ```toml
 [auth]

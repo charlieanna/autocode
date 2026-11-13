@@ -79,7 +79,8 @@ class ControllerIsolationCliTests(unittest.TestCase):
         self.assertEqual(2, result.returncode, result.stderr)
         self.assertIn("Unsafe AutoCode self-build", result.stderr)
         self.assertIn("executing controller is inside", result.stderr)
-        self.assertIn("worktree add --detach", result.stderr)
+        self.assertIn("Select an AutoCode CLI", result.stderr)
+        self.assertNotIn("worktree add --detach", result.stderr)
         self.assertEqual(before, set(self.project.iterdir()))
 
     def test_external_controller_can_start_in_a_caller_owned_linked_worktree(self):

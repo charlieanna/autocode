@@ -247,6 +247,7 @@ SCHEMA_DIR = Path(__file__).resolve().parent / "autocode-schemas"
 DEFAULT_ROLE_MODELS = autocode_configure.DEFAULT_ROLE_MODELS
 DEFAULT_ENGINE = autocode_configure.DEFAULT_ENGINE
 BUDGET_ARGUMENTS = autocode_configure.BUDGET_ARGUMENTS
+PERSON_CAPS = autocode_configure.PERSON_CAPS
 check_subscription = autocode_configure.check_subscription
 iteration_limit_reached = build_loop.iteration_limit_reached
 
@@ -343,7 +344,7 @@ def reject_completed_stage(state: RunState, run_dir, record, error):
     message = f"Completed {record['stage']} output was rejected ({error}); attempt archived. " + (
         "Consecutive attempts at this source failed with the same error; inspect the saved output probe and fix the cause before retrying."
         if repeated
-        else "Resume explicitly with autocode resume to retry with a fresh request."
+        else failures.REJECTED_RESUME
     )
     status = "PAUSED_REPEATED_FAILURE" if repeated else "PAUSED_INVALID_OUTPUT"
     run_status.pause(state, status, message, paused_at=now())
@@ -744,6 +745,7 @@ def run_role(
                 reporter=verbose.reporter(autocode_status.role_name(stage, state), model),
                 idle_origin=idle_origin,
                 idle_hint=JOB_IDLE_LIMIT if stage in jobs.STAGES else CHANGE_IDLE_LIMIT,
+                plain_text=configured_tool and getattr(adapter, "OUTPUT", None) == "report_file",
             )
             activity_checkpoint = role_launch.activity_reporter(
                 state,
@@ -1071,6 +1073,7 @@ def _execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
         )
         + jobs.repair_rules(original["stage"])
         + context_instruction
+        + stuck_repair_context.guidance(state, original["stage"])
         + "CURRENT HANDOFF DATA\n"
         + json.dumps(
             {

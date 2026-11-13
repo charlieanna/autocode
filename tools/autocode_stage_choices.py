@@ -298,6 +298,10 @@ def effort_choices(option) -> list[str]:
     return sorted(option["levels"], key=lambda level: rank.get(level, len(rank))) or [OWN_DEFAULT]
 
 
+class CrossCheckError(ValueError):
+    """A pick refused because a stage would share a model with a stage it checks, or that checks it."""
+
+
 def unavailable(role, model, effective, *, backend) -> str | None:
     """Why ``role`` may not run ``model`` beside the other stages' models, or None.
 
@@ -503,7 +507,7 @@ def _check(backend, picks, saved, fallback, options, stop) -> dict:
         others = {other: chosen for other, chosen in effective.items() if other != role}
         reason = unavailable(role, model, others, backend=backend)
         if reason:
-            raise ValueError(f"the {LABELS[role]} cannot run {model}: {reason}")
+            raise CrossCheckError(f"the {LABELS[role]} cannot run {model}: {reason}")
         if effort not in effort_choices(option):
             raise ValueError(f"{model} takes {', '.join(effort_choices(option))}, not {effort}")
     return effective

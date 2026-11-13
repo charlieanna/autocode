@@ -22,6 +22,8 @@ test can show (``cannot_write``) and a bug's reproduction that already passes pa
 A fault in the tests themselves (a guard that does not pass on today's code, often because its file cannot
 load there, or a test the runner's command did not run) is not a question for the user: the runner sends the
 tests back to the Tester with its evidence (``runner_feedback``), up to MAX_REWRITES times per plan and batch.
+When those are spent, or the same cases come back skipped after the Tester was told they skip, the attempt is
+rejected, so the Investigator takes it before any person is asked (#3261).
 
 Pure: prompt, schema and the transition; the unit passes in the function that runs the tests.
 """
@@ -52,6 +54,7 @@ try:
     from . import autocode_run_status as run_status
     from . import autocode_stray_writes as stray_writes
     from . import autocode_test_cases as test_cases
+    from . import autocode_unreached_skip as unreached_skip
     from . import autocode_util as util
     from .autocode_report_repair_queue import ExecutionEvidenceRequired
     from .autocode_verify import is_test_path, run_command
@@ -63,6 +66,7 @@ except ImportError:
     import autocode_run_status as run_status
     import autocode_stray_writes as stray_writes
     import autocode_test_cases as test_cases
+    import autocode_unreached_skip as unreached_skip
     import autocode_util as util
     from autocode_report_repair_queue import ExecutionEvidenceRequired
     from autocode_verify import is_test_path, run_command
@@ -113,7 +117,13 @@ class TestsNeedRewriting(ExecutionEvidenceRequired):
     pass there, or a test the command did not run. The Tester can fix that, so the run gives it a fresh
     attempt with this evidence instead of asking the person (live run, 2026-11-11: a test module that imported
     the new function at its top could not load on today's code, so the guard in it never ran, and the run
-    asked the person how to fix the tests)."""
+    asked the person how to fix the tests).
+
+    ``skipped`` names the cases whose tests the command collected and then skipped (#3261)."""
+
+    def __init__(self, message: str, *, skipped=()):
+        super().__init__(message)
+        self.skipped = sorted(skipped)
 
 
 def _case(case: dict, inherited=False) -> dict:
@@ -162,8 +172,13 @@ def _rewrites(state: RunState) -> list[dict]:
 
 
 def _rewrite(state: RunState, error: TestsNeedRewriting, record: dict) -> bool:
-    """Send the tests back to the Tester with the runner's evidence; False once MAX_REWRITES are spent."""
-    if len(_rewrites(state)) >= MAX_REWRITES:
+    """Send the tests back to the Tester with the runner's evidence; False once MAX_REWRITES are spent.
+
+    Also False when the same cases come back skipped after the Tester was told they skip (#3261): an
+    identical round proves nothing more on this host, so the Investigator takes it instead."""
+    earlier = _rewrites(state)
+    skipped = error.skipped
+    if len(earlier) >= MAX_REWRITES or (skipped and earlier and skipped == earlier[-1].get("skipped")):
         return False
     saved = state.setdefault(acceptance.KEY, {"receipts": {}})
     saved.setdefault("rewrites", []).append(
@@ -172,6 +187,7 @@ def _rewrite(state: RunState, error: TestsNeedRewriting, record: dict) -> bool:
             "case_ids": sorted(saved.get("pending_case_ids") or []),
             "feedback": str(error),
             "output": record.get("output"),
+            "skipped": skipped,
         }
     )
     run_status.running(state, "EXECUTING", next_stage=STAGE)
@@ -303,7 +319,7 @@ def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: d
     skipped = test_cases.match_cases(named, results.get("skipped") or [])
     # A bug's reproduction must run and fail; a file that cannot load is no reproduction (autocode_proof_seam).
     unloadable = bool(results.get("collection_errors")) and not test_cases.bugfix(state)
-    verdicts, wrong = {}, []
+    verdicts, wrong, skipped_again = {}, [], []
     needs_execution = False
     already = {row["case_id"] for row in value["already_passing"]}
     for case in named:
@@ -312,6 +328,8 @@ def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: d
             verdicts[case["id"]] = "passes" if passed[case["id"]] else ""
             if not passed[case["id"]]:
                 needs_execution = True
+                if skipped[case["id"]]:
+                    skipped_again.append(case["id"])
                 wrong.append(
                     _skipped(case, rows[case["id"]]["file"], run)
                     if skipped[case["id"]]
@@ -328,24 +346,31 @@ def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: d
         elif failed[case["id"]] and (own := _own_error(case, rows[case["id"]]["file"], source, run)):
             needs_execution = True
             wrong.append(own)
+        elif failed[case["id"]] and (skip := _skip_after_change(case, rows[case["id"]]["file"], source, run)):
+            needs_execution = True
+            skipped_again.append(case["id"])  # a second such test ends the rewrites, as a skipped one does
+            wrong.append(skip)
         elif failed[case["id"]]:
             verdicts[case["id"]] = "fails"
         elif unloadable and test_cases.named_in(case["test_name"], source):
             verdicts[case["id"]] = "cannot load"
         elif skipped[case["id"]]:
             needs_execution = True
+            skipped_again.append(case["id"])
             wrong.append(_skipped(case, rows[case["id"]]["file"], run))
         else:
             needs_execution = True
             wrong.append(_not_run(case, rows[case["id"]]["file"], source, run, results))
     if wrong:
-        error = TestsNeedRewriting if needs_execution else ValueError
-        raise error(
+        message = (
             "The runner ran the acceptance tests on today's code: "
             + "; ".join(wrong)
             + ". A test: case must fail before the Builder starts and a guard: case must pass. If the behavior "
             "already exists, keep its test and also report the case in already_passing; do not weaken the test."
         )
+        if needs_execution:
+            raise TestsNeedRewriting(message, skipped=skipped_again)
+        raise ValueError(message)
     return verdicts
 
 
@@ -390,6 +415,21 @@ def _own_error(case: dict, file: str, source: str, run: dict) -> str:
             "because the product lacks the behavior"
         )
     return ""
+
+
+def _skip_after_change(case: dict, file: str, source: str, run: dict) -> str:
+    """Why a failing test would skip once the change is made, so the Tester can replace it (#3333); "" if not."""
+    tail = "\n".join(_failure_blocks(str(run.get("tail") or ""), case["test_name"])) or str(run.get("tail") or "")
+    skip = unreached_skip.skip_below_failure(source, file, case["test_name"], tail)
+    if not skip:
+        return ""
+    return (
+        f"{case['id']}: {case['test_name']} in {file} fails today, but below the line that failed it can skip "
+        f"({skip}). Once the change is made that skip is reached, and a test that skips on this host cannot show "
+        "the change works, so the regression proof could not pass. Write a test for this case that runs here "
+        "both before and after the change (no skip condition), or report the case in cannot_write with the "
+        "reason it cannot run on this host"
+    )
 
 
 def _guard_not_passing(case: dict, file: str, run: dict, results: dict) -> str:
@@ -482,8 +522,22 @@ def apply(
     try:
         verdicts = _verdicts(state, cases, value, workspace, run, inherited=inherited)
     except ExecutionEvidenceRequired as error:
-        if isinstance(error, TestsNeedRewriting) and _rewrite(state, error, record):
-            return
+        if isinstance(error, TestsNeedRewriting):
+            if _rewrite(state, error, record):
+                return
+            # The runner's own rewrites are spent, or the same cases came back skipped after the Tester was told:
+            # the attempt is rejected, so the Investigator looks at it before any person is asked (#3261). A
+            # pause here asked the person to resume and correct the tests, a question about AutoCode's machinery.
+            raise TestsNeedRewriting(
+                f"{error} The runner already sent these tests back {len(_rewrites(state))} time(s)"
+                + (
+                    "; the same cases were skipped again, and a skipped test proves nothing on this host"
+                    if error.skipped
+                    else ""
+                )
+                + ".",
+                skipped=error.skipped,
+            ) from error
         if "no test command runs these files" in str(error):
             # The run's suite cannot name these files: a binding gap, not a fault in the tests (#2609).
             remedy = (

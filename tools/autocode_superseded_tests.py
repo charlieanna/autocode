@@ -1,14 +1,14 @@
 """Original tests an approved plan replaces because they assert the behavior being fixed (#2748).
 
 A bug fix often meets an existing test that pins the bug (``shipping_fee(5000) == 499``). The original-test
-gate (autocode_protected_oracles.replay) re-runs every original test against the fix, so that one assertion
+gate (autocode_protected_oracles.replay) re-runs the changed original tests against the fix, so that one assertion
 can never pass, and the run used to stop and ask the person for a hand-built gate revision.
 
 An approved criterion may now name the original tests it replaces in ``supersedes``: each entry is the
 protected test file and the test's own name (``{"file": "tests/test_shipping.py", "test":
 "test_fifty_dollar_order_pays_standard_fee"}``). The plan approval covers that list, the approval screen shows
 it, and only a ``test:`` criterion may carry one, so the regression proof still requires its new test to fail
-on the original code and pass on the fix. The original suite still runs whole: its result is accepted only when
+on the original code and pass on the fix. The changed original tests still all run: the result is accepted only when
 the run reported complete per-test results and every failure is one of the listed tests in a file the change
 edited. Any other failing original test, a crash, a timeout or an unattributed runner keeps the gate closed.
 

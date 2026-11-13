@@ -250,8 +250,12 @@ integrated batch, both statements name the member milestones. A task is on the b
 `next_task.milestone_id` is a member, and the batch's own `batch:<digest>` id is never one.
 
 Milestones have a 5,400-second active-time budget by default. This includes writer,
-reviewer and report-repair attempts after the milestone is assigned (or after an
-existing run adopts checkpoints). The budget is checked at stage boundaries and
+reviewer and report-repair attempts from the milestone's first Builder launch (or after an
+existing run adopts checkpoints). Time spent after the milestone is assigned but before its
+first Builder launch, such as plan review or writing a spec-first wave's tests, is recorded
+in `milestone_progress` as `before_build_seconds` and does not count: the budget bounds
+building the milestone, and that work had already taken longer than the budget before any
+Builder ran. A milestone saved by an earlier version that counted everything keeps its count. The budget is checked at stage boundaries and
 prevents further writing; the Tester and Plan Reviewer can still validate finished work. It does not
 replace per-stage timeouts. Use `--max-milestone-seconds N` to change the saved
 budget or `0` to disable this time limit. `--status` includes `milestone_checkpoint`
@@ -975,6 +979,9 @@ do the Requirements, Planner and Plan Reviewer launches at 600 seconds: those st
 report and emit nothing before it, and live Planner calls for a large plan took 300 to 340 seconds.
 A MiMo Planner gets 900. A limit you set is used as given, the saved setting is never rewritten,
 and the stop text names the floor that applied.
+A configured tool with no event protocol (`output = "report_file"`, such as GoCode's
+`codex exec` without `--json`) writes its progress as plain lines: each new, distinct line counts
+as activity there, never as tool or report evidence, and a repeated or blank line does not.
 Native deltas count when the provider exposes them; wholly silent reasoning intervals
 still use the configured inactivity limit. An explicit `--max-idle-seconds` is always
 used as given, and the saved setting is not rewritten.
@@ -1067,6 +1074,32 @@ restoring never renews the cap.
 `Cost: $0.42 so far ($0.40 estimated, $0.02 reported by the provider); cap $5.00.`, and the
 completion summary ends with the same line. The status view's `cost` field holds the numbers
 ([Task run](task-run.md#status-view)); [Cost reporting](cost-reporting.md) explains the bases.
+
+## Planning-call cap
+
+Planning has a cap of its own, in model calls rather than money: an approved plan took a median of 9
+planning calls and at most 25 in November 2026, while a planning loop that keeps failing can spend
+far more before any other limit stops it. Owner decision 2026-11-12.
+
+- **What counts.** Each model call that Requirements, the Planner or the Plan Reviewer makes, including
+  their report-only repairs and each Investigator call about a planning stage. A call that timed out or
+  whose answer was rejected counts too. Calls the runner makes itself, and the Planner that plans a
+  milestone's tasks during building, do not.
+- **What starts the count again.** Only your own new input: an answer to a question, plan feedback, or a
+  message. A planning restart (a new review cycle, a deferred approval) keeps the count, and so does a
+  resume. The status view's `planning_calls` shows `used`, `cap` and `renewed_at`, the time of the input
+  that last started the count.
+- **When it pauses.** A new run's cap is 20 calls (`--max-planning-calls N` or `max-planning-calls = N` in
+  the [project settings](cli.md#project-settings) sets another; `0` means none). The cap is checked at the
+  stage boundary, after the money cap, before a planning call launches. Once the count reaches it, the run
+  stops with `PAUSED_PLANNING_CALL_LIMIT`, in the *your decision* category, before that call.
+- **How it continues.** As at the money cap, only you decide: `autocode resume --max-planning-calls M` (or
+  `--resume-paused --max-planning-calls M`) with `M` above the count, or `0` for no cap. Plan feedback at the
+  pause starts the count again and redrafts the plan. A plain resume or a restated exhausted cap leaves the run
+  paused. AutoCode never raises this cap itself: `--autoresolver-managed-limits` does not delegate it, and
+  AutoResolver's one-time doubling of default budgets never applies to it.
+
+A run saved before the cap existed has none until you set one.
 
 ## Open findings
 

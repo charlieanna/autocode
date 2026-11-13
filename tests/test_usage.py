@@ -38,7 +38,9 @@ class TotalsTests(unittest.TestCase):
             ]
         }
         totals = usage.summary(state)
-        self.assertEqual({"reported": 0.5, "estimated": 2.8, "complete": False}, totals["cost_usd"])
+        self.assertEqual(
+            {"reported": 0.5, "estimated": 2.8, "complete": False, "basis": usage.ESTIMATE_BASIS}, totals["cost_usd"]
+        )
         self.assertEqual(1, totals["unknown_stages"])  # unknown is not zero; runner-only work is free
         self.assertEqual(4, totals["stages"])
         self.assertEqual({"task_planner", "runner", "tester", "builder"}, set(totals["by_role"]))
@@ -72,7 +74,10 @@ class TotalsTests(unittest.TestCase):
                 stage("tester", "tester", "m", cost=0.75),
             ]
         }
-        self.assertEqual({"reported": 2.0, "estimated": 0.0, "complete": True}, usage.summary(state)["cost_usd"])
+        self.assertEqual(
+            {"reported": 2.0, "estimated": 0.0, "complete": True, "basis": usage.ESTIMATE_BASIS},
+            usage.summary(state)["cost_usd"],
+        )
         state["active_stage"] = {"stage": "review_completion"}
         self.assertFalse(usage.summary(state)["cost_usd"]["complete"])
         self.assertEqual("review_completion", usage.summary(state)["active_stage"])
@@ -84,7 +89,9 @@ class TotalsTests(unittest.TestCase):
         totals = run_view.view(state)["usage"]
         self.assertEqual(1_000_000, totals["tokens"]["input_tokens"])
         self.assertEqual(1_000_000, totals["tokens"]["output_tokens"])
-        self.assertEqual({"reported": 0.0, "estimated": 2.8, "complete": False}, totals["cost_usd"])
+        self.assertEqual(
+            {"reported": 0.0, "estimated": 2.8, "complete": False, "basis": usage.ESTIMATE_BASIS}, totals["cost_usd"]
+        )
         self.assertEqual(1, totals["partial_stages"])
         self.assertEqual(0, totals["unknown_stages"])
 
@@ -107,7 +114,8 @@ class TotalsTests(unittest.TestCase):
             with self.subTest(record=record):
                 state = {"stages": [{"stage": "builder", "metrics": {"provider_tokens": tokens}, **record}]}
                 self.assertEqual(
-                    {"reported": 0.0, "estimated": 2.8, "complete": True}, usage.summary(state)["cost_usd"]
+                    {"reported": 0.0, "estimated": 2.8, "complete": True, "basis": usage.ESTIMATE_BASIS},
+                    usage.summary(state)["cost_usd"],
                 )
         state = {"stages": [{"stage": "builder", "command": ["x"], "metrics": {"provider_tokens": tokens}}]}
         self.assertEqual(1, usage.summary(state)["unknown_stages"])  # no model recorded anywhere
@@ -121,6 +129,15 @@ class TotalsTests(unittest.TestCase):
         ):
             with self.subTest(state=state):
                 self.assertIn("usage", run_view.view({"status": "RUNNING", **state}))
+
+    def test_the_comparison_estimate_says_it_is_not_the_spend_beside_the_cost_field(self):
+        # #3335: a cache-heavy run showed usage.cost_usd.estimated at twice cost.estimated_usd, with
+        # nothing in the view to say which one is the run's spend.
+        view = run_view.view({"status": "RUNNING", "stages": [stage("tester", "tester", GLM, (1_000_000, 900_000, 1))]})
+        comparison, spend = view["usage"]["cost_usd"]["estimated"], view["cost"]["spent_usd"]
+        self.assertGreater(comparison, spend)
+        self.assertIn("not the run's spend", view["usage"]["cost_usd"]["basis"])
+        self.assertIn("cost.spent_usd", view["usage"]["cost_usd"]["basis"])
 
     def test_the_status_view_carries_the_totals(self):
         view = run_view.view({"status": "RUNNING", "stages": [stage("builder", "builder", "m", cost=0.3)]})

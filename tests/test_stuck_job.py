@@ -12,11 +12,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 import autocode_builder_failure as builder_failure
+import autocode_failures as failures
 import autocode_investigation_policy as investigation_policy
 import autocode_jobs as jobs
 import autocode_planning_advice as recovery_binding
 import autocode_recovery_accounting as recovery_accounting
+import autocode_recovery_history as recovery_history
 import autocode_recovery_limits as runner_limits
+import autocode_run_status as run_status
 import autocode_stuck_job as stuck
 import autocode_util as util
 import autopilot
@@ -515,6 +518,51 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(("RUNNING", "EXECUTING", "builder"), (state["status"], state["phase"], state["next_stage"]))
         self.assertTrue(state["stuck_investigation"]["in_force"])
         self.assertEqual("retried", state["stuck_investigations"][0]["outcome"])
+
+    def saved_repair(self):
+        return {
+            "attempts": 2,
+            "original": {"stage": "draft_plan", "rejection_reason": "missing delegated_decisions"},
+            "latest_rejected": {"stage": "draft_plan_report_repair", "rejection_reason": "drops a brief literal"},
+            "error": "The contract drops literals the user's brief states: `autocode registry roots`",
+        }
+
+    def test_a_rejected_report_is_repaired_once_more_under_the_guidance_not_redrafted(self):
+        # #2066 rerun: two repairs had fixed every error but one brief literal; the Investigator named the
+        # exact fix, and the fresh draft that replaced the repaired report failed anew and paused the run.
+        state = self.investigated(
+            "PAUSED_INVALID_OUTPUT", stage="draft_plan", pending_report_repair=self.saved_repair()
+        )
+        self.assertNotIn("pending_report_repair", state)  # still set aside while the Investigator runs
+        stuck.apply(state, report(), {"output": "o"}, state["workspace"])
+        self.assertEqual({**self.saved_repair(), "attempts": 1}, state["pending_report_repair"])
+        self.assertNotIn("report_repair_archive", state)
+        self.assertEqual(("RUNNING", "PLANNING", "draft_plan"), (state["status"], state["phase"], state["next_stage"]))
+        entry = state["stuck_investigations"][0]
+        self.assertEqual(("retried", "report_repair"), (entry["outcome"], entry["retry_as"]))
+        # The repair's prompt carries the same guidance a fresh request would.
+        block = stuck.guidance(state, "draft_plan")
+        self.assertIn("INVESTIGATOR GUIDANCE", block)
+        self.assertIn(report()["guidance"], block)
+
+    def test_only_a_report_cause_on_a_saved_repair_of_the_same_stage_keeps_the_report(self):
+        for name, status, value, repair in (
+            ("environment cause", "PAUSED_INVALID_OUTPUT", report(cause="environment"), self.saved_repair()),
+            ("repeated failure", "PAUSED_REPEATED_FAILURE", report(), self.saved_repair()),
+            ("no repair yet", "PAUSED_INVALID_OUTPUT", report(), {**self.saved_repair(), "attempts": 0}),
+            (
+                "another stage's repair",
+                "PAUSED_INVALID_OUTPUT",
+                report(),
+                {**self.saved_repair(), "original": {"stage": "revise_plan"}},
+            ),
+        ):
+            with self.subTest(name):
+                state = self.investigated(status, stage="draft_plan", pending_report_repair=copy.deepcopy(repair))
+                stuck.apply(state, value, {"output": "o"}, state["workspace"])
+                self.assertNotIn("pending_report_repair", state)
+                self.assertEqual(repair, state["report_repair_archive"][-1]["repair"])
+                self.assertNotIn("retry_as", state["stuck_investigations"][0])
 
     def test_the_route_exists_only_while_the_investigator_runs(self):
         state = self.investigated("PAUSED_REPEATED_FAILURE")
@@ -1091,6 +1139,90 @@ class DriveTests(unittest.TestCase):
             )
         self.assertEqual("PAUSED_REPEATED_FAILURE", caught.exception.status)
         self.assertIn("Investigator (retried): The Planner cites", str(caught.exception))
+
+    @staticmethod
+    def rejected(error):
+        """What reject_completed_stage does with a stage answer it will not accept: ledger, row, pause."""
+
+        def reject(current):
+            stage, number = current["next_stage"], len(current["stages"]) + 1
+            row = {"stage": stage, "source_revision": "rev-a", "iteration": 1, "output": f"/run/{stage}-{number}.json"}
+            current["stages"].append(row)
+            failures.record(current, row, ValueError(error), f"2026-11-12T00:00:{number:02d}+00:00")
+            row.update(rejected=True, rejection_reason=error)
+            message = (
+                f"Completed {stage} output was rejected ({error}); attempt archived. "
+                "Resume explicitly with autocode resume to retry with a fresh request."
+            )
+            run_status.pause(current, "PAUSED_INVALID_OUTPUT", message)
+            raise Paused("PAUSED_INVALID_OUTPUT", message)
+
+        return reject
+
+    def test_answers_rejected_in_turn_are_retried_by_autocode_then_stop_without_a_retry_question(self):
+        # Two answers, each fixing what the other broke: the errors alternate, so the exact-repeat check
+        # never fires. AutoCode retries itself, the Investigator looks again at the limit, then it stops.
+        first, second = self.rejected("missing AC1"), self.rejected("AC2 is not traced")
+        state = state_for()
+        with self.assertRaises(Paused) as caught:
+            self.run_loop(
+                state,
+                {"builder": [first, second, first, second, first], stuck.STAGE: [report(), report()]},
+            )
+        calls = [row["stage"] for row in state["stages"]]
+        self.assertEqual(5, calls.count("builder"), "LIMIT attempts, then the second look's one retry")
+        self.assertEqual(2, len(state["stuck_investigations"]))
+        self.assertIn("second look", state["stuck_investigations"][1]["reason"])
+        self.assertEqual("PAUSED_INVALID_OUTPUT", caught.exception.status)
+        message = str(caught.exception)
+        self.assertNotIn("Resume explicitly", message)
+        self.assertIn("ran the Builder 5 times at this source and asked the Investigator twice", message)
+        self.assertIn("missing AC1 | AC2 is not traced", message)
+        retries = [
+            item["attempt"]
+            for entry in state["failure_history"].values()
+            for item in entry.get("automatic_retries", [])
+        ]
+        self.assertEqual([3, 4], sorted(retries))
+        actions = [row["action"] for row in recovery_history.project(state) if row["kind"] == "rejected"]
+        self.assertTrue(
+            any("ran the Builder again itself (attempt 4 of at most 4" in text for text in actions), actions
+        )
+
+    def test_an_answer_accepted_after_autocode_retried_it_finishes_the_run(self):
+        state = state_for()
+        done, calls = self.run_loop(
+            state,
+            {
+                "builder": [self.rejected("missing AC1"), self.rejected("AC2 is not traced"), "built"],
+                stuck.STAGE: [report()],
+            },
+        )
+        self.assertEqual(["builder", stuck.STAGE, "builder", "builder"], calls)
+        self.assertEqual("TASK_COMPLETE", done["status"])
+
+    def test_autocode_does_not_retry_a_stage_the_investigator_has_not_retried(self):
+        # The Investigator's budget is spent: the rejection keeps its pause, as before.
+        state = state_for()
+        state["settings"]["stuck_investigation"] = {"max_calls_per_run": 0}
+        with self.assertRaises(Paused) as caught:
+            self.run_loop(state, {"builder": [self.rejected("missing AC1")], stuck.STAGE: []})
+        self.assertEqual(["builder"], [row["stage"] for row in state["stages"]])
+        self.assertIn("Resume explicitly", str(caught.exception))
+
+    def test_a_stage_that_succeeds_starts_a_new_run_of_rejections(self):
+        state = state_for(next_stage="builder")
+        for error in ("A", "B"):
+            row = {"stage": "builder", "source_revision": "rev-a", "iteration": 1, "output": f"/run/{error}.json"}
+            state["stages"].append(row)
+            failures.record(state, row, ValueError(error), "t")
+        self.assertEqual(2, len(failures.episode_rejections(state, "builder")))
+        state["stages"].append({"stage": "builder", "source_revision": "rev-a", "output": "/run/ok.json"})
+        self.assertEqual([], failures.episode_rejections(state, "builder"))
+        row = {"stage": "builder", "source_revision": "rev-b", "iteration": 2, "output": "/run/C.json"}
+        state["stages"].append(row)
+        failures.record(state, row, ValueError("C"), "t")
+        self.assertEqual(1, len(failures.episode_rejections(state, "builder")))
 
     def test_an_investigation_that_fails_restores_the_original_pause(self):
         state = state_for()

@@ -699,6 +699,10 @@ def timeout_recovery_route(state: RunState, record):
         return stage, "DISCOVERING"
     if stage == "plan_task":
         return stage, "READY_TO_EXECUTE"
+    if record.get("timeout_kind") == "person":
+        # The person ended a step that had not failed (#3263), and the stop told them resume runs it
+        # again (#3334): a stopped Builder continues building rather than going to the Completion Reviewer.
+        return stage, "EXECUTING"
     # Final-audit-only runs keep the Builder in charge of implementation. Other routing
     # modes retain the established Plan Reviewer recovery review before another writer.
     if workflow.final_only(state) and role in ("builder", "tester"):

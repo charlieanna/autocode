@@ -166,6 +166,12 @@ _CEILINGS = {
 }
 
 
+# The stuck-stage Investigator's route (autocode_stuck_job.ROUTE) and its per-role tool binding
+# (autocode_role_transport.PREFIX + route), named here so this module stays below both.
+INVESTIGATOR_ROUTE = "stuck_investigator"
+INVESTIGATOR_TRANSPORT = "role:" + INVESTIGATOR_ROUTE
+
+
 def _bound_settings(state: RunState, ceilings, *, derived=False):
     # A model a person named at a quota stop (#184) is bound as the route it replaced,
     # and the Resolver's own climb (#1345) as the rung it left.
@@ -184,6 +190,14 @@ def _bound_settings(state: RunState, ceilings, *, derived=False):
     roles = settings.get("roles") or {}
     if "task_planner" in roles:
         roles.setdefault("resolver", copy.deepcopy(roles["task_planner"]))
+    # The Investigator's own route: its preparation chooses one fresh for every investigation
+    # (units.autoresolver.prepare_stuck), after the stuck stage's attempts were bound. Bound, it made
+    # the Investigator's launch a stale handoff of the attempt it was called to explain, so an
+    # exhausted recovery never reached it and the run asked a person instead (#3356).
+    roles.pop(INVESTIGATOR_ROUTE, None)
+    identities = settings.get("transport_identities")
+    if isinstance(identities, dict):
+        identities.pop(INVESTIGATOR_TRANSPORT, None)
     # Investigator preparation may initialize this empty registry. No transport
     # identity has changed; any actual entry remains strictly bound below.
     if settings.get("transport_identities") == {}:

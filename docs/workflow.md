@@ -194,7 +194,7 @@ read-only `investigate_stuck` stage (`tools/autocode_stuck_job.py`) instead of s
 
 | Pause | After the Investigator |
 | --- | --- |
-| `PAUSED_REPEATED_FAILURE`, `PAUSED_INVALID_OUTPUT` | retry runs the stage once more; its failure history stays, so the same failure again extends the run of identical failures and a different one starts a new run (a spent report repair is archived). A Resolver repair's Builder retry continues from the in-scope work the rejected attempt kept, and is the one attempt recovery novelty admits for it ([Evidence-bound repair](execution.md#evidence-bound-repair)) |
+| `PAUSED_REPEATED_FAILURE`, `PAUSED_INVALID_OUTPUT` | retry runs the stage once more; its failure history stays, so the same failure again extends the run of identical failures and a different one starts a new run. When the cause is in the rejected report itself and the stage already had a report-only repair, the retry repairs that saved report once more with the Investigator's guidance instead of drafting the stage again; otherwise a spent report repair is archived and the stage runs afresh. A Resolver repair's Builder retry continues from the in-scope work the rejected attempt kept, and is the one attempt recovery novelty admits for it ([Evidence-bound repair](execution.md#evidence-bound-repair)) |
 | `PAUSED_PLANNING_BUDGET` | retry grants one more review round (two calls from the challenge, one from the final review). A total you chose in this run with `--planning-review-call-limit` is never investigated or raised: the pause comes straight back to you (#3094) |
 | `PAUSED_NO_PROGRESS` | retry allows one more implementation batch |
 | `PAUSED_COMPLETION_REVIEW` | retry asks the Completion Reviewer once more |
@@ -216,6 +216,20 @@ A rejected report pauses as `PAUSED_REPEATED_FAILURE` only after three consecuti
 the stage, at the same source, failed with the same error and left the same kind of output
 (`tools/autocode_failures.py`). Different problems that happen to share an exception type,
 such as missing responses to different concerns, pause as `PAUSED_INVALID_OUTPUT`.
+
+A stage whose answers keep being rejected for different reasons, say two answers each fixing
+what the other broke, never repeats one error, so it never counts as a repeated failure. AutoCode
+bounds it itself instead of asking you to resume (`tools/autocode_rejection_retry.py`). It counts
+every rejected attempt of the stage at one source, whatever the error, until the stage returns an
+accepted report; a report-only repair belongs to the attempt it repairs. After the Investigator's
+retry of a `PAUSED_INVALID_OUTPUT` is rejected again, AutoCode runs the stage again itself, up to
+four rejected attempts, and records each retry with the rejection (`automatic_retries` on its
+`failure_history` entry, shown in the status view's `recoveries`). At four the Investigator looks
+once more, at the whole run of rejections, within the run's investigation budget. If its retry is
+rejected too, or the budget is spent, the run stops with what it tried and the errors it saw,
+without offering another retry. A planning stage's next attempt sees the latest rejection
+(`prior_rejection`). An Investigator that says only you can answer keeps that question, and an
+exact repeat keeps its `PAUSED_REPEATED_FAILURE` rules.
 
 The Investigator runs at high effort on a model different from the stuck stage's: in `kilocode`
 runs the first of the run's own direct routes (Plan Reviewer, Planner, Requirements, Completion,
@@ -249,7 +263,8 @@ there, so a probe that passes whatever the files say retries nothing (#1769). Th
 probe's receipt, with its counterexample's exit code, is recorded with the investigation.
 
 Bounds: one investigation per distinct stage and pause on one source revision (the same
-problem after the source changed is a new one), and per run three or one per milestone of the
+problem after the source changed is a new one; a rejected answer AutoCode retried up to its limit
+gets one more, above), and per run three or one per milestone of the
 approved plan, whichever is more (`settings.stuck_investigation.max_calls_per_run`; 0 turns it
 off). A stage that stops twice on unchanged source without a valid report, even when a review
 re-issues it in between, pauses as a repeated failure and reaches the Investigator. A Builder
@@ -414,6 +429,14 @@ spending review calls on cycles that end the same way. `--resume-paused` runs on
 `--feedback` restarts from requirements (in an adaptive run, from the Planner when a plan is shown
 for approval) and renews the allowance.
 
+Across all of that, planning as a whole has one cap: a new run makes at most 20 planning model calls
+(Requirements, the Planner and the Plan Reviewer, with their report repairs and the Investigator's
+calls about a planning stage) between your answers and feedback. Every call counts, a timed-out or
+rejected one too, and a restarted cycle keeps the count; your next answer or feedback starts it again.
+At the cap the run pauses at `PAUSED_PLANNING_CALL_LIMIT` before the next planning call, and only you
+raise the cap (`--resume-paused --max-planning-calls N`) or remove it (`0`). See
+[Planning-call cap](execution.md#planning-call-cap).
+
 The default workflow uses OpenCode for every role. The Plan Reviewer, Builder, Tester,
 and Completion Reviewer use OpenCode's current ChatGPT OAuth connection; the Requirements Gatherer
 and Planner use separate sessions on the Z.ai connection by default. Changing
@@ -473,7 +496,9 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.
   already holds, and base tests named after a changed file, such as
   `test_calc.py` for `calc.py`), and records the decision, the timed-out command and
   the reason as the proof's `suite_fallback`, a note and a review reason. A later
-  proof of the same run goes straight to those tests. An explicit
+  proof of the same run goes straight to those tests while the original code, the
+  whole suite's command and its limit are unchanged, even when the test environment
+  changed or cannot be bound for reuse (an editable install). An explicit
   `--test-command` is never replaced. The new or changed tests
   must fail on the original code and pass on the current code, and every test
   that passed on base must still pass (not fail, be skipped or disappear). A
@@ -617,8 +642,9 @@ acceptance criterion a test can check as one concrete example, and sets its
 The matching and the rules are in `tools/autocode_test_cases.py`.
 
 Test commands are detected (pytest, unittest, Go, Jest/Vitest/Mocha, RSpec,
-Cargo, `make test`); `--test-command` and `--regression-command` set them for a
-new run. With per-test results (pytest, unittest, Go, node:test, Vitest, RSpec) a proof needs a named test
+Cargo, `make test`, and a Ruby project's Minitest or test-unit files under `test/`,
+named `*_test.rb` or `test_*.rb`, run through Bundler when there is a `Gemfile`);
+`--test-command` and `--regression-command` set them for a new run. With per-test results (pytest, unittest, Go, node:test, Vitest, RSpec) a proof needs a named test
 that ran and failed on base and passed on the fix; a test that only fails to
 import on base is not a reproduction. Without per-test results exit codes decide.
 When nothing can be proven (for example no test command is found), the proof is

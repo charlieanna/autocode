@@ -1,6 +1,7 @@
 """Route discovery (#1426 steps 4-5): the tool's own listings become the selector's candidates."""
 
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -200,6 +201,34 @@ class KiloDiscoveryTests(unittest.TestCase):
         # The route declares oauth; an api-mode login is a different connection, and
         # check_subscription_routes would refuse it, so discovery does not offer it.
         self.assertNotIn("openai/gpt-6-sol", models)
+
+    def test_a_listing_that_overruns_its_bound_once_is_asked_again(self):
+        # #3313: under load `kilo auth list` exited 0 at 15.3 s against a 15 s bound and `kilo models`
+        # overran too, refusing a person's `stages set` that a second read settles.
+        answer, timeouts, timed_out = kilo_listing(), [], set()
+
+        def slow_once(command, *a, **kw):
+            timeouts.append((tuple(command[1:]), kw["timeout"]))
+            if tuple(command[1:]) in (("auth", "list"), ("models",)) and tuple(command) not in timed_out:
+                timed_out.add(tuple(command))
+                raise subprocess.TimeoutExpired(command, kw["timeout"])
+            return answer(command, *a, **kw)
+
+        with mock.patch.object(command.env_prep, "preflight_run", side_effect=slow_once):
+            found = discovery.discover(self.provider)
+        self.assertIn("zai-coding-plan/glm-5.3", {candidate["model"] for candidate in found["candidates"]})
+        self.assertEqual([30, 60], [seconds for words, seconds in timeouts if words == ("auth", "list")])
+        self.assertEqual([30, 60], [seconds for words, seconds in timeouts if words == ("models",)])
+
+    def test_a_listing_that_overruns_both_bounds_names_them_both(self):
+        def always_slow(words, *a, **kw):
+            raise subprocess.TimeoutExpired(words, kw["timeout"])
+
+        with mock.patch.object(command.env_prep, "preflight_run", side_effect=always_slow):
+            with self.assertRaises(RuntimeError) as caught:
+                discovery.discover(self.provider)
+        self.assertIn("timed out after 30 seconds and again after 60 seconds", str(caught.exception))
+        self.assertIn("no provider request was launched", str(caught.exception))
 
     def test_an_unreadable_listing_is_an_error_not_a_guess(self):
         with mock.patch.object(command.env_prep, "preflight_run", return_value=response(returncode=1)):

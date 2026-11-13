@@ -139,6 +139,31 @@ class ProgressLineTests(unittest.TestCase):
         self.assertEqual(["checked", "failed", "unchecked"], states(view))
         self.assertEqual(["F1"], [item["id"] for item in view["problems"]["items"]])
 
+    def test_a_stage_its_live_controller_is_starting_says_so(self):
+        """A new chat's "hi" showed "Next: Requirements" for the tens of seconds the controller spent
+        getting Requirements ready (2026-11-12); while that controller is alive, the stage is starting."""
+        chosen = {
+            "status": "RUNNING",
+            "iteration": 1,
+            "stages": [],
+            "phase": "PLANNING",
+            "next_stage": "requirements_gather",
+        }
+        needs = run_view.needs(chosen)
+        shown = progress_view.progress(chosen, accepted=[], stage="Requirements", needs=needs, controller_running=True)
+        self.assertEqual("Starting Requirements", shown["headline"])
+        self.assertTrue(shown["line"].startswith("Starting Requirements ·"))
+        # With no live controller nothing is starting it: the run waits for whoever continues it.
+        self.assertEqual(
+            "Next: Requirements",
+            progress_view.progress(chosen, accepted=[], stage="Requirements", needs=needs)["headline"],
+        )
+        paused = {**chosen, "status": "PAUSED_PROCESS_CHECK"}
+        shown = progress_view.progress(
+            paused, accepted=[], stage="Requirements", needs=run_view.needs(paused), controller_running=True
+        )
+        self.assertNotIn("Starting", shown["headline"])
+
     def test_before_planning(self):
         view = progress_view.progress(
             {"status": "DISCOVERING"}, accepted=[], stage="Requirements", needs={"kind": "continue"}

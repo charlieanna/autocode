@@ -148,6 +148,7 @@ const INTEGER_INPUTS: Record<string, [string, string, "used" | "elapsed", boolea
   "--max-milestone-seconds": ["max_milestone_seconds", "Milestone active time (seconds)", "used", true],
   "--max-milestone-replans": ["max_milestone_replans", "Milestone replans", "used", false],
   "--no-progress-limit": ["no_progress_limit", "Unchanged implementation batches allowed", "used", false],
+  "--max-planning-calls": ["max_planning_calls", "Planning model calls since your last answer or feedback", "used", false],
   "--planning-review-call-limit": ["planning_review_call_limit", "Total plan-review calls", "used", false],
   "--grant-recovery": ["grant_recovery", "Additional recoveries", "used", false],
 };

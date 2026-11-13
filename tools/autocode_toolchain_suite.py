@@ -26,6 +26,16 @@ except ImportError:
 PYTEST_NATIVE_CONFIGS = frozenset(("pytest.ini", ".pytest.ini", "pytest.toml", ".pytest.toml"))
 # Root build files that name a non-Python project's own toolchain.
 TOOLCHAIN_ROOTS = frozenset(("go.mod", "Cargo.toml", "package.json"))
+# Ruby's own test files (Minitest, test-unit) in the conventional root ``test/`` directory. A helper
+# such as test_helper.rb is loaded by the tests that need it, never as a test file itself.
+RUBY_TEST = re.compile(r"^test/(?:.*/)?(?:.*_test|test_.*)\.rb$")
+RUBY_HELPER = "test_helper.rb"
+# Loads every such file that exists when it runs, so a test file a change adds is part of the suite on
+# the candidate and on the original code alike; each file's own `require "minitest/autorun"` runs it.
+RUBY_SUITE = (
+    "ruby -Ilib -Itest -e "
+    """'Dir.glob("test/**/{*_test,test_*}.rb").sort.each { |f| require File.expand_path(f) unless File.basename(f) == "test_helper.rb" }'"""
+)
 # Root files that declare a Python project; any one keeps Python first.
 PYTHON_ROOTS = frozenset(("pyproject.toml", "setup.py", "setup.cfg", "tox.ini", "Pipfile", "conftest.py"))
 PYTHON_REQUIREMENTS = re.compile(r"requirements.*\.(txt|in)$")
@@ -57,7 +67,12 @@ def _read(path) -> str:
 
 
 def detect(root, files, is_test_path) -> Framework | None:
-    """The suite a Go, Node, Rust, Ruby or Make project declares, or None."""
+    """The suite a Go, Node, Rust, Ruby or Make project declares, or None.
+
+    A Ruby project with no RSpec suite and no ``make test`` runs the test files of its ``test/``
+    directory (``ruby_tests``): without it the proof had no command, and a live run asked the person
+    to pass ``--test-command`` (2026-11-13), a question about AutoCode's own machinery.
+    """
     root = Path(root)
     if "go.mod" in files:
         return Framework("go", "go test ./...")
@@ -92,4 +107,12 @@ def detect(root, files, is_test_path) -> Framework | None:
         return Framework("rspec", "bundle exec rspec", runner="bundle exec rspec")
     if "Makefile" in files and re.search(r"^test\s*:", _read(root / "Makefile"), re.M):
         return Framework("make", "make test")
+    if ruby_tests(files):
+        # Through Bundler when the project pins its gems, as `bundle exec rspec` is above.
+        return Framework("minitest", ("bundle exec " if "Gemfile" in files else "") + RUBY_SUITE)
     return None
+
+
+def ruby_tests(files) -> list[str]:
+    """The Ruby test files under the root ``test/`` directory, helpers left out."""
+    return sorted(path for path in files if RUBY_TEST.match(path) and PurePosixPath(path).name != RUBY_HELPER)

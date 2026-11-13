@@ -241,6 +241,12 @@ INTEGER_INPUTS = {
     "--max-milestone-seconds": ("max_milestone_seconds", "Milestone active time (seconds)", "used", True),
     "--max-milestone-replans": ("max_milestone_replans", "Milestone replans", "used", False),
     "--no-progress-limit": ("no_progress_limit", "Unchanged implementation batches allowed", "used", False),
+    "--max-planning-calls": (
+        "max_planning_calls",
+        "Planning model calls since your last answer or feedback",
+        "used",
+        False,
+    ),
     "--planning-review-call-limit": ("planning_review_call_limit", "Total plan-review calls", "used", False),
     "--grant-recovery": ("grant_recovery", "Additional recoveries", "used", False),
 }

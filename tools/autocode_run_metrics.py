@@ -221,7 +221,7 @@ def _produced(view: dict) -> dict:
         "mutants_tried": sum(1 for mutant in mutants if mutant.get("outcome") in ("killed", "survived", "timeout")),
         "findings": len(findings),
         "blocking_findings": sum(1 for row in findings if row.get("blocking") is True),
-        "problems_handled": len(_rows(view.get("recoveries"))),
+        "problems_handled": sum(row.get("handled") is True for row in _rows(view.get("recoveries"))),
     }
 
 

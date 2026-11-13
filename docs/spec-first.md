@@ -44,7 +44,12 @@ it is:
 | `test:` (new behavior) | the test fails, or its file cannot load because the product lacks what it imports |
 | `guard:` (must keep working) | the test passes |
 
-A report that breaks this is rejected, and the Tester's retry gets the runner's result.
+A report that breaks this is rejected, and the Tester's retry gets the runner's result. When the fault is in
+the tests themselves (a guard that does not pass, a test the runner's command did not run, or one it collected
+and then skipped on this host, or a Python test that fails today above a skip call it never reached, so it would
+skip once the change is made, #3333), the runner sends them back to the Tester itself, at most twice. When those
+rewrites are spent, or the same cases come back skipped after the Tester was told they skip, the attempt is
+rejected and the Investigator looks at it before you are asked anything (#3261).
 
 When the code already does what a `test:` case says, the Tester keeps the test and reports the case as
 already working; once the runner sees that test pass, it sends the plan back: it relabels that case

@@ -470,6 +470,12 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         "--no-progress-limit", type=int, help="Pause after this many unchanged batches (new-run default: 3)"
     )
     parser.add_argument(
+        "--max-planning-calls",
+        type=int,
+        help="Pause before a planning model call once planning has made this many since your last answer or "
+        "feedback (new-run default: 20; 0 means no cap)",
+    )
+    parser.add_argument(
         "--max-findings-per-task",
         type=int,
         help="Reject a REWORK task that bundles more than this many open findings (default: unlimited; 0 disables)",
@@ -861,6 +867,7 @@ def parse(unit, argv, default_models):
         "max_idle_seconds",
         "max_tool_seconds",
         "no_progress_limit",
+        "max_planning_calls",
         "max_milestone_seconds",
         "max_milestone_replans",
         "max_milestone_stalled_reviews",

@@ -21,7 +21,7 @@
         "schema", "status", "done", "needs", "pause_category", "pause_category_label", "next_command",
         "phase", "next_stage", "iteration", "stop_reason", "explanation", "current_task", "task", "task_sha256",
         "workflow", "workflow_source", "workflow_reason", "turn", "evidence", "approvals", "evidence_report",
-        "acceptance_tests", "usage", "cost", "progress", "summary", "delivery", "liveness", "controller", "recovery", "recoveries",
+        "acceptance_tests", "usage", "cost", "planning_calls", "progress", "summary", "delivery", "liveness", "controller", "recovery", "recoveries",
         "verification", "review_result", "verification_obligation", "code_checkpoints", "runner", "runner_check", "dependency",
         "prompts_hash", "interaction_timing", "replay_source", "replay_progress", "replay_result",
         "escalation_outcomes", "escalations", "request_context", "output_transport", "direct_rework_assignments", "routes",
@@ -344,6 +344,17 @@
           }
         },
         "cost": {"type": "object", "description": "Spend against the money cap."},
+        "planning_calls": {
+          "type": "object",
+          "description": "Planning's model calls (Requirements, Planner, Plan Reviewer, their report repairs and planning investigations) since the person's last answer or feedback, against the cap on them. At the cap the run pauses PAUSED_PLANNING_CALL_LIMIT before the next planning call.",
+          "required": ["used", "cap", "renewed_at"],
+          "additionalProperties": false,
+          "properties": {
+            "used": {"type": "integer", "minimum": 0},
+            "cap": {"type": ["integer", "null"], "minimum": 1, "description": "Null when the run has no cap: 0 was chosen, or the run was saved before the cap existed."},
+            "renewed_at": {"type": ["string", "null"], "description": "When the person's last answer or feedback started the count again; null before any."}
+          }
+        },
         "progress": {"type": "object", "description": "How far the run has got, from saved records; `line` is for a person, the fields beside it for programs."},
         "summary": {
           "type": "object",
@@ -362,20 +373,21 @@
         "recovery": {"type": ["object", "null"]},
         "recoveries": {
           "type": "array",
-          "description": "What went wrong and what AutoCode did about it, oldest first, at most 20 (tools/autocode_recovery_history.py): rejected answers, rewritten reports, Builder send-backs for untested lines, Investigator and Resolver calls. Display text only; it grants nothing.",
+          "description": "What went wrong and what AutoCode did about it, oldest first, at most 20 (tools/autocode_recovery_history.py): rejected answers, rewritten reports, Builder send-backs for untested lines, Investigator calls and Resolver decisions. `handled` is true only when the saved record proves a successful recovery. Display text only; it grants nothing.",
           "items": {
             "type": "object",
-            "required": ["id", "kind", "at", "job", "headline", "problem", "action", "by", "detail"],
+            "required": ["id", "kind", "at", "job", "headline", "problem", "action", "by", "detail", "handled"],
             "properties": {
               "id": {"type": "string"},
-              "kind": {"type": "string", "enum": ["rejected", "report_repaired", "sent_back", "investigated", "resolved"]},
+              "kind": {"type": "string", "enum": ["rejected", "report_repaired", "sent_back", "investigated", "resolver_decision"]},
               "at": {"type": ["string", "null"]},
               "job": {"type": ["string", "null"]},
               "headline": {"type": "string"},
               "problem": {"type": ["string", "null"]},
               "action": {"type": "string"},
               "by": {"type": ["string", "null"]},
-              "detail": {"type": ["string", "null"]}
+              "detail": {"type": ["string", "null"]},
+              "handled": {"type": "boolean"}
             }
           }
         },
@@ -856,7 +868,7 @@
           "description": "The six pipeline jobs in order (Requirements, Planner, Plan Reviewer, Builder, Tester, Completion Reviewer), each with where it stands, its route's model and reasoning level, its spend and why it was skipped, read from routes, stage_decisions and run_metrics; display only. Documented in docs/task-run.md.",
           "items": {
             "type": "object",
-            "required": ["job", "label", "state", "model", "reasoning_effort", "spent_usd", "reason"],
+            "required": ["job", "label", "state", "model", "reasoning_effort", "spent_usd", "spent_complete", "reason"],
             "properties": {
               "job": {"type": "string"},
               "label": {"type": "string"},
@@ -864,6 +876,7 @@
               "model": {"type": ["string", "null"]},
               "reasoning_effort": {"type": ["string", "null"]},
               "spent_usd": {"type": ["number", "null"]},
+              "spent_complete": {"type": "boolean", "description": "False when the job has any unreported cost; a numeric spent_usd is then only a known floor."},
               "reason": {"type": ["string", "null"]}
             }
           }

@@ -26,6 +26,7 @@ try:
     from . import autocode_failures as failures
     from . import autocode_interventions as interventions
     from . import autocode_job_failure as job_failure
+    from . import autocode_partial_work as partial_work
     from . import autocode_permission_recovery as permission_recovery
     from . import autocode_planning as planning
     from . import autocode_process as processes
@@ -40,6 +41,7 @@ try:
     from . import autocode_run_records as records
     from . import autocode_run_status as run_status
     from . import autocode_stage_stalls as stage_stalls
+    from . import autocode_stale_handoff as stale_handoff
     from . import autocode_support as support
     from . import autocode_validation_recovery as validation_recovery
     from . import autocode_workflow as workflow
@@ -48,6 +50,7 @@ except ImportError:
     import autocode_failures as failures
     import autocode_interventions as interventions
     import autocode_job_failure as job_failure
+    import autocode_partial_work as partial_work
     import autocode_permission_recovery as permission_recovery
     import autocode_planning as planning
     import autocode_process as processes
@@ -62,6 +65,7 @@ except ImportError:
     import autocode_run_records as records
     import autocode_run_status as run_status
     import autocode_stage_stalls as stage_stalls
+    import autocode_stale_handoff as stale_handoff
     import autocode_support as support
     import autocode_validation_recovery as validation_recovery
     import autocode_workflow as workflow
@@ -452,6 +456,7 @@ def automatically_recover_capacity_stage(state: RunState, run_dir, workspace, er
         "changed_files": record["changed_files"],
         "events": record["events"],
         "source_snapshot": record["after_ref"],
+        "launch_binding": stale_handoff.preserved_launch_binding(record),
         "next_stage": next_stage,
         "retry_number": retry_number,
         "capacity_error": support.terminal_failure_reason(record["events"]) or "Selected model is at capacity",
@@ -731,7 +736,8 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
     # workflow's own verification stage instead — a final-audit-only run has no separate Validator, so
     # there its own audit stage re-produces the evidence. Asked only here: this route consults the
     # workflow approval, which no writer's timeout recovery has any reason to raise over.
-    if had_validation and not keep_evidence and next_stage == semantic_stage:
+    stopped_writer = record.get("timeout_kind") == "person" and semantic_stage == "builder"
+    if had_validation and not keep_evidence and next_stage == semantic_stage and not stopped_writer:
         verification_stage = workflow.review_stage(state)
         if verification_stage in ("tester", "review_checkpoint"):
             next_stage = verification_stage
@@ -751,6 +757,10 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
         "changed_files": record["changed_files"],
         "events": record["events"],
         "source_snapshot": record["after_ref"],
+        # What the failed attempt actually used at its launch, copied from its record:
+        # never recomputed from then-current values, which would bless drift that landed
+        # before this admission (issue #3288).
+        "launch_binding": stale_handoff.preserved_launch_binding(record),
         "next_stage": next_stage,
         "instruction": "This timed-out request was archived after its workers stopped. Inspect retained "
         "partial work and evidence before continuing; do not treat it as a completed report. "
@@ -772,6 +782,20 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
             "Execute the required checks for this attempt, using the current runner proof to focus inspection. "
             "Partial work remains archived and is not a completed report. Completion Review still needs the "
             "new independent report. Preserve the approved checks and saved execution limits."
+        )
+    if (
+        semantic_stage == "builder"
+        and record.get("timeout_kind", "stage") in ("stage", "person")
+        and not record.get("report_only")
+    ):
+        recovery["partial_work"] = partial_work.recovery(record, before, after, workspace, run_dir)
+        recovery["instruction"] += (
+            " The partial_work packet records capture availability and, when available, the stopped Builder's "
+            "source delta and deletions. "
+            "Continue from the retained workspace, review that delta and its deletions, and repair it rather "
+            "than restart the implementation. A truncated patch requires inspecting the named retained tree. "
+            "An unavailable capture is an evidence gap to retain and report, never verified source. "
+            "This packet is unverified source, not a completed report or passing test evidence."
         )
     records.count_automatic_recovery(state)
     state.setdefault("automatic_timeout_recoveries", []).append(recovery)
@@ -887,6 +911,7 @@ def automatically_recover_external_directory_denial(state: RunState, run_dir, wo
         "changed_files": record["changed_files"],
         "events": record["events"],
         "source_snapshot": record["after_ref"],
+        "launch_binding": stale_handoff.preserved_launch_binding(record),
         "next_stage": next_stage,
         "instruction": f"The prior request was stopped by OpenCode's external_directory permission. "
         f"The exact workspace root is {workspace}. Use source-relative shell paths there; "

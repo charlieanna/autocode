@@ -58,11 +58,11 @@ class FleetRowsTests(unittest.TestCase):
 
     def test_working_settled_and_unreadable_runs_stay_apart(self):
         self.assertEqual(
-            {"waiting": runs.NEEDS, "working": runs.WORKING, "finished": runs.SETTLED, "broken": runs.UNREADABLE},
+            {"waiting": runs.NEEDS, "working": runs.NEEDS, "finished": runs.SETTLED, "broken": runs.UNREADABLE},
             {item["name"]: item["bucket"] for item in runs.rows(self.root)},
         )
         self.assertEqual(
-            {"total": 4, runs.NEEDS: 1, runs.WORKING: 1, runs.SETTLED: 1, runs.UNREADABLE: 1},
+            {"total": 4, runs.NEEDS: 2, runs.WORKING: 0, runs.SETTLED: 1, runs.UNREADABLE: 1},
             runs.counts(runs.rows(self.root)),
         )
 
@@ -123,9 +123,296 @@ class FleetRowsTests(unittest.TestCase):
 
     def test_the_table_groups_rows_and_prints_the_action_under_each(self):
         text = runs.render(runs.rows(self.root), str(self.root), now=time.time())
-        self.assertIn(f"{runs.NEEDS} (1)", text)
+        self.assertIn(f"{runs.NEEDS} (2)", text)
         self.assertIn("-> autocode --run-dir", text)
-        self.assertIn("working (1)", text)
+        self.assertIn("working", text.split(f"  {runs.NEEDS} (2)", 1)[1])
+
+    def _persist(self):
+        import autocode_controller_owner as owners
+        import autocode_util as util
+
+        def persist(path, saved):
+            util.atomic_json(path, saved)
+            owners.checkpoint(path, saved)
+
+        return persist
+
+    def _make_run(self, name, **extra):
+        import autocode_util as util
+
+        run_dir = self.root / ".autocode" / "runs" / name
+        run_dir.mkdir(parents=True)
+        state = {
+            "version": 3,
+            "workspace": str(self.root),
+            "task": f"build {name}",
+            "status": "RUNNING",
+            "iteration": 1,
+            "sessions": {},
+            "next_stage": "builder",
+            "phase": "BUILDING",
+            **extra,
+        }
+        util.atomic_json(run_dir / "state.json", state)
+        return run_dir
+
+    def _receipt_run(self, name):
+        """A schema-valid receipt whose recorded controller no longer owns the checkpoint (#3287)."""
+        import autocode_controller_owner as owners
+        import autocode_util as util
+
+        run_dir = self._make_run(name)
+        state = util.read(run_dir / "state.json")
+        with util.run_lock(run_dir), owners.Owner(state, run_dir, self._persist()) as owner:
+            owner.result(0, ready=True)
+        receipt = util.read(run_dir / owners.FILE)
+        receipt.update(disposition="running", exit_code=None, exited_at=None)
+        util.atomic_json(run_dir / owners.FILE, receipt)
+        return run_dir, receipt
+
+    def test_ac1_dead_controller_rows_project_the_pause(self):
+        """#3287: a controller positively gone displays PAUSED_CONTROLLER_EXIT with its resume command."""
+        import autocode_controller_owner as owners
+        import autocode_process as processes
+        import autocode_util as util
+
+        dead, _ = self._receipt_run("deadpid")
+        reuse, reuse_receipt = self._receipt_run("reuse")
+        stale = self._make_run("stale-ready")
+        stale_state = util.read(stale / "state.json")
+        with util.run_lock(stale), owners.Owner(stale_state, stale, self._persist()) as owner:
+            owner.result(0, ready=True)
+        util.atomic_json(stale / "state.json", {**stale_state, "iteration": 2})
+
+        identity = reuse_receipt["identity"]
+        replaced = {**identity, "birth_identity": identity["birth_identity"] + 1, "state": "S"}
+        fixtures = (
+            ("working", None),
+            ("deadpid", {}),
+            ("reuse", {replaced["pid"]: replaced}),
+            ("stale-ready", {}),
+        )
+        for name, table in fixtures:
+            with self.subTest(run=name):
+                if table is None:
+                    entries = runs.rows(self.root)
+                else:
+                    with mock.patch.object(processes, "process_table", return_value=table):
+                        entries = runs.rows(self.root)
+                row = next(item for item in entries if item["name"] == name)
+                self.assertEqual("PAUSED_CONTROLLER_EXIT", row["status"])
+                self.assertEqual("resume", row["needs"])
+                self.assertIn("--resume-paused", row["next_command"])
+                self.assertEqual(runs.NEEDS, row["bucket"])
+                self.assertEqual("available", row["availability"])
+                if name == "stale-ready":
+                    self.assertIs(False, row["ready_to_continue"], "a moved-on checkpoint is never Ready to continue")
+                table_text = runs.render([row], str(self.root), now=time.time())
+                self.assertIn("needs you (1)", table_text)
+                self.assertIn(name, table_text)
+        with mock.patch.object(processes, "process_table", return_value={}):
+            code, out, _ = capture(["--workspace", str(self.root), "--json"])
+        self.assertEqual(0, code)
+        statuses = {row["name"]: row.get("status") for row in json.loads(out)["runs"]}
+        for name in ("working", "deadpid", "stale-ready"):
+            self.assertEqual("PAUSED_CONTROLLER_EXIT", statuses[name])
+
+    def test_ac2_ready_row_keeps_running_and_its_continue(self):
+        """#3287: a deliberate ready handoff is not a lost controller; it reads Ready to continue (#2332)."""
+        import autocode_controller_owner as owners
+        import autocode_util as util
+
+        run_dir = self.root / ".autocode" / "runs" / "working"
+        state = json.loads((run_dir / "state.json").read_text())
+        with util.run_lock(run_dir), owners.Owner(state, run_dir, self._persist()) as owner:
+            owner.result(0, ready=True)
+        expected = run_view.action(
+            json.loads((run_dir / "state.json").read_text()), run_dir=run_dir, workspace=self.root
+        )["next_command"]
+        row = next(item for item in runs.rows(self.root) if item["name"] == "working")
+        self.assertEqual("RUNNING", row["status"])
+        self.assertEqual((runs.NEEDS, True), (row["bucket"], row["ready_to_continue"]))
+        self.assertEqual(expected, row["next_command"])
+        self.assertNotIn("--resume-paused", row["next_command"])
+        rendered = runs.render(runs.rows(self.root), str(self.root))
+        self.assertIn("Ready to continue", rendered)
+        self.assertIn("needs you (2)", rendered)
+
+    def test_ready_boundary_with_retained_stage_keeps_its_continue_action(self):
+        import autocode_controller_owner as owners
+        import autocode_util as util
+
+        run_dir = self.root / ".autocode/runs/working"
+        state = json.loads((run_dir / "state.json").read_text())
+        state["active_stage"] = {"stage": "requirements_gather"}
+        with util.run_lock(run_dir), owners.Owner(state, run_dir, self._persist()) as owner:
+            owner.result(2, ready=True)
+        row = next(item for item in runs.rows(self.root) if item["name"] == "working")
+        self.assertEqual("RUNNING", row["status"])
+        self.assertTrue(row["ready_to_continue"])
+        self.assertIn("--no-chat", row["next_command"])
+        self.assertNotIn("--resume-paused", row["next_command"])
+
+    def test_uninspectable_workers_keep_one_readable_working_row(self):
+        checkpoint = self.root / ".autocode/runs/working/state.json"
+        original = json.loads(checkpoint.read_text())
+        for metadata in (
+            {"orchestration_batch": [{}]},
+            {"orchestration_batch": {"workers": [1]}},
+            {"active_stage": [{}]},
+        ):
+            with self.subTest(metadata=metadata):
+                checkpoint.write_text(json.dumps({**original, **metadata}))
+                saved = checkpoint.read_bytes()
+                rows = runs.rows(self.root)
+                self.assertEqual(4, len(rows))
+                row = next(item for item in rows if item["name"] == "working")
+                self.assertEqual(
+                    (runs.WORKING, "available", "RUNNING"), (row["bucket"], row["availability"], row["status"])
+                )
+                code, output, error = capture(["--workspace", str(self.root), "--json"])
+                self.assertEqual(0, code, error)
+                self.assertIn("working", output)
+                self.assertEqual(saved, checkpoint.read_bytes())
+
+    def test_ac5_unknown_busy_midflight_and_live_keep_the_saved_claim(self):
+        """Unknown inspection is never absence; a busy, live or mid-flight run keeps its saved claim."""
+        import autocode_controller_owner as owners
+        import autocode_process as processes
+        import autocode_util as util
+
+        from tests.test_status_command import ConsistentSampleTests
+
+        def saved_claim(name):
+            row = next(item for item in runs.rows(self.root) if item["name"] == name)
+            self.assertEqual(runs.WORKING, row["bucket"])
+            self.assertEqual("RUNNING", row["status"])
+            self.assertFalse(row["ready_to_continue"])
+            self.assertNotIn("--resume-paused", row["next_command"] or "")
+
+        refuse, _ = self._receipt_run("refuse")
+        with mock.patch.object(processes, "process_table", side_effect=processes.ProcessError("Unavailable")):
+            saved_claim("refuse")
+            observed = owners.inspect(util.read(refuse / "state.json"), refuse, self.root)
+        self.assertEqual("unknown", observed["kind"])
+
+        malformed, _ = self._receipt_run("malformed")
+        (malformed / owners.FILE).write_text('{"schema":1,"schema":1}')
+        saved_claim("malformed")
+        self.assertEqual("unknown", owners.inspect(util.read(malformed / "state.json"), malformed, self.root)["kind"])
+
+        locked = self._make_run("locked")
+        with util.run_lock(locked):
+            saved_claim("locked")
+            self.assertEqual("busy", owners.inspect(util.read(locked / "state.json"), locked, self.root)["kind"])
+
+        live = self._make_run("live")
+        live_state = util.read(live / "state.json")
+        with util.run_lock(live), owners.Owner(live_state, live, self._persist()) as owner:
+            saved_claim("live")
+            observed = owners.inspect(live_state, live, self.root)
+            self.assertEqual("running", observed["kind"])
+            self.assertTrue(observed["alive"])
+            owner.result(0, ready=True)
+
+        reuse, reuse_receipt = self._receipt_run("reuse")
+        identity = reuse_receipt["identity"]
+        replaced = {**identity, "birth_identity": identity["birth_identity"] + 1, "state": "S"}
+        with mock.patch.object(processes, "process_table", return_value={replaced["pid"]: replaced}):
+            observed = owners.inspect(util.read(reuse / "state.json"), reuse, self.root)
+        self.assertEqual("ended", observed["kind"])
+        self.assertIs(False, observed["alive"])
+
+        midflight = self._make_run(
+            "midflight", active_stage={"stage": "builder", "output": "001/builder-01.json", "iteration": 1}
+        )
+        mid_state = util.read(midflight / "state.json")
+        real_inspect = owners.inspect
+
+        def inspect(sample, run_dir, workspace, **_):
+            return real_inspect(sample, run_dir, self.root)
+
+        with (
+            mock.patch.object(processes, "recorded_worker_state", return_value={"checked": True, "alive": False}),
+            mock.patch.object(processes, "process_table", return_value={}),
+        ):
+            saved_claim("midflight")
+            view = ConsistentSampleTests("test_an_unchanged_checkpoint_is_inspected_once").render(
+                mid_state, midflight, inspect
+            )
+        self.assertEqual("RUNNING", view["status"])
+
+        stale = self._make_run("stale-ready")
+        stale_state = util.read(stale / "state.json")
+        with util.run_lock(stale), owners.Owner(stale_state, stale, self._persist()) as owner:
+            owner.result(0, ready=True)
+        util.atomic_json(stale / "state.json", {**stale_state, "iteration": 2})
+        row = next(item for item in runs.rows(self.root) if item["name"] == "stale-ready")
+        self.assertEqual((runs.WORKING, False, "RUNNING"), (row["bucket"], row["ready_to_continue"], row["status"]))
+
+        buckets = {item["name"]: item["bucket"] for item in runs.rows(self.root)}
+        self.assertEqual(runs.NEEDS, buckets["waiting"])
+        self.assertEqual(runs.SETTLED, buckets["finished"])
+
+    def test_ac6_availability_and_row_fields_unchanged(self):
+        """availability names checkpoint readability, and the row field set does not grow (#3287)."""
+        import autocode_process as processes
+
+        fields = {
+            "run_dir",
+            "name",
+            "title",
+            "workspace",
+            "bucket",
+            "ready_to_continue",
+            "availability",
+            "status",
+            "needs",
+            "attention",
+            "needs_reason",
+            "pause_category",
+            "pause_category_label",
+            "phase",
+            "next_stage",
+            "iteration",
+            "next_command",
+            "reason",
+            "updated_at",
+            "changeset",
+        }
+        row = next(item for item in runs.rows(self.root) if item["name"] == "working")
+        self.assertEqual("available", row["availability"])
+        self.assertEqual(fields, set(row))
+        self._receipt_run("deadpid")
+        with mock.patch.object(processes, "process_table", return_value={}):
+            dead_row = next(item for item in runs.rows(self.root) if item["name"] == "deadpid")
+        self.assertEqual("available", dead_row["availability"])
+        self.assertEqual(fields, set(dead_row))
+
+    def test_ac7_projection_is_deterministic_and_asks_no_one(self):
+        """The same checkpoint lists identically twice, and no row asks the person anything (#3287)."""
+        import autocode_controller_owner as owners
+        import autocode_process as processes
+        import autocode_util as util
+
+        run_dir = self.root / ".autocode" / "runs" / "working"
+        state = json.loads((run_dir / "state.json").read_text())
+        with util.run_lock(run_dir), owners.Owner(state, run_dir, self._persist()) as owner:
+            owner.result(0, ready=True)
+
+        def document():
+            code, out, _ = capture(["--workspace", str(self.root), "--json"])
+            self.assertEqual(0, code)
+            return json.loads(out)
+
+        with mock.patch.object(processes, "process_table", return_value={}):
+            first, second = document(), document()
+        self.assertEqual(first["runs"], second["runs"])
+        self.assertEqual({"schema", "scope", "workspace", "counts", "runs"}, set(first))
+        for row in first["runs"]:
+            for key in row:
+                for word in ("question", "prompt", "token", "approval"):
+                    self.assertNotIn(word, key.lower())
 
 
 class IssueWorktreeRunsTests(unittest.TestCase):

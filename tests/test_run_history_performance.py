@@ -278,6 +278,8 @@ class RunHistoryWorkTests(unittest.TestCase):
             self.assertNotIn("next_command", projected[str(linked)])
 
     def test_public_cli_keeps_actions_order_bad_entries_and_every_fixture_unchanged(self):
+        import autocode_controller_owner as owners
+
         with tempfile.TemporaryDirectory() as temporary:
             history = History(Path(temporary), 100)
             source, member = list(history.states)[:2]
@@ -327,7 +329,10 @@ class RunHistoryWorkTests(unittest.TestCase):
                         continue
                     state = history.states[path]
                     self.assertEqual("example" if path in (source, member) else None, row["changeset"])
-                    action = run_view.action(state, run_dir=path, workspace=Path(state["workspace"]))
+                    # The row projects the controller-exit display the shared rule decides (#3287);
+                    # the agreement is recomputed from that projected state.
+                    projected = owners.project(state, owners.inspect(state, path, Path(state["workspace"])))
+                    action = run_view.action(projected, run_dir=path, workspace=Path(state["workspace"]))
                     self.assertEqual(action["next_command"], row["next_command"])
                     self.assertEqual((action["needs"] or {}).get("kind"), row["needs"])
                     if state["status"] == "TASK_COMPLETE":
@@ -350,7 +355,7 @@ class RunHistoryWorkTests(unittest.TestCase):
                         if row["run_dir"] == str(run_dir)
                     )
 
-                self.assertEqual(runs.WORKING, current()["bucket"])
+                self.assertEqual(runs.NEEDS, current()["bucket"])
                 state = {**history.states[run_dir], "status": "PAUSED_REQUESTED"}
                 path.write_text(json.dumps(state))
                 self.assertIn("--resume-paused", current()["next_command"])

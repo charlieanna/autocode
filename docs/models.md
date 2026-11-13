@@ -217,7 +217,10 @@ own `.autocode/config.toml` still win for that run; `--single-model` takes no sa
 a shared `--reasoning-effort` keeps the saved levels out. A task already running keeps the
 routes it started with. A stage you have not chosen keeps its default, or the route automatic
 selection picks for it (below). `autocode stages set STAGE --model MODEL --effort LEVEL` and
-`autocode stages reset [STAGE]` change one stage without asking.
+`autocode stages reset [STAGE]` change one stage without asking. To move a stage and the stages
+that check it to new models at once, where every single change would be refused, name each in one
+command: `autocode stages set --stage builder MODEL LEVEL --stage tester MODEL LEVEL` checks every
+pick against the others as they will all stand and saves all of them, or none (#3312).
 
 A saved level differs from a typed one in one way: for the three review stages it is a ceiling
 ([reasoning effort](#reasoning-effort)). Every other stage runs at the level you saved.
@@ -804,8 +807,11 @@ at `medium` reasoned for 64,003 tokens and wrote nothing). The model is not at f
 is, so the runner sets the attempt aside and runs the stage again on the same model at the highest
 level the model offers below the one it ran at. It records the move in the run's evidence and as the
 stage's `effort_choice`, the live log says so, and the stage keeps that level on that model for the
-rest of the run. Each level is lowered once, so a stage that runs out at the model's lowest level, a
-level typed as a flag, a long report and an attempt that changed source still ask as above.
+rest of the run. Each level is lowered once. When the stage runs out that way again at the model's
+lowest level (a live Tester on MiMo v2.6 Pro did at `medium` and then at `low`), the runner sets the
+attempt aside and the Investigator looks at it before you are asked (#3349); it may run the stage once
+more with its guidance. Only after it has looked does the model question above stand. A level typed as
+a flag, a long report and an attempt that changed source still ask as above.
 
 ## A parallel Builder stopped on its model
 

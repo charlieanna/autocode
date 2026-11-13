@@ -94,6 +94,45 @@ class ActivityTests(unittest.TestCase):
         self.now = 9
         self.assertEqual("idle", self.monitor.expired()["kind"])
 
+    def plain(self, *lines):
+        with self.path.open("ab") as stream:
+            stream.write("".join(line + "\n" for line in lines).encode())
+        return self.monitor.poll()
+
+    def test_a_report_file_tool_s_plain_progress_lines_are_activity_once_each(self):
+        # #3309's run: GoCode's `codex exec` (no --json) printed its commands as plain lines, and every
+        # Builder and Resolver attempt stopped at the 300 s idle limit with the work still going.
+        self.monitor = ActivityMonitor(
+            self.path, idle_seconds=5, tool_seconds=20, clock=lambda: self.now, plain_text=True
+        )
+        self.now = 4
+        self.assertEqual("provider_active", self.plain("exec", "/bin/zsh -lc ls in /work")["activity"])
+        self.now = 8
+        self.plain("\x1b[1m succeeded in 48ms:\x1b[0m")
+        self.now = 12
+        self.assertIsNone(self.monitor.expired())
+        # The same line again, an ANSI-only or blank line, and an unfinished line are not activity.
+        self.plain("exec", "\x1b[0m", "   ")
+        with self.path.open("ab") as stream:
+            stream.write(b"tokens used")
+        self.now = 13
+        self.monitor.poll()
+        self.assertEqual("idle", self.monitor.expired()["kind"])
+        # JSON rows keep their own meaning beside plain lines.
+        self.path.write_bytes(b"")
+        self.monitor = ActivityMonitor(
+            self.path, idle_seconds=5, tool_seconds=20, clock=lambda: self.now, plain_text=True
+        )
+        self.codex("started")
+        self.now = 40
+        self.assertEqual("tool", self.monitor.expired()["kind"])
+
+    def test_plain_lines_are_not_activity_for_an_event_stream_provider(self):
+        self.now = 4
+        self.plain("exec", "/bin/zsh -lc ls in /work")
+        self.now = 6
+        self.assertEqual("idle", self.monitor.expired()["kind"])
+
     def test_cumulative_repeated_text_does_not_continuously_refresh(self):
         self.codex("updated", kind="reasoning", text="Checking. ")
         self.now = 3

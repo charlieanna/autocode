@@ -196,6 +196,13 @@ level above their saved or default level, only at a level the model offers, neve
 (`tools/autocode_plan_difficulty.py`). A typed level stays exact. AutoCode decides this itself and
 records it as the stage's `effort_choice`; it is never a question for the person.
 
+**Planning has a call cap, owner decision 2026-11-12.** A new run makes at most 20 planning model calls
+(Requirements, the Planner and the Plan Reviewer, with their report repairs and the Investigator's calls
+about a planning stage) between the person's answers and feedback; timeouts and rejected answers count,
+and a planning restart keeps the count (`tools/autocode_planning_calls.py`). At the cap the run pauses
+`PAUSED_PLANNING_CALL_LIMIT` for the person, as the cost cap does, and only they raise or remove it
+(`--max-planning-calls`). Like the cost cap it is a spending cap: AutoResolver never manages or raises it.
+
 **Terminal chat, approved 2026-10-19 (#1622), in `tools/autocode_chat_client.py`.**
 The same contract as the VS Code client, with the shared rules in
 `tools/autocode_client_actions.py`: it starts `autocode` as an argument array, reads

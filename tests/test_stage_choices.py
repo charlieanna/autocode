@@ -390,6 +390,68 @@ class StagesCommandTests(unittest.TestCase):
         self.assertEqual(0, self.run_cli("reset", "builder", "--backend", "claude")[0])
         self.assertEqual({"tester"}, set(choices.load()["claude"]))
 
+    def test_set_moves_checker_and_producer_together_where_one_at_a_time_cannot(self):
+        # #3312: from the defaults (Builder Haiku, Tester Sonnet, Completion Reviewer Opus) to Builder Sonnet with
+        # both checkers on Haiku, every single move is refused, so the target could not be reached at all.
+        target = {"builder": SONNET, "tester": HAIKU, "completion": HAIKU}
+        for role, model in target.items():
+            code, _out, err = self.run_cli("set", role, "--model", model, "--effort", "medium", "--backend", "claude")
+            self.assertEqual(2, code, role)
+            self.assertIn("To change stages together, name each in one command", err)
+            self.assertIn("autocode stages set --stage STAGE MODEL EFFORT", err)
+        self.assertEqual("", self.file_text())
+        code, out, err = self.run_cli(
+            "set",
+            "builder",
+            "--model",
+            SONNET,
+            "--effort",
+            "high",
+            "--stage",
+            "tester",
+            HAIKU,
+            "medium",
+            "--stage",
+            "completion-reviewer",
+            HAIKU,
+            "low",
+            "--backend",
+            "claude",
+            "--json",
+        )
+        self.assertEqual(0, code, err)
+        chosen = {stage["id"]: stage["chosen"] for stage in json.loads(out)["stages"] if stage["chosen"]}
+        self.assertEqual(
+            {
+                "builder": {"model": SONNET, "effort": "high"},
+                "tester": {"model": HAIKU, "effort": "medium"},
+                "completion": {"model": HAIKU, "effort": "low"},
+            },
+            chosen,
+        )
+        # The way back needs no stage named positionally, and nothing is saved when one pick is refused.
+        saved = self.file_text()
+        code, _out, err = self.run_cli(
+            "set", "--stage", "builder", HAIKU, "medium", "--stage", "tester", SONNET, "medium", "--backend", "claude"
+        )
+        self.assertEqual(2, code, "the Completion Reviewer still runs Haiku")
+        self.assertIn("the Builder cannot run " + HAIKU, err)
+        self.assertEqual(saved, self.file_text())
+
+    def test_set_refuses_a_stage_named_twice_and_stage_picks_outside_set(self):
+        for argv, error in (
+            (("set", "tester", "--model", OPUS, "--effort", "high", "--stage", "tester", HAIKU, "low"), "tester twice"),
+            (("set", "--stage", "builder", OPUS, "high", "--stage", "builder", HAIKU, "low"), "builder twice"),
+            (("set", "tester", "--stage", "builder", OPUS, "high"), "needs a stage, --model and --effort"),
+            (("list", "--stage", "builder", OPUS, "high"), "--stage names a stage for `autocode stages set`"),
+            (("reset", "--stage", "builder", OPUS, "high"), "--stage names a stage for `autocode stages set`"),
+        ):
+            with self.subTest(argv=argv):
+                code, _out, err = self.run_cli(*argv, "--backend", "claude")
+                self.assertEqual(2, code)
+                self.assertIn(error, err)
+        self.assertEqual("", self.file_text())
+
     def test_a_new_chat_lists_its_stages_and_changes_them_for_itself_without_saving(self):
         """A chat that has not started shows the stages it will run and takes picks for itself alone."""
         self.assertEqual(

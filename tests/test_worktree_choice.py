@@ -18,6 +18,7 @@ from pathlib import Path
 from unittest import mock
 
 import autocode_build_worktree as build_worktree
+import autocode_controller_isolation as isolation
 import autocode_registry as registry
 import autocode_run_view as run_view
 import autocode_subcommands as subcommands
@@ -104,6 +105,54 @@ class WhereTests(unittest.TestCase):
 
 
 class OptionsTests(unittest.TestCase):
+    def test_self_build_setup_is_public_before_a_run_and_does_not_change_the_folder(self):
+        root = checkout(self)
+        (root / "tools").mkdir()
+        for name in ("autocode.py", "autocode_controller_isolation.py"):
+            (root / "tools" / name).write_text("# controller marker\n")
+        (root / "AGENTS.md").write_text("instructions\n")
+        before = git(root, "status", "--porcelain")
+        with mock.patch.object(isolation, "__file__", str(root / "tools/autocode_controller_isolation.py")):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(0, choice.cli(["list", "--workspace", str(root), "--json"]))
+            listing = json.loads(output.getvalue())
+        setup = listing["controller"]
+        self.assertFalse(setup["ready"])
+        self.assertIn("new worktree", setup["detail"])
+        self.assertIn("outside", setup["detail"])
+        self.assertEqual(
+            [
+                {
+                    "id": "select_cli",
+                    "label": "Select isolated AutoCode CLI",
+                    "next_command": ["worktrees", "list", "--workspace", str(root), "--json"],
+                }
+            ],
+            setup["actions"],
+        )
+        self.assertNotIn("worktree add", choice.text(listing))
+        self.assertIn(setup["detail"], choice.text(listing))
+        self.assertEqual(before, git(root, "status", "--porcelain"))
+        self.assertFalse((root / ".autocode").exists())
+
+    def test_setup_checks_resolved_controller_location_not_just_executable_location(self):
+        root = checkout(self)
+        (root / "tools").mkdir()
+        for name in ("autocode.py", "autocode_controller_isolation.py"):
+            (root / "tools" / name).write_text("# marker\n")
+        (root / "AGENTS.md").touch()
+        link = root.parent / "editable-controller.py"
+        link.symlink_to(root / "tools/autocode.py")
+        self.assertFalse(isolation.setup_view(root, link)["ready"])
+        external = isolation.setup_view(root, root.parent / "installed/autocode.py")
+        self.assertTrue(external["ready"])
+        self.assertEqual([], external["actions"])
+        with self.assertRaisesRegex(ValueError, "Select an AutoCode CLI"):
+            isolation.require_isolated(root, link)
+        ordinary = isolation.setup_view(root.parent, link)
+        self.assertTrue(ordinary["ready"], "ordinary projects still work")
+
     def test_a_new_chat_takes_its_own_branch_unless_the_person_picks_another_place(self):
         root = checkout(self)
         listing = choice.options(root)

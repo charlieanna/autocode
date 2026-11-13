@@ -411,18 +411,16 @@ Builder's starting code separately. Legacy runs without a saved identity report
 revision for this saved identity. The existing resume warning names a change
 in the controller revision.
 
-To build AutoCode itself with the controller from that same source checkout, keep
-that checkout fixed and create a separate workspace:
-
-```sh
-git -C /path/to/autocode worktree add --detach /path/to/autocode-self-build HEAD
-/path/to/controller-venv/bin/python /path/to/autocode/tools/autocode.py \
-  "Fix the selected issue" --workspace /path/to/autocode-self-build --in-place
-```
-
-Use the existing provider and model flags for the run. Keep the controller
-checkout and its environment unchanged until the run has stopped. An installed
-controller is also safe when its package directory is outside the task worktree.
+Before a self-build, `autocode worktrees list --workspace FOLDER --json` checks the
+executing controller's resolved package location, including editable installations.
+Choosing **New worktree and branch** does not bypass this check: Requirements still
+starts in the opened folder. Select a CLI installed non-editably outside that folder,
+or sourced from a separate checkout kept fixed until the run stops. In VS Code the
+core's **Select isolated AutoCode CLI** action opens a file picker, verifies the
+candidate, and saves only workspace-local CLI settings. Nothing is installed.
+Send the message again after selection so models and placement are read from that CLI.
+Terminal callers use that installed CLI instead; no worktree or workspace-flag workaround
+is needed. See [Worktrees for clients](#worktrees-for-clients).
 
 Inputs fixed when a run starts, such as `--ui-run`, `--test-root` and `--package`, belong in `start_options`
 instead of `options`: `TaskRun.start(workspace, brief, options=("--engine", "codex"),
@@ -1514,14 +1512,15 @@ run carried on by itself: a list, oldest first and at most the newest 20, built 
 | Key | Meaning |
 | --- | --- |
 | `id` | Stable for the entry, so a client says each one once |
-| `kind` | `rejected` (a stage's answer was not accepted), `report_repaired` (the work stood and only its report was rewritten), `sent_back` (the changed-code gate returned the Builder for lines with no test that fails when they break and no checked reason), `investigated` (a stage stopped making progress and went to the Investigator), `resolved` (the Resolver chose the next step by its rules) |
+| `kind` | `rejected` (a stage's answer was not accepted), `report_repaired` (the work stood and only its report was rewritten), `sent_back` (the changed-code gate returned the Builder for lines with no test that fails when they break and no checked reason), `investigated` (a stage stopped making progress and went to the Investigator), `resolver_decision` (the Resolver chose a next step; a retry or hold is not a successful resolution) |
 | `at` | When it was recorded (UTC), or null |
 | `job` | The stage's screen name (`autocode_roles`) |
 | `headline` | One line, such as `Builder stuck`, `Tester rewrote its report` or `Builder sent back for untested lines (round 1 of 2)` (the round the record names, out of the rounds the gate allows; a record saved before rounds were recorded has none) |
 | `problem` | What went wrong, or null |
 | `action` | What AutoCode did about it |
-| `by` | The job that handled it: the stage itself, `Investigator` or `Resolver` |
+| `by` | The job that recorded or handled the entry: the stage itself, `Investigator` or `Resolver` |
 | `detail` | The Investigator's diagnosis and advice, or null |
+| `handled` | True only when the saved record proves the recovery succeeded; a Resolver retry or hold is false |
 
 The text is redacted and bounded, and a sentence that names a command is left out, since a client
 never shows a person a command to type. A rejection the Investigator was called for appears once,
@@ -1700,6 +1699,7 @@ budget pause names is described, with the same row shape:
 | `PAUSED_TIME_LIMIT` | `max_seconds` | `--max-seconds` | Total active time (seconds) | `elapsed`: active seconds |
 | `PAUSED_COST_LIMIT` | `max_cost_usd` | `--max-cost-usd` | Cost cap (whole USD) | known spend in USD |
 | `PAUSED_ITERATION_LIMIT` | `max_iterations` | `--max-iterations` | Total iterations | the current iteration |
+| `PAUSED_PLANNING_CALL_LIMIT` | `max_planning_calls` | `--max-planning-calls` | Planning model calls since your last answer or feedback | planning calls counted |
 | `PAUSED_MILESTONE_TIME_LIMIT`, `PAUSED_MILESTONE_BUDGET` | `max_milestone_seconds` | `--max-milestone-seconds` | Milestone active time (seconds) | the milestone's counted seconds |
 | `PAUSED_MILESTONE_STALLED` | `max_milestone_replans` | `--max-milestone-replans` | Milestone replans | replans used |
 | `PAUSED_NO_PROGRESS` (its unchanged-batch bound only) | `no_progress_limit` | `--no-progress-limit` | Unchanged implementation batches allowed | unchanged batches counted |
@@ -1913,7 +1913,7 @@ resulting finding's `id`, `milestone_id` and `criteria`, `contract_token`,
 (see [Execution](execution.md#open-findings)).
 
 `usage` is the run's tokens and cost so far: `stages` (finished), `active_stage` (the stage
-running now, or null), `tokens`, `cost_usd` (`reported`, `estimated`, `complete`), `unknown_stages`,
+running now, or null), `tokens`, `cost_usd` (`reported`, `estimated`, `complete`, and `basis`, which says in the view that `estimated` is a comparison figure, not the spend; #3335), `unknown_stages`,
 `by_role` (by route) and `by_job` (by the job on screen; see
 [Cost reporting](cost-reporting.md#every-task-continuously)). Unknown cost is
 not zero: `complete` is false while a stage has none or is running.
@@ -1937,6 +1937,13 @@ so its `estimated` can differ from `cost.estimated_usd`. Those rates price every
 input rate, cached or not, so on a run whose input is mostly cache reads `usage.cost_usd.estimated`
 is about twice `cost.spent_usd` (#3268: $26.30 against $12.40). It is a comparison figure: the run's
 cost is `cost.spent_usd`, and a client that shows one cost shows that.
+
+`planning_calls` counts planning's model calls against the cap on them ([Planning-call
+cap](execution.md#planning-call-cap)): `used` (calls by Requirements, the Planner and the Plan Reviewer,
+their report repairs and Investigator calls about a planning stage, since the person's last answer or
+feedback), `cap` (the saved `--max-planning-calls`, or null for none) and `renewed_at` (when that answer
+or feedback was given, or null before any). At the cap the run pauses `PAUSED_PLANNING_CALL_LIMIT`
+before the next planning call, and `needs.action` is `--resume-paused --max-planning-calls N`.
 
 `run_metrics.single_model` splits what is not the Builder's into `planning_usd` (Requirements,
 Planner and Plan Reviewer) and `review_usd` (testing, review, proof and recovery), with
@@ -2388,7 +2395,8 @@ of its own (`tools/autocode_stage_pipeline.py`). It is always present. Each row 
 | `state` | `working` (one of its stages is running), `next` (its stage runs next while the run waits or is between stages), `ran` (it launched at least once), `skipped` (a saved decision passed over it and it never launched), `pending` (not reached yet) or `not_run` (the run has ended without reaching it) |
 | `model` | The model of the route the job runs on (`routes`), or `null`; the models that actually ran stay on `usage.accounting.attempts` |
 | `reasoning_effort` | The level it last ran at when a rule moved it (`stage_decisions[].effort_choice`), else its route's level, or `null` |
-| `spent_usd` | Its accounted spend from `run_metrics.by_job`, or `null` before it has any |
+| `spent_usd` | Its accounted spend from `run_metrics.by_job`, or `null` when none of its stages has reported cost. The job metric's zero floor is not a reported zero; `cost.breakdown.by_stage` distinguishes them |
+| `spent_complete` | Whether every stage's accounted cost is known. When false, a numeric `spent_usd` is a floor, displayed as `$X+`, not a whole amount |
 | `reason` | Why a skipped job was skipped, from `stage_decisions`; `null` otherwise |
 
 `ran` says the job launched, never that its work was accepted. The record grants nothing; the VS
@@ -3078,6 +3086,22 @@ start the chat in the one to change (#2066). A client
 shows the places, preselects `default`, passes the chosen place's (or branch's) `start_args`
 unchanged in place of its own placement flag, and, when that place has a `warning`, shows it and
 starts only once the person confirms. It reads the list again just before the start.
+
+The additive `controller` object is pre-start admission, not saved-run state:
+`ready` (boolean), `detail` (display text), and `actions` (empty when ready).
+When the executing controller is inside an AutoCode task checkout, `ready` is false
+for every placement. Its `select_cli` action has `label` and
+`next_command: ["worktrees", "list", "--workspace", FOLDER, "--json"]`.
+This is a local executable-selection capability, not an install or a run command:
+the client lets the person pick an existing AutoCode executable and invokes it with
+that exact read-only array, an empty CLI prefix, the folder as cwd and a bounded timeout.
+It saves the executable and clears the old prefix only after the candidate reports
+the same folder and `controller.ready: true`. VS Code stores these as workspace
+`autocode.cliPath` and `autocode.cliArgs`; global settings remain untouched.
+Cancel or a failed, unsafe, missing or malformed admission read changes no settings
+and starts no run. After selection the person retries the message, so all start
+choices are freshly read from the selected CLI. Missing `controller` on older cores
+retains legacy placement behavior, but cannot verify a selected candidate.
 
 ## Run modes for clients
 

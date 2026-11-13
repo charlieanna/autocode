@@ -82,6 +82,7 @@ try:
     from . import autocode_python_test_roles as role_policy
     from . import autocode_recovery_review as recovery_review
     from . import autocode_regression_selection as selection
+    from . import autocode_roles as roles
     from . import autocode_run_base as run_base
     from . import autocode_runner_check as runner_check
     from . import autocode_status as status
@@ -112,6 +113,7 @@ except ImportError:
     import autocode_python_test_roles as role_policy
     import autocode_recovery_review as recovery_review
     import autocode_regression_selection as selection
+    import autocode_roles as roles
     import autocode_run_base as run_base
     import autocode_runner_check as runner_check
     import autocode_status as status
@@ -388,6 +390,18 @@ def proof_dependencies(state: RunState, workspace):
     }
 
 
+def _settled_key(binding) -> str:
+    """The key of a whole suite's settled timeout: the command, the original code and the time limit.
+
+    The runtime identity is left out on purpose. A settled timeout is never completed evidence; it
+    decides only that the focused suite runs in the whole suite's place, and that suite still runs
+    fresh under its own binding. Keyed by the runtime too, a timeout was never settled where the runtime
+    cannot be bound completely (an editable install), and was missed whenever a shared environment changed
+    between proofs, so every proof of the run spent the whole suite's time limit again (#3158).
+    """
+    return util.digest({key: binding.get(key) for key in ("base", "command", "framework", "base_patch", "timeout")})
+
+
 def _baseline(
     state: RunState,
     workspace,
@@ -435,9 +449,7 @@ def _baseline(
         except (OSError, ValueError, TypeError, KeyError):
             pass
     timeouts = dict(cached.get("settled_timeouts") or {})
-    settled = (
-        timeouts.get(util.digest(binding)) if settled_timeout and binding["runtime"].get("reuse_supported") else None
-    )
+    settled = timeouts.get(_settled_key(binding)) if settled_timeout else None
     if settled:
         try:
             result = util.read(settled["path"])
@@ -468,7 +480,7 @@ def _baseline(
     path = directory / "baseline.json"
     util.atomic_json(path, result)
     if focused_suite.timed_out(result):
-        timeouts[util.digest(binding)] = {"path": str(path), "sha256": util.file_hash(path)}
+        timeouts[_settled_key(binding)] = {"path": str(path), "sha256": util.file_hash(path)}
     state["regression_baseline"] = {
         **({"settled_timeouts": timeouts} if timeouts else {}),
         "base": base,
@@ -1446,6 +1458,11 @@ def before_review(state: RunState, stage, workspace, run_dir):
         package_writes.check(state, workspace)
         if acceptance.is_blind(state):
             acceptance.check_candidate(state, workspace, run_dir)
+    # A planning stage only reads, and before one the comparison below would only refresh
+    # changed_code_fallback, which is evidence recomputed before every review. On a large repository it
+    # costs several seconds per call, twice before a chat's first reply, so it waits for a stage that uses it.
+    if _planning(stage if stage is not None else state.get("next_stage")):
+        return
     # Due-now scope even for review_completion: it also reviews each milestone before advancing, where a later
     # milestone's unbuilt tests would fail the proof and the owner note would demand REWORK. Final
     # completion still needs every case, enforced by complete(all_due=True).
@@ -1461,6 +1478,12 @@ def before_review(state: RunState, stage, workspace, run_dir):
         and _review_needs_proof(state, workspace)
     ):
         prove(state, workspace, run_dir)
+
+
+def _planning(stage) -> bool:
+    """Whether ``stage`` (or its report repair) plans and builds nothing: Requirements, the Planner, the Plan
+    Reviewer and the task Planner (``plan_task``, a new run's first stage), all of them read-only."""
+    return roles.base_stage(stage) in (*roles.ALL_PLANNING_STAGES, "plan_task")
 
 
 def _review_needs_proof(state: RunState, workspace):
