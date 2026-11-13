@@ -557,8 +557,15 @@ runpy.run_path(str(runtime), run_name='__main__')
         self.assertEqual("PAUSED_RESOLVER_OPERATIONAL", held["status"], held["stop_reason"])
         self.assertEqual("pending", held["information_review"]["status"])
         action = next(row for row in held["recovery"]["actions"] if row["kind"] == "abandon")
-        active = next(row for row in held["usage"]["accounting"]["attempts"] if row["active"])
-        self.assertEqual(["--abandon-stage", active["attempt_id"]], action["args"])
+        # The planning hold retains an abandonment selector after its provider
+        # has stopped. Bind to that public selector, not to live accounting.
+        attempts = [row for row in held["usage"]["accounting"]["attempts"] if row["attempt_id"] == action["attempt_id"]]
+        self.assertEqual(1, len(attempts), held)
+        attempt = attempts[0]
+        self.assertFalse(attempt["active"])
+        self.assertTrue(attempt["timed_out"])
+        self.assertEqual("review_plan_report_repair", attempt["stage"])
+        self.assertEqual(["--abandon-stage", attempt["attempt_id"]], action["args"])
         return run, action
 
     def test_cli_named_abandon_reconciles_answered_planning_hold_without_dispatch_or_refund(self):
