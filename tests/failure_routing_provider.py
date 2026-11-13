@@ -42,12 +42,13 @@ def main():
             )
 
     record("call")
+    session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
     if data["stage"] == "investigate_stuck" and sys.argv[sys.argv.index("--model") + 1] == os.environ.get(
         "FAILURE_ROUTING_QUOTA_MODEL"
     ):
         assert data.get("builder_failure"), "The quota fault requires a real Builder classification"
         assert sys.argv[sys.argv.index("--sandbox") + 1] == "read-only"
-        print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}), flush=True)
+        print(json.dumps({"type": "thread.started", "thread_id": session}), flush=True)
         error = (
             {"statusCode": 401, "message": "Authentication failed"}
             if os.environ.get("FAILURE_ROUTING_STOP_KIND")
@@ -61,7 +62,7 @@ def main():
         if os.environ.get("FAILURE_ROUTING_MALFORMED_DIAGNOSIS"):
             # Repair report format only, preserving the pinned cause/ID/refs/probe.
             result["example"] = result["diagnosis"]
-        print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}), flush=True)
+        print(json.dumps({"type": "thread.started", "thread_id": session}), flush=True)
         Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
         record("preserved_diagnosis_repair", report=result)
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}), flush=True)

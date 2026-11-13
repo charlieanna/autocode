@@ -25,7 +25,8 @@ if repair and stage == "tester":
         stream.write(json.dumps({"source": source, "output": str(output)}) + "\n")
     report.pop("extraneous_field")
     output.write_text(json.dumps(report))
-    print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}))
+    session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
+    print(json.dumps({"type": "thread.started", "thread_id": session}))
     print(json.dumps({"type": "turn.completed"}))
 else:
     sys.stdin = io.StringIO(prompt)

@@ -101,6 +101,8 @@ def transport_version(settings):
     return version if isinstance(version, str) else None
 
 
+SUPPORTS_REPORT_RECOVERY = True
+
 DEFAULT_MODELS = {
     # Planning path (Z.ai): Requirements medium → Planner high.
     "requirements": "zai-coding-plan/glm-5.3",
@@ -447,7 +449,10 @@ def launch(
     opencode_version=None,
     isolation=None,
     image_preparation=None,
+    report_recovery=False,
 ):
+    if report_recovery and (allow_write or isolation is not None or containment is not None):
+        raise ValueError("OpenCode report recovery requires a read-only uncontained stage")
     if image_preparation is not None and (isolation is None or role != "tester" or planning or allow_write or session):
         raise ValueError("Native image staging requires the original fresh readonly Sol isolation")
     if image_preparation is not None:
@@ -479,7 +484,7 @@ def launch(
         if major is None:
             raise RuntimeError("This adapter requires OpenCode 1.x or 2.x; inspect opencode --version")
     agent = "autocode_" + role
-    if planning:
+    if planning or report_recovery:
         # Fresh name prevents deep-merged configured role/tool allows from
         # surviving our read-tools-only policy.
         agent += "_plan_" + uuid.uuid4().hex
@@ -488,7 +493,18 @@ def launch(
     permissions = {"task": "deny", "question": "deny", "plan_enter": "deny", "plan_exit": "deny"}
     if not allow_write:
         permissions["edit"] = "deny"
-    if planning and isolation is None and containment is None:
+    if report_recovery:
+        permissions = {
+            "*": "deny",
+            "edit": "deny",
+            "bash": "deny",
+            "task": "deny",
+            "question": "deny",
+            "plan_enter": "deny",
+            "plan_exit": "deny",
+            "external_directory": "deny",
+        }
+    elif planning and isolation is None and containment is None:
         # An explicit read-tools-only planning agent: no delegation, MCP, plugins' tools or edit escape hatch.
         # Its shell is the kernel-contained one (containment, which narrows the agent to bash itself) or, when the
         # person accepted uncontained tools, OpenCode's own (planning_shell). The runner persists its report.

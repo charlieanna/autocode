@@ -70,6 +70,46 @@ def with_stage_events_log(prompt: str, events) -> str:
     return instructions + marker + json.dumps(data, indent=2)
 
 
+def report_check_command(spec_path: Path | str) -> str:
+    """Public read-only CLI command for pre-validating a candidate JSON report via stdin."""
+    words = [
+        sys.executable,
+        str(Path(__file__).with_name("autocode.py")),
+        "report-check",
+        "--spec",
+        str(spec_path),
+        "-",
+    ]
+    return shlex.join(words)
+
+
+def with_report_check_command(prompt: str, spec_path: Path | str) -> str:
+    """Inject a public pre-submit stdin validation command into runner-owned handoffs."""
+    instructions, marker, packet = prompt.partition(MARKER)
+    if not marker:
+        return prompt
+    try:
+        data = json.loads(packet)
+    except ValueError as error:
+        raise ValueError("Provider handoff must contain a JSON object") from error
+    if not isinstance(data, dict):
+        raise ValueError("Provider handoff must contain a JSON object")
+    if "report_check_command" in data:
+        return prompt
+    data["report_check_command"] = report_check_command(spec_path)
+    note = (
+        "\nBefore emitting your final JSON report, if shell access is enabled for this stage, "
+        "you may validate candidate JSON via stdin (writing no workspace files) with "
+        "`report_check_command` from CURRENT HANDOFF DATA.\n"
+    )
+    if not instructions.endswith("\n"):
+        note = "\n" + note
+    updated_instructions = instructions + note
+    if "\n" not in packet.strip():
+        return updated_instructions + marker + json.dumps(data, separators=(",", ":"))
+    return updated_instructions + marker + json.dumps(data, indent=2)
+
+
 def planning_packet(prompt: str) -> bool:
     """Whether a runner-owned handoff describes planning, for output instructions."""
     _, marker, packet = prompt.partition(MARKER)

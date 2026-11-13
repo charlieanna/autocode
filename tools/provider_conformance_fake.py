@@ -24,6 +24,7 @@ FAULTS = (
     "wrong_nonce",
     "stale_report",
     "process_failure",
+    "unexpected_tool_in_repair",
 )
 
 DIRECT_MODEL = "fixture/direct-probe"
@@ -230,51 +231,91 @@ def main(provider):
         (workspace / "output.txt").write_bytes((workspace / "input.txt").read_bytes())
     if fault == "unexpected_write":
         (workspace / "unexpected.txt").write_text("unapproved edit")
-    checks = []
-    for index, command in enumerate(data["commands"]):
-        actual = subprocess.run(shlex.split(command), cwd=workspace, capture_output=True, text=True)
-        checks.append({"command": command, "exit_code": actual.returncode})
-        if fault == "forged_evidence":
-            continue
-        code = 0 if fault == "wrong_exit" else actual.returncode
-        if native:
-            emit(
-                {
-                    "type": "item.completed",
-                    "item": {
-                        "type": "command_execution",
-                        "id": f"cmd_{index}",
-                        "command": command,
-                        "exit_code": code,
-                        "aggregated_output": actual.stdout + actual.stderr,
+    if data["phase"] == "repair_resume":
+        if provider == "codex":
+            assert "--disable" in args and args[args.index("--disable") + 1] == "shell_tool" and "resume" in args
+        elif provider == "opencode":
+            assert "--session" in args
+            selected = args[args.index("--agent") + 1]
+            config = json.loads(os.environ.get("OPENCODE_CONFIG_CONTENT", "{}"))
+            perms = ((config.get("agent") or {}).get(selected) or {}).get("permission") or {}
+            assert perms.get("*") == "deny" and perms.get("bash") == "deny", perms
+        checks = [
+            {"command": "python3 probe.py success", "exit_code": 0},
+            {"command": "python3 probe.py failure", "exit_code": 7},
+        ]
+        if fault == "unexpected_tool_in_repair":
+            if native:
+                emit(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "command_execution",
+                            "id": "cmd_repair",
+                            "command": "echo nope",
+                            "exit_code": 0,
+                            "aggregated_output": "",
+                        },
+                    }
+                )
+            else:
+                part(
+                    "tool_use",
+                    "cmd_repair",
+                    tool="bash",
+                    state={
+                        "status": "completed",
+                        "input": {"command": "echo nope"},
+                        "metadata": {"exit": 0},
+                        "output": "",
                     },
-                }
-            )
-        elif opencode_2:
-            # OpenCode 2 nests the shell exit under the tool metadata object.
-            part(
-                "tool_use",
-                f"cmd_{index}",
-                tool="shell",
-                state={
-                    "status": "completed",
-                    "input": {"command": command},
-                    "metadata": {"metadata": {"exit": code, "truncated": False}},
-                    "output": actual.stdout + actual.stderr,
-                },
-            )
-        else:
-            part(
-                "tool_use",
-                f"cmd_{index}",
-                tool="bash",
-                state={
-                    "status": "completed",
-                    "input": {"command": command},
-                    "metadata": {"exit": code},
-                    "output": actual.stdout + actual.stderr,
-                },
-            )
+                )
+    else:
+        checks = []
+        for index, command in enumerate(data["commands"]):
+            actual = subprocess.run(shlex.split(command), cwd=workspace, capture_output=True, text=True)
+            checks.append({"command": command, "exit_code": actual.returncode})
+            if fault == "forged_evidence":
+                continue
+            code = 0 if fault == "wrong_exit" else actual.returncode
+            if native:
+                emit(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "command_execution",
+                            "id": f"cmd_{index}",
+                            "command": command,
+                            "exit_code": code,
+                            "aggregated_output": actual.stdout + actual.stderr,
+                        },
+                    }
+                )
+            elif opencode_2:
+                # OpenCode 2 nests the shell exit under the tool metadata object.
+                part(
+                    "tool_use",
+                    f"cmd_{index}",
+                    tool="shell",
+                    state={
+                        "status": "completed",
+                        "input": {"command": command},
+                        "metadata": {"metadata": {"exit": code, "truncated": False}},
+                        "output": actual.stdout + actual.stderr,
+                    },
+                )
+            else:
+                part(
+                    "tool_use",
+                    f"cmd_{index}",
+                    tool="bash",
+                    state={
+                        "status": "completed",
+                        "input": {"command": command},
+                        "metadata": {"exit": code},
+                        "output": actual.stdout + actual.stderr,
+                    },
+                )
     report = {
         "probe_id": data["probe_id"],
         "workspace": str(workspace),
@@ -351,19 +392,31 @@ def _claude(args):
         (workspace / "output.txt").write_bytes((workspace / "input.txt").read_bytes())
     if fault == "unexpected_write":
         (workspace / "unexpected.txt").write_text("unapproved edit")
-    checks = []
-    for index, command in enumerate(data["commands"]):
-        actual = subprocess.run(shlex.split(command), cwd=workspace, capture_output=True, text=True)
-        checks.append({"command": command, "exit_code": actual.returncode})
-        if fault == "forged_evidence":
-            continue
-        tool(f"toolu_cmd_{index}", "Bash", {"command": command})
-        if actual.returncode == 0 or fault == "wrong_exit":  # wrong_exit: a failure shaped as a success
-            meta = {"stdout": actual.stdout, "stderr": actual.stderr, "interrupted": False}
-            result(f"toolu_cmd_{index}", actual.stdout, meta, False)
-        else:
-            text = f"Exit code {actual.returncode}\n{actual.stderr}{actual.stdout}"
-            result(f"toolu_cmd_{index}", text, "Error: " + text, True)
+    if data["phase"] == "repair_resume":
+        assert "--resume" in args, args
+        assert args[args.index("--tools") + 1] == "", args
+        assert "--allowedTools" not in args and "--disallowedTools" not in args, args
+        checks = [
+            {"command": "python3 probe.py success", "exit_code": 0},
+            {"command": "python3 probe.py failure", "exit_code": 7},
+        ]
+        if fault == "unexpected_tool_in_repair":
+            tool("toolu_cmd_repair", "Bash", {"command": "echo nope"})
+            result("toolu_cmd_repair", "", {"stdout": "", "stderr": "", "interrupted": False}, False)
+    else:
+        checks = []
+        for index, command in enumerate(data["commands"]):
+            actual = subprocess.run(shlex.split(command), cwd=workspace, capture_output=True, text=True)
+            checks.append({"command": command, "exit_code": actual.returncode})
+            if fault == "forged_evidence":
+                continue
+            tool(f"toolu_cmd_{index}", "Bash", {"command": command})
+            if actual.returncode == 0 or fault == "wrong_exit":  # wrong_exit: a failure shaped as a success
+                meta = {"stdout": actual.stdout, "stderr": actual.stderr, "interrupted": False}
+                result(f"toolu_cmd_{index}", actual.stdout, meta, False)
+            else:
+                text = f"Exit code {actual.returncode}\n{actual.stderr}{actual.stdout}"
+                result(f"toolu_cmd_{index}", text, "Error: " + text, True)
     report = {
         "probe_id": data["probe_id"],
         "workspace": str(workspace),

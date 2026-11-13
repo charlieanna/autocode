@@ -66,12 +66,21 @@ def run_route(name, model, directory, *, effort, timeout, env, fake_mode=False):
         # The direct engine launches a fresh process per stage and keeps no session to
         # resume, so its contract is the two stage boundaries a sessionless tool can prove.
         sessions = adapter is None or bool(getattr(adapter, "SUPPORTS_SESSIONS", True))
-        phases = ("build", "validate", "resume") if sessions else ("build", "validate")
+        repair_resume = adapter is None or (
+            sessions and bool(getattr(adapter, "SUPPORTS_REPORT_RECOVERY", False)) and name != "kilocode"
+        )
+        phases = (
+            ("build", "validate", "resume", "repair_resume")
+            if repair_resume
+            else ("build", "validate", "resume")
+            if sessions
+            else ("build", "validate")
+        )
         session = None
         for phase in phases:
             data = contract.handoff(workspace, phase)
             stage_dir = workspace / ".autocode" / phase
-            expected_session = session if phase == "resume" else None
+            expected_session = session if phase in ("resume", "repair_resume") else None
             before = snapshot(workspace)
             try:
                 execution = transport.execute(
@@ -86,6 +95,7 @@ def run_route(name, model, directory, *, effort, timeout, env, fake_mode=False):
                     schema=contract.SCHEMA,
                     env=env,
                     timeout=timeout,
+                    report_recovery=phase == "repair_resume",
                 )
                 path = workspace / "output.txt"
                 output = path.read_bytes() if path.is_file() and not path.is_symlink() else None

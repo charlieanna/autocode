@@ -67,6 +67,7 @@ OUTPUT = "codex_events"
 SUPPORTS_SESSIONS = True
 RESUME_ACROSS_STAGES = False
 PROMPT_MODE = "stdin"
+SUPPORTS_REPORT_RECOVERY = True
 ADAPTER = "claude-stream-1"
 HAIKU, SONNET, OPUS = "claude-haiku-4-5-20251001", "claude-sonnet-5-5", "claude-opus-5-5"
 LISTED_MODELS = [HAIKU, SONNET, OPUS]
@@ -413,6 +414,7 @@ def launch(
     prompt_file=None,
     sandbox=None,
     env=None,
+    report_recovery=False,
 ) -> tuple[list[str], dict, dict]:
     """The stage's argv (the translator wrapping ``claude -p``), its environment and its launch facts."""
     if not model:
@@ -425,6 +427,21 @@ def launch(
     # Judging stages run with workspace-write (units/common.py) and keep Edit and Write, as the qualified
     # example did; the after-stage snapshot still catches a judge's source edit.
     writes = sandbox != "read-only"
+    if report_recovery and (allow_write or writes):
+        raise ValueError("claude report recovery requires a read-only stage")
+    flags = (*BASE_FLAGS[:-2], "--tools", "") if report_recovery else BASE_FLAGS
+    tool_flags = (
+        ()
+        if report_recovery
+        else (
+            "--allowedTools",
+            *(WRITE_ALLOWED if writes else READ_ALLOWED),
+            "--disallowedTools",
+            *(() if writes else READ_DISALLOWED),
+            *DENY_GIT,
+            *DENY_PUBLISH,
+        )
+    )
     child = child_environment(env)
     executable = env_prep.resolve_executable("claude", child, cwd=str(workspace))
     if not executable:
@@ -442,7 +459,7 @@ def launch(
         "--",
         executable,
         "-p",
-        *BASE_FLAGS,
+        *flags,
         "--model",
         model,
         *(["--effort", effort] if effort else []),
@@ -451,12 +468,7 @@ def launch(
         "acceptEdits" if writes else "default",
         "--append-system-prompt",
         prompts.get("fragments/provider-claude/system.md").strip(),
-        "--allowedTools",
-        *(WRITE_ALLOWED if writes else READ_ALLOWED),
-        "--disallowedTools",
-        *(() if writes else READ_DISALLOWED),
-        *DENY_GIT,
-        *DENY_PUBLISH,
+        *tool_flags,
     ]
     return argv, child, {"provider": NAME, "sandbox": sandbox, "report": str(report or "")}
 
