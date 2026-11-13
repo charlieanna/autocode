@@ -79,6 +79,53 @@ class AcceptanceWriterProjectionTests(unittest.TestCase):
         state["job_failure"].update(kind="exit", pause_status="PAUSED_JOB_FAILURE")
         self.assertIsNone(quota_route.job_question(state), "do not invent a timeout from prose")
 
+    def test_consumed_pause_preserves_the_authorized_writer_route_without_relaunching(self):
+        state = self.state()
+        failure = state["job_failure"]
+        state.update(
+            status="PAUSED_INTERVENTION",
+            next_stage=failure["stage"],
+            job_retry_authorization={
+                "token": failure["job_retry_token"],
+                "stage": failure["stage"],
+                "consumed": False,
+            },
+        )
+        before = copy.deepcopy(state)
+        shown = run_view.view(state)
+        self.assertEqual("retry_job", shown["needs"]["kind"])
+        self.assertEqual("acceptance_tester", shown["needs"]["route"]["role"])
+        self.assertEqual(failure["job_retry_token"], shown["needs"]["job_retry_token"])
+        self.assertEqual(before, state, "offering the retained recovery never consumes its authority")
+
+        for change in (
+            {"job_retry_authorization": {}},
+            {"job_retry_authorization": {**state["job_retry_authorization"], "consumed": True}},
+            {"job_retry_authorization": {**state["job_retry_authorization"], "token": "jr:other"}},
+            {"job_retry_authorization": {**state["job_retry_authorization"], "stage": "check_design"}},
+            {"next_stage": "tester"},
+            {"active_stage": {"stage": failure["stage"]}},
+            {"active_runner_check": {"kind": "regression"}},
+            {"recovery_context": {"attempt_id": "later/attempt"}},
+            {"status": "PAUSED_REQUESTED"},
+        ):
+            with self.subTest(change=change):
+                altered = {**copy.deepcopy(state), **change}
+                self.assertFalse(quota_route.job_pause_current(altered))
+                self.assertIsNone(quota_route.job_question(altered))
+
+        # A model correction replaces the old authorization with a new job hold
+        # beneath the still-unacknowledged pause; only a fresh exact retry launches.
+        held = copy.deepcopy(state)
+        held.pop("job_retry_authorization")
+        held["pause_intent"] = {"held_pause": {"status": "PAUSED_JOB_FAILURE"}}
+        self.assertEqual("retry_job", run_view.view(held)["needs"]["kind"])
+        for pause in (
+            {"held_pause": {"status": "PAUSED_COST_LIMIT"}},
+            {"held_pause": {"status": "PAUSED_JOB_FAILURE"}, "acknowledged_at": "later"},
+        ):
+            self.assertFalse(quota_route.job_pause_current({**held, "pause_intent": pause}))
+
 
 WRAPPER = """import os, sys
 sys.path.insert(0, os.environ['WRITER_RUNTIME'] + '/tools')

@@ -688,6 +688,15 @@ def reroute(runtime, state: RunState, run_dir, workspace, assignment):
     state.pop("job_retry_authorization", None)
     failure["reason"] = state["stop_reason"] = _route_reason(failure)
     if state.get("status") in quota_route.JOB_PREFLIGHT_PAUSES:
+        pause = state.get("pause_intent") or {}
+        if state.get("status") == "PAUSED_INTERVENTION" and pause and not pause.get("acknowledged_at"):
+            # The model answer does not resume the person's pause or authorize the
+            # new token. Keep the rebound job underneath it for the exact retry.
+            pause["held_pause"] = {
+                "status": "PAUSED_JOB_FAILURE",
+                "stop_reason": failure["reason"],
+                "feedback": False,
+            }
         run_status.pause(
             state, "PAUSED_JOB_FAILURE", failure["reason"], next_stage=failure["stage"], pending_questions=[]
         )

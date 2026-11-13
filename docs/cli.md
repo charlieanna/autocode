@@ -1119,6 +1119,12 @@ limit prevents retry.
 Older checkpoints that discarded the failed request also require a plan
 correction or a new run; plain resume cannot reconstruct the missing proposal.
 
+If an exact job retry consumes a queued Stop or boundary pause before launching,
+the paused run keeps that job's retry and model-correction actions. They still
+require the matching unconsumed authorization, original source and configuration;
+changing the model issues a fresh token and launches nothing. An unrelated pause
+does not revive an older job's retry.
+
 A job its provider's content filter refused (`PAUSED_CONTENT_FILTER`) or that ran
 out of quota (`PAUSED_BUDGET`) pauses the same way, and its stop names the cause
 and the model. The same model is likely to refuse again, so `needs.route` carries
