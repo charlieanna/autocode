@@ -590,6 +590,39 @@ class MilestoneCheckpointTests(unittest.TestCase):
         self.assign("M2")
         self.assertEqual(0, m.progress(self.state)["seconds"])
 
+    def test_the_budget_counts_from_the_milestones_first_builder_launch(self):
+        # The #3233 rerun spent 11,824 s planning, reviewing and writing the wave's tests before any Builder
+        # ran, and stopped at its first writer launch for a budget meant for building.
+        self.start()
+        task = self.state["current_task"]["id"]
+        for role in ("tester", "task_planner", "planner"):
+            runner.account_stage(self.state, {"role": role, "task_id": task, "duration_seconds": 4000})
+        row = m.progress(self.state)
+        self.assertEqual(0, row["seconds"])
+        self.assertEqual(12000, row["before_build_seconds"])
+        self.assertEqual(4000, row["seconds_by_role"]["tester"])
+        m.dispatch_guard(self.state, "builder")
+        self.assertTrue(row["build_started"])
+        # From the first launch on, every stage counts, the Tester's too, and the budget stops the next writer.
+        runner.account_stage(self.state, {"role": "builder", "task_id": task, "duration_seconds": 3000})
+        runner.account_stage(self.state, {"role": "tester", "task_id": task, "duration_seconds": 2401})
+        self.assertEqual(5401, row["seconds"])
+        self.assertEqual(12000, row["before_build_seconds"])
+        with self.assertRaises(s.Paused):
+            m.dispatch_guard(self.state, "builder")
+
+    def test_a_row_counted_whole_before_this_change_keeps_its_count(self):
+        self.start()
+        row = m.progress(self.state)
+        row.update(seconds=6000, seconds_by_role={"tester": 6000})  # saved by a runner that counted everything
+        runner.account_stage(
+            self.state, {"role": "tester", "task_id": self.state["current_task"]["id"], "duration_seconds": 10}
+        )
+        self.assertEqual(6010, row["seconds"])
+        self.assertNotIn("before_build_seconds", row)
+        with self.assertRaises(s.Paused):
+            m.dispatch_guard(self.state, "builder")
+
     def test_human_review_blocks_only_current_milestone_and_resumes_after_approval(self):
         self.start(human=True)
         self.validate()
