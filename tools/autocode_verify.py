@@ -1279,6 +1279,7 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, c
                     seen.add(target)
                     product.add(target)
                     queue.append(target)
+        found.sourced = definition_scan.sourced_product(tests, tracked, read)
 
         def shell_bindings(command, directory):
             # shlex keeps an ordinary quoted filename as one operand. A shell's
@@ -2110,6 +2111,7 @@ def _run_suite_base_definition(
     generated_unrecorded=False,
     ignored_inputs=None,
     keep_tests=False,
+    sourced=False,
 ):
     """Execute the base suite definition over the candidate's product code (#587).
 
@@ -2120,6 +2122,7 @@ def _run_suite_base_definition(
     candidate-added definition file never enters. Returns {"run", "boundary"}: the receipt
     when the definition ran, or why the boundary could not be established (never a PASS).
     ``keep_tests`` (#2966) keeps the candidate's tests too, and runs only when a retained runner input changed.
+    ``sourced`` takes the files the base's shell tests source as product code (an exit-code repair's run).
     """
     junit = framework is not None and framework.name == "junit"
     try:
@@ -2135,6 +2138,7 @@ def _run_suite_base_definition(
     except (OSError, RuntimeError, ValueError) as error:
         return {"run": None, "boundary": f"the effective base could not be read ({error})"}
     definition, patched, roles = found.paths, found.patched, getattr(framework, "test_roles", None)
+    definition = definition - found.sourced if sourced else definition
     test = roles.is_test if roles else is_test_path
     reviewed = definition_inputs.reviewed_changes(workspace, changes, patched)
 
@@ -2412,6 +2416,7 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
             generated_unrecorded=generated_unrecorded,
             ignored_inputs=ignored_inputs,
             keep_tests=not untyped,
+            sourced=run.existing_exit,
         )
     elif exit_zero and untyped and (comparable or {}).get("health") != "passing":
         # G1 (#652): a base suite that is not green cannot anchor preservation.
@@ -2423,7 +2428,7 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
             "The base suite is not green, so the candidate's exit-code-only suite "
             "cannot prove the base definition still passes over the new code"
         )
-    _exit_repair(run, base_definition)
+    first_suite.exit_repair(run, base_definition, command_receipt.completed)
     empty_root = None
     if (
         test_root is not None
@@ -2559,26 +2564,6 @@ def _file_kind_reasons(stats) -> list[str]:
         for kind, key in (("binary", "binary_files"), ("non-code", "non_code_files"))
         if stats[key]
     ]
-
-
-def _exit_repair(run: _Run, base_definition) -> None:
-    """Judge a repair that rests on the suite's exit code (``run.existing_exit``, first_suite.exit_flip).
-
-    The suite failed on the base as a whole; it shows the repair when it passes on the candidate with the
-    suite's own files as the base had them: the definition's inputs did not change (no definition run), or
-    the base's definition also passes over the candidate's code. _judge_suite reports that run itself.
-    """
-    if not run.existing_exit:
-        return
-    held = (base_definition or {}).get("run")
-    passes = bool(
-        base_definition is not None
-        and not base_definition["boundary"]
-        and (held is None or (command_receipt.completed(held) and not held["timed_out"] and held["exit_code"] == 0))
-    )
-    first_suite.exit_flip(
-        passes, run.base_suite, run.fail, run.unverified, run.notes, run.review_reasons, run.allow_no_test
-    )
 
 
 def verify(

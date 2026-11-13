@@ -174,19 +174,37 @@ class MinitestTests(Proving):
         self.assertTrue(self.shown(proof), proof["notes"])
 
 
+class ShellTests(Proving):
+    """A shell test sources the code under test, as a JavaScript test imports it (definition_scan.sourced_product)."""
+
+    seed = {"pager.sh": SH_BROKEN, "tests/test_pager.sh": SH_CHECK}
+    criterion = "`sh tests/test_pager.sh` fails on the original code and passes with the fix"
+
+    def test_the_file_a_shell_test_sources_is_the_code_under_test(self):
+        proof = self.prove(contract(self.criterion), {"pager.sh": SH_FIXED})
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual((["pager.sh"], []), (proof["source_files"], proof["test_files"]))
+        self.assertTrue(self.shown(proof), proof["notes"])
+        # The original test ran over the changed pager.sh: the suite's own files are the original ones.
+        self.assertEqual(0, proof["checks"]["suite_base_definition_on_candidate"]["exit_code"])
+
+    def test_a_script_the_test_runs_is_one_of_the_suites_own_files(self):
+        # The test runs checks.sh, which holds the failing check. A change that drops the check from it and
+        # leaves pager.sh wrong makes the suite pass by running less: the original checks.sh still fails.
+        checks = '. ./pager.sh\n[ "$(page_count 10 5)" = 2 ] || exit 1\n[ "$(page_count 11 5)" = 3 ] || exit 1\n'
+        ran = Project({"pager.sh": SH_BROKEN, "checks.sh": checks, "tests/test_pager.sh": "sh ./checks.sh\n"})
+        self.addCleanup(ran.close)
+        self.project = ran
+        proof = self.prove(contract(self.criterion), {"checks.sh": "".join(checks.splitlines(keepends=True)[:2])})
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertIn(f"{NO_TEST}, and the suite that fails on the original code is not shown", proof["failures"][0])
+        self.assertFalse(self.shown(proof), proof["notes"])
+
+
 class OtherSuiteTests(Proving):
     """Suites whose inputs AutoCode cannot hold to the original: the missing-test judgement stands."""
 
     seed = {"pager.sh": SH_BROKEN, "tests/test_pager.sh": SH_CHECK}
-
-    def test_a_shell_test_that_sources_the_product_holds_it_at_the_original(self):
-        # The suite's definition includes what its shell scripts name, here the product itself.
-        proof = self.prove(
-            contract("`sh tests/test_pager.sh` fails on the original code and passes with the fix"),
-            {"pager.sh": SH_FIXED},
-        )
-        self.assertEqual(verify.FAIL, proof["verdict"], proof)
-        self.assertIn(f"{NO_TEST}, and the suite that fails on the original code is not shown", proof["failures"][0])
 
     @unittest.skipUnless(shutil.which("make"), "the project's suite is make test")
     def test_a_recipe_can_run_anything_so_make_test_shows_no_repair(self):

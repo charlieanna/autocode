@@ -498,6 +498,25 @@ def exit_flip(passes, base_suite, fail, unverified, notes, review_reasons, allow
     review_reasons.append("the repair rests on the whole suite's exit code on the original code and with the change")
 
 
+def exit_repair(run, base_definition, completed) -> None:
+    """Judge a repair that rests on the suite's exit code (``run.existing_exit``, verify's _Run), with exit_flip.
+
+    The suite failed on the base as a whole; it shows the repair when it passes on the candidate with the
+    suite's own files as the base had them: the definition's inputs did not change (no definition run), or
+    the base's definition also passes over the candidate's code (``completed`` says a receipt is whole).
+    verify's suite judgment reports that run itself.
+    """
+    if not run.existing_exit:
+        return
+    held = (base_definition or {}).get("run")
+    passes = bool(
+        base_definition is not None
+        and not base_definition["boundary"]
+        and (held is None or (completed(held) and not held["timed_out"] and held["exit_code"] == 0))
+    )
+    exit_flip(passes, run.base_suite, run.fail, run.unverified, run.notes, run.review_reasons, run.allow_no_test)
+
+
 def repaired_evidence(proof, existing_failures, base_suite, checks, on_candidate):
     """The repair evidence for the preservation verdict: the proof's fail-to-pass flip when the base
     suite already proves the repair (``existing_failures``), else the flip the changed tests still
