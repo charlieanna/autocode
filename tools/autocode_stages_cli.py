@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_connected_engine as connected_engine
+    from . import autocode_names as names
     from . import autocode_project_config as project_config
     from . import autocode_providers as providers
     from . import autocode_route_fit as route_fit
@@ -31,6 +32,7 @@ try:
     from . import autocode_stage_choices as stage_choices
 except ImportError:
     import autocode_connected_engine as connected_engine
+    import autocode_names as names
     import autocode_project_config as project_config
     import autocode_providers as providers
     import autocode_route_fit as route_fit
@@ -67,7 +69,9 @@ def parser():
         "--backend",
         help="Claude Code (claude), Codex (codex), OpenCode (opencode) or Kilo (kilocode); default: new runs'",
     )
-    result.add_argument("--workspace", default=".", help="The project whose engine setting counts (default: here)")
+    result.add_argument(
+        "--workspace", default=".", help="The project whose engine and stage-model settings count (default: here)"
+    )
     result.add_argument(
         "--run-dir",
         help="list: the stages of this started run instead, with the models it runs now; it never changes them",
@@ -93,6 +97,14 @@ def parser():
     return result
 
 
+def _default_backend(*, choose=None) -> str:
+    default, origin = providers.default_choice()
+    if origin != "built-in default":
+        return default
+    chosen = (choose or connected_engine.choose)()
+    return chosen["id"] if chosen else "opencode"
+
+
 def current_backend(workspace=".", *, choose=None) -> str:
     """The backend a new run in ``workspace`` takes, as the runner resolves it: the project's engine,
     else ``AUTOCODE_PROVIDER`` or ``default_provider``, else the connected backend, else OpenCode."""
@@ -102,11 +114,7 @@ def current_backend(workspace=".", *, choose=None) -> str:
         engine = None
     if engine in ("codex", "claude"):
         return engine
-    default, origin = providers.default_choice()
-    if origin != "built-in default":
-        return default
-    chosen = (choose or connected_engine.choose)()
-    return chosen["id"] if chosen else "opencode"
+    return _default_backend(choose=choose)
 
 
 def text(current) -> str:
@@ -124,6 +132,9 @@ def _route(stage) -> str:
     picked = stage.get("chat")
     if picked:
         return f"{picked['model']} at {picked['effort'] or 'its own default level'} (this chat)"
+    configured = stage.get("configured")
+    if configured:
+        return f"{configured['model']} at {configured['effort'] or 'its own default level'} ({configured['source']})"
     chosen = stage["chosen"]
     if chosen:
         return f"{chosen['model']} at {chosen['effort'] or 'its own default level'} (your choice)"
@@ -240,13 +251,173 @@ def _terminal() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
+_ENGINES = ("opencode", "codex", "claude")
+
+
+def _dest_role(key: str, suffix: str) -> str:
+    """Canonical destination key (e.g. ``builder`` or ``builder_strong``) for a model or effort flag."""
+    canonical = names.flag("--" + key).removeprefix("--")
+    return canonical.removesuffix(suffix).replace("-", "_")
+
+
+_ROLE_MODEL_FLAGS = {f"--{key}": _dest_role(key, "-model") for key in project_config.MODELS if key != "single-model"}
+_ROLE_EFFORT_FLAGS = {
+    f"--{key}": _dest_role(key, "-reasoning-effort") for key in project_config.EFFORTS if key != "reasoning-effort"
+}
+
+
+def _checked_model(value: object, label: str) -> str:
+    if not isinstance(value, str) or not stage_choices._MODEL.fullmatch(value):
+        raise ValueError(f"{label} is not a valid model name: {value!r}")
+    return value
+
+
+def _checked_effort(value: object, label: str) -> str:
+    if not isinstance(value, str) or value not in route_fit.SCALE:
+        raise ValueError(f"{label} must be one of {', '.join(route_fit.SCALE)}")
+    return value
+
+
+def _parse_run_options(run_options: list[str]) -> tuple[dict, str | None, str | None]:
+    """Read new-run model, effort and backend options supplied after ``--`` on ``stages list``."""
+    models: dict[str, str] = {}
+    efforts: dict[str, str] = {}
+    single_model: str | None = None
+    shared_effort: str | None = None
+    engine: str | None = None
+    provider: str | None = None
+    has_role_model = False
+    index = 0
+    while index < len(run_options):
+        token = run_options[index]
+        if not token.startswith("--"):
+            raise ValueError(f"unexpected argument after --: {token}")
+        if "=" in token:
+            flag, value = token.split("=", 1)
+        else:
+            flag = token
+            if index + 1 >= len(run_options) or run_options[index + 1].startswith("-"):
+                raise ValueError(f"{flag} needs a value")
+            value = run_options[index + 1]
+            index += 1
+        index += 1
+        if flag == "--single-model":
+            single_model = _checked_model(value, flag)
+        elif flag == "--reasoning-effort":
+            shared_effort = _checked_effort(value, flag)
+        elif flag == "--engine":
+            if value not in _ENGINES:
+                raise ValueError(f"--engine must be one of {', '.join(_ENGINES)}")
+            engine = value
+        elif flag == "--provider":
+            if not value or value.startswith("-"):
+                raise ValueError(f"--provider is not valid: {value!r}")
+            provider = value
+        elif flag in _ROLE_MODEL_FLAGS:
+            has_role_model = True
+            role = _ROLE_MODEL_FLAGS[flag]
+            checked = _checked_model(value, flag)
+            if role in stage_choices.ORDER:
+                models[role] = checked
+        elif flag in _ROLE_EFFORT_FLAGS:
+            role = _ROLE_EFFORT_FLAGS[flag]
+            checked = _checked_effort(value, flag)
+            if role in stage_choices.ORDER:
+                efforts[role] = checked
+        else:
+            raise ValueError(f"unsupported new-run option after --: {flag}")
+    if single_model and has_role_model:
+        raise ValueError("--single-model cannot be combined with per-role model flags")
+    if provider == "codex":
+        raise ValueError("codex is an engine, not a provider config: run with --engine codex")
+    if engine == "claude" and provider not in (None, "claude"):
+        raise ValueError(f"engine claude runs the built-in claude provider; it cannot run --provider {provider}")
+    return (
+        {
+            "single_model": single_model,
+            "has_role_model": has_role_model,
+            "models": models,
+            "efforts": efforts,
+            "shared_effort": shared_effort,
+        },
+        engine,
+        provider,
+    )
+
+
+def _configured(workspace, run_options: list[str]) -> tuple[dict | None, str | None, str | None]:
+    """Merge project config (``project``) and trailing new-run options (``settings``) for ``chat_view``."""
+    opt, engine, provider = _parse_run_options(run_options)
+    project = project_config.read(workspace)
+    proj_single: tuple[str, str] | None = None
+    proj_has_role_model = False
+    proj_models: dict[str, str] = {}
+    proj_efforts: dict[str, str] = {}
+    proj_shared_effort: str | None = None
+    for key, (value, source) in project.items():
+        flag = f"--{key}"
+        if key == "single-model":
+            proj_single = (_checked_model(value, f"{source}: {key}"), source)
+        elif key == "reasoning-effort":
+            proj_shared_effort = _checked_effort(value, f"{source}: {key}")
+        elif flag in _ROLE_MODEL_FLAGS:
+            proj_has_role_model = True
+            role = _ROLE_MODEL_FLAGS[flag]
+            checked = _checked_model(value, f"{source}: {key}")
+            if role in stage_choices.ORDER:
+                proj_models[role] = checked
+        elif flag in _ROLE_EFFORT_FLAGS:
+            role = _ROLE_EFFORT_FLAGS[flag]
+            checked = _checked_effort(value, f"{source}: {key}")
+            if role in stage_choices.ORDER:
+                proj_efforts[role] = checked
+    if proj_single and proj_has_role_model:
+        raise ValueError(f"{proj_single[1]}: single-model cannot be combined with per-role model settings")
+    single_model = (
+        (opt["single_model"], "settings")
+        if opt["single_model"]
+        else ((proj_single[0], "project") if proj_single and not opt["has_role_model"] else None)
+    )
+    models = {} if opt["single_model"] else {role: (model, "project") for role, model in proj_models.items()}
+    models.update({role: (model, "settings") for role, model in opt["models"].items()})
+    efforts = {role: (effort, "project") for role, effort in proj_efforts.items()}
+    efforts.update({role: (effort, "settings") for role, effort in opt["efforts"].items()})
+    shared_effort = (
+        (opt["shared_effort"], "settings")
+        if opt["shared_effort"]
+        else ((proj_shared_effort, "project") if proj_shared_effort else None)
+    )
+    tail = ["--", *run_options] if run_options else []
+    configured = (
+        {
+            "single_model": single_model,
+            "models": models,
+            "efforts": efforts,
+            "shared_effort": shared_effort,
+            "tail": tail,
+        }
+        if (single_model or models or efforts or shared_effort or tail)
+        else None
+    )
+    return configured, engine, provider
+
+
 def _stage(name):
     return ALIASES.get(name.replace("_", "-"), name) if name else None
 
 
 def cli(argv=None) -> int:
-    args = parser().parse_args(argv)
+    raw = list(sys.argv[1:] if argv is None else argv)
+    cut = raw.index("--") if "--" in raw else None
+    head, run_options = (raw[:cut], raw[cut + 1 :]) if cut is not None else (raw, [])
+    args = parser().parse_args(head)
     stage = _stage(args.stage)
+    if run_options and (args.run_dir is not None or args.action != "list"):
+        print(
+            "autocode stages: new-run options after -- only list a new chat's stages; nothing is saved",
+            file=sys.stderr,
+        )
+        return 2
     if args.run_dir is not None:
         return _run(args)
     if args.chat_stage and args.action != "list":
@@ -259,8 +430,8 @@ def cli(argv=None) -> int:
         print(f"autocode stages: {SET_FLAG} names a stage for `autocode stages set`", file=sys.stderr)
         return 2
     try:
-        backend = args.backend or current_backend(args.workspace)
         if args.action == "choose":
+            backend = args.backend or current_backend(args.workspace)
             if args.json or not _terminal():
                 print("autocode stages choose asks in a terminal; use `autocode stages set` elsewhere", file=sys.stderr)
                 return 2
@@ -270,6 +441,7 @@ def cli(argv=None) -> int:
                 print("\nNothing was saved.")
                 return 130
         if args.action == "set":
+            backend = args.backend or current_backend(args.workspace)
             named = stage or args.model or args.effort
             if (named and not (stage and args.model and args.effort)) or not (named or args.stage_pick):
                 print(
@@ -291,10 +463,26 @@ def cli(argv=None) -> int:
                     f"autocode stages set {SET_FLAG} STAGE MODEL EFFORT {SET_FLAG} STAGE MODEL EFFORT"
                 ) from error
         elif args.action == "reset":
+            backend = args.backend or current_backend(args.workspace)
             current = stage_choices.reset(backend, stage, args.workspace)
         else:
+            configured, run_engine, run_provider = _configured(args.workspace, run_options)
+            if args.backend:
+                backend = args.backend
+            elif run_provider:
+                backend = run_provider
+            elif run_engine == "claude":
+                backend = "claude"
+            elif run_engine in ("codex", "opencode"):
+                backend = run_engine if run_engine == "codex" else _default_backend()
+            else:
+                backend = current_backend(args.workspace)
             current = stage_choices.chat_view(
-                backend, _picks(args.chat_stage, stage_choices.CHAT_FLAG), _list_command(args), args.workspace
+                backend,
+                _picks(args.chat_stage, stage_choices.CHAT_FLAG),
+                _list_command(args),
+                args.workspace,
+                configured=configured,
             )
     except ValueError as error:
         print(f"autocode stages: {error}", file=sys.stderr)

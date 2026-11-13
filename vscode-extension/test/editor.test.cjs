@@ -21,7 +21,7 @@ const { ConnectionsPanel, connectionsHtml } = host.load('connections.js');
 const { StagesPanel, stagesHtml, runStages } = host.load('stages.js');
 const { readStages, currentRoute } = host.load('core/stages.js');
 const { StageListCache } = host.load('core/stage-cache.js');
-const { engineOf, routeKeyOf, spendTarget, sanitizeRoutes, readSettings, applyEngine } = host.load('settings.js');
+const { engineOf, routeKeyOf, spendTarget, sanitizeRoutes, readSettings, applyEngine, partitionOptions } = host.load('settings.js');
 let controller = new RunController(host.log);
 const run = { workspace: '/ws', runDir: '/ws/.autocode/runs/test' };
 const ok = { code: 0, stdout: '', stderr: '', rejected: false };
@@ -2672,6 +2672,104 @@ test('a choice saved in Stage models reaches a new chat that is already open', a
   assert.deepEqual(calls.filter((argv) => argv[1] === 'set').length, 1);
   assert.deepEqual(calls.at(-1), ['stages', 'list', '--json', '--backend', 'claude'], 'the chat reads its list again');
   assert.deepEqual(nowText(ui), ['sonnet at high (Stage models)', 'opus at high (Stage models)']);
+});
+
+test('a new chat shows explicit project and settings routes instead of global defaults and refreshes when settings change', async (t) => {
+  assert.deepEqual(
+    partitionOptions(['--max-cost-usd', '3', '--single-model', 'zai-coding-plan/glm-5.3', '--provider=opencode']),
+    { shared: ['--max-cost-usd', '3'], routes: ['--single-model', 'zai-coding-plan/glm-5.3'] },
+  );
+  const calls = [];
+  const option = (model) => ({ model, levels: ['low', 'medium', 'high'], family: 'test', context: null, account: null,
+    effort_choices: ['low', 'medium', 'high'], unavailable: null });
+  const stageListFor = (argv) => {
+    const dash = argv.indexOf('--');
+    const tail = dash >= 0 ? argv.slice(dash) : [];
+    const runOpts = tail.slice(1);
+    const singleIdx = runOpts.indexOf('--single-model');
+    if (singleIdx >= 0) {
+      const model = runOpts[singleIdx + 1];
+      return { ...ok, stdout: JSON.stringify({ version: 1, backend: 'opencode', label: 'OpenCode', options_stop: null,
+        stages: [
+          { id: 'planner', label: 'Planner', does: 'Plans.', advice: '', flag: '--planner-model', effort_flag: '--planner-reasoning-effort',
+            default: { model: 'haiku', effort: 'medium', offered: true }, chosen: null,
+            configured: { model, effort: 'high', source: 'settings' },
+            options: [option('zai-coding-plan/glm-5.3'), option('sonnet')],
+            set: { next_command: ['stages', 'set', 'planner', '--backend', 'opencode', '--json', '--model', 'MODEL', '--effort', 'EFFORT'] }, reset: null,
+            chat: null, chat_set: null, chat_reset: null },
+        ],
+        chat: { next_command: ['stages', 'list', '--json', '--backend', 'opencode', ...tail], start_args: [],
+          changeable: false, reason: 'single-model sets one model for every stage; remove it to change one stage for this chat.' } }) };
+    }
+    const base = ['stages', 'list', '--json', '--backend', 'opencode'];
+    const picks = {};
+    for (let i = argv.indexOf('--chat-stage'); i >= 0 && (dash < 0 || i < dash); i = argv.indexOf('--chat-stage', i + 1)) {
+      picks[argv[i + 1]] = [argv[i + 2], argv[i + 3]];
+    }
+    const others = (role) => Object.entries(picks).filter(([id]) => id !== role).flatMap(([id, [m, e]]) => ['--chat-stage', id, m, e]);
+    const bIdx = runOpts.indexOf('--builder-model');
+    const builderCfg = bIdx >= 0
+      ? { model: runOpts[bIdx + 1], effort: 'medium', source: 'settings' }
+      : { model: 'zai-coding-plan/glm-5.3', effort: 'high', source: 'project' };
+    return { ...ok, stdout: JSON.stringify({ version: 1, backend: 'opencode', label: 'OpenCode', options_stop: null,
+      stages: [
+        { id: 'planner', label: 'Planner', does: 'Plans.', advice: '', flag: '--planner-model', effort_flag: '--planner-reasoning-effort',
+          default: { model: 'haiku', effort: 'medium', offered: true }, chosen: { model: 'opus', effort: 'high' },
+          configured: { model: 'zai-coding-plan/glm-5.3', effort: 'high', source: 'project' },
+          options: [option('zai-coding-plan/glm-5.3'), option('sonnet')],
+          set: { next_command: ['stages', 'set', 'planner', '--backend', 'opencode', '--json', '--model', 'MODEL', '--effort', 'EFFORT'] }, reset: null,
+          chat: picks.planner ? { model: picks.planner[0], effort: picks.planner[1] } : null,
+          chat_set: { next_command: [...base, ...others('planner'), '--chat-stage', 'planner', 'MODEL', 'EFFORT', ...tail] },
+          chat_reset: picks.planner ? { next_command: [...base, ...others('planner'), ...tail] } : null },
+        { id: 'builder', label: 'Builder', does: 'Builds.', advice: '', flag: '--builder-model', effort_flag: '--builder-reasoning-effort',
+          default: { model: 'haiku', effort: 'medium', offered: true }, chosen: null,
+          configured: builderCfg,
+          // Deliberately omits the configured MiMo model so the dropdown must keep it selected instead of options[0].
+          options: [option('zai-coding-plan/glm-5.3'), option('sonnet')],
+          set: { next_command: ['stages', 'set', 'builder', '--backend', 'opencode', '--json', '--model', 'MODEL', '--effort', 'EFFORT'] }, reset: null,
+          chat: picks.builder ? { model: picks.builder[0], effort: picks.builder[1] } : null,
+          chat_set: { next_command: [...base, ...others('builder'), '--chat-stage', 'builder', 'MODEL', 'EFFORT', ...tail] },
+          chat_reset: picks.builder ? { next_command: [...base, ...others('builder'), ...tail] } : null },
+      ],
+      chat: { next_command: [...base, ...others(null), ...tail], start_args: [] } }) };
+  };
+  host.config.set('extraOptions', ['--engine', 'opencode', '--builder-model', 'xiaomi-token-plan-sgp/mimo-v2.6-pro', '--max-cost-usd', '5']);
+  const stageLists = new StageListCache();
+  const ui = await openChat(t, null, false, { stageLists, stages: (argv) => { calls.push(argv); return stageListFor(argv); } });
+  ui.chat.show(); await flush(); await flush();
+  assert.deepEqual(
+    calls[0],
+    ['stages', 'list', '--json', '--backend', 'opencode', '--', '--builder-model', 'xiaomi-token-plan-sgp/mimo-v2.6-pro'],
+    'newChatCall forwards only new-run model flags after --',
+  );
+  assert.deepEqual(nowText(ui), ['zai-coding-plan/glm-5.3 at high (project)', 'xiaomi-token-plan-sgp/mimo-v2.6-pro at medium (settings)']);
+  const builderSelect = ui.document.querySelector('[data-stage="builder"] select.model');
+  assert.equal(builderSelect.value, 'xiaomi-token-plan-sgp/mimo-v2.6-pro', 'an unlisted configured model is kept instead of options[0]');
+  assert.equal(ui.document.querySelector('[data-stage="builder"] select.level').value, 'medium');
+  // QuickPick and reset labels reflect configured routes too.
+  const { offered } = pickInOrder(t, ['Planner', 'sonnet · low']);
+  ui.document.getElementById('models-picker').click(); await flush(); await flush(); await flush();
+  assert.deepEqual(offered[0].items.map((i) => i.description), ['zai-coding-plan/glm-5.3 at high (project)', 'xiaomi-token-plan-sgp/mimo-v2.6-pro at medium (settings)']);
+  assert.equal(ui.document.querySelector('[data-stage="planner"] button.link').textContent, 'Use project model');
+  assert.equal(shownRoute(ui.document.querySelector('[data-stage="planner"]')), 'sonnet at low (this chat)');
+  ui.document.querySelector('[data-stage="planner"] button.link').click(); await flush(); await flush();
+  assert.equal(shownRoute(ui.document.querySelector('[data-stage="planner"]')), 'zai-coding-plan/glm-5.3 at high (project)');
+  // Stage models panel reads the global stages.toml list without workspace model overrides.
+  const panel = new StagesPanel(stageLists);
+  t.after(() => panel.dispose());
+  await panel.show();
+  assert.deepEqual(calls.at(-1), ['stages', 'list', '--json', '--backend', 'opencode']);
+  assert.equal(host.panels.at(-1).webview.messages.at(-1).view.stages[0].now, 'opus at high (your choice)');
+  // Changing extraOptions to --single-model refreshes open unstarted tabs and locks per-stage dropdowns.
+  await host.vscode.workspace.getConfiguration('autocode').update('extraOptions', ['--engine', 'opencode', '--single-model', 'zai-coding-plan/glm-5.3']);
+  await flush(); await flush(); await flush();
+  assert.deepEqual(calls.at(-1), ['stages', 'list', '--json', '--backend', 'opencode', '--', '--single-model', 'zai-coding-plan/glm-5.3']);
+  const chip = ui.document.getElementById('models-picker');
+  assert.equal(chip.disabled, true);
+  assert.equal(ui.document.getElementById('models-name').textContent, 'Models · fixed');
+  assert.match(ui.document.querySelector('#chat-models .model-note').textContent, /single-model sets one model/);
+  assert.equal(ui.document.querySelectorAll('#chat-models select.model').length, 0);
+  assert.equal(ui.document.querySelector('#chat-models [data-stage="planner"] .now').textContent, 'zai-coding-plan/glm-5.3 at high (settings)');
 });
 
 test('a pick the core refuses where the chat starts keeps the draft and starts nothing', async (t) => {

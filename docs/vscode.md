@@ -389,17 +389,22 @@ naming the backend when a provider or engine is chosen for new chats.
 
 A new chat shows **This chat's models** above the composer before you send
 anything: each stage with the model and level it will run in its dropdowns, and
-beside them where that comes from: the default, your Stage models choice, or this
-chat's own (hover for the whole route). Change a stage's model or level there
+beside them where that comes from: the default, your Stage models choice, the
+workspace config (**project**), your `autocode.extraOptions` model flags (**settings**),
+or **this chat**'s own (hover for the whole route). Change a stage's model or level there
 and only that chat runs it; Stage models and every other new chat are left alone.
 AutoCode checks the pick against its list, which takes a few seconds on OpenCode or
 Kilo: meanwhile the row keeps your pick and says **Checking…**, and a refused pick
 goes back to what the stage runs with the reason. A list read that has not answered
 after a minute fails and says so instead of leaving the box greyed out.
 The same independence rules apply, so a model the stage's checker runs is greyed
-out with the reason, and **Use Stage models** drops this chat's pick. When the chat
-starts, AutoCode checks the picks again and the run starts with them; once it has
-started they are listed in the run header's stage table like any started chat's models
+out with the reason, and **Use project**, **Use settings**, or **Use Stage models**
+drops this chat's pick back to the underlying route. When `single-model` fixes every
+stage, **This chat's models** explains why per-stage picks are disabled and the chip
+shows **Models · fixed**; changing `autocode` workspace settings refreshes open
+unstarted chats automatically. When the chat starts, AutoCode checks the picks again
+and the run starts with them; once it has started they are listed in the run header's
+stage table like any started chat's models
 ([Changing a new chat's models](models.md#changing-a-new-chats-models)).
 
 The list is shown at once. Listing the models a backend offers takes a few

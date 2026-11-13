@@ -55,6 +55,9 @@ except ImportError:
     import autocode_route_fit as route_fit
     import autocode_verifier_independence as independence
 
+# Non-Codex engines apply --reasoning-effort to the execution roles that copy task_planner's defaults.
+_SHARED_EFFORT_ROLES = frozenset({"task_planner", "builder", "tester", "completion"})
+
 # The stages a person chooses for, in the order a task runs them: (role, job, what it does, advice).
 # The role is the run's route name, so its flags are --ROLE-model and --ROLE-reasoning-effort; the job
 # is its screen name in autocode_roles. The Resolver's route starts as a copy of astra (docs/models.md), and
@@ -513,25 +516,119 @@ def _check(backend, picks, saved, fallback, options, stop) -> dict:
     return effective
 
 
-def chat_view(backend, picks, list_command, workspace=None, *, file=None, resolve=None, discover=None) -> dict:
+def _configured_routes(
+    backend: str, configured: dict | None, saved: dict, fallback: dict, options: list[dict]
+) -> dict[str, dict]:
+    """Resolve explicit project/new-run model and effort overrides per stage without touching ``stages.toml``."""
+    if not configured:
+        return {}
+    single = configured.get("single_model")
+    models = configured.get("models") or {}
+    efforts = configured.get("efforts") or {}
+    shared_effort = configured.get("shared_effort")
+    by_model = {option["model"]: option for option in options}
+
+    def fit_effort(model: str, effort: str | None) -> str | None:
+        offered = by_model.get(model)
+        if offered is not None and offered["levels_listed"]:
+            if not offered["levels"]:
+                return None
+            if effort:
+                return route_fit.nearest(effort, offered["levels"]) or effort
+        return effort
+
+    def explicit_effort(role: str) -> tuple[str, str] | None:
+        entry = efforts.get(role)
+        if entry is not None:
+            return entry
+        if backend == "codex" and role in ("requirements", "planner", "plan_reviewer") and "task_planner" in efforts:
+            return efforts["task_planner"]
+        if shared_effort is not None and (backend == "codex" or role in _SHARED_EFFORT_ROLES):
+            return shared_effort
+        return None
+
+    resolved: dict[str, dict] = {}
+    if single is not None:
+        single_model, single_source = single
+        for role in ORDER:
+            eff_entry = explicit_effort(role)
+            effort = eff_entry[0] if eff_entry is not None else fit_effort(single_model, fallback[role]["effort"])
+            resolved[role] = {"model": single_model, "effort": effort, "source": single_source}
+        return resolved
+
+    for role in ORDER:
+        model_entry = models.get(role)
+        if model_entry is None and role not in saved:
+            if role == "requirements" and "planner" in models:
+                model_entry = models["planner"]
+            elif backend == "codex" and role in ("requirements", "planner") and "task_planner" in models:
+                model_entry = models["task_planner"]
+        eff_entry = explicit_effort(role)
+        if model_entry is not None:
+            cfg_model, cfg_source = model_entry
+            effort = eff_entry[0] if eff_entry is not None else fit_effort(cfg_model, fallback[role]["effort"])
+            resolved[role] = {"model": cfg_model, "effort": effort, "source": cfg_source}
+            continue
+        base_model = (
+            saved[role]["model"]
+            if role in saved
+            else (fallback[role]["model"] if fallback[role]["model"] in by_model else None)
+        )
+        if base_model is None:
+            continue
+        if eff_entry is not None:
+            resolved[role] = {"model": base_model, "effort": eff_entry[0], "source": eff_entry[1]}
+        elif shared_effort is not None and role in saved and saved[role].get("effort") is not None:
+            resolved[role] = {
+                "model": base_model,
+                "effort": fit_effort(base_model, fallback[role]["effort"]),
+                "source": shared_effort[1],
+            }
+    return resolved
+
+
+def chat_view(
+    backend, picks, list_command, workspace=None, *, configured=None, file=None, resolve=None, discover=None
+) -> dict:
     """The new-task view for one chat that has not started, with ``picks`` (``{role: (model, effort)}``) for it alone.
 
     A client shows a new chat the stages it will run before it starts and lets the person change them
     for that chat only (owner request 2026-11-11): nothing is saved, and the saved choices keep serving
-    every other new task. The view is ``view`` with, for each stage, ``chat`` (this chat's pick, or
-    null), ``chat_set.next_command`` (``list_command`` with the other picks and this stage's
-    ``--chat-stage ROLE MODEL EFFORT``, filled as ``set`` is) and ``chat_reset.next_command`` (without
-    this stage's pick, or null), and options marked ``unavailable`` against the routes the chat will
-    run. ``chat`` at the top says how the chat starts: ``start_args``, the stage flags a client adds to
-    the new run's start unchanged (a typed flag, so the launch checks it again and its level is exact),
-    and ``next_command``, this view again. Refuses (ValueError) a pick ``choose`` would refuse.
+    every other new task. The view is ``view`` with, for each stage, ``configured`` (project or new-run
+    options override, or null), ``chat`` (this chat's pick, or null), ``chat_set.next_command``
+    (``list_command`` with the other picks and this stage's ``--chat-stage ROLE MODEL EFFORT``, filled as
+    ``set`` is, and any new-run options after ``--``) and ``chat_reset.next_command`` (without this
+    stage's pick, or null), and options marked ``unavailable`` against the routes the chat will run.
+    ``chat`` at the top says how the chat starts: ``start_args``, the stage flags a client adds to the new
+    run's start unchanged (a typed flag, so the launch checks it again and its level is exact), and
+    ``next_command``, this view again. Refuses (ValueError) a pick ``choose`` would refuse, or any pick
+    when ``single-model`` fixes every stage.
     """
     for role in picks:
         if role not in ORDER:
             raise ValueError(f"{role} is not a stage; the stages are {', '.join(ORDER)}")
-    found = _read(backend, workspace, file, resolve, discover)
-    effective = _check(backend, picks, *found[1:])
-    file, saved, fallback, options, stop = found
+    single = (configured or {}).get("single_model")
+    tail = list((configured or {}).get("tail") or ())
+    if single and picks:
+        raise ValueError("--single-model cannot be combined with per-role model flags")
+    file, saved, fallback, options, stop = _read(backend, workspace, file, resolve, discover)
+    resolved = _configured_routes(backend, configured, saved, fallback, options)
+    if single is not None:
+        current = _build(backend, file, saved, fallback, options, stop, {})
+        for stage in current["stages"]:
+            stage["configured"] = resolved.get(stage["id"])
+            stage["chat"] = None
+            stage["chat_set"] = None
+            stage["chat_reset"] = None
+        current["chat"] = {
+            "start_args": [],
+            "next_command": [*list_command, *tail],
+            "changeable": False,
+            "reason": "single-model sets one model for every stage; remove it to change one stage for this chat.",
+        }
+        return current
+    baseline = {**saved, **{role: {"model": row["model"], "effort": row["effort"]} for role, row in resolved.items()}}
+    effective = _check(backend, picks, baseline, fallback, options, stop)
     current = _build(backend, file, saved, fallback, options, stop, effective)
     order = [role for role in ORDER if role in picks]
 
@@ -546,12 +643,15 @@ def chat_view(backend, picks, list_command, workspace=None, *, file=None, resolv
     for stage in current["stages"]:
         role = stage["id"]
         pick = picks.get(role)
+        stage["configured"] = resolved.get(role)
         stage["chat"] = {"model": pick[0], "effort": None if pick[1] == OWN_DEFAULT else pick[1]} if pick else None
-        stage["chat_set"] = {"next_command": [*list_command, *picked(without=role), CHAT_FLAG, role, "MODEL", "EFFORT"]}
-        stage["chat_reset"] = {"next_command": [*list_command, *picked(without=role)]} if pick else None
+        stage["chat_set"] = {
+            "next_command": [*list_command, *picked(without=role), CHAT_FLAG, role, "MODEL", "EFFORT", *tail]
+        }
+        stage["chat_reset"] = {"next_command": [*list_command, *picked(without=role), *tail]} if pick else None
         if pick:
             start += [stage["flag"], pick[0]] + ([stage["effort_flag"], pick[1]] if pick[1] != OWN_DEFAULT else [])
-    current["chat"] = {"start_args": start, "next_command": [*list_command, *picked()]}
+    current["chat"] = {"start_args": start, "next_command": [*list_command, *picked(), *tail]}
     return current
 
 
