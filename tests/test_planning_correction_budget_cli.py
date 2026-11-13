@@ -83,6 +83,8 @@ class CorrectiveReviewCliTests(unittest.TestCase):
         )
         original = run.advance_until_input()
         self.assertEqual("approve_plan", original["needs"]["kind"], original["needs"])
+        cycle_limit = original["planning_depth"]["review_limit"]
+        self.assertEqual(2, cycle_limit)
         self.assertEqual(1, calls.read_text().splitlines().count("review_plan"))
         self.assertEqual(1, calls.read_text().splitlines().count("finalize_plan"))
         token = original["needs"]["token"]
@@ -122,7 +124,7 @@ class CorrectiveReviewCliTests(unittest.TestCase):
         self.assertEqual(1, stages.count("draft_plan_report_repair"), stages)
         self.assertNotIn("investigate_stuck", stages)
         self.assertNotIn("builder", stages)
-        self.assertEqual(4, revised["planning_depth"]["review_limit"])
+        self.assertEqual(cycle_limit, revised["planning_depth"]["review_limit"])
         self.assertNotEqual(token, revised["needs"]["token"])
         self.assertFalse((workspace / "greet.py").exists())
         with self.assertRaises(taskrun.TaskRunError):
