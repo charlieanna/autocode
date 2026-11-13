@@ -318,7 +318,7 @@ function wrongSection(view: Row): DetailSection | null {
     lines.push(`  Then: ${text(row.action)}`);
     if (text(row.detail)) lines.push(`  What it found: ${text(row.detail)}`);
   }
-  return { id: "wrong", title: "What went wrong", summary: `${found.length} so far, each handled by AutoCode`, lines };
+  return { id: "wrong", title: "What went wrong", summary: `${found.length} recovery events recorded`, lines };
 }
 
 // ---- Spend: `run_metrics` (the terminal's /spend) -------------------------------------------
@@ -737,7 +737,7 @@ export function runHeader(view: unknown, at = Date.now()): RunHeader | null {
   if (spend) facts.push(spend);
   // The run's working time, tokens and spend are the stage table's total row.
   const wrong = recoveries(source).length;
-  if (wrong) facts.push(`${wrong} ${wrong === 1 ? "thing" : "things"} went wrong, handled`);
+  if (wrong) facts.push(`${wrong} recovery ${wrong === 1 ? "event" : "events"}`);
   const place = worktree(source);
   const sections = [
     now.section,
