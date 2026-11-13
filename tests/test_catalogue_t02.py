@@ -263,7 +263,9 @@ class DagScenarios(DagCase):
             {"stage": "write_acceptance_tests", "role": "tester", "task_id": task, "duration_seconds": 801.0},
         )
         row = milestones.progress(self.state)
-        self.check("test_writing_still_charged_to_the_milestone", 801.0, row["seconds"])
+        # Before the milestone's first Builder launch the time is kept apart from its budget (#3336).
+        self.check("test_writing_kept_before_the_build", 801.0, row["before_build_seconds"])
+        self.check("test_writing_shown_for_the_tester", 801.0, row["seconds_by_role"]["tester"])
         self.check("test_writing_is_not_an_attempt", 0, milestones.attempted_seconds(row))
         self.check("wave_after_tests", ["MB", "MC"], [row["id"] for row in dispatch.select(self.state)])
         # A Builder's own attempt still keeps the milestone out of a new wave.
@@ -304,9 +306,15 @@ class DagScenarios(DagCase):
         self.state["stuck_investigations"] = [{"stage": "write_acceptance_tests", "outcome": "guidance"}]
         records.account_stage(self.state, {**investigator, "duration_seconds": 10.0})
         row = milestones.progress(self.state)
-        self.check("recovery_still_charged", 1200.0, row["seconds"])
+        self.check("recovery_kept_before_the_build", 1200.0, row["before_build_seconds"])
         self.check("recovery_is_not_an_attempt", 0, milestones.attempted_seconds(row))
         self.check("wave_after_recovery", ["MB", "MC"], [row["id"] for row in dispatch.select(self.state)])
+        # Once the Builder has launched, writing more of the wave's tests counts but is still no attempt.
+        milestones.dispatch_guard(self.state, "builder")
+        records.account_stage(self.state, {**writing, "stage": "write_acceptance_tests"})
+        row = milestones.progress(self.state)
+        self.check("later_test_writing_charged_to_the_milestone", 150.0, row["seconds"])
+        self.check("later_test_writing_is_not_an_attempt", 0, milestones.attempted_seconds(row))
         # The Investigator looking at a Builder that stopped is an attempt at the milestone.
         self.state["stuck_investigations"].append({"stage": "builder"})
         records.account_stage(self.state, {**investigator, "duration_seconds": 30.0})
