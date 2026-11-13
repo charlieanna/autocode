@@ -50,7 +50,7 @@ def _job(stage, state: RunState) -> str | None:
 
 def project(state: RunState, view: dict) -> list[dict]:
     """One row per pipeline job, in order: ``job``, ``label``, ``state``, ``model``, ``reasoning_effort``,
-    ``spent_usd`` and ``reason`` (why a skipped job was skipped). ``view`` is the status view built so far; it
+    ``spent_usd``, ``spent_complete`` and ``reason`` (why a skipped job was skipped). ``view`` is the status view built so far; it
     must already hold ``done``, ``routes``, ``stage_decisions`` and ``run_metrics``."""
     routes = _mapping(view.get("routes"))
     decisions = _rows(view.get("stage_decisions"))
@@ -66,9 +66,17 @@ def project(state: RunState, view: dict) -> list[dict]:
         level = _text(_mapping(row.get("effort_choice")).get("level"))
         if row.get("decision") == "run" and level:
             levels[job] = level  # the level it last ran at, which a rule may have moved from the saved one
-    spent = {
-        row.get("job"): _money(row.get("spent_usd")) for row in _rows(_mapping(view.get("run_metrics")).get("by_job"))
+    known_jobs = {
+        row.get("job")
+        for row in _rows(_mapping(_mapping(view.get("cost")).get("breakdown")).get("by_stage"))
+        if _money(row.get("spent_usd")) is not None
     }
+    spent, complete = {}, {}
+    for row in _rows(_mapping(view.get("run_metrics")).get("by_job")):
+        job, amount = row.get("job"), _money(row.get("spent_usd"))
+        # by_job starts at zero even when every stage's cost is unknown. A reported zero is different.
+        spent[job] = amount if amount or row.get("complete") is True or job in known_jobs else None
+        complete[job] = row.get("complete") is True and spent[job] is not None
     done = view.get("done") is True
     active = _mapping(state.get("active_stage"))
     working = None if done else _job(active.get("stage"), state)
@@ -95,6 +103,7 @@ def project(state: RunState, view: dict) -> list[dict]:
                 "model": _text(route.get("model")),
                 "reasoning_effort": levels.get(job) or _text(route.get("reasoning_effort")),
                 "spent_usd": spent.get(label),
+                "spent_complete": complete.get(label, False),
                 "reason": skipped.get(job) if where == "skipped" else None,
             }
         )

@@ -6,6 +6,7 @@ pipeline without a table of job names of its own. These tests pin how each saved
 
 import unittest
 
+import autocode_run_metrics as run_metrics
 import autocode_run_view as run_view
 import autocode_stage_pipeline as stage_pipeline
 
@@ -46,6 +47,7 @@ class PipelineTests(unittest.TestCase):
                 "model": "claude-opus-5-5",
                 "reasoning_effort": "high",
                 "spent_usd": None,
+                "spent_complete": False,
                 "reason": None,
             },
             rows[1],
@@ -129,6 +131,45 @@ class PipelineTests(unittest.TestCase):
         )
         self.assertEqual({"pending"}, {row["state"] for row in rows})
         self.assertEqual({None}, {row["model"] for row in rows})
+
+    def test_unknown_partial_and_known_zero_spend_stay_distinct(self):
+        for amounts, complete, expected in [
+            ([None], False, None),
+            ([0], True, 0),
+            ([0, None], False, 0),
+            ([1.25, None], False, 1.25),
+            ([1.25, 0.75], True, 2),
+        ]:
+            with self.subTest(amounts=amounts):
+                source = view(
+                    cost={
+                        "breakdown": {
+                            "by_stage": [
+                                {
+                                    "stage": stage,
+                                    "job": "Planner",
+                                    "stages": 1,
+                                    "spent_usd": amount,
+                                    "complete": amount is not None,
+                                }
+                                for stage, amount in zip(("draft_plan", "revise_plan"), amounts, strict=False)
+                            ]
+                        }
+                    }
+                )
+                source["run_metrics"] = run_metrics.project(source)
+                planner = stage_pipeline.project({}, source)[1]
+                self.assertEqual(expected, planner["spent_usd"])
+                self.assertEqual(complete, planner["spent_complete"])
+
+    def test_legacy_job_floor_is_not_a_known_zero(self):
+        for amount, expected in [(0, None), (1.25, 1.25)]:
+            with self.subTest(amount=amount):
+                planner = stage_pipeline.project(
+                    {}, view(run_metrics={"by_job": [{"job": "Planner", "spent_usd": amount, "complete": False}]})
+                )[1]
+                self.assertEqual(expected, planner["spent_usd"])
+                self.assertFalse(planner["spent_complete"])
 
 
 class StatusViewTests(unittest.TestCase):

@@ -1371,6 +1371,57 @@ test('chat approval uses the displayed plan token and advances only when the cor
   assert.equal(ui.document.querySelector('#send-message').disabled, true, 'a later person-only stop is not bypassed');
 });
 
+for (const [label, boundary] of [
+  ['completion', { status: 'TASK_COMPLETE', done: true, needs: { kind: 'done' } }],
+  ['a working Completion Reviewer', workingView()],
+  ['another review', { status: 'WAITING_FOR_USER', done: false, needs: { kind: 'review', criteria: [] } }],
+  ['a question', questionView()],
+  ['plan approval', approvalView()],
+  ['a person-only stop', { status: 'PAUSED', done: false, needs: { kind: 'resume' } }],
+]) {
+  test(`chat review acceptance takes the named continue and respects ${label}`, async (t) => {
+    const review = { status: 'WAITING_FOR_USER', done: false,
+      needs: { kind: 'review', token: 'review:current',
+        criteria: [{ id: 'C1', criterion: 'Export matches the saved fixture' }] },
+      next_command: `AUTOCODE_REVIEW_TOKEN=review:current autocode --workspace ${run.workspace} --run-dir ${run.runDir} --approve-review C1 --review-token -` };
+    const ready = { status: 'RUNNING', done: false, next_stage: 'review_completion',
+      needs: { kind: 'continue' },
+      next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --no-chat` };
+    const ui = await openChat(t, review);
+    const launch = t.mock.method(cli, 'stream', async (_options, args) => {
+      ui.setView(args.includes('--approve-review') ? ready : boundary);
+      return ok;
+    });
+    ui.document.querySelector('#take-action').click();
+    await flush(); await flush();
+    assert.equal(launch.mock.callCount(), 2, 'acceptance must start the Completion Reviewer without another click');
+    assert.deepEqual(launch.mock.calls[0].arguments[1], [
+      '--approve-review', 'C1', '--review-token', '-', '--workspace', run.workspace, '--run-dir', run.runDir,
+    ]);
+    assert.equal(launch.mock.calls[0].arguments[2].AUTOCODE_REVIEW_TOKEN, 'review:current');
+    assert.deepEqual(launch.mock.calls[1].arguments[1], [
+      '--no-chat', '--workspace', run.workspace, '--run-dir', run.runDir,
+    ], 'only the continue named by the fresh status is taken');
+    await ui.poll();
+    assert.equal(launch.mock.callCount(), 2, 'no further approval, answer or recovery is inferred');
+  });
+}
+
+test('chat review acceptance does not continue when the fresh view names a person-only stop', async (t) => {
+  const review = { status: 'WAITING_FOR_USER', done: false,
+    needs: { kind: 'review', token: 'review:current', criteria: [{ id: 'C1', criterion: 'Export matches' }] },
+    next_command: `AUTOCODE_REVIEW_TOKEN=review:current autocode --workspace ${run.workspace} --run-dir ${run.runDir} --approve-review C1 --review-token -` };
+  const ui = await openChat(t, review);
+  const launch = t.mock.method(cli, 'stream', async () => {
+    ui.setView({ status: 'PAUSED', done: false, needs: { kind: 'resume' },
+      next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused` });
+    return ok;
+  });
+  ui.document.querySelector('#take-action').click();
+  await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'accepting criteria cannot authorize recovery');
+});
+
 test('chat shows the plan to approve in plain words, without revision, criterion IDs or verification commands', async (t) => {
   const ui = await openChat(t, chatView());
   const app = ui.document.querySelector('#app');
@@ -1719,7 +1770,7 @@ test('the run header shows the working stage and what it does, and its details t
   const row = ui.document.querySelector('#pipeline tr.working');
   assert.deepEqual([...row.querySelectorAll('td.model, td.num')].map((cell) => cell.textContent).slice(0, 1), ['claude-sonnet-5-5 medium']);
   assert.match(row.querySelector('td.time').textContent, /^1m1\ds$/);
-  assert.deepEqual([row.querySelector('td.tokens').textContent, row.querySelector('td.cost').textContent], ['9.4k+', '$0.04']);
+  assert.deepEqual([row.querySelector('td.tokens').textContent, row.querySelector('td.cost').textContent], ['9.4k+', '$0.04+']);
   assert.equal(row.querySelector('td.name .sub').textContent, 'claude-sonnet-5-5 medium', 'a narrow sidebar shows the model under the name');
   assert.deepEqual([...ui.document.querySelectorAll('#pipeline tfoot td')].map((cell) => cell.textContent), ['', 'Total', '', '', '9.4k+', '$0.04+']);
   assert.equal(ui.document.querySelector('#header-stage').textContent, 'Requirements: reading the issue list');
@@ -5468,6 +5519,125 @@ function approveView(token = 'r1:abc') {
   return { status: 'AWAITING_GOAL_APPROVAL', done: false, needs: { kind: 'approve_plan', token } };
 }
 
+test('need notifications close on resolution and replacement without duplicating', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  views.set(alpha.runDir, approveView());
+  await ui.poll();
+  const first = host.notices[0];
+  await ui.poll();
+  assert.equal(host.notices.length, 1);
+  views.set(alpha.runDir, approveView('r2:def'));
+  await ui.poll();
+  assert.equal(first.closed, true);
+  assert.equal(host.notices.length, 2);
+  const second = host.notices[1];
+  assert.equal(second.closed, false);
+  views.set(alpha.runDir, workingView());
+  await ui.poll();
+  assert.equal(second.closed, true);
+  views.set(alpha.runDir, approveView('r3:ghi'));
+  await ui.poll();
+  assert.equal(host.notices.length, 3);
+});
+
+test('closing or deleting a run and disposing the chat closes its notice', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  ui.chat.show(beta);
+  await flush();
+  views.set(alpha.runDir, approveView());
+  views.set(beta.runDir, approveView('beta'));
+  await ui.poll();
+  assert.equal(host.notices.length, 2);
+  ui.chat.forget(alpha);
+  await flush();
+  assert.equal(host.notices[0].closed, true);
+  ui.chat.dispose();
+  await flush();
+  assert.equal(host.notices[1].closed, true);
+});
+
+test('closing a tab closes its notification and invalidates its link', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  ui.chat.show(beta);
+  await flush();
+  views.set(alpha.runDir, approveView());
+  await ui.poll();
+  const notice = host.notices[0];
+  [...ui.document.querySelectorAll('.chat-tab .close')][0].click();
+  await flush();
+  assert.equal(notice.closed, true);
+  notice.resolve('Open chat');
+  await flush();
+  assert.equal(ui.chat.run.runDir, beta.runDir);
+});
+
+test('forgetting the only run closes its notification', async (t) => {
+  const ui = await openChat(t, approveView(), alpha);
+  assert.equal(host.notices.length, 1);
+  ui.chat.forget(alpha);
+  await flush();
+  assert.equal(host.notices[0].closed, true);
+});
+
+test('restoring different tabs closes the discarded run notification', async (t) => {
+  const views = new Map([[alpha.runDir, approveView()], [beta.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  assert.equal(host.notices.length, 1);
+  const post = ui.window.acquireVsCodeApi().postMessage;
+  post({ type: 'ready' });
+  await flush();
+  post({ type: 'ready', tabs: [{ key: 'beta-tab', run: beta }], activeKey: 'beta-tab' });
+  await flush();
+  assert.equal(host.notices[0].closed, true);
+});
+
+test('a late poll after disposal cannot create a notification', async (t) => {
+  const ui = await openChat(t, workingView(), alpha);
+  let release;
+  const pending = new Promise((resolve) => { release = resolve; });
+  t.mock.method(controller, 'pollStatus', () => pending);
+  const refresh = ui.chat.refresh();
+  ui.chat.dispose();
+  release(approveView());
+  await refresh;
+  assert.equal(host.notices.length, 0);
+});
+
+test('a replaced notice cannot reopen its chat through a late action', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  ui.chat.show(beta);
+  await flush();
+  views.set(alpha.runDir, approveView());
+  await ui.poll();
+  const stale = host.notices[0];
+  views.set(alpha.runDir, approveView('r2:def'));
+  await ui.poll();
+  stale.resolve('Open chat');
+  await flush();
+  assert.equal(ui.chat.run.runDir, beta.runDir);
+  host.notices[1].resolve('Open chat');
+  await flush();
+  assert.equal(ui.chat.run.runDir, alpha.runDir);
+});
+
+test('turning notifications off closes the current notice', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  views.set(alpha.runDir, approveView());
+  await ui.poll();
+  await host.vscode.workspace.getConfiguration('autocode').update('notify', false);
+  await flush();
+  assert.equal(host.notices[0].closed, true);
+  await host.vscode.workspace.getConfiguration('autocode').update('notify', true);
+  await ui.chat.refresh();
+  assert.equal(host.notices.length, 2);
+  assert.equal(host.notices[1].closed, false);
+});
+
 test('test_ac1_background_tab_need_notifies_once', async (t) => {
   const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
   const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
@@ -5635,7 +5805,7 @@ test('test_ac12_working_to_done_task_complete_notifies_once', async (t) => {
   assert.equal(host.notices.length, 1);
 });
 
-test('test_ac13_renewed_identity_notifies_and_prior_identity_stays_silent', async (t) => {
+test('test_ac13_returning_need_is_announced_again', async (t) => {
   const views = new Map([[alpha.runDir, workingView()]]);
   const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
   views.set(alpha.runDir, approveView('r1:abc'));
@@ -5646,7 +5816,7 @@ test('test_ac13_renewed_identity_notifies_and_prior_identity_stays_silent', asyn
   assert.equal(host.notices[1].message, 'AutoCode: alpha is waiting for you - approval of the plan AutoCode displayed');
   views.set(alpha.runDir, approveView('r1:abc'));
   await ui.poll();
-  assert.equal(host.notices.length, 2);
+  assert.equal(host.notices.length, 3);
 });
 
 test('test_ac14_other_run_same_need_notifies_independently', async (t) => {
@@ -5734,6 +5904,24 @@ test('test_ac18_reopened_tab_same_run_does_not_renotify', async (t) => {
   await ui.poll();
   assert.equal(host.notices.length, 1);
   views.set(alpha.runDir, approveView('r2:def'));
+  await ui.poll();
+  assert.equal(host.notices.length, 2);
+});
+
+test('a reopened tab announces the same need if it resolved and returned', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  ui.chat.show(beta);
+  await flush();
+  views.set(alpha.runDir, approveView());
+  await ui.poll();
+  [...ui.document.querySelectorAll('.chat-tab .close')][0].click();
+  await flush();
+  ui.chat.show(alpha);
+  await flush();
+  views.set(alpha.runDir, workingView());
+  await ui.poll();
+  views.set(alpha.runDir, approveView());
   await ui.poll();
   assert.equal(host.notices.length, 2);
 });
@@ -5973,7 +6161,7 @@ function meteredView(extra = {}) {
       ],
       tokens: { input_tokens: { value: 610000, complete: true }, output_tokens: { value: 41000, complete: true } },
     } },
-    cost: { spent_usd: 1.21, cap_usd: 5, complete: true, breakdown: { by_stage: [{ stage: 'terra', spent_usd: 0.31 }, { stage: 'sol', spent_usd: 0.2 }] } },
+    cost: { spent_usd: 1.21, cap_usd: 5, complete: true, breakdown: { by_stage: [{ stage: 'terra', spent_usd: 0.31, complete: true }, { stage: 'sol', spent_usd: 0.2, complete: true }] } },
     ...extra,
   };
 }
@@ -5994,7 +6182,7 @@ test('the run header lists every stage the run launched in one aligned table, wi
   assert.equal(tester.querySelector('.mark').textContent, '↻');
   const badge = tester.querySelector('.runs');
   assert.deepEqual([badge.textContent, badge.className, badge.title], ['×2', 'runs failed', '2 attempts, 1 failed']);
-  assert.deepEqual([...tester.querySelectorAll('td.num')].map((cell) => cell.textContent), ['42s', '2.4k', '$0.20']);
+  assert.deepEqual([...tester.querySelectorAll('td.num')].map((cell) => cell.textContent), ['42s', '2.4k', '$0.20+']);
   assert.match(tester.title, /last one answer rejected/);
   assert.equal(rows[0].querySelector('.runs'), null, 'a stage that launched once has no count');
   assert.deepEqual([...ui.document.querySelectorAll('#pipeline tfoot td.num')].map((cell) => cell.textContent), ['', '651k', '$1.21']);
