@@ -1,5 +1,6 @@
 """Which Requirements reports the runner accepts as the handoff (autocode_requirements_handoff.accept)."""
 
+import copy
 import json
 import os
 import tempfile
@@ -184,7 +185,6 @@ class RequirementsHandoffTests(unittest.TestCase):
     def test_a_handoff_that_claims_work_still_needs_its_outcome(self):
         for value, settings in (
             (report(required_behaviors=["Greet"], acceptance_tests=["Prints hello"]), None),
-            (report(), {}),
             (report(open_questions=[]), None),
         ):
             with self.subTest(value=value, settings=settings), self.assertRaisesRegex(ValueError, "needs an outcome"):
@@ -221,6 +221,40 @@ class RequirementsHandoffTests(unittest.TestCase):
         self.assertEqual([[question]], [row["questions"] for row in queued], "its own questions, no review question")
         self.assertEqual(value, state["requirements_handoff"]["report"])
         self.assertNotIn("goal_contract", state)
+
+    def test_clarification_can_wait_without_a_drafted_outcome(self):
+        import autocode_requirements_review as review
+
+        task = "Make AutoCode more reliable; we keep finding bugs in each new run."
+        question = {
+            **QUESTION,
+            "id": "Q-priority",
+            "category": "scope",
+            "question": "Which reliability problem should we address first?",
+        }
+        value = report(open_questions=[question], assistant_reply=question["question"])
+        for settings in ({}, {"spec_first": True}):
+            with self.subTest(settings=settings):
+                state, queued = self.accept(copy.deepcopy(value), settings, task=task)
+                self.assertEqual([[question]], [row["questions"] for row in queued])
+                self.assertEqual("", state["requirements_handoff"]["report"]["intended_outcome"])
+                self.assertNotIn("goal_contract", state)
+                state["answers"] = {question["id"]: {"text": "Prevent regressions."}}
+                state["next_stage"] = "draft_plan"
+                review.after_answers(state)
+                self.assertEqual("requirements_gather", state["next_stage"])
+
+        with self.assertRaisesRegex(ValueError, "needs an outcome"):
+            self.accept(copy.deepcopy(value), {}, task=task, answers={question["id"]: {"text": "Already answered"}})
+
+        for change, saved in (
+            ({"open_questions": []}, {}),
+            ({"required_behaviors": ["Prevent regressions"]}, {}),
+            ({"acceptance_tests": ["A regression is detected"]}, {}),
+            ({}, {"goal_contract": {"body": {}}}),
+        ):
+            with self.subTest(change=change, saved=saved), self.assertRaisesRegex(ValueError, "needs an outcome"):
+                self.accept({**copy.deepcopy(value), **change}, {}, task=task, **saved)
 
     def test_without_an_open_question_a_handoff_still_needs_behaviors_and_acceptance_tests(self):
         for value in (
