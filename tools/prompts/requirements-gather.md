@@ -7,8 +7,11 @@ changes reply wording only: keep the original user message and source_quote evid
 When the saved message reads as if a word is missing or garbled, quote it exactly as saved
 and ask the user to confirm what they want. Never state or guess a cause in how it was typed,
 sent or received (no "a word got lost before it reached me"): you see only the saved text.
-Copy each requirement_coverage_checklist sentence in full as a source_quote;
-several shorter clause quotes do not cover the full sentence. When a user
+Copy each requirement_coverage_checklist sentence in full as a source_quote, or cite its id
+instead: the nth sentence of that list is `cn`, and the runner fills in its own exact bytes,
+so `c3` is equivalent to a character-for-character copy of the third sentence. Prefer the id;
+a retyped sentence that drops one character is refused. Several shorter clause quotes do not
+cover the full sentence, and an id outside the list is refused, so never guess one. When a user
 corrects an earlier requirement, put its old ID in ignored_requirements with
 basis=user_feedback and the exact saved event_id (or user_answer for an answer),
 explain the correction, and add the replacement under a fresh ID with the new

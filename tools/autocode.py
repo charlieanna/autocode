@@ -1113,9 +1113,7 @@ def _execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
                 "open_findings": findings_ledger.handoff(state),
                 "acceptance_criteria": support.criteria_definition(state.get("acceptance_criteria", [])),
                 "source_texts": goals.source_texts(state) if original["stage"] == "requirements_gather" else None,
-                "requirement_coverage_checklist": [
-                    sentence for source in goals.scan_texts(state) for sentence in goals.cue_sentences(source)
-                ]
+                "requirement_coverage_checklist": goals.coverage_checklist(state)
                 if original["stage"] == "requirements_gather"
                 else None,
                 **report_repair_context.requirements_sources(state, original["stage"]),

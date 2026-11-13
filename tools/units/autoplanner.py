@@ -1354,9 +1354,7 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
     if stage in ("review_plan", "finalize_plan") and (grants or packet["recovery_context"]):
         packet["workspace_inventory"] = workspace_inventory(state["workspace"], state["task"], limit=20)
     if stage == "requirements_gather":
-        packet["requirement_coverage_checklist"] = [
-            sentence for source in goals.scan_texts(state) for sentence in goals.cue_sentences(source)
-        ]
+        packet["requirement_coverage_checklist"] = requirement_cues.coverage_checklist(state)
     rows = trace_rows(state, stage)
     if rows:
         packet["requirement_trace_rows"] = rows

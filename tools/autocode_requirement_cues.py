@@ -210,3 +210,11 @@ def scan_texts(state: RunState):
     # A follow-up is both the current task and receipted feedback. Scan it once without changing either
     # journal entry or source_texts: prompts, report repair and validation share this projection.
     return list(dict.fromkeys(text for text in texts if text))
+
+
+def coverage_checklist(state: RunState):
+    """The requirement-like sentences a Requirements report must cover, in the order the handoff lists them.
+
+    One source of truth for the handoff packet, its report repair, and the id a requirement may cite
+    instead of retyping a sentence (#3344): all three have to number the same list the same way."""
+    return [sentence for source in scan_texts(state) for sentence in cue_sentences(source)]

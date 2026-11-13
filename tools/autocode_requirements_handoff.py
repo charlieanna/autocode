@@ -64,10 +64,7 @@ def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue
             requirements_triage.mark(state, "ready")
             run_status.running(state, "DISCOVERING", next_stage="requirements_gather")
             return
-        value = requirements_triage.handoff(
-            value,
-            (sentence for source in goals.scan_texts(state) for sentence in goals.cue_sentences(source)),
-        )
+        value = requirements_triage.handoff(value, goals.coverage_checklist(state))
         requirements_triage.mark(state, "questions", count=len(rows))
         # The questions-only handoff below pauses through the existing clarification flow, and the
         # answers send Requirements back (requirements_review.after_answers) for the full pass.

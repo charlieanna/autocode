@@ -22,9 +22,9 @@ import json
 import re
 
 try:
-    from .autocode_requirement_cues import sentences
+    from .autocode_requirement_cues import coverage_checklist, sentences
 except ImportError:
-    from autocode_requirement_cues import sentences
+    from autocode_requirement_cues import coverage_checklist, sentences
 
 
 def _span(quote: str, text: str) -> str | None:
@@ -122,6 +122,40 @@ def _strip_markup(text: str) -> str:
     return " ".join(cleaned.split())
 
 
+# A requirement may cite a requirement_coverage_checklist sentence by its 1-based position in that
+# list instead of retyping it (#3344). The runner holds the bytes, so it fills them in itself.
+CHECKLIST_ID = re.compile(r"^c(?P<number>[1-9][0-9]*)$")
+
+
+def resolve_checklist_id(quote, checklist):
+    """The checklist sentence ``quote`` cites, or ``quote`` unchanged when it cites none.
+
+    What comes back is the runner's own text, so grounding it still saves a verbatim slice of a human
+    source and no admission check is weakened. An id that names no sentence is left as written, so the
+    quote check refuses it and names the id rather than resolving to a neighbouring sentence."""
+    text = str(quote or "").strip()
+    match = CHECKLIST_ID.match(text)
+    if match is None:
+        return quote
+    number = int(match["number"])
+    return checklist[number - 1] if 1 <= number <= len(checklist) else quote
+
+
+def ground_cited(quote, sources, state):
+    """Ground a source_quote that may cite a checklist sentence by id, filling the runner's own bytes.
+
+    Requirements are told to copy each requirement_coverage_checklist sentence in full, so a quote
+    rejection was usually a retyping slip against text the runner already held: a wrong copy cost a
+    25-minute repair (#2835) and six of seven measured passes on 2026-11-11 were rejected for one
+    (#3344). Citing the sentence's id removes the copying. The resolved text is grounded exactly as a
+    typed quote is, so nothing ungrounded is ever saved, and the checklist is built only for an
+    id-shaped quote, which leaves the typed path as cheap as it was."""
+    text = str(quote or "").strip()
+    if CHECKLIST_ID.match(text) is None:
+        return ground(quote, sources)
+    return ground(resolve_checklist_id(text, coverage_checklist(state)), sources)
+
+
 def closest(quote, sources) -> str | None:
     """The source sentence nearest ``quote``, for a rejection message; None when nothing is close."""
     quote = " ".join(str(quote or "").split())
@@ -143,9 +177,16 @@ def unsupported(rows, sources, *, inherited: bool) -> str:
         else f"Requirements {ids}: source_quote is not in the task or a saved user event",
     ]
     for row in rows:
-        near = closest(row.get("source_quote", ""), sources)
+        quoted = str(row.get("source_quote", ""))
+        if CHECKLIST_ID.match(quoted.strip()):
+            lines.append(
+                f"{row['id']} cites {json.dumps(quoted, ensure_ascii=False)}, "
+                "which names no sentence of requirement_coverage_checklist"
+            )
+            continue
+        near = closest(quoted, sources)
         lines.append(
-            f"{row['id']} quotes {json.dumps(str(row.get('source_quote', '')), ensure_ascii=False)}"
+            f"{row['id']} quotes {json.dumps(quoted, ensure_ascii=False)}"
             + (f"; the closest source sentence is {json.dumps(near, ensure_ascii=False)}" if near else "")
         )
     lines.append(
