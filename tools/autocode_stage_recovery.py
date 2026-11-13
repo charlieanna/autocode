@@ -44,6 +44,7 @@ try:
     from . import autocode_run_status as run_status
     from . import autocode_stage_stalls as stage_stalls
     from . import autocode_stale_handoff as stale_handoff
+    from . import autocode_stall_recovery as stall_recovery
     from . import autocode_support as support
     from . import autocode_validation_recovery as validation_recovery
     from . import autocode_workflow as workflow
@@ -70,6 +71,7 @@ except ImportError:
     import autocode_run_status as run_status
     import autocode_stage_stalls as stage_stalls
     import autocode_stale_handoff as stale_handoff
+    import autocode_stall_recovery as stall_recovery
     import autocode_support as support
     import autocode_validation_recovery as validation_recovery
     import autocode_workflow as workflow
@@ -915,6 +917,14 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
             "An unavailable capture is an evidence gap to retain and report, never verified source. "
             "This packet is unverified source, not a completed report or passing test evidence."
         )
+    continues_tester = semantic_stage == "tester" and next_stage == "tester" and not record.get("report_only")
+    if continues_tester:
+        # A stream-stalled Tester ran real checks before the provider stopped; the relaunch got only an
+        # instruction to inspect a multi-thousand-line archived log, so it redid the stage from nothing
+        # (#3309). The packet is context, never citable evidence.
+        recovery["executed_work"] = stall_recovery.executed(record)
+        if recovery["executed_work"].get("available"):
+            recovery["instruction"] += " " + stall_recovery.INSTRUCTION
     records.count_automatic_recovery(state)
     state.setdefault("automatic_timeout_recoveries", []).append(recovery)
     state.setdefault("user_events", []).append(
