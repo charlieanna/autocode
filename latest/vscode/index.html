@@ -2012,7 +2012,7 @@
 
 
 <h1 id="vs-code-extension">VS Code extension<a class="headerlink" href="#vs-code-extension" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/428d38958ac9bd6ba08c828543556ebba6bfba01/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/0600d4849a4683b52230568d15b85ebfae715858/README.md">← Back to README</a></p>
 <p>Chat with AutoCode in the sidebar (issue #884). The extension starts the CLI,
 reads <code>--status</code> and <code>registry list --json</code>, and takes the actions the public
 <a href="../task-run/">task-run interface</a> names. It imports no runner internals and never
@@ -2090,7 +2090,7 @@ Markdown and code blocks for assistant replies. A fixed composer grows with your
 draft. New output follows the bottom until you scroll up or select text;
 <strong>Latest messages</strong> returns to the bottom. These composer and scrolling components
 are adapted from Kilo Code's open-source UI; the exact revision and attribution
-are in <a href="https://github.com/charlieanna/autocode/blob/428d38958ac9bd6ba08c828543556ebba6bfba01/vscode-extension/THIRD_PARTY_NOTICES.md">THIRD_PARTY_NOTICES.md</a>.</p>
+are in <a href="https://github.com/charlieanna/autocode/blob/0600d4849a4683b52230568d15b85ebfae715858/vscode-extension/THIRD_PARTY_NOTICES.md">THIRD_PARTY_NOTICES.md</a>.</p>
 <p>Models and usage are shown once, in the run header at the top of the chat (below):
 each stage's model, level, time, tokens and cost is a row of its stage table, and
 <strong>Show details</strong> has the rest. Cache and reasoning are already included in
@@ -2273,7 +2273,7 @@ conversation.</p>
 Requirements follow-up has passed a real Kilo/token-plan greeting conversation;
 full build/test/completion qualification remains outstanding. The earlier full
 task attempt stopped on a MiMo network failure before building.
-See the <a href="https://github.com/charlieanna/autocode/blob/428d38958ac9bd6ba08c828543556ebba6bfba01/docs/bugs/2026-10-16-vscode-chat-qualification.md">qualification record</a>.
+See the <a href="https://github.com/charlieanna/autocode/blob/0600d4849a4683b52230568d15b85ebfae715858/docs/bugs/2026-10-16-vscode-chat-qualification.md">qualification record</a>.
 The jsdom tests alone establish neither editor-host nor live-provider compatibility.</p>
 <h2 id="settings">Settings<a class="headerlink" href="#settings" title="Permanent link">&para;</a></h2>
 <table>
@@ -2342,11 +2342,14 @@ named command containing Resume can save the allowance first. Used calls stay co
 limits and models stay saved, and neither action approves a plan. Blank, zero,
 fractional or stale choices cannot run.</p>
 <p>At an exhausted operational-recovery boundary, <strong>Additional recoveries</strong> is a
-separate blank finite input. It shows the existing recovery allowance and counted
-spend. Choose from 1 through the spent count and confirm <strong>Grant and continue</strong>.
-Choosing 1 replenishes one spent slot; it does not raise the fixed allowance or
-bank excess. History stays retained and the existing consecutive-timeout streak
-is cleared by that grant. Other limits, routes and plan approval still apply.</p>
+separate blank finite input (shown as <strong>Or authorize more recoveries instead:
+Additional recoveries</strong> beside the reply box when AutoResolver also asks for
+corrective information at <code>WAITING_FOR_USER</code>). It shows the existing recovery
+allowance and counted spend. Choose from 1 through the spent count and confirm
+<strong>Grant and continue</strong>. Choosing 1 replenishes one spent slot; it does not raise
+the fixed allowance or bank excess. History stays retained and the existing
+consecutive-timeout streak is cleared by that grant. Other limits, routes and
+plan approval still apply.</p>
 <p>Plan editing (<code>--edit-goal</code>) and other actions with unresolved
 <code>GOAL_FILE</code>, untyped recovery <code>N</code> or explanatory placeholders remain explicit gaps.
 The client cannot invent those decisions. The separate core Requirements

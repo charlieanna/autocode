@@ -2898,7 +2898,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/428d38958ac9bd6ba08c828543556ebba6bfba01/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/0600d4849a4683b52230568d15b85ebfae715858/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -4134,7 +4134,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/428d38958ac9bd6ba08c828543556ebba6bfba01/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/0600d4849a4683b52230568d15b85ebfae715858/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -4846,12 +4846,14 @@ allowance setter and preserves charged calls, recovery history, other limits,
 routes and plan approval. It does not reset a cycle, change allowance policy or
 approve the plan. Ordinary CLI callers retain their existing explicit zero
 semantics.</p>
-<p>An exhausted <code>PAUSED_TIMEOUT_RECOVERY</code> can name one additional finite choice:</p>
+<p>An exhausted <code>PAUSED_TIMEOUT_RECOVERY</code> (whether still paused there, published as a <code>WAITING_FOR_USER</code> <code>operational_exhaustion</code> request, or held at <code>RESOLVER_PENDING</code> with a runner hold receipt) can name one additional finite choice:</p>
 <pre><code class="language-json">{&quot;id&quot;:&quot;grant_recovery&quot;,&quot;kind&quot;:&quot;integer&quot;,&quot;flag&quot;:&quot;--grant-recovery&quot;,&quot;placeholder&quot;:&quot;N&quot;,
  &quot;arg_index&quot;:2,&quot;label&quot;:&quot;Additional recoveries&quot;,&quot;current&quot;:3,&quot;used&quot;:3,&quot;minimum&quot;:1,&quot;maximum&quot;:3}
 </code></pre>
 <p>Its only remaining command is <code>--resume-paused --grant-recovery N
---expected-recovery-token -</code>, using the same current private token channel.
+--expected-recovery-token -</code>, using the same current private token channel
+(carried in the row's own <code>command</code> alongside <code>next_command</code> when published as
+<code>WAITING_FOR_USER</code>).
 <code>current</code> is the existing fixed automatic-recovery allowance; <code>used</code> is counted
 spend, including the existing legacy fallback. The finite input accepts 1 through
 <code>used</code>, validated as safe integers, and never supplies a default. Pending
@@ -4921,7 +4923,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/428d38958ac9bd6ba08c828543556ebba6bfba01/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/0600d4849a4683b52230568d15b85ebfae715858/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
