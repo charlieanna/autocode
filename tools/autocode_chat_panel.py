@@ -562,7 +562,9 @@ def pipeline_section(view: dict | None) -> Section | None:
         return None
     progress = _mapping(view.get("progress"))
     current_stage = progress.get("stage") or ""
-    next_stage = _mapping(view).get("next_stage") or ""
+    # Where each job stands is the view's pipeline projection, which names no next job before
+    # the run chooses its first stage; raw next_stage still holds the creation default then.
+    standing = {str(row.get("job")): row.get("state") for row in _rows(view.get("pipeline"))}
     status = view.get("status") or ""
     decisions = _rows(view.get("stage_decisions"))
     ran_jobs = {str(row.get("job")) for row in decisions if row.get("decision") == "run"}
@@ -589,7 +591,7 @@ def pipeline_section(view: dict | None) -> Section | None:
         level_text = f" · {level}" if level else ""
 
         skipped = False
-        if _is_current_job(job, current_stage, next_stage):
+        if standing.get(job) in ("working", "next"):
             if status in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL") and _needs_this_job(job, progress):
                 mark, style = "!", "panel-warn"
             else:
@@ -638,11 +640,6 @@ def pipeline_section(view: dict | None) -> Section | None:
     if parts:
         summary = " · ".join(filter(None, [summary, *parts]))
     return Section("Pipeline", summary, tuple(rows))
-
-
-def _is_current_job(job: str, current_stage: str, next_stage: str) -> bool:
-    """Whether this job is the one currently running or next."""
-    return any(stage and roles.job_for_stage(stage) == job for stage in (current_stage, next_stage))
 
 
 def _needs_this_job(job: str, progress: dict) -> bool:
