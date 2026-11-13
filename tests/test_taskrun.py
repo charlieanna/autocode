@@ -1185,10 +1185,22 @@ class TaskRunTests(unittest.TestCase):
         branches = {ref for ref in added if ref.startswith("refs/heads/")}
         # The only new branch is the task worktree's own (autocode/<task>-<id>, docs/task-lanes.md).
         self.assertEqual({f"refs/heads/autocode/{tree.name}"} if tree else set(), branches)
-        # Any other new ref is one of the run's code checkpoints, listed in its status view.
+        # Builder start pins retain unverified recovery evidence; they are not code checkpoints.
+        # Every actual checkpoint must still be listed in the status view.
         checkpoints = {row["commit"] for row in view["code_checkpoints"]["rows"]}
+        start_prefix = "refs/autocode/partial-work/start/"
         for ref in added.keys() - branches:
-            self.assertTrue(ref.startswith("refs/autocode/code-checkpoints/") and added[ref] in checkpoints, ref)
+            if ref.startswith(start_prefix):
+                self.assertEqual(added[ref], ref.removeprefix(start_prefix))
+                kind = subprocess.run(
+                    ["git", "-C", str(workspace), "cat-file", "-t", added[ref]],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout.strip()
+                self.assertEqual("commit", kind)
+            else:
+                self.assertTrue(ref.startswith("refs/autocode/code-checkpoints/") and added[ref] in checkpoints, ref)
         names = lambda directory: {entry.name for entry in directory.iterdir()}
         # Exactly the run and the runner's housekeeping beside it. A new runner file belongs in these sets
         # only if it is per-run housekeeping (a log, a lock); a record that coordinates runs does not.
