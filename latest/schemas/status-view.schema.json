@@ -373,20 +373,21 @@
         "recovery": {"type": ["object", "null"]},
         "recoveries": {
           "type": "array",
-          "description": "What went wrong and what AutoCode did about it, oldest first, at most 20 (tools/autocode_recovery_history.py): rejected answers, rewritten reports, Builder send-backs for untested lines, Investigator and Resolver calls. Display text only; it grants nothing.",
+          "description": "What went wrong and what AutoCode did about it, oldest first, at most 20 (tools/autocode_recovery_history.py): rejected answers, rewritten reports, Builder send-backs for untested lines, Investigator calls and Resolver decisions. `handled` is true only when the saved record proves a successful recovery. Display text only; it grants nothing.",
           "items": {
             "type": "object",
-            "required": ["id", "kind", "at", "job", "headline", "problem", "action", "by", "detail"],
+            "required": ["id", "kind", "at", "job", "headline", "problem", "action", "by", "detail", "handled"],
             "properties": {
               "id": {"type": "string"},
-              "kind": {"type": "string", "enum": ["rejected", "report_repaired", "sent_back", "investigated", "resolved"]},
+              "kind": {"type": "string", "enum": ["rejected", "report_repaired", "sent_back", "investigated", "resolver_decision"]},
               "at": {"type": ["string", "null"]},
               "job": {"type": ["string", "null"]},
               "headline": {"type": "string"},
               "problem": {"type": ["string", "null"]},
               "action": {"type": "string"},
               "by": {"type": ["string", "null"]},
-              "detail": {"type": ["string", "null"]}
+              "detail": {"type": ["string", "null"]},
+              "handled": {"type": "boolean"}
             }
           }
         },
