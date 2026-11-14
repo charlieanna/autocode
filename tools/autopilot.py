@@ -67,8 +67,8 @@ try:
     from . import autocode_stuck_job as stuck
     from . import autocode_support as support
     from . import autocode_unit_request as unit_request
+    from . import autocode_validate_task_steps as validate_task_steps
     from . import autocode_validation_rounds as validation_rounds
-    from . import autocode_verification_plan as verification_plan
     from . import autocode_verify as verify
     from . import autocode_visual_runtime as visual_runtime
     from . import autocode_workflow as workflow
@@ -120,8 +120,8 @@ except ImportError:
     import autocode_stuck_job as stuck
     import autocode_support as support
     import autocode_unit_request as unit_request
+    import autocode_validate_task_steps as validate_task_steps
     import autocode_validation_rounds as validation_rounds
-    import autocode_verification_plan as verification_plan
     import autocode_verify as verify
     import autocode_visual_runtime as visual_runtime
     import autocode_workflow as workflow
@@ -1143,7 +1143,7 @@ def _apply_result(runtime, state: RunState, stage, value, record, workspace, run
         # A report for another contract or task pauses first, as it does below, instead of going back for repair.
         if state.get("version", 2) >= 3:
             goals.execution_guard(state, value)
-        verification_plan.refuse_new_plan(*verification_plan.task_rows(value.get("next_task"), "next_task"))
+        validate_task_steps.refuse(state, value.get("next_task"), record, workspace, run_dir, runtime, continuation)
     if stage == "diagnose":
         # A bounded diagnosis+recommendation object, not a reviewer decision:
         # it carries no acceptance_criteria/status and must never reach the

@@ -232,6 +232,50 @@ def _attribute(row, on_base, base_run, workspace, out, timeout):
     return base_attribution.judge(row, base)
 
 
+def _outcome(row, timeout):
+    """How a failed ``row`` ended, in the words a rejection gives its author."""
+    if row["error"]:
+        what = f"could not run ({row['error']})"
+    elif row["timed_out"]:
+        what = f"timed out after {timeout} seconds"
+    elif not command_receipt.completed(row):
+        what = "has no complete owned-command evidence"
+    else:
+        what = f"exited {row['exit_code']}"
+    if row.get("base_attribution"):
+        what += f". {row['base_attribution']['reason']}"
+    return what
+
+
+def probe(command, workspace, out, scratch_run, *, state=None, base_run=None, timeout=TIMEOUT_SECONDS):
+    """Run ``command`` once as ``replay`` runs a planned check; None when it passes, else how it failed.
+
+    For a step whose author can still change it (autocode_validate_task_steps): the same clean copy of the
+    current source, limit and reading of the receipt, and a failure the base revision has identically is the
+    base's, as it is in the replay. The failure is ``{"what", "tail"}``; nothing is saved as validation evidence.
+    """
+    selected = source_scope.paths(cast("RunState", state or {}))
+    if selected:
+        scratch_run = partial(scratch_run, source_paths=selected)
+    out = Path(out)
+    receipt = scratch_run(workspace, out / "check", command=command, timeout=timeout)
+    row = {
+        "command": command,
+        "exit_code": receipt.get("exit_code"),
+        "timed_out": bool(receipt.get("timed_out")),
+        "output": receipt.get("output"),
+        "error": receipt.get("error") or "",
+        "tail": (receipt.get("tail") or "")[-TAIL_CHARS:],
+        **command_receipt.project(receipt),
+    }
+    if not _failed_check(row):
+        return None
+    compared = base_run is not None and base_attribution.eligible(command)
+    if compared and _attribute(row, {}, base_run, workspace, out, timeout)["kind"] == base_attribution.BASE:
+        return None
+    return {"what": _outcome(row, timeout), "tail": row["tail"]}
+
+
 def replay(
     checks,
     workspace,
@@ -500,16 +544,7 @@ def replay(
     (out / "replay.json").write_text(json.dumps(result, indent=2) + "\n")
     if failed:
         row = failed[0]
-        if row["error"]:
-            what = f"could not run ({row['error']})"
-        elif row["timed_out"]:
-            what = f"timed out after {timeout} seconds"
-        elif not command_receipt.completed(row):
-            what = "has no complete owned-command evidence"
-        else:
-            what = f"exited {row['exit_code']}"
-        if row.get("base_attribution"):
-            what += f". {row['base_attribution']['reason']}"
+        what = _outcome(row, timeout)
         planned = row.get("evidence_ref") in ("approved-plan", "approved-repeat")
         error_type = PlannedCheckFailure if planned else ReportedCheckFailure
         failure = error_type(
