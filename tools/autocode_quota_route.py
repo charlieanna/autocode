@@ -35,6 +35,7 @@ from pathlib import Path
 
 try:
     from . import autocode_context_window as context_window
+    from . import autocode_escalation as escalation
     from . import autocode_output_cap as output_cap
     from . import autocode_provider_refusal as provider_refusal
     from . import autocode_role_route as role_route
@@ -44,6 +45,7 @@ try:
     from . import autocode_verifier_independence as verifier_independence
 except ImportError:
     import autocode_context_window as context_window
+    import autocode_escalation as escalation
     import autocode_output_cap as output_cap
     import autocode_provider_refusal as provider_refusal
     import autocode_role_route as role_route
@@ -968,13 +970,18 @@ def sync_derived_role(state: RunState, child_role: str, *, parent_role: str | No
     if target_route is None:
         return None
     before_route = copy.deepcopy(roles_map[child_role])
+    # Compare against the child with its own climbs undone: a child still on the rung its parent
+    # gives it has not been out-paced, so its climb stands and re-inheriting would relaunch the
+    # rung that was just rejected. Only a parent that actually moved re-derives the child.
+    unclimbed_route = escalation.unclimbed(state, settings, child_role)["roles"][child_role]
     identities = settings.get("transport_identities")
     target_key = role_transport.PREFIX + child_role
     before_identity = copy.deepcopy(identities.get(target_key)) if isinstance(identities, dict) else None
     roles_map[child_role] = copy.deepcopy(target_route)
     role_transport.inherit(settings, child_role, parent)
     after_identity = copy.deepcopy(identities.get(target_key)) if isinstance(identities, dict) else None
-    if roles_map[child_role] == before_route and after_identity == before_identity:
+    if unclimbed_route == target_route and after_identity == before_identity:
+        roles_map[child_role] = before_route
         return None
     state.setdefault("sessions", {}).pop(child_role, None)
     change: dict = {

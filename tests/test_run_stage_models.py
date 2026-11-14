@@ -391,6 +391,32 @@ class InheritedStageRouteSyncTests(unittest.TestCase):
         self.assertIsNone(quota_route.sync_derived_role(missing_parent, "architect", parent_role="plan_reviewer"))
         self.assertEqual({"model": "m"}, missing_parent["settings"]["roles"]["architect"])
 
+    def test_a_climbed_derived_role_keeps_its_rung_until_its_parent_moves(self):
+        # The Resolver climbs its own route after a rejected report; a prepare sync that re-derived
+        # it from an unmoved parent relaunched the retry on the rung that was just rejected.
+        climbed = {
+            "status": "PAUSED_INVALID_OUTPUT",
+            "settings": {
+                "engine": "codex",
+                "roles": {
+                    "task_planner": {"model": "gpt-6-astra", "reasoning_effort": "high"},
+                    "resolver": {"model": "gpt-6-astra", "reasoning_effort": "xhigh"},
+                },
+            },
+            "reasoning_escalations": [
+                {
+                    "role": "resolver",
+                    "previous": {"model": "gpt-6-astra", "reasoning_effort": "high"},
+                    "selected": {"model": "gpt-6-astra", "reasoning_effort": "xhigh"},
+                }
+            ],
+            "user_events": [],
+        }
+        self.assertIsNone(quota_route.sync_derived_role(climbed, "resolver"))
+        self.assertEqual("xhigh", climbed["settings"]["roles"]["resolver"]["reasoning_effort"])
+        quota_route.assign(climbed, "task_planner", "gpt-6-luna", at="t5", via=stage_models.VIA, effort="high")
+        self.assertEqual({"model": "gpt-6-luna", "reasoning_effort": "high"}, climbed["settings"]["roles"]["resolver"])
+
     def test_release_route_and_transport_inherit_cleanup(self):
         kilo = self._ext_identity("kilocode")
         kilo_v2 = {**copy.deepcopy(kilo), "identity": {**kilo["identity"], "version": "2.0"}}
@@ -536,6 +562,7 @@ class InheritedStageRouteSyncTests(unittest.TestCase):
                 self.assertIs(
                     pkg_autoreview.quota_route.sync_derived_role, pkg_autoresolver.quota_route.sync_derived_role
                 )
+                self.assertTrue(callable(pkg_autoreview.quota_route.escalation.unclimbed))
             finally:
                 if added_sys_path and pkg_root in sys.path:
                     sys.path.remove(pkg_root)
