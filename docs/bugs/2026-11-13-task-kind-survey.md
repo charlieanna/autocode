@@ -877,6 +877,38 @@ Still open: a distribution with C code (`.xs`), which must be built before its t
 are only under `xt/`; and a distribution with no test yet, where the first `t/` file has no suite on the
 original code.
 
+## 31. Perl and PHP: a failing test to repair asks the person (fixed)
+
+Section 11's request in a Perl distribution, on master with section 30's fix: "t/pager.t fails:
+page_count(20, 10) gives 3 and the test expects 2. Fix lib/Acme/Pager.pm so the tests pass. Do not change
+the tests." The fix was correct. Both proofs said "No regression test was added or changed, so the bug is
+not shown to be reproduced", and the Resolver asked the person to "Set the saved regression command to
+`prove -l t/pager.t`": 10 stages, 187 s, $1.16 (bundle manifest
+`408f9cade121f6f872e31801fd05b55e60ac61a5f0adb42ee09a121410364e5e`).
+
+`prove` and PHPUnit report only an exit code, and neither was among the runners whose failing suite may
+show a repair that changes no test (`autocode_first_suite.EXIT_REPAIR_RUNNERS`: Jest, Mocha, Minitest).
+Both run the project's own test files, and the files that say which are now ones the proof holds to the
+original, as `jest.config.js` is (`autocode_suite_definition_scan`): PHPUnit's `phpunit.xml`,
+`phpunit.xml.dist` and `phpunit.dist.xml`, and prove's `.proverc`. So both are such runners now. The
+rule is unchanged: the suite failed on the original code, passes with the change, and the change is code
+alone.
+
+With the fix, the same request completes in both:
+
+| Project | Result | Bundle manifest |
+| --- | --- | --- |
+| Perl, `prove -lr t` | complete, 9 stages, 126 s, $0.86 | `86f8495ff0e3caa0e01785ea5138770cb9aa8ef260e91862e021e352f63e6979` |
+| PHP, `vendor/bin/phpunit` | complete, 9 stages, 214 s, $1.38 | `5b866cb8995448ada1f4dd881191c1e07fe8f87373c9365d34c9344fd30ff3c3` |
+
+In both, the Tester's first report was refused once and repaired in six seconds: the changed line has no
+mutation outcome in these languages, so the Tester must give its reason for the line, and its first report
+did not (Perl) or cited the test file in a form the runner does not read (PHP). Not a stop, but one more
+model call in every such run.
+
+Still open: `make test`, Maven, Gradle and CMake report only an exit code too, and a recipe or a build
+file can run anything, so a repair with no test change there still needs a changed test.
+
 ## Also seen, not yet run on real models
 
 - **Claude Code refuses to edit some directories inside the stage's own directory.** With Edit and

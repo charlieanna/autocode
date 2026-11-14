@@ -428,8 +428,10 @@ def repaired_by_flip(base_suite, on_base_with_tests, on_candidate):
 # autocode_jest_tests) and run the project's test files themselves, so what such a suite
 # runs is decided by its test files and the manifests and runner configs the definition scan pins
 # (autocode_verify._base_suite_definition). ``make test`` and a script package.json names run anything a
-# recipe says, which that scan does not read, so they are left out.
-EXIT_REPAIR_RUNNERS = frozenset({"jest", "mocha", "minitest"})
+# recipe says, which that scan does not read, so they are left out. PHPUnit runs the tests its configuration
+# file names and ``prove -lr t`` the ``.t`` files under ``t/`` with the options of a ``.proverc``; both
+# files are runner configs of that scan.
+EXIT_REPAIR_RUNNERS = frozenset({"jest", "mocha", "minitest", "phpunit", "prove"})
 
 
 def exit_repair_suite(framework, suite, adopted) -> bool:
