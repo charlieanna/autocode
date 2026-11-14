@@ -44,6 +44,17 @@ SETTING_BLIND: Final = "blind_tests"
 BUILD_STAGES = ("builder", "orchestrator")
 
 
+def verification_attempts(state: RunState) -> int:
+    """Spent local checks, including archived ones; no model attempt or retry authority."""
+    saved = state.get(KEY) or {}
+    rows = [*(saved.get("verification_retries") or []), saved.get("verification_retry") or {}]
+    return sum(
+        row["attempts"]
+        for row in rows
+        if isinstance(row, dict) and type(row.get("attempts")) is int and row["attempts"] > 0
+    )
+
+
 def is_blind(state: RunState) -> bool:
     return bool((state.get("settings") or {}).get(SETTING_BLIND))
 

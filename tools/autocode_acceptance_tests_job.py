@@ -52,6 +52,7 @@ try:
     from . import autocode_acceptance_provenance as provenance
     from . import autocode_acceptance_reference as reference
     from . import autocode_acceptance_tests as acceptance
+    from . import autocode_acceptance_verification_retry as verification_retry
     from . import autocode_go_test_prerequisites as go_prerequisites
     from . import autocode_handoff_dedup as handoff
     from . import autocode_run_status as run_status
@@ -66,6 +67,7 @@ except ImportError:
     import autocode_acceptance_provenance as provenance
     import autocode_acceptance_reference as reference
     import autocode_acceptance_tests as acceptance
+    import autocode_acceptance_verification_retry as verification_retry
     import autocode_go_test_prerequisites as go_prerequisites
     import autocode_handoff_dedup as handoff
     import autocode_run_status as run_status
@@ -589,6 +591,10 @@ def apply(
                 skipped=error.skipped,
             ) from error
         if isinstance(error, ReferenceEvidenceRequired):
+            if verification_retry.retain(state, value, record, workspace, error):
+                return
+            if (state.get(acceptance.KEY) or {}).get(verification_retry.KEY):
+                raise
             remedy = (
                 "The approved plan and retained tests are unchanged. Original-reference verification remains "
                 "required; this execution gap is not a Requirements or plan question."
@@ -611,6 +617,7 @@ def apply(
             next_stage=STAGE,
         )
         return
+    verification_retry.finish(state)
     already = {row["case_id"]: row for row in value["already_passing"] if row["case_id"] not in inherited}
     if already:
         names = {row["case_id"]: row["test_name"] for row in value["tests"] if row["case_id"] in already}
