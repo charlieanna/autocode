@@ -2234,7 +2234,21 @@ runner names its tests keeps naming them: a command guard there is refused when 
 plan is drafted (<code>tools/autocode_command_guards.py</code>, owner decision 2026-11-13).</p>
 <p>A repair whose regression test the project already had changes no test. Where the runner
 names its tests, the tests that fail on the original code and pass with the change are
-the proof. A Mocha suite, Minitest files, PHPUnit, Perl's <code>prove</code>, Maven, Gradle, a test script the approved plan names, and a
+the proof. Code that cannot be loaded at all (a syntax error, merge conflict markers left
+in a file) lets no test run, so there the proof is the tests the original code could not
+load (owner decision, 2026-11-14: existing tests that now pass prove such a fix). The base
+suite must itself name the modules it could not load, the change must modify and delete no
+test file, the whole suite must load with the change, nothing may fail that did not already
+run and fail on the original code, and every one of those modules must have a test the
+project already had that passes now, so code that never had a test is not proved by the
+change's tests alone. The tests that could not run on the original code and pass with the change are
+then the proof, listed as not run on the original code, and the modules count as repaired,
+so the base's collection errors leave nothing unproven. A change may add test files of its
+own: their tests cannot run on such code either, so they count in the same way
+(<code>tools/autocode_first_suite.py</code>, <code>loaded</code> and <code>reloaded</code>). A change that edits one of the
+project's test files is judged as before, and so is any change to code that loads: a bug
+fix's new test must run and fail
+on the original code. A Mocha suite, Minitest files, PHPUnit, Perl's <code>prove</code>, Maven, Gradle, a test script the approved plan names, and a
 Jest command AutoCode leaves as written report only an exit code, so there the suite shows the repair as a whole: it
 failed on the original code and passes with the change. That counts when the change is
 code alone and touches no test, and the suite's own files (its tests, manifests and
