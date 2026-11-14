@@ -982,6 +982,52 @@ With section 33's fix, each a bug fix with a regression test, with one plan appr
 | Go, "add the case to the table" of one table-driven test with no subtests | complete, 10 stages, 157 s, $1.10; one criterion, `test: TestPageCount`, an existing test that fails on the original code with the new row | `88cfbebb4b2326d6dca8195ed47ab6688e60ff4c3a2c0745989a6c11d42e241a` |
 | Node, a directory and files with spaces in their names (`Paging Tools/page count.js`) | complete, 10 stages, 200 s, $1.55 | `5c7f6eec6ff39461beeec724aef20fe896bd8b594591bf7dc630d47d0362dd19` |
 
+## 35. A source file that is not UTF-8: the proof stops the run (fixed)
+
+Four more tasks, with section 33's fix:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| A new command that must be an executable file with a shebang, and a test that runs it | complete, 8 stages, 161 s, $0.87; the file is mode 755 | `0e87088f4d89c01a226e1a60b5d899847390ff311180c807054b1ef8f4359fec` |
+| A security report: a file name that leaves the public directory (`..`, an absolute path, a symlink) | complete, 8 stages, 185 s, $1.05; five new tests, three guards | `cfaece8a1edfef7f85befbd6bdf29bfe2adf25ccf0a6710e7412a1700a73bca6` |
+| A bug fix in a Python file that is Latin-1 (declared as PEP 263 asks) and must stay Latin-1 | `PAUSED_INVALID_OUTPUT` after the Builder, 5 stages, 120 s, $0.50 | `278bd3ba6e339dfb625d47dd8247d90783b6d933f784f15c73fa755a2ec6c421` |
+| A change that must add a binary file (a gzip fixture a new test reads) | `PAUSED_INVALID_OUTPUT`, 11 stages, 334 s, $1.92; section 36 | `74149d6a79936319ab43f69d81220fc7a3c145930e3947a27071b776a9931bed` |
+
+**Latin-1.** The Builder's change was right and the file was still Latin-1. The regression proof then
+stopped with "'utf-8' codec can't decode byte 0xe1 in position 151: invalid continuation byte": to find
+the changed lines it read the product's `git diff` as UTF-8 text (`autocode_diff_coverage.product_diff`).
+The person was told "A stage returned output the runner could not accept as a report" and offered a
+resume, which stops at the same place.
+
+Fixed: the diff is read for its hunk headers alone, so a byte that is not UTF-8 is replaced and never
+stops the proof. Resumed with the fix, the stopped run completes: proof `PASS`, Tester and Completion
+Reviewer pass, `greetings.py` still Latin-1, $1.06 in all. Three more places read such a diff as UTF-8:
+
+- the change a person is shown (the status view's `code_checkpoints` diffs) said "Binary file changed."
+  for the Latin-1 file. It now shows the changed lines, with a note and U+FFFD for each such byte;
+- `autocode bundle --with-diff` stopped with the same decode error. The diff's bytes are now kept as they are;
+- `autocode unattended --analyze` stopped the same way. Its report now shows such a byte as U+FFFD.
+
+## 36. A reviewer's wrong check that the Tester cannot change: the person is asked (open)
+
+The binary-fixture task of section 35. The change was right: `logcount.py` reads `.gz` files, the fixture
+is a real gzip file, and the proof passed. The stop came from a criterion that is checked by reading,
+"the new test only reads the committed file":
+
+1. The Tester cited the test file as its evidence, which the runner does not verify, and the report repair
+   (which has no tools) marked the criterion not verified.
+2. The Completion Reviewer handed the Tester a validate task and wrote the check for it itself:
+   ``assert 'write' not in s and 'wb' not in s and 'gzip' not in s and 'open(' not in s`` over the test file.
+   The approved test name, `test_ac1_counts_the_lines_of_a_gzip_log`, contains "gzip".
+3. The Tester ran a better check of its own (the file's syntax tree has no call that writes) and reported
+   `PASS`. The runner replayed the Completion Reviewer's step, which exits 1, and refused the report.
+4. The Investigator found the step at fault, with a probe the runner confirmed, and could only pause:
+   "Will you have the plan author (review_completion) replace that step with a check aimed at actual
+   write/create code?"
+
+A Tester cannot change a step of its task, and nothing sends a wrong step back to the stage that wrote it.
+Not fixed here.
+
 ## Also seen, not yet run on real models
 
 - **Claude Code refuses to edit some directories inside the stage's own directory.** With Edit and

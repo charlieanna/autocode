@@ -57,7 +57,10 @@ def product_diff(workspace, base, files, *, env=None) -> str:
             command = ["git", "-C", root, "diff", "--no-index", *DIFF_OPTIONS, "--", os.devnull, path]
         else:
             command = ["git", "-C", root, "diff", *DIFF_OPTIONS, base, "--", path]
-        chunks.append(subprocess.run(command, capture_output=True, text=True, env=environment).stdout)
+        # A file that is not UTF-8 (Latin-1 source, say) still has line numbers: only the hunk headers
+        # are read, so its other bytes are replaced, never a reason to stop the proof.
+        completed = subprocess.run(command, capture_output=True, env=environment)
+        chunks.append(completed.stdout.decode("utf-8", "replace"))
     prefix = str(Path(workspace).resolve()) + "/"
     return "\n".join(chunk.replace(prefix, "") for chunk in chunks if chunk)
 

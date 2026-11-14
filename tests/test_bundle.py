@@ -161,6 +161,12 @@ class BundleTests(unittest.TestCase):
             json.loads((self.run / "state.json").read_text())["base_commit"], manifest["notes"]["diff_base"]
         )
 
+    def test_with_diff_keeps_the_bytes_of_a_file_that_is_not_utf8(self):
+        # A Latin-1 source file: the bundle stopped with "'utf-8' codec can't decode byte 0xe9".
+        (self.workspace / "app.py").write_bytes('NAME = "Jos\u00e9"\n'.encode("latin-1"))
+        files, _manifest = self.collect(with_diff=True)
+        self.assertIn(b'+NAME = "Jos\xe9"\n', files["diff.patch"])
+
     def test_an_archived_runs_bundle_takes_the_project_and_diffs_its_kept_branch(self):
         """clean-worktrees copies a finished worktree's records to PROJECT/.autocode/archive/TREE (#2377)."""
         git(self.workspace, "checkout", "-qb", "autocode/task-1")
