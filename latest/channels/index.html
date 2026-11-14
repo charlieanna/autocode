@@ -1044,6 +1044,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#many-issues-at-once" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Many issues at once
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-rules-the-bridge-keeps" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1836,6 +1847,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#many-issues-at-once" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Many issues at once
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-rules-the-bridge-keeps" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1878,7 +1900,7 @@
 
 
 <h1 id="channel-bridge-github-issues-as-the-front-door">Channel bridge: GitHub issues as the front door<a class="headerlink" href="#channel-bridge-github-issues-as-the-front-door" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/9fcaad28adc6dc4271214735f664024472a67049/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/de30ff56c83473f7b027b328bb9dc6b731722963/README.md">← Back to README</a></p>
 <p>The channel bridge runs <code>autocode bridge</code> on the same persistent Linux host as
 the core. A team member opens an issue with the bridge label; the bridge starts
 a <strong>durable</strong> run (it survives the bridge, the terminal and the SSH session).
@@ -1935,6 +1957,10 @@ autocode bridge run       # the daemon; one per host (a lock file refuses a seco
 <td>seconds between polls (default 10).</td>
 </tr>
 <tr>
+<td><code>AUTOCODE_BRIDGE_MAX_ACTIVE</code></td>
+<td>the most bridged runs in flight at once, a whole number from 1. Unset, every labeled issue starts as soon as it is seen. See <a href="#many-issues-at-once">Many issues at once</a>.</td>
+</tr>
+<tr>
 <td><code>AUTOCODE_BRIDGE_OPEN_PR</code></td>
 <td><code>1</code> to also push the branch and open the draft PR on completion; the default only prepares it.</td>
 </tr>
@@ -1965,6 +1991,32 @@ autocode bridge run       # the daemon; one per host (a lock file refuses a seco
 <li>On completion the bridge commits the change on the run's branch and
    prepares the evidence pull request (and opens it when configured).</li>
 </ol>
+<h2 id="many-issues-at-once">Many issues at once<a class="headerlink" href="#many-issues-at-once" title="Permanent link">&para;</a></h2>
+<p>Label as many issues as you like. With <code>AUTOCODE_BRIDGE_MAX_ACTIVE=2</code> the bridge
+works on two at a time and queues the rest: a queued issue gets one comment
+saying it waits, and starts when an issue in progress finishes or stops, lowest
+issue number first. Each issue still has its own run, branch, conversation and
+pull request.</p>
+<ul>
+<li><strong>What holds a slot.</strong> An issue holds its slot from the start of its run until
+  that run is delivered, stops with nothing left to ask, or can no longer be
+  resumed. A run waiting for your answer or approval keeps its slot, so the
+  number of issues asking for you at once is bounded too. A start the bridge
+  refused holds none.</li>
+<li><strong>What the limit does not do.</strong> It only decides when a queued issue starts.
+  Your answer or approval always continues its own run, and a follow-up on a
+  delivered issue takes a slot again, so more runs than the limit can be in
+  flight for a while; no new issue starts until the count is back under it.</li>
+<li><strong>Queued issues.</strong> Only an issue that is still open and still carries the label
+  starts; remove the label to take it off the queue. Comments written while it
+  waited cannot answer its run. <code>autocode bridge status</code> lists it with the gate
+  <code>queued</code>, and <code>autocode bridge check</code> prints the limit.</li>
+<li><strong>A run whose state can no longer be read</strong> counts as it did when it was last
+  read; remove its record to free a slot it still holds.</li>
+</ul>
+<p>Unset, the bridge behaves as before the limit existed. Removing the limit later
+starts every issue still queued. There is no total cost cap across issues yet:
+each run keeps the cap its launch options give it.</p>
 <h2 id="the-rules-the-bridge-keeps">The rules the bridge keeps<a class="headerlink" href="#the-rules-the-bridge-keeps" title="Permanent link">&para;</a></h2>
 <p>The bridge is a client of the <a href="../task-run/">task-run interface</a>, exactly like
 the terminal chat and the headless conformance client:</p>
@@ -2006,7 +2058,8 @@ in the project's <code>.autocode/issues</code>, so a person can always pick a ru
 <code>autocode chat --run-dir ...</code> or <code>autocode issue status N</code> on the host.</p>
 <p>A refused start (durable execution unavailable, a missing engine, a leftover
 branch) is posted to the issue and recorded with its reason; the bridge does
-not retry it automatically. Remove the record to let it try again.</p>
+not retry it automatically. Remove the record to let it try again. Under a
+limit, a refused start's slot goes to the next queued issue in the same poll.</p>
 
 
 
