@@ -15,6 +15,7 @@ import unittest
 from pathlib import Path
 
 import autocode_taskrun as taskrun
+from providers import claude
 
 from tests import test_subprocess
 
@@ -123,7 +124,11 @@ class ClaudeProviderCliTests(unittest.TestCase):
         self.assertNotIn("Traceback", "\n".join(lines))
 
     def test_a_truncated_builder_stops_at_the_output_cap(self):
-        """Acceptance (output truncation): a Builder cut at Claude's output limit stops for a person."""
+        """Acceptance (output truncation): a Builder cut at Claude's output limit on every model stops for a person.
+
+        The runner moves a cut Builder to its stronger model once on its own (#3522); this test still expected
+        the single launch from before that. Cut there too, the run stops and never launches a third.
+        """
         self.env["AUTOCODE_FIXTURE_TRUNCATE_STAGE"] = "builder"
         run = self.start()
         view = self.finish(run, run.status())
@@ -131,7 +136,13 @@ class ClaudeProviderCliTests(unittest.TestCase):
         self.assertIn("output token limit", view["stop_reason"])
         self.assertIn("CLAUDE_CODE_MAX_OUTPUT_TOKENS", view["stop_reason"])
         builder = [call for call in self.prints() if call["prompt_head"].startswith("You are the Builder")]
-        self.assertEqual(1, len(builder))
+        models = [call["argv"][call["argv"].index("--model") + 1] for call in builder]
+        self.assertEqual([claude.HAIKU, claude.BUILDER_RETRY["strong_model"]], models)
+        switched = [row for row in view["route_assignments"] if row["role"] == "builder"]
+        self.assertEqual(
+            [("runner", claude.HAIKU, claude.BUILDER_RETRY["strong_model"], "PAUSED_OUTPUT_CAP")],
+            [tuple(row[key] for key in ("actor", "from", "to", "pause_status")) for row in switched],
+        )
 
     def test_a_truncated_validator_report_is_repaired_without_replaying_checks(self):
         """Acceptance (output truncation): the Tester's partial report is repaired, its checks never rerun."""
