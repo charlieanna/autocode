@@ -203,6 +203,41 @@ class StageChoiceTests(unittest.TestCase):
                 choices.choose("claude", picks, **self.kw)
         self.assertFalse(self.file.exists())
 
+    def test_a_saved_choice_returns_its_validated_catalogue_without_discovering_again(self):
+        def listing(provider, workspace):
+            if discover.call_count > 1:
+                raise RuntimeError("second catalogue unavailable")
+            # Preserve every choice read at save time, even when another role was
+            # saved while discovery was running. Its model still constrains the view.
+            choices.save({"opencode": {"tester": {"model": "openai/gpt-6-sol", "effort": "high"}}}, self.file)
+            return LISTING
+
+        discover = mock.Mock(side_effect=listing)
+
+        current = choices.choose(
+            "opencode",
+            {"task_planner": ("opencode/plain", choices.OWN_DEFAULT)},
+            **{**self.kw, "discover": discover},
+        )
+        self.assertIsNone(current["options_stop"], "an accepted save must not depend on a second discovery")
+        self.assertEqual(1, discover.call_count)
+        saved = choices.load(self.file)["opencode"]
+        self.assertEqual({"model": "opencode/plain", "effort": None}, saved["task_planner"])
+        self.assertEqual(saved["task_planner"], self.stage(current, "task_planner")["chosen"])
+        self.assertEqual(saved["tester"], self.stage(current, "tester")["chosen"])
+        builder = {row["model"]: row for row in self.stage(current, "builder")["options"]}
+        self.assertIn("the Tester checks", builder["openai/gpt-6-sol"]["unavailable"])
+        self.assertEqual(["low", "high", "max"], builder["zai-coding-plan/glm-5.3"]["effort_choices"])
+        # A later operation still discovers afresh and refuses an unavailable backend.
+        before = self.file.read_bytes()
+        with self.assertRaisesRegex(ValueError, "second catalogue unavailable"):
+            choices.choose(
+                "opencode",
+                {"task_planner": ("opencode/plain", choices.OWN_DEFAULT)},
+                **{**self.kw, "discover": discover},
+            )
+        self.assertEqual(before, self.file.read_bytes())
+
     def test_a_builder_and_its_checkers_can_swap_models_in_one_change(self):
         choices.choose("claude", {"builder": (SONNET, "medium"), "tester": (OPUS, "high")}, **self.kw)
         swap = {"builder": (OPUS, "low"), "tester": (SONNET, "high"), "completion": (HAIKU, "medium")}
@@ -389,6 +424,24 @@ class StagesCommandTests(unittest.TestCase):
         self.assertIn(f"Planner: {SONNET} at medium (default)", out)
         self.assertEqual(0, self.run_cli("reset", "builder", "--backend", "claude")[0])
         self.assertEqual({"tester"}, set(choices.load()["claude"]))
+
+    def test_set_json_keeps_the_catalogue_that_validated_the_saved_choice(self):
+        with mock.patch.object(
+            choices.route_discovery, "discover", side_effect=[LISTING, RuntimeError("catalogue went away")]
+        ) as discover:
+            code, out, err = self.run_cli(
+                "set", "tester", "--model", "openai/gpt-6-sol", "--effort", "high", "--backend", "opencode", "--json"
+            )
+        self.assertEqual(0, code, err)
+        current = json.loads(out)
+        self.assertIsNone(current["options_stop"])
+        self.assertEqual(1, discover.call_count)
+        by_id = {stage["id"]: stage for stage in current["stages"]}
+        self.assertEqual(choices.load()["opencode"]["tester"], by_id["tester"]["chosen"])
+        self.assertEqual({"model": "openai/gpt-6-sol", "effort": "high"}, by_id["tester"]["chosen"])
+        builder = {row["model"]: row for row in by_id["builder"]["options"]}
+        self.assertIn("the Tester checks", builder["openai/gpt-6-sol"]["unavailable"])
+        self.assertTrue(by_id["tester"]["reset"]["next_command"])
 
     def test_set_moves_checker_and_producer_together_where_one_at_a_time_cannot(self):
         # #3312: from the defaults (Builder Haiku, Tester Sonnet, Completion Reviewer Opus) to Builder Sonnet with

@@ -491,7 +491,8 @@ def choose(backend, picks, workspace=None, *, file=None, resolve=None, discover=
     for role, (model, effort) in picks.items():
         every.setdefault(backend, {})[role] = {"model": model, "effort": None if effort == OWN_DEFAULT else effort}
     save(every, file)
-    return view(backend, workspace, file=file, resolve=resolve, discover=discover)
+    # Returning a successful save must not depend on a second backend discovery.
+    return _build(backend, file, every.get(backend, {}), fallback, options, stop)
 
 
 def _check(backend, picks, saved, fallback, options, stop) -> dict:
