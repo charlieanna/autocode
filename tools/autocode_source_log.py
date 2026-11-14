@@ -33,11 +33,13 @@ try:
     from . import autocode_linked_designs as linked_designs
     from . import autocode_linked_issues as linked_issues
     from . import autocode_requirements_chat as requirements_chat
+    from . import autocode_requirements_review as requirements_review
 except ImportError:
     import autocode_conversation as conversation
     import autocode_linked_designs as linked_designs
     import autocode_linked_issues as linked_issues
     import autocode_requirements_chat as requirements_chat
+    import autocode_requirements_review as requirements_review
 
 KEY: Final = "source_log"
 
@@ -105,6 +107,8 @@ def save_answer(state: RunState, question_id, event):
     Only a user's own answer is a brief source: delegated defaults, permission
     answers and checkpoint answers are quotable elsewhere but were never part of
     brief_obligations.sources()."""
+    if event.get("kind") == "answer" and str(question_id).startswith(requirements_review.PREFIX):
+        requirements_chat.retain_reply(state, event)
     state.setdefault("answers", {})[question_id] = event
     if KEY not in state or event.get("kind") != "answer" or event.get("actor") != "user_cli":
         return
