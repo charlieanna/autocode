@@ -30,10 +30,12 @@ import hashlib
 
 try:
     from . import autocode_conversation as conversation
+    from . import autocode_linked_designs as linked_designs
     from . import autocode_linked_issues as linked_issues
     from . import autocode_requirements_chat as requirements_chat
 except ImportError:
     import autocode_conversation as conversation
+    import autocode_linked_designs as linked_designs
     import autocode_linked_issues as linked_issues
     import autocode_requirements_chat as requirements_chat
 
@@ -45,7 +47,11 @@ def _record(ident, kind, text):
 
 
 def _existing_linked_ids(state: RunState) -> set[str]:
-    return {row["id"] for row in sources(state) or () if row.get("kind") == linked_issues.LINKED_ISSUE_KIND}
+    return {
+        row["id"]
+        for row in sources(state) or ()
+        if row.get("kind") in (linked_issues.LINKED_ISSUE_KIND, linked_designs.LINKED_DESIGN_KIND)
+    }
 
 
 def _append_linked_issues(state: RunState, parent_id: str, text: str) -> None:
@@ -54,6 +60,8 @@ def _append_linked_issues(state: RunState, parent_id: str, text: str) -> None:
         return
     seen = _existing_linked_ids(state)
     state[KEY].extend(linked_issues.fetch_linked_records(workspace, parent_id, text, existing_ids=seen))
+    seen = _existing_linked_ids(state)
+    state[KEY].extend(linked_designs.fetch_linked_records(workspace, parent_id, text, existing_ids=seen))
 
 
 def task_records(task):
@@ -129,6 +137,19 @@ def _linked_issue_authentic(record: dict, live: dict) -> bool:
     return False
 
 
+def _linked_design_authentic(record: dict, live: dict) -> bool:
+    parent = live.get(record.get("parent_id"))
+    path = record.get("path")
+    if not isinstance(parent, dict) or not isinstance(path, str):
+        return False
+    text = record.get("text") or ""
+    if hashlib.sha256(text.encode()).hexdigest() != record.get("sha256"):
+        return False
+    if record.get("id") != linked_designs.source_id(path):
+        return False
+    return path in linked_designs.extract_paths(parent["text"])
+
+
 def _live_records(state: RunState):
     log = records(state)
     if log is None:
@@ -152,6 +173,8 @@ def _live_records(state: RunState):
             found = isinstance(saved, dict) and saved.get("text") == text
         elif kind == linked_issues.LINKED_ISSUE_KIND:
             found = _linked_issue_authentic(record, live)
+        elif kind == linked_designs.LINKED_DESIGN_KIND:
+            found = _linked_design_authentic(record, live)
         else:
             # Task texts are immutable once logged; a follow-up's rewrite of
             # state["task"] is exactly what the log protects them from.
@@ -181,4 +204,14 @@ def linked_issue_records(state: RunState) -> list[dict]:
         {key: row[key] for key in ("id", "kind", "url", "fetched_at", "sha256", "text") if key in row}
         for row in live
         if row.get("kind") == linked_issues.LINKED_ISSUE_KIND
+    ]
+
+
+def linked_design_records(state: RunState) -> list[dict]:
+    """Authenticated live workspace design-document records named by user messages."""
+    live = _live_records(state) or []
+    return [
+        {key: row[key] for key in ("id", "kind", "path", "sha256", "text") if key in row}
+        for row in live
+        if row.get("kind") == linked_designs.LINKED_DESIGN_KIND
     ]

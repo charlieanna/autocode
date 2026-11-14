@@ -127,7 +127,12 @@ def _accept(state: RunState, value: dict, record: dict, *, check_code_refs, queu
     if previous:
         state.setdefault("requirements_history", []).append(copy.deepcopy(previous))
     goals.check_requirement_handoff(state, value)
-    input_refs = {"task", *state.get("answers", {}), *(row["id"] for row in source_log.linked_issue_records(state))}
+    input_refs = {
+        "task",
+        *state.get("answers", {}),
+        *(row["id"] for row in source_log.linked_issue_records(state)),
+        *(row["id"] for row in source_log.linked_design_records(state)),
+    }
     input_refs.update(event["id"] for event in state.get("user_events", []) if event.get("id"))
     # External design/spec references may accompany local inspection evidence;
     # they are not filesystem paths and do not satisfy the source-inspection gate.

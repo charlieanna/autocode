@@ -580,14 +580,51 @@ def check(value: dict, changed_files) -> None:
             raise ValueError("A retry must cite the files it relied on in evidence_refs")
 
 
+def _origin_run_dir(run_dir: Path | None) -> Path | None:
+    """Authenticated pre-move run directory when ``run_dir`` moved into a task worktree (#3219)."""
+    if run_dir is None:
+        return None
+    state_file = run_dir / "state.json"
+    try:
+        if run_dir.is_symlink() or state_file.is_symlink() or not state_file.is_file():
+            return None
+        current = json.loads(state_file.read_text(encoding="utf-8"))
+        record = current.get("build_worktree") if isinstance(current, dict) else None
+        if not isinstance(record, dict) or record.get("state") != "building":
+            return None
+        source = (record.get("moved_from") or {}).get("run_dir")
+        if not isinstance(source, str) or not Path(source).is_absolute():
+            return None
+        origin = Path(source)
+        origin_state_file = origin / "state.json"
+        if origin.is_symlink() or origin_state_file.is_symlink() or not origin_state_file.is_file():
+            return None
+        origin_state = json.loads(origin_state_file.read_text(encoding="utf-8"))
+        origin_record = origin_state.get("build_worktree") if isinstance(origin_state, dict) else None
+        moved_to = origin_record.get("moved_to") if isinstance(origin_record, dict) else None
+        if (
+            not isinstance(origin_record, dict)
+            or origin_record.get("state") != "moved"
+            or not isinstance(moved_to, dict)
+            or Path(str(moved_to.get("run_dir") or "")).resolve() != run_dir
+        ):
+            return None
+        return origin.resolve()
+    except (OSError, ValueError, TypeError):
+        return None
+
+
 def cited_files(value: dict, workspace, run_dir) -> dict[str, Path]:
     """Resolve evidence_refs; return the run-directory ones as {run/<file name>: source file}.
 
-    A ref is a repository path, a path under this run's directory (relative or absolute), optionally
-    with a ``:line`` suffix. Raises ValueError naming refs that do not exist or lie elsewhere.
+    A ref is a repository path, a path under this run's directory (or its authenticated pre-worktree
+    origin run directory), optionally with a ``:line`` suffix. Raises ValueError naming refs that do
+    not exist or lie elsewhere.
     """
     workspace = Path(workspace).resolve()
     run_dir = Path(run_dir).resolve() if run_dir else None
+    origin_dir = _origin_run_dir(run_dir)
+    run_roots = [root for root in (run_dir, origin_dir) if root is not None]
     copies: dict[Any, Any] = {}
     missing: list[Any] = []
     for raw in value["evidence_refs"]:
@@ -595,13 +632,13 @@ def cited_files(value: dict, workspace, run_dir) -> dict[str, Path]:
         if not text:
             continue
         ref = Path(text.rsplit(":", 1)[0] if ":" in text and text.rsplit(":", 1)[1].isdigit() else text)
-        candidates = [ref] if ref.is_absolute() else [workspace / ref, *([run_dir / ref] if run_dir else [])]
+        candidates = [ref] if ref.is_absolute() else [workspace / ref, *(root / ref for root in run_roots)]
         found = next((c for c in candidates if c.is_file()), None)
         if found is None:
             missing.append(text)
             continue
         found = found.resolve()
-        if run_dir and found.is_relative_to(run_dir):
+        if any(found.is_relative_to(root) for root in run_roots):
             # At run/<file name>, as the prompt says, wherever the file sits: a rejected output
             # is moved into an archived-* directory before the Investigator runs.
             if copies.setdefault("run/" + found.name, found) != found:

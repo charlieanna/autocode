@@ -37,12 +37,14 @@ import json
 
 try:
     from . import autocode_prompts as prompts
+    from . import autocode_requirements_report as requirements_report
     from . import autocode_roles as role_names
     from . import autocode_route_fit as route_fit
     from . import autocode_util as util
     from . import autocode_workflows as workflows
 except ImportError:
     import autocode_prompts as prompts
+    import autocode_requirements_report as requirements_report
     import autocode_roles as role_names
     import autocode_route_fit as route_fit
     import autocode_util as util
@@ -137,18 +139,32 @@ def tolerant(full: dict) -> dict:
     return relaxed
 
 
-def validate_application(state: RunState, stage, value, checked, *, schema_for, validate):
+def validate_application(state: RunState, stage, value, checked=None, *, schema_for, validate):
     """Apply the existing report contract without putting triage policy in the controller.
 
     A small triage answer was already validated by the report loader; the handoff
     still rejects one that is neither ready nor a question. A drafted report keeps
     the full contract, allowing only the optional ready field during triage.
     """
+    if stage == STAGE and isinstance(value, dict):
+        backfilled = requirements_report.backfill_assumption_text(value)
+        if backfilled is not value:
+            value["proposed_assumptions"] = backfilled["proposed_assumptions"]
+    if checked is None:
+        checked = value
+        if stage == STAGE and isinstance(value, dict) and isinstance(value.get("proposed_assumptions"), list):
+            checked = {
+                **value,
+                "proposed_assumptions": [row for row in value["proposed_assumptions"] if not isinstance(row, str)],
+            }
+    elif stage == STAGE and isinstance(checked, dict):
+        checked = requirements_report.backfill_assumption_text(checked)
     triaging = stage == STAGE and due(state)
     if triaging and is_answer(value):
-        return
+        return value
     schema = schema_for(state, stage)
     validate(checked, tolerant(schema) if triaging else schema)
+    return value
 
 
 def prompt(state: RunState, inventory, engine) -> str:
