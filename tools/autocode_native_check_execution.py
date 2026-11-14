@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 try:
     from . import autocode_command_supervision as supervision
     from . import autocode_go_tests as go_tests
+    from . import autocode_jest_tests as jest_tests
     from . import autocode_native_check_runtime as check_runtime
     from . import autocode_native_launch as native_launch
     from . import autocode_native_linux_check as linux_check
@@ -41,6 +42,7 @@ try:
 except ImportError:
     import autocode_command_supervision as supervision
     import autocode_go_tests as go_tests
+    import autocode_jest_tests as jest_tests
     import autocode_native_check_runtime as check_runtime
     import autocode_native_launch as native_launch
     import autocode_native_linux_check as linux_check
@@ -255,6 +257,8 @@ class NativeCheckExecution:
             actual = node_tests.instrument(command, xml)
         elif vitest_tests.command_words(command, tree):
             actual = vitest_tests.instrument(command, xml, tree)
+        elif jest_tests.command_words(command, tree):
+            actual = jest_tests.instrument(command, xml, tree)
         elif framework == "pytest" and " -m pytest" in command:
             actual = f"{command} --junitxml={shlex.quote(str(xml))}"
         elif framework == "go" and (invocation := go_tests.parse(command)):

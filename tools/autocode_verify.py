@@ -745,7 +745,7 @@ def run_command(
 def _with_results(framework, command, xml_path, tree=None, *, scripts=True):
     """``command`` asking its runner for per-test results. ``scripts`` false leaves an ``npm test`` whose
     script is node's own test runner as written (a native check runs exactly the command it planned)."""
-    if instrumented := reporters.instrument(command, xml_path, tree if scripts else None):
+    if instrumented := reporters.instrument(command, xml_path, tree if scripts else None, tree):
         return instrumented
     if vitest_tests.command_words(command, tree):
         return vitest_tests.instrument(command, xml_path, tree)
@@ -765,7 +765,7 @@ def expects_results(framework, command, tree=None, *, scripts=True):
     """True when this command, run by the runner, must yield per-test results."""
     if framework is not None and framework.name == "junit":
         return bool(command)
-    if reporters.reports(command, tree if scripts else None):
+    if reporters.reports(command, tree if scripts else None, tree):
         return True
     if vitest_tests.command_words(command, tree):
         return True
@@ -796,11 +796,11 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
     Node and Vitest report as a collection error executed and is judged like any
     other failing test, so it is not in ``uncollected``.
     """
-    if read := reporters.reader(xml_path, receipt):
+    if read := reporters.reader(xml_path, receipt, tree):
         return read(xml_path)
     if str(xml_path).endswith(".vitest.json"):
         return vitest_tests.results(xml_path, tree)
-    if not framework or not framework.per_test or framework.name in ("node", "vitest", "cargo"):
+    if not framework or not framework.per_test or framework.name in ("node", "vitest", "jest", "cargo"):
         return None
     if framework.name == "go":
         invocation = go_tests.parse(package_scope.split(framework, receipt.get("command") or framework.suite)[1])
@@ -1566,7 +1566,7 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_
     package, command = package_scope.split(framework, command)  # a package's suite runs from its directory
     root = Path(tree) / package if package else tree
     scripts = native_execution is None  # a native check runs exactly the command it planned
-    extension = reporters.extension(command, root if scripts else None) or (
+    extension = reporters.extension(command, root if scripts else None, root) or (
         "vitest.json" if vitest_tests.command_words(command, root) else "junit.xml"
     )
     xml = Path(evidence_dir) / f"{label}.{extension}"

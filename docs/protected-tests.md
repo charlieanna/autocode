@@ -67,7 +67,7 @@ the person:
   it fails on the original code and passes with the change.
 - The original suite still runs as above. Its failure is accepted only when the
   runner reported complete per-test results (unittest, pytest, Go, `node:test`,
-  Vitest or RSpec, also when the suite is the project's `npm test`), nothing
+  Vitest, Jest or RSpec, also when the suite is the project's `npm test`), nothing
   failed to collect, and every failing test is a listed one in a file the change
   edited. Any other failing original test, a crash, a timeout or a runner without
   per-test results keeps the gate closed, as before.
