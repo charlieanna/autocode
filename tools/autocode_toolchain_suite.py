@@ -51,6 +51,12 @@ TOOLCHAIN_ROOTS = frozenset(
 PHPUNIT_CONFIGS = frozenset(project_kinds.PHPUNIT_CONFIGS)
 PHPUNIT_PACKAGE = "phpunit/phpunit"
 PHPUNIT_SUITE = "vendor/bin/phpunit"
+# A Makefile's ``check`` rule runs the project's tests where it has no ``test`` rule: the name the GNU
+# conventions give that target, and the one most C projects use. A C bug fix whose README said "run the
+# tests with `make check`" had no suite: the proof ended UNVERIFIED and the person was asked to "set
+# --test-command 'make check' and --regression-command 'make check'" (Claude models, 2026-11-14). In other
+# projects ``check`` is often lint alone, so it is the suite only when nothing else is detected, while a
+# ``test`` rule keeps its place before the build tools.
 # A Perl distribution's tests are the ``.t`` files of its root ``t/`` directory, run with ``prove``, which
 # comes with Perl: ``-l`` puts ``lib/`` on the module path and ``-r`` runs the ``.t`` files of every
 # directory under ``t/``, so a test file a change adds anywhere there is part of the suite on the candidate
@@ -141,7 +147,7 @@ def detect(root, files, is_test_path) -> Framework | None:
         return Framework("cargo", "cargo test")
     if "Gemfile" in files and any(project_kinds.collected_by(p) == "ruby" for p in files):
         return Framework("rspec", "bundle exec rspec", runner="bundle exec rspec")
-    if "Makefile" in files and re.search(r"^test\s*:", _read(root / "Makefile"), re.M):
+    if make_target(root, files, ("test",)):
         return Framework("make", "make test")
     if found := build_tool(root, files):
         return found
@@ -152,7 +158,18 @@ def detect(root, files, is_test_path) -> Framework | None:
     if ruby_tests(files):
         # Through Bundler when the project pins its gems, as `bundle exec rspec` is above.
         return Framework("minitest", ("bundle exec " if "Gemfile" in files else "") + RUBY_SUITE)
+    if make_target(root, files, ("check",)):
+        return Framework("make", "make check")
     return None
+
+
+def make_target(root, files, names) -> str | None:
+    """The first of ``names`` the root ``Makefile`` has a rule for, or None. A rule, never a variable
+    assigned with ``:=``."""
+    if "Makefile" not in files:
+        return None
+    text = _read(Path(root) / "Makefile")
+    return next((name for name in names if re.search(rf"^{name}[ \t]*:(?!=)", text, re.M)), None)
 
 
 def build_tool(root, files) -> Framework | None:

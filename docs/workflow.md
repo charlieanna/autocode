@@ -674,7 +674,8 @@ project (`vendor/bin/phpunit`, for a root `composer.json` with a PHPUnit configu
 `phpunit/phpunit` package), a Perl distribution's `.t` files under `t/` (`prove -lr t`, for a root
 `cpanfile`, `Makefile.PL` or `Build.PL`, or a module under `lib/`, and no `.xs` file), and a Ruby project's
 Minitest or test-unit files under `test/`, named `*_test.rb` or `test_*.rb`, run through Bundler when
-there is a `Gemfile`; Maven and Gradle run through the project's own `mvnw` or `gradlew` when it has one);
+there is a `Gemfile`; Maven and Gradle run through the project's own `mvnw` or `gradlew` when it has one;
+when none of these is found, a `Makefile`'s `check` target, `make check`);
 `--test-command` and `--regression-command` set them for a new run. With per-test results (pytest, unittest, Go, node:test, Vitest, RSpec, `cargo test`) a proof needs a named test
 that ran and failed on base and passed on the fix; a test that only fails to
 import on base is not a reproduction. Without per-test results exit codes decide.
