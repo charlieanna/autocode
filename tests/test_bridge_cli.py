@@ -333,6 +333,8 @@ class SlotRun(FakeRun):
         self.run_dir = self.workspace / ".autocode" / "runs" / f"issue-{number}"
 
     def status(self):
+        if self.state == "working":
+            return {"status": "RUNNING"}
         if self.state == "stopped":
             return {"status": "STOPPED"}
         if self.state == "unresumable":
@@ -454,6 +456,18 @@ class AdmissionTests(unittest.TestCase):
         bridge.tick()
         self.assertEqual([7, 8, 9], self.launched)
         self.assertNotIn("queued", store.load("owner", "repo", 9))
+
+    def test_an_owned_run_the_daemon_drives_to_its_end_frees_its_slot_in_that_poll(self):
+        # Found by the real-CLI end-to-end run: the slot was read before the daemon advanced an owned run.
+        launch = self.launch
+        self.launch = lambda *args, **kwargs: {**launch(*args, **kwargs), "owned": True}
+        self.runs[7].advance_until_input = lambda: setattr(self.runs[7], "state", "done")
+        bridge = self.bridge(1)
+        bridge.tick()  # 7 starts and waits on its question
+        self.assertEqual([7], self.launched)
+        self.runs[7].state = "working"
+        bridge.tick()  # the daemon drives 7 to completion, delivers it, and starts 8 in the same poll
+        self.assertEqual([7, 8], self.launched)
 
     def test_a_run_nothing_can_resume_frees_its_slot(self):
         bridge = self.bridge(1)

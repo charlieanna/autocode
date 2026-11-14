@@ -268,10 +268,7 @@ class Bridge:
             if not record["ready"]:
                 return
         view = run.status()
-        settled = admission.settled(view)
-        if record.get("settled") is not settled:
-            record["settled"] = settled  # a settled run frees its slot; a follow-up takes it again
-            store.save(record)
+        self.note_settled(record, view)
         self.relay_gate(record, run, view)
         self.consume_replies(record, run)
         if record.get("owned"):  # an owned run only moves when the daemon drives it to its next boundary
@@ -279,6 +276,13 @@ class Bridge:
                 # A no-progress stop keeps its saved boundary; the tick's caller reports it.
                 run.advance_until_input()
         self.deliver(record, run)
+
+    def note_settled(self, record: dict, view: dict) -> None:
+        """Remember whether the run still holds its slot: a settled run frees it, a follow-up takes it again."""
+        settled = admission.settled(view)
+        if record.get("settled") is not settled:
+            record["settled"] = settled
+            store.save(record)
 
     def relay_gate(self, record: dict, run, view: dict) -> None:
         result = bridge_relay.relay(view, record, worker.changeset_summary(run, view))
@@ -329,6 +333,7 @@ class Bridge:
         if record.get("pr_prepared"):
             return
         view = run.status()
+        self.note_settled(record, view)  # an owned run the daemon just drove to its end frees its slot in this poll
         if not view.get("done"):
             return
         number = record["number"]
