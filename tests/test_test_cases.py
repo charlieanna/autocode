@@ -651,6 +651,30 @@ class TitledCasesTests(unittest.TestCase):
                 self.assertEqual(cases, test_cases.titled(cases, framework, ids))
                 self.assertEqual([], test_cases.match_cases(cases, ids, framework=framework)["AC2"])
 
+    def test_a_title_runners_proof_is_told_of_guards_that_are_titles(self):
+        # Titles are bound to tests only after the suite ran, so guards that were all titles named nothing
+        # and the proof never ran the suite that holds the existing tests.
+        cases = self.refactor()
+        titles = [
+            "counts a partial last page",
+            "rejects a page size that is not positive",
+            "returns the page count for an exact multiple",
+        ]
+        for framework in ("node", "vitest", "jest", "rspec"):
+            with self.subTest(framework=framework):
+                self.assertEqual(
+                    [*titles, "test_ac5_invalid_sizes_throw_same_message"], test_cases.guard_names(cases, framework)
+                )
+                self.assertEqual(titles, test_cases.guard_names(cases[:3], framework))
+        # A runner whose tests are identifiers has only the exact names; a test: case is never a guard.
+        for framework in ("pytest", "go", None):
+            with self.subTest(framework=framework):
+                self.assertEqual(
+                    ["test_ac5_invalid_sizes_throw_same_message"], test_cases.guard_names(cases, framework)
+                )
+                self.assertEqual([], test_cases.guard_names(cases[:3], framework))
+        self.assertEqual([], test_cases.guard_names(self.cases("test: counts a partial last page"), "node"))
+
     def test_a_declaration_that_is_no_tests_title_keeps_the_criterion_id(self):
         cases = self.cases("guard: the existing tests keep passing", "guard: counts a partial")
         ids = [*self.EXISTING, "tests/pager.test.js::test_ac1_existing_behavior", "tests/pager.test.js::test_ac2_x"]
