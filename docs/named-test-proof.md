@@ -482,8 +482,18 @@ from `tools/autocode_mutants.py`).
   line within the existing mutation budget. Unrun sites stay explicit obligations.
   The older advisory collector and standalone review study retain their six-site
   sample per file. The same source and selection give the same sites.
-- **How long.** One 900-second budget, the same limit as a check replay, covers
-  one unmutated run and every mutant. Current task proofs prefer the independently
+- **How long.** Each window has a 900-second budget, the same limit as a check replay,
+  covering its unmutated run and mutants. An incomplete current task proof continues
+  its never-launched sites in further windows, within the saved stage allowance and
+  remaining run active time (#3524). The extra time is charged to the run. Each
+  completed window publishes a new proof artifact and retains the old one, its
+  captures and all attempted outcomes, including failures and timeouts. Continuation
+  requires unchanged source bytes, exact sites, test selection, commands, contract,
+  runtime and dependencies, with intact owned captures. It stops if no new site ran.
+  A later review can resume the remaining sites without repeating functional proof
+  checks; a changed context requires fresh proof. Unrun sites never count as evidence.
+  The older advisory collector and standalone review study keep one window.
+  Current task proofs prefer the independently
   observed passing regression tests by exact ID. When the regression command cannot
   select observed tests, they use the passing candidate-suite tests instead. Suite
   preservation still runs unchanged on the original and candidate code. The selected
