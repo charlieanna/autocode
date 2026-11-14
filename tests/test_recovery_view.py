@@ -592,6 +592,7 @@ class RecoveryViewTests(unittest.TestCase):
         )
         cases = [
             (self.card(self.state("PAUSED_REQUESTED")), "resume", ["--resume-paused"]),
+            (self.card(self.state("PAUSED_PROCESS_CLEANUP")), "resume", ["--resume-paused"]),
             (self.card(source_edit), "accept_source_edit", ["--resume-paused", "--accept-source-edit"]),
             (self.card(interrupted), "abandon", ["--abandon-stage", "004/builder-02"]),
             (self.card(builder), "retry_builder", ["--resume-paused", "--retry-builder", "M1"]),

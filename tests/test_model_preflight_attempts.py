@@ -416,6 +416,147 @@ class ModelPreflightAttemptTests(unittest.TestCase):
         attempts.reconcile(self.runner, self.state, self.run_dir, self.checkpoint)
         self.assert_spend(0.03, 5)
 
+    def test_uncertain_keeper_cleanup_receipt_rechecks_processes_and_sessions_on_reconcile(self):
+        # Regression for #3463: SessionScanIncomplete leaves a terminal keeper receipt with
+        # phase="uncertain" (or phase="stopped" with cleanup_error set). Once recorded processes
+        # and dedicated provider groups/sessions are confirmed gone, reconcile settles the attempt
+        # as interrupted with an audit record instead of looping on PAUSED_PROCESS_CLEANUP forever.
+        for terminal_phase, cause in (("uncertain", "provider_stopped"), ("stopped", "owner_lost")):
+            with self.subTest(phase=terminal_phase):
+                self.state["stages"] = []
+                self.state.pop("active_seconds", None)
+                self.seconds = 0.0
+                attempt = attempts.Attempt(
+                    self.runner,
+                    self.state,
+                    self.run_dir,
+                    self.adapter,
+                    self.model,
+                    self.checkpoint,
+                    lambda: self.seconds,
+                    preflight_identity=preflight._receipt_identity(self.adapter, self.identity),
+                )
+                self.write_events(attempt.directory)
+                metadata = {
+                    "schema": 1,
+                    "nonce": "b" * 32,
+                    "receipt": str(attempt.directory / "supervision.json"),
+                    "owner": {"pid": 99999981, "birth_identity": 11, "group": 99999981, "session": 99999981},
+                    "keeper": {"pid": 99999982, "birth_identity": 12, "group": 99999982, "session": 99999982},
+                    "provider": {
+                        "pid": 99999983,
+                        "birth_identity": 13,
+                        "group": 99999983,
+                        "session": 99999983,
+                        "started": "Thu Oct 15 00:00:00 2026",
+                        "birth_time": 1.0,
+                    },
+                }
+                cleanup_error = "SessionScanIncomplete: Process set changed while checking an empty admitted session"
+                receipt = {
+                    **metadata,
+                    "phase": terminal_phase,
+                    "cause": cause,
+                    "cleanup_error": cleanup_error,
+                    "observed_at": (self.epoch + dt.timedelta(seconds=4)).isoformat(),
+                    "processes": [metadata["provider"]],
+                }
+                util.atomic_json(Path(metadata["receipt"]), receipt)
+                attempt.admit(metadata)
+                self.seconds = 2.0
+                attempt.finish(error=processes.SessionScanIncomplete("cleanup scan churned"))
+                self.assertFalse(attempt.record["preflight_complete"])
+
+                # While a member or session scan remains live/incomplete, retry stays blocked.
+                with patch.object(
+                    processes,
+                    "settled_sample",
+                    side_effect=processes.SessionScanIncomplete("PID scan still churning"),
+                ):
+                    with self.assertRaises(support.Paused) as blocked:
+                        self.check()
+                    self.assertEqual("PAUSED_PROCESS_CLEANUP", blocked.exception.status)
+
+                def empty_tree(tree, *, initial=False, notify=True):
+                    tree.groups.clear()
+                    tree.sessions.clear()
+                    tree.session_admissions.clear()
+                    return []
+
+                self.seconds = 5.0
+                with (
+                    patch.object(processes, "settled_sample", side_effect=empty_tree) as sample,
+                    patch.object(preflight.transport, "execute", side_effect=self.successful_transport) as execute,
+                ):
+                    self.assertTrue(self.check())
+                    sample.assert_called_once()
+                    self.assertEqual(1, execute.call_count)
+
+                self.state = json.loads(self.state_path.read_text())
+                settled_record = self.state["stages"][0]
+                self.assertTrue(settled_record["preflight_complete"])
+                self.assertTrue(settled_record["interrupted"])
+                audit = settled_record["preflight_cleanup_settled"]
+                self.assertEqual(terminal_phase, audit["prior_phase"])
+                self.assertEqual(cleanup_error, audit["prior_cleanup_error"])
+                self.assertEqual(
+                    audit,
+                    json.loads((attempt.directory / "cleanup-settled.json").read_text()),
+                )
+                self.assert_spend(0.06, 6, count=2)
+
+    def test_uncertain_keeper_cleanup_holds_when_group_or_session_still_has_members(self):
+        attempt = attempts.Attempt(
+            self.runner,
+            self.state,
+            self.run_dir,
+            self.adapter,
+            self.model,
+            self.checkpoint,
+            lambda: self.seconds,
+            preflight_identity=preflight._receipt_identity(self.adapter, self.identity),
+        )
+        self.write_events(attempt.directory)
+        metadata = {
+            "schema": 1,
+            "nonce": "c" * 32,
+            "receipt": str(attempt.directory / "supervision.json"),
+            "owner": {"pid": 99999971, "birth_identity": 21, "group": 99999971, "session": 99999971},
+            "keeper": {"pid": 99999972, "birth_identity": 22, "group": 99999972, "session": 99999972},
+            "provider": {
+                "pid": 99999973,
+                "birth_identity": 23,
+                "group": 99999973,
+                "session": 99999973,
+                "started": "Thu Oct 15 00:00:00 2026",
+                "birth_time": 1.0,
+            },
+        }
+        util.atomic_json(
+            Path(metadata["receipt"]),
+            {
+                **metadata,
+                "phase": "uncertain",
+                "cause": "provider_stopped",
+                "cleanup_error": "SessionScanIncomplete: cleanup remains unknown",
+                "observed_at": (self.epoch + dt.timedelta(seconds=3)).isoformat(),
+                "processes": [metadata["provider"]],
+            },
+        )
+        attempt.admit(metadata)
+        self.seconds = 3.0
+        attempt.finish(error=processes.ProcessError("cleanup uncertain"))
+
+        # Even if recorded birth identities look gone, an unretired session/group keeps the hold.
+        with (
+            patch.object(processes, "settled_sample", return_value=[]),
+            patch.object(preflight.transport, "execute") as execute,
+        ):
+            with self.assertRaises(support.Paused) as blocked:
+                self.check()
+            self.assertEqual("PAUSED_PROCESS_CLEANUP", blocked.exception.status)
+            execute.assert_not_called()
+
     @contextlib.contextmanager
     def transport_preparation(self, seconds):
         def launch(*args, **kwargs):

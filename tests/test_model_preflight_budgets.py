@@ -682,6 +682,76 @@ class ModelPreflightBudgetCliTests(unittest.TestCase):
             self.assertEqual(1, len(self.probes))
             self.assertEqual(view["cost"], self.status()["cost"])
 
+    def test_resume_rechecks_uncertain_probe_cleanup_receipt_and_continues(self):
+        # CLI regression for #3463: a probe whose keeper hit SessionScanIncomplete paused at
+        # PAUSED_PROCESS_CLEANUP and stayed bricked on every --resume-paused. Once its processes,
+        # group and session are gone, --resume-paused reconciles the probe and dispatches the stage.
+        first_call = True
+
+        def transient_cleanup_churn(**kwargs):
+            nonlocal first_call
+            if not first_call:
+                return self.probe(**kwargs)
+            first_call = False
+            directory = kwargs["directory"]
+            directory.mkdir(parents=True, exist_ok=True)
+            metadata = {
+                "schema": 1,
+                "nonce": "e" * 32,
+                "owner": {"pid": 99999961, "birth_identity": 31, "group": 99999961, "session": 99999961},
+                "keeper": {"pid": 99999962, "birth_identity": 32, "group": 99999962, "session": 99999962},
+                "provider": {
+                    "pid": 99999963,
+                    "birth_identity": 33,
+                    "group": 99999963,
+                    "session": 99999963,
+                    "started": "Thu Oct 15 00:00:00 2026",
+                    "birth_time": 1.0,
+                },
+                "receipt": str(directory / "supervision.json"),
+            }
+            receipt = {
+                **metadata,
+                "phase": "uncertain",
+                "cause": "provider_stopped",
+                "cleanup_error": "SessionScanIncomplete: Process set changed while checking an empty admitted session",
+                "observed_at": support.now(),
+                "processes": [metadata["provider"]],
+            }
+            support.atomic_json(Path(metadata["receipt"]), receipt)
+            kwargs["checkpoint"](metadata)
+            self.probe(**kwargs)
+            raise preflight.processes.SessionScanIncomplete("Session scan incomplete during probe teardown")
+
+        def empty_tree(tree, *, initial=False, notify=True):
+            tree.groups.clear()
+            tree.sessions.clear()
+            tree.session_admissions.clear()
+            return []
+
+        with (
+            patch.object(preflight.transport, "execute", side_effect=transient_cleanup_churn),
+            patch.object(preflight.attempts.processes, "live_processes", return_value=[]),
+            patch.object(preflight.attempts.processes, "settled_sample", side_effect=empty_tree),
+        ):
+            code, stdout, stderr = self.start()
+            self.assertEqual(2, code, stdout + stderr)
+            paused_view = self.status()
+            self.assertEqual("PAUSED_PROCESS_CLEANUP", paused_view["status"])
+            self.assertIn("--resume-paused", paused_view["next_command"])
+            self.assertIn("resume", [row["kind"] for row in paused_view["recovery"]["actions"]])
+            self.assertEqual([], self.stages)
+
+            code, stdout, stderr = self.invoke("--run-dir", str(self.run_dir), "--resume-paused")
+            self.assertEqual(2, code, stdout + stderr)
+            resumed_view = self.status()
+            self.assertEqual(
+                "PAUSED_FIXTURE_STAGE", resumed_view["needs"].get("pause_origin") or resumed_view["status"]
+            )
+            self.assertEqual(1, len(self.stages), "Reconciled probe cleanup must admit ordinary stage dispatch")
+            settled_files = list((self.run_dir / "model-preflight").rglob("cleanup-settled.json"))
+            self.assertEqual(1, len(settled_files))
+
 
 if __name__ == "__main__":
     unittest.main()
