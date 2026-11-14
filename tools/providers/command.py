@@ -45,8 +45,10 @@ except ImportError:
     import autocode_verifier_independence as verifier_independence
 
 try:
+    from .. import autocode_model_listing_failure as model_listing_failure
     from .. import autocode_names as names
 except ImportError:
+    import autocode_model_listing_failure as model_listing_failure
     import autocode_names as names
 
 
@@ -429,10 +431,21 @@ class CommandProvider:
                 timeout=30,
             )
         except subprocess.TimeoutExpired as error:
-            raise RuntimeError(
+            message = (
                 f"{self._config['name']} model listing timed out after {env_prep.listing_bounds(30)}; "
                 "no agent was launched"
-            ) from error
+            )
+            if self.NAME == "kilocode" and command == ["kilo", "models"]:
+                try:
+                    config_sha256 = hashlib.sha256(self._path.read_bytes()).hexdigest()
+                except OSError:
+                    config_sha256 = None
+                # subprocess.run has killed/reaped each timed-out listing child.
+                # No stage request has been constructed or launched by this check.
+                raise model_listing_failure.ModelListingTimeout(
+                    message, workspace=workspace, config_sha256=config_sha256
+                ) from error
+            raise RuntimeError(message) from error
         except OSError as error:
             # The models command could not even be spawned (issue #226's failure
             # class): report the honest prelaunch state, never the raw OSError.

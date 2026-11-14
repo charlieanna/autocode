@@ -8,6 +8,25 @@ import run_suite
 
 
 class AccessTransportConsumerTests(unittest.TestCase):
+    def test_model_listing_failure_keeps_public_cli_and_policy_consumers_when_slow(self):
+        consumers = {"tests.test_model_listing_failure", "tests.test_model_listing_failure_cli"}
+        for path in (
+            "tools/providers/command.py",
+            "tools/autocode_model_listing_failure.py",
+            "tools/autocode_model_listing_failure_recovery.py",
+            "tools/autocode_run_actions.py",
+            "tools/autocode_action_recovery.py",
+            "tools/autocode_run_view.py",
+            "tools/autocode_recovery_view.py",
+            "tools/autocode_status_command.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests(
+                    [path], {**{module: "" for module in consumers}, "tests.test_unrelated": ""}
+                )
+                kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+                self.assertEqual(consumers, set(kept))
+
     def test_verification_preparation_keeps_diagnostic_and_no_person_cli_consumers_when_slow(self):
         consumers = {"tests.test_storage_errors", "tests.test_verification_preparation_failure"}
         for path in (

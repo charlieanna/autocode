@@ -39,6 +39,8 @@ try:
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_goals as goals
     from . import autocode_jobs as jobs
+    from . import autocode_model_listing_failure as model_listing_failure
+    from . import autocode_model_listing_failure_recovery as model_listing_recovery
     from . import autocode_operational_information as operational_information
     from . import autocode_planning as planning
     from . import autocode_project_delivery as project_delivery
@@ -67,6 +69,8 @@ except ImportError:
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
     import autocode_jobs as jobs
+    import autocode_model_listing_failure as model_listing_failure
+    import autocode_model_listing_failure_recovery as model_listing_recovery
     import autocode_operational_information as operational_information
     import autocode_planning as planning
     import autocode_project_delivery as project_delivery
@@ -280,9 +284,15 @@ def admit(runner, args, parser, state: RunState, state_path, run_dir, workspace,
         print(f"Input rejected: {error}", file=sys.stderr)
         return 2
     if state["settings"].get("engine") == "opencode":
-        role_transport.check_models(
-            state["settings"], runner.opencode, workspace, inventory=getattr(args, "_model_inventory", None)
-        )
+        try:
+            role_transport.check_models(
+                state["settings"], runner.opencode, workspace, inventory=getattr(args, "_model_inventory", None)
+            )
+        except model_listing_failure.ModelListingTimeout as error:
+            if model_listing_recovery.settle(runner, state, run_dir, workspace, error):
+                print(f"{state['status']}: {state['stop_reason']}", file=sys.stderr)
+                return 2
+            raise
     if conversation_ingress.record_build_start(
         state, getattr(args, "expected_goal_token", None), token_for=goals.token, is_approved=goals.approved
     ):
