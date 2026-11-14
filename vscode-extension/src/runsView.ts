@@ -9,6 +9,8 @@ export interface WorkspaceNode {
   readonly kind: "workspace";
   label: string;
   runs: RunItem[];
+  /** Canonical owning project directory used to group worktree runs together. */
+  project?: string;
   /** The Recent section: the newest chats of every project, above the project groups. */
   recent?: boolean;
   /** The Archived section, shown only while archived chats are listed. */
@@ -32,11 +34,13 @@ export class RunItem extends vscode.TreeItem {
     this.id = recent ? `recent:${run.id}` : run.id;
     this.resourceUri = vscode.Uri.file(run.runDir);
     this.description = describe(run, recent, now);
+    const project = projectOf(run);
     this.tooltip = new vscode.MarkdownString(
       [
-        `**${run.title ?? run.workspace}**`,
+        `**${run.title ?? project}**`,
         "",
-        run.title ? `- project: \`${run.workspace}\`` : "",
+        run.title ? `- project: \`${project}\`` : "",
+        project !== run.workspace ? `- worktree: \`${run.workspace}\`` : "",
         `- run: \`${run.runDir}\``,
         run.updatedAt ? `- last active: ${new Date(run.updatedAt).toLocaleString()} (${relativeTime(run, now)})` : "",
         `- status: ${run.status ?? "unknown"}`,
@@ -114,9 +118,10 @@ export class RunsProvider implements vscode.TreeDataProvider<RunNode> {
 function groupByWorkspace(runs: RegistryRun[], now = Date.now()): RunNode[] {
   const byWorkspace = new Map<string, RegistryRun[]>();
   for (const run of [...runs].sort(byLatest)) {
-    const items = byWorkspace.get(run.workspace) ?? [];
+    const project = projectOf(run);
+    const items = byWorkspace.get(project) ?? [];
     items.push(run);
-    byWorkspace.set(run.workspace, items);
+    byWorkspace.set(project, items);
   }
   const nodes: RunNode[] = [];
   // Archived chats stay out of Recent; a visible Archived section lists them when asked for.
@@ -131,10 +136,11 @@ function groupByWorkspace(runs: RegistryRun[], now = Date.now()): RunNode[] {
     nodes.push({ kind: "workspace", label: "Archived", archived: true, runs: items });
   }
   // Each project's runs are already newest first, so its first run is its latest activity.
-  for (const [workspace, items] of [...byWorkspace].sort((a, b) => byLatest(a[1][0]!, b[1][0]!))) {
+  for (const [project, items] of [...byWorkspace].sort((a, b) => byLatest(a[1][0]!, b[1][0]!))) {
     nodes.push({
       kind: "workspace",
-      label: basename(workspace),
+      label: basename(project),
+      project,
       collapsed: recent.length > 0,
       runs: items.map((run) => new RunItem(run, run.workspace, false, now)),
     });
@@ -152,7 +158,7 @@ function groupByWorkspace(runs: RegistryRun[], now = Date.now()): RunNode[] {
 function workspaceItem(node: WorkspaceNode): vscode.TreeItem {
   const state = node.collapsed ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.Expanded;
   const item = new vscode.TreeItem(node.label, state);
-  item.id = node.recent ? "recent" : node.archived ? "archived" : `workspace:${node.runs[0]?.run.workspace ?? node.label}`;
+  item.id = node.recent ? "recent" : node.archived ? "archived" : `workspace:${node.project ?? node.runs[0]?.run.workspace ?? node.label}`;
   item.description = node.recent ? "" : `${node.runs.length}`;
   item.iconPath = new vscode.ThemeIcon(node.recent ? "history" : node.archived ? "archive" : "folder");
   return item;
@@ -190,7 +196,7 @@ function labelFor(run: RegistryRun): string {
     const short = run.runDir.split("/").filter(Boolean).slice(-1)[0] ?? "";
     return short ? trim(short, 46) : identity;
   }
-  return `${basename(run.workspace)} (${run.availability})`;
+  return `${basename(projectOf(run))} (${run.availability})`;
 }
 
 function describe(run: RegistryRun, recent: boolean, now: number): string {
@@ -199,8 +205,14 @@ function describe(run: RegistryRun, recent: boolean, now: number): string {
   const when = relativeTime(run, now);
   // Under Recent the project tells chats apart; under a project the status does.
   const stage = run.nextStage ? ` → ${run.nextStage}` : "";
-  const detail = recent ? basename(run.workspace) : `${run.status ?? "unknown"}${stage}`;
+  const detail = recent ? basename(projectOf(run)) : `${run.status ?? "unknown"}${stage}`;
   return (when ? `${when} · ${detail}` : detail) + archived;
+}
+
+function projectOf(run: RegistryRun): string {
+  if (run.projectWorkspace) return run.projectWorkspace;
+  const match = /^(.+)\/\.autocode\/worktrees\/[^/]+$/.exec(run.workspace);
+  return match?.[1] || run.workspace;
 }
 
 function contextFor(run: RegistryRun): string | undefined {

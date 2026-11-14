@@ -29,11 +29,13 @@ What to do:
    verification strategy needs plan review, not a silent remapping or weakened assertion.
 3. A "test:" case is new behavior unless its listed kind explicitly identifies it as already delivered in
    the completed prior turn. Retain an identified inherited test unchanged; it may pass today's code,
-   and its fresh original-reference fail-first proof remains required. Other test: cases must FAIL on the code as it is now, because the behavior is
-   missing, and pass once it is built. Test the behavior the criterion states, through the real entry
+   and its fresh original-reference fail-first proof remains required. New behavior normally fails on
+   today's code and passes once built. A retained unfinished candidate may already implement it;
+   keep the correct test and report that observation rather than making the code or test fail.
+   The runner checks its original reference before classifying such a case. Test through the real entry
    point (the command, the function, the endpoint), with the exact values the example gives. Do not
    assert only an exit status or that some error was printed when the criterion says what the output
-   must be; a test that would also pass on today's code proves nothing.
+   must be; a test that also passes on the original code does not prove new behavior.
 4. A "guard:" case is behavior that already works and must keep working: its test must PASS now. Its
    file must therefore load on today's code: when a new test uses a name the product does not have yet,
    import that name inside the new test (or put the new tests in a file of their own), never at the top of
@@ -41,7 +43,7 @@ What to do:
 5. Run permitted checks in a scratch copy under .autocode/scratch/write_acceptance_tests (inside the
    workspace; never /tmp or another outside path). Test authoring and runner qualification are separate:
    the core runs every reported test file after your provider exits, before Builder can start, and checks
-   each case: test: cases fail now, guard: cases pass now. A provider-local execution restriction is not
+   each case: new behavior fails without it, guard: cases pass now. A provider-local execution restriction is not
    an untestable requirement. In particular, a test that launches an AutoCode fake provider needs the
    runner-side Linux context: this provider already inherits a session listener and cannot install
    another. Do not retry that nested launch, relax containment, skip the test, or treat its admission
@@ -51,8 +53,9 @@ What to do:
    infrastructure failures cannot satisfy the gate.
 6. If the code already does what a test: case says (your test passes on today's code), do not weaken
    the test: keep it in tests and also report the case in already_passing with what showed it. The
-   runner checks that it passes and sends the plan back to make that case a guard: case, except an explicitly
-   identified inherited case, whose approved test: meaning and fresh original-reference proof are retained. If no automated
+   runner checks the observed test on its original reference: an original failure keeps the test: meaning,
+   and an original pass sends a guard: correction to plan review. Identified inherited cases retain their
+   existing approved meaning and fresh final-proof requirement. If no automated
    test can show a case, report it in cannot_write with the reason; that stops the run for the user.
 
 If runner_feedback is not empty, the runner already ran your earlier tests for these cases on today's code

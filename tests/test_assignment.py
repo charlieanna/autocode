@@ -1,6 +1,7 @@
 """The serial assignment boundary measures the whole assignment, from saved snapshots."""
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -208,6 +209,82 @@ class UndoCreatedTests(RetainedChangesTests):
         message = assignment.undo_created(["notes.txt"], [], first, root)
         self.assertIn("the runner restored pre-existing files", message)
         self.assertEqual("committed note\n", (root / "notes.txt").read_text())
+
+    def test_uncommitted_prior_milestone_file_is_restored_from_saved_checkpoint_commit(self):
+        import subprocess
+
+        import autocode_code_checkpoints as code_checkpoints
+        import autocode_stray_writes as stray
+
+        root, head = self.git_workspace({"src/m2.py": "0\n", "tests/m1.sh": "#!/bin/sh\necho m0\n"})
+        # M1 left an uncommitted executable test edit in the worktree and saved a code checkpoint commit.
+        (root / "tests/m1.sh").write_text("#!/bin/sh\necho m1\n")
+        (root / "tests/m1.sh").chmod(0o755)
+        (root / "notes.txt").write_text("user local note\n")
+        subprocess.run(["git", "-C", str(root), "add", "--", "tests/m1.sh"], check=True)
+        m1_commit = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(root),
+                "-c",
+                "user.email=fixture@example.com",
+                "-c",
+                "user.name=fixture",
+                "commit-tree",
+                subprocess.run(
+                    ["git", "-C", str(root), "write-tree"], capture_output=True, text=True, check=True
+                ).stdout.strip(),
+                "-p",
+                head,
+                "-m",
+                "M1 saved checkpoint",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        subprocess.run(["git", "-C", str(root), "reset", "-q", "HEAD"], check=True)
+        # M2 begins with M1's uncommitted executable file on disk, plus an external user note not in any checkpoint.
+        m2_start = self.snapshot_at(
+            "m2.before",
+            {
+                "src/m2.py": stray.current(root / "src/m2.py"),
+                "tests/m1.sh": stray.current(root / "tests/m1.sh"),
+                "notes.txt": stray.current(root / "notes.txt"),
+            },
+            head,
+        )
+        self.assertIsNotNone(code_checkpoints)
+        # An out-of-scope M2 attempt edits both tests/m1.sh (stripping +x) and notes.txt.
+        (root / "tests/m1.sh").write_text("#!/bin/sh\necho m2-broke-m1\n")
+        (root / "tests/m1.sh").chmod(0o644)
+        (root / "notes.txt").write_text("m2 touched external edit\n")
+        m2_after = self.snapshot_at(
+            "m2.after",
+            {
+                "src/m2.py": stray.current(root / "src/m2.py"),
+                "tests/m1.sh": stray.current(root / "tests/m1.sh"),
+                "notes.txt": stray.current(root / "notes.txt"),
+            },
+            head,
+        )
+        m2_first = self.attempt("t2", m2_start, m2_after)
+        message = assignment.undo_created(
+            ["notes.txt", "tests/m1.sh"],
+            [],
+            m2_first,
+            root,
+            checkpoints=[{"id": "code-m1", "commit": m1_commit}],
+        )
+        self.assertIn(
+            "restored pre-existing files to their committed content, so a retry is not refused for them: tests/m1.sh",
+            message,
+        )
+        self.assertIn("edits retained for inspection: notes.txt", message)
+        self.assertEqual("#!/bin/sh\necho m1\n", (root / "tests/m1.sh").read_text())
+        self.assertTrue(os.access(root / "tests/m1.sh", os.X_OK))
+        self.assertEqual("m2 touched external edit\n", (root / "notes.txt").read_text())
 
 
 if __name__ == "__main__":

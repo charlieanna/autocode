@@ -207,6 +207,15 @@ class ChangedCodeRepairScopeTests(unittest.TestCase):
         self.assertIn("reassign", str(rows).lower())
         self.assertNotIn("Builder sent back for untested lines", str(rows))
 
+    def test_builder_round_reminds_builder_to_stay_within_current_task_affected_paths(self):
+        state, record, rejected = self.fixture()
+        rejected[0]["path"] = "app/store/core.py"
+        state["current_task"]["affected_paths"] = ["app/store/", "tests/store/test_store.py"]
+        rework.route(state, record, investigation_enabled=False, rejected=rejected)
+        self.assertEqual("builder", state["next_stage"])
+        self.assertIn("current_task.affected_paths (app/store/, tests/store/test_store.py)", state["next_action"])
+        self.assertIn("only inside those assigned paths", state["next_action"])
+
 
 class BuilderEvidenceTests(unittest.TestCase):
     def test_a_builder_gets_open_lines_whole_and_settled_lines_by_number(self):

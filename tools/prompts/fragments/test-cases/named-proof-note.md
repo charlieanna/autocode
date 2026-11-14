@@ -1,6 +1,6 @@
 
 NAMED TEST PROOF: the runner attributes cases with Python unittest/pytest, Go tests, Node's built-in
-node:test, native Vitest 4, RSpec, and Rust tests run by `cargo test`. The identifier immediately after test:/guard: names the required test;
+node:test, native Vitest 4, Jest, RSpec, and Rust tests run by `cargo test`. The identifier immediately after test:/guard: names the required test;
 an explanation after it does not define an alias. Preserve an explicitly requested supported native name.
 For example, Go TestCacheExpiry uses "test: TestCacheExpiry", and TestCacheRetainsFresh uses
 "guard: TestCacheRetainsFresh". Preserve case and the complete native subtest path. Do not substitute
@@ -10,9 +10,11 @@ names; block a mismatch instead of accepting an explanatory alias. The criterion
 `npx --no-install vitest run <test files>` or an npm test script that is a single `vitest run` command.
 The runner owns the reporter and checks actual named outcomes; missing, skipped and ambiguous cases
 never pass. Do not create node:test wrappers just to relabel existing Vitest cases.
+In a Jest project keep cases in Jest: name each new case in its title, `test('test_c2_example', () => { /* assertions */ });`,
+and run `npx --no-install jest <test files>` or an npm test script that is a single jest command.
 For node:test register each case with `test('test_c2_example', async () => { /* assertions */ });`
 and run `node --test tests/example.cjs`. Keep fixture helpers and assertions; await every async check.
-A node:test or Vitest test the project already has is named by its exact title, as its test file spells it:
+A node:test, Vitest or Jest test the project already has is named by its exact title, as its test file spells it:
 test('counts a partial last page', ...) is "guard: counts a partial last page".
 For RSpec name each new case in its example's description, `it "test_c2_example" do`, in a *_spec.rb file,
 and run `bundle exec rspec spec/example_spec.rb` (plain `rspec` without a Gemfile). An RSpec example the
@@ -20,7 +22,7 @@ project already has is named by its own description, as its spec file spells it:
 it "counts a partial last page" is "guard: counts a partial last page", the description itself and not a
 sentence about it. Guard existing behavior with the existing test; never copy one under a test_* name, or
 into a new file, to name it.
-Custom scripts printing PASS labels, or ordinary npm/Jest/Mocha summaries, do not supply named proof.
+Custom scripts printing PASS labels, or ordinary npm/Mocha summaries, do not supply named proof.
 A node:test case must assert the behavior itself, never spawn another test runner (npm/pnpm/yarn test,
 npx vitest, jest, mocha or node --test through child_process): its pass would be that runner's exit code,
 which is 0 even when a -t filter matches no test, so the runner refuses such a file as named proof.
