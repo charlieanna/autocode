@@ -2216,7 +2216,7 @@ change the verdict, and nothing is installed into the project.</p>
 assertion scripts do not currently provide named proof. A direct supported
 targeted command can accompany an existing package-script suite. A runner that
 reports only an exit code (<code>make test</code>, Maven, Gradle or CMake with CTest when no
-JUnit report is configured, Ruby test files run one by
+JUnit report is configured, PHPUnit, Ruby test files run one by
 one, or a runner AutoCode does not detect) cannot prove a <code>test:</code> or <code>guard:</code>
 criterion by name, so a draft that has one there is refused when it is drafted,
 and the Planner writes the criterion as the command that runs its test file
@@ -2259,7 +2259,8 @@ code: every change to code needs a test, and nothing there can guard the change
 instead (<code>tools/autocode_plan_test_suite.py</code>, <code>untested_code</code>).</p>
 <h2 id="junit-xml-from-other-test-runners">JUnit XML from other test runners<a class="headerlink" href="#junit-xml-from-other-test-runners" title="Permanent link">&para;</a></h2>
 <p>With nothing typed, a Maven, Gradle or CMake project is proven by its build tool's
-own test command and that command's exit code (<code>tools/autocode_toolchain_suite.py</code>).
+own test command and that command's exit code, and a Composer project with PHPUnit by
+<code>vendor/bin/phpunit</code> (<code>tools/autocode_toolchain_suite.py</code>).
 Use <code>--test-report junit:RELATIVE_PATH</code> with an explicit <code>--test-command</code> to
 attribute Java, Kotlin, .NET, Rust or Ruby tests by name through their runner's JUnit
 XML output. For example, the catalog's Java case runs one real JUnit class:</p>
