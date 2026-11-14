@@ -39,7 +39,6 @@ def plan_body(*, second_dependency=None):
         "acceptance_criteria": ["C1"],
         "validation_plan": ["Run tests"],
     }
-    value["milestones"][0]["affected_paths"] = ["greet.py", "test_greeting.py"]
     if second_dependency is not None:
         value["milestones"].append(
             {

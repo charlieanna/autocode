@@ -4,10 +4,12 @@ No controller or run-state dependency. The scheduler supplies an admission;
 the script entry supplies existing tree operations to the owned worker.
 """
 
+import hashlib
 import json
 import os
 import re
 import shlex
+import stat
 import sys
 import tempfile
 import time
@@ -22,6 +24,7 @@ try:
     from . import autocode_supervision as supervision
     from . import autocode_util as util
     from . import autocode_verification_recovery as recovery
+    from . import autocode_wrapped_runner as wrapped_runner
     from .autocode_verification_budget import PREPARATION_ALLOWANCE_SECONDS
 except ImportError:
     import autocode_command_supervision as commands
@@ -29,10 +32,32 @@ except ImportError:
     import autocode_supervision as supervision
     import autocode_util as util
     import autocode_verification_recovery as recovery
+    import autocode_wrapped_runner as wrapped_runner
     from autocode_verification_budget import PREPARATION_ALLOWANCE_SECONDS
 
 ADMISSION = ContextVar("verification_preparation_admission", default=None)
 PHASE = ContextVar("verification_preparation_phase", default=None)
+PREFLIGHT_PUBLICATION = "autocode-acceptance-preflight-sha256="
+
+
+def published_refusal(receipt, result_sha, out, workspace):
+    """Authenticate exact worker-published negative bytes through native capture."""
+    try:
+        bound = recovery.bind_command(out, {**receipt, "processes": []}, preparation_cwd=Path(workspace).resolve())
+        if bound["pins"].get(receipt["supervision"]["receipt"]) != receipt.get("supervision_sha256"):
+            return False
+        path = bound["output"]
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(descriptor, "rb") as stream:
+            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                return False
+            data = stream.read(65537)
+        if len(data) > 65536 or hashlib.sha256(data).hexdigest() != receipt.get("output_sha256"):
+            return False
+        markers = [line for line in data.decode("utf-8").splitlines() if PREFLIGHT_PUBLICATION in line]
+        return bool(re.fullmatch("[0-9a-f]{64}", result_sha)) and markers == [PREFLIGHT_PUBLICATION + result_sha]
+    except (OSError, ValueError, TypeError, KeyError, UnicodeError, recovery.receipts.OwnershipUncertain):
+        return False
 
 
 def allocate(out, identity, attempt, started_at):
@@ -114,7 +139,16 @@ def scratch_parameters(
 
 
 def execute(
-    workspace, out, parameters, *, tests, command, timeout, review_mutation=False, review_mutation_deadline=None
+    workspace,
+    out,
+    parameters,
+    *,
+    tests,
+    command,
+    timeout,
+    review_mutation=False,
+    review_mutation_deadline=None,
+    acceptance_preflight=False,
 ):
     """Transport scratch inputs without changing their ordinary runner semantics."""
     supply = parameters.get("ignored_inputs")
@@ -124,6 +158,10 @@ def execute(
             raise ValueError("Owned preparation needs explicit launch-input Supply transport")
         parameters = {**parameters, "ignored_inputs": encode()}
     payload = {**parameters, "tests": list(tests), "command": command, "timeout": timeout}
+    if acceptance_preflight:
+        if acceptance_preflight is not True:
+            raise ValueError("Acceptance preflight must be a boolean")
+        payload["acceptance_preflight"] = True
     if review_mutation:
         payload.update(review_mutation=review_mutation, review_mutation_deadline=review_mutation_deadline)
     # Keep the historical scrubbed environment and bytecode policy at this boundary.
@@ -240,6 +278,29 @@ def launch(operation, workspace, out, parameters, *, timeout, env):
         if not isinstance(answer.get("receipt"), dict):
             recovery.hold("preparation worker did not return the collected inner receipt")
         inner = answer["receipt"]
+        if "acceptance_refusal" in inner:
+            if (
+                not wrapped_runner.valid_preflight_refusal(inner, workspace, out, parameters)
+                or not recovery.collected_command(receipt, out)
+                or receipt.get("command") != command
+                or receipt.get("supervision", {}).get("owner") != admission["owner"]
+                or util.file_hash(admission["worker"]) != admission["worker_sha256"]
+                or util.file_hash(request) != request_sha
+                or util.file_hash(reference["path"]) != reference["sha256"]
+                or not published_refusal(receipt, answer_sha, out, workspace)
+            ):
+                recovery.hold("acceptance preflight refusal is not bound to its closed worker and exact inputs")
+            return {
+                **inner,
+                "preparation": {
+                    "request": str(request),
+                    "request_sha256": request_sha,
+                    "result": str(result),
+                    "result_sha256": answer_sha,
+                    "admission": reference,
+                    "receipt": receipt,
+                },
+            }
         if not (recovery.collected_command(inner, out) or recovery.settled_timeout(inner, out)):
             recovery.hold("preparation worker returned unknown or uncollected inner command ownership")
         return inner

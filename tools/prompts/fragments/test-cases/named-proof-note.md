@@ -27,6 +27,15 @@ A node:test case must assert the behavior itself, never spawn another test runne
 npx vitest, jest, mocha or node --test through child_process): its pass would be that runner's exit code,
 which is 0 even when a -t filter matches no test, so the runner refuses such a file as named proof.
 Running the product's own CLI from a node:test case is fine.
+Do not make a Python test run its own module, file or self-including discovery suite, even with a
+reentry guard: the whole suite would run inside each proof and mutation invocation. Assert the product's
+behavior directly. A suite-delivery criterion is verified from the Core runner's actual current suite
+command, named outcomes and proof artifact, citing that artifact in criterion_results.evidence_refs;
+keep its individual behavioral test:/guard: criteria. Do not invent another named test to prove the suite
+exists or passes. A product that implements a test runner can be tested by running distinct isolated
+fixture tests; ordinary unittest.main entry points and product CLI subprocesses remain valid.
+Keep approved criterion text, literals and exact test identities. Do not silently change an already
+approved test: binding into aggregate prose; an invalid verification strategy needs plan review.
 For Rust a case is named by its test function: `fn test_c2_example` is "test: test_c2_example". Plan and write
 each new Rust test in a file under tests/ (tests/example.rs, listed in affected_paths), never in a #[cfg(test)]
 module of a source file: the runner runs the changed test files against the original source, and a test inside

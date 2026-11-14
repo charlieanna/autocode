@@ -192,7 +192,7 @@ test("an approval is bound to the token the run asks for", () => {
 
 test("a revised plan is not the plan the token approves", () => {
   const shown = {
-    revision: 20, hash: "abc", token: "r20:abc",
+    revision: 20, hash: "abc", token: "r20:abc", review_markdown: "A complete canonical plan",
     acceptance_criteria: [{ id: "AC1", criterion: "one", verification_method: "run the test", human_review: false }],
     constraints: [], permission_boundaries: [],
   };
@@ -212,7 +212,7 @@ function approvalProjection(terms: Record<string, unknown> = {}) {
     status: "AWAITING_GOAL_APPROVAL", done: false,
     needs: { kind: "approve_plan", token: "plan-7" },
     displayed_plan: {
-      token: "plan-7",
+      token: "plan-7", review_markdown: "Print Hello with a test",
       acceptance_criteria: [{ id: "AC1", criterion: "Print Hello", verification_method: "test: hello", human_review: false }],
       constraints: [], permission_boundaries: [], scope_exclusions: [],
       ...terms,
@@ -288,4 +288,11 @@ test("changeset status JSON is read, and its refusal is an error (#2066)", () =>
   assert.equal(summary.changeset, "changeset-1");
   assert.throws(() => readChangesetSummary(JSON.stringify({ error: "this run is in no change set" })), /in no change set/);
   assert.throws(() => readChangesetSummary("{}"), /did not return a change set/);
+});
+
+
+test("approval refuses missing, empty or malformed canonical review content", () => {
+  for (const review_markdown of [undefined, null, false, 7, {}, [], "", " \n\t"]) {
+    assert.equal(planForApproval(approvalProjection({ review_markdown })), null, JSON.stringify(review_markdown));
+  }
 });

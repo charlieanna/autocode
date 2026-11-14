@@ -1906,11 +1906,14 @@ def scratch_run(
     review_mutation=False,
     review_mutation_deadline=None,
     review_source=None,
+    acceptance_preflight=False,
 ) -> dict:
     """Execute in a copy of HEAD plus current changes and an optional reviewed patch.
     File/link overlays preserve cited inputs. Review mutation returns a typed
     observation; it never fabricates a receipt for an absent project command.
     """
+    if type(acceptance_preflight) is not bool:
+        raise ValueError("Acceptance preflight must be a boolean")
     workspace, run_dir = Path(workspace), Path(run_dir)
     native_scope = None
     ownership_uncertain = False
@@ -1954,6 +1957,7 @@ def scratch_run(
                 timeout=timeout,
                 review_mutation=review_mutation,
                 review_mutation_deadline=review_mutation_deadline,
+                acceptance_preflight=acceptance_preflight,
             )
             if review_mutation:
                 review_mutations.validate(answer.get("review_mutation"), run_dir)
@@ -1991,30 +1995,38 @@ def scratch_run(
                 framework = Framework("unittest", f"{shlex.quote(python)} -m unittest discover -v", python=python)
             detect = lambda directory: detect_framework(directory, python=python)  # noqa: E731
             suites = scratch_suites.suites(tree, framework, tests, detect)  # one per project the tests are in
-            if isinstance(suites, str):
-                return {"error": suites, "results": None}
-            receipt = scratch_suites.merged(
-                run_suite(found, command, tree, run_dir, label, timeout=timeout, native_execution=native_execution)
-                for found, command, label in suites
+            receipt = scratch_suites.run_selected(
+                tree,
+                tests,
+                suites,
+                lambda found, command, label: run_suite(
+                    found, command, tree, run_dir, label, timeout=timeout, native_execution=native_execution
+                ),
+                acceptance_preflight=acceptance_preflight,
             )
         else:
             # A command naming the workspace's absolute path runs against the copy, never the workspace.
             for root in dict.fromkeys((str(workspace.resolve()), str(workspace))):
                 command = command.replace(root, str(tree))
             framework = command_framework(command) or package_scope.recognize(command, command_framework)
-            # A command whose reporter the runner owns (npm test, RSpec, Vitest) names its tests as well.
+            # A reporter-owned command can name tests without a recognized framework object.
             if framework or (native_execution is None and expects_results(None, command, tree)):
-                receipt = run_suite(
+                receipt = scratch_suites.explicit(
+                    tree,
+                    tests,
                     framework,
                     command,
-                    tree,
-                    run_dir,
-                    "scratch-command",
-                    timeout=timeout,
-                    native_execution=native_execution,
+                    lambda found, selected, label: run_suite(
+                        found, selected, tree, run_dir, label, timeout=timeout, native_execution=native_execution
+                    ),
+                    schedule.complete_results,
+                    acceptance_preflight=acceptance_preflight,
                 )
-                if framework and (nothing := schedule.shows_nothing(receipt)):
-                    return {**receipt, "error": nothing}
+                if framework and receipt.get("error") in (
+                    "Test command reported zero tests or incomplete per-test results",
+                    "Test command reported only skipped tests",
+                ):
+                    return receipt
             else:
                 receipt = run_command(
                     command, tree, run_dir / "scratch-command.log", timeout=timeout, native_execution=native_execution
