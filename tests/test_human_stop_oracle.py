@@ -133,14 +133,16 @@ class HumanStopOracleTests(unittest.TestCase):
         checks = self.checks(self.stopped())
         self.assertTrue(any(not row.ok for row in checks.values()), checks)
 
-    def test_historical_negative_diagnosis_without_pending_questions_still_passes(self):
+    def test_a_negative_diagnosis_from_the_retired_bug_investigator_fails_only_on_its_stage(self):
+        # Every job goes on to the Planner (#3010): a run that went to the retired bug Investigator is
+        # refused for that stage alone, and its honest note still satisfies every other check.
         (self.project / "docs/bugs/none-cells.json").write_text(json.dumps(self.note))
         run = self.stopped()
         run.update(status="TASK_COMPLETE", stages=["requirements_gather", "investigate_bug"])
         run["model_stages"] = run["stages"][:]
         run["view"].update(status="TASK_COMPLETE", done=True, workflow="bugfix", needs=None)
         checks = self.checks(run)
-        self.assertTrue(all(row.ok for row in checks.values()), checks)
+        self.assertEqual(["job_starts_after_requirements"], [name for name, row in checks.items() if not row.ok])
 
 
 if __name__ == "__main__":

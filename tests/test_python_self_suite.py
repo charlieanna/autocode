@@ -216,6 +216,20 @@ class PythonSelfSuiteTests(unittest.TestCase):
             name = "test_todo.TodoCliTests.test_ac8_regression_suite_runs"
             self.assertIn(name, policy.refusals(root, [name]))
 
+    def test_a_named_test_file_with_a_relative_import_is_read(self):
+        # ``from . import helper`` has no module name; reading it raised TypeError and ended the regression proof.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pkg").mkdir()
+            (root / "pkg/__init__.py").write_text("")
+            (root / "pkg/helper.py").write_text("VALUE = 1\n")
+            (root / "pkg/test_todo.py").write_text(
+                "import unittest\nfrom . import helper\nfrom .helper import VALUE\n"
+                "class Suite(unittest.TestCase):\n def test_value(self):\n  self.assertEqual(VALUE, helper.VALUE)\n"
+            )
+            self.assertEqual({}, policy.refusals(root, ["pkg/test_todo.py::Suite::test_value"]))
+            self.assertEqual({}, policy.file_refusals(root, ["pkg/test_todo.py"]))
+
     def test_decorators_async_and_custom_loaders_remain_unknown(self):
         method = f"class Suite(unittest.TestCase):\n def test_own(self):\n  subprocess.run({COMMAND})\n"
         for source in (

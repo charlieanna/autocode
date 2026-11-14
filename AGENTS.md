@@ -33,6 +33,32 @@ implementation and verification decisions already delegated here. Exact-plan
 binding, independent verification, evidence checks and the thin-client interface
 remain required.
 
+## Own verification through the outcome
+
+**Owner decision, 2026-11-13:** agents must notice and investigate failures
+themselves. Do not wait for the owner to point out an error, a paused run, a
+failed check or an unfinished step, or to repeat the instruction to fix it.
+
+- Follow each verification run through its stage transitions to a confirmed
+  outcome. Starting a command, seeing a Builder finish or reading an earlier
+  healthy status is not verification of the eventual result.
+- Inspect unexpected pauses, errors, failed CI checks and their underlying
+  evidence promptly. Classify the cause, preserve the failed attempt, fix the
+  cause within the authorized scope, and verify the correction. Do not blindly
+  resume, repeat a paid attempt, weaken a gate or dismiss an error as a fixture
+  problem without evidence.
+- A pause asking the person to handle AutoCode's own machinery is also a defect,
+  even when the immediate failure is environmental. Investigate the recovery
+  behavior and what the client shows, as well as the underlying failure.
+- Make permanent fixes with regression tests that fail without the fix. When
+  VS Code verification is requested, exercise the affected behavior through the
+  actual extension and inspect its resulting state; CLI or fixture tests alone
+  do not establish that editor verification passed.
+- Keep working on discovered blockers without another reminder. Report what is
+  verified, what failed and what remains unfinished; never claim completion
+  while a required check is failing, paused or unobserved. Existing limits,
+  model choices, public interfaces and approval boundaries still apply.
+
 ## What a person is asked
 
 **Owner decision, 2026-10-29:** a person using AutoCode is involved only in
