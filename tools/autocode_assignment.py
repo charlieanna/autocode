@@ -19,6 +19,7 @@ except ImportError:
     import autocode_prompts as prompts
 
 
+import hashlib
 import json
 import os
 import subprocess
@@ -120,16 +121,43 @@ def _restore_commit(workspace: Path, name: str, expected: str, head: str | None,
     return None
 
 
-def undo_created(paths, stages, record, workspace, *, checkpoints=()) -> str:
+def _archived_bytes(name: str, expected: str, archived) -> bytes | None:
+    """Verified pre-assignment bytes from ``acceptance_tests`` archive matching ``expected``."""
+    entry = (archived or {}).get(name) if isinstance(archived, dict) else None
+    if not isinstance(entry, dict):
+        return None
+    expected_hash = expected.removeprefix("executable:")
+    sha = entry.get("sha256")
+    archive_raw = entry.get("archive")
+    if (
+        not isinstance(sha, str)
+        or not sha
+        or sha != expected_hash
+        or not isinstance(archive_raw, str)
+        or not archive_raw
+    ):
+        return None
+    archive_path = Path(archive_raw)
+    try:
+        if archive_path.is_symlink() or not archive_path.is_file():
+            return None
+        content = archive_path.read_bytes()
+    except OSError:
+        return None
+    return content if hashlib.sha256(content).hexdigest() == expected_hash else None
+
+
+def undo_created(paths, stages, record, workspace, *, checkpoints=(), archived=None) -> str:
     """Remove or restore the out-of-scope files this assignment touched, then return the refusal naming what happened.
 
     A rejected attempt's out-of-scope edits stay in the tree, and the gate measures the whole assignment, so one
     file an attempt should not have written refuses every retry. Two live greenfield-todo-cli runs (Claude models,
     2026-09-30) stopped that way: the milestone-1 Builder also wrote README.md, which the plan gave to milestone 2.
     A file absent from the starting snapshot and unchanged since this attempt is deleted, as autocode_stray_writes
-    does for read-only stages. A pre-existing file is restored from Git the same way when the snapshots prove it
-    safe: unchanged since this attempt, and its starting content matching either the recorded head or a saved
-    code_checkpoints commit from an earlier step of this run. An edit of a file that already held uncommitted
+    does for read-only stages. A pre-existing file is restored from Git (or from the verified ``write_acceptance_tests``
+    archive when spec-first test generation wrote it before the assignment) when the snapshots prove it safe:
+    unchanged since this attempt, and its starting content matching the recorded head, a saved code_checkpoints
+    commit, or the verified acceptance-test receipt archive. An edit of a file that already held uncommitted
     changes from outside the run, or anything not provable, is kept for a person."""
     start = _read(_ref(stages, starting_attempt(stages, record), "before_ref")) or {}
     before, head = start.get("files"), start.get("head")
@@ -155,6 +183,16 @@ def undo_created(paths, stages, record, workspace, *, checkpoints=()) -> str:
                 kept.append(f"{name} (restore failed: {problem})")
             else:
                 restored.append(name)
+        elif (archived_content := _archived_bytes(name, before[name], archived)) is not None:
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(archived_content)
+                mode = os.stat(target).st_mode
+                os.chmod(target, mode | 0o111 if before[name].startswith("executable:") else mode & ~0o111)
+            except OSError as problem:
+                kept.append(f"{name} (restore failed: {problem})")
+            else:
+                restored.append(name)
         else:
             kept.append(name)  # held uncommitted changes before the assignment; restoring would lose them
     message = "Builder attempts for this task changed files outside the assigned paths"
@@ -168,6 +206,18 @@ def undo_created(paths, stages, record, workspace, *, checkpoints=()) -> str:
     if kept:
         message += "; edits retained for inspection: " + ", ".join(kept)
     return message
+
+
+def check_scope(owned, has_contract: bool, stages, record, workspace, *, checkpoints=(), archived=None) -> str | None:
+    """Return the PAUSED_ASSIGNMENT_SCOPE message when ``record`` left out-of-scope edits, else None."""
+    if not owned or not has_contract:
+        return None
+    out = outside(owned, stages, record, workspace=workspace)
+    if out is None:
+        return "The assignment's starting snapshot is missing; edits retained for inspection"
+    if not out:
+        return None
+    return undo_created(out, stages, record, workspace, checkpoints=checkpoints, archived=archived)
 
 
 BUILD_OUTPUT_NOTE = prompts.get("fragments/assignment/build-output-note.md")
