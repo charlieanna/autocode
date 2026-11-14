@@ -166,7 +166,8 @@ class Client:
         if not max_comments:
             return []
         per_page = min(max_comments, 100)
-        page = max(1, -(-int(total) // per_page)) if total else 1
+        count = total if isinstance(total, int) else 0  # GitHub's count; anything else reads the first page
+        page = max(1, -(-count // per_page))
         comments: list = []
         while page >= 1 and len(comments) < max_comments:
             rows = self._call(
