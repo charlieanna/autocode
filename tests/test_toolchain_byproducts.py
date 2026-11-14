@@ -252,6 +252,70 @@ class BuildDirectoryTests(Workspace):
         self.assertEqual(["target/"], record["toolchain_byproducts"])
 
 
+PHPUNIT_CACHE = '{"version":1,"defects":[],"times":{"PagerTest::testPartialPage":0.001}}'
+
+
+class TestRunnerCacheTests(Workspace):
+    """PHPUnit's record of its last run: a real Plan Reviewer ran the tests of a PHP project that does not
+    ignore it, and the run paused for the person 69 seconds in (Claude models, 2026-11-14)."""
+
+    def setUp(self):
+        super().setUp()
+        self.write({"composer.json": "{}\n", "phpunit.xml": "<phpunit/>\n", "tests/PagerTest.php": "<?php\n"})
+        self.commit("php project")
+
+    def test_the_result_cache_phpunit_wrote_during_the_stage_is_removed(self):
+        before = self.snapshot()
+        self.write({".phpunit.result.cache": PHPUNIT_CACHE})
+        self.assertEqual([".phpunit.result.cache"], byproducts.created(self.root, before["files"]))
+        self.assertEqual([".phpunit.result.cache"], byproducts.discard(self.root, before))
+        self.assertFalse((self.root / ".phpunit.result.cache").exists())
+        self.assertEqual(before["revision"], self.snapshot()["revision"])
+
+    def test_it_is_removed_beside_phpunits_configuration_or_composers_manifest(self):
+        for beside in ("phpunit.xml", "phpunit.xml.dist", "phpunit.dist.xml", "composer.json"):
+            with self.subTest(beside=beside):
+                self.write({f"api/{beside}": "{}\n"})
+                self.commit(beside)
+                before = self.snapshot()
+                self.write({"api/.phpunit.result.cache": PHPUNIT_CACHE})
+                self.assertEqual(["api/.phpunit.result.cache"], byproducts.discard(self.root, before))
+                git(self.root, "rm", "-q", f"api/{beside}")
+                self.commit("removed")
+
+    def test_phpunits_cache_directory_is_removed_too(self):
+        before = self.snapshot()
+        self.write({".phpunit.cache/test-results": PHPUNIT_CACHE, ".phpunit.cache/code-coverage/x": "x"})
+        self.assertEqual([".phpunit.cache/"], byproducts.discard(self.root, before))
+        self.assertFalse((self.root / ".phpunit.cache").exists())
+        self.assertEqual(before["revision"], self.snapshot()["revision"])
+
+    def test_a_result_cache_the_project_already_had_is_never_touched(self):
+        self.write({".phpunit.result.cache": PHPUNIT_CACHE})
+        before = self.snapshot()
+        self.write({".phpunit.result.cache": PHPUNIT_CACHE.replace("0.001", "0.002")})
+        self.assertEqual([], byproducts.discard(self.root, before))
+        self.assertTrue((self.root / ".phpunit.result.cache").is_file())
+
+    def test_a_file_of_that_name_away_from_a_php_project_is_left(self):
+        before = self.snapshot()
+        self.write({"docs/.phpunit.result.cache": PHPUNIT_CACHE, "docs/.phpunit.cache/test-results": "x"})
+        self.assertEqual([], byproducts.discard(self.root, before))
+        self.assertTrue((self.root / "docs/.phpunit.result.cache").is_file())
+        self.assertTrue((self.root / "docs/.phpunit.cache/test-results").is_file())
+
+    def test_a_read_only_stage_that_ran_phpunit_leaves_the_repository_unchanged(self):
+        before = self.snapshot()
+        self.write({".phpunit.result.cache": PHPUNIT_CACHE})
+        record = {}
+        after = role_launch.record_after(
+            {}, record, self.root, Path(self.temp.name) / "review-01", before, Path("missing.jsonl"), save=MagicMock()
+        )
+        self.assertEqual(before["revision"], after["revision"])
+        self.assertEqual([], record["changed_files"])
+        self.assertEqual([".phpunit.result.cache"], record["toolchain_byproducts"])
+
+
 class StageTests(Workspace):
     """role_launch.record_after: what the stage's after-snapshot and record show."""
 

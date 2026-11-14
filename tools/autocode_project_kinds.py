@@ -14,8 +14,8 @@ language, and the modules derive what they need from the rows:
 * ``autocode_test_framework.Framework``: which runners report per-test results, and which files a
   targeted run is given;
 * ``autocode_package_scope.MANIFESTS``: the files that make a directory a project of its own;
-* ``autocode_toolchain_byproducts.LOCKFILES`` and ``BUILD_DIRS``: the lockfiles and the build
-  directories a toolchain writes on its own.
+* ``autocode_toolchain_byproducts.LOCKFILES``, ``RUN_FILES`` and ``BUILD_DIRS``: the lockfiles, the
+  files a tool writes whenever it runs and the build directories a toolchain writes on its own.
 
 Adding a language, or a test layout of one, is a change to its row here. Pure data and pure
 functions; imports nothing from AutoCode, so any layer may read it.
@@ -56,6 +56,9 @@ class Language:
     # Lockfiles its toolchain writes on its own beside a manifest the first time it resolves the
     # project: the tool's by-product, not an edit by a stage (autocode_toolchain_byproducts).
     lockfiles: dict[str, str] = field(default_factory=dict)
+    # Files one of its tools writes on its own whenever it runs, beside one of these files (PHPUnit's
+    # result cache beside its configuration): a by-product too (autocode_toolchain_byproducts).
+    run_files: dict[str, tuple[str, ...]] = field(default_factory=dict)
     # Tool cache directories generated at runtime (ignored by workspace inventory/snapshots).
     cache_dirs: tuple[str, ...] = ()
     # Compiled bytecode file suffixes generated at runtime.
@@ -77,6 +80,10 @@ def _xunit(suffix: str) -> tuple[str, ...]:
 GRADLE_FILES = ("build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts")
 _JVM_BUILD_DIRS: dict[str, tuple[str, ...]] = {"target": ("pom.xml",), "build": GRADLE_FILES, ".gradle": GRADLE_FILES}
 _CMAKE_BUILD_DIRS: dict[str, tuple[str, ...]] = {"build": ("CMakeLists.txt",)}
+
+# The root files of a PHP project tested with PHPUnit: its configuration, or Composer's manifest.
+PHPUNIT_CONFIGS = ("phpunit.xml", "phpunit.xml.dist", "phpunit.dist.xml")
+_PHPUNIT_ROOTS = (*PHPUNIT_CONFIGS, "composer.json")
 
 # Directories that hold tests wherever they appear, and ones that do only at the repository root:
 # numpy/testing/ and django/test/ are shipped product code, while a top-level test/ is not.
@@ -159,7 +166,19 @@ LANGUAGES: tuple[Language, ...] = (
     Language("shell", (".sh",), test_names=(r"test_.*\.sh",)),
     Language("c", (".c", ".h"), build_dirs=_CMAKE_BUILD_DIRS),
     Language("cpp", (".cc", ".cpp", ".hpp"), build_dirs=_CMAKE_BUILD_DIRS),
-    Language("php", (".php",)),
+    Language(
+        "php",
+        (".php",),
+        # PHPUnit runs the classes of files named FooTest.php. It names no test in a form AutoCode reads,
+        # so its suite is judged by its exit code and no plan file kind is collected for it.
+        test_names=(r".*Test\.php",),
+        manifests=("composer.json",),
+        lockfiles={"composer.lock": "composer.json"},
+        # Where PHPUnit keeps the last run's results: a file in the project root, or the directory its
+        # configuration names (`cacheDirectory=".phpunit.cache"`, what `phpunit --generate-configuration` writes).
+        run_files={".phpunit.result.cache": _PHPUNIT_ROOTS},
+        build_dirs={".phpunit.cache": _PHPUNIT_ROOTS},
+    ),
     Language("objective-c", (".m", ".mm")),
     Language("elixir", (".ex", ".exs")),
     Language("erlang", (".erl",)),
@@ -187,6 +206,8 @@ TEST_ROLE = _whole(pattern for language in LANGUAGES for pattern in (*language.t
 MANIFESTS = tuple(manifest for language in LANGUAGES for manifest in language.manifests)
 # Lockfiles a toolchain writes on its own, and the manifest it resolves beside it.
 LOCKFILES = {name: manifest for language in LANGUAGES for name, manifest in language.lockfiles.items()}
+# A file a tool writes on its own whenever it runs, and the files it is written beside.
+RUN_FILES = {name: roots for language in LANGUAGES for name, roots in language.run_files.items()}
 # Cache directories and bytecode suffixes generated at runtime by language toolchains.
 CACHE_DIRS = frozenset(name for language in LANGUAGES for name in language.cache_dirs)
 BYTECODE_DIRS = frozenset(name for language in LANGUAGES for name in language.cache_dirs if not name.startswith("."))

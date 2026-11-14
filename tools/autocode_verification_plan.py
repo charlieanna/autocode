@@ -104,6 +104,9 @@ RUNNERS = frozenset(
         "dotnet",
         "mvn",
         "gradle",
+        "php",
+        "phpunit",
+        "composer",
         "sh",
         "bash",
     }
