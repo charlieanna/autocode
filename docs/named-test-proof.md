@@ -291,11 +291,11 @@ plan is drafted (`tools/autocode_command_guards.py`, owner decision 2026-11-13).
 
 A repair whose regression test the project already had changes no test. Where the runner
 names its tests, the tests that fail on the original code and pass with the change are
-the proof. A Mocha suite, Minitest files, a test script the approved plan names, and a
+the proof. A Mocha suite, Minitest files, PHPUnit, Perl's `prove`, a test script the approved plan names, and a
 Jest command AutoCode leaves as written report only an exit code, so there the suite shows the repair as a whole: it
 failed on the original code and passes with the change. That counts when the change is
 code alone and touches no test, and the suite's own files (its tests, manifests and
-runner configs) are the ones the original code had, or the original definition also
+runner configs, among them PHPUnit's `phpunit.xml` and prove's `.proverc`) are the ones the original code had, or the original definition also
 passes over the new code. A file a shell test sources (`. ./pager.sh`) is the code
 under test there, as a file a JavaScript test imports is, and not one of the suite's
 own files; a script the test runs stays one
