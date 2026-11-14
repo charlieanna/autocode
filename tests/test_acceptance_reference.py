@@ -1,6 +1,7 @@
 """A retained candidate's passing tests still need fresh original-code evidence."""
 
 import dataclasses
+import difflib
 import os
 import subprocess
 import sys
@@ -224,6 +225,95 @@ class AcceptanceReferenceTests(unittest.TestCase):
         self.assertEqual({}, reference.passing(cases, rows, passing, {"AC1"}))
         passing["results"]["failed"] = ["test_ac1_answer"]
         self.assertEqual({}, reference.passing(cases, rows, passing, set()))
+
+    def collect(self, **overrides):
+        arguments = {
+            "state": self.state,
+            "workspace": self.workspace,
+            "run_dir": self.root / "run",
+            "out": self.evidence / "reference",
+            "selected": {"AC1": ["tests.test_feature.Feature.test_ac1_answer"]},
+            "files": ["tests/test_feature.py"],
+            "command": self.state["settings"]["regression"]["test_command"],
+        }
+        return reference.collect(**(arguments | overrides))
+
+    def test_missing_or_unsafe_reference_inputs_hold_before_execution(self):
+        with patch.object(reference.run_base, "base_commit", return_value=None):
+            self.assertIn("no recorded original reference", self.collect()["error"])
+        for arguments, reason in (
+            ({"files": ["app.py"]}, "no independent test-file classification"),
+            ({"command": "unknown-test-runner"}, "no recognized test runner"),
+            ({"command": "go test -run TestAnswer ./..."}, "cannot select"),
+        ):
+            with self.subTest(reason=reason), patch.object(reference.verify, "run_suite") as execute:
+                self.assertIn(reason, self.collect(**arguments)["error"])
+                execute.assert_not_called()
+
+    def test_reviewed_followup_uses_the_reviewed_change_as_its_reference(self):
+        reviewed = self.root / "reviewed.patch"
+        reviewed.write_text(self.git("diff", self.base, "--", "app.py"))
+        with patch.object(reference.follow_up, "review_findings", return_value={"change_patch": str(reviewed)}):
+            result = self.collect()
+        self.assertEqual({"AC1": "passes"}, result.get("verdicts"), result)
+        self.assertEqual(["tests.test_feature.Feature.test_ac1_answer"], result["receipt"]["results"]["passed"])
+
+    def test_operator_seam_is_applied_and_a_changed_or_combined_patch_is_refused(self):
+        original = self.git("show", f"{self.base}:app.py")
+        seam = "\nanswer_hook = answer\n"
+        patch_file = self.root / "seam.patch"
+        patch_file.write_text(
+            "".join(
+                difflib.unified_diff(
+                    original.splitlines(True), (original + seam).splitlines(True), "a/app.py", "b/app.py"
+                )
+            )
+        )
+        self.state["settings"]["regression"]["base_patch"] = reference.base_patch.pin(
+            patch_file, self.workspace, self.base
+        )
+        (self.workspace / "app.py").write_text("def answer():\n    return 42\n" + seam)
+        test = self.workspace / "tests/test_feature.py"
+        test.write_text(test.read_text().replace("from app import answer", "from app import answer_hook as answer"))
+        result = self.collect()
+        self.assertEqual({"AC1": "fails"}, result.get("verdicts"), result)
+        self.assertFalse(result["receipt"]["results"].get("setup_errors"))
+        with patch.object(reference.follow_up, "review_findings", return_value={"change_patch": str(patch_file)}):
+            self.assertIn("combined reviewed and operator reference patches", self.collect()["error"])
+        patch_file.write_text(patch_file.read_text() + "\n")
+        self.assertIn("changed after it was set", self.collect()["error"])
+
+    def test_mixed_original_outcomes_grant_no_classification(self):
+        test = self.workspace / "tests/test_feature.py"
+        test.write_text(
+            test.read_text() + "class Other(unittest.TestCase):\n"
+            "    def test_ac1_answer(self):\n        self.assertIn(answer(), (0, 42))\n"
+        )
+        result = self.collect(
+            selected={"AC1": [f"tests.test_feature.{name}.test_ac1_answer" for name in ("Feature", "Other")]}
+        )
+        self.assertIn("mixed original-reference outcomes", result["error"])
+        self.assertNotIn("verdicts", result)
+
+    def test_uncertain_ownership_preserves_the_reference_tree_and_blocks_progress(self):
+        with (
+            patch.object(
+                reference.verify,
+                "run_suite",
+                side_effect=reference.command_receipt.OwnershipUncertain("ownership was lost"),
+            ),
+            self.assertRaisesRegex(reference.command_receipt.OwnershipUncertain, "ownership was lost"),
+        ):
+            self.collect()
+        self.assertTrue((self.evidence / "reference/tree/app.py").is_file())
+        self.assertFalse(acceptance.receipts(self.state))
+
+    def test_incomplete_reference_classification_cannot_grant_a_receipt(self):
+        with patch.object(reference, "collect", return_value={"verdicts": {}}):
+            self.apply().assert_not_called()
+        self.assertEqual("PAUSED_ACCEPTANCE_TESTS", self.state["status"])
+        self.assertIn("Missing original reference classification", self.state["stop_reason"])
+        self.assertFalse(acceptance.receipts(self.state))
 
 
 class AcceptanceReferenceCliTests(unittest.TestCase):
