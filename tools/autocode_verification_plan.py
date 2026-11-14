@@ -51,6 +51,14 @@ class PlannedCheckFailure(ValueError):
     tail: str = ""  # and read by autocode_planned_check_rework
 
 
+class ReportedCheckFailure(ValueError):
+    """A check a reviewer reported as passing failed independent clean replay; only a stage that can run
+    commands can cite another one."""
+
+    command: str | None = None  # the failing command and its output tail, set by autocode_check_replay
+    tail: str = ""  # and read by autocode_reported_check_rerun
+
+
 # Plain text (no backticks) is a command only when all of it is one: prose after a command makes the whole
 # method prose, left to the Validator. Live bugfix-trivial runs (Claude models, 2026-09-30) approved
 # "python3 -m unittest -v passes; Validator reads the diff" and "Run python3 -m unittest -v via capture and

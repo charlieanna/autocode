@@ -871,6 +871,30 @@ class CliTests(unittest.TestCase):
         self.assertEqual([0], [row["exit_code"] for row in replay["checks"]])
         self.assertIn("greet.py", replay["checks"][0]["command"])
 
+    def test_a_tester_whose_check_does_not_reproduce_runs_again_and_the_run_completes(self):
+        # A live Tester cited `cd ../web && npm test`, which passed only from where its last command had left
+        # it (2026-11-14). The report repair could only withdraw it, the blocked report went to a Builder with
+        # nothing to build, and the run stopped for the person. The Tester runs again instead.
+        self.env.update(AUTOCODE_FIXTURE_MODE="no-human", AUTOCODE_FIXTURE_UNREPRODUCIBLE_CHECK="once")
+        self.launch(["Build greeting", "--chat"], 0, answers="CLI\nyes\n")
+        run, state = self.saved()
+        self.assertEqual("TASK_COMPLETE", state["status"])
+        after_build = [
+            (row["stage"], bool(row.get("rejected")))
+            for row in state["stages"][[row["stage"] for row in state["stages"]].index("builder") :]
+            if not row.get("runner_owned")
+        ]
+        self.assertEqual(
+            [("builder", False), ("tester", True), ("tester", False), ("review_completion", False)], after_build
+        )
+        refused = next(row for row in state["stages"] if row.get("rejected"))
+        self.assertIn("`test -f .autocode/validator-only` was reported as exit 0", refused["rejection_reason"])
+        view = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)["view"]
+        self.assertTrue(view["done"])
+        replay = view["evidence"]["check_replay"]
+        self.assertEqual(("PASS", [0]), (replay["verdict"], [row["exit_code"] for row in replay["checks"]]))
+        self.assertIn("greet.py", replay["checks"][0]["command"])
+
     def test_a_check_that_passes_only_in_the_validators_session_never_completes(self):
         self.env.update(AUTOCODE_FIXTURE_MODE="no-human", AUTOCODE_FIXTURE_UNREPRODUCIBLE_CHECK="1")
         self.launch(["Build greeting", "--chat"], 2, answers="CLI\nyes\n")

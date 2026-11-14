@@ -261,6 +261,7 @@ KEYS: frozenset[str] = frozenset(
         "regression_proofs",
         "repair_plan",
         "report_repair_archive",
+        "reported_check_reruns",
         "report_repair_history",
         "report_repair_lifetime_attempts",
         "reports",
@@ -373,6 +374,9 @@ class RunState(TypedDict, total=False):
     # Builder rounds the runner queued because an approved plan check failed on the candidate, bounded per
     # command; written by autocode_planned_check_rework, read there and by autocode_resolver_recovery.
     planned_check_reworks: list
+    # Reviewer stages the runner started again because a check the reviewer reported did not pass its clean
+    # replay, once for each source; written and read only by autocode_reported_check_rerun.
+    reported_check_reruns: list
     # A person's reports that the built code departs from the approved plan, each bound to that plan's token, the
     # task and the source revision (#3045); written only by autocode_implementation_discrepancy.record, read there
     # for the reviewers' context packet (autocode_stage_context) and the status view's implementation_discrepancy.

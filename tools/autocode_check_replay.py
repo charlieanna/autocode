@@ -84,6 +84,7 @@ except ImportError:
 PASS, FAIL = "PASS", "FAIL"
 LifecycleFailure = risk_evidence.LifecycleFailure
 PlannedCheckFailure = verification_plan.PlannedCheckFailure
+ReportedCheckFailure = verification_plan.ReportedCheckFailure
 
 
 # Told to the Validator with every request. A live Validator showed "fails without __init__.py" as a check
@@ -510,7 +511,7 @@ def replay(
         if row.get("base_attribution"):
             what += f". {row['base_attribution']['reason']}"
         planned = row.get("evidence_ref") in ("approved-plan", "approved-repeat")
-        error_type = PlannedCheckFailure if planned else ValueError
+        error_type = PlannedCheckFailure if planned else ReportedCheckFailure
         failure = error_type(
             (
                 f"Check `{row['command']}` is required by the approved verification methods or the current task's "
@@ -531,8 +532,8 @@ def replay(
             + (RUN_FILES_HINT if ".autocode" in row["command"] else "")
             + " Later checks and acceptance observations were not run; they remain required for a passing replay."
         )
-        if isinstance(failure, PlannedCheckFailure):
-            failure.command, failure.tail = row["command"], row["tail"]  # read by autocode_planned_check_rework
+        # Read by autocode_planned_check_rework and autocode_reported_check_rerun.
+        failure.command, failure.tail = row["command"], row["tail"]
         raise failure
     if refuted and not keep_lifecycle_failure:
         raise refuted
