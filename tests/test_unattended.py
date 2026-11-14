@@ -294,6 +294,30 @@ class AnalyzeTests(unittest.TestCase):
             self.assertIn("+x = 1", diff)
             self.assertTrue((out_dir / "analysis.md").is_file())
 
+    def test_the_report_covers_a_change_to_a_file_that_is_not_utf8(self):
+        # A Latin-1 source file, changed and untracked: the report stopped with a UnicodeDecodeError.
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            self.git(workspace, "init", "-q")
+            (workspace / "app.py").write_bytes('NAME = "Jos\u00e9"\n'.encode("latin-1"))
+            self.git(workspace, "add", ".")
+            self.git(workspace, "commit", "-qm", "base")
+            base = self.git(workspace, "rev-parse", "HEAD")
+            (workspace / "app.py").write_bytes('NAME = "Ren\u00e9e"\n'.encode("latin-1"))
+            (workspace / "new.py").write_bytes('CITY = "K\u00f6ln"\n'.encode("latin-1"))
+            run_dir = workspace / ".autocode" / "runs" / "r1"
+            run_dir.mkdir(parents=True)
+            (workspace / ".autocode" / "task-workspace.json").write_text(json.dumps({"base_commit": base}))
+            (run_dir / "state.json").write_text(
+                json.dumps({"status": "TASK_COMPLETE", "task": "Rename", "workspace": str(workspace), "iteration": 1})
+            )
+            out_dir = workspace.parent / (workspace.name + "-analysis")
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(0, unattended.run(["--analyze", "--run-dir", str(run_dir), "--out", str(out_dir)]))
+            diff = (out_dir / "changes.diff").read_text()
+            self.assertIn('+NAME = "Ren\ufffde"', diff)
+            self.assertIn('+CITY = "K\ufffdln"', diff)
+
     def test_analyze_takes_only_its_own_arguments(self):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             unattended.run(["--analyze", "--run-dir", "r", "--approve-goal", "t"])
