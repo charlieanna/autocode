@@ -98,6 +98,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Mutation checks reuse unchanged Python bytecode within one proof collection instead of recompiling dependencies for every mutant. Each collection starts with a fresh cache; distinct source timestamps keep equal-size mutants from executing stale bytecode. Test selection, evidence checks and deadlines remain unchanged (#3478).
 - Refuse known Python tests that recursively launch their own suite before acceptance execution and named proof; plan suite-delivery checks from the runner's actual evidence while retaining behavioral tests and legitimate distinct runner fixtures (#3447).
 - **Keep the recovery-chain test fixture complete** (#3471): the independent order and callback tables now include the existing reasoning-exhaustion recovery, and a direct comparison with the live chain catches a row omitted from both fixture tables.
 - **Planning-artifact and empty-project assignment fixtures include their planned regression tests** (#3461): their synthetic plans omitted test paths and were rejected by the existing plan gate before reaching the behaviors they exercise. The fixtures now retain the test scope; production approval and verification gates are unchanged.
