@@ -1008,7 +1008,7 @@ Reviewer pass, `greetings.py` still Latin-1, $1.06 in all. Three more places rea
 - `autocode bundle --with-diff` stopped with the same decode error. The diff's bytes are now kept as they are;
 - `autocode unattended --analyze` stopped the same way. Its report now shows such a byte as U+FFFD.
 
-## 36. A reviewer's wrong check that the Tester cannot change: the person is asked (open)
+## 36. A reviewer's wrong check that the Tester cannot change: the person was asked (fixed)
 
 The binary-fixture task of section 35. The change was right: `logcount.py` reads `.gz` files, the fixture
 is a real gzip file, and the proof passed. The stop came from a criterion that is checked by reading,
@@ -1025,8 +1025,29 @@ is a real gzip file, and the proof passed. The stop came from a criterion that i
    "Will you have the plan author (review_completion) replace that step with a check aimed at actual
    write/create code?"
 
-A Tester cannot change a step of its task, and nothing sends a wrong step back to the stage that wrote it.
-Not fixed here.
+A Tester cannot change a step of its task, and nothing sent a wrong step back to the stage that wrote it.
+
+**Fix.** A validate task changes no code, so a step that fails on the code its author reviewed fails the
+same way in the Tester's replay. The runner now runs each new command step of a validate task once, in the
+same clean copy, when the Completion Reviewer or the Resolver hands the task in
+(`tools/autocode_validate_task_steps.py`). A step that fails refuses that report with the command, how it
+ended and the end of its output, and the report goes back to its author for repair: reword a wrong step, or
+return a task that fixes the code when the step shows a defect. It runs only what is new: not a command the
+approved plan already runs, and not one the last accepted validation passed on the same source. A failure
+the original code has identically is not the step's, as in the replay. An implement task's steps are not
+run, since they may fail until the Builder works.
+
+Checked on the stopped run itself: its Completion Reviewer's task, given to the new check with that run's
+state and workspace, is refused in half a second with "`python3 -c "s=open('tests/test_logcount.py')...`
+exited 1 when the runner ran it from the repository root in a clean copy of the current source; its output
+ended: ... AssertionError", and the same task with that step reworded to look for calls that write is
+accepted. The same request run again on real models with the fix completed with one plan approval and no
+question (10 stages, 263 s, $1.86; bundle manifest
+`d577c34278628d052d079c9528bff7fee4bc46bef6c2cf7033d4b964daf35774`); in that run the Completion Reviewer
+handed out no validate task, so it shows the task completing, not the new check at work.
+
+Still open: the Investigator can only retry the stuck stage or pause. A fault it finds in an earlier
+stage's output, of any other kind, still ends in a question to the person.
 
 ## Also seen, not yet run on real models
 

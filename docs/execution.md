@@ -442,6 +442,19 @@ before a PASS is accepted, the runner requires its own current execution of each
   `/bin/sh -c`, so the runner asks that shell to read the command with `sh -n`,
   which runs nothing. A live step with backticks inside double quotes could
   never run ([bug note](bugs/2026-10-07-plan-check-shell-syntax.md)).
+- **A validate task's new steps are run when it is written.** A Completion
+  Reviewer or Resolver that finds a criterion without evidence hands the Tester a
+  validate task, with steps of its own. Such a step must exit 0 in this replay,
+  and a Tester cannot change it. A validate task changes no code, so the runner
+  runs each new command step once, in the same clean copy, when its author hands
+  the task in (`tools/autocode_validate_task_steps.py`). A step that fails sends
+  the report back to its author with the command, how it ended and the end of its
+  output: the author rewords a wrong step, or returns a task that fixes the code
+  when the step shows a defect. A command the approved plan already runs, or one
+  the last accepted validation passed on this same source, is not run again here,
+  and a failure the base revision has identically is the base's, as below. An
+  implement task's steps are not run: they may fail until the Builder works
+  ([task-kind survey](bugs/2026-11-13-task-kind-survey.md), section 36).
 - **When one does not reproduce.** The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. The Tester then runs
   again on the same source, once, and is told the command, how its replay ended
