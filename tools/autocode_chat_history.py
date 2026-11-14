@@ -187,9 +187,27 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
             rows.append({"id": f"{ident}-response", "role": "assistant", "text": prior[ident]})
             rows += delivery(turn_of[ident])
         question = event.get("question")
-        if event.get("assistant_reply"):
-            rows.append({"id": f"{ident}-reply", "role": "assistant", "text": event["assistant_reply"]})
-        elif isinstance(question, dict) and question.get("question"):
+        is_confirmation = event.get("kind") == "answer" and str(event.get("question_id") or "").startswith(
+            requirements_review.PREFIX
+        )
+        spoken = event.get("assistant_reply")
+        # Older confirmations did not save the introduction. Recover it only while the
+        # current handoff still hashes to the exact question the person confirmed.
+        if (
+            not spoken
+            and is_confirmation
+            and state.get("requirements_handoff")
+            and (state.get("settings") or {}).get("spec_first")
+            and requirements_review.review_question(state)["id"] == event["question_id"]
+        ):
+            spoken = requirements_chat.reply(state)
+        if spoken:
+            rows.append({"id": f"{ident}-reply", "role": "assistant", "text": spoken})
+        if (
+            isinstance(question, dict)
+            and question.get("question")
+            and (not spoken or (is_confirmation and question["question"] not in spoken))
+        ):
             rows.append({"id": f"{ident}-question", "role": "assistant", "text": question["question"]})
         text = event["text"]
         if (

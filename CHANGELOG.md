@@ -112,6 +112,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **Requirements introductions stay in the chat after confirmation**: confirming an understanding could remove the model’s preceding reply from the transcript. New confirmations retain both messages; older confirmations recover the reply only when the saved handoff matches the exact question.
+
 - **VS Code describes a paused verification check accurately**: when a check’s cleanup is unconfirmed, the Models control no longer says a stage is working or that the choice will return after it. The control remains unavailable until AutoCode can safely change models.
 
 - **A project whose tests run with `make check` is proven** ([task-kind survey](docs/bugs/2026-11-13-task-kind-survey.md), section 32): only a `Makefile` with a `test` target had a detected suite, so a C bug fix in a project tested with `make check` ended by asking the person to set `--test-command` and `--regression-command`. A `check` target is now the project's suite when no other suite is detected.

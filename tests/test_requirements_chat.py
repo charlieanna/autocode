@@ -182,6 +182,79 @@ class RequirementsChatTests(unittest.TestCase):
         rows = [(row["role"], row["text"]) for row in history.messages(state)]
         self.assertEqual([("user", "What is your name?"), ("assistant", spoken), ("user", reply)], rows)
 
+    def test_confirmation_keeps_the_spoken_reply_and_understanding_in_chat_history(self):
+        state = self.conversation()
+        state["task"] = "Add an uppercase flag"
+        state["next_stage"] = "draft_plan"
+        state["requirements_handoff"]["report"].update(
+            assistant_reply="Understood: the flag uppercases the greeting.",
+            intended_outcome="Add the flag",
+            required_behaviors=["Keep the default greeting"],
+            acceptance_tests=["The flag uppercases the greeting"],
+            open_questions=[],
+        )
+        question = review.review_question(state)
+        event = {
+            "kind": "answer",
+            "actor": "user_cli",
+            "question_id": question["id"],
+            "question": question,
+            "text": "plan",
+        }
+        state["user_events"].append(event)
+        source_log.save_answer(state, question["id"], event)
+        # A later Requirements report must not replace what was shown at this confirmation.
+        state["requirements_handoff"]["report"]["assistant_reply"] = "A later reply"
+        texts = [row["text"] for row in history.messages(state)]
+        self.assertEqual(
+            [
+                state["task"],
+                "Understood: the flag uppercases the greeting.",
+                question["question"],
+                history.CONFIRMED_REQUIREMENTS,
+            ],
+            texts,
+        )
+
+    def test_confirmation_does_not_duplicate_an_understanding_already_spoken(self):
+        state = self.conversation()
+        state["next_stage"] = "draft_plan"
+        state["requirements_handoff"]["report"]["assistant_reply"] = "The same understanding"
+        question = {"id": review.PREFIX + "sample", "question": "The same understanding"}
+        event = {
+            "kind": "answer",
+            "actor": "user_cli",
+            "question_id": question["id"],
+            "question": question,
+            "text": "plan",
+        }
+        state["user_events"].append(event)
+        source_log.save_answer(state, question["id"], event)
+        texts = [row["text"] for row in history.messages(state)]
+        self.assertEqual(1, texts.count("The same understanding"))
+
+    def test_older_confirmation_recovers_the_reply_only_from_the_matching_handoff(self):
+        state = self.conversation()
+        state["next_stage"] = "draft_plan"
+        state["requirements_handoff"]["report"].update(
+            assistant_reply="I understand the request.", intended_outcome="Do the work", open_questions=[]
+        )
+        question = review.review_question(state)
+        state["user_events"] = [
+            {"kind": "answer", "actor": "user_cli", "question_id": question["id"], "question": question, "text": "plan"}
+        ]
+        # Once the plan exists, Requirements is no longer active, but the matching
+        # handoff is still the source of the introduction shown at confirmation.
+        state["goal_contract"] = {"body": {}}
+        texts = [row["text"] for row in history.messages(state)]
+        self.assertEqual(
+            [state["task"], "I understand the request.", question["question"], history.CONFIRMED_REQUIREMENTS], texts
+        )
+        state["requirements_handoff"]["report"]["assistant_reply"] = "Different later reply"
+        texts = [row["text"] for row in history.messages(state)]
+        self.assertNotIn("Different later reply", texts)
+        self.assertIn(question["question"], texts)
+
     def test_reply_is_not_adopted_once_requirements_has_found_the_work(self):
         reply = "Use JSON instead."
         found = {"id": "R1", "text": "Export CSV", "source_quote": "Add a CSV export"}
