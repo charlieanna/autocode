@@ -29,6 +29,17 @@ POLYGLOT = {
 }
 SPEC = "backend/spec/requests/grader_spec.rb"
 NODE_TEST = "frontend/scripts/routing.test.mjs"
+PYTHON_TEST = "import unittest\n\n\nclass SmokeTest(unittest.TestCase):\n    def test_adds(self):\n        self.assertEqual(2, 1 + 1)\n"
+# What the live backend/ also held (2026-11-14): RSpec's own files, a package.json for its assets, and
+# Python test modules at its root, under tests/ and beside the specs.
+RAILS_WITH_PYTHON_TESTS = {
+    "backend/.rspec": "--require spec_helper\n",
+    "backend/spec/spec_helper.rb": "RSpec.configure { |config| config.order = :random }\n",
+    "backend/package.json": '{"name": "assets", "private": true}\n',
+    "backend/test_exercise_generator.py": PYTHON_TEST,
+    "backend/tests/engine/test_smoke.py": PYTHON_TEST,
+    "backend/spec/test_contract.py": PYTHON_TEST,
+}
 
 
 def plan(*paths):
@@ -80,6 +91,13 @@ class CheckTests(unittest.TestCase):
     def test_specs_inside_the_project_with_their_own_suite_are_run_by_it(self):
         project = self.repository()
         lifecycle.validate_body(self.state(project), plan(SPEC), ready=True)
+
+    def test_specs_of_a_ruby_project_that_carries_python_tests_are_run_by_its_own_suite(self):
+        # backend/ was read as a pytest project, so every plan that named a spec there was refused: three
+        # Planner answers in a row on a live run, which then paused for the person.
+        project = self.repository({**POLYGLOT, **RAILS_WITH_PYTHON_TESTS})
+        lifecycle.validate_body(self.state(project), plan(SPEC), ready=True)
+        lifecycle.validate_body(self.state(project), plan(NODE_TEST, SPEC), ready=True)
 
     def test_specs_no_suite_can_run_are_refused_at_install_and_at_approval(self):
         project = self.repository({path: text for path, text in POLYGLOT.items() if path != "backend/Gemfile"})
