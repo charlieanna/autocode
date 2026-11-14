@@ -707,6 +707,9 @@ def test_environment(tree, env=None):
     tests are model-written code (autocode_agent_env).
     """
     environment = dict(agent_env.scrubbed(os.environ if env is None else env), PYTHONDONTWRITEBYTECODE="1", CI="1")
+    # This identifies the controller's launching tool call, not a test input. Withhold it
+    # from execution too: hashing it makes unchanged proofs/baselines miss on every resume.
+    environment.pop("CODEX_TOOL_CALL_ID", None)
     roots = [str(Path(tree) / "src")] if (Path(tree) / "src").is_dir() else []
     roots.append(str(tree))
     roots.extend(test_env.scratch_import_roots(tree))

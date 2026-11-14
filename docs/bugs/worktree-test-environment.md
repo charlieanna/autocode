@@ -21,3 +21,19 @@ Coverage uses a real linked worktree and a dependency present only in the main
 virtualenv, including a fixture that launches `python3`. A second check covers
 local environment precedence. The existing proof test now changes the selected
 interpreter without deleting the saved proof or changing source.
+
+## Launcher metadata must not invalidate a resumed proof (#3549)
+
+An operating Codex session gives each tool invocation a new `CODEX_TOOL_CALL_ID`.
+In live verification of #3233, that was the only environment difference across
+two otherwise identical invocations, yet resuming an unchanged partial mutation
+study started the baseline again. The execution identity hashed this inherited
+launcher marker as though it were a test input.
+
+`test_environment` now withholds that marker from the actual command environment.
+The identity still hashes the complete environment tests receive; ordinary test
+variables continue to invalidate both the baseline and the candidate proof.
+Existing opaque hashes are not migrated or accepted under a weaker comparison.
+The regression executes a proof, serializes its saved state and resumes under a
+different tool-call ID without another baseline or proof execution, then changes
+a real test variable and verifies that both execute again.
