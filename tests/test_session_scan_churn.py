@@ -179,6 +179,90 @@ class SessionScanChurnTests(unittest.TestCase):
         tree.sample.assert_called_once()
         sleep.assert_not_called()
 
+    def test_settlement_retries_at_least_once_when_first_scan_exceeds_window(self):
+        tree = Mock()
+        tree.sample.side_effect = [processes.SessionScanIncomplete("stalled"), []]
+        with (
+            patch.object(processes.util, "monotonic", side_effect=[0, 0.85]),
+            patch.object(processes.util, "sleep") as sleep,
+        ):
+            self.assertEqual([], processes.settled_sample(tree, notify=False))
+        self.assertEqual(2, tree.sample.call_count)
+        sleep.assert_called_once_with(0.01)
+
+        persistent = Mock()
+        persistent.sample.side_effect = processes.SessionScanIncomplete("stalled")
+        with (
+            patch.object(processes.util, "monotonic", side_effect=[0, 0.85, 1.70]),
+            patch.object(processes.util, "sleep") as sleep,
+        ):
+            with self.assertRaises(processes.SessionScanIncomplete):
+                processes.settled_sample(persistent, notify=False)
+        self.assertEqual(2, persistent.sample.call_count)
+        sleep.assert_called_once_with(0.01)
+
+        multi = Mock()
+        multi.sample.side_effect = [
+            processes.SessionScanIncomplete("1"),
+            processes.SessionScanIncomplete("2"),
+            [],
+        ]
+        with (
+            patch.object(processes.util, "monotonic", side_effect=[0, 0.1, 0.2]),
+            patch.object(processes.util, "sleep") as sleep,
+        ):
+            self.assertEqual([], processes.settled_sample(multi, notify=False))
+        self.assertEqual(3, multi.sample.call_count)
+        self.assertEqual(2, sleep.call_count)
+
+    def test_non_retiring_sample_records_live_members_and_retains_empty_sid_during_churn(self):
+        member = self.row(55, 4242)
+        extra_leader = self.row(4343, 4343, birth=3.0)
+        tree = self.scan(
+            [[10, 55], *([[10, 55], [11, 55]] * 3)],
+            [self.row(10), self.row(11), member],
+            unavailable=(10,),
+        )
+        tree.sessions[4343] = extra_leader
+        tree.known[4343] = extra_leader
+        rows = tree.sample(notify=False, retire_empty=False)
+        self.assertEqual([55], [row["pid"] for row in rows])
+        self.assertIn(55, tree.known)
+        self.assertEqual({4242, 4343}, set(tree.sessions))
+        with self.assertRaises(processes.SessionScanIncomplete):
+            tree._session_candidates(set(), {4242, 4343})
+
+    def test_live_poll_sample_defers_empty_sid_churn_within_bound(self):
+        import autocode_supervision_keeper as keeper
+
+        tree = Mock()
+        tree.sample.return_value = [{"pid": 5}]
+        with patch.object(keeper.processes, "settled_sample", return_value=[{"pid": 1}]) as settled:
+            self.assertEqual(([{"pid": 1}], None), keeper.live_poll_sample(tree, 10.0))
+        settled.assert_called_once_with(tree, notify=False)
+        tree.sample.assert_not_called()
+
+        with patch.object(keeper.processes, "settled_sample", side_effect=processes.SessionScanIncomplete("churn")):
+            with self.assertRaises(processes.SessionScanIncomplete):
+                keeper.live_poll_sample(tree, None, is_triggered=lambda: True)
+        tree.sample.assert_not_called()
+
+        with (
+            patch.object(keeper.processes, "settled_sample", side_effect=processes.SessionScanIncomplete("churn")),
+            patch.object(keeper.time, "monotonic", side_effect=[10.0, 24.9, 25.0]),
+        ):
+            rows_1, since_1 = keeper.live_poll_sample(tree, None)
+            self.assertEqual(([{"pid": 5}], 10.0), (rows_1, since_1))
+            tree.sample.assert_called_once_with(notify=False, retire_empty=False)
+
+            rows_2, since_2 = keeper.live_poll_sample(tree, since_1)
+            self.assertEqual(([{"pid": 5}], 10.0), (rows_2, since_2))
+            self.assertEqual(2, tree.sample.call_count)
+
+            with self.assertRaises(processes.SessionScanIncomplete):
+                keeper.live_poll_sample(tree, since_2)
+            self.assertEqual(2, tree.sample.call_count)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,6 +7,7 @@ Native support is not a configuration flag and cannot fall back to that path.
 import json
 import re
 import sys
+import uuid
 from pathlib import Path
 
 from . import command, kilocode_policy, kilocode_probe
@@ -106,7 +107,18 @@ class KiloProvider(command.CommandProvider):
         image_preparation=None,
         report_recovery=False,
         portable_shell=False,
+        access_probe=False,
     ):
+        if access_probe and (
+            allow_write
+            or session
+            or containment is not None
+            or isolation is not None
+            or image_preparation is not None
+            or report_recovery
+            or portable_shell
+        ):
+            raise ValueError("Kilo access probe requires a fresh read-only unisolated launch")
         if report_recovery and (allow_write or not planning or isolation is not None):
             raise ValueError("Kilo report recovery requires ordinary read-only planning")
         if isolation is None:
@@ -147,6 +159,28 @@ class KiloProvider(command.CommandProvider):
                 hook = Path(__file__).with_name("requirements_stream.mjs").resolve().as_uri()
                 config["plugin"] = [p for p in config["plugin"] if p != hook] + [hook]
             child["KILO_CONFIG_CONTENT"] = json.dumps(config)
+            if access_probe:
+                agents = config.get("agent", {})
+                if not isinstance(agents, dict):
+                    raise ValueError("Kilo inline agents must be an object")
+                name = "autocode_probe_" + uuid.uuid4().hex
+                config["agent"] = {
+                    **agents,
+                    name: {
+                        "description": "AutoCode model access probe",
+                        "mode": "primary",
+                        "tools": {"*": False},
+                        "permission": {"*": "deny"},
+                        "model": argv[argv.index("--model") + 1],
+                    },
+                }
+                child["KILO_CONFIG_CONTENT"] = json.dumps(config)
+                argv = list(argv)
+                if "--agent" in argv:
+                    index = argv.index("--agent")
+                    del argv[index : index + 2]
+                argv += ["--agent", name]
+                return argv, child, saved
             argv, child = kilocode_policy.restrict(
                 argv,
                 child,
