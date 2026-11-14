@@ -2206,8 +2206,10 @@ test('a timed-out new-chat model list retries once after its reader is collected
   let collected = false;
   const finished = new Promise((resolve) => { release = () => { collected = true; resolve(); }; });
   const calls = [];
-  const ui = await openChat(t, null, false, { stages: (argv) => {
+  const timeouts = [];
+  const ui = await openChat(t, null, false, { stages: (argv, settings, timeout) => {
     calls.push(argv);
+    timeouts.push(timeout);
     if (!collected) throw new cli.ReadDeadlineExceeded(60000, finished);
     return chatStageView(argv);
   } });
@@ -2223,6 +2225,7 @@ test('a timed-out new-chat model list retries once after its reader is collected
     'the model choices appear without the person reopening the chat');
   assert.equal(ui.document.querySelector('#chat-models .chat-models-error'), null, 'the old timeout is cleared');
   assert.deepEqual(calls.at(-1), ['stages', 'list', '--json', '--backend', 'claude']);
+  assert.equal(timeouts.at(-1), 180000, 'the one recovery read allows more time for a busy backend');
 });
 
 test('a collected model reader does not restart after the chat view is disposed', async (t) => {

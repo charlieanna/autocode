@@ -521,7 +521,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       this.post();
     }
     try {
-      const view = await this.stageLists.load(shared.key, () => readListText(shared));
+      const view = await this.stageLists.load(shared.key, () => readListText(shared, retryAfterCollection ? STAGES_TIMEOUT_MS : 3 * STAGES_TIMEOUT_MS));
       if (!tab.run && tab.sharedStages === shared.key) {
         tab.stages = view;
         tab.stagesKey = shared.key;
@@ -1266,8 +1266,8 @@ async function readChatStages(command: string[] | undefined, cwd?: string): Prom
 /** The list every new chat in this window starts from: the call, where it runs and its cache key. */
 type NewChatList = ReturnType<typeof newChatCall>;
 
-async function readListText(list: NewChatList): Promise<string> {
-  const result = await invokeRead(list.settings, list.argv, {}, STAGES_TIMEOUT_MS);
+async function readListText(list: NewChatList, timeoutMs = STAGES_TIMEOUT_MS): Promise<string> {
+  const result = await invokeRead(list.settings, list.argv, {}, timeoutMs);
   if (result.code !== 0) throw new Error(tail(result));
   return result.stdout;
 }
