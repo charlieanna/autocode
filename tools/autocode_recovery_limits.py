@@ -11,12 +11,14 @@ try:
     from . import autocode_recovery_accounting as accounting
     from . import autocode_recovery_context as recovery_context
     from . import autocode_report_repair_queue as report_repair_queue
+    from . import autocode_stage_stalls as stage_stalls
     from .autocode_permission_recovery import hold_message
     from .autocode_source_scope import snapshot
 except ImportError:
     import autocode_recovery_accounting as accounting
     import autocode_recovery_context as recovery_context
     import autocode_report_repair_queue as report_repair_queue
+    import autocode_stage_stalls as stage_stalls
     from autocode_permission_recovery import hold_message
     from autocode_source_scope import snapshot
 
@@ -369,7 +371,7 @@ def repeated_failure_resume_guard(state: RunState, *, authorization=None, repeat
     )
     if not record:
         return
-    repeated = repeated_failure(state, record)
+    repeated = repeated_failure(state, record) or stage_stalls.retry_entry(state, record)
     if repeated and current_revision() == record.get("source_revision"):
         if (
             authorization

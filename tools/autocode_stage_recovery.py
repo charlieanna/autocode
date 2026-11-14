@@ -1775,7 +1775,7 @@ def authorize_failure_retry(state: RunState, run_dir, workspace):
     if refusal := recovery_limits.repeated_failure_retry_refusal(state):
         raise ValueError(refusal)
     record = next((row for row in reversed(state.get("stages", [])) if row.get("failure_key")), None)
-    repeated = failures.repeated(state, record) if record else None
+    repeated = (failures.repeated(state, record) or stage_stalls.retry_entry(state, record)) if record else None
     if not repeated:
         raise ValueError("No unchanged repeated failure to authorize; fix the cause, then resume")
     selected = cast(dict, record).get("failure_key")

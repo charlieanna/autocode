@@ -112,6 +112,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **Repeated Tester timeouts can take their offered recovery**: a pause after two archived timeouts offered a retry that the core rejected because its failure ledger had not reached a different three-failure threshold. The retry now matches those exact archived attempts and keeps their evidence and limits.
+
 - **VS Code describes a paused verification check accurately**: when a check’s cleanup is unconfirmed, the Models control no longer says a stage is working or that the choice will return after it. The control remains unavailable until AutoCode can safely change models.
 
 - **A project whose tests run with `make check` is proven** ([task-kind survey](docs/bugs/2026-11-13-task-kind-survey.md), section 32): only a `Makefile` with a `test` target had a detected suite, so a C bug fix in a project tested with `make check` ended by asking the person to set `--test-command` and `--regression-command`. A `check` target is now the project's suite when no other suite is detected.
