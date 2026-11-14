@@ -86,8 +86,9 @@ class CheckTests(unittest.TestCase):
         state = {**self.state(project), "task_id": "task-1", "version": 3, "status": "RUNNING"}
         refusal = (
             r"The regression proof would never run the plan's tests backend/spec/requests/grader_spec\.rb: it runs "
-            r"the plan's tests with one suite, here the node suite `npm test --silent`, which runs JavaScript or "
-            r"TypeScript tests, and no project directory around all of the plan's tests has a suite"
+            r"the plan's tests with the node suite `npm test --silent`, which runs JavaScript or TypeScript tests, "
+            r"and a test of another kind with the suite of the project directory around it, and no such directory "
+            r"has a suite that runs these"
         )
         with self.assertRaisesRegex(ValueError, refusal):
             lifecycle.install_draft(state, plan(SPEC), origin="finalize_plan")
@@ -95,12 +96,15 @@ class CheckTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, refusal):
             lifecycle.validate_body(self.state(project), plan(SPEC), ready=True)
 
-    def test_specs_beside_tests_the_root_suite_runs_are_refused(self):
-        # The root's suite runs the Node test, so the proof keeps it, and it never runs the spec.
+    def test_specs_beside_tests_the_root_suite_runs_are_proven_by_their_own_projects_suite(self):
+        # The root's suite runs the Node test and backend/'s own suite the spec (autocode_companion_tests).
         project = self.repository()
+        lifecycle.validate_body(self.state(project), plan(NODE_TEST, SPEC), ready=True)
+        lifecycle.validate_body(self.state(project), plan(NODE_TEST), ready=True)
+        # Without a suite in backend/ nothing would run the spec beside the Node test.
+        project = self.repository({path: text for path, text in POLYGLOT.items() if path != "backend/Gemfile"})
         with self.assertRaisesRegex(ValueError, r"never run the plan's tests backend/spec/requests/grader_spec\.rb:"):
             lifecycle.validate_body(self.state(project), plan(NODE_TEST, SPEC), ready=True)
-        lifecycle.validate_body(self.state(project), plan(NODE_TEST), ready=True)
 
     def test_helpers_and_fixtures_are_not_judged(self):
         project = self.repository({path: text for path, text in POLYGLOT.items() if path != "backend/Gemfile"})

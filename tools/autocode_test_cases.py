@@ -204,6 +204,14 @@ def _declares(declared: str, title: str) -> bool:
     )
 
 
+def title_in(declared: str, text: str) -> bool:
+    """Whether ``text`` (a test file's source) spells a declared title, as written, unquoted, or without the
+    annotation after it. A file that spells it may hold the test; ``titled`` binds it only to a test that ran."""
+    spellings = {declared, _unquoted(declared)}
+    spellings |= {_ANNOTATION.sub("", spelling) for spelling in spellings}
+    return any(spelling and spelling in text for spelling in spellings)
+
+
 def titled(cases: list[dict], framework, test_ids) -> list[dict]:
     """``cases`` with a declared title bound as the ``test_name`` where ``framework`` names tests by title
     (TITLE_RUNNERS) and one of ``test_ids`` has exactly that title: the longest such title. A declaration
