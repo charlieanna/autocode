@@ -104,6 +104,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **Run bundles no longer depend on a live backend health check**: evidence export keeps `doctor.json` as an explicit not-run record instead of querying accounts, tools or model rosters before writing the archive. Retained reports, redaction, replay files and manifest hashes remain available when the backend is unhealthy; `autocode doctor` still performs its normal checks (#3514).
+
 - **VS Code keeps and distinguishes unsent chats**: opening a run from History no longer removes an initial chat with a draft, switching or closing tabs does not copy a draft into another chat, and draft tabs show a short preview. Keyboard focus stays on a tab’s close button when status updates change its label.
 
 - **Saving a stage model no longer queries the backend a second time for its response**: the saved choices and model options now come from the catalogue that validated the change, so a later listing failure cannot turn an accepted save into an empty model list. Each new operation still checks availability and verifier independence afresh.
