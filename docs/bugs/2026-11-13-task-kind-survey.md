@@ -776,16 +776,39 @@ needs with no report repair (191 s, 199 s and 212 s; $1.45, $1.38 and $1.46; bun
 `fd6aa8fc149cd31dee6114131385437d2481db4cec240b9c3414b210d93c0a2d`,
 `71d210e81900df59a0825dfd4b08936bfccb0e95053dcc6457b2d128ecd18f56`).
 
-Still open from that run: a Tester report that is refused only because a cited check does not replay
-ends at a Builder, which has nothing to build. The cause is removed on Claude Code; the route is the
-same on every backend.
+**A Tester report refused only because a cited check does not replay (fixed).** That run's refusal went
+to a report repair, which has no tools: it withdrew the check and marked the web criteria not verified.
+The blocked report sent the task to a Builder, which had nothing to build, and the Investigator paused
+the run for the person. The cause is removed on Claude Code, but the route was the same on every
+backend. Now the stage that cited the check runs again on the same source, once for each source and
+twice for a task, and is told the command, how its replay ended and to run every check from the
+repository root (`tools/autocode_reported_check_rerun.py`). A second refusal at the same source keeps
+the earlier route.
 
 The original-test gate is as before: in a run of the whole repository it replays the original tests with
 the root's suite, so the original tests of a nested project of another kind are not replayed there. The
 nested project's own suite still runs with the change, where an existing test the change breaks fails
 the proof.
 
+## 28. Five more kinds of task (complete)
+
+On master with section 27's fixes, each with one plan approval and no question:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| "Make both linear. Results must stay exactly the same, including order" (two quadratic Python functions) | complete, 10 stages, 487 s, $2.72; the plan grew to ten criteria, with unhashable and NaN keys kept exact | `3545e4987d949b526183193d7c4d6ec6c54a056a00e81962928d34102cdfe29a` |
+| A new column in a SQLite table, with database files of the current version kept working | complete, 10 stages, 225 s, $1.66; two of the new tests open a database made with the old schema | `e303d13ea208982d9b5d4146a714fe093982bc4b51469608b77b076415431b53` |
+| A bug reported as a pasted traceback and the value that caused it | complete, 10 stages, 198 s, $1.35 | `46f76b4e7d75bec3828efd5238fe6e303f9c858d98062a744eb9cc13052a475e` |
+| A new command-line flag that must also be documented in the README | complete, 9 stages, 171 s, $1.05; the Builder's last message was not a report and was repaired; the Tester checked the README row with `grep` | `b609958acf986f6acada0fab19a256e1997d7d3b583c9ec720ff0eda8ea89789` |
+| "`ruff check .` reports a pile of problems. Clean them all up. Don't change what the code does, and don't loosen the config" | complete, 11 stages, 195 s, $1.41; the Tester's report cited a file as evidence for a criterion and was repaired | `a394f76c1b520027d4b433e5af90f62dc6f5c7796aa875d48d4da08490344d70` |
+
 ## Also seen, not yet run on real models
+
+- **Claude Code refuses to edit some directories inside the stage's own directory.** With Edit and
+  Write accepted for the directory (`acceptEdits`), Claude Code 2.1.325 still refuses a file under
+  `.vscode/`, `.husky/` or `.claude/`, with or without a pre-approved rule; `.github/`, `.gitignore`
+  and `.autocode/` are accepted (measured with `claude -p`, 2026-11-14). A task that must change
+  such a file can only do it through a shell command. No task run has needed one yet.
 
 - **A new repository with no commit is refused** with a Git command for the person to type
   (`autocode_workspaces.create`), while an empty folder that is not a repository is set up

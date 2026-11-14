@@ -705,7 +705,9 @@ else:
         + "sys.exit(0 if ok else 1)\n"
     )
     command = shlex.join([sys.executable, "-c", script])
-    if os.environ.get("AUTOCODE_FIXTURE_UNREPRODUCIBLE_CHECK"):
+    unreproducible = os.environ.get("AUTOCODE_FIXTURE_UNREPRODUCIBLE_CHECK")
+    # "once": only the first Validator attempt cites it; the one the runner starts again cites the real check.
+    if unreproducible and not (unreproducible == "once" and Path(".autocode/validator-only").exists()):
         # Passes only in the Validator's own session: it reads a file the Validator made outside the source.
         Path(".autocode/validator-only").write_text("set up by the Validator\n")
         command = "test -f .autocode/validator-only"
