@@ -7,6 +7,9 @@ export const chatStyles = /* css */ `
   body { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
   #thread { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto;
     padding: 12px 16px; scrollbar-gutter: stable; overflow-anchor: none; }
+  /* An empty chat reads as a broken pane when its one welcome line floats at the top of an
+     otherwise empty scroller; hold it in the middle until the first message lands. */
+  #thread.welcoming { display: flex; flex-direction: column; justify-content: center; }
   #composer { flex-shrink: 0; margin: 6px; border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
     border-radius: 8px; background: var(--vscode-input-background); }
   #composer:focus-within { border-color: var(--vscode-focusBorder); }
@@ -31,7 +34,9 @@ export const chatStyles = /* css */ `
   .message.streaming .message-content { white-space: pre-wrap; font-style: italic; }
   .speaker { font-size: .75rem; font-weight: 600; color: var(--vscode-descriptionForeground); margin-bottom: 6px; }
   .message p { margin: 0 0 10px; }
-  .message pre { white-space: pre; word-break: normal; overflow: auto; padding: 10px; }
+  /* Wrap like the diff does: at whitespace normally, splitting only a token too long for the
+     sidebar. white-space: pre clipped test names and paths at the pane edge with no cue. */
+  .message pre { white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; padding: 10px; }
   .message code { font-family: var(--vscode-editor-font-family); background: var(--vscode-textCodeBlock-background); }
   .message a { color: var(--vscode-textLink-foreground); }
   .message ul, .message ol { padding-left: 22px; }
@@ -90,7 +95,9 @@ export const chatStyles = /* css */ `
   .chat-toolbar button.icon, #composer .chip { display: inline-flex; align-items: center; justify-content: center;
     width: 26px; height: 26px; padding: 0; border: 0; border-radius: 5px; background: transparent;
     color: var(--vscode-foreground); cursor: pointer; }
-  .chat-toolbar button.icon:hover, #composer .chip:hover { background: var(--vscode-toolbar-hover); }
+  /* The theme colour is toolbar.hoverBackground: a shorter name resolves to nothing and the
+     hover feedback disappears without a trace, which is what upstream shipped. */
+  .chat-toolbar button.icon:hover, #composer .chip:hover { background: var(--vscode-toolbar-hoverBackground); }
   .chat-toolbar button.icon:focus-visible, #composer .chip:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
   .chat-toolbar svg { width: 16px; height: 16px; fill: none; stroke: currentColor;
     stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
@@ -107,7 +114,7 @@ export const chatStyles = /* css */ `
   .chat-tab { display: inline-flex; align-items: center; gap: 4px; max-width: 150px; padding: 2px 8px;
     font-size: .75rem; cursor: pointer; color: var(--vscode-descriptionForeground);
     border: 1px solid transparent; border-bottom: none; border-radius: 5px 5px 0 0; }
-  .chat-tab:hover { background: var(--vscode-toolbar-hover); }
+  .chat-tab:hover { background: var(--vscode-toolbar-hoverBackground); }
   .chat-tab:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
   .chat-tab.active { color: var(--vscode-foreground); background: var(--vscode-input-background);
     border-color: var(--vscode-panel-border); }
@@ -115,7 +122,7 @@ export const chatStyles = /* css */ `
   .chat-tab .dot { color: var(--vscode-charts-blue, #1a6fb0); }
   .chat-tab .close { padding: 0 2px; border: 0; border-radius: 3px; font-size: .8rem; color: inherit;
                      background: none; cursor: pointer; }
-  .chat-tab .close:hover { background: var(--vscode-toolbar-hover); color: var(--vscode-foreground); }
+  .chat-tab .close:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
   /* Leave room for both picker chips and Send in a sidebar. The textarea keeps
      the shortcut description available to assistive technology at every width. */
   @media (max-width: 480px) {

@@ -1813,7 +1813,7 @@ test('the run header unfolds its details and keeps them open across polling, tab
   const next = headerView({ summary: { state: 'needs_you', label: 'Needs you', sentence: 'Approve the plan.' } });
   await ui.poll(next);
   assert.equal(details.hidden, false, 'a new read keeps the details open');
-  assert.equal(ui.document.querySelector('#run-header').className, 'needs_you');
+  assert.equal(ui.document.querySelector('#run-header').className, 'needs_you collapsed', 'the default fold stays through a new read');
   assert.equal(ui.document.querySelector('#header-label').textContent, 'Needs you');
   assert.equal(ui.document.querySelector('#message').value, 'Keep my draft while the header updates');
   const restored = new JSDOM(panelHtml(true), { runScripts: 'outside-only' });
@@ -1856,52 +1856,52 @@ test('the run header shows the working stage and what it does, and its details t
   assert.equal(ui.document.querySelector('#header-stage').hidden, false);
 });
 
-test('the run header folds to one summary line and stays folded across polling, chats and webview recreation', async (t) => {
+test('the run header starts folded to one summary line, unfolds on demand, and keeps the choice across polling, chats and webview recreation', async (t) => {
   const spent = { cost: { spent_usd: 2.5, running_usd: 0, cap_usd: null, complete: true, unpriced_stages: 0, breakdown: {} },
     efficiency: { time: { summed_execution_seconds: 1664 } } };
   const ui = await openChat(t, headerView(spent));
   const header = ui.document.querySelector('#run-header');
   const fold = ui.document.querySelector('#header-collapse');
   const shown = (id) => ui.window.getComputedStyle(ui.document.getElementById(id)).display !== 'none';
-  assert.equal(header.classList.contains('collapsed'), false, 'the overview starts unfolded');
-  assert.deepEqual(['header-body', 'header-brief', 'header-model'].map(shown), [true, false, false]);
-  assert.equal(fold.getAttribute('aria-expanded'), 'true');
+  // Folded by default: at sidebar width the open table left the conversation a third of the pane.
+  assert.equal(header.classList.contains('collapsed'), true, 'the overview starts folded');
+  assert.deepEqual(['header-body', 'header-brief', 'header-model'].map(shown), [false, true, true]);
+  assert.equal(fold.getAttribute('aria-expanded'), 'false');
   assert.equal(fold.getAttribute('aria-controls'), 'header-body');
+  assert.equal(fold.getAttribute('aria-label'), 'Expand the run overview');
+  assert.equal(ui.document.querySelector('#header-label').textContent, 'Working');
+  assert.equal(ui.document.querySelector('#header-sentence').textContent, 'Builder working.');
+  assert.equal(ui.document.querySelector('#header-brief').textContent, '27m44s · $2.50', 'the one line carries the run\'s total time and cost');
+  assert.equal(ui.document.querySelector('#header-model').textContent, 'opus<img src=x onerror=bad()>', 'and the working stage\'s model, as text');
+  assert.equal(header.querySelector('img'), null);
   for (const id of ['pipeline', 'header-place', 'header-facts', 'header-toggle']) {
     assert.equal(ui.document.getElementById(id).closest('#header-body').id, 'header-body', `${id} folds with the body`);
   }
   assert.equal(fold.closest('#header-now').id, 'header-now', 'the fold button stays on the summary line');
   fold.click();
-  assert.equal(header.classList.contains('collapsed'), true);
-  assert.equal(header.className, 'working collapsed', 'the run state class stays with the fold');
-  assert.equal(fold.getAttribute('aria-expanded'), 'false');
-  assert.equal(fold.getAttribute('aria-label'), 'Expand the run overview');
-  assert.equal(ui.webviewState.headerCollapsed, true);
-  assert.deepEqual(['header-body', 'header-brief'].map(shown), [false, true], 'the stage table folds away and the one line shows the totals');
-  assert.equal(ui.document.querySelector('#header-label').textContent, 'Working');
-  assert.equal(ui.document.querySelector('#header-sentence').textContent, 'Builder working.');
-  assert.equal(ui.document.querySelector('#header-brief').textContent, '27m44s · $2.50', 'the one line carries the run\'s total time and cost');
-  assert.equal(shown('header-model'), true);
-  assert.equal(ui.document.querySelector('#header-model').textContent, 'opus<img src=x onerror=bad()>', 'and the working stage\'s model, as text');
-  assert.equal(header.querySelector('img'), null);
-  // A new read, a run that now needs the person, keeps the fold and updates the line.
+  assert.equal(header.classList.contains('collapsed'), false);
+  assert.equal(header.className, 'working', 'the run state class stays with the fold');
+  assert.equal(fold.getAttribute('aria-expanded'), 'true');
+  assert.equal(fold.getAttribute('aria-label'), 'Collapse the run overview');
+  assert.equal(ui.webviewState.headerCollapsed, false);
+  assert.deepEqual(['header-body', 'header-brief'].map(shown), [true, false], 'unfolding shows the stage table and drops the one-line totals');
+  // A new read, a run that now needs the person, keeps the choice and updates the line.
   let envelope = null;
   ui.window.addEventListener('message', (event) => { if (event.data && event.data.type === 'chat') envelope = event.data; });
   await ui.poll(headerView({ ...spent, summary: { state: 'needs_you', label: 'Needs you', sentence: 'Approve the plan.' } }));
-  assert.equal(header.className, 'needs_you collapsed');
+  assert.equal(header.className, 'needs_you');
   assert.equal(ui.document.querySelector('#header-sentence').textContent, 'Approve the plan.');
   const restored = new JSDOM(panelHtml(true), { runScripts: 'outside-only' });
   restored.window.acquireVsCodeApi = () => ({ getState: () => ui.webviewState, setState() {}, postMessage() {} });
   restored.window.eval(restored.window.document.querySelector('script').textContent);
   restored.window.dispatchEvent(new restored.window.MessageEvent('message', { data: envelope }));
-  assert.equal(restored.window.document.querySelector('#run-header').classList.contains('collapsed'), true, 'the choice survives a recreated webview');
-  assert.equal(restored.window.document.querySelector('#header-collapse').getAttribute('aria-expanded'), 'false');
+  assert.equal(restored.window.document.querySelector('#run-header').classList.contains('collapsed'), false, 'an explicit unfold survives a recreated webview');
+  assert.equal(restored.window.document.querySelector('#header-collapse').getAttribute('aria-expanded'), 'true');
   restored.window.close();
   fold.click();
-  assert.equal(header.classList.contains('collapsed'), false);
-  assert.equal(fold.getAttribute('aria-label'), 'Collapse the run overview');
-  assert.equal(ui.webviewState.headerCollapsed, false);
-  assert.deepEqual(['header-body', 'header-brief'].map(shown), [true, false]);
+  assert.equal(header.classList.contains('collapsed'), true);
+  assert.equal(ui.webviewState.headerCollapsed, true);
+  assert.deepEqual(['header-body', 'header-brief'].map(shown), [false, true], 'the stage table folds away and the one line shows the totals');
 });
 
 test('a new chat with no run shows no run header', async (t) => {
@@ -6414,7 +6414,10 @@ test('the toolbar shows the run cost against its cap, and a total once two chats
   ui.chat.show(beta);
   await flush();
   await ui.poll();
-  assert.equal(cost.textContent, '$0.50 · 651k tokens · all chats $1.71 · 1.3M tokens');
+  // The session total is the tooltip, not the line: at sidebar width the longer string
+  // ellipsized mid-token ("93M+ tokens · all …").
+  assert.equal(cost.textContent, '$0.50 · 651k tokens');
+  assert.match(cost.title, /All open chats: \$1\.71 · 1\.3M tokens/);
 });
 
 test('a finished run closes with its result, requirements, changed files, cost and a way to the changes', async (t) => {
@@ -7304,4 +7307,49 @@ test('exact output review keeps escaped whitespace and spaced command arguments 
       assert.ok(codes.includes(output), surface + ' lost exact escaped whitespace');
     });
   }
+});
+
+test('the waiting action strip is the last thing in the pane, after the run\'s changes', async (t) => {
+  const view = chatView();
+  view.code_checkpoints = {
+    rows: [{ id: 'c1', label: 'Builder step 1', changed_files: ['greet.py'], available: true, actions: [] }],
+    all_changes: { label: 'Show what this run changed', next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --all-changes` },
+  };
+  const ui = await openChat(t, view);
+  assert.ok(ui.document.getElementById('all-changes'), 'the gate shows what the run changed');
+  assert.ok(ui.document.getElementById('action-strip'), 'and the action it waits for');
+  // The thread follows new content to its end, and a sticky strip only holds the bottom edge
+  // while content follows it: anything after the strip scrolled the one button out of sight.
+  assert.equal(ui.document.getElementById('app').lastElementChild.id, 'action-strip');
+});
+
+test('the chat CSS names theme colours that exist, a table size and wrapping the sidebar can show', async (t) => {
+  const ui = await openChat(t, chatView());
+  const css = ui.document.querySelector('style').textContent;
+  // toolbar.hover is not a VS Code colour id; the wrong name left every hover state invisible.
+  assert.ok(css.includes('var(--vscode-toolbar-hoverBackground)'), 'hover states use the theme colour that exists');
+  assert.ok(!/--vscode-toolbar-hover\)/.test(css), 'no hover state names the colour id VS Code does not have');
+  // Table cells do not inherit font-size from a non-table parent, so the table names its own.
+  assert.match(css, /#pipeline \{[^}]*font-size:/, 'the stage table names its font size');
+  assert.match(css, /\.message pre \{[^}]*white-space: pre-wrap/, 'message code wraps instead of clipping at the pane edge');
+});
+
+test('an empty chat centres its welcome until the first message lands', async (t) => {
+  const ui = await openChat(t, chatView(), false);
+  assert.equal(ui.document.getElementById('thread').classList.contains('welcoming'), true, 'a fresh chat centres its welcome');
+  ui.chat.show(run);
+  await flush();
+  assert.equal(ui.document.getElementById('thread').classList.contains('welcoming'), false, 'a chat with a run lays out from the top');
+});
+
+test('a send button held back by unanswered questions says so', async (t) => {
+  const ui = await openChat(t, chatView(questionView()));
+  const take = ui.document.getElementById('take-action');
+  assert.equal(take.disabled, true, 'an unanswered question holds the button');
+  assert.equal(take.title, 'Answer every question above first');
+  const field = ui.document.querySelector('[data-question]');
+  field.value = 'the first one';
+  field.dispatchEvent(new ui.window.Event('input'));
+  assert.equal(take.disabled, false);
+  assert.equal(take.title, '', 'the reason goes once the answer lands');
 });
