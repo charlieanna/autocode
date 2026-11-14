@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import os
 import shlex
+import tempfile
 import time
 from pathlib import Path
 
@@ -69,10 +70,10 @@ def proving_tests(cases, proof, framework_name) -> list[str]:
 
 
 def isolated(command, cache) -> str:
-    """``command`` reading and writing compiled bytecode only under ``cache``, which starts empty: a
-    mutant the same size as the original, written in the same second, could otherwise run from a
-    stale cached compile of the original. A Python the tests start without this environment is
-    covered by each mutant's own modification time (_collect)."""
+    """Use this collection's own bytecode cache. Unchanged dependencies can reuse their compile;
+    _collect gives each changed source version its own whole-second modification time, including
+    for child interpreters that ignore this environment. A new collection starts with a fresh cache.
+    """
     invocation = python_tests.parse(command)
     prefix = list(invocation.prefix) or ["env"]
     return shlex.join(
@@ -282,7 +283,8 @@ def _collect(
         reference_limit = min(BUDGET_SECONDS, deadline - clock())
         if reference_limit <= 0:
             return record("the 900-second mutation budget expired before the unmutated run", rows)
-    reference = run(isolated(narrowed, evidence / "pycache" / "unmutated"), "unmutated", reference_limit)
+    cache = Path(tempfile.mkdtemp(prefix="pycache-", dir=evidence))
+    reference = run(isolated(narrowed, cache), "unmutated", reference_limit)
     outcome, passed = (proved_outcome if enforcement else judge)(reference, tests)
     if outcome != "survived" or (strict and set(passed) != set(tests)):
         return record(
@@ -306,7 +308,7 @@ def _collect(
             # Each version its own whole second, so a cached compile keyed by modification time and size
             # (a test's own Python, started with a minimal environment, -E or -I) is never reused.
             os.utime(target, ns=(times.st_atime_ns, times.st_mtime_ns - number * 1_000_000_000))
-            receipt = run(isolated(narrowed, evidence / "pycache" / label), label, limit)
+            receipt = run(isolated(narrowed, cache), label, limit)
         except command_receipt.OwnershipUncertain:
             ownership_uncertain = strict
             raise
