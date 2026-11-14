@@ -59,6 +59,25 @@ class ActualSelectionTests(unittest.TestCase):
         self.assertIsNone(result["results"])
         self.assertIn("test_todo.py", result["error"])
 
+    def test_reporter_owned_command_without_framework_keeps_its_receipt(self):
+        calls = []
+        receipt = {"exit_code": 0, "timed_out": False, "results": None}
+
+        def execute(*args):
+            calls.append(args)
+            return receipt
+
+        def check_named_results(value):
+            self.fail("A reporter-owned command without a framework keeps the original receipt")
+
+        result = suites.explicit(
+            self.root, ["test_todo.py"], None, "npm test", execute, check_named_results, acceptance_preflight=True
+        )
+        self.assertIs(receipt, result)
+        self.assertEqual([(None, "npm test", "scratch-command")], calls)
+        result = suites.explicit(self.root, [], Framework("unittest", COMMAND), COMMAND, execute, lambda value: False)
+        self.assertEqual("Test command reported zero tests or incomplete per-test results", result["error"])
+
     def test_negative_payload_is_exactly_bound_to_marker_source_command_and_json_types(self):
         out = self.root / "evidence"
         tree = out / "scratch/tree"

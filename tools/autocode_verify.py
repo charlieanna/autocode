@@ -2009,7 +2009,8 @@ def scratch_run(
             for root in dict.fromkeys((str(workspace.resolve()), str(workspace))):
                 command = command.replace(root, str(tree))
             framework = command_framework(command) or package_scope.recognize(command, command_framework)
-            if framework:
+            # A reporter-owned command can name tests without a recognized framework object.
+            if framework or (native_execution is None and expects_results(None, command, tree)):
                 receipt = scratch_suites.explicit(
                     tree,
                     tests,
@@ -2021,22 +2022,11 @@ def scratch_run(
                     schedule.complete_results,
                     acceptance_preflight=acceptance_preflight,
                 )
-                if receipt.get("error") in (
+                if framework and receipt.get("error") in (
                     "Test command reported zero tests or incomplete per-test results",
                     "Test command reported only skipped tests",
                 ):
                     return receipt
-            elif native_execution is None and expects_results(None, command, tree):
-                # Keep the runner-owned npm/RSpec/Vitest/Jest path when no framework object was recognized.
-                receipt = run_suite(
-                    framework,
-                    command,
-                    tree,
-                    run_dir,
-                    "scratch-command",
-                    timeout=timeout,
-                    native_execution=native_execution,
-                )
             else:
                 receipt = run_command(
                     command, tree, run_dir / "scratch-command.log", timeout=timeout, native_execution=native_execution

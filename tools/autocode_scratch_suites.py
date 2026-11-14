@@ -93,7 +93,7 @@ def explicit(root, tests, framework, command, execute, complete_results, *, acce
     receipt = run_selected(
         root, tests, [(framework, command, "scratch-command")], execute, acceptance_preflight=acceptance_preflight
     )
-    if receipt.get("acceptance_refusal"):
+    if receipt.get("acceptance_refusal") or framework is None:
         return receipt
     if receipt["exit_code"] == 0 and not receipt["timed_out"] and not complete_results(receipt):
         return {**receipt, "error": "Test command reported zero tests or incomplete per-test results"}
