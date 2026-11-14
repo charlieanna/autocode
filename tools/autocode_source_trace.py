@@ -426,10 +426,11 @@ def quotable(records):
 def _coverage_scoped(records):
     """Direct human sources subject to mandatory sentence-by-sentence coverage.
 
-    Linked GitHub issues/PRs (kind="linked issue") remain citable in criteria and checked by
-    citation/survival rules, while their reporter/commenter prose never forces out_of_scope noise (#3344).
+    Linked GitHub issues/PRs (kind="linked issue") and referenced workspace design documents
+    (kind="design document") remain citable in criteria and checked by citation/survival rules,
+    while their background prose never forces out_of_scope noise (#3344).
     """
-    return [row for row in records if row.get("kind") != "linked issue"]
+    return [row for row in records if row.get("kind") not in ("linked issue", "design document")]
 
 
 def _turn_scoped(state: RunState, records):

@@ -167,20 +167,32 @@ def _parent(root, path):
     return current, path[-1]
 
 
-def _plain_text(parent, key, op, path, text):
-    """The text itself, when an edit replaces a text field with text that is not JSON.
+def _schema_is_prose_string(schema, path) -> bool:
+    """Whether ``schema`` declares ``path`` as a plain string property (no enum/const)."""
+    node = schema
+    for part in path:
+        if isinstance(part, str) and isinstance(node, dict) and node.get("type") == "object":
+            node = (node.get("properties") or {}).get(part)
+        elif type(part) is int and part >= 0 and isinstance(node, dict) and node.get("type") == "array":
+            node = node.get("items")
+        else:
+            return False
+    return isinstance(node, dict) and node.get("type") == "string" and "enum" not in node and "const" not in node
+
+
+def _plain_text(parent, key, op, path, text, schema=None):
+    """The text itself, when an edit sets a text field with text that is not JSON.
 
     value_json is JSON, so new text needs its own quotes (``"\\"new summary\\""``). Models often
     send the bare text instead: a 2026-11-11 Requirements repair removed seven requirements
     correctly and lost the whole attempt, and another two minutes, to a bare-text summary. The
-    field already holds text, so the text can only mean itself; the complete report still passes
-    every check. Anything else that is not JSON (text for a list or number, a broken quoted
-    string, an added field whose type is unknown) stays refused, with the fix in the message.
+    field already holds text (or the stage schema declares the added property as plain string), so
+    the text can only mean itself; the complete report still passes every check. Anything else that
+    is not JSON (text for a list or number, a broken quoted string, an added field whose type is
+    unknown) stays refused, with the fix in the message.
     """
-    if (
-        op == "replace"
-        and not text.lstrip().startswith('"')
-        and (
+    if not text.lstrip().startswith('"'):
+        if op == "replace" and (
             isinstance(parent, dict)
             and isinstance(key, str)
             and isinstance(parent.get(key), str)
@@ -188,16 +200,36 @@ def _plain_text(parent, key, op, path, text):
             and type(key) is int
             and 0 <= key < len(parent)
             and isinstance(parent[key], str)
-        )
-    ):
-        return text
+        ):
+            return text
+        if (
+            op == "add"
+            and isinstance(parent, dict)
+            and isinstance(key, str)
+            and key not in parent
+            and _schema_is_prose_string(schema, path)
+        ):
+            return text
     raise ValueError(
         f"Report edit {op} {json.dumps(path)} has value_json that is not JSON: value_json is one JSON value, "
         'so text needs its own quotes ("\\"new text\\""), and remove uses "null"'
     )
 
 
-def apply(base, edits):
+def _patch_validation_schema(patch_schema):
+    """Relax wire-only value_json requirement on remove edits during patch decoding."""
+    relaxed = copy.deepcopy(patch_schema)
+    edits = (relaxed.get("properties") or {}).get("edits") if isinstance(relaxed, dict) else None
+    item = edits.get("items") if isinstance(edits, dict) else None
+    props = item.get("properties") if isinstance(item, dict) else None
+    if isinstance(item, dict) and isinstance(props, dict) and "value_json" in props:
+        props["value_json"] = {"anyOf": [copy.deepcopy(props["value_json"]), {"type": "null"}]}
+        if isinstance(item.get("required"), list):
+            item["required"] = [key for key in item["required"] if key != "value_json"]
+    return relaxed
+
+
+def apply(base, edits, schema=None):
     """Apply disjoint edits against original indices, removing array items last."""
     result = copy.deepcopy(base)
     seen = []
@@ -207,15 +239,20 @@ def apply(base, edits):
         undecoded = None
         if "value_json" in edit and "value" not in edit:
             encoded = edit["value_json"]
-            if not isinstance(encoded, str) or len(encoded.encode("utf-8")) > MAX_EDIT_VALUE_BYTES:
+            if op == "remove" and encoded is None:
+                value = None
+            elif not isinstance(encoded, str) or len(encoded.encode("utf-8")) > MAX_EDIT_VALUE_BYTES:
                 raise ValueError("Report edit value_json must be a bounded JSON string")
-            try:
-                value = json.loads(encoded)
-            except (json.JSONDecodeError, TypeError):
-                value, undecoded = None, encoded
+            else:
+                try:
+                    value = json.loads(encoded)
+                except (json.JSONDecodeError, TypeError):
+                    value, undecoded = None, encoded
         elif "value" in edit and "value_json" not in edit:
             # Reports already saved with the previous wire schema keep working.
             value = edit["value"]
+        elif op == "remove" and "value_json" not in edit and "value" not in edit:
+            value = None
         else:
             raise ValueError("Report edit must contain exactly one of value_json or legacy value")
         if not path or any(type(part) not in (str, int) or type(part) is int and part < 0 for part in path):
@@ -225,7 +262,7 @@ def apply(base, edits):
         seen.append(path)
         parent, key = _parent(result, path)
         if undecoded is not None:
-            value = _plain_text(parent, key, op, path, undecoded)
+            value = _plain_text(parent, key, op, path, undecoded, schema=schema)
         if isinstance(parent, dict) and isinstance(key, str):
             exists = key in parent
             if (op == "add" and exists) or (op in ("remove", "replace") and not exists):
@@ -290,7 +327,7 @@ def expand(value, record):
     if isinstance(branches, list) and len(branches) == 2:
         patch_schema = branches[0]
         try:
-            validate_schema(value[KEY], patch_schema)
+            validate_schema(value[KEY], _patch_validation_schema(patch_schema))
         except ValueError:
             if isinstance(value[KEY], dict) and set(value[KEY]) & set(patch_schema.get("properties", {})):
                 # A malformed patch must never fall back to a full report.
@@ -305,7 +342,7 @@ def expand(value, record):
             return value[KEY]
     else:
         # Saved reports from the earlier root-level patch schema remain valid.
-        validate_schema(value[KEY], offered)
+        validate_schema(value[KEY], _patch_validation_schema(offered))
     source = Path(meta["source_path"])
     if source.is_symlink() or not source.is_file() or file_hash(source) != meta["sha256"]:
         raise ValueError("Pinned rejected report changed before applying edits")
@@ -322,4 +359,4 @@ def expand(value, record):
     base = json.loads(text)
     if not isinstance(base, dict) or KEY in base:
         raise ValueError("Report edits do not name the exact rejected object")
-    return apply(base, value[KEY]["edits"])
+    return apply(base, value[KEY]["edits"], schema=validation_schema(schema))

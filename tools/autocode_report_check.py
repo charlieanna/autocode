@@ -32,6 +32,9 @@ try:
         autocode_requirement_quotes as requirement_quotes,
     )
     from . import (
+        autocode_requirements_report as requirements_report,
+    )
+    from . import (
         autocode_source_trace as source_trace,
     )
     from . import (
@@ -44,6 +47,7 @@ except ImportError:
     import autocode_requirement_coverage as requirement_coverage
     import autocode_requirement_cues as requirement_cues
     import autocode_requirement_quotes as requirement_quotes
+    import autocode_requirements_report as requirements_report
     import autocode_source_trace as source_trace
     import autocode_util as util
 
@@ -263,6 +267,9 @@ def check_report(raw_text: str, *, spec: dict[str, Any]) -> list[str]:
         data = json.loads(raw_text)
     except ValueError as exc:
         return [f"Report is not valid JSON: {exc}"]
+    stage = str(spec.get("stage") or "")
+    if stage == "requirements_gather" and isinstance(data, dict):
+        data = requirements_report.backfill_assumption_text(data)
     schema = spec.get("schema")
     if isinstance(schema, dict) and schema:
         try:
@@ -272,7 +279,6 @@ def check_report(raw_text: str, *, spec: dict[str, Any]) -> list[str]:
     if not isinstance(data, dict):
         return ["Report JSON must be an object"]
     errors: list[str] = []
-    stage = str(spec.get("stage") or "")
     workspace_raw = str(spec.get("workspace") or "")
     workspace = Path(workspace_raw) if workspace_raw else Path()
     if stage == "requirements_gather":
