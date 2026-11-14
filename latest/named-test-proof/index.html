@@ -2415,10 +2415,12 @@ from <code>tools/autocode_mutants.py</code>).</p>
   refresh a saved measurement at Completion Review; normal validation requests proof
   under the current runtime identity, while previously qualified evidence stays valid.
   Older advisory collectors
-  select only the named proving tests. Each mutant uses its own empty
-  bytecode cache and its own modification time, so a compile cached by a Python
-  the tests start themselves is never reused. A mutant may take ten times the
-  unmutated run's duration, at least 60 seconds, and never more than the budget
+  select only the named proving tests. Each collection starts with a fresh bytecode
+  cache and reuses unchanged dependencies within that collection. Every mutated
+  source version has a distinct whole-second modification time, so its old compile
+  is invalidated, including in a Python the tests start without that cache setting.
+  Original source bytes and modification times are restored after each mutant. A mutant may take
+  ten times the unmutated run's duration, at least 60 seconds, and never more than the budget
   left: with fast proving tests one that never returns cannot spend the budget,
   but with slow ones it can use the rest of it. No mutant starts with less than
   60 seconds left; those, and a mutant the budget cut short, are <code>not_run</code>.</li>
