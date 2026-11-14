@@ -667,7 +667,8 @@ acceptance criterion a test can check as one concrete example, and sets its
 
 The matching and the rules are in `tools/autocode_test_cases.py`.
 
-Test commands are detected (pytest, unittest, Go, Jest/Vitest/Mocha, RSpec,
+Test commands are detected (pytest, unittest, Go (`go test ./...` for a root `go.mod`; for a root `go.work`
+with no root module, `go test ./DIR/...` over each module it uses), Jest/Vitest/Mocha, RSpec,
 Cargo, `make test`, Maven (`mvn -B -q test`), Gradle (`gradle --no-daemon -q test`), CMake with
 CTest (a root `CMakeLists.txt` that calls `enable_testing()` or includes `CTest`), PHPUnit in a Composer
 project (`vendor/bin/phpunit`, for a root `composer.json` with a PHPUnit configuration file or the

@@ -1123,6 +1123,43 @@ files the change adds, and the modules count as repaired. Both of this run's sta
 its first, with the one new test importing at the top of its file, and its last. A change that edits one of
 the project's test files, and any change to code that loads, is judged as before.
 
+The same task on the fix: `TASK_COMPLETE` with one plan approval and no question, 8 stages, 140 s, $0.87
+(bundle manifest `648d1a7a5092498cd5296fcca090764bdeea822a0071be983682e1ed6421e13e`). Its plan changed
+`amounts.py` alone, and the first proof passed on the four tests the project already had.
+
+## 39. A Go workspace of several modules: the person is asked for the test commands (fixed)
+
+Real runs, Claude models as in section 37, 2026-11-14, each with one plan approval. The repository holds a
+root `go.work` that uses two modules, `lib` and `app`, each with its own `go.mod`, and no root `go.mod`. The
+request: "A pen of 500 cents at 10 percent off prints `pen: 490` on the receipt; it should be `pen: 450`. Fix
+it where the bug is and add tests for the price and for the receipt line."
+
+| Runner | Result | Bundle manifest |
+| --- | --- | --- |
+| Before the fix | `WAITING_FOR_USER`, 11 stages, 342 s, $2.73. The fix and both tests are right | `aebd3efd10b09a8cf7c1ff6090bbb24294eca0ff4593f053098402e408d23aad` |
+| With the fix | `TASK_COMPLETE`, 8 stages, 164 s, $0.94 | `c5e0da49da6da63b293f38c13ae184c4f8bc31881b240bceab2cbf6ec03840d5` |
+
+Only a root `go.mod` named a Go project, and `go test ./...` at the root of such a workspace names no
+package ("directory prefix . does not contain modules listed in go.work"), so the repository had no detected
+suite. The plan's criteria, which named Go tests after `test:` and `guard:`, were sent back twice ("this
+project's tests run with no runner AutoCode reads ... such as `ruby test/pager_test.rb`"), the proof ended
+`UNVERIFIED` ("No command to run the regression tests; pass --regression-command", "No project test command
+was found"), and the Resolver asked the person to "Set both --test-command and --regression-command to
+'go test example.com/shop/lib example.com/shop/app'".
+
+Fixed (`autocode_toolchain_suite.go_workspace`): for a root `go.work` and no root `go.mod`, the suite is
+`go test ./DIR/...` over each module the workspace uses that the repository holds. With it the plan named
+its tests (`test: TestDiscountedTenPercent`, `guard: TestNoDiscount`, and the same in `app`), and the first
+proof passed with a test in each module.
+
+Three more kinds, each `TASK_COMPLETE` with one plan approval and no question:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| A bug fix in a React component, tested with Vitest and Testing Library in happy-dom | 10 stages (one plan revision), 183 s, $1.29 | `591f8ce5954886d905007b0c14caebe243ef20a94d71c2e545cd2c19206b0346` |
+| A bug fix in a Python project whose tests are named `*_test.py` and sit beside the code (`python_files = ["*_test.py"]`) | 10 stages (one plan revision), 173 s, $1.29 | `8b596d2f5923e7adf2344cf962f5d0566ddc01be8bf715a37d8e3be384afad9c` |
+| A bug fix in a repository whose projects sit in subdirectories (a Go module in `backend/`, a Node package in `frontend/`, only a README at the root); the fix is in the backend | 10 stages (one plan revision), 157 s, $1.22; the proof's suite is `cd backend && go test ./...` | `debdbd9f545e736ebb979edc69706329dcaa48892d257418a5afa8c9f8bcb994` |
+
 ## Also seen, not yet run on real models
 
 - **Claude Code refuses to edit some directories inside the stage's own directory.** With Edit and
