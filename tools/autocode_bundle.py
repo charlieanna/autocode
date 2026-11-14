@@ -190,6 +190,9 @@ def _recording(run_dir: Path, scratch: Path) -> Path:
     return replay.export_saved(run_dir, scratch / "recording")
 
 
+DIFF_ERRORS = "surrogateescape"
+
+
 def _diff(workspace: Path, state: RunState, archive: dict | None = None) -> tuple[str, str]:
     """The run's diff: against its base commit when it recorded one, else the uncommitted work.
 
@@ -208,7 +211,11 @@ def _diff(workspace: Path, state: RunState, archive: dict | None = None) -> tupl
         target: list[str] = [base, branch]
     else:
         target = [base]
-    result = subprocess.run(["git", "-C", str(workspace), "diff", *target], capture_output=True, text=True)
+    # The diff's bytes are kept as they are (surrogateescape), so a file that is not UTF-8 (a Latin-1
+    # source) neither stops the bundle nor changes in it; collect() encodes it the same way.
+    result = subprocess.run(
+        ["git", "-C", str(workspace), "diff", *target], capture_output=True, encoding="utf-8", errors=DIFF_ERRORS
+    )
     if result.returncode:
         raise ValueError(f"git diff {' '.join(target)} failed: {result.stderr.strip()}")
     return result.stdout, "..".join(target)
@@ -264,7 +271,7 @@ def collect(run_dir, *, with_diff=False, environ=None, doctor=None, recording=No
     files["doctor.json"] = util.redact(json.dumps(report, indent=2, sort_keys=True), secrets).encode()
     if with_diff:
         diff, base = _diff(workspace, state, _archive(run_dir))
-        files["diff.patch"] = util.redact(diff, secrets).encode()
+        files["diff.patch"] = util.redact(diff, secrets).encode("utf-8", DIFF_ERRORS)
         notes["diff_base"] = base
     with tempfile.TemporaryDirectory(prefix="autocode-bundle-") as scratch:
         try:

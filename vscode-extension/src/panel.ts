@@ -762,7 +762,6 @@ const METER_STYLES = `
   .chat-toolbar button.icon { flex: none; }
   #run-cost { flex: 1 1 auto; align-self: center; font-size: .75rem; opacity: .85; white-space: nowrap;
               overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  #run-cost .session { opacity: .75; }
   #chat-models { flex-shrink: 0; margin: 0 6px 6px; border: 1px solid var(--vscode-panel-border); border-radius: 6px;
                  padding: 4px 8px; font-size: .75rem; max-height: 40vh; overflow-y: auto; }
   #chat-models[hidden] { display: none; }
@@ -808,7 +807,10 @@ const METER_STYLES = `
   #run-header[hidden], #header-details[hidden] { display: none; }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   /* The stage table: one aligned row per stage, the model cut short before a number is. */
-  #pipeline { width: 100%; border-collapse: collapse; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
+  /* Table cells do not inherit font-size from a non-table parent (a 12px div still yields 16px
+     cells), so the scale must be named here: unnamed, the table was the largest text in the pane
+     and every stage name ellipsized at sidebar width. */
+  #pipeline { width: 100%; border-collapse: collapse; margin: 4px 0 2px; font-variant-numeric: tabular-nums; font-size: .72rem; }
   #pipeline[hidden] { display: none; }
   #pipeline th { font-weight: 600; text-transform: uppercase; letter-spacing: .05em; opacity: .6; font-size: .62rem;
                  text-align: left; padding: 0 4px 2px; white-space: nowrap; }
@@ -860,7 +862,7 @@ const METER_STYLES = `
   #header-collapse { flex: none; align-self: center; display: inline-flex; align-items: center; justify-content: center;
                      width: 20px; height: 18px; padding: 0; border: 0; border-radius: 4px;
                      background: transparent; color: var(--vscode-foreground); opacity: .75; }
-  #header-collapse:hover { background: var(--vscode-toolbar-hover); opacity: 1; }
+  #header-collapse:hover { background: var(--vscode-toolbar-hoverBackground); opacity: 1; }
   #header-collapse:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
   #header-collapse svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8;
                          stroke-linecap: round; stroke-linejoin: round; transition: transform .1s; }
@@ -1007,8 +1009,11 @@ const WELCOME_TEXT = ${JSON.stringify(WELCOME_TEXT)};
 const initialWebviewState = vscode.getState?.() || {};
 // The header's details stay open or closed across reads, tabs and a recreated webview.
 let headerOpen = initialWebviewState.headerOpen === true;
-// So does folding the whole overview to its one summary line, the person's choice for every chat.
-let headerCollapsed = initialWebviewState.headerCollapsed === true;
+// So does folding the whole overview to its one summary line. It starts folded: at the default
+// sidebar width the stage table is a third to a half of the pane, and in the two states that wait
+// on a person it pushed the plan or the question they came to answer out of the window. A saved
+// false is an explicit earlier choice to see it open, and is kept.
+let headerCollapsed = initialWebviewState.headerCollapsed !== false;
 let chatEnvelope = null;
 const chatBehavior = chatMode ? (${installChatBehavior.toString()})() : null;
 let current = null;
@@ -1450,8 +1455,9 @@ function renderMeter(data) {
   if (cost && cost.dataset.content !== costKey) {
     cost.dataset.content = costKey;
     cost.textContent = '';
+    // The run's own cost and tokens stay visible; the session total lives in the tooltip, because
+    // at sidebar width the longer line ellipsized mid-token ("93M+ tokens · all …").
     if (meter && meter.total) cost.appendChild(el('span', null, meter.total));
-    if (data.session) cost.appendChild(el('span', 'session', (meter && meter.total ? ' · ' : '') + 'all chats ' + data.session));
     cost.title = [meter && meter.total ? 'This run: ' + meter.total : '', data.session ? 'All open chats: ' + data.session : '']
       .filter(Boolean).join(' · ');
   }
@@ -1668,9 +1674,12 @@ function render(state) {
     }
 
     if (cardContent.childNodes.length > 0) app.appendChild(card);
-    if (strip.childNodes.length > 0) app.appendChild(strip);
     if (state.done && state.finish) renderFinish(state);
     renderAllChanges(state);
+    // The strip goes last: it sticks to the thread's bottom edge only while content follows it,
+    // and the thread follows new content to the end. The run's changes or a finish card after it
+    // scrolled the one button a waiting run needs above the window.
+    if (strip.childNodes.length > 0) app.appendChild(strip);
     updateActionButton();
     if (focusedQuestion) {
       const input = [...document.querySelectorAll('[data-question]')].find((node) => node.dataset.question === focusedQuestion);
@@ -1917,6 +1926,9 @@ function updateActionButton() {
     return !Number.isSafeInteger(number) || number < decision.input.minimum || number > decision.input.maximum;
   });
   take.disabled = current.taking || current.working || Boolean(current.unreadable) || missing || !current.canApprove;
+  // A dimmed primary button with no reason reads as a client fault; the common cause is an
+  // unanswered question above it.
+  take.title = take.disabled && missing ? 'Answer every question above first' : '';
 }
 
 // The raise the view names apart from next_command for the bound holding the run (#2044): its own
@@ -2251,6 +2263,7 @@ function renderChat(data) {
   }
   updateLatestCue(data.state);
   const welcoming = !data.state && !data.busy && !data.selectedRun && !data.pendingBrief && !data.error;
+  document.getElementById('thread').classList.toggle('welcoming', welcoming);
   if (data.state) render(data.state);
   else if (welcoming && document.getElementById('welcome')) {
     // Already showing: nothing in it changes between reads.

@@ -122,10 +122,17 @@ def patch_text(state: RunState, commit, changed, before, after, *, new_commit=No
             if max(len(old_bytes), len(new_bytes)) > 100000 or b"\0" in old_bytes + new_bytes:
                 patch += "Binary or large file changed; inspect the saved checkpoint and current file.\n"
             else:
+                try:
+                    texts = old_bytes.decode(), new_bytes.decode()
+                except UnicodeError:
+                    # Text in another encoding (a Latin-1 source file), not a binary file: its changed
+                    # lines are shown, with each byte that is not UTF-8 as U+FFFD. Display only.
+                    texts = old_bytes.decode("utf-8", "replace"), new_bytes.decode("utf-8", "replace")
+                    patch += "Not UTF-8 text; a byte outside UTF-8 is shown as \ufffd.\n"
                 patch += "".join(
                     difflib.unified_diff(
-                        old_bytes.decode().splitlines(True),
-                        new_bytes.decode().splitlines(True),
+                        texts[0].splitlines(True),
+                        texts[1].splitlines(True),
                         "checkpoint/" + name if not new_commit else "before/" + name,
                         "current/" + name if not new_commit else "step/" + name,
                     )

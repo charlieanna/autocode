@@ -125,8 +125,14 @@ def option_value(argv: list[str], flag: str) -> str | None:
 
 
 def git(workspace: Path, *args: str) -> str:
+    # A diff of a file that is not UTF-8 (a Latin-1 source) is still reported: such a byte reads as U+FFFD.
     result = subprocess.run(
-        ["git", "-C", str(workspace), *args], stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False
+        ["git", "-C", str(workspace), *args],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
     )
     return result.stdout if result.returncode == 0 else f"(git {' '.join(args)} failed: {result.stderr.strip()})\n"
 
@@ -334,7 +340,8 @@ def analyze(run_dir: Path, out: Path | None) -> int:
                 ["git", "-C", str(workspace), "diff", "--no-index", "--", os.devnull, name],
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=False,
             ).stdout
     lines += [
