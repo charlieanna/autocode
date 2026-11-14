@@ -1254,7 +1254,7 @@ must keep working with, and the README). `TASK_COMPLETE`, 10 stages (one plan re
 criteria, one plan approval and no question (bundle manifest
 `488c7dade3e3c4674f36f495c9a5ec0e917921c9d95a6ed88b207b0d698fe6fc`).
 
-## 42. Links among the tests: no task can start (fixed for a linked directory and a dangling link)
+## 42. Links among the tests: no task can start (fixed)
 
 Section 37 could say nothing about links, because the scenario harness copies a seed's links as files. With
 the links kept: a Python project whose tests read real trees under `tests/data/`, where `tree/latest.txt`
@@ -1278,21 +1278,34 @@ A link among the tests that is not code (by its suffix) and leads to a directory
 repository does not hold, is now retained as its link text (`autocode_protected_paths.follow`). The original
 tests still run with the original link, so a link retargeted to weaker expected output, or a directory put
 in its place, gives way to the original when they run. A test file or a module that is a link must still
-lead to a file of the repository, and a link with an absolute or outside target, or a cycle, is still
-refused.
+lead to a file of the repository.
 
 In the rerun the binding holds the three links as their text, the proof passed at its first attempt, and
 the Tester's original-test check ran the two original tests through the restored links (both pass). The
 Builder made its new fixture in a temporary directory, so the change itself added no link.
 
-**Still open**, found without a model:
+Two more refusals of the same kind were found without a model and fixed after it:
 
-- A link among the tests with an absolute or outside target, or a cycle of links, still refuses every task
-  at its start. The regression proof refuses the same links for the suite's own definition ("suite
-  definition link ... does not bind an in-tree input"), so the two must change together.
-- A change that itself adds or retargets such a link (a new fixture `tests/data/linked/alias -> real`) ends
-  its proof `UNVERIFIED`: "Product/test ownership is ambiguous; no proof commands were started for:
-  tests/data/linked/alias".
+- A link among the tests with an absolute or outside target, or a cycle of links, still refused every task
+  at its start, and the regression proof refused the same links for the suite's own definition ("suite
+  definition link ... does not bind an in-tree input"), so a change in such a project ended `UNVERIFIED`.
+  The base revision holds all there is of such a fixture, its text, so both now retain it as that
+  (`autocode_protected_paths.follow`, `autocode_suite_definition_inputs.linked_inputs`). A link that is the
+  suite's definition (`.npmrc`, a manifest) or code is held to the repository as before.
+- A change that itself adds such a link (a new fixture `tests/data/linked/alias -> real`) ended its proof
+  `UNVERIFIED`: "Product/test ownership is ambiguous; no proof commands were started for:
+  tests/data/linked/alias". A link that leads to no file had no role. One that is not code now has the role
+  of its place, as a regular data file has (`autocode_python_test_roles`), so a new one among the tests is
+  one of the change's test files. Code that is a link to nothing stays ambiguous.
+
+Both ran in one more real run, with `tree/host -> /etc/hostname` and `tree/loop -> loop` added to the same
+project and a request that asks for the fixture: "Fix it. For the test, put a link to a directory in a new
+tree under tests/data (leave tests/data/tree as it is) and add a test that scans that tree." With section
+42's first fix alone the task is refused at its start ("Protected test link must stay repository-relative:
+tests/data/tree/host"). With both: `TASK_COMPLETE`, 8 stages, 158 s, $1.06, one plan approval and no
+question (bundle manifest `a04efc87888822079eed5e3ed956288481d2cf4b68b5213464145464dd483e43`). The Builder
+added `tests/data/dirlink/ptr -> sub`, the proof counted that link among the change's test files and passed
+at its first attempt, and the original tests ran through the original links.
 
 ## Also seen, not yet run on real models
 

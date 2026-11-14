@@ -1,13 +1,16 @@
-"""Links among a project's tests that are data, not code: a task can start, and the original gate keeps them.
+"""Links among a project's tests that are data, not code: a task can start, is proven, and the gate keeps them.
 
 A project whose tests hold a link to a directory (``tests/data/current -> v2``), or a link a test of link
-handling needs dangling, could start no task at all: ``autocode: Protected test link target is
-not in the source snapshot: tests/data/v2`` (exit 2, before any model call). Such a link is now bound as its
-text. A test file that is itself a link is still held to a snapshot file (tests.test_protected_test_links),
-and a link that leaves the repository or loops is still refused.
+handling needs dangling, absolute or looping, could start no task at all: ``autocode: Protected test link
+target is not in the source snapshot: tests/data/v2`` (exit 2, before any model call). Such a link is bound as
+its text. The regression proof refused the absolute, outside and looping ones for the suite's definition
+("does not bind an in-tree input"), and gave a link the change adds no role ("ownership is ambiguous"). A test
+file that is itself a link is still held to a snapshot file (tests.test_protected_test_links).
 
-These cases bind real projects and run the real original-test gate; the last starts a run through the CLI.
-tools/autocode_protected_paths.py (collect), tools/autocode_protected_store.py (_links)
+These cases bind real projects, run real regression proofs and the real original-test gate; the last starts a
+run through the CLI.
+tools/autocode_protected_paths.py (collect), tools/autocode_protected_store.py (_links),
+tools/autocode_suite_definition_inputs.py (linked_inputs), tools/autocode_python_test_roles.py (_classify)
 """
 
 import json
@@ -45,6 +48,10 @@ FILES = {
 LINKS = {
     "tests/data/current": "v2",
     "tests/data/missing": "nowhere",
+    "tests/data/host": "/etc/hostname",
+    "tests/data/up": "../../../outside",
+    "tests/data/loop-a": "loop-b",
+    "tests/data/loop-b": "loop-a",
     "tests/data/through": "current/report.txt",
     "tests/shared": "../samples",
 }
@@ -132,11 +139,13 @@ class DataLinkTests(unittest.TestCase):
         self.assertEqual("pen     12\n", (current / "report.txt").read_text())
         self.assertEqual("pen: 12\n", (self.root / "tests/data/v2/report.txt").read_text())
 
-    def test_a_data_link_that_leaves_the_repository_or_loops_is_still_refused(self):
+    def test_code_that_is_a_link_to_no_file_of_the_repository_is_still_refused(self):
         for links in (
-            {"tests/data/host": "/etc/hostname"},
-            {"tests/data/up": "../../../outside"},
-            {"tests/data/loop-a": "loop-b", "tests/data/loop-b": "loop-a"},
+            {"tests/test_host.py": "/etc/hostname"},
+            {"tests/test_up.py": "../../outside.py"},
+            {"tests/test_gone.py": "nowhere.py"},
+            {"tests/helpers.py": "data"},
+            {"tests/test_a.py": "test_b.py", "tests/test_b.py": "test_a.py"},
         ):
             with self.subTest(links=links):
                 link(self.root, links)
@@ -152,6 +161,48 @@ class DataLinkTests(unittest.TestCase):
         del files["tests/test_report.py"]
         with self.assertRaisesRegex(ValueError, "source snapshot"):
             guard.retain(self.root, self.project.evidence / "partial", files, self.command)
+
+
+DASHED = REPORT.replace("{count}", "{'-' if count is None else count}")
+DASH_TEST = (
+    "\n    def test_a_missing_count_is_a_dash(self):\n        self.assertEqual('pen: -\\n', render([('pen', None)]))\n"
+)
+ALIAS_TEST = DASH_TEST + (
+    "        self.assertEqual((DATA / 'alias' / 'report.txt').read_text(), render([('pen', 12)]))\n"
+)
+NEW_TEST = "tests.test_report.ReportTests.test_a_missing_count_is_a_dash"
+
+
+class ProofTests(unittest.TestCase):
+    def setUp(self):
+        self.project = Project(FILES)
+        self.addCleanup(self.project.close)
+        self.root = self.project.root
+        link(self.root)
+        git(self.root, "add", ".")
+        git(self.root, *IDENTITY, "commit", "-qm", "links")
+        self.project.base = git(self.root, "rev-parse", "HEAD")
+
+    def test_a_change_is_proven_in_a_project_whose_fixtures_are_links(self):
+        self.project.write({"report.py": DASHED, "tests/test_report.py": TESTS + DASH_TEST})
+        result = self.project.verify()
+        self.assertEqual(verify.PASS, result["verdict"], result)
+        self.assertEqual([NEW_TEST], result["fail_to_pass"])
+        self.assertEqual(2, len(result["pass_to_pass"]))
+
+    def test_a_link_the_change_adds_as_a_fixture_is_one_of_its_test_files(self):
+        self.project.write({"report.py": DASHED, "tests/test_report.py": TESTS + ALIAS_TEST})
+        link(self.root, {"tests/data/alias": "v2", "tests/data/lost": "nowhere", "tests/data/root": "/"})
+        result = self.project.verify()
+        self.assertEqual(verify.PASS, result["verdict"], result)
+        self.assertEqual([NEW_TEST], result["fail_to_pass"])
+
+    def test_a_test_file_the_change_adds_as_a_link_to_nothing_is_not_proven(self):
+        self.project.write({"report.py": DASHED, "tests/test_report.py": TESTS + DASH_TEST})
+        link(self.root, {"tests/test_ghost.py": "nowhere.py"})
+        result = self.project.verify()
+        self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+        self.assertIn("ownership is ambiguous", " ".join(result["unverified"]))
 
 
 class StartTests(unittest.TestCase):

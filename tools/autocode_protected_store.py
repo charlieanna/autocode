@@ -42,7 +42,9 @@ def _links(files):
         name, seen = start, set()
         while name is not None and "symlink" in files[name]:
             if name in seen:
-                raise ValueError("Protected test link cycle")
+                if any(paths.holds_code(link) for link in seen):
+                    raise ValueError("Protected test link cycle")
+                break
             seen.add(name)
             name = paths.follow(name, files[name]["symlink"], lambda parts: "/".join(parts) in directories, files)
 

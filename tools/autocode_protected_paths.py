@@ -4,8 +4,8 @@ A link captures its whole file-link chain and terminal file. A link that stands
 for code (a test file, a module tests import) must lead to a file of the source
 snapshot: a directory or a target the snapshot omits remains refused. Any other
 link among the tests is data they read (a fixture directory, a link that a test
-of link handling needs dangling); where it leads to no snapshot file it is
-captured as its text alone. External targets and cycles remain refused.
+of link handling needs dangling, absolute or looping); where it leads to no
+snapshot file it is captured as its text alone.
 """
 
 import os
@@ -102,10 +102,10 @@ def follow(name, target, is_directory, known):
     """The captured file or link that the link ``name`` leads to, or None when it is data that leads to none.
 
     Code must lead to one: a test that is a link to anything else is refused, since its
-    assertions would not be captured. A data link that leads to a directory, or to a path
-    the snapshot does not hold, is all the repository holds of it, so its text is what is
-    captured; the files of a linked directory are eligible under their own names. It must
-    still name a path inside the repository.
+    assertions would not be captured. A data link that leads to a directory, to a path the
+    snapshot does not hold or out of the repository is all the repository holds of it, so
+    its text is what is captured; the files of a linked directory are eligible under their
+    own names.
     """
     try:
         found = resolve(name, target, is_directory)
@@ -115,7 +115,6 @@ def follow(name, target, is_directory, known):
     except ValueError:
         if holds_code(name):
             raise
-        resolve(name, target)
         return None
 
 
@@ -128,7 +127,9 @@ def collect(root, names, available):
         name, visited = start, set()
         while name is not None and name not in files:
             if name in visited:
-                raise ValueError(f"Protected test link cycle: {start}")
+                if any(holds_code(link) for link in visited):
+                    raise ValueError(f"Protected test link cycle: {start}")
+                break
             visited.add(name)
             if name not in known:
                 raise ValueError(f"Protected test link target is not in the source snapshot: {name}")

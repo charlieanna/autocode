@@ -9,10 +9,10 @@ import autocode_suite_definition_inputs as inputs
 
 
 class DefinitionInputTests(unittest.TestCase):
-    def retained(self, files, links, pinned):
+    def retained(self, files, links, pinned, data=()):
         entries = {name: ("100644", "object") for name in files}
         entries.update({name: ("120000", "object") for name in links})
-        return inputs.linked_inputs(entries, links.__getitem__, set(pinned))
+        return inputs.linked_inputs(entries, links.__getitem__, set(pinned), data=data)
 
     def test_chained_and_directory_links_retain_their_targets(self):
         retained = self.retained(
@@ -33,6 +33,25 @@ class DefinitionInputTests(unittest.TestCase):
         for links in ({".npmrc": "../outside"}, {".npmrc": "/tmp/outside"}, {".npmrc": "config", "config": ".npmrc"}):
             with self.subTest(links=links), self.assertRaises(ValueError):
                 self.retained(set(), links, {".npmrc"})
+
+    def test_a_fixture_link_with_an_external_or_cyclic_target_is_retained_as_its_text(self):
+        # A fixture that tests read: the base revision holds its text, which is all there is of it.
+        tests = {"tests/test_scan.py", "tests/data/host", "tests/data/up", "tests/data/loop", "tests/data/a"}
+        links = {
+            "tests/data/host": "/etc/hostname",
+            "tests/data/up": "../../../outside",
+            "tests/data/loop": "loop",
+            "tests/data/a": "b",
+            "tests/data/b": "a",
+        }
+        retained = self.retained({"tests/test_scan.py"}, links, tests, data=tests)
+        self.assertEqual(tests | {"tests/data/b"}, retained)
+        # The suite's own definition and code are still held to the tree, even among the tests.
+        for name, target in ((".npmrc", "/tmp/outside"), ("tests/conftest.py", "../../outside.py")):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                self.retained(set(), {name: target}, {name}, data={"tests/conftest.py"})
+        with self.assertRaises(ValueError):
+            self.retained(set(), {"tests/a.py": "b.py", "tests/b.py": "a.py"}, {"tests/a.py"}, data={"tests/a.py"})
 
     def test_a_parent_replacement_cannot_remove_a_retained_target(self):
         with self.assertRaisesRegex(ValueError, "replaces a directory"):

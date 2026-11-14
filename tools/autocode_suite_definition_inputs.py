@@ -14,6 +14,11 @@ import subprocess
 import tempfile
 from pathlib import Path, PurePosixPath
 
+try:
+    from . import autocode_project_kinds as project_kinds
+except ImportError:
+    import autocode_project_kinds as project_kinds
+
 
 @contextlib.contextmanager
 def blob_reader(workspace, entries, env):
@@ -57,11 +62,13 @@ def blob_reader(workspace, entries, env):
         reader.stdout.close()
 
 
-def linked_inputs(entries, read, pinned):
+def linked_inputs(entries, read, pinned, data=()):
     """Retain link chains, directory targets and absent targets of definition files.
 
     ``entries`` maps Git paths to (mode, object). Reject external and cyclic links:
-    a proof cannot bind those inputs to the base revision.
+    a proof cannot bind those inputs to the base revision. ``data`` names the links
+    that are fixtures tests read, not the suite's definition or code: the base
+    revision holds all there is of such a link, its text, so it is retained as that.
     """
     retained = set(pinned)
     queue = [(path, frozenset()) for path in sorted(pinned)]
@@ -72,10 +79,15 @@ def linked_inputs(entries, read, pinned):
             prefix = posixpath.join(*parts[:index])
             if entries.get(prefix, (None,))[0] != "120000":
                 continue
+            fixture = prefix in data and PurePosixPath(prefix).suffix not in project_kinds.CODE_SUFFIXES
+            target = posixpath.normpath(posixpath.join(posixpath.dirname(prefix), read(prefix)))
+            external = target in ("", ".", "..") or target.startswith(("../", "/"))
+            if fixture and (external or prefix in seen):
+                retained.add(prefix)
+                break
             if prefix in seen:
                 raise ValueError(f"suite definition contains a cyclic link at {prefix}")
-            target = posixpath.normpath(posixpath.join(posixpath.dirname(prefix), read(prefix)))
-            if target in ("", ".", "..") or target.startswith(("../", "/")):
+            if external:
                 raise ValueError(f"suite definition link {prefix} does not bind an in-tree input")
             target = posixpath.join(target, *parts[index:]) if parts[index:] else target
             retained.update((prefix, target))
