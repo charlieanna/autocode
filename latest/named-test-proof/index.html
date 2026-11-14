@@ -2155,11 +2155,23 @@ identities, interrupted reports, and unsupported versions cannot supply named
 passes. Collection and hook failures are separated from application failures.
 The reporter uses Vitest's reporting lifecycle and v4 hook-result metadata;
 qualification currently covers Vitest 4.1.6.</p>
-<p>A test the project already has in <code>node:test</code> or Vitest is named by its title,
+<p>Jest needs no reporter of its own: its built-in JSON report names every test. AutoCode
+adds <code>--json --outputFile</code> to a plain Jest command (<code>jest</code>, <code>npx --no-install jest</code>,
+<code>node node_modules/jest/bin/jest.js</code>, with or without an environment prefix) and to an
+<code>npm test</code> whose script is one, and reads the report: a test's id is its file, the
+titles of its <code>describe</code> blocks and its own title, <code>tests/pager.test.js::rounding &gt;
+counts a partial last page</code>, as a Vitest id is. Tests that share a name (<code>test.each</code>
+without a placeholder) are one id, failed when any of them failed. A file that could
+not be loaded is a failed, uncollected entry, and a run that failed outside every test
+(a coverage threshold) is a failure with no test to blame. <code>npx jest</code> without
+<code>--no-install</code>, a command that watches, writes its own report or chooses tests from Git
+(<code>--watch</code>, <code>--json</code>, <code>-o</code>), and a script that runs more than Jest are left as written
+and prove by their exit code, as before (<code>tools/autocode_jest_tests.py</code>).</p>
+<p>A test the project already has in <code>node:test</code>, Vitest or Jest is named by its title,
 which is free text: for <code>test('counts a partial last page', ...)</code> a plan writes
 <code>guard: counts a partial last page</code>. AutoCode binds such a declaration to the test
 when a test the proof ran has exactly that title (the last part of its id; inside
-a Vitest suite, <code>suite &gt; title</code> or <code>title</code> alone), quoted or followed by an
+a Vitest or Jest <code>describe</code> block, <code>suite &gt; title</code> or <code>title</code> alone), quoted or followed by an
 annotation if the plan wrote one. A declaration that is no test's title is prose,
 and its criterion keeps the id convention (<code>test_ac2_...</code>). So a refactor or a bug
 fix in a project whose tests have ordinary titles guards its existing behavior
@@ -2200,7 +2212,7 @@ so a stable proof costs two extra executions of those tests, not of the suite.</
 more to record <code>diff_coverage</code>: each changed product hunk, the hunks no proving
 test executed, and the changed files the report did not measure. That run cannot
 change the verdict, and nothing is installed into the project.</p>
-<p>Shell pipelines, custom reporters, ordinary npm/Jest/Mocha summaries and custom
+<p>Shell pipelines, custom reporters, ordinary npm/Mocha summaries and custom
 assertion scripts do not currently provide named proof. A direct supported
 targeted command can accompany an existing package-script suite. A runner that
 reports only an exit code (<code>make test</code>, Ruby test files run one by
@@ -2221,8 +2233,8 @@ runner names its tests keeps naming them: a command guard there is refused when 
 plan is drafted (<code>tools/autocode_command_guards.py</code>, owner decision 2026-11-13).</p>
 <p>A repair whose regression test the project already had changes no test. Where the runner
 names its tests, the tests that fail on the original code and pass with the change are
-the proof. A Jest or Mocha suite, Minitest files and a test script the approved plan
-names report only an exit code, so there the suite shows the repair as a whole: it
+the proof. A Mocha suite, Minitest files, a test script the approved plan names, and a
+Jest command AutoCode leaves as written report only an exit code, so there the suite shows the repair as a whole: it
 failed on the original code and passes with the change. That counts when the change is
 code alone and touches no test, and the suite's own files (its tests, manifests and
 runner configs) are the ones the original code had, or the original definition also

@@ -1873,7 +1873,7 @@ the person:</p>
   it fails on the original code and passes with the change.</li>
 <li>The original suite still runs as above. Its failure is accepted only when the
   runner reported complete per-test results (unittest, pytest, Go, <code>node:test</code>,
-  Vitest or RSpec, also when the suite is the project's <code>npm test</code>), nothing
+  Vitest, Jest or RSpec, also when the suite is the project's <code>npm test</code>), nothing
   failed to collect, and every failing test is a listed one in a file the change
   edited. Any other failing original test, a crash, a timeout or a runner without
   per-test results keeps the gate closed, as before.</li>
