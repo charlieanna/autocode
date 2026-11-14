@@ -13,7 +13,7 @@ import { isWorking, RunStarting, waitsForFolder, type StatusView } from "./core/
 import { transitionNotice, waitsForPerson } from "./notify";
 import { runTotal, sessionTotal, totalText } from "./core/meter";
 import { applyEngine, engineOf, ENGINES, launchTarget, readSettings, selectIsolatedController, type Engine, type Settings } from "./settings";
-import { invoke, tail, STAGES_TIMEOUT_MS } from "./core/cli";
+import { invoke, invokeRead, tail, STAGES_TIMEOUT_MS } from "./core/cli";
 import { chatRoute, chatSource, fillChatSet, fillSet, readStages, runListCommand, runRoute, type StageView } from "./core/stages";
 import { StageListCache } from "./core/stage-cache";
 import { inFolder, newChatCall, pickStageModel } from "./stages";
@@ -413,7 +413,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     tab.modelsBusy = "Reading models…";
     this.post();
     try {
-      const listed = await invoke(settings, list, {}, STAGES_TIMEOUT_MS);
+      const listed = await invokeRead(settings, list, {}, STAGES_TIMEOUT_MS);
       if (listed.code !== 0) throw new Error(tail(listed));
       const view = readStages(listed.stdout);
       if (!view.changeable) throw new Error(view.reason ?? "This chat's models cannot change now.");
@@ -1198,7 +1198,7 @@ async function readPlaces(cwd?: string): Promise<WorktreeList> {
   const argv = ["worktrees", "list", "--json", ...(folder ? ["--workspace", folder] : [])];
   // Bounded like the stages list: a start awaits this read, and a wedged list would leave
   // the chat saying "starting" forever with nothing for the person to answer.
-  const result = await invoke(folder ? { ...settings, cwd: folder } : settings, argv, {}, STAGES_TIMEOUT_MS);
+  const result = await invokeRead(folder ? { ...settings, cwd: folder } : settings, argv, {}, STAGES_TIMEOUT_MS);
   if (result.code !== 0) throw lacksPlaceList(result) ? new NoPlaceList(tail(result)) : new Error(tail(result));
   return readWorktrees(result.stdout);
 }
@@ -1231,7 +1231,7 @@ function chatPlaceFor(tab: ChatTab) {
 async function readChatStages(command: string[] | undefined, cwd?: string): Promise<StageView> {
   const settings = readSettings();
   const argv = command ?? newChatCall().argv;
-  const result = await invoke(cwd ? { ...settings, cwd } : inFolder(settings), argv, {}, STAGES_TIMEOUT_MS);
+  const result = await invokeRead(cwd ? { ...settings, cwd } : inFolder(settings), argv, {}, STAGES_TIMEOUT_MS);
   if (result.code !== 0) throw new Error(tail(result));
   return readStages(result.stdout);
 }
@@ -1240,7 +1240,7 @@ async function readChatStages(command: string[] | undefined, cwd?: string): Prom
 type NewChatList = ReturnType<typeof newChatCall>;
 
 async function readListText(list: NewChatList): Promise<string> {
-  const result = await invoke(list.settings, list.argv, {}, STAGES_TIMEOUT_MS);
+  const result = await invokeRead(list.settings, list.argv, {}, STAGES_TIMEOUT_MS);
   if (result.code !== 0) throw new Error(tail(result));
   return result.stdout;
 }

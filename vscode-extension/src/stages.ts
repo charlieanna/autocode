@@ -1,7 +1,7 @@
 /** Each stage's model and reasoning level for new chats: one dropdown per stage, from the public AutoCode CLI. */
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
-import { invoke, tail, STAGES_TIMEOUT_MS } from "./core/cli";
+import { invoke, invokeRead, tail, STAGES_TIMEOUT_MS } from "./core/cli";
 import { backendArgs, currentRoute, fillSet, modelArgs, readStages, runListCommand, runRoute, type Stage, type StageRoute, type StageView } from "./core/stages";
 import { listKey, type StageListCache } from "./core/stage-cache";
 import { readSettings, routeKeyOf, type Settings } from "./settings";
@@ -113,8 +113,8 @@ export class StagesPanel implements vscode.Disposable {
     // Bounded like every other stage read: this panel holds a busy flag across it, and a wedged
     // list would leave every button on it disabled until the window reloaded.
     const result = this.target
-      ? await invoke({ ...readSettings(), cwd: this.target.cwd }, this.target.list, {}, STAGES_TIMEOUT_MS)
-      : await invoke(call.settings, call.argv, {}, STAGES_TIMEOUT_MS);
+      ? await invokeRead({ ...readSettings(), cwd: this.target.cwd }, this.target.list, {}, STAGES_TIMEOUT_MS)
+      : await invokeRead(call.settings, call.argv, {}, STAGES_TIMEOUT_MS);
     if (result.code !== 0) throw new Error(tail(result));
     this.view = readStages(result.stdout);
     if (!this.target) this.lists?.put(call.key, result.stdout);

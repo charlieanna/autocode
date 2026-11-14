@@ -72,6 +72,36 @@ class CliSurfaceTests(unittest.TestCase):
         self.assertEqual("literal", args.expected_goal_token)
         self.assertEqual(3, args.max_iterations)
 
+    def test_root_parser_samples_terminal_width_once_including_help(self):
+        with patch("shutil.get_terminal_size", return_value=os.terminal_size((80, 24))) as size:
+            parser = autocode_args.build_parser(None, autocode.opencode.DEFAULT_MODELS)
+            parser.format_help()
+            argparse.ArgumentParser.format_help(parser)
+            self.assertEqual(1, size.call_count)
+
+    def test_each_root_parser_samples_its_own_current_terminal_width(self):
+        with patch("shutil.get_terminal_size", return_value=os.terminal_size((60, 24))):
+            narrow = autocode_args.build_parser(None, autocode.opencode.DEFAULT_MODELS)
+        with patch("shutil.get_terminal_size", return_value=os.terminal_size((120, 24))):
+            wide = autocode_args.build_parser(None, autocode.opencode.DEFAULT_MODELS)
+            self.assertEqual(58, narrow._get_formatter()._width)
+            self.assertEqual(118, wide._get_formatter()._width)
+
+    def test_root_help_matches_standard_formatter_at_terminal_widths_and_without_tty(self):
+        for columns in (40, 80, 120, None):
+            with self.subTest(columns=columns), contextlib.ExitStack() as stack:
+                if columns is None:
+                    stack.enter_context(patch.dict(os.environ, {"COLUMNS": "", "LINES": ""}))
+                    stack.enter_context(patch("os.get_terminal_size", side_effect=OSError("no terminal")))
+                else:
+                    stack.enter_context(patch("shutil.get_terminal_size", return_value=os.terminal_size((columns, 24))))
+                parser = autocode_args.build_parser(None, autocode.opencode.DEFAULT_MODELS)
+                compact = parser.format_help()
+                full = argparse.ArgumentParser.format_help(parser)
+                parser.formatter_class = argparse.RawDescriptionHelpFormatter
+                self.assertEqual(compact, parser.format_help())
+                self.assertEqual(full, argparse.ArgumentParser.format_help(parser))
+
     def test_unified_entry_points_show_their_actual_help_without_actions(self):
         for name in ("issue", "arena", "unattended", "forget"):
             with self.subTest(command=name):

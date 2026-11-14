@@ -36,6 +36,14 @@ It never launches a model on its own, cannot approve a plan it has not
 displayed, and keeps issued tokens in the child's environment rather than on the
 command line.
 
+Status and other metadata reads have a UI deadline (30 seconds, or 60 seconds
+for model and placement lists). A missed deadline shows the read as unavailable
+and disables actions that need a fresh view. The extension keeps the configured
+reader alive until it exits and holds identical read attempts in the meantime,
+so repeated polls cannot pile up behind a slow wrapper. Late output is discarded;
+after collection, the next read starts a fresh process. A reader that never exits
+remains unavailable in that extension session.
+
 - Documentation: [`docs/vscode.md`](https://github.com/charlieanna/autocode/blob/master/docs/vscode.md)
 - The contract it implements: [`docs/task-run.md`](https://github.com/charlieanna/autocode/blob/master/docs/task-run.md)
 - Issue: [#884](https://github.com/charlieanna/autocode/issues/884)

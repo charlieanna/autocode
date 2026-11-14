@@ -1,5 +1,12 @@
+import copy
+import hashlib
+import json
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
+import autocode_request_usage as request_usage
 from autocode_request_usage import accounting, measurement, view
 
 
@@ -41,6 +48,95 @@ class RequestUsageTests(unittest.TestCase):
             result = measurement([good, bad])
             self.assertFalse(result["complete"])
             self.assertEqual(result["missing_usage_requests"], 1)
+
+
+class RequestUsageReadTests(unittest.TestCase):
+    def events(self):
+        return [
+            {"type": "step_start", "sessionID": "s", "part": {"id": "start", "messageID": "m"}},
+            {
+                "type": "tool_use",
+                "sessionID": "s",
+                "part": {
+                    "id": "tool",
+                    "tool": "bash",
+                    "state": {"status": "completed", "input": {"command": "test"}, "metadata": {"exit": 0}},
+                },
+            },
+            {
+                "type": "step_finish",
+                "sessionID": "s",
+                "part": {
+                    "id": "finish",
+                    "messageID": "m",
+                    "tokens": {"input": 10, "output": 4, "reasoning": 2, "cache": {"read": 20, "write": 3}},
+                },
+            },
+        ]
+
+    def expected_measurement(self, *, unfinished=False, conflict=False):
+        return {
+            "basis": "unavailable" if conflict else "reported-opencode-step",
+            "observed_requests": 1,
+            "requests_with_usage": 0 if conflict else 1,
+            "missing_usage_requests": int(conflict),
+            "last": None if conflict else {"input_tokens": 33, "cached_input_tokens": 20, "cache_write_tokens": 3},
+            "peak_input_tokens": None if conflict else 33,
+            "unfinished_request": unfinished,
+            "complete": not unfinished and not conflict,
+            "scope": "Input to individual completed provider requests, including cache reads/writes; not cumulative usage",
+        }
+
+    def test_one_file_read_does_one_accounting_pass_without_changing_any_fields(self):
+        for case in ("complete", "unfinished", "conflicting", "truncated"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temporary:
+                rows = self.events()
+                if case == "unfinished":
+                    rows.append({"type": "step_start", "sessionID": "s", "part": {"id": "next", "messageID": "n"}})
+                elif case == "conflicting":
+                    changed = copy.deepcopy(rows[-1])
+                    changed["part"]["tokens"]["input"] = 11
+                    rows.append(changed)
+                raw = b"".join((json.dumps(row) + "\n").encode() for row in rows)
+                issues = []
+                if case == "truncated":
+                    raw += b'{"type":'
+                    issues = ["unparsed or truncated event line"]
+                path = Path(temporary) / "events.jsonl"
+                path.write_bytes(raw)
+                before = path.stat()
+                expected_accounting = accounting(rows, issues=issues)
+                expected_accounting["event_file"] = {
+                    "path": str(path.resolve()),
+                    "sha256": hashlib.sha256(raw).hexdigest(),
+                    "size": before.st_size,
+                    "mtime_ns": before.st_mtime_ns,
+                }
+                expected = {
+                    **self.expected_measurement(unfinished=case == "unfinished", conflict=case == "conflicting"),
+                    "accounting": expected_accounting,
+                }
+                with (
+                    mock.patch.object(request_usage, "accounting", wraps=accounting) as counted,
+                    mock.patch.object(
+                        request_usage.tool_activity, "summarize", wraps=request_usage.tool_activity.summarize
+                    ) as tools,
+                ):
+                    actual = request_usage.read(path)
+                self.assertEqual(expected, actual)
+                self.assertEqual(raw, path.read_bytes())
+                self.assertEqual(before.st_mtime_ns, path.stat().st_mtime_ns)
+                self.assertEqual(1, counted.call_count, "one event-file observation must not repeat full accounting")
+                self.assertEqual(1, tools.call_count, "tool activity must share that accounting pass")
+
+    def test_public_measurement_still_handles_an_iterable_without_mutating_rows(self):
+        rows = self.events()
+        before = copy.deepcopy(rows)
+        with mock.patch.object(request_usage, "accounting", wraps=accounting) as counted:
+            actual = measurement(iter(rows))
+        self.assertEqual(self.expected_measurement(), actual)
+        self.assertEqual(1, counted.call_count)
+        self.assertEqual(before, rows)
 
 
 class MessageTimingTests(unittest.TestCase):

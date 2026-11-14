@@ -18,8 +18,10 @@ import argparse
 import json
 import os
 import shlex
+import shutil
 import sys
 import textwrap
+from functools import partial
 from pathlib import Path
 
 try:
@@ -146,7 +148,9 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
             width=78,
         ),
         epilog=commands_help(),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        # argparse constructs a formatter for each argument on supported Python versions.
+        # Keep its standard width calculation, sampled once for this parser's lifetime.
+        formatter_class=partial(argparse.RawDescriptionHelpFormatter, width=shutil.get_terminal_size().columns - 2),
     )
     parser.add_argument("--help-all", action=cli_surface.FullHelp, help="Show every accepted option")
     parser.add_argument(

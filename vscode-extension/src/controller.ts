@@ -10,7 +10,7 @@
 
 import * as vscode from "vscode";
 import { realpath } from "node:fs/promises";
-import { invoke, readStatus, stream, tail, STATUS_TIMEOUT_MS, type CliResult } from "./core/cli";
+import { invoke, invokeRead, readStatus, stream, tail, STATUS_TIMEOUT_MS, type CliResult } from "./core/cli";
 import { LEGACY_PLACEMENT, placementArgs } from "./core/worktrees";
 import { freshRunDir } from "./core/run-dir";
 import {
@@ -119,8 +119,8 @@ export class RunController {
   async list(includeArchived = false): Promise<RegistryList> {
     const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     // Bounded like a status poll: this drives the sidebar's refresh loop, so a
-    // hung registry read must fail and let the next tick retry, not wedge it.
-    const result = await invoke(
+    // hung registry read must fail without wedging it or replacing its reader.
+    const result = await invokeRead(
       folder ? { ...this.settings, cwd: folder } : this.settings,
       ["registry", "list", "--json", ...(includeArchived ? ["--include-archived"] : [])],
       {},
@@ -148,7 +148,7 @@ export class RunController {
 
   /** The run modes the core offers for a new chat. Read-only: it starts nothing. */
   async modes(): Promise<RunModes> {
-    const result = await invoke(this.settings, ["modes", "list", "--json"], {}, STATUS_TIMEOUT_MS);
+    const result = await invokeRead(this.settings, ["modes", "list", "--json"], {}, STATUS_TIMEOUT_MS);
     if (result.code !== 0) throw new Error(tail(result));
     return readRunModes(result.stdout);
   }
@@ -323,8 +323,8 @@ export class RunController {
     const args = changesetStatusArgs(view, effective(view, run));
     if (!args) return null;
     // Bounded like a status poll: Run details reads this every poll, so a wedged
-    // change-set read must fail and let the next tick retry, not freeze the card.
-    const result = await invoke(this.settings, args, {}, STATUS_TIMEOUT_MS);
+    // change-set read must fail without freezing the card or replacing its reader.
+    const result = await invokeRead(this.settings, args, {}, STATUS_TIMEOUT_MS);
     if (result.code !== 0) {
       try {
         readChangesetSummary(result.stdout);
