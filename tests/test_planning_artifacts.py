@@ -32,14 +32,13 @@ def plan_body(*, second_dependency=None):
     value = body()
     value["initial_task"] = {
         "objective": "Deliver greeting",
-        "affected_paths": ["greet.py"],
+        "affected_paths": ["greet.py", "test_greeting.py"],
         "kind": "implement",
         "milestone_id": "M1",
         "requirements": ["Deliver CLI"],
         "acceptance_criteria": ["C1"],
         "validation_plan": ["Run tests"],
     }
-    value["milestones"][0]["affected_paths"] = ["greet.py"]
     if second_dependency is not None:
         value["milestones"].append(
             {

@@ -695,7 +695,8 @@ class AssignmentScenarios(unittest.TestCase):
                 "objective": "Create src/new.py",
                 "depends_on": [],
                 "acceptance_criteria": ["C1"],
-                "affected_paths": ["src/new.py"],
+                # A plan that changes code in a project with no tests plans its test too (autocode_plan_test_suite).
+                "affected_paths": ["src/new.py", "src/test_new.py"],
             }
         ]
         self.approve(milestones, criteria)
