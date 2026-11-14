@@ -69,7 +69,7 @@ class TestRoleTests(unittest.TestCase):
             self.assertFalse(test_examples.is_test_file(f"src/{name}"), name)
 
     def test_code_is_known_by_the_suffix_of_any_language(self):
-        for path in ("a.py", "a.pyi", "a.tsx", "a.go", "a.rs", "a.rb", "a.kts", "a.hpp", "a.zig", "a.sh"):
+        for path in ("a.py", "a.pyi", "a.tsx", "a.go", "a.rs", "a.rb", "a.kts", "a.hpp", "a.zig", "a.sh", "A.pm"):
             self.assertTrue(verify.is_code_path(path), path)
         for path in ("a.md", "a.json", "a.toml", "a.txt", "Makefile"):
             self.assertFalse(verify.is_code_path(path), path)
@@ -78,6 +78,8 @@ class TestRoleTests(unittest.TestCase):
         self.assertTrue(verify.is_test_path("pkg/__tests__/a.js"))
         self.assertTrue(verify.is_test_path("spec/a.rb"))
         self.assertFalse(verify.is_test_path("pkg/spec/a.rb"))
+        self.assertTrue(verify.is_test_path("t/lib/Helper.pm"))  # a Perl distribution's tests and their helpers
+        self.assertFalse(verify.is_test_path("lib/t/Helper.pm"))
         self.assertIs(kinds.TEST_DIRS, python_test_roles.TEST_DIRS)
         self.assertIs(kinds.ROOT_TEST_DIRS, python_test_roles.ROOT_TEST_DIRS)
 
@@ -131,6 +133,9 @@ class ProjectFilesTests(unittest.TestCase):
                 "setup.cfg",
                 "Gemfile",
                 "composer.json",
+                "cpanfile",
+                "Makefile.PL",
+                "Build.PL",
             },
             set(package_scope.MANIFESTS),
         )

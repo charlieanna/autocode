@@ -85,10 +85,14 @@ _CMAKE_BUILD_DIRS: dict[str, tuple[str, ...]] = {"build": ("CMakeLists.txt",)}
 PHPUNIT_CONFIGS = ("phpunit.xml", "phpunit.xml.dist", "phpunit.dist.xml")
 _PHPUNIT_ROOTS = (*PHPUNIT_CONFIGS, "composer.json")
 
+# The root files of a Perl distribution: its dependency list, or its build script.
+PERL_ROOTS = ("cpanfile", "Makefile.PL", "Build.PL")
+
 # Directories that hold tests wherever they appear, and ones that do only at the repository root:
-# numpy/testing/ and django/test/ are shipped product code, while a top-level test/ is not.
+# numpy/testing/ and django/test/ are shipped product code, while a top-level test/ is not. ``t`` is
+# where a Perl distribution keeps its tests and their helper modules.
 TEST_DIRS = frozenset({"tests", "__tests__", "__snapshots__", "testdata", "test_data"})
-ROOT_TEST_DIRS = frozenset({"test", "spec"})
+ROOT_TEST_DIRS = frozenset({"test", "spec", "t"})
 
 LANGUAGES: tuple[Language, ...] = (
     Language(
@@ -185,7 +189,7 @@ LANGUAGES: tuple[Language, ...] = (
     Language("haskell", (".hs",)),
     Language("ocaml", (".ml",)),
     Language("lua", (".lua",)),
-    Language("perl", (".pl",)),
+    Language("perl", (".pl", ".pm", ".t"), test_names=(r".*\.t",), manifests=PERL_ROOTS),
     Language("dart", (".dart",)),
     Language("zig", (".zig",)),
 )

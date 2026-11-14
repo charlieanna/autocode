@@ -596,7 +596,8 @@ The same two tasks with the fix:
 | The Java task in a Gradle project | complete, 8 stages, 254 s, $1.07; guards ``guard: run `gradle --no-daemon -q test` `` | `0e8af291ccae3ccfe8f6b0438a897d67964b69fa63a6916d6e4aad77c7243a18` |
 
 Open: a project whose runner is still not detected and whose plan command names no test file (`dotnet
-test`, `mix test`, `swift test`, `sbt test`) stops the same way; PHP with PHPUnit is section 29. A build
+test`, `mix test`, `swift test`, `sbt test`) stops the same way; PHP with PHPUnit is section 29 and Perl
+is section 30. A build
 directory the project does not ignore is section 24.
 
 ## 23. Three more kinds of task (complete)
@@ -846,6 +847,35 @@ The same task with the fix:
 Still open: in a project whose runner is not detected, a plan that gives each test its own command can
 still have a guard's command taken as the regression command, as above. Pest, PHPUnit installed outside
 `vendor/bin`, and `composer test` scripts that run something else are not detected.
+
+## 30. Perl with `prove`: the person is asked for the test command (fixed)
+
+A bug fix with a regression test in a Perl distribution (`cpanfile`, `lib/Acme/Pager.pm`, `t/pager.t` with
+`Test::More`, run with `prove -l t`), on master with section 29's fix: the person is asked to "Correct the
+saved verification commands for the regression proof: set the suite command to `prove -l t/pager.t` and the
+regression command to `prove -l t/pager.t`", after 10 stages, 222 s, $1.37, with a correct fix and a
+correct test (bundle manifest `731fdb6743e9c4a18ed172b51d202f135e2c040429d048f4c00e743b9a84b3e3`).
+
+The table had one Perl suffix, `.pl`. A module (`.pm`) was not code, `t/pager.t` was not a test file by its
+name or its directory, and no suite was detected. The plan's criterion was a command, ``run `prove -l
+t/pager.t` ``, but `prove` was not a command word, and the proof's fallback to an approved command (section
+1) needs a test file it knows. Both proofs said "No regression test was added or changed" and "No project
+test command was found".
+
+Fixed in the table and in detection. `.pm` and `.t` are Perl files, a `.t` file is a test file, and a root
+`t/` directory holds tests, with their helper modules (`autocode_project_kinds`). A pure-Perl distribution
+(a root `cpanfile`, `Makefile.PL` or `Build.PL`, or a module under `lib/`, and no `.xs` file) with `.t`
+files under `t/` runs them with `prove -lr t`, judged by its exit code as PHPUnit is
+(`autocode_toolchain_suite.perl_tests`). `prove` comes with Perl. A `Makefile` test target keeps priority.
+`perl` and `prove` are command words a plan's check may start with.
+
+The same task with the fix completes: 8 stages, 144 s, $1.04, suite `detected:prove`, the plan's guard
+``guard: run `prove -lr t` `` (bundle manifest
+`96122539cbb38ff28f076a72b3e0a0cc45a8d41556ee55fb05b1a82384a9292c`).
+
+Still open: a distribution with C code (`.xs`), which must be built before its tests run; one whose tests
+are only under `xt/`; and a distribution with no test yet, where the first `t/` file has no suite on the
+original code.
 
 ## Also seen, not yet run on real models
 
