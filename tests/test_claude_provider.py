@@ -135,6 +135,13 @@ class LaunchTests(FakeClaude, unittest.TestCase):
         denied = lambda argv: argv[argv.index("--disallowedTools") + 1 :]  # noqa: E731
         self.assertEqual(list(claude.WRITE_ALLOWED), allowed(builder))
         self.assertEqual(list(claude.WRITE_ALLOWED), allowed(judge))  # judges keep Edit/Write, as qualified
+        # Edit and Write are offered and accepted inside the stage's directory (acceptEdits), never
+        # pre-approved: pre-approved, a parallel Builder edited the project instead of its own worktree
+        # (two real runs, 2026-11-14, PAUSED_ORCHESTRATOR_DRIFT).
+        for argv in (builder, judge):
+            self.assertEqual(["Read", "Grep", "Glob", "Bash"], allowed(argv))
+            self.assertTrue({"Edit", "Write"} <= set(self.after(argv, "--tools").split(",")))
+            self.assertFalse([rule for rule in allowed(argv) if rule.startswith(("Edit", "Write"))])
         self.assertEqual(list(claude.READ_ALLOWED), allowed(planner))
         self.assertEqual([*claude.DENY_GIT, *claude.DENY_PUBLISH], denied(builder))
         self.assertEqual([*claude.READ_DISALLOWED, *claude.DENY_GIT, *claude.DENY_PUBLISH], denied(planner))
@@ -240,7 +247,14 @@ class EnvironmentTests(unittest.TestCase):
         self.assertEqual("1", agent_env.scrubbed(child)["DISABLE_AUTOUPDATER"])
         given = {"CLAUDE_CODE_SESSION_ID": "x", "PATH": "/bin"}
         self.assertEqual(
-            {"PATH": "/bin", "DISABLE_AUTOUPDATER": "1", "FORCE_PROMPT_CACHING_5M": "1"},
+            {
+                "PATH": "/bin",
+                "DISABLE_AUTOUPDATER": "1",
+                "FORCE_PROMPT_CACHING_5M": "1",
+                # Every command starts in the stage's directory, so a check a stage cites runs from the
+                # repository root as the runner replays it (`cd ../web && npm test` did not).
+                "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "1",
+            },
             claude.child_environment(given),
         )
         self.assertEqual({"CLAUDE_CODE_SESSION_ID": "x", "PATH": "/bin"}, given)

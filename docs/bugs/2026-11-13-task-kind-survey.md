@@ -724,19 +724,61 @@ With both, a real run completes: the root's suite proved the two Python criteria
 `c84eacfed28d445eb5cca4569a462fe9f280ea4e5bff6be4c54477f78a996aae`). That run built the two milestones
 one after the other (`--max-parallel-builders 1`).
 
-**Open: a parallel Builder that edits the project instead of its own copy.** Two runs of the same task
-with the default two Builders side by side stopped before any proof, `PAUSED_ORCHESTRATOR_DRIFT`, "Parent
-source changed during the build" (10 stages, 287 s, $1.74, bundle manifest
+**A parallel Builder that edits the project instead of its own copy (fixed).** Two runs of the same
+task with the default two Builders side by side stopped before any proof, `PAUSED_ORCHESTRATOR_DRIFT`,
+"Parent source changed during the build" (10 stages, 287 s, $1.74, bundle manifest
 `47c4f972fdc3e91804b71a371531b834692f272086ea9f96cc52b14d203bfbd2`; 7 stages, 233 s, $1.18, bundle
 manifest `5942b71fa793a5c7b678822d6cbcfe3971ad4e7bbf13ca9cdd040fd4be018cc8`). Each Builder works in its
 own worktree under `.autocode/builders/`, and its prompt names only that directory. In both runs the
 Builder for `packages/web` (Haiku) read and edited `PROJECT/packages/web/...` by absolute path instead,
 with the Edit and Write tools. In the first the Investigator saw it and the retry built in the worktree,
 but the edits left in the project still ended the batch. Nothing was lost or merged wrongly: the stop is
-the guard against exactly this. But the person is left to clean up after AutoCode's own Builder. The
-Claude Code backend pre-approves Edit and Write for any path; without that pre-approval Claude Code
-2.1.325 accepts an edit inside the stage's directory and refuses one outside it, which the model can
-correct in the same stage. That is the next fix.
+the guard against exactly this. But the person is left to clean up after AutoCode's own Builder.
+
+The Claude Code backend pre-approved Edit and Write (`--allowedTools`), and a pre-approved tool edits
+any path on the machine. Measured on Claude Code 2.1.325 with a stage's own flags: without the
+pre-approval, `--permission-mode acceptEdits` accepts the same edits inside the stage's directory
+(source files, `.github/`, `.gitignore`, `.autocode/`) and refuses one outside it, in the parent
+directory or anywhere else. The backend no longer pre-approves them (`providers/claude.WRITE_ALLOWED`),
+so a Builder's stray edit is refused where it is made. Of the 248 Edit and Write calls in the real runs
+of this survey up to then, 242 were inside the stage's own directory and the other six were these stray
+ones.
+
+That alone was not enough. Claude Code's refusal reads "Claude requested permissions to write to PATH,
+but you haven't granted it yet". In four runs with it, two Builders strayed: one corrected the path, and
+one took the refusal for a permission to ask for, reported "Grant file edit permissions within the
+current_task.affected_paths", and the person was asked (`WAITING_FOR_USER`, 8 stages, 161 s, $0.95,
+bundle manifest `256dffabf5d146d334c632980d1e30d6edcfaed0078f0b21970942f73dfa3d9c`). The mistake is a
+path, and the runner knows the right one. Before each Edit and Write, Claude Code now runs a small hook
+of AutoCode's (`providers/claude_edit_scope.py`): for a path outside the stage's directory its refusal
+says so, says that no permission changes it, and names the stage's own file at the same place. In the
+next real run where a Builder strayed, it read that and edited its worktree's file in the next call
+(bundle manifest `20079fd8529bbf4a0c37fa15306fbab60a83954b5d34e92d97d4deb1bd90dcf5`). The hook grants
+nothing: an edit it lets through is still judged by Claude Code, and when it fails Claude Code's own
+refusal stands.
+
+Bash is not confined by this: the Claude Code backend still has no kernel containment, and a command may
+write where the process can. The stop above remains the guard for that.
+
+**A Tester's check that only worked from where its last command had left it (fixed).** That same run
+then paused for another reason, `PAUSED_BUILDER_CLASSIFICATION` (13 stages, 287 s, $1.33). The proof had
+passed. The Tester (Sonnet) ran `cd packages/api && python3 -m unittest discover`, and Claude Code keeps
+a `cd` for the next command, so its `cd packages/web && npm test` failed and it cited
+`cd ../web && npm test --silent` instead. The runner replays a cited check from the repository root,
+where that command fails, and rightly refused the report. The repaired report could then only say the
+web criteria were not verified, the run went back to a Builder with nothing to change, and the
+Investigator called it "a routing/operational issue". The backend now sets
+`CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1`, so every command of a stage starts in the stage's
+directory (measured on 2.1.325), and a check written for one command is one the runner can replay.
+Three real runs with all of this, two Builders side by side, each completed in the eleven stages the task
+needs with no report repair (191 s, 199 s and 212 s; $1.45, $1.38 and $1.46; bundle manifests
+`c2eed3f6a662b98ea6e8b522f1fff5717e446aa3cd00dffa8b6c79754cae0e56`,
+`fd6aa8fc149cd31dee6114131385437d2481db4cec240b9c3414b210d93c0a2d`,
+`71d210e81900df59a0825dfd4b08936bfccb0e95053dcc6457b2d128ecd18f56`).
+
+Still open from that run: a Tester report that is refused only because a cited check does not replay
+ends at a Builder, which has nothing to build. The cause is removed on Claude Code; the route is the
+same on every backend.
 
 The original-test gate is as before: in a run of the whole repository it replays the original tests with
 the root's suite, so the original tests of a nested project of another kind are not replayed there. The
