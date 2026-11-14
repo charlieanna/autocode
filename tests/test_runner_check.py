@@ -15,6 +15,7 @@ import autocode_process as processes
 import autocode_regression as regression
 import autocode_runner_check as runner_check
 import autocode_status as status
+import autocode_uncertain_cleanup as uncertain_cleanup
 import autocode_util as util
 
 from tests.test_verify import REFERENCE, Project, isolated_python
@@ -175,6 +176,226 @@ class RunnerCheckTests(unittest.TestCase):
         self.assertEqual("runner_check_retired", self.state["user_events"][-1]["kind"])
         saved = json.loads(self.path.read_text()) if self.path.exists() else {}
         self.assertNotIn("active_runner_check", saved)
+
+    def _automatic_hold(self):
+        metadata = self._hold(
+            phase="uncertain", cleanup_error="SessionScanIncomplete: changing PID scan", cause="controller_finished"
+        )
+        pid = os.getpid()
+        metadata["owner"] = processes.identity(processes.process_table({pid})[pid])
+        metadata["provider"].update(group=metadata["provider"]["pid"], session=metadata["provider"]["pid"])
+        receipt = json.loads(Path(metadata["receipt"]).read_text())
+        proof = self.run / "proof"
+        directory = proof / "command-supervision" / ("a" * 32)
+        directory.mkdir(parents=True)
+        (proof / "scratch").mkdir()
+        output = proof / "captured.log"
+        output.write_text("partial output")
+        path = directory / "supervision.json"
+        metadata["receipt"] = str(path)
+        receipt.update(owner=metadata["owner"], provider=metadata["provider"], receipt=str(path))
+        check = self.state["active_runner_check"]
+        check.update(command="check command", output=str(output), processes=[metadata["owner"]])
+        util.atomic_json(path, receipt)
+        util.atomic_json(
+            directory / "admission.json",
+            {
+                "schema": 1,
+                "command": check["command"],
+                "output": str(output),
+                "cwd": str(proof / "scratch"),
+                "supervision": metadata,
+            },
+        )
+        return metadata, path
+
+    def test_uncertain_cleanup_is_rechecked_and_retried_without_counting_as_proof(self):
+        self.project.write(REFERENCE)
+        self.state["settings"]["regression"] = {"python": self.python}
+        actual = regression._prove
+        calls = []
+        saved_receipt = []
+
+        def first_uncertain(*args, **kwargs):
+            calls.append(1)
+            if len(calls) != 1:
+                return actual(*args, **kwargs)
+            metadata, path = self._automatic_hold()
+            saved_receipt.append(path.read_bytes())
+            raise command_receipt.OwnershipUncertain("injected uncertain cleanup")
+
+        def settle(tree, **_):
+            tree.groups.clear()
+            tree.sessions.clear()
+            tree.session_admissions.clear()
+            return []
+
+        with (
+            patch.object(regression, "required", return_value=True),
+            patch.object(regression, "_prove", side_effect=first_uncertain),
+            patch.object(processes, "settled_sample", side_effect=settle),
+        ):
+            regression.before_review(self.state, "tester", self.project.root, self.run)
+        self.assertEqual(2, len(calls))
+        self.assertEqual("PASS", self.state["regression_proof"]["verdict"])
+        event = next(row for row in self.state["user_events"] if row["kind"] == "runner_check_auto_recovered")
+        self.assertEqual("runner", event["actor"])
+        self.assertEqual(saved_receipt[0], Path(event["receipt"]).read_bytes())
+        self.assertNotIn("active_runner_check", self.state)
+
+    def test_automatic_cleanup_scan_retries_only_transient_churn_at_a_fixed_bound(self):
+        result = {"receipt": "verified"}
+        with (
+            patch.object(
+                uncertain_cleanup, "settle", side_effect=[processes.SessionScanIncomplete("churn"), result]
+            ) as scan,
+            patch.object(uncertain_cleanup.util, "sleep") as sleep,
+        ):
+            self.assertEqual(result, uncertain_cleanup.settle_with_retry({}))
+        self.assertEqual(2, scan.call_count)
+        sleep.assert_called_once_with(0.2)
+        with (
+            patch.object(uncertain_cleanup, "settle", side_effect=processes.SessionScanIncomplete("churn")) as scan,
+            patch.object(uncertain_cleanup.util, "sleep") as sleep,
+            self.assertRaises(processes.SessionScanIncomplete),
+        ):
+            uncertain_cleanup.settle_with_retry({})
+        self.assertEqual(3, scan.call_count)
+        self.assertEqual(2, sleep.call_count)
+        with (
+            patch.object(uncertain_cleanup, "settle", side_effect=processes.ProcessError("denied")) as scan,
+            patch.object(uncertain_cleanup.util, "sleep") as sleep,
+            self.assertRaises(processes.ProcessError),
+        ):
+            uncertain_cleanup.settle_with_retry({})
+        scan.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_cancelled_uncertain_check_is_not_automatically_retried(self):
+        self.project.write(REFERENCE)
+        self.state["settings"]["regression"] = {"python": self.python}
+        error = command_receipt.OwnershipUncertain("cancelled with unknown cleanup")
+        error.check_cancelled = True
+        with (
+            patch.object(regression, "required", return_value=True),
+            patch.object(regression, "_prove", side_effect=error),
+            patch.object(runner_check, "auto_recover") as recover,
+            self.assertRaises(command_receipt.OwnershipUncertain),
+        ):
+            regression.before_review(self.state, "tester", self.project.root, self.run)
+        recover.assert_not_called()
+        self.assertIn("active_runner_check", self.state)
+
+    def test_automatic_recovery_keeps_unknown_or_changed_ownership_held(self):
+        metadata, path = self._automatic_hold()
+        original = copy.deepcopy(self.state)
+        original_receipt = path.read_bytes()
+
+        def attempt(source=lambda: "revision"):
+            return runner_check.auto_recover(
+                self.state, self.run, self._persist, source_revision="revision", source_current=source
+            )
+
+        with patch.object(processes, "live_processes", return_value=[metadata["provider"]]):
+            self.assertFalse(attempt())
+        with patch.object(processes, "settled_sample", side_effect=processes.SessionScanIncomplete("busy")):
+            self.assertFalse(attempt())
+        with patch.object(processes, "settled_sample", return_value=[]):
+            self.assertFalse(attempt(), "an unretired group or session cannot prove cleanup")
+        self.assertFalse(attempt(source=lambda: "different"))
+        with patch.object(runner_check.interventions, "pending", return_value=[{"kind": "pause"}]):
+            self.assertFalse(attempt())
+        pending = self.run / "check-replay" / "obligations" / "pending.json"
+        pending.parent.mkdir(parents=True)
+        pending.write_text("{}")
+        self.assertFalse(attempt(), "a separately owned scheduled obligation must not be bypassed")
+        pending.unlink()
+        admission = path.parent / "admission.json"
+        original_admission = admission.read_bytes()
+        admission.write_text("{}")
+        self.assertFalse(attempt(), "an unbound command admission cannot be retired")
+        admission.write_bytes(original_admission)
+        self.assertEqual(original, self.state)
+        self.assertEqual(original_receipt, path.read_bytes())
+
+    def test_new_intervention_or_in_place_check_change_keeps_cleanup_held(self):
+        self._automatic_hold()
+        for mode in ("intervention", "check_changed"):
+            with self.subTest(mode=mode):
+                original = copy.deepcopy(self.state)
+                calls = []
+
+                def settle(tree, **_):
+                    calls.append(1)
+                    tree.groups.clear()
+                    tree.sessions.clear()
+                    tree.session_admissions.clear()
+                    if len(calls) == 2 and mode == "check_changed":
+                        self.state["active_runner_check"]["command"] = "changed"
+                    return []
+
+                def pending(_):
+                    return [{"kind": "pause"}] if len(calls) == 2 and mode == "intervention" else []
+
+                with (
+                    patch.object(processes, "settled_sample", side_effect=settle),
+                    patch.object(runner_check.interventions, "pending", side_effect=pending),
+                ):
+                    self.assertFalse(
+                        runner_check.auto_recover(
+                            self.state,
+                            self.run,
+                            self._persist,
+                            source_revision="revision",
+                            source_current=lambda: "revision",
+                        )
+                    )
+                self.assertIn("active_runner_check", self.state)
+                self.assertFalse(self.state.get("user_events"))
+                self.state = original
+
+    def test_automatic_recovery_rechecks_receipt_and_is_bounded_per_source(self):
+        _metadata, path = self._automatic_hold()
+        original = copy.deepcopy(self.state)
+        original_receipt = path.read_bytes()
+
+        def changed_during_scan(tree, **_):
+            tree.groups.clear()
+            tree.sessions.clear()
+            tree.session_admissions.clear()
+            path.write_text("{}")
+            return []
+
+        with patch.object(processes, "settled_sample", side_effect=changed_during_scan):
+            self.assertFalse(
+                runner_check.auto_recover(
+                    self.state, self.run, self._persist, source_revision="revision", source_current=lambda: "revision"
+                )
+            )
+        self.assertEqual(original, self.state)
+        self.assertIn("active_runner_check", self.state)
+        path.write_bytes(original_receipt)
+
+        def safely_empty(tree, **_):
+            tree.groups.clear()
+            tree.sessions.clear()
+            tree.session_admissions.clear()
+            return []
+
+        with patch.object(processes, "settled_sample", side_effect=safely_empty):
+            self.assertTrue(
+                runner_check.auto_recover(
+                    self.state, self.run, self._persist, source_revision="revision", source_current=lambda: "revision"
+                )
+            )
+            self.state["active_runner_check"] = original["active_runner_check"]
+            self.assertFalse(
+                runner_check.auto_recover(
+                    self.state, self.run, self._persist, source_revision="revision", source_current=lambda: "revision"
+                )
+            )
+        self.assertEqual(1, len(self.state["user_events"]))
+        self.assertIn("active_runner_check", self.state)
 
     def test_a_live_or_unreadable_inventory_keeps_the_hold(self):
         self._hold()

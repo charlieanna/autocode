@@ -164,6 +164,15 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
         if worktree is not None and isinstance(moved_after, int) and index >= moved_after:
             rows.append({"id": WORKTREE_NOTICE, "role": "assistant", "text": worktree})
             worktree = None
+        if event.get("kind") == "runner_check_auto_recovered":
+            rows.append(
+                {
+                    "id": f"cleanup-recovered-{index}",
+                    "role": "assistant",
+                    "text": "AutoCode rechecked cleanup and restarted verification.",
+                }
+            )
+            continue
         if event.get("kind") == "goal_approval" and event.get("token") and event.get("actor") != "workflow_policy":
             plan = _approved_plan(state, event)
             if plan:

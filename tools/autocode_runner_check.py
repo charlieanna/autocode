@@ -23,14 +23,18 @@ try:
     from . import autocode_interventions as interventions
     from . import autocode_process as processes
     from . import autocode_stop as stop_policy
+    from . import autocode_uncertain_cleanup as uncertain_cleanup
     from . import autocode_util as util
+    from . import autocode_verification_recovery as verification_recovery
     from . import autocode_verification_schedule as schedule
 except ImportError:
     import autocode_command_supervision as command_supervision
     import autocode_interventions as interventions
     import autocode_process as processes
     import autocode_stop as stop_policy
+    import autocode_uncertain_cleanup as uncertain_cleanup
     import autocode_util as util
+    import autocode_verification_recovery as verification_recovery
     import autocode_verification_schedule as schedule
 
 
@@ -103,6 +107,77 @@ def recover_interrupted(state: RunState, run_dir, persist):
         )
     clear(state, run_dir, persist)
     return recovered
+
+
+def auto_recover(state: RunState, run_dir, persist, *, source_revision, source_current, all_due=False):
+    """Retire one verified scan-churn interruption and require a fresh proof."""
+    check = state.get("active_runner_check")
+    pending = Path(run_dir) / "check-replay" / "obligations" / "pending.json"
+    if (
+        state.get("status") != "RUNNING"
+        or state.get("active_stage")
+        or not isinstance(check, dict)
+        or check.get("stage") != "regression_proof"
+        or not check.get("supervision")
+    ):
+        return False
+    check = deepcopy(check)
+    scope = {"task_id": state.get("task_id"), "source_revision": source_revision, "all_due": all_due}
+    if any(
+        row.get("kind") == "runner_check_auto_recovered" and row.get("scope") == scope
+        for row in state.get("user_events", [])
+    ):
+        return False
+    try:
+        if interventions.pending(run_dir) or source_current() != source_revision:
+            return False
+        root = Path(run_dir).resolve()
+        out = verification_recovery.owned_path(Path(check["output"]).parent, root, directory=True)
+        bound = verification_recovery.bind_command(out, check)
+        settled = uncertain_cleanup.settle_with_retry(bound)
+        if (
+            not settled
+            or interventions.pending(run_dir)
+            or source_current() != source_revision
+            or state.get("active_runner_check") != check
+        ):
+            return False
+        recovered = None
+        if pending.exists() or pending.is_symlink():
+            recovered = schedule.recover_interrupted(pending.parent, check, automatic=True)
+            if not recovered:
+                return False
+        if (
+            uncertain_cleanup.settle_with_retry(bound) != settled
+            or interventions.pending(run_dir)
+            or source_current() != source_revision
+            or state.get("active_runner_check") != check
+        ):
+            return False
+    except (
+        command_supervision.receipts.OwnershipUncertain,
+        processes.ProcessError,
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        interventions.InterventionError,
+    ):
+        return False
+    state.setdefault("user_events", []).append(
+        {
+            "kind": "runner_check_auto_recovered",
+            "actor": "runner",
+            "at": util.now(),
+            "scope": scope,
+            "scheduled_recovery": recovered,
+            **settled,
+            "reason": "Native cleanup was rechecked; the interrupted proof must run again",
+        }
+    )
+    state.pop("active_runner_check")
+    persist(Path(run_dir) / "state.json", state)
+    return True
 
 
 @contextmanager
