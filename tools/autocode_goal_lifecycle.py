@@ -396,6 +396,18 @@ def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=
     # the revision guard did or skipped for this origin (#2467).
     scope_question.record_installed_corrections(state, body, changes or [], revision)
     state["goal_contract"] = contract
+    if origin == "user_cli_edit" and (pending := state.pop("pending_report_repair", None)):
+        # A public edit supersedes the rejected report; keeping its repair would
+        # dispatch the old stage against the new draft instead of reviewing it.
+        state.setdefault("report_repair_archive", []).append(
+            {
+                "reason": "superseded_by_goal_edit",
+                "at": s.now(),
+                "contract_hash": contract["hash"],
+                "contract_revision": revision,
+                "repair": copy.deepcopy(pending),
+            }
+        )
     if origin in ("user_cli_edit", "resolver_recommendation"):
         # An authenticated scope change is new user intent.
         start_clarification_episode(
