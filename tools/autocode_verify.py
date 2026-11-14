@@ -2132,7 +2132,11 @@ def _run_suite_base_definition(
     ``keep_tests`` (#2966) keeps the candidate's tests too, and runs only when a retained runner input changed.
     ``sourced`` takes the files the base's shell tests source as product code (an exit-code repair's run).
     """
-    junit = framework is not None and framework.name == "junit"
+    # An exit-code repair of a Maven or Gradle suite is held to the build-system definition a JUnit proof
+    # of the same command is: the generic scan below reads no build file.
+    junit = framework is not None and (
+        framework.name == "junit" or (sourced and framework.name in first_suite.BUILD_TOOL_RUNNERS)
+    )
     try:
         found = _base_suite_definition(
             workspace,
