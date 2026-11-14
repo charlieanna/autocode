@@ -33,12 +33,13 @@ PYTEST_NATIVE_CONFIGS = frozenset(("pytest.ini", ".pytest.ini", "pytest.toml", "
 # pass --test-command and --regression-command (2026-11-14, docs/bugs/2026-11-13-task-kind-survey.md).
 # Each is judged by its exit code, as `make test` is. The project's own wrapper runs when it has one.
 GRADLE_ROOTS = project_kinds.GRADLE_FILES
+PERL_ROOTS = project_kinds.PERL_ROOTS
 # CMake commands are case-insensitive; a project has tests for CTest when it turns testing on.
 CMAKE_TESTS = re.compile(r"^[ \t]*(?:enable_testing[ \t]*\(|include[ \t]*\([ \t]*CTest[ \t]*\))", re.I | re.M)
 CMAKE_SUITE = "cmake -S . -B build && cmake --build build && ctest --test-dir build --output-on-failure"
 # Root build files that name a non-Python project's own toolchain.
 TOOLCHAIN_ROOTS = frozenset(
-    ("go.mod", "Cargo.toml", "package.json", "pom.xml", "CMakeLists.txt", "composer.json", *GRADLE_ROOTS)
+    ("go.mod", "Cargo.toml", "package.json", "pom.xml", "CMakeLists.txt", "composer.json", *PERL_ROOTS, *GRADLE_ROOTS)
 )
 # A Composer project tested with PHPUnit: PHPUnit's configuration at the root, or PHPUnit among the
 # project's packages. Composer installs its command as `vendor/bin/phpunit`. Without this a
@@ -50,6 +51,17 @@ TOOLCHAIN_ROOTS = frozenset(
 PHPUNIT_CONFIGS = frozenset(project_kinds.PHPUNIT_CONFIGS)
 PHPUNIT_PACKAGE = "phpunit/phpunit"
 PHPUNIT_SUITE = "vendor/bin/phpunit"
+# A Perl distribution's tests are the ``.t`` files of its root ``t/`` directory, run with ``prove``, which
+# comes with Perl: ``-l`` puts ``lib/`` on the module path and ``-r`` runs the ``.t`` files of every
+# directory under ``t/``, so a test file a change adds anywhere there is part of the suite on the candidate
+# and on the original code alike. Without this a Perl bug fix had no suite and no test file AutoCode
+# knew (``t/pager.t`` was not a test by its name), the proof failed twice with a correct fix and test,
+# and the person was asked to "correct the saved verification commands" (Claude models, 2026-11-14).
+# Judged by its exit code, as PHPUnit is. A distribution with C code (``.xs``) must be built first, which
+# ``prove -l`` does not do, so it is left undetected.
+PERL_TEST = re.compile(r"^t/(?:.*/)?[^/]+\.t$")
+PERL_MODULE = re.compile(r"^lib/(?:.*/)?[^/]+\.pm$")
+PERL_SUITE = "prove -lr t"
 # Ruby's own test files (Minitest, test-unit) in the conventional root ``test/`` directory. A helper
 # such as test_helper.rb is loaded by the tests that need it, never as a test file itself.
 RUBY_TEST = re.compile(r"^test/(?:.*/)?(?:.*_test|test_.*)\.rb$")
@@ -91,7 +103,7 @@ def _read(path) -> str:
 
 
 def detect(root, files, is_test_path) -> Framework | None:
-    """The suite a Go, Node, Rust, Ruby, Make, Maven, Gradle, CMake or PHPUnit project declares, or None.
+    """The suite a Go, Node, Rust, Ruby, Make, Maven, Gradle, CMake, PHPUnit or Perl project declares, or None.
 
     A Ruby project with no RSpec suite and no ``make test`` runs the test files of its ``test/``
     directory (``ruby_tests``): without it the proof had no command, and a live run asked the person
@@ -135,6 +147,8 @@ def detect(root, files, is_test_path) -> Framework | None:
         return found
     if found := phpunit(root, files):
         return found
+    if perl_tests(files):
+        return Framework("prove", PERL_SUITE)
     if ruby_tests(files):
         # Through Bundler when the project pins its gems, as `bundle exec rspec` is above.
         return Framework("minitest", ("bundle exec " if "Gemfile" in files else "") + RUBY_SUITE)
@@ -166,6 +180,17 @@ def phpunit(root, files) -> Framework | None:
         if not any(isinstance(table, dict) and PHPUNIT_PACKAGE in table for table in tables):
             return None
     return Framework("phpunit", PHPUNIT_SUITE)
+
+
+def perl_tests(files) -> list[str]:
+    """The ``.t`` files under the root ``t/`` directory of a pure-Perl distribution, or [] for any other
+    project: one with a Perl root file or a module under ``lib/``, and no ``.xs`` file."""
+    names = set(files)
+    if not (names & set(PERL_ROOTS) or any(map(PERL_MODULE.match, names))):
+        return []
+    if any(path.endswith(".xs") for path in names):
+        return []
+    return sorted(path for path in names if PERL_TEST.match(path))
 
 
 def ruby_tests(files) -> list[str]:

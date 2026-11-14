@@ -107,6 +107,8 @@ RUNNERS = frozenset(
         "php",
         "phpunit",
         "composer",
+        "perl",
+        "prove",
         "sh",
         "bash",
     }
