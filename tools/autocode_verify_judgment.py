@@ -33,6 +33,11 @@ BASE_DEFINITION_UNKNOWN = (
     "The base suite definition could not be established ({}); preservation of existing behavior is unproven"
 )
 
+UNLOADABLE = (
+    "The original code could not be loaded by the tests the project already had, so no test can run and fail "
+    "there; the change's tests that could not run there and pass with it count"
+)
+
 
 def judge_regression(
     on_candidate,
@@ -51,6 +56,7 @@ def judge_regression(
     seam_names=None,
     changed_tests=None,
     base_suite_passed=None,
+    reloaded=None,
 ):
     """Judge the targeted runs of the changed test files.
 
@@ -64,6 +70,10 @@ def judge_regression(
 
     ``changed_tests`` (Go features) limits fail-to-pass to tests the change adds or edits; an unchanged
     test that passed in the pristine base suite (``base_suite_passed()``) is pass-to-pass (#2505).
+
+    ``reloaded()`` (first_suite.reloads; owner decision 2026-11-14): the original code could not be loaded by
+    the tests the project already had, and those run and pass with the change. No test can run and fail on
+    such code, so a bug fix's tests that could not run there and pass now count, as they do for new behavior.
     """
     candidate = on_candidate.get("results")
     base = (on_base or {}).get("results")
@@ -145,6 +155,12 @@ def judge_regression(
                 proof["pass_to_pass"] = []
                 proof["not_run_on_base"] = names
                 return
+            # unittest given a file that cannot be imported names no test either.
+            if passed and on_base["exit_code"] not in (0, None) and reloaded and reloaded():
+                names = sorted(passed)
+                proof.update(fail_to_pass=names, pass_to_pass=[], not_run_on_base=names)
+                notes.append(UNLOADABLE)
+                return
             # A module that reads a seam while loading can stop the whole run before it reports any test.
             seam = seam_names(on_base) if seam_names and not new_behavior else []
             unverified.append(
@@ -167,6 +183,9 @@ def judge_regression(
         # Passing tests that never ran on the original code (their module did not import there): a
         # guard's test there is not shown to fail before, only not shown to pass (check_cases).
         not_run = passed - set(base["passed"]) - set(base["failed"])
+        if not new_behavior and not_run - set(flipped) and reloaded and reloaded():
+            flipped = sorted({*flipped, *not_run})
+            notes.append(UNLOADABLE)
         if new_behavior and changed_tests is not None:
             unchanged = {name for name in flipped if not changed_tests(name)}
             flipped = [name for name in flipped if name not in unchanged]
@@ -293,6 +312,8 @@ def judge_suite(
     # parsers without ``uncollected`` fall back to collection_errors and fail closed.
     for label, results in (("base", base_results), ("candidate", candidate)):
         collection = (results or {}).get("uncollected", (results or {}).get("collection_errors")) or []
+        if label == "base" and collection and set(collection) <= set(repaired or ()):
+            continue  # every module the base could not load runs and passes now (first_suite.loaded)
         if collection and not (label == "base" and absent_go):
             unverified.append(
                 f"The {label} suite has collection errors; preservation is unproven: " + ", ".join(collection[:5])

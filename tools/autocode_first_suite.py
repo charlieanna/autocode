@@ -7,10 +7,12 @@ import subprocess
 from pathlib import PurePosixPath
 
 try:
+    from . import autocode_changed_tests as changed_tests
     from . import autocode_project_inventory as project_inventory
     from . import autocode_project_kinds as project_kinds
     from . import autocode_verification_schedule as schedule
 except ImportError:
+    import autocode_changed_tests as changed_tests
     import autocode_project_inventory as project_inventory
     import autocode_project_kinds as project_kinds
     import autocode_verification_schedule as schedule
@@ -362,6 +364,159 @@ def repairable_failures(base_suite, suite_command):
     return sorted(set(results["failed"]) - set(results.get("collection_errors") or []))
 
 
+def unloaded(base_suite, suite_command):
+    """The base suite's test modules that could not be imported, collected or built there, when its command
+    is the proof's suite command: its ``uncollected`` (``collection_errors`` for a parser without it).
+
+    Code that cannot be loaded (a syntax error, merge conflict markers left in a file) lets no test run, so
+    no test "ran and failed" there. A real run of "resolve the conflict markers, the tests already cover
+    both sides" failed its proof twice for want of a new test, with every existing test passing, and the
+    person was asked to set a regression command (2026-11-14). ``loaded`` says which tests show its repair.
+    """
+    results = ((base_suite or {}).get("receipt") or {}).get("results")
+    if not suite_command or (base_suite or {}).get("command") != suite_command:
+        return []
+    if not isinstance(results, dict) or not results.get("complete"):
+        return []
+    return sorted(results.get("uncollected", results.get("collection_errors")) or [])
+
+
+def _owns(module, test) -> bool:
+    """Whether ``test`` is a test of the module the base could not load, by the ids the result parsers give:
+    ``::pkg.mod`` and ``pkg.mod::test`` (pytest), ``unittest.loader._FailedTest.mod`` and ``mod.Class.test``
+    (unittest), ``FILE::[collection]`` or ``PACKAGE::[build failed]`` and ``FILE::test`` (Node, Jest, RSpec,
+    Minitest, Go). A JUnit test that errored before it ran is its own id and a failure there, so it is
+    never a test that could not run."""
+    for prefix in ("unittest.loader._FailedTest.", "unittest.loader.ModuleImportFailure."):
+        if module.startswith(prefix):
+            return test.startswith(module[len(prefix) :] + ".")
+    key = module.removeprefix("::").partition("::[")[0]
+    return test.startswith(key + "::")
+
+
+def loaded(base_results, candidate, modules, added=()):
+    """The tests that could not run on the base, whose ``modules`` it could not load (``unloaded``), and
+    that run and pass on the candidate.
+
+    They count only when the whole suite loads on the candidate (nothing uncollected, no collection error),
+    nothing fails there that did not already run and fail on the base, and every one of ``modules`` has a
+    test among them that the project already had, so the change did not trade one unloadable module for
+    another or a failure, did not leave one of them out of the suite, and does not prove itself with its
+    own tests alone. A test that ran on the base, or was skipped there, is not one of them. The caller has
+    established that the change modifies and deletes no test file; ``added`` is the tests of the files it
+    adds, which are among the result and are no module's own.
+    """
+    if candidate.get("uncollected") or candidate.get("collection_errors"):
+        return []
+    ran_and_failed = set(base_results["failed"]) - set(base_results.get("collection_errors") or [])
+    if not set(candidate["failed"]) <= ran_and_failed:
+        return []
+    known = set(base_results["passed"]) | set(base_results["failed"]) | set(base_results.get("skipped") or [])
+    new = sorted(set(candidate["passed"]) - known)
+    own = set(new) - set(added)
+    return new if all(any(_owns(module, test) for test in own) for module in modules) else []
+
+
+def _added_tests(run):
+    """The tests of the test files the change adds: those its targeted run on the candidate reported. None
+    when that cannot be told: no targeted command of its own, or no per-test results.
+
+    Go and Cargo run an added file with the rest of its package, so there only the tests the change itself
+    defines are its own (autocode_changed_tests.changed_filter).
+    """
+    commands = run.commands
+    results = (run.checks.get("regression_on_candidate") or {}).get("results")
+    if not commands["regression"] or commands["regression"] == commands["suite"] or not isinstance(results, dict):
+        return None
+    reported = {*results["passed"], *results["failed"], *(results.get("skipped") or [])}
+
+    def git(workspace, *arguments, check=False):
+        shown = subprocess.run(
+            ["git", *arguments], cwd=workspace, capture_output=True, encoding="utf-8", errors="replace", check=check
+        )
+        return shown.stdout
+
+    changed = changed_tests.changed_filter(run, git)
+    return {test for test in reported if changed(test)} if changed else reported
+
+
+def suite_on_candidate(run, trees, run_suite):
+    """The whole suite on the candidate, run once in a proof: the targeted run when it is the same command."""
+    checks, commands = run.checks, run.commands
+    if "suite_on_candidate" not in checks:
+        reuse = checks.get("regression_on_candidate") if commands["suite"] == commands["regression"] else None
+        checks["suite_on_candidate"] = reuse or run_suite(
+            run.framework, commands["suite"], trees["candidate"], run.run_dir, "suite-on-candidate", timeout=run.timeout
+        )
+    return checks["suite_on_candidate"]
+
+
+def reloaded(run, on_candidate) -> list[str]:
+    """The tests that show the repair of code its tests could not load, for a change that adds tests.
+
+    Owner decision, 2026-11-14: existing tests that now pass prove such a fix. The plan of a real run of
+    "resolve the conflict markers" added one new test in a new file. The new test cannot run on the original
+    code either (its import is the syntax error), a bug fix needs a test that ran and failed there, and the
+    proof failed twice with "the new tests only fail to import or collect"; when the Builder worked around
+    that with imports inside each test, preservation stayed unproven and the person was asked to accept it.
+
+    The base suite itself must name modules it could not load (``unloaded``), and the change must modify and
+    delete no test file: then ``loaded`` gives the tests that could not run on the original code and pass
+    with the change, the project's own and the change's new ones. Each of those modules must have a test
+    the project already had: one the targeted run of the added files did not report (``_added_tests``), so
+    code that never had a test is not proved by the change's tests alone. Empty when the rule does not hold,
+    and for a change that touches no test file, which existing_flip judges.
+    """
+    gone = unloaded(run.base_suite, run.commands["suite"])
+    candidate = (on_candidate or {}).get("results")
+    if not gone or run.existing_failures or not (candidate or {}).get("complete") or on_candidate.get("timed_out"):
+        return []
+    tests, added = run.roles.partition(run.changes)[0], _added_tests(run)
+    if not tests or added is None or any(run.changes[path] != "added" for path in tests):
+        return []
+    return loaded(run.base_suite["receipt"]["results"], candidate, gone, added)
+
+
+def reloads(run, trees, run_suite) -> list[str]:
+    """``reloaded`` for the judgment of the targeted runs, which comes before the whole suite's: the suite
+    runs on the candidate here only when the base suite named a module it could not load."""
+    if not unloaded(run.base_suite, run.commands["suite"]):
+        return []
+    return reloaded(run, suite_on_candidate(run, trees, run_suite))
+
+
+def flip(run, on_candidate) -> None:
+    """What the whole suite on the candidate adds to the fail-to-pass proof: the repair the base suite's own
+    failing tests show (existing_flip), or the tests a repair of unloadable code let run (``reloaded``)."""
+    if run.existing_failures:
+        existing_flip(
+            on_candidate,
+            run.base_suite,
+            run.existing_failures,
+            run.proof,
+            run.fail,
+            run.unverified,
+            run.notes,
+            run.allow_no_test,
+        )
+        return
+    tests, proof = reloaded(run, on_candidate), run.proof
+    if not tests or proof.get("fail_to_pass") is None:
+        return
+    # A test the targeted run already showed running and failing on the original code stays that.
+    added = sorted(set(tests) - set(proof["fail_to_pass"]))
+    if not added:
+        return
+    proof["not_run_on_base"] = sorted({*(proof.get("not_run_on_base") or []), *added})
+    proof["fail_to_pass"] = sorted({*proof["fail_to_pass"], *added})
+    run.notes.append(
+        "The original code could not be loaded by its tests ("
+        + ", ".join(unloaded(run.base_suite, run.commands["suite"])[:5])
+        + "), and the change modifies none of them: the tests that could not run there and pass with the "
+        "change: " + ", ".join(added[:20])
+    )
+
+
 def existing_flip(on_candidate, base_suite, failing, proof, fail, unverified, notes, allow_no_test):
     """The base suite's own failing tests are the regression tests of a repair that changed no test.
 
@@ -369,6 +524,10 @@ def existing_flip(on_candidate, base_suite, failing, proof, fail, unverified, no
     the candidate are its fail-to-pass proof, the bug reproduced by a test the project already had, and
     the base's passing tests that still pass are the pass-to-pass set. When none passes now, the change
     fixed nothing those tests show, and the ordinary missing-test judgement stands.
+
+    ``failing`` may also hold modules the base could not load (``unloaded``, when no test file changed):
+    their tests that run and pass on the candidate (``loaded``) are fail-to-pass proof as well, and are
+    listed as not run on the base.
     """
     candidate = on_candidate.get("results")
     if on_candidate["timed_out"] or not (candidate and candidate.get("complete")):
@@ -377,21 +536,32 @@ def existing_flip(on_candidate, base_suite, failing, proof, fail, unverified, no
             "so the existing failing tests cannot show the repair"
         )
         return
-    flipped = sorted(set(failing) & set(candidate["passed"]))
+    base_results = base_suite["receipt"]["results"]
+    gone = sorted(set(failing) & set(unloaded(base_suite, base_suite.get("command"))))
+    new = loaded(base_results, candidate, gone) if gone else []
+    ran = sorted(set(failing) & set(candidate["passed"]))
+    flipped = sorted({*ran, *new})
     if not flipped:
         (unverified if allow_no_test else fail).append(
             "No regression test was added or changed, and no test that fails on the original code passes "
             "with the change, so the bug is not shown to be reproduced"
         )
         return
-    base_results = base_suite["receipt"]["results"]
     proof.update(
         fail_to_pass=flipped,
         pass_to_pass=sorted(set(base_results["passed"]) & set(candidate["passed"])),
-        not_run_on_base=[],
+        not_run_on_base=new,
         failed_on_candidate=sorted(candidate["failed"]),
     )
-    notes.append("Existing tests that fail on the original code pass with the change: " + ", ".join(flipped[:20]))
+    if ran:
+        notes.append("Existing tests that fail on the original code pass with the change: " + ", ".join(ran[:20]))
+    if new:
+        notes.append(
+            "No test changed, and the original code could not be loaded by its tests ("
+            + ", ".join(gone[:5])
+            + "): the tests the project already had run and pass with the change: "
+            + ", ".join(new[:20])
+        )
 
 
 def repaired_by_flip(base_suite, on_base_with_tests, on_candidate):
@@ -464,11 +634,15 @@ def repairable_exit(base_suite, suite_command) -> bool:
     return bool(suite_command) and suite.get("command") == suite_command and suite.get("health") == "failing"
 
 
-def existing_repair(base_suite, suite_command, code_only):
+def existing_repair(base_suite, suite_command, code_only, changed_tests=None):
     """What a repair that changed no test may rest on: (the base suite's failing tests, whether instead its
     failing exit code). The exit code counts only for a suite verify() was told can show it, and a change
-    of code alone (``code_only``): another kind of file may be one the suite reads."""
+    of code alone (``code_only``): another kind of file may be one the suite reads. With no test file in
+    the change at all (``changed_tests`` is given and empty), the failing tests include the modules the base could not
+    load (``unloaded``), which existing_flip judges by their tests on the candidate."""
     failing = repairable_failures(base_suite, suite_command)
+    if changed_tests is not None and not changed_tests:
+        failing = failing + unloaded(base_suite, suite_command)
     return failing, bool(not failing and code_only and repairable_exit(base_suite, suite_command))
 
 
@@ -514,13 +688,21 @@ def exit_repair(run, base_definition, completed) -> None:
     exit_flip(passes, run.base_suite, run.fail, run.unverified, run.notes, run.review_reasons, run.allow_no_test)
 
 
-def repaired_evidence(proof, existing_failures, base_suite, checks, on_candidate):
+def repaired_evidence(proof, existing_failures, base_suite, checks, on_candidate, run=None):
     """The repair evidence for the preservation verdict: the proof's fail-to-pass flip when the base
     suite already proves the repair (``existing_failures``), else the flip the changed tests still
-    show (``repaired_by_flip``, its targeted base run in ``checks["regression_on_base"]``)."""
+    show (``repaired_by_flip``, its targeted base run in ``checks["regression_on_base"]``).
+
+    The modules the base could not load are repaired with their tests when those run and pass now
+    (existing_flip and ``loaded``; for the proof ``run`` of a change that adds tests, ``reloaded``)."""
     if existing_failures:
-        return proof.get("fail_to_pass")
-    return repaired_by_flip(base_suite, checks.get("regression_on_base"), on_candidate)
+        flipped = proof.get("fail_to_pass")
+        if flipped and proof.get("not_run_on_base"):
+            return [*flipped, *unloaded(base_suite, (base_suite or {}).get("command"))]
+        return flipped
+    flipped = repaired_by_flip(base_suite, checks.get("regression_on_base"), on_candidate)
+    tests = reloaded(run, on_candidate) if run is not None else []
+    return [*flipped, *tests, *unloaded(run.base_suite, run.commands["suite"])] if tests else flipped
 
 
 def repaired_all(base_results, repaired, notes) -> bool:
