@@ -1826,10 +1826,11 @@ by its suffix) must lead to a file present in the source snapshot: for such a
 link a directory, a dangling or an ignored target is refused, since the test's
 assertions would not be retained. Any other link among the tests is data they
 read, such as <code>tests/data/current -&gt; v2</code> or a link that a test of link handling
-needs dangling. Where it leads to a directory, or to a path the snapshot does
-not hold, it is retained as its link text alone, and the files of a linked
-directory are eligible under their own names. Absolute or external targets and
-cycles are refused for every link. Replay preserves the original link topology
+needs dangling, absolute or looping. Where it leads to a directory, to a path
+the snapshot does not hold or out of the repository, it is retained as its link
+text alone, and the files of a linked directory are eligible under their own
+names. For code, absolute or external targets and cycles are refused too.
+Replay preserves the original link topology
 and never writes through a candidate's replacement link: a retargeted link, or
 a directory put in its place, gives way to the original link when the original
 tests run.
