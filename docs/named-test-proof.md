@@ -271,7 +271,8 @@ change the verdict, and nothing is installed into the project.
 Shell pipelines, custom reporters, ordinary npm/Mocha summaries and custom
 assertion scripts do not currently provide named proof. A direct supported
 targeted command can accompany an existing package-script suite. A runner that
-reports only an exit code (`make test`, Ruby test files run one by
+reports only an exit code (`make test`, Maven, Gradle or CMake with CTest when no
+JUnit report is configured, Ruby test files run one by
 one, or a runner AutoCode does not detect) cannot prove a `test:` or `guard:`
 criterion by name, so a draft that has one there is refused when it is drafted,
 and the Planner writes the criterion as the command that runs its test file
@@ -316,8 +317,10 @@ instead (`tools/autocode_plan_test_suite.py`, `untested_code`).
 
 ## JUnit XML from other test runners
 
+With nothing typed, a Maven, Gradle or CMake project is proven by its build tool's
+own test command and that command's exit code (`tools/autocode_toolchain_suite.py`).
 Use `--test-report junit:RELATIVE_PATH` with an explicit `--test-command` to
-attribute Java, Kotlin, .NET, Rust or Ruby tests through their runner's JUnit
+attribute Java, Kotlin, .NET, Rust or Ruby tests by name through their runner's JUnit
 XML output. For example, the catalog's Java case runs one real JUnit class:
 
 ```sh
