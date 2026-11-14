@@ -28,6 +28,7 @@ try:
     from . import autocode_classification_recovery as classification_recovery
     from . import autocode_job_failure as job_failure
     from . import autocode_job_route as job_route
+    from . import autocode_model_listing_failure as model_listing_failure
     from . import autocode_recovery_accounting as recovery_accounting
     from . import autocode_recovery_dispatch as recovery_dispatch
     from . import autocode_recovery_grants as recovery_grants
@@ -44,6 +45,7 @@ except ImportError:
     import autocode_classification_recovery as classification_recovery
     import autocode_job_failure as job_failure
     import autocode_job_route as job_route
+    import autocode_model_listing_failure as model_listing_failure
     import autocode_recovery_accounting as recovery_accounting
     import autocode_recovery_dispatch as recovery_dispatch
     import autocode_recovery_grants as recovery_grants
@@ -151,6 +153,16 @@ def gate_failures(runner, args, parser, state: RunState, state_path, run_dir, wo
 def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Set a stage aside (--abandon-stage), or apply an explicit resume's recovery to the saved run."""
     gate, information_admitted = decided.gate, decided.information_admitted
+    if blocked := model_listing_failure.blocked(state):
+        before = tuple(state.get(key) for key in ("status", "phase", "stop_reason"))
+        run_status.pause(state, "PAUSED_TRANSPORT_UNVERIFIED", blocked["summary"])
+        if before != tuple(state.get(key) for key in ("status", "phase", "stop_reason")):
+            runner.write_json(state_path, state)
+        print(
+            "AutoCode is blocked on unconfirmed model-listing descendant cleanup. No stage was started.",
+            file=sys.stderr,
+        )
+        return 2
     if blocked := verification_failure.blocked(state):
         before = tuple(state.get(key) for key in ("status", "phase", "stop_reason"))
         run_status.pause(state, "PAUSED_VERIFICATION_PREPARATION", blocked["summary"])

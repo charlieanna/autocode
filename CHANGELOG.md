@@ -101,6 +101,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **A timed-out Kilo model list no longer asks you to resume a task**: when both existing roster checks time out before a saved run starts its next stage, AutoCode records an internal Blocked outcome. Saved work, approvals, model choices and limits remain intact. It starts no stage, adds no retry and offers no recovery action to a person; unconfirmed cleanup remains explicit in its evidence.
+
 - **VS Code keeps and distinguishes unsent chats**: opening a run from History no longer removes an initial chat with a draft, switching or closing tabs does not copy a draft into another chat, and draft tabs show a short preview. Keyboard focus stays on a tab’s close button when status updates change its label.
 
 - **Saving a stage model no longer queries the backend a second time for its response**: the saved choices and model options now come from the catalogue that validated the change, so a later listing failure cannot turn an accepted save into an empty model list. Each new operation still checks availability and verifier independence afresh.
