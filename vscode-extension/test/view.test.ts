@@ -291,6 +291,15 @@ test("changeset status JSON is read, and its refusal is an error (#2066)", () =>
 });
 
 
+test("a missing human action is not a completion claim", () => {
+  for (const category of ["blocked", "stopped"]) {
+    assert.equal(needsSummary({ status: "PAUSED_VERIFICATION_PREPARATION", done: false, needs: null,
+      recovery: { category } }), "nothing needed from you");
+  }
+  assert.equal(needsSummary({ status: "TASK_COMPLETE", done: true, needs: null }), "nothing; the run is complete");
+});
+
+
 test("approval refuses missing, empty or malformed canonical review content", () => {
   for (const review_markdown of [undefined, null, false, 7, {}, [], "", " \n\t"]) {
     assert.equal(planForApproval(approvalProjection({ review_markdown })), null, JSON.stringify(review_markdown));

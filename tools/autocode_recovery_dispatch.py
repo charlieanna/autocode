@@ -25,6 +25,7 @@ try:
     from . import autocode_provider_recovery as provider_recovery
     from . import autocode_resolver_recovery as resolver_recovery
     from . import autocode_route_recovery as route_recovery
+    from . import autocode_verification_failure_recovery as verification_failure_recovery
 except ImportError:
     import autocode_job_failure as job_failure
     import autocode_network_retry as network_retry
@@ -32,6 +33,7 @@ except ImportError:
     import autocode_provider_recovery as provider_recovery
     import autocode_resolver_recovery as resolver_recovery
     import autocode_route_recovery as route_recovery
+    import autocode_verification_failure_recovery as verification_failure_recovery
 
 
 def _runtime_first(module, name):
@@ -53,6 +55,7 @@ def _on_runtime(name):
 # (row name, recoverer) in the live loop's order. The names are the contract call sites key
 # their follow-up effects on; a row's recoverer owns its own bound and counter.
 RECOVERY_CHAIN = (
+    ("verification_preparation", _runtime_first(verification_failure_recovery, "recover")),
     ("job_failure", _runtime_first(job_failure, "recover")),
     ("network", _runtime_first(network_retry, "recover")),
     ("startup", _runtime_first(provider_recovery, "recover_startup")),
@@ -81,3 +84,8 @@ def recover(runtime, state: RunState, run_dir, workspace, error) -> str | None:
         if invoke(runtime, state, run_dir, workspace, error):
             return name
     return None
+
+
+def settle_prelaunch(runtime, state: RunState, run_dir, workspace, error):
+    """The typed preparation outcome also applies where native retries are forbidden."""
+    return verification_failure_recovery.recover(runtime, state, run_dir, workspace, error)

@@ -24,6 +24,7 @@ from . import test_assignment_scenarios, test_goals, test_truncated_review_recov
 
 # Written out independently of RECOVERY_CHAIN, so a dropped, added or moved row fails here (#3035).
 CHAIN_ORDER = (
+    "verification_preparation",
     "job_failure",
     "network",
     "startup",
@@ -38,6 +39,7 @@ CHAIN_ORDER = (
 
 # Where each row's recoverer lives: six in their own modules, four on the runner.
 MODULE_ROWS = {
+    "verification_preparation": (recovery_dispatch.verification_failure_recovery, "recover"),
     "job_failure": (recovery_dispatch.job_failure, "recover"),
     "network": (recovery_dispatch.network_retry, "recover"),
     "startup": (recovery_dispatch.provider_recovery, "recover_startup"),

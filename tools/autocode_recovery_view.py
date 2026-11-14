@@ -24,6 +24,7 @@ try:
     from . import autocode_provider_auth as provider_auth
     from . import autocode_quota_route as quota_route
     from . import autocode_run_messages as run_messages
+    from . import autocode_verification_failure as verification_failure
     from .autocode_role_names import role_name
 except ImportError:
     import autocode_accepted_source as accepted_source
@@ -32,6 +33,7 @@ except ImportError:
     import autocode_provider_auth as provider_auth
     import autocode_quota_route as quota_route
     import autocode_run_messages as run_messages
+    import autocode_verification_failure as verification_failure
     from autocode_role_names import role_name
 
 ACTIVE = {"RUNNING", "DISCOVERING", "EXECUTING", "TASK_COMPLETE", "COMPLETE"}
@@ -469,7 +471,7 @@ def project(state: RunState, need=None):
     fresh_run = bool(
         need.get("new_run_required") and need.get("action") == "fresh_run" and status != "PAUSED_COMPONENT_PLAN"
     )
-    if (status in ACTIVE and not fresh_run) or not status:
+    if ((status in ACTIVE and not fresh_run) or not status) and not verification_failure.blocked(state):
         return None
     native_need = native_cleanup_need(state)
     if native_need is not None and need.get("kind") not in ("answer", "review", "approve_plan"):
@@ -535,6 +537,9 @@ def project(state: RunState, need=None):
             "Read the saved plan, changes, checks and attempt history. This does not run a step.",
         )
     )
+    if (failure := verification_failure.presentation(state)) and failure["category"] == "blocked":
+        result.update(failure)
+        return result
     if terminal:
         actions.append(
             _action(

@@ -34,9 +34,11 @@ try:
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_route_advisory as route_advisory
+    from . import autocode_run_status as run_status
     from . import autocode_runner_check as runner_check
     from . import autocode_stop as stop
     from . import autocode_support as support
+    from . import autocode_verification_failure as verification_failure
 except ImportError:
     import autocode_accepted_source as accepted_source
     import autocode_classification_recovery as classification_recovery
@@ -48,9 +50,11 @@ except ImportError:
     import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
     import autocode_route_advisory as route_advisory
+    import autocode_run_status as run_status
     import autocode_runner_check as runner_check
     import autocode_stop as stop
     import autocode_support as support
+    import autocode_verification_failure as verification_failure
 
 
 def reconcile_checkpoint(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
@@ -147,6 +151,16 @@ def gate_failures(runner, args, parser, state: RunState, state_path, run_dir, wo
 def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Set a stage aside (--abandon-stage), or apply an explicit resume's recovery to the saved run."""
     gate, information_admitted = decided.gate, decided.information_admitted
+    if blocked := verification_failure.blocked(state):
+        before = tuple(state.get(key) for key in ("status", "phase", "stop_reason"))
+        run_status.pause(state, "PAUSED_VERIFICATION_PREPARATION", blocked["summary"])
+        if before != tuple(state.get(key) for key in ("status", "phase", "stop_reason")):
+            runner.write_json(state_path, state)
+        print(
+            "AutoCode is blocked on unconfirmed verification preparation source binding, cleanup or ownership. No stage was started.",
+            file=sys.stderr,
+        )
+        return 2
     if args.abandon_stage is not None:
         try:
             runner.abandon_stage(state, run_dir, workspace, args.abandon_stage, launch=runner)

@@ -482,7 +482,7 @@ export function waitsForFolder(view: StatusView): boolean {
 /** Plain-language description of what the run is waiting for, from the view alone. */
 export function needsSummary(view: StatusView, working?: boolean): string {
   const need = view.needs;
-  if (!need) return "nothing; the run is complete";
+  if (!need) return view.done ? "nothing; the run is complete" : "nothing needed from you";
   if (view.progress?.needs_you) return view.progress.needs_you;
   const active = working ?? isWorking(view);
   switch (need.kind) {

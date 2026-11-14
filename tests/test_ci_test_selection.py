@@ -8,6 +8,36 @@ import run_suite
 
 
 class AccessTransportConsumerTests(unittest.TestCase):
+    def test_verification_preparation_keeps_diagnostic_and_no_person_cli_consumers_when_slow(self):
+        consumers = {"tests.test_storage_errors", "tests.test_verification_preparation_failure"}
+        for path in (
+            "tools/autocode_storage_errors.py",
+            "tools/autocode_verification_copy.py",
+            "tools/autocode_verification_failure.py",
+            "tools/autocode_verification_failure_recovery.py",
+            "tools/autocode_provider_launch.py",
+            "tools/autocode_recovery_dispatch.py",
+            "tools/autocode_action_recovery.py",
+            "tools/autocode_run_view.py",
+            "tools/autocode_recovery_view.py",
+            "tools/autocode_recovery_history.py",
+            "tools/autocode_status_command.py",
+            "tools/autocode_status_summary.py",
+            "tools/autocode_stop_explanations.py",
+            "tools/autocode_progress_view.py",
+            "tools/autocode_chat_view.py",
+            "tools/autocode_chat_client.py",
+            "tools/autocode_build_loop.py",
+            "scenarios/harness/driver.py",
+            "docs/schemas/status-view.schema.json",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests(
+                    [path], {**{module: "" for module in consumers}, "tests.test_unrelated": ""}
+                )
+                kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+                self.assertEqual(consumers, set(kept))
+
     def test_python_self_suite_policy_keeps_its_public_counterexamples_when_slow(self):
         consumers = {
             "tests.test_python_self_suite",

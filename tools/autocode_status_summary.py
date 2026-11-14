@@ -1,4 +1,4 @@
-"""The run in one sentence: needs you, working, done or stopped, and the exact next action (#2049).
+"""The run in one sentence: needs you, working, done, stopped or blocked, and the exact next action (#2049).
 
 A pure projection over the public status payload `--status` assembles, for a person who
 glances at a run (`autocode status --summary`) and for clients that want one line. It
@@ -18,8 +18,9 @@ NEEDS_YOU = "needs_you"
 WORKING = "working"
 DONE = "done"
 STOPPED = "stopped"
-STATES = (NEEDS_YOU, WORKING, DONE, STOPPED)
-LABELS = {NEEDS_YOU: "Needs you", WORKING: "Working", DONE: "Done", STOPPED: "Stopped"}
+BLOCKED = "blocked"
+STATES = (NEEDS_YOU, WORKING, DONE, STOPPED, BLOCKED)
+LABELS = {NEEDS_YOU: "Needs you", WORKING: "Working", DONE: "Done", STOPPED: "Stopped", BLOCKED: "Blocked"}
 # A controller does the work in these statuses; the person is not yet asked for anything.
 WORKING_STATUSES = ("RUNNING", "DISCOVERING", "WAITING_FOR_USER")
 # Needs a run continues past on its own, or that another run answers.
@@ -43,7 +44,13 @@ def project(view: dict, *, stale: bool = False, completion_current=None, next_ac
     progress = view.get("progress") or {}
     asked = progress.get("needs_you")
     command = view.get("next_command")
-    if stale:
+    if (view.get("recovery") or {}).get("category") == "blocked":
+        state, sentence, command = (
+            BLOCKED,
+            _sentence(view["recovery"].get("what_happened") or "Internal cleanup is unconfirmed"),
+            None,
+        )
+    elif stale:
         state = STOPPED
         sentence = _sentence(next_action) or "The run stopped without saving a result."
         sentence = f"The run is not progressing: nothing supervises its retained attempt. {sentence}"

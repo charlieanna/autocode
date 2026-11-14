@@ -3856,6 +3856,31 @@ test('operational reply offer shows a usable composer without a false no-action 
 });
 
 for (const surface of ['chat', 'Run details']) {
+  for (const category of ['blocked', 'stopped']) test(`internal preparation ${category} is read-only in ${surface}`, async (t) => {
+    const view = {
+      status: category === 'blocked' ? 'PAUSED_VERIFICATION_PREPARATION' : 'PAUSED_INTERVENTION',
+      done: false, needs: null, next_command: null,
+      progress: { headline: category === 'blocked' ? 'AutoCode is blocked on internal cleanup' : 'AutoCode could not finish this task', needs_you: 'nothing needed from you' },
+      recovery: { category, title: category === 'blocked' ? 'AutoCode is blocked on internal cleanup' : 'AutoCode could not finish this task',
+        what_happened: 'Verification preparation failed before a provider started. Ownership remains unconfirmed.',
+        retained: 'Saved work and approval are retained.', actions: [{ kind: 'inspect', label: 'Inspect saved work' }] },
+    };
+    const expectedTitle = category === 'blocked' && surface === 'Run details' ? 'Blocked' : view.recovery.title;
+    if (expectedTitle === 'Blocked') delete view.recovery.title;
+    const launch = t.mock.method(cli, 'stream', async () => ok);
+    const ui = surface === 'chat' ? await openChat(t, view) : await openPanel(t, view);
+    const text = ui.document.querySelector('#app').textContent;
+    assert.ok(text.includes(expectedTitle), expectedTitle);
+    assert.ok(text.includes('Ownership remains unconfirmed'));
+    assert.ok(text.includes('Saved work and approval are retained'));
+    for (const absent of ['No action the client can take', 'asking a person', 'Take named action', 'the run is complete']) assert.ok(!text.includes(absent), absent);
+    assert.equal(ui.document.querySelector('#take-action'), null);
+    assert.equal(ui.document.querySelector('#start-new-conversation'), null);
+    assert.equal(launch.mock.callCount(), 0);
+  });
+}
+
+for (const surface of ['chat', 'Run details']) {
   test(`durable Stop is explained in ${surface} without offering a resume`, async (t) => {
     const view = {
       status: 'PAUSED_INTERVENTION', done: false, needs: { kind: 'resume' }, next_command: null,

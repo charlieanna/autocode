@@ -541,6 +541,8 @@ class Driver:
             pending_view = None
             need = view["needs"]
             self.assert_needs_command_accepted(view)
+            if view["done"] or need is None:
+                return view  # A no-action failed/blocked outcome is not completion.
             if pause := self.pause_to_acknowledge(view):
                 self.acknowledge_pause(pause)
                 continue

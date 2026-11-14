@@ -76,6 +76,7 @@ def progress(
     finished: bool = False,
     following: str | None = None,
     controller_running: bool = False,
+    internal_failure=None,
 ) -> dict:
     """The progress projection of one run.
 
@@ -105,7 +106,10 @@ def progress(
     problems = _problems(state, _rows(state.get("turns")))
     kind = (needs or {}).get("kind")
     asked = _asked(needs, state)
-    if done:
+    if internal_failure:
+        headline = internal_failure["title"]
+        asked = "nothing needed from you"
+    elif done:
         headline = "Complete"
     elif stopped:
         headline = f"{stage or 'The stage'} {STOP_CLAIM}"

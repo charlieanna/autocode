@@ -1506,6 +1506,13 @@ class ChatClient:
     def hand_off(self, view: dict) -> bool:
         """A need this client cannot act on: explain it without exposing internal commands."""
         need = view.get("needs") or {}
+        if not need:
+            recovery, summary = view.get("recovery") or {}, view.get("summary") or {}
+            heading = recovery.get("title") or summary.get("label") or "AutoCode has no next action"
+            why = recovery.get("what_happened") or summary.get("sentence") or view.get("stop_reason") or ""
+            self.say(f"\n{heading.rstrip('.')}. {why}".rstrip())
+            self.say(recovery.get("retained") or "The run is saved for inspection.")
+            return False
         label = view.get("pause_category_label")
         why = need.get("reason") or view.get("stop_reason") or ""
         heading = f"AutoCode needs you for this one ({label})." if label else "AutoCode stopped here."

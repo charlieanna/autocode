@@ -95,7 +95,7 @@
         "done": {"type": "boolean", "description": "True when the task completed: status TASK_COMPLETE or COMPLETE, and not a replay with recorded checks."},
         "needs": {
           "type": ["object", "null"],
-          "description": "What must happen next for the run to progress; null when it is complete. `kind` is an open vocabulary (approve_plan, answer, review, resume, continue, ...); `continue` means no person input is needed, including when the core names a deterministic recovery action in `next_command`.",
+          "description": "What must happen next for the run to progress; null when it is complete or a saved failed/stopped outcome or internal failure offers no person action. `kind` is an open vocabulary (approve_plan, answer, review, resume, continue, ...); `continue` means no person input is needed, including when the core names a deterministic recovery action in `next_command`.",
           "required": ["kind"],
           "properties": {
             "kind": {"type": "string"},
@@ -358,10 +358,10 @@
         "progress": {"type": "object", "description": "How far the run has got, from saved records; `line` is for a person, the fields beside it for programs."},
         "summary": {
           "type": "object",
-          "description": "The run in one sentence (#2049). `state` is `done` only when completion is verified against the current checkout; a finished run without that, or a running checkpoint nothing supervises, is `stopped`. `next_command` is the view's own `next_command` (null when done).",
+          "description": "The run in one sentence (#2049). `state` is `done` only when completion is verified against the current checkout; a finished run without that, or a running checkpoint nothing supervises, is `stopped`. `blocked` retains unconfirmed internal cleanup or ownership and is not a terminal outcome. `next_command` is the view's own `next_command` (null when done or no person action can settle the internal failure).",
           "required": ["state", "label", "sentence", "next_command"],
           "properties": {
-            "state": {"enum": ["needs_you", "working", "done", "stopped"]},
+            "state": {"enum": ["needs_you", "working", "done", "stopped", "blocked"]},
             "label": {"type": "string"},
             "sentence": {"type": "string"},
             "next_command": {"type": ["string", "null"]}

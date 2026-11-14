@@ -182,6 +182,9 @@ def tester_disagreement(public) -> str:
 def notice(public):
     """Explain the next human step without exposing the diagnostic dashboard."""
     status = public.get("status") or ""
+    recovery = public.get("recovery") or {}
+    if recovery.get("category") == "blocked":
+        return recovery.get("what_happened")
     if status == "PAUSED_TRANSPORT_CHANGED":
         return "Your model connection settings changed. Check Connections before continuing."
     if status == "PAUSED_PROVIDER_UNCERTAIN":

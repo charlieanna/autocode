@@ -66,7 +66,7 @@ export interface DetailSection {
 }
 
 export interface RunHeader {
-  /** The view's `summary.state`: needs_you, working, done or stopped. */
+  /** The view's `summary.state`: needs_you, working, done, stopped or blocked. */
   state: string;
   label: string;
   sentence: string;

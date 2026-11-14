@@ -93,6 +93,7 @@ try:
     from . import autocode_trace_coverage as trace_coverage
     from . import autocode_transport_recovery as transport_recovery
     from . import autocode_validation_exhaustion_recovery as validation_recovery
+    from . import autocode_verification_failure as verification_failure
     from . import autocode_verification_view as verification_view
     from . import autocode_workflows as workflows
     from . import autocode_worktree_choice as worktree_choice
@@ -160,6 +161,7 @@ except ImportError:
     import autocode_transport_recovery as transport_recovery
     import autocode_usage
     import autocode_validation_exhaustion_recovery as validation_recovery
+    import autocode_verification_failure as verification_failure
     import autocode_verification_view as verification_view
     import autocode_workflows as workflows
     import autocode_worktree_choice as worktree_choice
@@ -233,7 +235,11 @@ def view(
         from . import autocode_checkpoint_reconciliation as reconciliation
     except ImportError:
         import autocode_checkpoint_reconciliation as reconciliation
-    reconcile = reconciliation.offer(state, liveness, controller=controller, stop_pending=stop_pending)
+    reconcile = (
+        None
+        if verification_failure.presentation(state)
+        else reconciliation.offer(state, liveness, controller=controller, stop_pending=stop_pending)
+    )
     if reconcile is not None:
         next_action = {
             "needs": reconcile,
@@ -322,6 +328,7 @@ def view(
             needs=need,
             held_cause=pause_authority.answered_cause(state),
             ready=(controller or {}).get("kind") == "ready",
+            internal_failure=verification_failure.presentation(state),
         ),
         "current_task": {key: task.get(key) for key in ("id", "objective", "milestone_id")} if task else None,
         # The kind of job named for the request (autocode_workflows.WORKFLOWS);
@@ -979,6 +986,8 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
         from . import autocode_changeset_barrier as changeset_barrier
     except ImportError:
         import autocode_changeset_barrier as changeset_barrier
+    if verification_failure.presentation(state):
+        return {"needs": None, "pause_category": "autocode", "pause_category_label": "AutoCode", "next_command": None}
     if changeset_barrier.held_approval(state):
         held_need = {
             "kind": "approve_plan",
@@ -1080,7 +1089,7 @@ def _person_facing(need: dict) -> dict:
 
 
 def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
-    """What must happen next for the run to progress, or None when it is complete.
+    """What must happen next, or None when complete or an internal failure offers no person action.
 
     kind          what it asks for                  answered with
     review        human acceptance of criteria      --approve-review CRITERION --review-token - (reads AUTOCODE_REVIEW_TOKEN)
@@ -1145,7 +1154,7 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                                                      --abandon-stage ATTEMPT as deterministic recovery
     """
     status = state.get("status", "")
-    if status in COMPLETE:
+    if status in COMPLETE or verification_failure.presentation(state):
         return None
     if retired := workflows.retired_stage(state):
         # Saved at a stage this runtime no longer runs (owner decision 2026-11-10): nothing resumes it.

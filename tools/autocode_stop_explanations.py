@@ -569,7 +569,9 @@ READY = (
 )
 
 
-def explain(status: str, *, stop_reason: str = "", needs=None, held_cause: str = "", ready: bool = False) -> dict:
+def explain(
+    status: str, *, stop_reason: str = "", needs=None, held_cause: str = "", ready: bool = False, internal_failure=None
+) -> dict:
     """Three short paragraphs for a person who did not watch the run (#715).
 
     No model call. ``needs`` is the status view's ``needs`` block so the same
@@ -579,6 +581,20 @@ def explain(status: str, *, stop_reason: str = "", needs=None, held_cause: str =
     kind: a RUNNING checkpoint no controller runs, which the table's "in progress" words would have
     the person wait for (#2393).
     """
+    if internal_failure:
+        happened = internal_failure["what_happened"]
+        means = (
+            "AutoCode is blocked while source binding, cleanup or ownership remains unconfirmed; work is retained and completion is not claimed."
+            if internal_failure["category"] == "blocked"
+            else "AutoCode could not finish this task. Work, approvals and evidence are retained; completion is not claimed."
+        )
+        does = "No recovery action is requested from you, and no stage is retried automatically."
+        return {
+            "what_happened": happened,
+            "what_it_means": means,
+            "what_the_command_does": does,
+            "explanation": " ".join((happened, means, does)),
+        }
     stop_reason = stop_reason.strip().rstrip(".")
     held_cause = held_cause.strip().rstrip(".")
     if (

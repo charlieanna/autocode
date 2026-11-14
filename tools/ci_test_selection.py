@@ -91,6 +91,10 @@ SCENARIO_SELECTION_INPUTS = {
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     *(
+        (path, ("tests.test_storage_errors", "tests.test_verification_preparation_failure"))
+        for path in ("scenarios/harness/driver.py", "docs/schemas/status-view.schema.json")
+    ),
+    *(
         (
             path,
             (
@@ -532,6 +536,28 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # that previously broke master would remain. These are fake-provider consumers,
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        (
+            "tools/autocode_storage_errors.py",
+            "tools/autocode_verification_copy.py",
+            "tools/autocode_verification_failure.py",
+            "tools/autocode_verification_failure_recovery.py",
+            "tools/autocode_provider_launch.py",
+            "tools/autocode_recovery_dispatch.py",
+            "tools/autocode_action_recovery.py",
+            "tools/autocode_run_view.py",
+            "tools/autocode_recovery_view.py",
+            "tools/autocode_recovery_history.py",
+            "tools/autocode_status_command.py",
+            "tools/autocode_status_summary.py",
+            "tools/autocode_stop_explanations.py",
+            "tools/autocode_progress_view.py",
+            "tools/autocode_chat_view.py",
+            "tools/autocode_chat_client.py",
+            "tools/autocode_build_loop.py",
+        ),
+        ("tests.test_storage_errors", "tests.test_verification_preparation_failure"),
+    ),
     (
         ("tools/autocode_plan_file.py", "tools/autocode_run_view.py"),
         ("tests.test_plan_review_cli",),
