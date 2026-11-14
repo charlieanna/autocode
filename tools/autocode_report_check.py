@@ -178,7 +178,7 @@ def _check_planning(stage: str, data: dict[str, Any], spec: dict[str, Any], erro
         errors.append("Report-check retained contract context must be an object")
         return
     # This is public plan context in the supplied spec, never a private-state read.
-    context = {"goal_contract": {**saved, "origin": "report_check"}}
+    context: RunState = {"goal_contract": {**saved, "origin": "report_check"}}
     trace = spec.get("retained_requirement_trace")
     if isinstance(trace, list):
         context["planning"] = {
