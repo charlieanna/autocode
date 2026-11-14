@@ -9,10 +9,18 @@ inventory before using it and extracts originals only into temporary storage
 outside the project for independent replay.
 Existing repository-internal file symlinks retain their relative link text and
 entire file-link chain, including the terminal file even when its name is not
-a test. Every target must be present in the source snapshot. Directory symlinks,
-absolute or external targets, cycles, dangling links and ignored targets are
-refused. Replay preserves the original link topology and never writes through
-a candidate's replacement link.
+a test. A link that stands for code (a test file, or a module the tests import,
+by its suffix) must lead to a file present in the source snapshot: for such a
+link a directory, a dangling or an ignored target is refused, since the test's
+assertions would not be retained. Any other link among the tests is data they
+read, such as `tests/data/current -> v2` or a link that a test of link handling
+needs dangling. Where it leads to a directory, or to a path the snapshot does
+not hold, it is retained as its link text alone, and the files of a linked
+directory are eligible under their own names. Absolute or external targets and
+cycles are refused for every link. Replay preserves the original link topology
+and never writes through a candidate's replacement link: a retargeted link, or
+a directory put in its place, gives way to the original link when the original
+tests run.
 Stage handoffs include the binding identity, relevant assigned tests and the
 full inventory's location, rather than repeating every test's contents.
 A run started with `--package PATH` retains only the eligible tests inside that

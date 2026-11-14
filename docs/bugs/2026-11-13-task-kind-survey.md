@@ -1254,6 +1254,46 @@ must keep working with, and the README). `TASK_COMPLETE`, 10 stages (one plan re
 criteria, one plan approval and no question (bundle manifest
 `488c7dade3e3c4674f36f495c9a5ec0e917921c9d95a6ed88b207b0d698fe6fc`).
 
+## 42. Links among the tests: no task can start (fixed for a linked directory and a dangling link)
+
+Section 37 could say nothing about links, because the scenario harness copies a seed's links as files. With
+the links kept: a Python project whose tests read real trees under `tests/data/`, where `tree/latest.txt`
+points to a file, `tree/gone` points nowhere and `current` points to the `tree` directory. The request: "scan()
+counts a link that points to a directory as a directory. It should be counted under links, like any other
+link, and still not be followed. Fix it and add a test."
+
+| Runner | Result | Bundle manifest |
+| --- | --- | --- |
+| master | refused before any model call: `autocode: Protected test link target is not in the source snapshot: tests/data/tree` (exit 2) | no run was made |
+| With this fix | `TASK_COMPLETE`, 8 stages, 158 s, $1.03, one plan approval and no question | `92105927cbe9b1d8a7ae6c1ac24fd302bd0917bb750a7bb7cfaad4bf3d5c7ba5` |
+
+The original-test binding follows each link among the tests to a file of the repository, so that a test
+which is a link is retained with the file that holds its assertions, and it refused every link that leads to
+anything else. That is right for a test file. A fixture is different: `tests/data/current -> tree` leads to a
+directory whose files are tests' data under their own names, and a dangling link is the whole fixture. The
+refusal ended the start of any task in such a project, whatever the task, with nothing the person could do
+but remove the link.
+
+A link among the tests that is not code (by its suffix) and leads to a directory, or to a path the
+repository does not hold, is now retained as its link text (`autocode_protected_paths.follow`). The original
+tests still run with the original link, so a link retargeted to weaker expected output, or a directory put
+in its place, gives way to the original when they run. A test file or a module that is a link must still
+lead to a file of the repository, and a link with an absolute or outside target, or a cycle, is still
+refused.
+
+In the rerun the binding holds the three links as their text, the proof passed at its first attempt, and
+the Tester's original-test check ran the two original tests through the restored links (both pass). The
+Builder made its new fixture in a temporary directory, so the change itself added no link.
+
+**Still open**, found without a model:
+
+- A link among the tests with an absolute or outside target, or a cycle of links, still refuses every task
+  at its start. The regression proof refuses the same links for the suite's own definition ("suite
+  definition link ... does not bind an in-tree input"), so the two must change together.
+- A change that itself adds or retargets such a link (a new fixture `tests/data/linked/alias -> real`) ends
+  its proof `UNVERIFIED`: "Product/test ownership is ambiguous; no proof commands were started for:
+  tests/data/linked/alias".
+
 ## Also seen, not yet run on real models
 
 - **Claude Code refuses to edit some directories inside the stage's own directory.** With Edit and
