@@ -8,6 +8,14 @@ the guards rest on tests the project already has: the proof runs the suite on th
 the candidate, and each guard's named test must pass on both. A `test:` criterion still needs
 a change, unless the person granted the test-only regression-proof exception.
 
+Before building, a new acceptance test can already pass on an unfinished candidate
+retained from an earlier attempt. The runner checks those exact observed tests on
+the original product code with today's test files and fixtures. A fresh original
+failure keeps the approved `test:` criterion; a fresh original pass proposes a
+`guard:` correction for plan review. Missing, skipped, incomplete or import-only
+results leave verification unresolved. This classification needs no report-only
+model repair, and never replaces the final regression or changed-code proof.
+
 A guard that names its test exactly (`guard: test_c4_adds`) may name a test the project
 already has in a file the change leaves alone, as a final check does for the
 criteria earlier milestones proved. The targeted run covers only the changed test files,
