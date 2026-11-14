@@ -14,7 +14,7 @@ import tempfile
 import uuid
 import zipfile
 from contextlib import contextmanager, suppress
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 try:
     from . import autocode_protected_paths as paths
@@ -31,7 +31,7 @@ def archive_path(record):
 
 
 def _links(files):
-    """Check the same complete file-link closure as the directory representation."""
+    """Check the same link closure as the directory representation (autocode_protected_paths.collect)."""
     directories = {""}
     for name in files:
         relative = paths.relative_name(name)
@@ -40,27 +40,11 @@ def _links(files):
         raise ValueError("Protected test bundle has a file where a directory is required")
     for start in files:
         name, seen = start, set()
-        while "symlink" in files[name]:
+        while name is not None and "symlink" in files[name]:
             if name in seen:
                 raise ValueError("Protected test link cycle")
             seen.add(name)
-            target = files[name]["symlink"]
-            if not target or PurePosixPath(target).is_absolute():
-                raise ValueError("Protected test link must stay repository-relative")
-            parts = list(PurePosixPath(name).parent.parts)
-            tokens = target.split("/")
-            for index, part in enumerate(tokens):
-                if part == "..":
-                    if not parts:
-                        raise ValueError("Protected test link escapes the repository")
-                    parts.pop()
-                elif part not in ("", "."):
-                    parts.append(part)
-                if index < len(tokens) - 1 and "/".join(parts) not in directories:
-                    raise ValueError("Protected test link traverses a non-directory or directory symlink")
-            name = str(paths.relative_name("/".join(parts)))
-            if name not in files:
-                raise ValueError("Protected test link target is not in the source snapshot")
+            name = paths.follow(name, files[name]["symlink"], lambda parts: "/".join(parts) in directories, files)
 
 
 def read(record, archive):

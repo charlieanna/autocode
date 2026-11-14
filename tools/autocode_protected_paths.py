@@ -1,7 +1,11 @@
 """Portable protected-file identities, including original internal file links.
 
-A link captures its whole file-link chain and terminal file. Directory links,
-external targets and targets omitted from the source snapshot remain refused.
+A link captures its whole file-link chain and terminal file. A link that stands
+for code (a test file, a module tests import) must lead to a file of the source
+snapshot: a directory or a target the snapshot omits remains refused. Any other
+link among the tests is data they read (a fixture directory, a link that a test
+of link handling needs dangling); where it leads to no snapshot file it is
+captured as its text alone. External targets and cycles remain refused.
 """
 
 import os
@@ -9,8 +13,10 @@ import shutil
 from pathlib import Path, PurePosixPath
 
 try:
+    from . import autocode_project_kinds as project_kinds
     from . import autocode_util as util
 except ImportError:
+    import autocode_project_kinds as project_kinds
     import autocode_util as util
 
 
@@ -54,8 +60,13 @@ def identity(path):
     return {"sha256": util.file_hash(path), "size": path.stat().st_size, "mode": path.stat().st_mode & 0o777}
 
 
-def destination(root, name, target):
-    """Resolve lexical parents without following an intermediate directory link."""
+def resolve(name, target, is_directory=None):
+    """The repository path a link's text names, by its names alone.
+
+    ``is_directory`` is asked about each directory the text passes through, given
+    its path parts; without it only the text is checked: relative, and inside
+    the repository.
+    """
     if not target or PurePosixPath(target).is_absolute():
         raise ValueError(f"Protected test link must stay repository-relative: {name}")
     parts = list(PurePosixPath(name).parent.parts)
@@ -67,30 +78,66 @@ def destination(root, name, target):
             parts.pop()
         elif part not in ("", "."):
             parts.append(part)
-        if index < len(tokens) - 1:
-            parent = Path(root).joinpath(*parts)
-            if parent.is_symlink() or not parent.is_dir():
-                raise ValueError(f"Protected test link traverses a non-directory or directory symlink: {name}")
+        if index < len(tokens) - 1 and is_directory is not None and not is_directory(parts):
+            raise ValueError(f"Protected test link traverses a non-directory or directory symlink: {name}")
     return str(relative_name("/".join(parts)))
 
 
+def _directories(root):
+    """Lexical parents are checked without following an intermediate directory link."""
+
+    def is_directory(parts):
+        parent = Path(root).joinpath(*parts)
+        return parent.is_dir() and not parent.is_symlink()
+
+    return is_directory
+
+
+def holds_code(name) -> bool:
+    """Whether a link by this name stands for code: a test file, or a module tests import."""
+    return PurePosixPath(name).suffix in project_kinds.CODE_SUFFIXES
+
+
+def follow(name, target, is_directory, known):
+    """The captured file or link that the link ``name`` leads to, or None when it is data that leads to none.
+
+    Code must lead to one: a test that is a link to anything else is refused, since its
+    assertions would not be captured. A data link that leads to a directory, or to a path
+    the snapshot does not hold, is all the repository holds of it, so its text is what is
+    captured; the files of a linked directory are eligible under their own names. It must
+    still name a path inside the repository.
+    """
+    try:
+        found = resolve(name, target, is_directory)
+        if found not in known:
+            raise ValueError(f"Protected test link target is not in the source snapshot: {found}")
+        return found
+    except ValueError:
+        if holds_code(name):
+            raise
+        resolve(name, target)
+        return None
+
+
 def collect(root, names, available):
-    """Capture eligible files and their complete, snapshot-bound link closure."""
+    """Capture eligible files and their snapshot-bound link closure (see ``follow``)."""
+    known = {name for name, value in available.items() if value != "deleted"}
+    is_directory = _directories(root)
     files = {}
     for start in names:
         name, visited = start, set()
-        while name not in files:
+        while name is not None and name not in files:
             if name in visited:
                 raise ValueError(f"Protected test link cycle: {start}")
             visited.add(name)
-            if name not in available or available[name] == "deleted":
+            if name not in known:
                 raise ValueError(f"Protected test link target is not in the source snapshot: {name}")
             path = path_in(root, name, allow_link=True)
             value = identity(path)
             # Insert after the chain is checked, so a cycle cannot look complete.
             if "symlink" not in value:
                 break
-            name = destination(root, name, value["symlink"])
+            name = follow(name, value["symlink"], is_directory, known)
         for name in visited:
             files[name] = identity(path_in(root, name, allow_link=True))
     return dict(sorted(files.items()))
