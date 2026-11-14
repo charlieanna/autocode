@@ -2690,6 +2690,193 @@ class SampleCadenceTests(unittest.TestCase):
                 with contextlib.suppress(OSError):
                     os.close(fd)
 
+    def test_live_poll_defers_transient_session_scan_churn_and_keeps_base_tick(self):
+        import autocode_supervision_keeper as keeper
+
+        control_r, control_w = os.pipe()
+        ack_r, ack_w = os.pipe()
+        external_r, external_w = os.pipe()
+        provider = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            start_new_session=True,
+        )
+        self.addCleanup(provider.wait, timeout=10)
+        self.addCleanup(provider.kill)
+
+        receipt_path = self.root / "churn-defer-receipt.json"
+        metadata = {
+            "schema": 1,
+            "nonce": "a" * 32,
+            "owner": supervision._identity(os.getpid()),
+            "keeper": supervision._identity(os.getpid()),
+            "provider": supervision._identity(provider.pid),
+            "receipt": str(receipt_path),
+            "started_at": "initial",
+        }
+        result = []
+        poll_count = [0]
+        churn_injected = threading.Event()
+        recovered = threading.Event()
+        parked_above_base = threading.Event()
+        ticks = []
+        fallback_calls = []
+        real_settled = keeper.processes.settled_sample
+        real_next = keeper.next_sample_tick
+        real_tree_sample = keeper.KeeperTree.sample
+
+        def tracking_settled(tree, **kwargs):
+            poll_count[0] += 1
+            if parked_above_base.is_set() and not churn_injected.is_set():
+                churn_injected.set()
+                raise keeper.processes.SessionScanIncomplete("transient foreign pid churn")
+            rows = real_settled(tree, **kwargs)
+            if churn_injected.is_set():
+                recovered.set()
+            return rows
+
+        def tracking_tree_sample(self_tree, **kwargs):
+            if kwargs.get("retire_empty") is False:
+                fallback_calls.append(kwargs)
+            return real_tree_sample(self_tree, **kwargs)
+
+        def tracking_tick(current, *, activity, **kwargs):
+            nxt = real_next(current, activity=activity, **kwargs)
+            ticks.append((activity, nxt, churn_injected.is_set(), recovered.is_set()))
+            if not activity and nxt > keeper.BASE_SAMPLE_TICK:
+                parked_above_base.set()
+            return nxt
+
+        def run():
+            result.append(keeper.main(control_r, ack_w, external=external_r))
+
+        thread = threading.Thread(target=run, daemon=True)
+        try:
+            packet = {
+                "metadata": metadata,
+                "deadline": None,
+                "timing": keeper_timing(None),
+                "cleanup_policy": "interrupt_root",
+            }
+            with (
+                patch.object(keeper.processes, "settled_sample", tracking_settled),
+                patch.object(keeper.KeeperTree, "sample", tracking_tree_sample),
+                patch.object(keeper, "next_sample_tick", tracking_tick),
+            ):
+                os.write(control_w, (json.dumps(packet) + "\n").encode())
+                thread.start()
+                ready_line = supervision._read_line(ack_r, time.monotonic() + 10)
+                self.assertEqual({"armed": metadata["nonce"]}, ready_line)
+                self.assertTrue(parked_above_base.wait(timeout=10))
+                self.assertTrue(recovered.wait(timeout=10))
+                os.write(control_w, (json.dumps({"finished": metadata["nonce"]}) + "\n").encode())
+                thread.join(timeout=15)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual([0], result)
+                self.assertEqual([{"notify": False, "retire_empty": False}], fallback_calls)
+                churn_ticks = [(act, nxt) for act, nxt, injected, rec in ticks if injected and not rec]
+                self.assertTrue(churn_ticks)
+                self.assertEqual((True, keeper.BASE_SAMPLE_TICK), churn_ticks[0])
+                receipt = json.loads(receipt_path.read_text())
+                self.assertEqual("discharged", receipt["phase"])
+                self.assertIsNone(receipt["cleanup_error"])
+        finally:
+            for fd in (control_r, control_w, ack_r, ack_w, external_r, external_w):
+                with contextlib.suppress(OSError):
+                    os.close(fd)
+
+    def test_discharge_and_triggered_polls_fail_closed_on_session_scan_churn(self):
+        import autocode_supervision_keeper as keeper
+
+        for mode in ("discharge", "triggered_live"):
+            with self.subTest(mode=mode):
+                control_r, control_w = os.pipe()
+                ack_r, ack_w = os.pipe()
+                external_r, external_w = os.pipe()
+                provider = subprocess.Popen(
+                    [sys.executable, "-c", "import time; time.sleep(60)"],
+                    start_new_session=True,
+                )
+                self.addCleanup(provider.wait, timeout=10)
+                self.addCleanup(provider.kill)
+
+                receipt_path = self.root / f"fail-closed-{mode}.json"
+                metadata = {
+                    "schema": 1,
+                    "nonce": ("b" if mode == "discharge" else "c") * 32,
+                    "owner": supervision._identity(os.getpid()),
+                    "keeper": supervision._identity(os.getpid()),
+                    "provider": supervision._identity(provider.pid),
+                    "receipt": str(receipt_path),
+                    "started_at": "initial",
+                }
+                result = []
+                first_done = threading.Event()
+                finish_written = threading.Event()
+                trigger_observed = threading.Event()
+                real_settled = keeper.processes.settled_sample
+                real_event_set = threading.Event.set
+                watcher_sets = [0]
+
+                def tracking_set(event):
+                    real_event_set(event)
+                    if (
+                        mode == "triggered_live"
+                        and finish_written.is_set()
+                        and threading.current_thread() not in (thread, threading.main_thread())
+                    ):
+                        watcher_sets[0] += 1
+                        if watcher_sets[0] >= 2:
+                            trigger_observed.set()
+
+                def fake_settled(tree, **kwargs):
+                    if mode == "discharge" and finish_written.is_set():
+                        raise keeper.processes.SessionScanIncomplete("discharge scan unstable")
+                    if mode == "triggered_live" and first_done.is_set() and not finish_written.is_set():
+                        finish_written.set()
+                        os.write(control_w, (json.dumps({"finished": metadata["nonce"]}) + "\n").encode())
+                        self.assertTrue(trigger_observed.wait(timeout=5.0))
+                        raise keeper.processes.SessionScanIncomplete("triggered live scan unstable")
+                    rows = real_settled(tree, **kwargs)
+                    first_done.set()
+                    return rows
+
+                def run():
+                    result.append(keeper.main(control_r, ack_w, external=external_r))
+
+                thread = threading.Thread(target=run, daemon=True)
+                try:
+                    packet = {
+                        "metadata": metadata,
+                        "deadline": None,
+                        "timing": keeper_timing(None),
+                        "cleanup_policy": "interrupt_root",
+                    }
+                    with (
+                        patch.object(keeper.processes, "settled_sample", fake_settled),
+                        patch.object(threading.Event, "set", tracking_set),
+                    ):
+                        os.write(control_w, (json.dumps(packet) + "\n").encode())
+                        thread.start()
+                        ready_line = supervision._read_line(ack_r, time.monotonic() + 10)
+                        self.assertEqual({"armed": metadata["nonce"]}, ready_line)
+                        self.assertTrue(first_done.wait(timeout=10))
+                        if mode == "discharge":
+                            finish_written.set()
+                            os.write(control_w, (json.dumps({"finished": metadata["nonce"]}) + "\n").encode())
+                        thread.join(timeout=15)
+                        self.assertFalse(thread.is_alive())
+                        self.assertEqual([4], result)
+                        receipt = json.loads(receipt_path.read_text())
+                        self.assertEqual("uncertain", receipt["phase"])
+                        self.assertTrue(
+                            str(receipt["cleanup_error"]).startswith("SessionScanIncomplete:"),
+                            receipt["cleanup_error"],
+                        )
+                finally:
+                    for fd in (control_r, control_w, ack_r, ack_w, external_r, external_w):
+                        with contextlib.suppress(OSError):
+                            os.close(fd)
+
 
 if __name__ == "__main__":
     unittest.main()

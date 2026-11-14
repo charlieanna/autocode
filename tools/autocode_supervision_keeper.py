@@ -203,6 +203,31 @@ def next_sample_tick(current, *, activity, base_tick=BASE_SAMPLE_TICK, cap_tick=
     return min(cap_tick, max(base_tick, current * 2.0))
 
 
+LIVE_SCAN_INCOMPLETE_SECONDS = 15.0  # bounded live-poll deferral for empty-SID retirement under foreign churn
+
+
+def live_poll_sample(tree, incomplete_since, *, is_triggered=lambda: False, limit=LIVE_SCAN_INCOMPLETE_SECONDS):
+    """Sample a running tree, deferring empty-SID retirement across transient churn.
+
+    While the lifeline is still live, transient foreign PID churn must not kill
+    an active run just because a finished nested session could not be retired
+    yet. Ownership of the empty SID stays retained in ``tree.sessions``, live
+    descendants and session members are still recorded via ``retire_empty=False``,
+    and discharge or shutdown still requires an exact ``settled_sample`` proof.
+    Sustained failure beyond ``limit`` fails closed before PID wrap matters.
+    """
+    try:
+        return processes.settled_sample(tree, notify=False), None
+    except processes.SessionScanIncomplete:
+        if is_triggered():
+            raise
+        now = time.monotonic()
+        since = now if incomplete_since is None else incomplete_since
+        if now - since >= limit:
+            raise
+        return tree.sample(notify=False, retire_empty=False), since
+
+
 def _reply_session(listener, cookie, trigger_lock, triggered, done):
     # Native cookie validation is outside the short trigger gate. Disk writes
     # and enclosing handoffs never hold this lock; only the final decision and
@@ -484,13 +509,18 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
     previous_inventory = tree.inventory()
     pending_sessions = {}
     samples = {"last": None, "final": None}
+    incomplete_since = None
     loop_exit = None
 
-    def timed_sample(slot):
+    def timed_sample(slot, *, live_poll=False):
         # Passive marks for the terminal receipt (#1143); the sample itself is unchanged.
+        nonlocal incomplete_since
         tree.enumeration_seconds = 0.0
         started = time.monotonic()
         try:
+            if live_poll:
+                rows, incomplete_since = live_poll_sample(tree, incomplete_since, is_triggered=triggered.is_set)
+                return rows
             return processes.settled_sample(tree, notify=False)
         finally:
             samples[slot] = (started, time.monotonic(), tree.enumeration_seconds)
@@ -580,7 +610,8 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
                     )
                     os.write(acknowledgement, (json.dumps(answer) + "\n").encode())
             activity = service_sessions() or activity
-            rows = timed_sample("last")
+            rows = timed_sample("last", live_poll=True)
+            activity = activity or incomplete_since is not None
             inventory = tree.inventory()
             if previous_inventory != inventory:
                 save()
