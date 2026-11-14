@@ -164,7 +164,7 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
         if worktree is not None and isinstance(moved_after, int) and index >= moved_after:
             rows.append({"id": WORKTREE_NOTICE, "role": "assistant", "text": worktree})
             worktree = None
-        if event.get("kind") == "goal_approval" and event.get("token"):
+        if event.get("kind") == "goal_approval" and event.get("token") and event.get("actor") != "workflow_policy":
             plan = _approved_plan(state, event)
             if plan:
                 rows.append({"id": f"plan-{event['token']}", "role": "assistant", "text": plan})

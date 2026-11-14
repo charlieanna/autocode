@@ -103,11 +103,25 @@ def retired_stage(state: RunState) -> str | None:
 # to: it carries one of these origins and was approved by actor "workflow_policy", recorded with the
 # policy text. No new run creates one. goals.approved and the resolver both ask here.
 POLICY_ORIGINS = ("bugfix_small_correction",)
+FINAL_REVIEW_ORIGINS = ("finalize_plan", "plan_finalize", "adaptive_review_approval")
+RETAINED_APPROVAL_SOURCE = "retained_plan_approval"
 
 
 def approval_actor_ok(origin, approval) -> bool:
-    actor = (approval or {}).get("actor")
-    return actor == "user_cli" or (actor == "workflow_policy" and origin in POLICY_ORIGINS)
+    info = approval or {}
+    actor = info.get("actor")
+    if actor == "user_cli":
+        return True
+    if actor != "workflow_policy":
+        return False
+    if origin in POLICY_ORIGINS:
+        return True
+    return (
+        origin in FINAL_REVIEW_ORIGINS
+        and info.get("source") == RETAINED_APPROVAL_SOURCE
+        and isinstance(info.get("retained_from_token"), str)
+        and bool(info["retained_from_token"])
+    )
 
 
 def follow_up(state: RunState) -> dict | None:

@@ -3094,6 +3094,292 @@ class GoalTests(unittest.TestCase):
         self.state["validation"]["task_id"] = "previous-task"
         self.assertFalse(completion_gate.completion_ready(self.state, self.decision("COMPLETE"), current))
 
+    def _sealed_joint_plan(
+        self,
+        ordinal: int,
+        *,
+        brief: str | None = None,
+        trace_payload: dict | None = None,
+        preserve_source_log: bool = False,
+        **overrides,
+    ):
+        import autocode_brief_obligations as brief_obligations
+        import autocode_source_log as source_log
+
+        default_brief = "`greet.py NAME` prints greetings as `Hello, NAME!` one per line and exits 0."
+        brief = brief or default_brief
+        if not preserve_source_log:
+            self.state["task"] = brief
+            self.state.pop("source_log", None)
+            source_log.seed(self.state)
+        self.state["settings"]["joint_planning"] = True
+        self.state["settings"]["roles"].update(
+            {
+                "planner": {"model": "planner", "reasoning_effort": "high"},
+                "plan_reviewer": {"model": "plan_reviewer", "reasoning_effort": "high"},
+            }
+        )
+        self.state.setdefault("planning", {"plan_review_calls": 1, "reports": {}})
+        declarations = brief_obligations.inventory(self.state)
+        self.assertEqual(1, len(declarations))
+        proposals = [
+            {
+                "declaration_id": declarations[0]["id"],
+                "criterion_ids": ["C1"],
+                "steps": [{"argv": ["python3", "greet.py", "Ada"]}],
+                "observe_step": 0,
+                "bindings": [{"placeholder": "NAME", "step": 0, "argument": 2}],
+            }
+        ]
+        trace_payload = trace_payload or {"out_of_scope": [], "negation_waivers": []}
+        events_path = self.run / f"plan-finalize-{ordinal:02d}.jsonl"
+        output_path = self.run / f"plan-finalize-{ordinal:02d}.json"
+        events_path.write_text('{"type":"turn.completed"}\n')
+        first_sentence = default_brief
+        plan_body = {
+            **body(),
+            "initial_task": {
+                "objective": "Implement greeting format",
+                "affected_paths": ["greet.py", "test_greeting.py"],
+                "kind": "implement",
+                "milestone_id": "M1",
+                "requirements": ["Print `Hello, NAME!` one per line and exit 0"],
+                "acceptance_criteria": ["C1"],
+                "validation_plan": ["python3 -m unittest test_greeting"],
+            },
+            "acceptance_criteria": [
+                {
+                    "id": "C1",
+                    "criterion": "`greet.py NAME` prints `Hello, NAME!` one per line and exits 0.",
+                    "verification_method": "test: test_greeting.py::GreetingTests.test_ada",
+                    "human_review": False,
+                    "sources": [{"source_id": "task:0", "quote": first_sentence}],
+                }
+            ],
+            **overrides,
+        }
+        report = {
+            "contract": plan_body,
+            "brief_observations": proposals,
+            "source_trace": trace_payload,
+            "decisions": [],
+            "summary": f"Finalized {ordinal}",
+        }
+        output_path.write_text(json.dumps(report))
+        record = {
+            "stage": "finalize_plan",
+            "events": str(events_path),
+            "output": str(output_path),
+            "source_revision": s.snapshot(self.root)["revision"],
+        }
+        self.state["stages"].append(record)
+        self.state["planning"]["reports"]["finalize_plan"] = {
+            "report": copy.deepcopy(report),
+            "output": str(output_path),
+        }
+        reviewed = brief_obligations.reviewed_body(self.state, plan_body, proposals, record, trace=trace_payload)
+        return reviewed, record
+
+    def test_reviewed_plan_matching_approved_revision_except_review_provenance_retains_approval(self):
+        import autocode_approval_provenance as approval_provenance
+        import autocode_chat_history as chat_history
+        import autocode_replay_view as replay_view
+        import autocode_run_view as run_view
+
+        first_body, first_record = self._sealed_joint_plan(1)
+        lifecycle.install_draft(self.state, first_body, origin="finalize_plan", record=first_record)
+        self.state["planning"]["final_token"] = g.token(self.state["goal_contract"])
+        lifecycle.human.evaluate(self.state)
+        self.assertEqual("AWAITING_GOAL_APPROVAL", self.state["status"])
+        lifecycle.present(self.state, self.run)
+        first_token = g.token(self.state["goal_contract"])
+        lifecycle.approve(self.state, first_token)
+        self.assertEqual("RUNNING", self.state["status"])
+
+        # Simulate a runner-internal planning pass that re-enters finalize_plan with fresh reviewer
+        # execution files, while keeping identical criteria, selectors, scope, and source_trace judgments.
+        interim = copy.deepcopy(first_body)
+        lifecycle.install_draft(self.state, interim, origin="revise_plan")
+        self.assertEqual("finalize_plan", self.state["next_stage"])
+
+        second_body, second_record = self._sealed_joint_plan(2)
+        self.assertNotEqual(first_body["source_trace"]["review"], second_body["source_trace"]["review"])
+        self.assertNotEqual(first_body["brief_acceptance"]["review"], second_body["brief_acceptance"]["review"])
+        lifecycle.install_draft(self.state, second_body, origin="finalize_plan", record=second_record)
+        self.state["planning"]["final_token"] = g.token(self.state["goal_contract"])
+        lifecycle.human.evaluate(self.state)
+
+        self.assertEqual("RUNNING", self.state["status"])
+        self.assertEqual("READY_TO_EXECUTE", self.state["phase"])
+        self.assertTrue(g.approved(self.state))
+        approval = self.state["goal_contract"]["approval_event"]
+        self.assertEqual("workflow_policy", approval["actor"])
+        self.assertEqual("retained_plan_approval", approval["source"])
+        self.assertEqual(first_token, approval["retained_from_token"])
+
+        status_schema = json.loads(
+            (Path(__file__).resolve().parents[1] / "docs/schemas/status-view.schema.json").read_text()
+        )
+        projected = run_view.view(self.state, run_dir=self.run)
+        self.assertEqual("retained_plan_approval", projected["approved_contract"]["approval_source"])
+        self.assertEqual(g.token(self.state["goal_contract"]), projected["approved_contract"]["token"])
+        self.invoke("--status", acknowledge_legacy=False)
+        s.validate_schema(json.loads(self.stdout), status_schema)
+        approvals = approval_provenance.view(self.state)
+        self.assertEqual(["user_cli", "workflow_policy"], [row["actor"] for row in approvals])
+        self.assertTrue(any("retaining the earlier approval" in line for line in approval_provenance.lines(self.state)))
+        user_approval_messages = [
+            msg
+            for msg in chat_history.messages(self.state)
+            if msg.get("role") == "user" and msg.get("text") == chat_history.APPROVED_PLAN
+        ]
+        self.assertEqual(1, len(user_approval_messages))
+
+        # Replay records only the person's original manual approval, not a synthetic second person gate.
+        bundle = replay_view.project(self.state, run_dir=self.run)
+        self.assertIsNotNone(bundle)
+        approve_actions = [row for row in bundle["actions"] if row["kind"] == "approve_plan"]
+        self.assertEqual(1, len(approve_actions))
+
+        # Tampering with the retained contract body or its source token revokes approval immediately.
+        tampered = copy.deepcopy(self.state)
+        tampered["goal_contract"]["body"]["constraints"].append("Added after approval")
+        self.assertFalse(g.approved(tampered))
+        forged_link = copy.deepcopy(self.state)
+        forged_link["goal_contract"]["approval_event"]["retained_from_token"] = "r999:deadbeef"
+        self.assertFalse(g.approved(forged_link))
+
+    def test_reviewed_plan_changing_any_term_or_following_user_input_requires_fresh_approval(self):
+        import autocode_source_log as source_log
+
+        two_sentence_brief = (
+            "`greet.py NAME` prints greetings as `Hello, NAME!` one per line and exits 0. Keep output deterministic."
+        )
+        for case in ("selector", "criterion", "exclusion", "milestone", "out_of_scope", "feedback", "source_moved"):
+            with self.subTest(case=case):
+                self.setUp()
+                first_kwargs = {}
+                if case == "out_of_scope":
+                    first_kwargs = {
+                        "brief": two_sentence_brief,
+                        "trace_payload": {
+                            "out_of_scope": [
+                                {
+                                    "source_id": "task:0",
+                                    "quote": "Keep output deterministic.",
+                                    "reason": "covered by C1",
+                                }
+                            ],
+                            "negation_waivers": [],
+                        },
+                    }
+                first_body, first_record = self._sealed_joint_plan(1, **first_kwargs)
+                lifecycle.install_draft(self.state, first_body, origin="finalize_plan", record=first_record)
+                self.state["planning"]["final_token"] = g.token(self.state["goal_contract"])
+                lifecycle.human.evaluate(self.state)
+                lifecycle.present(self.state, self.run)
+                lifecycle.approve(self.state, g.token(self.state["goal_contract"]))
+
+                if case == "selector":
+                    second_body, second_record = self._sealed_joint_plan(2)
+                    second_body["acceptance_criteria"][0]["verification_method"] = (
+                        "guard: test_greeting.py::GreetingTests.test_ada"
+                    )
+                elif case == "criterion":
+                    base = body()
+                    milestones = copy.deepcopy(base["milestones"])
+                    milestones[0]["acceptance_criteria"] = ["C1", "C2"]
+                    second_body, second_record = self._sealed_joint_plan(
+                        2,
+                        milestones=milestones,
+                        initial_task={
+                            "objective": "Implement greeting format",
+                            "affected_paths": ["greet.py", "test_greeting.py"],
+                            "kind": "implement",
+                            "milestone_id": "M1",
+                            "requirements": ["Print `Hello, NAME!` one per line and exit 0"],
+                            "acceptance_criteria": ["C1", "C2"],
+                            "validation_plan": ["python3 -m unittest test_greeting"],
+                        },
+                        acceptance_criteria=[
+                            {
+                                "id": "C1",
+                                "criterion": "`greet.py NAME` prints `Hello, NAME!` one per line and exits 0.",
+                                "verification_method": "test: test_greeting.py::GreetingTests.test_ada",
+                                "human_review": False,
+                                "sources": [{"source_id": "task:0", "quote": self.state["task"]}],
+                            },
+                            {
+                                "id": "C2",
+                                "criterion": "`greet.py NAME` exits with status 0 after greeting.",
+                                "verification_method": "test: test_greeting.py::GreetingTests.test_exit_status",
+                                "human_review": False,
+                                "sources": [{"source_id": "task:0", "quote": self.state["task"]}],
+                            },
+                        ],
+                    )
+                elif case == "exclusion":
+                    second_body, second_record = self._sealed_joint_plan(
+                        2, scope_exclusions=[*body()["scope_exclusions"], "No batch mode"]
+                    )
+                elif case == "milestone":
+                    milestones = copy.deepcopy(body()["milestones"])
+                    milestones[0]["objective"] = "Deliver updated greeting format"
+                    second_body, second_record = self._sealed_joint_plan(2, milestones=milestones)
+                elif case == "out_of_scope":
+                    second_body, second_record = self._sealed_joint_plan(
+                        2,
+                        brief=two_sentence_brief,
+                        trace_payload={
+                            "out_of_scope": [
+                                {
+                                    "source_id": "task:0",
+                                    "quote": "Keep output deterministic.",
+                                    "reason": "deferred to follow-up",
+                                }
+                            ],
+                            "negation_waivers": [],
+                        },
+                    )
+                elif case == "feedback":
+                    source_log.save_feedback(
+                        self.state,
+                        {
+                            "kind": "brief_feedback",
+                            "id": "fb-1",
+                            "actor": "user_cli",
+                            "at": s.now(),
+                            "text": "Keep empty input handling simple.",
+                        },
+                    )
+                    second_body, second_record = self._sealed_joint_plan(
+                        2,
+                        preserve_source_log=True,
+                        trace_payload={
+                            "out_of_scope": [
+                                {
+                                    "source_id": "feedback:fb-1",
+                                    "quote": "Keep empty input handling simple.",
+                                    "reason": "covered by existing behavior",
+                                }
+                            ],
+                            "negation_waivers": [],
+                        },
+                    )
+                elif case == "source_moved":
+                    second_body, second_record = self._sealed_joint_plan(2)
+                    (self.root / "greet.py").write_text("print('changed')\n")
+
+                lifecycle.install_draft(self.state, second_body, origin="finalize_plan", record=second_record)
+                self.state["planning"]["final_token"] = g.token(self.state["goal_contract"])
+                lifecycle.human.evaluate(self.state)
+                if case == "source_moved":
+                    self.assertEqual("RESOLVER_PENDING", self.state["status"])
+                else:
+                    self.assertEqual("AWAITING_GOAL_APPROVAL", self.state["status"])
+                self.assertEqual("draft", self.state["goal_contract"]["approval_status"])
+                self.assertFalse(g.approved(self.state))
+
 
 class GoalFixtureIsolationTests(unittest.TestCase):
     def test_fixture_runs_ignore_the_developers_provider_choice(self):

@@ -318,6 +318,7 @@ def _survival_errors(body, records, waivers):
         protected_locations = source_metadata.output_locations(record["text"])
         ticket_title_key = source_metadata.ticket_title_key(record["text"])
         ticket_reference_keys = source_metadata.ticket_reference_keys(record["text"])
+        autocode_refs = source_metadata.autocode_reference_tokens(record["text"])
         for sentence in cues.sentences(record["text"]):
             citing = _citing(criteria, sentence, record["id"])
             if not citing:
@@ -329,6 +330,7 @@ def _survival_errors(body, records, waivers):
                 protected_locations=protected_locations,
                 ticket_title_key=ticket_title_key,
                 ticket_reference_keys=ticket_reference_keys,
+                autocode_reference_tokens=autocode_refs,
             )
             numbers = _NUMBER.findall(_REFERENCE.sub(" ", _STANDARD.sub(" ", value_text)))
             cents = _cents(value_text)
