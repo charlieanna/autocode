@@ -376,7 +376,7 @@ class ApplyTests(unittest.TestCase):
 
 
 class StagesCommandTests(unittest.TestCase):
-    """`autocode stages` through its public argv, with only the backend's model list faked."""
+    """Public stage commands with fixed backend discovery and scripted model lists."""
 
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
@@ -384,6 +384,7 @@ class StagesCommandTests(unittest.TestCase):
         self.home = Path(folder.name)
         for patcher in (
             mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": folder.name}),
+            mock.patch.object(stages_cli.connected_engine, "choose", return_value=None),
             mock.patch.object(choices.providers, "resolve", side_effect=resolve),
             mock.patch.object(choices.route_discovery, "discover", side_effect=lambda provider, workspace: LISTING),
         ):
