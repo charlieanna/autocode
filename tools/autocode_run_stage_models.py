@@ -40,6 +40,14 @@ def _choices():
     return stage_choices
 
 
+def _quota_route():
+    try:
+        from . import autocode_quota_route as quota_route
+    except ImportError:
+        import autocode_quota_route as quota_route
+    return quota_route
+
+
 def backend(settings: dict) -> str:
     """The stage-choice backend a started run runs on, as a new run's choices are keyed (native_invocation)."""
     if settings.get("engine") == "codex":
@@ -109,7 +117,11 @@ def refusal(state: RunState, role: str, model: str, effort: str) -> str | None:
         return reason
     if not model or any(character.isspace() for character in model):
         return "Name the model without spaces"
-    if current[role]["model"] == model and current[role]["effort"] == effort_level(effort):
+    if (
+        current[role]["model"] == model
+        and current[role]["effort"] == effort_level(effort)
+        and not _quota_route().has_stale_inherited_route(state, role)
+    ):
         return f"The {_choices().LABELS[role]} already runs {model} at {effort}"
     return None
 

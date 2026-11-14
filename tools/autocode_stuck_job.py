@@ -619,7 +619,9 @@ def cited_files(value: dict, workspace, run_dir) -> dict[str, Path]:
 def release_route(state: RunState) -> dict:
     """The Investigator's route exists only while it runs: saved roles are re-validated on resume
     (e.g. native Codex runs refuse a non-Codex role), and a pinned route may be an OpenCode one."""
-    return (state.get("settings") or {}).get("roles", {}).pop(ROUTE, None) or {}
+    settings = state.get("settings") or {}
+    (settings.get("transport_identities") or {}).pop(f"role:{ROUTE}", None)
+    return (settings.get("roles") or {}).pop(ROUTE, None) or {}
 
 
 def apply(

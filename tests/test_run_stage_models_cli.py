@@ -100,6 +100,44 @@ class RunStageModelsCLITests(unittest.TestCase):
         self.assertTrue(builders, [row.get("stage") for row in attempts])
         self.assertEqual({"gpt-6-astra"}, {row["model"] for row in builders})
 
+    def test_changing_tester_after_acceptance_tester_materialized_syncs_writer_route(self):
+        run = self.at_plan_approval()
+        state_path = run / "state.json"
+        saved = json.loads(state_path.read_text())
+        saved["settings"]["roles"]["acceptance_tester"] = {
+            "engine": "codex",
+            "model": saved["settings"]["roles"]["tester"]["model"],
+            "reasoning_effort": "high",
+        }
+        saved.setdefault("sessions", {})["acceptance_tester"] = "stale-writer-session"
+        state_path.write_text(json.dumps(saved, indent=2) + "\n")
+
+        listed = json.loads(self.command(self.status(run)["stage_models"]["next_command"], 0).stdout)
+        tester_set = next(s["set"]["next_command"] for s in listed["stages"] if s["id"] == "tester")
+        cmd = ["gpt-6-luna" if w == "MODEL" else "default" if w == "EFFORT" else w for w in tester_set]
+        self.command(cmd, 0)
+
+        after = self.status(run)
+        self.assertEqual(
+            ("gpt-6-luna", None, "user_explicit"),
+            (
+                after["routes"]["tester"]["model"],
+                after["routes"]["tester"]["reasoning_effort"],
+                after["routes"]["tester"]["origin"],
+            ),
+        )
+        self.assertEqual(
+            ("gpt-6-luna", None, "derived"),
+            (
+                after["routes"]["acceptance_tester"]["model"],
+                after["routes"]["acceptance_tester"]["reasoning_effort"],
+                after["routes"]["acceptance_tester"]["origin"],
+            ),
+        )
+        updated = json.loads(state_path.read_text())
+        self.assertNotIn("acceptance_tester", updated.get("sessions", {}))
+        self.assertIn("acceptance_tester", updated["user_events"][-1]["inherited_routes"])
+
 
 if __name__ == "__main__":
     unittest.main()
