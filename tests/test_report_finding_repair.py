@@ -46,8 +46,12 @@ class ReportFindingRepairCLI(unittest.TestCase):
 """
             + text[offset:]
         )
-        session = "    session = str(uuid.uuid4())\n"
-        self.assertIn(session, text)
+        # The report-repair branch's session line (#3436 made it resume the stage's session). It must be
+        # the only such line: another branch has a session line too, and a hook placed there never runs.
+        session = (
+            '    session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())\n'
+        )
+        self.assertEqual(1, text.count(session), "the fixture provider's report-repair session line moved")
         text = text.replace(
             session,
             """    if data['original']['stage'] == 'tester':
