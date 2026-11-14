@@ -41,6 +41,7 @@ try:
     from . import autocode_run_status as run_status
     from . import autocode_source_scope as scope
     from . import autocode_stall_recovery as stall_recovery
+    from . import autocode_stop as stop
     from . import autocode_util as util
 except ImportError:
     import autocode_context_window as context_window
@@ -57,6 +58,7 @@ except ImportError:
     import autocode_run_status as run_status
     import autocode_source_scope as scope
     import autocode_stall_recovery as stall_recovery
+    import autocode_stop as stop
     import autocode_util as util
 
 RETRY_ACTION = "--resume-paused --retry-failed-stage --job-retry-token TOKEN"
@@ -132,7 +134,8 @@ def _reason(runtime, record, error):
         if setup := (record.get("context") or {}).get("investigation_setup"):
             # The deadline counted the workspace copy too: say so, or the model gets the blame (#2606).
             reason += "; " + investigation_workspace.setup_note(setup)
-        return "timeout", role + ": " + reason
+        kind = "person" if record.get("timed_out") is True and record.get("timeout_kind") == "person" else "timeout"
+        return kind, role + ": " + reason
     path = Path(record.get("events", ""))
     raw = path.read_text(errors="replace") if path.is_file() else ""
     status = runtime.support.failure_status(path, record=record)
@@ -294,7 +297,24 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
         # A cause read from the attempt (a refusal or quota with its model and the provider's words,
         # a limit) stays first. The generic exit fallback has no error to name on this path.
         reason = note if kind == "exit" else reason + ("" if reason.endswith(".") else ".") + " " + note
-    restoration = source.restore(workspace, record)
+    retention_error = None
+    if kind == "person" and not abandoned:
+        try:
+            source.retain_stopped(workspace, record)
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            retention_error = f"{type(error).__name__}: {error}"
+    restoration = (
+        {
+            "restored": [],
+            "deleted": [],
+            "unrestored": record.get("changed_files")
+            or (record.get("job_source") or {}).get("paths")
+            or ["original source capture"],
+            "retention_error": retention_error,
+        }
+        if retention_error
+        else source.restore(workspace, record)
+    )
     if restoration["unrestored"]:
         reason += "; unrestored source: " + ", ".join(restoration["unrestored"])
     record["metrics"] = runtime.support.event_metrics(record["events"])
@@ -306,7 +326,7 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
     captured = record.get("job_source") or {}
     source_paths = captured.get("source_paths", scope.paths(state))
     source_identity = captured.get("before_identity")
-    if not source_identity and not (record.get("changed_files") or []):
+    if not source_identity and not (record.get("changed_files") or []) and kind != "person":
         # Crashed before capturing its source binding, changed nothing: anchor the
         # retry gate on the live workspace identity so an exact retry stays possible
         # (authorize still refuses if the workspace changes before the retry).
@@ -370,6 +390,27 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
             if recovery["executed_work"].get("available"):
                 recovery["instruction"] = stall_recovery.INSTRUCTION
     state["recovery_context"] = recovery
+    if (
+        kind == "person"
+        and not abandoned
+        and not restoration["unrestored"]
+        and source.matches_original(workspace, source_identity, source_paths=source_paths)
+    ):
+        # This attempt did not fail on its model. Its unverified writes are retained above;
+        # apply the accepted pause after the durable quiet archive; plain resume repeats this job.
+        recovery["instruction"] = (
+            "This job was intentionally stopped, not timed out. Its original source was restored. "
+            "Partial files remain with the archived attempt for inspection when continuing the same job; "
+            "they are not accepted tests or passing evidence. Keep the approved plan, model, effort and limits."
+        )
+        supersede(state)
+        run_status.pause(state, stop.STOP_STATUS, stop.STOPPED_NOW_REASON, next_stage=stage, pending_questions=[])
+        state.pop("user_request", None)
+        runtime.write_json(Path(run_dir) / "state.json", state)
+        stop.consume(state, run_dir, workspace, write_json=runtime.write_json, now=runtime.now)
+        for artifact in originals:
+            artifact.unlink(missing_ok=True)
+        return True
     extension = job_deadline.plan(
         state, failure, recovery, abandoned=abandoned, deadline=record.get("stage_timeout_seconds")
     )
@@ -413,6 +454,8 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
         if not abandoned:
             route_recovery.recover_job(runtime, launch, state, run_dir, workspace, reroute=reroute)
     runtime.write_json(Path(run_dir) / "state.json", state)
+    if kind == "person" and not abandoned and not retention_error:
+        stop.consume(state, run_dir, workspace, write_json=runtime.write_json, now=runtime.now)
     for artifact in originals:
         artifact.unlink(missing_ok=True)
     return True
