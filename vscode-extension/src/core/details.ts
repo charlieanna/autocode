@@ -97,7 +97,7 @@ const words = (value: unknown, fallback = "unknown"): string => (text(value) || 
 const money = (value: unknown): string => (isNumber(value) ? `$${value.toFixed(2)}` : "unknown");
 const percent = (value: unknown): string => (isNumber(value) ? `${Math.round(value * 100)}%` : "?");
 const counted = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`;
-const FLAG = /(^|\s)--[a-z]/;
+const FLAG = /(?:^|[\s(])--[a-z][a-z0-9]*(?:-[a-z0-9]+)*|\bAUTOCODE_[A-Z0-9_]+\b|(?:^|[^\w/.-])autocode\s+(?:resume\b|--)/;
 const capitalize = (value: string): string => value.charAt(0).toUpperCase() + value.slice(1);
 
 function tokens(value: unknown): string {
@@ -292,7 +292,7 @@ function where(view: Row): { state: string; label: string; sentence: string; sec
   const progress = mapping(view.progress);
   const state = text(summary.state) || (view.done === true ? "done" : "working");
   const label = text(summary.label) || capitalize(words(view.status, "Starting").toLowerCase());
-  const sentence = text(summary.sentence) || text(progress.headline) || text(progress.line);
+  const sentence = withoutCommands(text(summary.sentence)) || text(progress.headline) || text(progress.line);
   const lines = [sentence];
   // `what_it_means` is said for a person; `what_happened` names the internal status and
   // `what_the_command_does` names CLI flags, which a client never shows.
@@ -301,12 +301,12 @@ function where(view: Row): { state: string; label: string; sentence: string; sec
   const reason = withoutCommands(text(mapping(view.needs).reason));
   if (reason && !lines.includes(reason) && state === "needs_you") lines.push(`Waiting for: ${reason}`);
   if (view.done !== true && String(view.status ?? "").startsWith("PAUSED")) {
-    // A stopped step: the core's own reason and next action, then the cause it saved. A line that
-    // names a flag is left out, since a client never shows a command to type.
+    // A stopped step: the core's own reason and next action, then the cause it saved. Sentences that
+    // name CLI flags, token env vars or `autocode resume` are stripped so a client never shows a command to type.
     const notice = text(mapping(view.chat).notice);
     if (notice && !lines.includes(notice)) lines.push(notice);
-    const saved = text(mapping(view.recovery).saved_reason);
-    if (saved && !FLAG.test(saved) && !lines.some((line) => line.includes(saved))) lines.push(`Recorded reason: ${saved}`);
+    const saved = withoutCommands(text(mapping(view.recovery).saved_reason));
+    if (saved && !lines.some((line) => line.includes(saved))) lines.push(`Recorded reason: ${saved}`);
   }
   return { state, label, sentence, section: { id: "where", title: "Where the run is", summary: label, lines: lines.filter(Boolean) } };
 }

@@ -103,6 +103,26 @@ class StatusSummaryTests(unittest.TestCase):
         unknown = summary.project(view(""))
         self.assertEqual(("stopped", "Stopped at an unknown state."), (unknown["state"], unknown["sentence"]))
 
+    def test_stop_and_needs_reasons_strip_operator_cli_machinery(self):
+        stopped = summary.project(
+            view(
+                "PAUSED_RESOLVER",
+                stop_reason=(
+                    "AutoResolver could not resolve the Builder's model limit. "
+                    "Provide corrective information or leave the run paused. "
+                    "Provide corrective information with --resolver-request req-1 --resolver-token - "
+                    "(reads AUTOCODE_RESOLVER_TOKEN) --resolver-response provide_information "
+                    "--resolver-message TEXT, then autocode resume."
+                ),
+            )
+        )
+        self.assertEqual("stopped", stopped["state"])
+        self.assertIn("AutoResolver could not resolve the Builder's model limit.", stopped["sentence"])
+        for machinery in ("--resolver-request", "AUTOCODE_RESOLVER_TOKEN", "autocode resume"):
+            self.assertNotIn(machinery, stopped["sentence"])
+        only_flags = summary.project(view("PAUSED_TIME_LIMIT", stop_reason="Run autocode --resume-paused."))
+        self.assertEqual(("stopped", "Stopped at PAUSED_TIME_LIMIT."), (only_flags["state"], only_flags["sentence"]))
+
 
 if __name__ == "__main__":
     unittest.main()

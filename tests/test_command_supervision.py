@@ -185,6 +185,24 @@ class CommandSupervisionTests(unittest.TestCase):
         self.assertTrue(receipts.completed(result))
         self.assertNotEqual(metadata[0]["nonce"], result["supervision"]["nonce"])
 
+    def test_reconcile_without_terminal_receipt_names_receipt_path_not_internal_metadata_dict(self):
+        receipt_path = str(self.root / "missing-receipt.json")
+        metadata = {
+            "schema": 1,
+            "nonce": "secret-nonce-42",
+            "receipt": receipt_path,
+            "owner": {"pid": 12345, "birth_time": 1700000000.0, "birth_identity": "mach-owner-id"},
+            "keeper": {"pid": 12346, "birth_time": 1700000001.0, "birth_identity": "mach-keeper-id"},
+            "provider": {"pid": 12347, "session": 12347, "group": 12347},
+        }
+        with self.assertRaises(receipts.OwnershipUncertain) as caught:
+            commands.reconcile(metadata)
+        message = str(caught.exception)
+        self.assertIn("Command cleanup has no authenticated terminal receipt; retain ownership evidence", message)
+        self.assertIn(receipt_path, message)
+        for internal in ("secret-nonce-42", "birth_identity", "birth_time", "mach-owner-id", "{'schema'"):
+            self.assertNotIn(internal, message)
+
 
 @patch.dict(os.environ, {"AUTOCODE_RUN_PROCESS": "run_process_handler"})
 class InProcessCommandSeamTests(unittest.TestCase):

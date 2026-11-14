@@ -121,8 +121,10 @@ def reconcile(metadata):
     """
     final = receipts.load(metadata)
     if not receipts.cleanup_complete(metadata):
+        receipt_path = metadata.get("receipt") if isinstance(metadata, dict) else None
+        detail = f" ({receipt_path})" if isinstance(receipt_path, str) and receipt_path else ""
         raise receipts.OwnershipUncertain(
-            f"Command cleanup has no authenticated terminal receipt; retain ownership evidence: {metadata}"
+            f"Command cleanup has no authenticated terminal receipt; retain ownership evidence{detail}"
         )
     try:
         rows = [metadata["provider"], metadata["keeper"], *final["processes"]]
