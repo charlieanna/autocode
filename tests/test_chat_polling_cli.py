@@ -213,7 +213,12 @@ print('VIEWER-CLOSED')
         )
         os.close(follower)
         self.addCleanup(self.stop, viewer)
-        if not drain_terminal(leader, lambda: ready.exists() and healthy_ready.exists(), seconds=15):
+        # The writer creates the file before writing its PID; existence alone can see an empty file.
+        if not drain_terminal(
+            leader,
+            lambda: ready.exists() and ready.read_text().strip().isdigit() and healthy_ready.exists(),
+            seconds=15,
+        ):
             self.fail("fault-injected status read never started")
         hung_pid = int(ready.read_text())
         started = time.monotonic()
