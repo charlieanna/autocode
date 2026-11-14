@@ -68,6 +68,27 @@ def escapes_streak(state: RunState, rows: list[dict]) -> bool:
     )
 
 
+def retry_entry(state: RunState, record: dict) -> dict | None:
+    """Match the most recent archived timeout hold to its retained failure ledger entry."""
+    stage = _stage(record)
+    revision = record.get("source_revision")
+    events = record.get("events")
+    if not stage or not record.get("timed_out") or stage != state.get("next_stage") or not revision or not events:
+        return None
+    rows = repeated(state, stage, revision)
+    if not escapes_streak(state, rows) or rows[-1].get("events") != events:
+        return None
+    entry = (state.get("failure_history") or {}).get(record.get("failure_key"))
+    identity = (entry or {}).get("identity") or {}
+    if (
+        identity.get("stage") != stage
+        or identity.get("artifact_hash") != revision
+        or record.get("failure_attempt") not in (entry or {}).get("attempts", [])
+    ):
+        return None
+    return entry
+
+
 def reason(stage_name: str, rows: list[dict]) -> str:
     kinds = sorted({str(row.get("timeout_kind") or "stage") for row in rows})
     revision = str(rows[-1].get("source_revision") or "")[:8]

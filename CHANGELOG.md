@@ -112,6 +112,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **Repeated Tester timeouts can take their offered recovery**: a pause after two archived timeouts offered a retry that the core rejected because its failure ledger had not reached a different three-failure threshold. The retry now matches those exact archived attempts and keeps their evidence and limits.
 - **Requirements introductions stay in the chat after confirmation**: confirming an understanding could remove the model’s preceding reply from the transcript. New confirmations retain both messages; older confirmations recover the reply only when the saved handoff matches the exact question.
 - **Run bundles no longer depend on a live backend health check**: evidence export keeps `doctor.json` as an explicit not-run record instead of querying accounts, tools or model rosters before writing the archive. Retained reports, redaction, replay files and manifest hashes remain available when the backend is unhealthy; `autocode doctor` still performs its normal checks (#3514).
 

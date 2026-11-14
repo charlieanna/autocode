@@ -60,6 +60,62 @@ class FailureRetryTests(unittest.TestCase):
         with self.assertRaises(support.Paused):
             runner.repeated_failure_resume_guard(self.state, self.root, authorization=old)
 
+    def test_two_archived_tester_timeouts_have_one_scoped_retry(self):
+        self.state.update(status="PAUSED_REPEATED_FAILURE", next_stage="tester")
+        revision = support.snapshot(self.root)["revision"]
+        for index in (1, 2):
+            events = str(self.run / f"validator-{index:02d}.jsonl")
+            record = {
+                "stage": "tester",
+                "iteration": 1,
+                "role": "tester",
+                "timed_out": True,
+                "output": str(self.run / f"validator-{index:02d}.json"),
+                "events": events,
+                "source_revision": revision,
+                "rejected": True,
+            }
+            runner.failures.record(self.state, record, ValueError(f"timeout {index}"), support.now())
+            self.state["stages"].append(record)
+            self.state.setdefault("automatic_timeout_recoveries", []).append(
+                {
+                    "stage": "tester",
+                    "source_revision": revision,
+                    "at": support.now(),
+                    "attempt_id": f"001/validator-{index:02d}",
+                    "events": events,
+                }
+            )
+        self.assertIsNone(runner.failures.repeated(self.state, record))
+        support.atomic_json(self.run / "state.json", self.state)
+        with self.assertRaises(support.Paused):
+            runner.repeated_failure_resume_guard(self.state, self.root)
+        # A hold must name this exact stage, archived event stream and inactive attempt.
+        for mutate in (
+            lambda s: s.update(next_stage="builder"),
+            lambda s: s.update(active_stage={"pid": 123}),
+            lambda s: s["automatic_timeout_recoveries"][-1].update(events="other.jsonl"),
+            lambda s: s["stages"][-1].update(timed_out=False),
+        ):
+            altered = copy.deepcopy(self.state)
+            mutate(altered)
+            original = copy.deepcopy(altered)
+            with self.assertRaises(ValueError):
+                runner.authorize_failure_retry(altered, self.run, self.root)
+            self.assertEqual(original, altered)
+        with patch.object(runner.support, "snapshot", return_value={"revision": "changed"}):
+            with self.assertRaises(ValueError):
+                runner.authorize_failure_retry(self.state, self.run, self.root)
+        before = copy.deepcopy(self.state["automatic_timeout_recoveries"])
+        grant = runner.authorize_failure_retry(self.state, self.run, self.root)
+        self.assertEqual(before, self.state["automatic_timeout_recoveries"])
+        runner.repeated_failure_resume_guard(self.state, self.root, authorization=grant)
+        self.assertTrue(grant["consumed"])
+        with self.assertRaises(support.Paused):
+            runner.repeated_failure_resume_guard(self.state, self.root, authorization=grant)
+        with self.assertRaises(support.Paused):
+            runner.repeated_failure_resume_guard(support.read(self.run / "state.json"), self.root)
+
     def test_unsafe_or_mismatched_authorization_is_read_only(self):
         self.seed()
         initial = copy.deepcopy(self.state)
