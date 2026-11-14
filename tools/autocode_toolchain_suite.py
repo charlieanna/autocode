@@ -26,8 +26,18 @@ except ImportError:
 
 # Native pytest policy names are configurations even when empty.
 PYTEST_NATIVE_CONFIGS = frozenset(("pytest.ini", ".pytest.ini", "pytest.toml", ".pytest.toml"))
+# A build tool whose one command builds the project and runs every test it has: Maven, Gradle, and CMake
+# with CTest. Without these a Java or C++ project had no suite at all, and the approved plan's own command
+# (`mvn test`) names no test file, so it could not be adopted either (autocode_plan_proof_command): real
+# bug fixes in a Maven project and a CMake project delivered correct code and then asked the person to
+# pass --test-command and --regression-command (2026-11-14, docs/bugs/2026-11-13-task-kind-survey.md).
+# Each is judged by its exit code, as `make test` is. The project's own wrapper runs when it has one.
+GRADLE_ROOTS = project_kinds.GRADLE_FILES
+# CMake commands are case-insensitive; a project has tests for CTest when it turns testing on.
+CMAKE_TESTS = re.compile(r"^[ \t]*(?:enable_testing[ \t]*\(|include[ \t]*\([ \t]*CTest[ \t]*\))", re.I | re.M)
+CMAKE_SUITE = "cmake -S . -B build && cmake --build build && ctest --test-dir build --output-on-failure"
 # Root build files that name a non-Python project's own toolchain.
-TOOLCHAIN_ROOTS = frozenset(("go.mod", "Cargo.toml", "package.json"))
+TOOLCHAIN_ROOTS = frozenset(("go.mod", "Cargo.toml", "package.json", "pom.xml", "CMakeLists.txt", *GRADLE_ROOTS))
 # Ruby's own test files (Minitest, test-unit) in the conventional root ``test/`` directory. A helper
 # such as test_helper.rb is loaded by the tests that need it, never as a test file itself.
 RUBY_TEST = re.compile(r"^test/(?:.*/)?(?:.*_test|test_.*)\.rb$")
@@ -69,7 +79,7 @@ def _read(path) -> str:
 
 
 def detect(root, files, is_test_path) -> Framework | None:
-    """The suite a Go, Node, Rust, Ruby or Make project declares, or None.
+    """The suite a Go, Node, Rust, Ruby, Make, Maven, Gradle or CMake project declares, or None.
 
     A Ruby project with no RSpec suite and no ``make test`` runs the test files of its ``test/``
     directory (``ruby_tests``): without it the proof had no command, and a live run asked the person
@@ -109,9 +119,23 @@ def detect(root, files, is_test_path) -> Framework | None:
         return Framework("rspec", "bundle exec rspec", runner="bundle exec rspec")
     if "Makefile" in files and re.search(r"^test\s*:", _read(root / "Makefile"), re.M):
         return Framework("make", "make test")
+    if found := build_tool(root, files):
+        return found
     if ruby_tests(files):
         # Through Bundler when the project pins its gems, as `bundle exec rspec` is above.
         return Framework("minitest", ("bundle exec " if "Gemfile" in files else "") + RUBY_SUITE)
+    return None
+
+
+def build_tool(root, files) -> Framework | None:
+    """The suite of a Maven, Gradle or CMake project at ``root``, or None (see GRADLE_ROOTS)."""
+    if "pom.xml" in files:
+        return Framework("maven", ("./mvnw" if "mvnw" in files else "mvn") + " -B -q test")
+    if any(name in files for name in GRADLE_ROOTS):
+        # No daemon: a check's process ends with its command.
+        return Framework("gradle", ("./gradlew" if "gradlew" in files else "gradle") + " --no-daemon -q test")
+    if "CMakeLists.txt" in files and CMAKE_TESTS.search(_read(Path(root) / "CMakeLists.txt")):
+        return Framework("cmake", CMAKE_SUITE)
     return None
 
 

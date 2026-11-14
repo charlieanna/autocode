@@ -14,7 +14,8 @@ language, and the modules derive what they need from the rows:
 * ``autocode_test_framework.Framework``: which runners report per-test results, and which files a
   targeted run is given;
 * ``autocode_package_scope.MANIFESTS``: the files that make a directory a project of its own;
-* ``autocode_toolchain_byproducts.LOCKFILES``: the lockfiles a toolchain writes on its own.
+* ``autocode_toolchain_byproducts.LOCKFILES`` and ``BUILD_DIRS``: the lockfiles and the build
+  directories a toolchain writes on its own.
 
 Adding a language, or a test layout of one, is a change to its row here. Pure data and pure
 functions; imports nothing from AutoCode, so any layer may read it.
@@ -61,12 +62,21 @@ class Language:
     bytecode_suffixes: tuple[str, ...] = ()
     # Loading prerequisites beside a manifest that tests require and must be kept fixed (e.g. go.mod, go.sum).
     test_prerequisites: tuple[str, ...] = ()
+    # Directories its build tool creates on its own beside one of these manifests and fills with
+    # build output (Maven's and Cargo's target/, Gradle's build/ and .gradle/, the build/ a CMake
+    # project is configured into): the tool's by-product too (autocode_toolchain_byproducts).
+    build_dirs: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 def _xunit(suffix: str) -> tuple[str, ...]:
     """JUnit-style test class names: FooTest, FooTests, TestFoo."""
     return (rf".*Tests?\.{suffix}", rf"Test[A-Z_]\w*\.{suffix}")
 
+
+# The root files of a Gradle build.
+GRADLE_FILES = ("build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts")
+_JVM_BUILD_DIRS: dict[str, tuple[str, ...]] = {"target": ("pom.xml",), "build": GRADLE_FILES, ".gradle": GRADLE_FILES}
+_CMAKE_BUILD_DIRS: dict[str, tuple[str, ...]] = {"build": ("CMakeLists.txt",)}
 
 # Directories that hold tests wherever they appear, and ones that do only at the repository root:
 # numpy/testing/ and django/test/ are shipped product code, while a top-level test/ is not.
@@ -139,15 +149,16 @@ LANGUAGES: tuple[Language, ...] = (
         per_test=("cargo",),
         manifests=("Cargo.toml",),
         lockfiles={"Cargo.lock": "Cargo.toml"},
+        build_dirs={"target": ("Cargo.toml",)},
     ),
-    Language("java", (".java",), test_names=_xunit("java")),
-    Language("kotlin", (".kt", ".kts"), test_names=_xunit("kt")),
-    Language("scala", (".scala",), test_names=_xunit("scala")),
+    Language("java", (".java",), test_names=_xunit("java"), build_dirs=_JVM_BUILD_DIRS),
+    Language("kotlin", (".kt", ".kts"), test_names=_xunit("kt"), build_dirs=_JVM_BUILD_DIRS),
+    Language("scala", (".scala",), test_names=_xunit("scala"), build_dirs=_JVM_BUILD_DIRS),
     Language("swift", (".swift",), test_names=_xunit("swift")),
     Language("csharp", (".cs",), test_names=_xunit("cs")),
     Language("shell", (".sh",), test_names=(r"test_.*\.sh",)),
-    Language("c", (".c", ".h")),
-    Language("cpp", (".cc", ".cpp", ".hpp")),
+    Language("c", (".c", ".h"), build_dirs=_CMAKE_BUILD_DIRS),
+    Language("cpp", (".cc", ".cpp", ".hpp"), build_dirs=_CMAKE_BUILD_DIRS),
     Language("php", (".php",)),
     Language("objective-c", (".m", ".mm")),
     Language("elixir", (".ex", ".exs")),
@@ -185,6 +196,11 @@ TEST_PREREQUISITES = {
     language.name: language.test_prerequisites for language in LANGUAGES if language.test_prerequisites
 }
 ALL_TEST_PREREQUISITES = frozenset(name for language in LANGUAGES for name in language.test_prerequisites)
+# A directory a build tool creates on its own, and the manifests it is created beside.
+BUILD_DIRS = {
+    name: tuple(dict.fromkeys(m for language in LANGUAGES for m in language.build_dirs.get(name, ())))
+    for name in dict.fromkeys(name for language in LANGUAGES for name in language.build_dirs)
+}
 # Runners whose results name each test.
 PER_TEST_RUNNERS = frozenset(runner for language in LANGUAGES for runner in language.per_test)
 # The language whose test files each targeted runner runs.

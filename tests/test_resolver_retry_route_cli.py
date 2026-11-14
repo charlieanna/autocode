@@ -18,7 +18,7 @@ REFUSED, NAMED = "gpt-6-astra", "gpt-5.6-terra"  # the Resolver's saved model, a
 
 
 class ResolverRetryRouteCLI(unittest.TestCase):
-    def driver(self, **env_extra):
+    def driver(self, *extra_flags, **env_extra):
         scratch = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.addCleanup(scratch.cleanup)
         root = Path(scratch.name).resolve()
@@ -32,11 +32,11 @@ class ResolverRetryRouteCLI(unittest.TestCase):
         driver = SavedRoutesDriver(
             materialize(scenario.seed, root / "project"),
             root,
-            flags,
+            [*flags, *extra_flags],
             env,
             autocode=default_autocode(),
             max_steps=40,
-            timeout_seconds=240,
+            timeout_seconds=360,
         )
         return scenario, root, driver
 
@@ -84,11 +84,31 @@ class ResolverRetryRouteCLI(unittest.TestCase):
         self.assertEqual(before["routes"], after["routes"])
         self.assertEqual(before_trace, (root / "rework-trace.jsonl").read_text().splitlines())
 
-    def test_the_model_named_after_setting_a_refused_retry_aside_runs_it(self):
-        # As in #3093's run: AutoCode's own scoped retry of the held Resolver is refused by the
-        # provider's content filter, and the stop offers --abandon-stage, then --resume-paused
-        # --resolver-model MODEL. Both steps must be taken, and the Resolver must run on MODEL.
+    def test_a_refused_held_resolver_switches_on_its_own_and_continues_without_asking(self):
         scenario, root, driver = self.driver(SCENARIO_FAKE_REFUSE_RESOLVER=REFUSED)
+        after = driver.drive(scenario.brief)
+        self.assertNotIn(after["status"], ("PAUSED_CONTENT_FILTER", "PAUSED_STALE_HANDOFF", "WAITING_FOR_USER"))
+        calls = [json.loads(line) for line in (root / "resolver-calls.jsonl").read_text().splitlines()]
+        self.assertEqual([True, False], [row["refused"] for row in calls])
+        self.assertEqual(REFUSED, calls[0]["model"])
+        self.assertNotEqual(REFUSED, calls[1]["model"])
+        (assignment,) = [row for row in after["route_assignments"] if row["role"] == "resolver"]
+        self.assertEqual(
+            ("runner", REFUSED, calls[1]["model"], "PAUSED_CONTENT_FILTER"),
+            (
+                assignment["actor"],
+                assignment["from"],
+                assignment["to"],
+                assignment["pause_status"],
+            ),
+        )
+        self.assertIn("investigate_stuck", [row["stage"] for row in driver.state()["stages"]])
+
+    def test_the_model_named_after_setting_a_refused_retry_aside_runs_it(self):
+        # As in #3093's run: with automatic switching opted out, AutoCode's own scoped retry of the held
+        # Resolver is refused by the provider's content filter, and the stop offers --abandon-stage, then
+        # --resume-paused --resolver-model MODEL. Both steps must be taken, and the Resolver must run on MODEL.
+        scenario, root, driver = self.driver("--no-auto-select", SCENARIO_FAKE_REFUSE_RESOLVER=REFUSED)
         # The refused attempt is now published as a model-choice gate. The driver leaves this
         # owner decision unanswered, rather than resuming the same refused call until it errors.
         before = driver.drive(scenario.brief)

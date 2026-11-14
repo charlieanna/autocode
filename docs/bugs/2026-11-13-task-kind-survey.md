@@ -550,6 +550,103 @@ The proof step now names a guard by its declared title where the runner names te
 titled guard rests on the existing test that passed there and with the change. A guard whose titled test
 fails with the change is still not proved.
 
+## 22. Java with Maven and C++ with CMake: the person is asked for test commands (fixed)
+
+Sections 20 and 21 (a Python dependency upgrade, and a rename or removal that existing tests must follow)
+are in a separate pull request that waits for an owner decision. The runs below were made on trees that
+also held its change (a Planner prompt paragraph about replaced tests, and the original-test gate's handling
+of a test file that can no longer load); none of these tasks replaces a test.
+
+Two bug fixes with a regression test, written as a person would write them, on master `40cf369`:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| Java, Maven and JUnit 5, tests named `exactMultipleNeedsNoExtraPage` | asks the person, 9 stages, 232 s, $1.66 | `d03847af3ecb6eb4bcb6923606b973e712cd2d5f4ef62f545042f7839863514e` |
+| C++, CMake and CTest, one test executable of plain checks | asks the person, 9 stages, 186 s, $1.14 | `d5e1b2eb7505121ae5c80b8a0abad6e413842aef68ebafaf9c824b9fcaa81faf` |
+
+Both Builders delivered the correct fix and a regression test. Both proofs were `UNVERIFIED`: "No
+command to run the regression tests; pass --regression-command" and "No project test command was found;
+existing behavior was not checked (pass --test-command)". The Resolver then asked the person to "Set
+the saved verification commands through the operator command correction: regression command `mvn test`
+(--regression-command 'mvn test') and suite/test command `mvn test`", and the same with the `cmake` and
+`ctest` command: a question about AutoCode's own flags, which a person in the VS Code client cannot even
+type.
+
+Two causes. Detection (`autocode_toolchain_suite.detect`) listed Go, Node, Cargo, RSpec, `make test` and
+Minitest, so a Maven, Gradle or CMake project had no suite. And the fallback for such a project, the
+approved plan's own command (section 1), takes only a command that names a test file, so it can tell
+which role the command plays; `mvn test` and `cmake ... && ctest ...` name none.
+
+Fixed in detection: a root `pom.xml` is a Maven project (`mvn -B -q test`), a root Gradle build or
+settings file a Gradle project (`gradle --no-daemon -q test`), each through the project's own `mvnw` or
+`gradlew` when it has one, and a root `CMakeLists.txt` that turns testing on (`enable_testing()` or
+`include(CTest)`) a CMake project (`cmake -S . -B build && cmake --build build && ctest --test-dir build
+--output-on-failure`). Each is judged by its exit code, as `make test` is: the suite passes on the
+original code, fails there with the change's test files, and passes with the change. A suite the
+project declares another way (`make test`, `go.mod`, `Cargo.toml`, a `package.json` test script) keeps
+priority, and a Python project that also builds a native part stays a Python project. Named JUnit
+results still need `--test-report` (docs/named-test-proof.md).
+
+The same two tasks with the fix:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| Java, Maven | complete, 8 stages, 201 s, $1.11; suite `detected:maven`, guards ``guard: run `mvn -B -q test` `` | `c78eecd8887a097a0952ef171e24ec832d81a979b7bd3867f92f958f4ec08dcc` |
+| C++, CMake | complete, 8 stages, 152 s, $0.83; suite `detected:cmake` | `ca595b22f82c267453211869f3dbe3d0ce009bfe9464ea2592671e3f436fa2b3` |
+| The Java task in a Gradle project | complete, 8 stages, 254 s, $1.07; guards ``guard: run `gradle --no-daemon -q test` `` | `0e8af291ccae3ccfe8f6b0438a897d67964b69fa63a6916d6e4aad77c7243a18` |
+
+Open: a project whose runner is still not detected and whose plan command names no test file (`dotnet
+test`, `composer test`, `mix test`, `swift test`, `sbt test`) stops the same way. A build directory the
+project does not ignore is section 24.
+
+## 23. Three more kinds of task (complete)
+
+On the tree with section 22's fix, each with one plan approval and no question:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| "This test fails on some runs and passes on others. Find out why and fix it" (Python; the code returned a set's order) | complete, 8 stages, 147 s, $0.84 | `59e4067f985d6605af6aad446fbb66987eda4e42a315098df7e1bc01c1b12c52` |
+| A new endpoint in an Express app, tested with Jest and supertest | complete, 8 stages, 157 s, $0.89 | `800873960cd8804d8c78c84ae17cd51a32dca173eb2b1f8d3dcd8a1672845211` |
+| "Add type hints to every function. Do not change what the code does" (Python) | complete, 8 stages, 151 s, $0.85 | `8bb24b005bcef8ec3e3e20414591e823a93fee31f1a42555c1bbe448ebae46ed` |
+
+## 24. A project that does not ignore its build directory: the Builder is refused for its build output (fixed)
+
+Section 22's Java and C++ tasks again, in the same projects without their `.gitignore`, on the tree with
+section 22's fix:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| C++, CMake, `build/` not ignored | `PAUSED_INVALID_OUTPUT`, 152 s, $0.67 | `7a9e7926fe26c94ef81ccb0431962e471e7764eb104ef026674b059fb5422428` |
+| Java, Maven, `target/` not ignored | complete after two refused Builder attempts, 13 stages, 587 s, $2.19 | `17f7aa24f0fbe444053b3a4481110122364d5e1463adeb36309c544e62ae2882` |
+
+Each Builder fixed the code, added the test and ran the project's tests, as its prompt asks. The build
+tool wrote its output beside the sources (`build/CMakeCache.txt`, `build/libpager.a`, ...;
+`target/maven-status/...`, `target/surefire-reports/...`), nothing ignores it, and the attempt was refused:
+"Builder attempts for this task changed files outside the assigned paths". The C++ plan's own check was
+`cmake -S . -B build && cmake --build build && ./build/pager_test`, so no retry could pass, and the
+Investigator ended with `needs_user`. The Maven run's Investigator told the Builder to build in a scratch
+copy and clean `target/`, which worked once and was lost in the next round.
+
+This is section 3's `Cargo.lock` again, many files at a time: a tool's by-product, not the stage's edit.
+`autocode_toolchain_byproducts` now also removes, when a stage ends, the files a build tool wrote into
+its own directory beside the manifest it builds (`target/` beside `pom.xml` or `Cargo.toml`, `build/` and
+`.gradle/` beside a Gradle file, `build/` beside `CMakeLists.txt`; `autocode_project_kinds.BUILD_DIRS`),
+and only when that directory held no file when the stage began. A directory that already held a file,
+committed or not, is the project's own and is measured as before; so is one a link leads to, and one the
+Builder's assigned paths touch. A file the project ignores there stays. The stage's record names each
+removed directory (`toolchain_byproducts`).
+
+The same two tasks with the fix:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| C++, CMake, `build/` not ignored | complete, 11 stages (the Tester sent the first build back once), 226 s, $1.14; both Builder records name `build/` | `5c82eb7513897bd7d540ae35b475c311d02e4f6d0841a5d6dc2cb8eb793c5217` |
+| Java, Maven, `target/` not ignored | complete, 8 stages, 206 s, $1.00 | `586fd988491db4f945b997d5d72275f783af851088a3569d646bcf47d849324d` |
+
+Open: build output in a directory that already held files when the stage began (a person's own earlier
+build, never ignored) is still charged to the stage. `node_modules/` a stage installs in a project that
+does not ignore it is not handled either.
+
 ## Also seen, not yet run on real models
 
 - **A new repository with no commit is refused** with a Git command for the person to type

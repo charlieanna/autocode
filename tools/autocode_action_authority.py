@@ -26,6 +26,7 @@ import sys
 
 try:
     from . import autocode_acceptance_recovery as acceptance_recovery
+    from . import autocode_acceptance_verification_retry as acceptance_retry
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_goals as goals
     from . import autocode_interventions as interventions
@@ -50,6 +51,7 @@ try:
     from . import autocode_verify as verify
 except ImportError:
     import autocode_acceptance_recovery as acceptance_recovery
+    import autocode_acceptance_verification_retry as acceptance_retry
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
     import autocode_interventions as interventions
@@ -266,6 +268,19 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
             print(lifecycle.render(state))
             return 2
     specific_recovery = False
+    if (
+        args.resume_paused
+        and not decision_action
+        and not explicit_recovery_requested(args, state)
+        and not any(resolver_human.pending_interruptions(run_dir).values())
+        and (
+            not getattr(args, "expected_goal_token", None)
+            or (state.get("goal_contract") and args.expected_goal_token == goals.token(state["goal_contract"]))
+        )
+        and acceptance_retry.retain_legacy(state, workspace)
+    ):
+        runner.write_json(state_path, state)
+        decided.evidence_reconciled = specific_recovery = True
     if (
         args.resume_paused
         and not decision_action

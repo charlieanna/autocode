@@ -235,9 +235,11 @@ class Bridge:
         if issue_now is not None:
             record["initial_comment_id"] = self.channel.floor(record, issue_now)
         store.save(record)
+        # A run in the no-systemd mode lives with this process, so the notice must not call it durable.
+        hosted = "a run that works while the bridge is running" if record.get("owned") else "a durable run"
         posted = self.post(
             number,
-            f"**AutoCode took this issue** and started a durable run.\n\n"
+            f"**AutoCode took this issue** and started {hosted}.\n\n"
             f"- run: `{Path(record['run_dir']).name}` on branch `{record['branch']}`\n"
             f"- I will ask here when the run needs you: questions, the plan for approval, or a pause.\n"
             f"- Steering is limited to: {', '.join('@' + actor for actor in self.config.actors)}.",

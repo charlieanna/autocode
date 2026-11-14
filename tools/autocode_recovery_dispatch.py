@@ -59,13 +59,13 @@ RECOVERY_CHAIN = (
     ("job_failure", _runtime_first(job_failure, "recover")),
     ("network", _runtime_first(network_retry, "recover")),
     ("startup", _runtime_first(provider_recovery, "recover_startup")),
-    # A permitted-set run switches a stopped model on its own (#1426 step 9); every
-    # other quota stop falls through to the pause that asks the person (#184).
-    ("route", _runtime_first(route_recovery, "recover")),
     ("truncated_review", _on_runtime("automatically_recover_truncated_review")),
     # An attempt that spent its whole output limit on reasoning runs again one level lower on the same
-    # model, rather than asking the person for another model (live run, 2026-11-11).
+    # model before switching models (live run, 2026-11-11).
     ("reasoning_exhaustion", _runtime_first(output_cap_recovery, "recover")),
+    # A model stop not settled on the same model moves to another eligible model on its own; only when
+    # none remains does the pause ask the person (#184).
+    ("route", _runtime_first(route_recovery, "recover")),
     ("capacity", _on_runtime("automatically_recover_capacity_stage")),
     ("timeout", _on_runtime("automatically_recover_timed_out_stage")),
     ("external_directory_denial", _on_runtime("automatically_recover_external_directory_denial")),
@@ -89,3 +89,14 @@ def recover(runtime, state: RunState, run_dir, workspace, error) -> str | None:
 def settle_prelaunch(runtime, state: RunState, run_dir, workspace, error):
     """The typed preparation outcome also applies where native retries are forbidden."""
     return verification_failure_recovery.recover(runtime, state, run_dir, workspace, error)
+
+
+def dispatch_orchestrator(runtime, unit, state: RunState, workspace, run_dir, skip):
+    """Dispatch the parallel Builder orchestrator and settle any member pause through the chain."""
+    paused_cls = getattr(getattr(runtime, "support", None), "Paused", Exception)
+    try:
+        return unit.dispatch(state, workspace, run_dir)
+    except paused_cls as error:
+        if getattr(runtime, "native_calls", None) is None and recover(runtime, state, run_dir, workspace, error):
+            return skip
+        raise

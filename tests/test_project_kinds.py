@@ -149,6 +149,13 @@ class ProjectFilesTests(unittest.TestCase):
             for lockfile, manifest in language.lockfiles.items():
                 self.assertIn(manifest, language.manifests, lockfile)
 
+    def test_build_directories_come_from_the_languages_rows(self):
+        gradle = ("build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts")
+        self.assertEqual(
+            {"target": ("Cargo.toml", "pom.xml"), "build": (*gradle, "CMakeLists.txt"), ".gradle": gradle},
+            byproducts.BUILD_DIRS,
+        )
+
     def test_every_language_is_named_once_and_every_targeted_language_says_what_its_runners_run(self):
         names = [language.name for language in kinds.LANGUAGES]
         self.assertEqual(len(names), len(set(names)))
