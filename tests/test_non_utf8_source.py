@@ -6,7 +6,7 @@ byte 0xe1 in position 151: invalid continuation byte": the proof read the produc
 find its changed lines. The person was told a stage "returned output the runner could not accept as a
 report" and offered a resume, which stops at the same place. With that fixed the run completes, and the
 change the person is shown said "Binary file changed." for the Latin-1 file. The proof cases run a real
-regression proof with pytest in a Git project, with no provider.
+regression proof with unittest in a Git project, with no provider.
 """
 
 from __future__ import annotations
@@ -33,18 +33,22 @@ LATIN1 = (
 FIXED = LATIN1.replace('    "de"', '    "pt": "Olá, senhor!",\n    "de"').replace(
     "GREETINGS[language]", 'GREETINGS.get(language, "Hello!")'
 )
-TEST = 'from greetings import greet\n\n\ndef test_german():\n    assert greet("de") == "Gr\\u00fc\\u00df Gott!"\n'
+TEST = (
+    "import unittest\n\nfrom greetings import greet\n\n\n"
+    "class GreetingTests(unittest.TestCase):\n"
+    "    def test_german(self):\n"
+    '        self.assertEqual("Gr\\u00fc\\u00df Gott!", greet("de"))\n'
+)
 REGRESSION = (
     TEST
-    + '\n\ndef test_portuguese():\n    assert greet("pt") == "Ol\\u00e1, senhor!"\n'
-    + '\n\ndef test_an_unknown_language_falls_back():\n    assert greet("xx") == "Hello!"\n'
+    + '\n    def test_portuguese(self):\n        self.assertEqual("Ol\\u00e1, senhor!", greet("pt"))\n'
+    + '\n    def test_an_unknown_language_falls_back(self):\n        self.assertEqual("Hello!", greet("xx"))\n'
 )
-PYPROJECT = '[project]\nname = "greetings"\nversion = "0.1.0"\n\n[tool.pytest.ini_options]\npythonpath = ["."]\n'
 
 
 class Latin1Project(unittest.TestCase):
     def setUp(self):
-        self.project = Project({"pyproject.toml": PYPROJECT, "tests/test_greetings.py": TEST})
+        self.project = Project({"test_greetings.py": TEST})
         self.addCleanup(self.project.close)
         root = self.project.root
         (root / "greetings.py").write_bytes(LATIN1.encode("latin-1"))
@@ -54,7 +58,7 @@ class Latin1Project(unittest.TestCase):
 
     def change(self, source=FIXED, tests=REGRESSION):
         (self.project.root / "greetings.py").write_bytes(source.encode("latin-1"))
-        self.project.write({"tests/test_greetings.py": tests})
+        self.project.write({"test_greetings.py": tests})
 
 
 class DiffTests(Latin1Project):
