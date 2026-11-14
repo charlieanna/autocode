@@ -39,7 +39,17 @@ CMAKE_TESTS = re.compile(r"^[ \t]*(?:enable_testing[ \t]*\(|include[ \t]*\([ \t]
 CMAKE_SUITE = "cmake -S . -B build && cmake --build build && ctest --test-dir build --output-on-failure"
 # Root build files that name a non-Python project's own toolchain.
 TOOLCHAIN_ROOTS = frozenset(
-    ("go.mod", "Cargo.toml", "package.json", "pom.xml", "CMakeLists.txt", "composer.json", *PERL_ROOTS, *GRADLE_ROOTS)
+    (
+        "go.mod",
+        "go.work",
+        "Cargo.toml",
+        "package.json",
+        "pom.xml",
+        "CMakeLists.txt",
+        "composer.json",
+        *PERL_ROOTS,
+        *GRADLE_ROOTS,
+    )
 )
 # A Composer project tested with PHPUnit: PHPUnit's configuration at the root, or PHPUnit among the
 # project's packages. Composer installs its command as `vendor/bin/phpunit`. Without this a
@@ -118,6 +128,8 @@ def detect(root, files, is_test_path) -> Framework | None:
     root = Path(root)
     if "go.mod" in files:
         return Framework("go", "go test ./...")
+    if modules := go_workspace(root, files):
+        return Framework("go", "go test " + " ".join(modules))
     node_files = node_tests.test_files(root, [p for p in files if is_test_path(p)])
     if "package.json" in files:
         try:
@@ -161,6 +173,37 @@ def detect(root, files, is_test_path) -> Framework | None:
     if make_target(root, files, ("check",)):
         return Framework("make", "make check")
     return None
+
+
+def go_workspace(root, files) -> list[str]:
+    """The package patterns of the modules a root ``go.work`` uses, for a repository with no root ``go.mod``.
+
+    ``go test ./...`` at the root of a workspace of several modules names no package ("directory prefix .
+    does not contain modules listed in go.work"), so such a repository had no detected suite and its proof
+    had no command (2026-11-14). Each ``use`` directory that holds a tracked ``go.mod`` is tested as
+    ``./DIR/...``, in the order ``go.work`` lists them; one outside the repository is left out.
+    """
+    if "go.work" not in files:
+        return []
+    patterns: list[str] = []
+    block = False
+    for raw in _read(Path(root) / "go.work").splitlines():
+        words = raw.split("//", 1)[0].split()
+        if not words:
+            continue
+        if block and words[0] == ")":
+            block = False
+        elif words[:2] == ["use", "("]:
+            block = True
+        elif block or (words[0] == "use" and len(words) > 1):
+            directory = PurePosixPath(words[0 if block else 1].strip('"'))
+            if directory.is_absolute() or ".." in directory.parts:
+                continue
+            name = directory.as_posix()
+            pattern = "./..." if name == "." else f"./{name}/..."
+            if str(directory / "go.mod") in files and pattern not in patterns:
+                patterns.append(pattern)
+    return patterns
 
 
 def make_target(root, files, names) -> str | None:
