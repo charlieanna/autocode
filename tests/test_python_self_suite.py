@@ -119,6 +119,38 @@ class PythonSelfSuiteTests(unittest.TestCase):
             with self.subTest(source=source):
                 self.check_source(source, False)
 
+    def test_relative_imports_do_not_identify_standard_library_runners(self):
+        method = "class Suite(unittest.TestCase):\n def test_own(self):\n  "
+        sources = [
+            HEADER + "from . import helper\n" + method + "self.assertTrue(True)\n",
+            "import sys, unittest\nfrom . import subprocess\n" + method + f"subprocess.run({COMMAND})\n",
+            "import sys, subprocess\nfrom .unittest import TestCase\n"
+            + "class Suite(TestCase):\n def test_own(self):\n  "
+            + f"subprocess.run({COMMAND})\n",
+            HEADER + "from .subprocess import run\n" + method + f"run({COMMAND})\n",
+            HEADER + method + f"from .subprocess import run\n  run({COMMAND})\n",
+            HEADER + method + f"from . import subprocess\n  subprocess.run({COMMAND})\n",
+            HEADER
+            + "from .unittest import main\n"
+            + method
+            + "subprocess.run([sys.executable, __file__])\nif __name__ == '__main__':\n main()\n",
+        ]
+        for source in sources:
+            with self.subTest(source=source):
+                self.check_source(source, False)
+
+    def test_unrelated_relative_import_keeps_absolute_runner_detection(self):
+        self.check_source(
+            HEADER
+            + "from . import helper\nclass Suite(unittest.TestCase):\n def test_own(self):\n  "
+            + f"subprocess.run({COMMAND})\n"
+        )
+
+    def test_relative_wildcard_exports_remain_unknown(self):
+        suite = "class Suite(unittest.TestCase):\n def test_own(self):\n  " + f"subprocess.run({COMMAND})\n"
+        self.check_source(HEADER + "from .shim import *\n" + suite, False)
+        self.check_source(HEADER + suite)
+
     def test_uncalled_helpers_and_runner_collection_distinctions(self):
         self.check_source(
             HEADER

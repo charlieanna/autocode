@@ -279,7 +279,12 @@ def self_inclusions(source, file, root):
                 imports[alias.asname or alias.name.split(".")[0]] = _Reference(alias.name)
         elif isinstance(node, ast.ImportFrom):
             for alias in node.names:
-                imports[alias.asname or alias.name] = _Reference((node.module or "") + "." + alias.name)
+                if node.level:
+                    if alias.name == "*":
+                        return {}  # Package exports can replace any module binding; do not guess them.
+                    imports.pop(alias.asname or alias.name, None)
+                else:
+                    imports[alias.asname or alias.name] = _Reference(node.module + "." + alias.name)
         else:
             script_main |= entrypoint(node, imports)
             for name in assigned(node):
@@ -293,6 +298,9 @@ def self_inclusions(source, file, root):
         for node in body:
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 for alias in node.names:
+                    if isinstance(node, ast.ImportFrom) and node.level:
+                        names.pop(alias.asname or alias.name, None)
+                        continue  # A package-local import does not identify a standard-library runner.
                     original = (node.module + "." if isinstance(node, ast.ImportFrom) else "") + alias.name
                     names[alias.asname or alias.name.split(".")[0]] = _Reference(original)
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
