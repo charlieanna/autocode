@@ -213,7 +213,7 @@ def duplicate_api(make_plan):
             (
                 [],
                 "In-memory HTTP create(): same idempotency key/payload has one effect; changed payload returns 409; missing key 400",
-                ["api.py"],
+                ["api.py", "test_api.py"],
             ),
             ([], "Document process-lifetime-only idempotency in README.md", ["README.md"]),
         ],

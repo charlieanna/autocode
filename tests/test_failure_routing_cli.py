@@ -123,7 +123,9 @@ class FailureRoutingCLI(unittest.TestCase):
         files = {deliverable: payload}
         if deliverable == "main.py" and payload == HELLO_SOURCE:
             files["test_main.py"] = HELLO_TESTS
-        spec = build_fixture.plan([([], objective, list(files))], {"M1": files}, {"M1": check}, goal)
+        # A plan that changes code plans its test, whatever the scripted Builder then delivers (#3440).
+        paths = [*files, *(["test_main.py"] if deliverable == "main.py" and "test_main.py" not in files else [])]
+        spec = build_fixture.plan([([], objective, paths)], {"M1": files}, {"M1": check}, goal)
         spec["complete_product"] = complete
         if criterion is not None:
             spec["contract"]["acceptance_criteria"][0]["criterion"] = criterion
