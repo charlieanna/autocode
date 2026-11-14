@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import re
 import sys
@@ -19,6 +20,8 @@ try:
     from . import (
         autocode_check_refs as check_refs,
     )
+    from . import autocode_plan_retention as retention
+    from . import autocode_plan_revision_reference as revision_reference
     from . import (
         autocode_planning_graph as planning_graph,
     )
@@ -43,6 +46,8 @@ try:
 except ImportError:
     import autocode_brief_obligations as brief_obligations
     import autocode_check_refs as check_refs
+    import autocode_plan_retention as retention
+    import autocode_plan_revision_reference as revision_reference
     import autocode_planning_graph as planning_graph
     import autocode_requirement_coverage as requirement_coverage
     import autocode_requirement_cues as requirement_cues
@@ -85,6 +90,12 @@ def build_spec(
         spec["coverage_checklist"] = requirement_cues.coverage_checklist(state)
     elif stage in _PLANNING_STAGES:
         spec["sources"] = brief_obligations.sources(state)
+        contract = state.get("goal_contract")
+        if isinstance(contract, dict):
+            spec["retained_contract"] = copy.deepcopy(
+                {key: contract[key] for key in ("task_id", "revision", "hash", "body") if key in contract}
+            )
+            spec["retained_requirement_trace"] = retention.validated_trace(state)
         if stage == "revise_plan":
             planning_state = state.get("planning") or {}
             review_report = ((planning_state.get("reports") or {}).get("review_plan") or {}).get("report") or {}
@@ -162,9 +173,35 @@ def _check_revise_responses(data: dict[str, Any], concern_ids: list[str], errors
 
 
 def _check_planning(stage: str, data: dict[str, Any], spec: dict[str, Any], errors: list[str]) -> None:
+    saved = spec.get("retained_contract") or {}
+    if not isinstance(saved, dict):
+        errors.append("Report-check retained contract context must be an object")
+        return
+    # This is public plan context in the supplied spec, never a private-state read.
+    context = {"goal_contract": {**saved, "origin": "report_check"}}
+    trace = spec.get("retained_requirement_trace")
+    if isinstance(trace, list):
+        context["planning"] = {
+            "reports": {"report_check": {"report": {"contract": saved.get("body"), "requirement_trace": trace}}}
+        }
+    try:
+        data = revision_reference.normalize_nullable_reference(data, spec.get("schema") or {})
+        data = retention.expand(context, stage, data)
+    except ValueError as exc:
+        errors.append(str(exc))
+        return
     contract = data.get("contract")
     if isinstance(contract, dict):
         contract = json.loads(json.dumps(contract))
+        if "initial_task" in contract and not isinstance(contract["initial_task"], dict):
+            errors.append("Plan initial_task must be an object after reference expansion")
+            return
+        criteria = contract.get("acceptance_criteria")
+        if criteria is not None and (
+            not isinstance(criteria, list) or any(not isinstance(row, dict) for row in criteria)
+        ):
+            errors.append("Plan acceptance_criteria must contain criterion objects after reference expansion")
+            return
         records = [row for row in (spec.get("sources") or []) if isinstance(row, dict)]
         if records:
             source_trace.resolve_sentence_ids(contract, records)
