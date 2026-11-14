@@ -481,6 +481,55 @@ Open:
   clean trees, so it is not affected.
 - Mocha (its JSON reporter) and Minitest (verbose output) could be read the same way.
 
+## 18. TypeScript, a monorepo package and a dependency upgrade: a check's `npm ci` deletes the person's packages (fixed)
+
+Three kinds not yet tried, each with a brief as a person would write it. Five runs, $8.54:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| TypeScript with Vitest: "bookings that only touch should not conflict. Fix it and add a regression test." | complete, 8 stages, 138 s, $0.89; two new tests and three guards named by title | `3d4f8e209ba452dcbe218be0cc5fcc122809807e4872836fc52e062a6f6029aa` |
+| A bug in `packages/invoices` of a two-package repository, "leave packages/search alone", no `--package` | complete, 8 stages, 141 s, $0.85; only that package changed | `760dc85fd18e0f0856efb586c2f6a0efd0a12c4bf4686ff54d7e695748f04654` |
+| "Upgrade the ms dependency from 2.0.0 to 2.1.3, in package.json and package-lock.json, and make sure the tests still pass." | stopped (`PAUSED_INVALID_OUTPUT`), 282 s, $1.76 | `2190260b671dd61967e54d8cc2a6ccff42d4007e894f521ed476576c4d5ad4f9` |
+| The same upgrade on the fixed tree | complete, 19 stages, 475 s, $2.89, no question | `e0db0bc800c742f0356c55f5af6558b6775e7fc33a896239183db42805046265` |
+
+(A first run of the upgrade used a probe whose `npm test` script was wrong for Node 22, so the suite failed
+before the change. It asked the person whether it may correct the script, which the request did not cover:
+875 s, $2.15, manifest `b33dde4491ffaaaee61c947df6414c26b767361df9a7336d49e9f557735165ad`.)
+
+**The upgrade deleted the workspace's installed packages.** The plan's checks were `npm ci`, the installed
+version and `npm test`. A scratch copy's `node_modules` was a link to the workspace's own directory, and
+`npm ci` empties the directory behind such a link before it installs. The Tester's captured `npm ci`, run in
+its verification copy, emptied the workspace's `node_modules`; the runner's replay of `npm test` in a fresh
+scratch tree then failed with "Cannot find module 'ms'", the Tester's report was refused, and the Investigator
+(who took the cause to be the checks running in separate trees) sent the run to the person. A run of the same
+command by the runner would have done the same: its scratch trees were linked the same way.
+
+Fixed: a scratch tree and a verification copy get a directory of their own behind the link, which links each
+installed package and copies the files the package manager keeps beside them
+(`autocode_dependency_dirs.expose`). Emptying, replacing or reinstalling `node_modules` there changes that
+directory and nothing the person installed, and `npm ci` then works in the copy. The tree's files look as
+before: one link. A virtualenv and `vendor/` are still linked whole, so `pip install` in a copy still writes
+to the person's virtualenv. On the fixed tree the upgrade completed and the workspace kept its packages.
+
+The tests for this fix also showed `tests.test_package_scope_cli` red on master: since the mutation check
+stops at a mutant's first failing test, a `--package` run's `cd PACKAGE && RUNNER` was not read as the
+stopping runner, so no mutant a package's test caught was counted. Fixed separately (#3516).
+
+Open, from the fixed run, which needed two failed proofs and an Investigator before it completed:
+
+- **The original code is tested with the new packages.** Both proof trees use the packages installed in the
+  workspace, which after the Builder's `npm install` are the upgraded ones. A test that the installed version
+  is 2.1.3 passed on the original code too, so it proved nothing until the Investigator had it compare the
+  installed version with `package.json`. A dependency change cannot be shown to fail without it unless the
+  original tree gets the original packages.
+- **`package.json` is held at the original as part of the suite's definition**, because it holds the test
+  script. The run of the original suite over the change therefore read the old manifest, the new tests that
+  read it failed there, the suite comparison was dropped, and the four guards on existing tests named by
+  title were credited nowhere. The Builder copied them into the new test file as `test_ac3_...` to
+  `test_ac6_...`, as in section 5.
+- The plan named `node_modules` among its paths, so the proof counted the installed files as changed files of
+  the task.
+
 ## Also seen, not yet run on real models
 
 - **A new repository with no commit is refused** with a Git command for the person to type

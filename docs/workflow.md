@@ -729,7 +729,11 @@ cannot repair it or invent missing caller scope for a legacy run.
 
 The scratch worktrees use the project's own environment: its `.venv`, `venv` or
 `node_modules` is linked in, and the Python tests run with the project's
-virtualenv interpreter even though the task worktree has none. Build-generated
+virtualenv interpreter even though the task worktree has none. A tree's
+`node_modules` link leads to a directory of the tree's own that links each
+installed package, so a check that empties or reinstalls it there (`npm ci`,
+`npm install`) changes the tree and not the packages the person installed.
+A virtualenv is linked whole. Build-generated
 source files that git ignores but that sit next to tracked code (such as a
 setuptools-scm or hatch-vcs `_version.py`) are copied from the project into every
 scratch tree, base and fix alike, so the package imports there. Ignored build
