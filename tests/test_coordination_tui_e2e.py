@@ -207,8 +207,14 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             ],
         ):
             subprocess.run(["git", "-C", str(self.intake), *arguments], check=True, capture_output=True)
-        setup = chat.History(self.intake, env=self.env)
-        setup.read(["registry", "roots", "add", str(self.root / "sources"), "--json"])
+        registered = taskrun.run_process(
+            [*taskrun.AUTOCODE, "registry", "roots", "add", str(self.root / "sources"), "--json"],
+            env=self.env,
+            timeout=120,
+            advancing=True,
+        )
+        self.assertEqual(0, registered.returncode, registered.stdout + registered.stderr)
+        self.assertEqual("roots-add", json.loads(registered.stdout)["operation"])
         self.lines, self.questions, self.confirmations = [], [], []
         self.observed_mismatch = False
         self.reopened = False
@@ -288,11 +294,16 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             self.assertTrue(question["id"].startswith("requirements-review-"), view["needs"])
             run.answer(question["id"], "plan", resolver_token=view["needs"]["resolver_token"])
             run.advance_until_input()
-            history = chat.History(self.intake, env=self.env)
-            action = ["coordinate", "advance", "--run-dir", str(run.run_dir), "--json"]
-            first = history.read(action)
+            client = chat.ChatClient(self.intake, run.run_dir, env=self.env, say=self.lines.append)
+            self.addCleanup(client.close)
+            # Coordinator writes use the client's action lifecycle; History.read's
+            # five-second deadline is only for disposable listings.
+            offered = coordination.read(client, run.status())
+            client.advance(coordination.named(offered["next_command"], run.run_dir, "advance"))
+            first = coordination.read(client, run.status())
             self.assertEqual(1, len(first["members"]))
-            started = history.read(action)
+            client.advance(coordination.named(first["next_command"], run.run_dir, "advance"))
+            started = coordination.read(client, run.status())
             member = started["members"][0]
             child = taskrun.TaskRun(Path(member["workspace"]), Path(member["run_dir"]), env=self.env)
             self.assertIn(clarification, child.status()["task"])
