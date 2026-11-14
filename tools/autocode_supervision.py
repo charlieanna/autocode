@@ -858,6 +858,9 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
 
         monitor = threading.Thread(target=watch_keeper, daemon=True)
         monitor.start()
+        # Acknowledge the armed, watched keeper before a durable checkpoint can
+        # block. The bootstrap remains gated until G, under the same deadline.
+        os.write(release_w, b"A")
         # Transfer nested ownership before exec while the bootstrap is blocked.
         handoff.admit(metadata, min(started + 15, started + timeout) if timeout else started + 15)
         if checkpoint is not None:
