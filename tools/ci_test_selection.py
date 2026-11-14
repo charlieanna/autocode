@@ -927,6 +927,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (("tools/autocode_cost", "tools/autocode_usage.py"), ("tests.test_cost_cap",)),
     (("tools/autocode_handoff_dedup.py",), ("tests.test_handoff_dedup",)),
+    (("tools/autocode_no_progress_recovery.py",), ("tests.test_repaired_acceptance_no_progress",)),
     (
         (
             "tools/autocode_validation_exhaustion_recovery.py",

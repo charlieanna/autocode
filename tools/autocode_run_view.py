@@ -57,6 +57,7 @@ try:
     from . import autocode_liveness as liveness_policy
     from . import autocode_member_stop as member_stop
     from . import autocode_model_listing_failure as model_listing_failure
+    from . import autocode_no_progress_recovery as no_progress_recovery
     from . import autocode_operational_information as operational_information
     from . import autocode_output_policy as output_policy
     from . import autocode_package_scope as package_scope
@@ -124,6 +125,7 @@ except ImportError:
     import autocode_liveness as liveness_policy
     import autocode_member_stop as member_stop
     import autocode_model_listing_failure as model_listing_failure
+    import autocode_no_progress_recovery as no_progress_recovery
     import autocode_operational_information as operational_information
     import autocode_output_policy as output_policy
     import autocode_package_scope as package_scope
@@ -232,7 +234,13 @@ def view(
         completion_current = False
     status = state.get("status", "")
     next_action = action(state, run_dir=run_dir, workspace=workspace, stale_report_repair=stale_report_repair)
-    stop_reason = validation_recovery.notice(state) if validation_recovery.pending(state) else state.get("stop_reason")
+    stop_reason = (
+        validation_recovery.notice(state)
+        if validation_recovery.pending(state)
+        else no_progress_recovery.notice(state)
+        if no_progress_recovery.pending_legacy(state)
+        else state.get("stop_reason")
+    )
     try:
         from . import autocode_checkpoint_reconciliation as reconciliation
     except ImportError:
@@ -1256,7 +1264,11 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             "producer_workspace": (state.get("dependency_wait") or {}).get("producer_workspace"),
         }
     issued = state.get("resolver_human_request")
-    if recovery_progress.routine_resume(state, issued) or validation_recovery.pending(state):
+    if (
+        recovery_progress.routine_resume(state, issued)
+        or validation_recovery.pending(state)
+        or no_progress_recovery.pending_legacy(state)
+    ):
         return {
             "kind": "continue",
             "action": "--resume-paused",

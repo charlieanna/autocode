@@ -32,6 +32,7 @@ try:
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_milestones as milestones
     from . import autocode_model_preflight as model_preflight
+    from . import autocode_no_progress_recovery as no_progress_recovery
     from . import autocode_planning as planning
     from . import autocode_planning_calls as planning_calls
     from . import autocode_progressive_state as progressive
@@ -61,6 +62,7 @@ except ImportError:
     import autocode_launch_inputs as launch_inputs
     import autocode_milestones as milestones
     import autocode_model_preflight as model_preflight
+    import autocode_no_progress_recovery as no_progress_recovery
     import autocode_planning as planning
     import autocode_planning_calls as planning_calls
     import autocode_progressive_state as progressive
@@ -245,7 +247,12 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             and limits["no_progress_batches"]
             and current.get("no_progress_batches", 0) >= limits["no_progress_batches"]
         ):
-            raise support.Paused("PAUSED_NO_PROGRESS", "Repeated unchanged implementation batches require review")
+            wave = dispatch.select(current) if current.get("next_stage") == "orchestrator" else None
+            if not (
+                getattr(runner, "native_calls", None) is None
+                and no_progress_recovery.recover(runner, current, run_dir, workspace, wave=wave)
+            ):
+                raise support.Paused("PAUSED_NO_PROGRESS", "Repeated unchanged implementation batches require review")
         # Do not silently change auth/provider when local config changes.
         engine = current["settings"].get("engine")
         using_opencode = engine == "opencode"
@@ -518,4 +525,11 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             )
     except runner.orchestrator.LoopExit as stopped:
         return stopped.code
+    except support.Paused as error:
+        wave = dispatch.select(state) if state.get("next_stage") == "orchestrator" else None
+        if getattr(runner, "native_calls", None) is None and no_progress_recovery.conclude_exhausted(
+            runner, state, run_dir, workspace, error, wave=wave
+        ):
+            raise support.Paused(state["status"], state["stop_reason"]) from error
+        raise
     return None
