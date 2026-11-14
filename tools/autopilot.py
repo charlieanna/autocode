@@ -609,27 +609,18 @@ def apply_planning_result(state: RunState, stage, value, record, *, run_dir=None
 
 
 def assert_within_assignment(state: RunState, record):
-    """A serial Builder gets the same ownership gate as a parallel worktree.
-
-    The declared affected_paths are the assignment boundary. Evidence is the retained
-    tree delta since the task's first Builder attempt began (autocode_assignment), so
-    edits an earlier attempt left behind count; never the report's changed_files list.
-    Tasks without explicit ownership (legacy contracts, [] for serial dispatch) are unbounded.
-    """
-    owned = (state.get("current_task") or {}).get("affected_paths") or []
-    if not owned or not state.get("goal_contract"):
-        return
-    outside = assignment.outside(owned, state.get("stages", []), record, workspace=state.get("workspace"))
-    if outside is None:
-        raise support.Paused(
-            "PAUSED_ASSIGNMENT_SCOPE", "The assignment's starting snapshot is missing; edits retained for inspection"
-        )
-    if outside:  # files the assignment created or moved from a saved checkpoint are restored for retries
-        checkpoints = state.get("code_checkpoints") or ()
-        msg = assignment.undo_created(
-            outside, state.get("stages", []), record, state.get("workspace"), checkpoints=checkpoints
-        )
-        raise support.Paused("PAUSED_ASSIGNMENT_SCOPE", msg)
+    """A serial Builder gets the same ownership gate as a parallel worktree."""
+    reason = assignment.check_scope(
+        (state.get("current_task") or {}).get("affected_paths") or [],
+        bool(state.get("goal_contract")),
+        state.get("stages", []),
+        record,
+        state.get("workspace"),
+        checkpoints=state.get("code_checkpoints") or (),
+        archived=acceptance_tests.protected(state),
+    )
+    if reason is not None:
+        raise support.Paused("PAUSED_ASSIGNMENT_SCOPE", reason)
 
 
 def retained_validated_candidate(state: RunState, value, record, workspace):

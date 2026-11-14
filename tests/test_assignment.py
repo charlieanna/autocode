@@ -286,6 +286,74 @@ class UndoCreatedTests(RetainedChangesTests):
         self.assertTrue(os.access(root / "tests/m1.sh", os.X_OK))
         self.assertEqual("m2 touched external edit\n", (root / "notes.txt").read_text())
 
+    def test_undo_created_restores_spec_first_acceptance_test_from_verified_archive_and_refuses_tampered(self):
+        import hashlib
+        from types import SimpleNamespace
+
+        import autocode_resolver_recovery as resolver_recovery
+        import autocode_stray_writes as stray
+
+        root, head = self.git_workspace({"src/m1.py": "one\n", "tests/editor.test.cjs": "committed();\n"})
+        # Spec-first write_acceptance_tests modifies tests/editor.test.cjs without committing and archives it.
+        tester_bytes = b"committed();\nacceptance_case();\n"
+        (root / "tests/editor.test.cjs").write_bytes(tester_bytes)
+        archive_file = root / ".autocode-archive-editor.test.cjs"
+        archive_file.write_bytes(tester_bytes)
+        tester_sha = hashlib.sha256(tester_bytes).hexdigest()
+
+        m1_start = self.snapshot_at(
+            "m1.before",
+            {
+                "src/m1.py": stray.current(root / "src/m1.py"),
+                "tests/editor.test.cjs": stray.current(root / "tests/editor.test.cjs"),
+            },
+            head,
+        )
+        # Milestone 1 Builder touches out-of-scope tests/editor.test.cjs.
+        (root / "tests/editor.test.cjs").write_bytes(b"committed();\nacceptance_case();\nbuilder_extra();\n")
+        m1_after = self.snapshot_at(
+            "m1.after",
+            {
+                "src/m1.py": stray.current(root / "src/m1.py"),
+                "tests/editor.test.cjs": stray.current(root / "tests/editor.test.cjs"),
+            },
+            head,
+        )
+        attempt = self.attempt("t1", m1_start, m1_after)
+
+        # Tampered sha256 in receipt archive is refused (fails closed).
+        bad_msg = assignment.check_scope(
+            ["src/m1.py"],
+            True,
+            [],
+            attempt,
+            root,
+            archived={"tests/editor.test.cjs": {"sha256": "0" * 64, "archive": str(archive_file)}},
+        )
+        self.assertIn("edits retained for inspection: tests/editor.test.cjs", bad_msg)
+
+        # Verified archive restores tests/editor.test.cjs to the exact spec-first content so retries succeed.
+        ok_msg = assignment.check_scope(
+            ["src/m1.py"],
+            True,
+            [],
+            attempt,
+            root,
+            archived={"tests/editor.test.cjs": {"sha256": tester_sha, "archive": str(archive_file)}},
+        )
+        self.assertIn("restored pre-existing files", ok_msg)
+        self.assertNotIn("edits retained for inspection", ok_msg)
+        self.assertEqual(tester_bytes, (root / "tests/editor.test.cjs").read_bytes())
+
+        # Non-stage operation names in _no_progress_outcome stay verbatim (no .title() mangling shell commands).
+        cmd = ".venv/bin/ruff check tools/ tests/ scenarios/"
+        cmd_incident = SimpleNamespace(id="inc-1", operation=cmd, invariant="planned_check", failure="F401 unused")
+        cmd_outcome = resolver_recovery._no_progress_outcome(cmd_incident, "repair", {"path": "p"}, "tester")
+        self.assertIn(f"the {cmd} step kept failing", cmd_outcome["reason"])
+        stage_incident = SimpleNamespace(id="inc-2", operation="builder", invariant="scope", failure="outside paths")
+        stage_outcome = resolver_recovery._no_progress_outcome(stage_incident, "repair", {"path": "p"}, "builder")
+        self.assertIn("the Builder step kept failing", stage_outcome["reason"])
+
 
 if __name__ == "__main__":
     unittest.main()
