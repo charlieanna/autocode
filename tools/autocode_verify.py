@@ -1905,11 +1905,14 @@ def scratch_run(
     review_mutation=False,
     review_mutation_deadline=None,
     review_source=None,
+    acceptance_preflight=False,
 ) -> dict:
     """Execute in a copy of HEAD plus current changes and an optional reviewed patch.
     File/link overlays preserve cited inputs. Review mutation returns a typed
     observation; it never fabricates a receipt for an absent project command.
     """
+    if type(acceptance_preflight) is not bool:
+        raise ValueError("Acceptance preflight must be a boolean")
     workspace, run_dir = Path(workspace), Path(run_dir)
     native_scope = None
     ownership_uncertain = False
@@ -1953,6 +1956,7 @@ def scratch_run(
                 timeout=timeout,
                 review_mutation=review_mutation,
                 review_mutation_deadline=review_mutation_deadline,
+                acceptance_preflight=acceptance_preflight,
             )
             if review_mutation:
                 review_mutations.validate(answer.get("review_mutation"), run_dir)
@@ -1990,11 +1994,14 @@ def scratch_run(
                 framework = Framework("unittest", f"{shlex.quote(python)} -m unittest discover -v", python=python)
             detect = lambda directory: detect_framework(directory, python=python)  # noqa: E731
             suites = scratch_suites.suites(tree, framework, tests, detect)  # one per project the tests are in
-            if isinstance(suites, str):
-                return {"error": suites, "results": None}
-            receipt = scratch_suites.merged(
-                run_suite(found, command, tree, run_dir, label, timeout=timeout, native_execution=native_execution)
-                for found, command, label in suites
+            receipt = scratch_suites.run_selected(
+                tree,
+                tests,
+                suites,
+                lambda found, command, label: run_suite(
+                    found, command, tree, run_dir, label, timeout=timeout, native_execution=native_execution
+                ),
+                acceptance_preflight=acceptance_preflight,
             )
         else:
             # A command naming the workspace's absolute path runs against the copy, never the workspace.
@@ -2002,23 +2009,22 @@ def scratch_run(
                 command = command.replace(root, str(tree))
             framework = command_framework(command) or package_scope.recognize(command, command_framework)
             if framework:
-                receipt = run_suite(
+                receipt = scratch_suites.explicit(
+                    tree,
+                    tests,
                     framework,
                     command,
-                    tree,
-                    run_dir,
-                    "scratch-command",
-                    timeout=timeout,
-                    native_execution=native_execution,
+                    lambda found, selected, label: run_suite(
+                        found, selected, tree, run_dir, label, timeout=timeout, native_execution=native_execution
+                    ),
+                    schedule.complete_results,
+                    acceptance_preflight=acceptance_preflight,
                 )
-                if receipt["exit_code"] == 0 and not receipt["timed_out"] and not schedule.complete_results(receipt):
-                    return {**receipt, "error": "Test command reported zero tests or incomplete per-test results"}
-                if (
-                    receipt["exit_code"] == 0
-                    and not receipt["timed_out"]
-                    and not (receipt["results"]["passed"] or receipt["results"]["failed"])
+                if receipt.get("error") in (
+                    "Test command reported zero tests or incomplete per-test results",
+                    "Test command reported only skipped tests",
                 ):
-                    return {**receipt, "error": "Test command reported only skipped tests"}
+                    return receipt
             else:
                 receipt = run_command(
                     command, tree, run_dir / "scratch-command.log", timeout=timeout, native_execution=native_execution

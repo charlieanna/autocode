@@ -56,6 +56,7 @@ try:
     from . import autocode_test_cases as test_cases
     from . import autocode_unreached_skip as unreached_skip
     from . import autocode_util as util
+    from . import autocode_wrapped_runner as wrapped_runner
     from .autocode_report_repair_queue import ExecutionEvidenceRequired
     from .autocode_verify import is_test_path, run_command
 except ImportError:
@@ -68,6 +69,7 @@ except ImportError:
     import autocode_test_cases as test_cases
     import autocode_unreached_skip as unreached_skip
     import autocode_util as util
+    import autocode_wrapped_runner as wrapped_runner
     from autocode_report_repair_queue import ExecutionEvidenceRequired
     from autocode_verify import is_test_path, run_command
 
@@ -283,6 +285,8 @@ def _output_excerpt(run: dict, *, keep: int = 3, limit: int = 400) -> str:
 def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: dict, *, inherited=()) -> dict[str, str]:
     """Per case, how the runner saw its test on today's code; raises ValueError naming what is wrong."""
     if run.get("error"):
+        if run.get("acceptance_refusal") and str(run["error"]).startswith(wrapped_runner.PREFLIGHT_ERROR):
+            raise TestsNeedRewriting(run["error"])
         raise ExecutionEvidenceRequired(
             f"The runner could not run the acceptance tests on today's code: {run['error']}"
         )
@@ -517,9 +521,9 @@ def apply(
     bad = [path for path in files if not is_test_path(path) or not (Path(workspace) / path).is_file()]
     if bad:
         raise ValueError(f"Each test file must exist in the workspace and be a test file: {bad}")
-    run = (run_tests or (lambda tests: {"error": "no test runner was given"}))(files)
-    inherited = provenance.inherited_cases(state, reports=value["tests"], workspace=workspace)
     try:
+        run = (run_tests or (lambda tests: {"error": "no test runner was given"}))(files)
+        inherited = provenance.inherited_cases(state, reports=value["tests"], workspace=workspace)
         verdicts = _verdicts(state, cases, value, workspace, run, inherited=inherited)
     except ExecutionEvidenceRequired as error:
         if isinstance(error, TestsNeedRewriting):

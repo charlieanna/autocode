@@ -28,6 +28,12 @@ the repository or working directory and asserts which files exist, or that no ot
 tests (a build, the runner's own checks, CI, a reviewer) adds files there, so such a test fails on correct code.
 Which files are delivered, and that no build output is left behind, is checked by the Validator reading the
 repository: give that criterion an ordinary verification_method, not "test:".
+Likewise, delivering a runnable regression suite is an aggregate evidence obligation: give it an ordinary
+verification_method that checks the Core runner's actual current suite command and named behavioral
+outcomes, with the current proof artifact cited in criterion_results.evidence_refs. Keep the distinct
+behavioral criteria and their named fail-first tests; do not assign another test name whose implementation
+would rerun its own module, file or discovery suite. Tests of a product that itself runs tests should use
+distinct isolated fixture suites, not the suite collecting that acceptance test.
 A "test:" criterion describes behavior that does not exist before the run, so its test fails (or cannot run) on
 the code as it is. Something that already holds, or holds as soon as a directory exists, is not: in Python 3 a
 package directory imports without __init__.py, so "the package is importable" passes before the change and the
