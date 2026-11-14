@@ -545,8 +545,24 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
 
     ``all_due`` proves every milestone's cases, as final completion requires."""
     workspace = Path(workspace)
-    schedule.guard(Path(run_dir) / "check-replay" / "obligations")
     current = source_scope.snapshot(workspace, state)["revision"]
+    try:
+        return _prove_once(state, workspace, run_dir, current, all_due=all_due)
+    except verify.command_receipt.OwnershipUncertain as error:
+        if not getattr(error, "check_cancelled", False) and runner_check.auto_recover(
+            state,
+            run_dir,
+            status.persist,
+            source_revision=current,
+            source_current=lambda: source_scope.snapshot(workspace, state)["revision"],
+            all_due=all_due,
+        ):
+            return prove(state, workspace, run_dir, all_due=all_due)
+        raise
+
+
+def _prove_once(state, workspace, run_dir, current, *, all_due=False):
+    schedule.guard(Path(run_dir) / "check-replay" / "obligations")
     saved = state.get("regression_proof") or {}
     scope = sorted(case["id"] for case in cases(state, all_due=all_due))
     options = settings(state)

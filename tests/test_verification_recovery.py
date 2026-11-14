@@ -131,6 +131,65 @@ class VerificationRecoveryTests(unittest.TestCase):
         self.assertEqual(before, self.fixture.pending.read_bytes())
         self.assertFalse((self.fixture.out / "receipt.json").exists())
 
+    def test_automatic_recovery_authenticates_and_retires_a_pending_uncertain_check(self):
+        run = self.fixture.root.parent / "run"
+        run.mkdir()
+        fixture = AdmissionFixture(run / "check-replay" / "obligations")
+        pid = os.getpid()
+        fixture.metadata["owner"] = processes.identity(processes.process_table({pid})[pid])
+        fixture.metadata["provider"].update(
+            group=fixture.metadata["provider"]["pid"], session=fixture.metadata["provider"]["pid"]
+        )
+        fixture.terminal.update(**fixture.metadata)
+        fixture.terminal.update(
+            phase="uncertain", cause="controller_finished", cleanup_error="SessionScanIncomplete: churn"
+        )
+        fixture.check.update(stage="regression_proof", processes=[fixture.metadata["owner"]])
+        fixture.admission["supervision"] = fixture.metadata
+        fixture.write()
+        original = fixture.path.read_bytes()
+        state = {"status": "RUNNING", "active_runner_check": fixture.check, "task_id": "task"}
+        with self.assertRaises(receipts.OwnershipUncertain):
+            fixture.recover()
+
+        def settle(tree, **_):
+            tree.groups.clear()
+            tree.sessions.clear()
+            tree.session_admissions.clear()
+            return []
+
+        actual_write = util.atomic_json
+
+        def crash_before_pointer(path, data):
+            if Path(path).name == "completed.json":
+                raise OSError("injected publication interruption")
+            actual_write(path, data)
+
+        with patch.object(processes, "settled_sample", side_effect=settle):
+            with (
+                patch.object(util, "atomic_json", side_effect=crash_before_pointer),
+                self.assertRaises(receipts.OwnershipUncertain),
+            ):
+                schedule.recover_interrupted(fixture.root, fixture.check, automatic=True)
+            retained = (fixture.out / "receipt.json").read_bytes()
+            self.assertTrue(fixture.pending.exists())
+            self.assertTrue(
+                runner_check.auto_recover(
+                    state, run, lambda *_: None, source_revision="revision", source_current=lambda: "revision"
+                )
+            )
+        self.assertEqual(retained, (fixture.out / "receipt.json").read_bytes())
+        self.assertFalse(fixture.pending.exists())
+        self.assertNotIn("active_runner_check", state)
+        event = state["user_events"][-1]
+        self.assertEqual("runner_check_auto_recovered", event["kind"])
+        saved = util.read(event["scheduled_recovery"]["receipt"])
+        self.assertTrue(saved["result"]["interrupted"])
+        self.assertIsNone(saved["result"]["exit_code"])
+        self.assertFalse(receipts.completed(saved["result"]))
+        self.assertFalse(schedule.reusable(saved["result"]))
+        self.assertEqual(original, fixture.path.read_bytes())
+
     def test_recovery_retains_failed_admission_and_runs_the_next_obligation_fresh(self):
         fixed = self.fixture.recover()
         path = Path(fixed["receipt"])

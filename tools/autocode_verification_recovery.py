@@ -18,10 +18,12 @@ from pathlib import Path
 try:
     from . import autocode_command_receipt as receipts
     from . import autocode_process as processes
+    from . import autocode_uncertain_cleanup as uncertain_cleanup
     from . import autocode_util as util
 except ImportError:
     import autocode_command_receipt as receipts
     import autocode_process as processes
+    import autocode_uncertain_cleanup as uncertain_cleanup
     import autocode_util as util
 
 # The request envelope leaves 4 MiB framing headroom for an 8 MiB Supply.
@@ -244,21 +246,25 @@ def bind(root, active, check, *, allow_idle=False):
         hold(str(error))
 
 
-def authenticate_bound(bound):
+def authenticate_bound(bound, *, automatic=False):
     """Require terminal cleanup and native absence after static admission binds."""
     try:
         out, check, terminal, metadata = (bound[name] for name in ("out", "check", "terminal", "metadata"))
-        if not terminal or terminal.get("phase") != "stopped" or terminal.get("cleanup_error"):
-            hold("authenticated terminal cleanup is missing or unfinished")
-        rows = [
-            metadata["owner"],
-            metadata["keeper"],
-            metadata["provider"],
-            *terminal["processes"],
-            *check["processes"],
-        ]
-        if processes.live_processes(rows):
-            hold("an owned command process is still alive")
+        if automatic:
+            if not uncertain_cleanup.settle_with_retry(bound):
+                hold("automatic cleanup settlement could not verify the exact ownership")
+        else:
+            if not terminal or terminal.get("phase") != "stopped" or terminal.get("cleanup_error"):
+                hold("authenticated terminal cleanup is missing or unfinished")
+            rows = [
+                metadata["owner"],
+                metadata["keeper"],
+                metadata["provider"],
+                *terminal["processes"],
+                *check["processes"],
+            ]
+            if processes.live_processes(rows):
+                hold("an owned command process is still alive")
         if any(util.file_hash(path) != pin for path, pin in bound["pins"].items()):
             hold("ownership evidence changed during native inspection")
         return {
@@ -271,8 +277,9 @@ def authenticate_bound(bound):
                 "output_sha256": util.file_hash(bound["output"]),
                 "exit_code": None,
                 "interrupted": True,
-                "error": "Explicit recovery of an interrupted verification; "
-                "the post-execution identity and scheduler result were not published",
+                "error": ("Automatic" if automatic else "Explicit")
+                + " recovery of an interrupted verification; "
+                + "the post-execution identity and scheduler result were not published",
                 "supervision": metadata,
                 "supervision_sha256": bound["pins"][metadata["receipt"]],
                 "supervision_errors": [],
@@ -294,8 +301,11 @@ def authenticate_bound(bound):
         hold(str(error))
 
 
-def authenticate(root, active, check):
-    return authenticate_bound(bind(root, active, check))
+def authenticate(root, active, check, *, automatic=False):
+    bound = bind(root, active, check)
+    if automatic and any(bound["check"].get(key) != check.get(key) for key in ("command", "output", "supervision")):
+        hold("the scheduled admission does not match the active runner check")
+    return authenticate_bound(bound, automatic=automatic)
 
 
 CONTEXT_CHANGED_ERROR = "Source, runtime, dependencies or environment changed during verification"

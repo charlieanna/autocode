@@ -15,6 +15,10 @@ import goal_fixtures
 
 
 class ChatViewTests(unittest.TestCase):
+    def test_automatic_cleanup_recovery_is_visible_in_chat_history(self):
+        messages = chat_history.messages({"user_events": [{"kind": "runner_check_auto_recovered"}]})
+        self.assertTrue(any("rechecked cleanup and restarted verification" in row["text"] for row in messages))
+
     def test_idle_unapproved_planning_handoff_offers_feedback_only_when_ready(self):
         state = {
             "status": "RUNNING",

@@ -243,7 +243,7 @@ def _finish(pending, directory, out, pointer, completed):
     return receipt_path, sha
 
 
-def recover_interrupted(root, check):
+def recover_interrupted(root, check, *, automatic=False):
     """Explicitly retire exactly one authenticated, stopped pending obligation.
 
     Uncollected exits retain interrupted evidence. An authenticated original
@@ -263,10 +263,12 @@ def recover_interrupted(root, check):
             return None
         try:
             active, pending_sha = recovery.read_regular(pending, root)
+            if automatic and active.get("preparation_admission") and active.get("phase") == "post_execution_identity":
+                recovery.hold("automatic cleanup cannot recover a completed publication boundary")
             authenticated = (
                 recovery.authenticate_publication(root, active)
                 if active.get("preparation_admission") and active.get("phase") == "post_execution_identity"
-                else recovery.authenticate(root, active, check)
+                else recovery.authenticate(root, active, check, automatic=automatic)
             )
             out = authenticated["out"]
             directory, pointer = out.parent, out.parent / "completed.json"
@@ -296,7 +298,7 @@ def recover_interrupted(root, check):
                 "attempt_id": active["attempt_id"],
                 "identity": active["identity"],
                 "pending_admission": active,
-                "reason": "explicit_interrupted_recovery",
+                "reason": "automatic_interrupted_recovery" if automatic else "explicit_interrupted_recovery",
                 "started_at": active["started_at"],
                 "finished_at": util.now(),
                 "ownership_pins": authenticated["pins"],
