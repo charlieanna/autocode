@@ -206,6 +206,174 @@ class BundleTests(unittest.TestCase):
             self.assertEqual(2, bundle.cli([str(self.workspace / "not-a-run")]))
         self.assertIn("WORKSPACE/.autocode/runs/RUN", stderr.getvalue())
 
+    def test_model_preflight_receipts_and_event_tails_are_bundled_and_redacted(self):
+        (self.run / "model-preflight.json").write_text(json.dumps({"models": {"m1": {"token": GITHUB_TOKEN}}}))
+        attempt = self.run / "model-preflight" / "opencode__m1" / "attempt-abc"
+        attempt.mkdir(parents=True)
+        (attempt / "report.json").write_text(json.dumps({"ok": False, "secret": KEY_LINE}))
+        (attempt / "supervision.json").write_text(json.dumps({"phase": "stopped", "env": ENVIRONMENT_SECRET}))
+        (attempt / "snapshot.before.json").write_text('{"files": {"app.py": "SOURCE_LINE"}}')
+        preflight_events = [json.dumps({"seq": i}) for i in range(250)] + [json.dumps({"secret": ENVIRONMENT_SECRET})]
+        (attempt / "events.jsonl").write_text("\n".join(preflight_events) + "\n")
+
+        files, manifest = self.collect()
+        self.assertIn("run/model-preflight.json", files)
+        self.assertIn("run/model-preflight/opencode__m1/attempt-abc/report.json", files)
+        self.assertIn("run/model-preflight/opencode__m1/attempt-abc/supervision.json", files)
+        self.assertIn("run/model-preflight/opencode__m1/attempt-abc/events.jsonl", files)
+        self.assertNotIn("run/model-preflight/opencode__m1/attempt-abc/snapshot.before.json", files)
+
+        tailed = files["run/model-preflight/opencode__m1/attempt-abc/events.jsonl"].decode().splitlines()
+        self.assertEqual(bundle.TAIL_LINES, len(tailed))
+        self.assertEqual('{"secret": "[REDACTED]"}', tailed[-1])
+        for name, data in files.items():
+            for canary in CANARIES:
+                self.assertNotIn(canary.encode(), data, name)
+        manifest_paths = {row["path"] for row in manifest["files"]}
+        self.assertIn("run/model-preflight/opencode__m1/attempt-abc/supervision.json", manifest_paths)
+
+    def test_moved_worktree_run_bundles_canonical_worktree_state_diff_and_pre_move_preflight(self):
+        import autocode_workspaces as workspaces
+
+        pre_attempt = self.run / "model-preflight" / "opencode__m1" / "attempt-pre"
+        pre_attempt.mkdir(parents=True)
+        (pre_attempt / "report.json").write_text(json.dumps({"probe": "pre-move", "token": GITHUB_TOKEN}))
+        pre_events = [json.dumps({"n": n}) for n in range(220)] + [json.dumps({"env": ENVIRONMENT_SECRET})]
+        (pre_attempt / "events.jsonl").write_text("\n".join(pre_events) + "\n")
+
+        created = workspaces.create(self.workspace, "Fix the greeting")
+        tree = Path(created["workspace"])
+        worktree_run = tree / ".autocode" / "runs" / self.run.name
+        (worktree_run / "iterations" / "002").mkdir(parents=True)
+        (worktree_run / "iterations" / "002" / "tester-01.json").write_text(
+            json.dumps({"verdict": "PASS", "key": KEY_LINE})
+        )
+        (tree / "app.py").write_text("SOURCE_LINE = 3\n")
+
+        root_state = {
+            "status": "DISCOVERING",
+            "task": "Fix the greeting",
+            "base_commit": "0" * 40,
+            "build_worktree": {
+                "state": "moved",
+                "moved_to": {
+                    "workspace": str(tree),
+                    "run_dir": str(worktree_run),
+                    "branch": created["branch"],
+                },
+            },
+        }
+        (self.run / "state.json").write_text(json.dumps(root_state))
+
+        canonical_state = {
+            "status": "TASK_COMPLETE",
+            "task": "Fix the greeting. " + KEY_LINE,
+            "workspace": str(tree),
+            "base_commit": created["base_commit"],
+            "settings": {"engine": "opencode", "note": GITHUB_TOKEN},
+            "build_worktree": {
+                "state": "building",
+                "moved_from": {"workspace": str(self.workspace), "run_dir": str(self.run.resolve())},
+                "branch": created["branch"],
+            },
+            "stages": [
+                {
+                    "stage": "model_preflight",
+                    "events": str((pre_attempt / "events.jsonl").resolve()),
+                    "output": str((pre_attempt / "report.json").resolve()),
+                }
+            ],
+        }
+        (worktree_run / "state.json").write_text(json.dumps(canonical_state))
+
+        files, manifest = self.collect(with_diff=True)
+        self.assertEqual("TASK_COMPLETE", json.loads(files["run/state.json"])["status"])
+        self.assertIn("run/iterations/002/tester-01.json", files)
+        self.assertNotIn("run/iterations/001/builder-01.json", files)
+        self.assertIn("run/pre-move-model-preflight/opencode__m1/attempt-pre/report.json", files)
+        self.assertIn("run/pre-move-model-preflight/opencode__m1/attempt-pre/events.jsonl", files)
+        self.assertEqual(
+            bundle.TAIL_LINES,
+            len(files["run/pre-move-model-preflight/opencode__m1/attempt-pre/events.jsonl"].decode().splitlines()),
+        )
+        self.assertIn(b"+SOURCE_LINE = 3", files["diff.patch"])
+        self.assertEqual(created["base_commit"], manifest["notes"]["diff_base"])
+        self.assertEqual("project/.autocode/runs/r1", manifest["notes"]["moved_from"])
+        for name, data in files.items():
+            for canary in CANARIES:
+                self.assertNotIn(canary.encode(), data, name)
+
+        stdout = io.StringIO()
+        with (
+            mock.patch.object(bundle, "_doctor", lambda workspace: {"ok": True}),
+            mock.patch.object(bundle, "_recording", self.no_recording),
+            contextlib.redirect_stdout(stdout),
+        ):
+            self.assertEqual(0, bundle.cli(["--run-dir", str(self.run), "--with-diff", "--json"]))
+        cli_out = json.loads(stdout.getvalue())
+        self.assertEqual(str(self.workspace / ".autocode" / "bundles" / "r1.tar.gz"), cli_out["bundle"])
+        self.assertEqual("project/.autocode/runs/r1", cli_out["manifest"]["notes"]["moved_from"])
+
+    def test_tampered_or_symlinked_moved_to_pointer_is_refused(self):
+        import autocode_workspaces as workspaces
+
+        outside = self.workspace.parent / "outside"
+        outside_run = outside / ".autocode" / "runs" / self.run.name
+        outside_run.mkdir(parents=True)
+        (outside_run / "state.json").write_text(json.dumps({"status": "TASK_COMPLETE", "workspace": str(outside)}))
+
+        (self.run / "state.json").write_text(
+            json.dumps(
+                {
+                    "status": "DISCOVERING",
+                    "build_worktree": {
+                        "state": "moved",
+                        "moved_to": {"workspace": str(outside), "run_dir": str(outside_run), "branch": "autocode/x"},
+                    },
+                }
+            )
+        )
+        with self.assertRaises(ValueError):
+            self.collect()
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(2, bundle.cli(["--run-dir", str(self.run)]))
+
+        created = workspaces.create(self.workspace, "Real worktree")
+        real_tree = Path(created["workspace"])
+        link_tree = self.workspace / ".autocode" / "worktrees" / "aliased-tree"
+        link_tree.symlink_to(real_tree)
+        link_run = link_tree / ".autocode" / "runs" / self.run.name
+        (real_tree / ".autocode" / "runs" / self.run.name).mkdir(parents=True)
+        (real_tree / ".autocode" / "runs" / self.run.name / "state.json").write_text(
+            json.dumps(
+                {
+                    "status": "TASK_COMPLETE",
+                    "workspace": str(link_tree),
+                    "build_worktree": {
+                        "state": "building",
+                        "moved_from": {"workspace": str(self.workspace), "run_dir": str(self.run.resolve())},
+                    },
+                }
+            )
+        )
+        (self.run / "state.json").write_text(
+            json.dumps(
+                {
+                    "status": "DISCOVERING",
+                    "build_worktree": {
+                        "state": "moved",
+                        "moved_to": {
+                            "workspace": str(link_tree),
+                            "run_dir": str(link_run),
+                            "branch": created["branch"],
+                        },
+                    },
+                }
+            )
+        )
+        with self.assertRaises(ValueError):
+            self.collect()
+
 
 if __name__ == "__main__":
     unittest.main()
