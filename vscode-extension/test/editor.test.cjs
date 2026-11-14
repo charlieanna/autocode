@@ -159,6 +159,20 @@ for (const surface of ['chat', 'Run details']) {
     assert.ok(!args.includes('time:current'));
   });
 
+  test(`milestone active-time bound in ${surface} rounds counted floating-point seconds cleanly`, async (t) => {
+    const ownController = new RunController(host.log);
+    const view = totalTimeView();
+    view.next_command = view.next_command.replace('--max-seconds', '--max-milestone-seconds');
+    view.needs.command_inputs[0] = {
+      ...view.needs.command_inputs[0],
+      id: 'max_milestone_seconds', flag: '--max-milestone-seconds',
+      label: 'Milestone active time (seconds)', current: 5400, used: 5513.5020948329475, minimum: 5514,
+    };
+    const ui = surface === 'chat' ? await openChat(t, view, run, { controller: ownController }) : await openPanel(t, view, undefined, ownController);
+    assert.ok(ui.document.body.textContent.includes('Counted: 5513.502 seconds.'), ui.document.body.textContent);
+    assert.ok(!ui.document.body.textContent.includes('5513.5020948329475'));
+  });
+
   test(`typed total in ${surface} rejects a stale recovery token and clears its draft on a new offer`, async (t) => {
     const ownController = new RunController(host.log);
     const ui = surface === 'chat' ? await openChat(t, totalTimeView(), run, { controller: ownController }) : await openPanel(t, totalTimeView(), undefined, ownController);
@@ -7304,4 +7318,20 @@ test('exact output review keeps escaped whitespace and spaced command arguments 
       assert.ok(codes.includes(output), surface + ' lost exact escaped whitespace');
     });
   }
+});
+
+test('run header bounds #header-body height so #thread stays visible and #engine-picker uses loaded stage backend when unset', async (t) => {
+  host.config.set('provider', '');
+  host.config.set('extraOptions', []);
+  const ui = await openChat(t, chatView());
+  const sheet = [...ui.document.styleSheets].flatMap((item) => [...item.cssRules]);
+  const bodyRule = sheet.find((rule) => rule.selectorText === '#header-body');
+  assert.ok(bodyRule, '#header-body needs a bounded scroll rule so tall stage tables never crush #thread to 0px');
+  assert.equal(bodyRule.style.getPropertyValue('max-height'), '40vh');
+  assert.equal(bodyRule.style.getPropertyValue('overflow-y'), 'auto');
+
+  ui.chat.active.stages = { version: 1, provider: 'kilocode', label: 'Kilo', changeable: true, stages: [] };
+  ui.chat.post();
+  await flush();
+  assert.equal(ui.document.getElementById('engine-name').textContent, 'Kilo');
 });

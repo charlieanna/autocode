@@ -854,6 +854,7 @@ const METER_STYLES = `
      weight leaves the sentence's share below a layout unit, so the sentence keeps its width until the model is gone. */
   #header-model { flex: 0 100000 auto; min-width: 0; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #header-model:empty, #run-header:not(.collapsed) #header-model { display: none; }
+  #header-body { max-height: 40vh; overflow-y: auto; }
   #run-header.collapsed #header-body { display: none; }
   #run-header.collapsed #header-sentence { display: block; white-space: nowrap; text-overflow: ellipsis; }
   #header-collapse { flex: none; align-self: center; display: inline-flex; align-items: center; justify-content: center;
@@ -1963,25 +1964,33 @@ function updateRaiseButton(button) {
   raise.disabled = current.taking || current.working || Boolean(current.unreadable) || !valid;
 }
 
+function formatBoundMetric(value) {
+  return typeof value === 'number' && Number.isFinite(value) && !Number.isInteger(value)
+    ? Number(value.toFixed(3))
+    : value;
+}
+
 function numericHelp(input) {
+  const used = formatBoundMetric(input.used);
+  const elapsed = formatBoundMetric(input.elapsed);
   if (input.id === 'grant_recovery') return 'Automatic recovery allowance: ' + input.current
-    + '. Counted recoveries used: ' + input.used + '. Enter 1 to ' + input.maximum
+    + '. Counted recoveries used: ' + used + '. Enter 1 to ' + input.maximum
     + ' additional recoveries. A grant replenishes spent slots; history is kept.';
   if (input.id === 'planning_review_call_limit') return 'Saved allowance: ' + input.current
-    + ' calls. Plan-review calls used: ' + input.used + '. Enter a total of at least ' + input.minimum + ' calls.';
-  if (input.id === 'max_cost_usd') return 'Saved cost cap: $' + input.current + '. Known spend: $' + input.used
+    + ' calls. Plan-review calls used: ' + used + '. Enter a total of at least ' + input.minimum + ' calls.';
+  if (input.id === 'max_cost_usd') return 'Saved cost cap: $' + input.current + '. Known spend: $' + used
     + '. Enter a whole-dollar cap of at least $' + input.minimum + '.';
   if (input.id === 'max_iterations') return 'Saved ceiling: ' + input.current + ' iterations. Current iteration: '
-    + input.used + '. Enter a total of at least ' + input.minimum + ' iterations.';
+    + used + '. Enter a total of at least ' + input.minimum + ' iterations.';
   if (input.id === 'max_milestone_seconds') return 'Saved milestone time: ' + input.current + ' seconds. Counted: '
-    + input.used + ' seconds. Enter at least ' + input.minimum + ' seconds.';
+    + used + ' seconds. Enter at least ' + input.minimum + ' seconds.';
   if (input.id === 'max_milestone_replans') return 'Replans allowed: ' + input.current + '. Replans used: '
-    + input.used + '. Enter at least ' + input.minimum + '.';
+    + used + '. Enter at least ' + input.minimum + '.';
   if (input.id === 'no_progress_limit') return 'Unchanged batches allowed: ' + input.current + '. Counted: '
-    + input.used + '. Enter at least ' + input.minimum + '.';
+    + used + '. Enter at least ' + input.minimum + '.';
   if (input.id === 'max_planning_calls') return 'Planning-call cap: ' + input.current + '. Calls since your last answer: '
-    + input.used + '. Enter at least ' + input.minimum + '.';
-  return 'Saved total: ' + input.current + ' seconds. Active time used: ' + input.elapsed
+    + used + '. Enter at least ' + input.minimum + '.';
+  return 'Saved total: ' + input.current + ' seconds. Active time used: ' + elapsed
     + ' seconds. Enter a total of at least ' + input.minimum + ' seconds.';
 }
 

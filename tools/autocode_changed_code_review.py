@@ -17,6 +17,8 @@ except ImportError:
 
 FIELD = "changed_code_exceptions"
 KINDS = ("defensive_unreachable", "instrumentation_unavailable", "equivalent_mutant")
+REJECT_KINDS = ("missing_test",)
+DECISION_KINDS = (*KINDS, *REJECT_KINDS)
 
 
 def prompt_order(schema: dict) -> dict:
@@ -46,7 +48,7 @@ SCHEMA: dict = {
             # The text of the exact line gap_id binds, copied from its obligation's source_line (#2977).
             "source_line": {"type": "string"},
             "decision": {"type": "string", "enum": ["accept", "reject"]},
-            "reason_kind": {"type": "string", "enum": list(KINDS)},
+            "reason_kind": {"type": "string", "enum": list(DECISION_KINDS)},
             "reason": {"type": "string"},
             "evidence_refs": {"type": "array", "items": {"type": "string"}},
         },
@@ -306,7 +308,7 @@ def bind(assessment, decisions, record, *, offered_schema, verified_refs):
         reason, refs = row.get("reason"), row.get("evidence_refs")
         if (
             row.get("decision") not in ("accept", "reject")
-            or row.get("reason_kind") not in KINDS
+            or row.get("reason_kind") not in (KINDS if row.get("decision") == "accept" else DECISION_KINDS)
             or not isinstance(reason, str)
             or not reason.strip()
             or not isinstance(refs, list)

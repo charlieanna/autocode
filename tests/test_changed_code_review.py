@@ -129,6 +129,34 @@ class ChangedCodeReviewTests(unittest.TestCase):
         self.assertEqual("excepted", result["obligations"][0]["status"])
         self.assertEqual(before, (self.assessment, self.decision, self.record, self.refs))
 
+    def test_missing_test_reason_kind_binds_for_reject_but_never_grants_accept(self):
+        rejected = {
+            **self.decision,
+            "decision": "reject",
+            "reason_kind": "missing_test",
+            "reason": "Add a unit test asserting negative inputs raise ValueError.",
+        }
+        schema = wire()
+        validate_schema([rejected], schema["properties"][review.FIELD])
+        bound = self.bind([rejected], offered_schema=schema)
+        self.assertFalse(bound[0]["accepted"])
+        self.assertEqual("missing_test", bound[0]["reason_kind"])
+        result = evidence.assess(
+            [{"path": "calc.py", "sha256": "a" * 64, "lines": [2]}],
+            None,
+            None,
+            source_revision="source-one",
+            proof_context="proof-one",
+            exceptions=bound,
+            texts=CALC,
+        )
+        self.assertEqual("UNVERIFIED", result["status"])
+        self.assertEqual("reason_required", result["obligations"][0]["status"])
+
+        invalid_accept = {**rejected, "decision": "accept"}
+        with self.assertRaisesRegex(ValueError, "explicit judgment, reason and evidence"):
+            self.bind([invalid_accept], offered_schema=schema)
+
     def test_handle_binds_the_exact_gap_its_full_id_names(self):
         self.assertEqual("L1", self.gap["handle"])
         by_id = self.bind()

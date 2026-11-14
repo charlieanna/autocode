@@ -61,6 +61,19 @@ class ScrubTests(unittest.TestCase):
         }
         self.assertEqual(env, agent_env.scrubbed(env))
 
+    def test_runner_only_source_host_toggle_is_withheld_without_secret_redaction_or_auth_hint(self):
+        import autocode_provider_env as provider_env
+
+        env = {
+            "PATH": "/usr/bin",
+            "AUTOCODE_SOURCE_HOST": "1",
+            agent_env.PASS_VARIABLE: "AUTOCODE_SOURCE_HOST",
+        }
+        self.assertFalse(agent_env.is_secret("AUTOCODE_SOURCE_HOST", "1"))
+        self.assertEqual(["AUTOCODE_SOURCE_HOST"], agent_env.withheld(env))
+        self.assertEqual({"PATH": "/usr/bin", agent_env.PASS_VARIABLE: "AUTOCODE_SOURCE_HOST"}, agent_env.scrubbed(env))
+        self.assertEqual("", provider_env.withheld_hint(["AUTOCODE_SOURCE_HOST"]))
+
     def test_git_config_variables_are_kept_or_withheld_as_one_set(self):
         env = {
             "GIT_CONFIG_COUNT": "2",

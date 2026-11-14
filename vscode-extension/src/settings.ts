@@ -81,7 +81,7 @@ export function partitionOptions(options: string[]): { shared: string[]; routes:
  * Evaluates flags left-to-right with CLI precedence (later arguments override earlier ones,
  * supporting both `--flag value` and `--flag=value` forms).
  */
-export function launchTarget(settings: Settings): { engine: string; routeKey: string } {
+export function launchTarget(settings: Settings): { engine: string; routeKey: string; explicit: boolean } {
   let explicitEngine: Engine | undefined;
   let explicitProvider: string | undefined;
 
@@ -101,6 +101,7 @@ export function launchTarget(settings: Settings): { engine: string; routeKey: st
   }
 
   const engine = explicitEngine || explicitProvider || "opencode";
+  const explicit = Boolean(explicitEngine || explicitProvider);
 
   let routeKey: string;
   if (explicitEngine === "codex") {
@@ -111,7 +112,7 @@ export function launchTarget(settings: Settings): { engine: string; routeKey: st
     routeKey = explicitProvider || "opencode";
   }
 
-  return { engine, routeKey };
+  return { engine, routeKey, explicit };
 }
 
 /** The engine or registered provider new chats will run on; the core's default is opencode. */

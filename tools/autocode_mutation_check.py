@@ -74,11 +74,24 @@ def isolated(command, cache) -> str:
     """Use this collection's own bytecode cache. Unchanged dependencies can reuse their compile;
     _collect gives each changed source version its own whole-second modification time, including
     for child interpreters that ignore this environment. A new collection starts with a fresh cache.
+    ``PYTHONDONTWRITEBYTECODE=`` overrides ``test_environment``'s ``1`` so Python populates ``cache``.
     """
     invocation = python_tests.parse(command)
-    prefix = list(invocation.prefix) or ["env"]
+    prefix = [
+        word
+        for word in (list(invocation.prefix) or ["env"])
+        if not word.startswith(("PYTHONDONTWRITEBYTECODE=", "PYTHONPYCACHEPREFIX="))
+    ] or ["env"]
     return shlex.join(
-        [*prefix, f"PYTHONPYCACHEPREFIX={cache}", invocation.python, "-m", invocation.kind, *invocation.arguments]
+        [
+            *prefix,
+            "PYTHONDONTWRITEBYTECODE=",
+            f"PYTHONPYCACHEPREFIX={cache}",
+            invocation.python,
+            "-m",
+            invocation.kind,
+            *invocation.arguments,
+        ]
     )
 
 

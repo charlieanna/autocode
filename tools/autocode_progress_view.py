@@ -407,7 +407,10 @@ def _asked(needs, state: RunState | None = None):
             if _grant_offered(needs):
                 return "send AutoResolver corrective information, or authorize additional recoveries"
             return "send AutoResolver corrective information"
-        return f"{_count(len(needs.get('questions') or []), 'question')} to answer"
+        questions = needs.get("questions") or []
+        if len(questions) == 1 and isinstance(questions[0], dict) and questions[0].get("id") == "requirements_review":
+            return "requirements confirmation needed"
+        return f"{_count(len(questions), 'question')} to answer"
     if kind == "review":
         return f"{_count(len(needs.get('criteria') or []), 'requirement')} to review"
     if kind == "approve_plan":

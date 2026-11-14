@@ -114,6 +114,16 @@ class ProgressLineTests(unittest.TestCase):
         self.assertEqual(["done", "waiting", "waiting"], [item["state"] for item in view["tasks"]["items"]])
         self.assertTrue(view["tasks"]["items"][1]["current"])
 
+    def test_requirements_review_confirmation_is_named_not_counted_as_a_question(self):
+        saved = state(
+            status="WAITING_FOR_USER",
+            active_stage=None,
+            pending_questions=[{"id": "requirements_review", "question": "Confirm requirements summary?"}],
+        )
+        shown = project(saved)
+        self.assertIn("requirements confirmation needed", shown["line"])
+        self.assertNotIn("1 question to answer", shown["line"])
+
     def test_a_run_with_one_failed_check(self):
         saved = state(
             active_stage=None,

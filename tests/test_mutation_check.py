@@ -379,6 +379,22 @@ class StaleBytecodeTests(unittest.TestCase):
         self.assertEqual(1, len(set(compiled)), "unchanged dependency bytecode should be compiled only once")
         self.assertEqual((LIMIT_FIVE, EPOCH_2020 * 1_000_000_000), (app.read_text(), app.stat().st_mtime_ns))
 
+    def test_isolated_overrides_pythondontwritebytecode_so_shared_pycache_warms_under_test_environment(self):
+        temporary = tempfile.TemporaryDirectory(prefix="mutation-dontwritebytecode-")
+        self.addCleanup(temporary.cleanup)
+        tree = Path(temporary.name)
+        cache = tree / "evidence" / "pycache"
+        (tree / "app.py").write_text("def ok():\n    return True\n")
+        (tree / "test_app.py").write_text(
+            "import unittest, app\nclass AppTests(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(app.ok())\n"
+        )
+        cmd = mutation_check.isolated(f"{shlex.quote(sys.executable)} -m unittest -v test_app.py", cache)
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", PYTHONPATH=str(tree))
+        completed = subprocess.run(["/bin/sh", "-c", cmd], cwd=tree, env=env, capture_output=True, text=True)
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertTrue(list(cache.rglob("*.pyc")), "expected warm bytecode files under PYTHONPYCACHEPREFIX")
+        self.assertFalse((tree / "__pycache__").exists())
+
     def test_each_mutant_runs_its_own_code_when_two_are_written_in_the_same_second(self):
         temporary = tempfile.TemporaryDirectory(prefix="mutation-pyc-")
         self.addCleanup(temporary.cleanup)
