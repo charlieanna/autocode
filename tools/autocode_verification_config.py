@@ -159,10 +159,15 @@ def configure_resume(state: RunState, settings, args):
     hold = blocker_hold(state)
     if not getattr(args, "resume_paused", False) or not (str(state.get("status", "")).startswith("PAUSED_") or hold):
         raise ValueError("Changing saved verification commands requires a paused run and --resume-paused")
-    # The pre-build acceptance proof pause, before its proof has run, is such a checkpoint too (#2609).
+    # Requested pre-build pauses also precede fresh verification. Repair the
+    # command here instead of making the operator repeat a known expensive check.
+    requested_prebuild = state.get("status") in ("PAUSED_REQUESTED", "PAUSED_INTERVENTION") and state.get(
+        "next_stage"
+    ) in ("orchestrator", "builder", "write_acceptance_tests")
+    # Retain the dedicated acceptance-proof correction boundary (#2609).
     before_proof = (
         state.get("status") == "PAUSED_ACCEPTANCE_TESTS" and state.get("next_stage") == "write_acceptance_tests"
-    )
+    ) or requested_prebuild
     if not hold and not before_proof and state.get("next_stage") not in ("tester", "review_checkpoint"):
         raise ValueError(
             "Changing verification commands requires a stopped checkpoint before the Validator "
