@@ -32,6 +32,130 @@ _TICKET_REFERENCE = re.compile(
 _QUOTED_REFERENCE = re.compile(r"`[^`\n]*`|\"[^\"\n]*\"|'[^'\n]*'")
 _REFERENCE_OUTPUT = re.compile(r"\b(?:print|emit|output|return|literal|display|show|write|quote|say)\b", re.I)
 
+# AutoCode's own stage artifact slugs (autocode_artifacts.FILE_SLUGS and legacy/current stage stems in
+# autocode_names.STAGES). Verified by tests.test_source_metadata so this module stays import-free.
+ARTIFACT_SLUGS: frozenset[str] = frozenset(
+    {
+        "acceptance-tests",
+        "analyst",
+        "astra-challenge",
+        "astra-checkpoint",
+        "astra-diagnose",
+        "astra-discovery",
+        "astra-finalize",
+        "astra-plan",
+        "astra-resolve",
+        "astra-review",
+        "bug-investigation",
+        "builder",
+        "check-design",
+        "collect-design",
+        "completion-checkpoint",
+        "completion-review",
+        "design-check",
+        "design-inventory",
+        "design-review",
+        "diagnose",
+        "diagnosis",
+        "discovery",
+        "draft-plan",
+        "finalize-plan",
+        "glm-revise",
+        "investigate-bug",
+        "investigate-stuck",
+        "orchestrator",
+        "plan",
+        "plan-challenge",
+        "plan-finalize",
+        "plan-review",
+        "plan-revise",
+        "plan-task",
+        "recognize-workflow",
+        "requirements",
+        "requirements-gather",
+        "requirements-revise",
+        "resolve",
+        "resolver",
+        "review-change",
+        "review-checkpoint",
+        "review-completion",
+        "review-design",
+        "review-plan",
+        "revise-plan",
+        "sol",
+        "stuck-investigation",
+        "task-plan",
+        "terra",
+        "tester",
+        "validator",
+        "write-acceptance-tests",
+    }
+)
+_SLUG_ALT = "|".join(re.escape(slug) for slug in sorted(ARTIFACT_SLUGS, key=len, reverse=True))
+_AUTOCODE_METADATA = re.compile(
+    r"(?<![\w/-])(?P<token>"
+    r"(?P<ac>AC[1-9]\d*)"
+    r"|(?:(?i:criterion|criteria|case|concern|requirement|milestone|question)\s+)(?P<item>(?:AC|C|R|M|Q|T)[1-9]\d*)"
+    r"|(?i:revision)\s+(?P<rev>r?[1-9]\d*)"
+    r"|(?P<ctok>r[1-9]\d*:[0-9a-f]{8,64})"
+    r"|(?:(?:iterations/)?[0-9]{3}/)?(?P<stem>(?:"
+    + _SLUG_ALT
+    + r")(?:[-_]report[-_]repair)?-[0-9]{2,})(?:\.(?:jsonl?|prompt\.md))?"
+    r")(?!\.[A-Za-z0-9]|[\w-])"
+)
+
+
+_NON_TOKEN_CODE = re.compile(r"\b(?:exit|status|http|response)\s+code\s+\d+\b|\bsource\s+code\b", re.I)
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+
+
+def autocode_reference_tokens(text: str) -> set[str]:
+    """Admit unquoted AutoCode plan/artifact references, never output, quoted, fenced or value tokens."""
+    counts: dict[str, int] = {}
+    tokens_by_core: dict[str, set[str]] = {}
+    output_context = False
+    fenced = False
+    for line in text.splitlines():
+        if line.lstrip().startswith(("```", "~~~")):
+            fenced = not fenced
+            continue
+        if fenced:
+            continue
+        for sentence in _SENTENCE_SPLIT.split(line):
+            matches = list(_AUTOCODE_METADATA.finditer(sentence))
+            if not matches:
+                if sentence.strip():
+                    output_context = bool(
+                        _REFERENCE_OUTPUT.search(sentence) and not sentence.rstrip().endswith((".", "!", "?"))
+                    )
+                continue
+            value_probe = _NON_TOKEN_CODE.sub(" ", sentence)
+            if output_context or _REFERENCE_OUTPUT.search(sentence) or _TITLE_VALUE.search(value_probe):
+                if sentence.strip():
+                    output_context = bool(
+                        _REFERENCE_OUTPUT.search(sentence) and not sentence.rstrip().endswith((".", "!", "?"))
+                    )
+                continue
+            quoted = [match.span() for match in _QUOTED_REFERENCE.finditer(sentence)]
+            for match in matches:
+                if not any(start <= match.start("token") < end for start, end in quoted):
+                    core = (
+                        match.group("ac")
+                        or match.group("item")
+                        or match.group("rev")
+                        or match.group("ctok")
+                        or match.group("stem")
+                        or match.group("token")
+                    )
+                    counts[core] = counts.get(core, 0) + 1
+                    tokens_by_core.setdefault(core, set()).add(match["token"])
+    admitted: set[str] = set()
+    for core, count in counts.items():
+        core_pattern = re.compile(r"(?<![\w-])" + re.escape(core) + r"(?!:[0-9a-f]{8,64}|[\w-])")
+        if len(core_pattern.findall(text)) == count:
+            admitted.update(tokens_by_core[core])
+    return admitted
+
 
 def ticket_reference_keys(text: str) -> set[str]:
     """Admit explicit documentary ticket references, never output or product values.
@@ -103,8 +227,22 @@ def without_location_labels(text: str, *, protected_locations=()) -> str:
     return _LOCATION_LABEL.sub(lambda match: match.group() if match["location"] in protected else " ", text)
 
 
-def value_text(text: str, source_ids, *, protected_locations=(), ticket_title_key="", ticket_reference_keys=()) -> str:
+autocode_reference_tokens_for = autocode_reference_tokens
+
+
+def value_text(
+    text: str,
+    source_ids,
+    *,
+    protected_locations=(),
+    ticket_title_key="",
+    ticket_reference_keys=(),
+    autocode_reference_tokens=None,
+) -> str:
     """Text whose numbers denote values, with known source-reference metadata removed."""
+    admitted_autocode = (
+        autocode_reference_tokens_for(text) if autocode_reference_tokens is None else set(autocode_reference_tokens)
+    )
     text = without_location_labels(text, protected_locations=protected_locations)
     title = _TICKET_TITLE.match(text)
     if title and title["key"] == ticket_title_key:
@@ -115,6 +253,11 @@ def value_text(text: str, source_ids, *, protected_locations=(), ticket_title_ke
         ),
         text,
     )
+    if admitted_autocode:
+        text = _AUTOCODE_METADATA.sub(
+            lambda match: " " if match["token"] in admitted_autocode else match.group(),
+            text,
+        )
     ids = "|".join(re.escape(value) for value in sorted(set(source_ids), key=len, reverse=True))
     if not ids:
         return text

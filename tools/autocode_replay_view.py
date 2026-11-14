@@ -309,7 +309,7 @@ def _project(state: RunState, *, run_dir=None):
             ),
             "end",
         )
-        if kind == "goal_approval":
+        if kind == "goal_approval" and event.get("actor") != "workflow_policy":
             token = event.get("token")
             contract = next((row for row in contracts if (row.get("approval_event") or {}).get("token") == token), None)
             if not contract:
