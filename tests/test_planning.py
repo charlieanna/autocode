@@ -78,13 +78,18 @@ class PlanningTests(unittest.TestCase):
                         reference["properties"]["revise_contract"].get("enum"),
                     )
                     offered = reference["properties"]["acceptance_criteria"]
+                    # #3408 offers the delta or null (keep every criterion). The small runtime validator
+                    # does not implement anyOf, so the delta branch is the one checked here.
+                    offered = next(branch for branch in offered.get("anyOf", [offered]) if "properties" in branch)
                     support.validate_schema(delta, offered)
                     with self.assertRaises(ValueError):
                         support.validate_schema({**delta, "upsert": [{"id": "C1"}]}, offered)
                 criteria = next(
                     branch["properties"]["acceptance_criteria"]
                     for branch in branches
-                    if "anyOf" in branch.get("properties", {}).get("acceptance_criteria", {})
+                    # The full contract form: the reference's own criteria are delta-or-null, checked above.
+                    if "revise_contract" not in branch.get("properties", {})
+                    and "anyOf" in branch.get("properties", {}).get("acceptance_criteria", {})
                 )
                 # The runtime validates the expanded canonical report; check
                 # the concrete generation branch here (the small runtime
