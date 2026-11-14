@@ -2012,7 +2012,7 @@
 
 
 <h1 id="vs-code-extension">VS Code extension<a class="headerlink" href="#vs-code-extension" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/605ac295741c68c091b99a3062644a5401eb70a8/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/c9bd3ba99046c47985cf26261efe93515d86ba0a/README.md">← Back to README</a></p>
 <p>Chat with AutoCode in the sidebar (issue #884). The extension starts the CLI,
 reads <code>--status</code> and <code>registry list --json</code>, and takes the actions the public
 <a href="../task-run/">task-run interface</a> names. It imports no runner internals and never
@@ -2090,7 +2090,7 @@ Markdown and code blocks for assistant replies. A fixed composer grows with your
 draft. New output follows the bottom until you scroll up or select text;
 <strong>Latest messages</strong> returns to the bottom. These composer and scrolling components
 are adapted from Kilo Code's open-source UI; the exact revision and attribution
-are in <a href="https://github.com/charlieanna/autocode/blob/605ac295741c68c091b99a3062644a5401eb70a8/vscode-extension/THIRD_PARTY_NOTICES.md">THIRD_PARTY_NOTICES.md</a>.</p>
+are in <a href="https://github.com/charlieanna/autocode/blob/c9bd3ba99046c47985cf26261efe93515d86ba0a/vscode-extension/THIRD_PARTY_NOTICES.md">THIRD_PARTY_NOTICES.md</a>.</p>
 <p>Models and usage are shown once, in the run header at the top of the chat (below):
 each stage's model, level, time, tokens and cost is a row of its stage table, and
 <strong>Show details</strong> has the rest. Cache and reasoning are already included in
@@ -2109,7 +2109,7 @@ same ones the terminal chat's stage panel reads: <code>usage.accounting.attempts
 <code>cost.breakdown.by_stage</code>, <code>cost.spent_usd</code> and <code>usage.accounting.tokens</code>.</p>
 <p>A finished run closes with a card: its result, how many requirements were
 checked, the files its saved steps and acceptance tests changed, the time its
-stages ran and its cost, with <strong>Show changes</strong> (the saved code changes below)
+stages ran and its cost, with <strong>Show changes</strong> (the run's whole change, below)
 and <strong>Run details</strong>. A new chat opens with what AutoCode does and three example
 requests; choosing one only fills the message box. A tab shows ● while its run
 waits for you and ✓ once it has finished, and the status bar names the working
@@ -2144,10 +2144,12 @@ beside it, when the view names <code>view.pause.stop_now</code>, ends the runnin
 once instead of letting it finish: nothing more is spent on it, its partial work
 and logs are kept, the run pauses ("Stopped by you"), and <strong>Continue</strong> runs that
 step again. The run's terminal Stop stays outside the chat.</p>
-<p><strong>Saved code changes</strong> offers only the comparisons and restores named by the
-core. While this chat waits for one of its commands to finish, those buttons
-are disabled with an explanation. They become available again when the command
-finishes; inspecting a run started elsewhere does not disable a named comparison.</p>
+<p><strong>Changes</strong> offers <strong>Show all changes</strong> once the run has saved a code change: one diff of
+everything the run changed, from where it started to its newest saved step, read from saved code
+(<code>code_checkpoints.all_changes</code>). The chat does not offer a step-by-step history to compare or go
+back to (owner decision 2026-11-13): a person asks for a change in the chat, and AutoCode takes it
+through Requirements and the plan again on the same branch. While this chat waits for one of its
+commands to finish, the button is disabled.</p>
 <p><strong>Run details</strong> opens the detailed progress panel. The Runs list reads the local
 registry and the open project's chats, and retains unavailable pointers with their
 diagnostic. Both surfaces use the core's named commands, including the optional
@@ -2273,7 +2275,7 @@ conversation.</p>
 Requirements follow-up has passed a real Kilo/token-plan greeting conversation;
 full build/test/completion qualification remains outstanding. The earlier full
 task attempt stopped on a MiMo network failure before building.
-See the <a href="https://github.com/charlieanna/autocode/blob/605ac295741c68c091b99a3062644a5401eb70a8/docs/bugs/2026-10-16-vscode-chat-qualification.md">qualification record</a>.
+See the <a href="https://github.com/charlieanna/autocode/blob/c9bd3ba99046c47985cf26261efe93515d86ba0a/docs/bugs/2026-10-16-vscode-chat-qualification.md">qualification record</a>.
 The jsdom tests alone establish neither editor-host nor live-provider compatibility.</p>
 <h2 id="settings">Settings<a class="headerlink" href="#settings" title="Permanent link">&para;</a></h2>
 <table>
