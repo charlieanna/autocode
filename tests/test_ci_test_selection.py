@@ -107,6 +107,21 @@ class AccessTransportConsumerTests(unittest.TestCase):
                 self.assertEqual(consumers, set(kept))
                 self.assertNotIn("tests.test_unrelated", kept)
 
+    def test_job_interruption_keeps_the_public_writer_and_source_custody_regressions(self):
+        consumers = {"tests.test_job_person_stop", "tests.test_stop_now_job_cli"}
+        for path in (
+            "tools/autocode_job_failure.py",
+            "tools/autocode_job_source.py",
+            "tools/autocode_run_records.py",
+            "tools/autocode_stop.py",
+            "tools/autocode_interventions.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {name: "" for name in (*consumers, "tests.test_unrelated")})
+                kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
+                self.assertEqual(consumers, set(kept))
+                self.assertNotIn("tests.test_unrelated", kept)
+
     def test_required_reliability_oracles_keep_their_process_outcome_counterexamples(self):
         consumer = "scenarios.test_reliability_oracle_outcomes"
         for scenario in (

@@ -999,6 +999,16 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (
         (
+            "tools/autocode_job_failure.py",
+            "tools/autocode_job_source.py",
+            "tools/autocode_run_records.py",
+            "tools/autocode_stop.py",
+            "tools/autocode_interventions.py",
+        ),
+        ("tests.test_job_person_stop", "tests.test_stop_now_job_cli"),
+    ),
+    (
+        (
             "tools/autocode_command_inputs.py",
             "tools/autocode_pause_command.py",
             "tools/autocode_recovery_view.py",
