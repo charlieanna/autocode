@@ -35,6 +35,16 @@ class RunStageModelsTests(unittest.TestCase):
         self.assertIsNone(stage_models.offer({"status": "RUNNING"}, run_dir="/runs/r"), "no routes before a run starts")
         self.assertIsNone(stage_models.offer(state(), run_dir=None))
 
+    def test_uncertain_stopped_check_does_not_claim_a_stage_is_working(self):
+        stopped = state("PAUSED_VERIFICATION_UNCERTAIN", active_runner_check={"stage": "regression_proof"})
+        offer = stage_models.offer(stopped, run_dir="/runs/r")
+        self.assertFalse(offer["changeable"])
+        self.assertEqual(
+            "A previous check has not been confirmed stopped. Models cannot be changed while this run is paused.",
+            offer["reason"],
+        )
+        self.assertEqual(offer["reason"], stage_models.refusal(stopped, "builder", "gpt-6-astra", "high"))
+
     def test_the_status_view_carries_the_offer(self):
         self.assertEqual(
             stage_models.offer(state(), run_dir="/r"), run_view.view(state(), run_dir="/r")["stage_models"]
