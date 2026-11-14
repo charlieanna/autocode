@@ -27,6 +27,7 @@ try:
     from .. import autocode_design_intake as design_intake
     from .. import autocode_goals as goals
     from .. import autocode_launch_inputs as launch_inputs
+    from .. import autocode_quota_route as quota_route
     from .. import autocode_recovery_novelty as novelty
     from .. import autocode_role_transport as role_transport
     from .. import autocode_run_status as run_status
@@ -43,6 +44,7 @@ except ImportError:
     import autocode_design_intake as design_intake
     import autocode_goals as goals
     import autocode_launch_inputs as launch_inputs
+    import autocode_quota_route as quota_route
     import autocode_recovery_novelty as novelty
     import autocode_role_transport as role_transport
     import autocode_run_status as run_status
@@ -95,7 +97,10 @@ def prepare(state: RunState, stage, state_path, schema_dir):
         # that session never leaks into validation. The Builder's model stays a different one (cross-model).
         state["phase"] = "EXECUTING"
         roles = state["settings"]["roles"]
-        roles.setdefault("acceptance_tester", deepcopy(roles["tester"]))
+        if "acceptance_tester" in roles:
+            quota_route.sync_derived_role(state, "acceptance_tester")
+        else:
+            roles["acceptance_tester"] = deepcopy(roles["tester"])
         role_transport.inherit(state.get("settings"), "acceptance_tester", "tester")
         return job_request(state, acceptance_tests_job, "tester", "acceptance_tester")
     if stage == design_check_job.STAGE:
@@ -104,7 +109,10 @@ def prepare(state: RunState, stage, state_path, schema_dir):
         # its own ("architect") so its session never leaks into later planning.
         state["phase"] = "REVIEWING"
         roles = state["settings"]["roles"]
-        roles.setdefault("architect", architect_route(roles))
+        if "architect" in roles:
+            quota_route.sync_derived_role(state, "architect")
+        else:
+            roles["architect"] = architect_route(roles)
         source = "plan_reviewer" if "plan_reviewer" in roles else "task_planner"
         role_transport.inherit(state.get("settings"), "architect", source)
         return job_request(state, JOBS[stage], "task_planner", "architect")

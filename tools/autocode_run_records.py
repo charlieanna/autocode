@@ -591,6 +591,7 @@ def archive_rejected_stage(state: RunState, run_dir, record, reason):
         ".opencode.json",
         ".source.json",
         ".witness.json",
+        ".stopped-source.json",
     ):
         artifact = base.with_name(base.name + suffix)
         if artifact.exists():
@@ -617,6 +618,9 @@ def archive_rejected_stage(state: RunState, run_dir, record, reason):
         capture = record.get("job_source") or {}
         if capture.get(key) in archived_paths:
             capture[key] = archived_paths[capture[key]]
+    kept = (record.get("job_source") or {}).get("stopped_capture") or {}
+    if kept.get("path") in archived_paths:
+        kept["path"] = archived_paths[kept["path"]]
     record["archived_paths"] = archived_paths
     record["rejected"] = True
     record["rejection_reason"] = str(reason)

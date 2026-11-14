@@ -11,8 +11,8 @@ workspace's source unless --with-diff adds the run's diff:
   (``model-preflight/**/*.json``, plus any pre-move preflight attempt receipts under
   ``pre-move-model-preflight/...``) and the last TAIL_LINES lines of each provider event stream
   (``iterations/**/*.jsonl`` and ``model-preflight/**/*.jsonl``);
-- ``settings.json`` (the run's resolved settings), ``doctor.json`` (``autocode doctor --json`` for
-  the workspace) and ``version.txt``.
+- ``settings.json`` (the run's resolved settings), ``doctor.json`` (an explicit not-run record
+  for live diagnostics) and ``version.txt``. Export never probes backend health.
 
 Every file AutoCode writes into the bundle goes through util.redact (#712), with the values of the
 secret-named environment variables (autocode_agent_env.is_secret) as known secrets. The recording
@@ -40,7 +40,6 @@ import subprocess
 import sys
 import tarfile
 import tempfile
-from dataclasses import asdict
 from pathlib import Path
 
 try:
@@ -174,12 +173,13 @@ def _archive(run_dir: Path) -> dict | None:
 
 
 def _doctor(workspace: Path) -> dict:
-    try:
-        from . import autocode_doctor as doctor
-    except ImportError:
-        import autocode_doctor as doctor
-    checks = doctor.all_checks(workspace)
-    return {"ok": doctor.passed(checks), "checks": [asdict(check) for check in checks]}
+    """Keep the diagnostic artifact without depending on the live backend being healthy."""
+    return {
+        "status": "not_run",
+        "ok": None,
+        "checks": [],
+        "reason": "Live host and provider diagnostics are not run during retained evidence export.",
+    }
 
 
 def _recording(run_dir: Path, scratch: Path) -> Path:
@@ -241,7 +241,7 @@ def _canonical_run(run_dir: Path) -> tuple[Path, Path, RunState, Path | None, st
 def collect(run_dir, *, with_diff=False, environ=None, doctor=None, recording=None) -> tuple[dict, dict]:
     """The bundle's files (name -> bytes) and its manifest; the run directory is only read.
 
-    ``doctor`` and ``recording`` stand in for the host checks and the replay export (tests).
+    ``doctor`` and ``recording`` stand in for the diagnostic record and the replay export (tests).
     """
     doctor, recording = doctor or _doctor, recording or _recording
     run_dir = Path(run_dir).absolute()
@@ -259,7 +259,7 @@ def collect(run_dir, *, with_diff=False, environ=None, doctor=None, recording=No
         notes["moved_from"] = util.redact(moved_note, secrets)
     try:
         report = doctor(workspace)
-    except Exception as error:  # doctor checks the host; a bundle still helps without them
+    except Exception as error:  # an injected diagnostic failure must not prevent retained evidence export
         report = {"error": f"{type(error).__name__}: {error}"}
     files["doctor.json"] = util.redact(json.dumps(report, indent=2, sort_keys=True), secrets).encode()
     if with_diff:

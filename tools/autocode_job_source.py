@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
+import hashlib
 import json
 import os
 import shutil
@@ -157,6 +158,77 @@ def _bound(path, expected):
     if not path or not expected or not Path(path).is_file() or util.file_hash(Path(path)) != expected:
         raise ValueError("Missing or corrupt source capture/witness")
     return util.read_object(Path(path))
+
+
+def retain_stopped(workspace, record):
+    """Keep exact witnessed partial bytes before restoration; never accepted test evidence."""
+    capture = record.get("job_source") or {}
+    if matches_original(workspace, capture.get("before_identity"), source_paths=capture.get("source_paths", ())):
+        return  # No current writes need retention or restoration, even if old capture files were lost.
+    manifest = _bound(capture.get("capture"), capture.get("capture_hash"))
+    witness = _bound(capture.get("witness"), capture.get("witness_hash"))
+    original = manifest["original"]
+    if util.digest(original) != capture.get("before_identity"):
+        raise ValueError("Original source identity changed before retaining stopped work")
+    root = Path(workspace)
+
+    def current():
+        value = identity(root, source_paths=capture.get("source_paths", ()))
+        for name in original["files"]:
+            value["files"].setdefault(name, _entry(root, name))
+        return value
+
+    if current() != witness:
+        raise ValueError("Source changed after the stopped witness; partial work was not restored")
+    base = Path(record["output"]).with_suffix("")
+    directory = Path(tempfile.mkdtemp(prefix=base.name + "-stopped-", dir=base.parent))
+    blobs = {}
+    for name, entry in witness["files"].items():
+        if entry == original["files"].get(name, {"kind": "missing"}) or entry["kind"] != "file":
+            continue
+        _path(root, name)  # Existing source-path policy, including internal-directory refusal.
+        parent = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            parts = Path(name).parts
+            for part in parts[:-1]:
+                nested = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                os.close(parent)
+                parent = nested
+            fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
+            with os.fdopen(fd, "rb") as handle:
+                info = os.fstat(handle.fileno())
+                if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != entry["mode"]:
+                    raise ValueError("Stopped source type or mode changed: " + name)
+                content = handle.read()
+        finally:
+            os.close(parent)
+        if hashlib.sha256(content).hexdigest() != entry["sha256"]:
+            raise ValueError("Stopped source bytes changed: " + name)
+        blob = directory / util.digest(name)
+        with blob.open("xb") as handle:
+            os.chmod(blob, 0o600)
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if util.file_hash(blob) != entry["sha256"]:
+            raise ValueError("Stopped source copy differs: " + name)
+        blobs[name] = str(blob)
+    if current() != witness:
+        raise ValueError("Source changed while retaining stopped work; no restoration was attempted")
+    path = base.with_suffix(".stopped-source.json")
+    if path.exists() or path.is_symlink():
+        raise ValueError("A retained stopped-source manifest already exists; keep the original attempt")
+    util.atomic_json(
+        path,
+        {
+            "verification": "unverified",
+            "original_identity": capture["before_identity"],
+            "witness_sha256": capture["witness_hash"],
+            "files": witness["files"],
+            "blobs": blobs,
+        },
+    )
+    capture["stopped_capture"] = {"path": str(path), "sha256": util.file_hash(path)}
 
 
 def _replace(root, name, original, witnessed, blob):
