@@ -906,8 +906,9 @@ mutation outcome in these languages, so the Tester must give its reason for the 
 did not (Perl) or cited the test file in a form the runner does not read (PHP). Not a stop, but one more
 model call in every such run.
 
-Still open: `make test`, Maven, Gradle and CMake report only an exit code too, and a recipe or a build
-file can run anything, so a repair with no test change there still needs a changed test.
+Still open then: `make test`, Maven, Gradle and CMake report only an exit code too, so a repair with no
+test change there still needed a changed test. Section 33 has the real runs, and the fix for Maven and
+Gradle.
 
 ## 32. Three more kinds of task: two complete, `make check` asks the person (fixed)
 
@@ -934,6 +935,52 @@ own, `check` is often lint alone. The same task then completes: 9 stages, 162 s,
 
 Still open: a `GNUmakefile` or `makefile`, a test target of another name (`tests`, `unittest`), and a
 `Makefile` that includes the file its test rule is in.
+
+## 33. Maven and `make test`: a failing test to repair asks the person (Maven and Gradle fixed)
+
+The request of section 31, "this test fails, fix the code, do not change the tests", in two more projects,
+on master with section 32's fix:
+
+| Project | Result | Bundle manifest |
+| --- | --- | --- |
+| Java, Maven and JUnit 5, `mvn -B -q test` | asks the person, 13 stages, 392 s, $2.60 | `913b11858678bd2c45cda6813eec47e404eccaeb47dd0b9207e1f122fbfd176f` |
+| C, a `Makefile` with a `test` target | asks the person, 10 stages, 158 s, $1.06 | `b737950945d57dfa2ab7a6a1b623315e6d0acf2799f41b1ca3479366dff14f6f` |
+
+Both fixes were correct. Both proofs said "No regression test was added or changed, so the bug is not
+shown to be reproduced" and "The base suite is not green, so the candidate's exit-code-only suite cannot
+prove the base definition still passes over the new code", and the Resolver asked the person: "Set the
+saved regression command through the verification-command correction to: mvn -B -q test
+-Dtest=PagerTest#partialLastPageIsCounted" (Maven), "Set the saved regression command to exactly
+`make test`" (C).
+
+**Maven and Gradle.** Section 31's rule lets a failing suite show a repair when the proof can hold what the
+suite runs to the original. For Maven and Gradle that definition already exists: a JUnit proof of the same
+command keeps the build files, the wrapper and the test sources the original ones, and leaves the boundary
+unestablished when a product file may define a test (`autocode_junit_proof.definition`). An exit-code
+repair of a Maven or Gradle suite is now held to that definition (`autocode_first_suite.BUILD_TOOL_RUNNERS`),
+so a `build.gradle.kts` that disables the test task, which is "code" by its suffix and makes the suite
+pass, shows no repair: the original build file over the new code still fails. An ordinary Maven or Gradle
+change with a test is proven as before.
+
+The Maven task then completes: 10 stages, 206 s, $1.41, the proof `PASS` at its first attempt with
+"its suite `mvn -B -q test` fails on the original code (exit 1) and passes with the change, so the tests
+the project already has show the repair" (bundle manifest
+`aacddcf84dcf025abcefcbf8cf1f7c748d2520637e8c5b5e2184f857c5c8aabe`).
+
+**Still open.** `make test`, `make check` and CMake with CTest: a recipe or a `CMakeLists.txt` can run
+anything, and no existing definition holds one to the original, so a repair there with no test change
+still asks the person for a command.
+
+## 34. Four more kinds of task (complete)
+
+With section 33's fix, each a bug fix with a regression test, with one plan approval and no question:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| The request written in Spanish (a Python project with pytest) | complete, 10 stages, 219 s, $1.30; the plan's criteria are in Spanish, the tests named in English | `733aa71273466c9a2689df7b3e8d592ff5010e787a7cfd349d56c8af36393aca` |
+| A Python project whose files have Windows line endings | complete, 10 stages, 212 s, $1.65; both changed files still end every line with CRLF | `94c482b680406fd60301707fbe4603f8e8c7ade8fc7af04d36b72cc0bb002db9` |
+| Go, "add the case to the table" of one table-driven test with no subtests | complete, 10 stages, 157 s, $1.10; one criterion, `test: TestPageCount`, an existing test that fails on the original code with the new row | `88cfbebb4b2326d6dca8195ed47ab6688e60ff4c3a2c0745989a6c11d42e241a` |
+| Node, a directory and files with spaces in their names (`Paging Tools/page count.js`) | complete, 10 stages, 200 s, $1.55 | `5c7f6eec6ff39461beeec724aef20fe896bd8b594591bf7dc630d47d0362dd19` |
 
 ## Also seen, not yet run on real models
 

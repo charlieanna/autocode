@@ -9,14 +9,15 @@ only an exit code shows the same thing as a whole: it fails on the original code
 and the change is code alone, with the suite's own files as they were.
 
 The cases run real commands in a Ruby project, with Minitest's detected suite and with a test script only the
-plan names, in a Perl distribution with prove, in a PHPUnit project (its command a stand-in) and in a shell
-and a Makefile project; no provider runs.
+plan names, in a Perl distribution with prove, in a PHPUnit project and in Maven and Gradle projects (their commands
+stand-ins) and in a shell and a Makefile project; no provider runs.
 tools/autocode_first_suite.py
 """
 
 from __future__ import annotations
 
 import shutil
+import sys
 import unittest
 from unittest import mock
 
@@ -29,6 +30,7 @@ from autocode_test_framework import Framework
 
 from . import test_perl_suite as perl
 from . import test_phpunit_suite as php
+from . import test_verify
 from .test_verify import Project
 
 FIXED = "module Pager\n  def self.page_count(total, size)\n    (total + size - 1) / size\n  end\nend\n"
@@ -100,6 +102,9 @@ class RuleTests(unittest.TestCase):
             (Framework("minitest", "ruby -e 1"), "ruby -e 1", None, True),
             (Framework("phpunit", "vendor/bin/phpunit"), "vendor/bin/phpunit", None, True),
             (Framework("prove", "prove -lr t"), "prove -lr t", None, True),
+            (Framework("maven", "mvn -B -q test"), "mvn -B -q test", None, True),
+            (Framework("gradle", "./gradlew --no-daemon -q test"), "./gradlew --no-daemon -q test", None, True),
+            (Framework("cmake", "ctest"), "ctest", None, False),
             (None, "ruby tests/pager_check.rb", "ruby tests/pager_check.rb", True),
             # A command the person typed, a recipe and a package script run whatever they say.
             (None, "sh run.sh", None, False),
@@ -257,6 +262,103 @@ class PhpunitTests(Proving):
         proof = self.prove(contract(self.criterion), {"src/Pager.php": php.FIXED, "phpunit.xml": narrowed})
         self.assertEqual(verify.FAIL, proof["verdict"], proof)
         self.assertIn(f"{NO_TEST}, so the bug is not shown to be reproduced", " ".join(proof["failures"]))
+        self.assertFalse(self.shown(proof), proof["notes"])
+
+
+JAVA = (
+    "package example;\n\npublic final class Pager {\n    public static int pageCount(int total, int size) {\n"
+    "        return total / size;\n    }\n}\n"
+)
+JAVA_FIXED = JAVA.replace("total / size", "(total + size - 1) / size")
+JAVA_TEST = (
+    "package example;\n\nimport static org.junit.jupiter.api.Assertions.assertEquals;\n\n"
+    "import org.junit.jupiter.api.Test;\n\nclass PagerTest {\n"
+    "    @Test\n    void exactMultiple() {\n        assertEquals(2, Pager.pageCount(10, 5));\n    }\n\n"
+    "    @Test\n    void partialLastPage() {\n        assertEquals(3, Pager.pageCount(11, 5));\n    }\n}\n"
+)
+# What a project's Maven or Gradle wrapper does, reduced to this project: it evaluates the one return
+# statement of Pager.java for each assertEquals of the test classes and exits 1 when one fails. As Gradle
+# does, it runs no test when the build file disables the test task.
+WRAPPER = (
+    f"#!{sys.executable}\n"
+    """import pathlib, re, sys
+
+build = pathlib.Path("build.gradle.kts")
+if build.is_file() and "enabled = false" in build.read_text():
+    sys.exit(0)
+source = pathlib.Path("src/main/java/example/Pager.java").read_text()
+formula = re.search(r"return (.+);", source).group(1).replace("/", "//")
+failed = 0
+for path in sorted(pathlib.Path("src/test/java").rglob("*Test.java")):
+    for pages, total, size in re.findall(r"assertEquals\\((\\d+), Pager\\.pageCount\\((\\d+), (\\d+)\\)\\)", path.read_text()):
+        failed += eval(formula, {"total": int(total), "size": int(size)}) != int(pages)
+print("BUILD FAILURE" if failed else "BUILD SUCCESS")
+sys.exit(1 if failed else 0)
+"""
+)
+JAVA_SEED = {"src/main/java/example/Pager.java": JAVA, "src/test/java/example/PagerTest.java": JAVA_TEST}
+GRADLE_BUILD = "plugins {\n    java\n}\n\ntasks.test {\n    useJUnitPlatform()\n}\n"
+
+
+class BuildTool(Proving):
+    """ "PagerTest.partialLastPage fails. Fix Pager.java", in a Maven or Gradle project: the build tool reports
+    an exit code, and what it runs is what its build files say, which the proof holds to the original."""
+
+    main = "src/main/java/example/Pager.java"
+    wrapper = ""
+    unfixed = JAVA.replace("total / size", "total / size + 0")
+
+    def setUp(self):
+        super().setUp()
+        root = self.project.root
+        (root / self.wrapper).chmod(0o755)  # the project's wrapper is committed executable
+        test_verify.git(root, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qam", "wrapper")
+        self.project.base = test_verify.git(root, "rev-parse", "HEAD")
+
+
+class MavenTests(BuildTool):
+    seed = {**JAVA_SEED, "pom.xml": "<project/>\n", "mvnw": WRAPPER}
+    wrapper = "mvnw"
+    criterion = "`./mvnw -B -q test` fails on the original code and passes with the fix"
+
+    def test_the_detected_suite_shows_the_repair(self):
+        proof = self.prove(contract(self.criterion), {self.main: JAVA_FIXED})
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual(("./mvnw -B -q test", "detected:maven"), tuple(proof["commands"].values())[:2])
+        self.assertEqual(([self.main], []), (proof["source_files"], proof["test_files"]))
+        self.assertTrue(self.shown(proof), proof["notes"])
+
+    def test_a_change_that_leaves_the_suite_failing_shows_no_repair(self):
+        proof = self.prove(contract(self.criterion), {self.main: self.unfixed})
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertFalse(self.shown(proof), proof["notes"])
+
+    def test_a_change_to_the_build_file_is_not_this_repair(self):
+        proof = self.prove(contract(self.criterion), {self.main: JAVA_FIXED, "pom.xml": "<project><x/></project>\n"})
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertIn(f"{NO_TEST}, so the bug is not shown to be reproduced", " ".join(proof["failures"]))
+        self.assertFalse(self.shown(proof), proof["notes"])
+
+
+class GradleTests(BuildTool):
+    seed = {**JAVA_SEED, "build.gradle.kts": GRADLE_BUILD, "gradlew": WRAPPER}
+    wrapper = "gradlew"
+    criterion = "`./gradlew test` fails on the original code and passes with the fix"
+
+    def test_the_detected_suite_shows_the_repair(self):
+        proof = self.prove(contract(self.criterion), {self.main: JAVA_FIXED})
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual("detected:gradle", proof["commands"]["suite_source"])
+        self.assertTrue(self.shown(proof), proof["notes"])
+
+    def test_a_build_file_that_stops_the_tests_running_shows_no_repair(self):
+        # build.gradle.kts is Kotlin, so the change is "code alone", and the suite passes with it because it
+        # ran nothing. The original build file over the new code still fails.
+        disabled = GRADLE_BUILD.replace("useJUnitPlatform()", "enabled = false")
+        proof = self.prove(contract(self.criterion), {self.main: self.unfixed, "build.gradle.kts": disabled})
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertIn("the suite that fails on the original code is not shown to pass", proof["failures"][0])
+        self.assertEqual(1, proof["checks"]["suite_base_definition_on_candidate"]["exit_code"])
         self.assertFalse(self.shown(proof), proof["notes"])
 
 
