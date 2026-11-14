@@ -228,7 +228,8 @@ def definition(workspace, command, entries, read, patched, changes, *, is_test):
     if found.boundary:
         return found
     retained = {p for p in entries if is_test(p) or first.definition_file(p, kind)}
-    found.paths = inputs.linked_inputs(entries, read, retained)
+    fixtures = {p for p in retained if not first.definition_file(p, kind)}
+    found.paths = inputs.linked_inputs(entries, read, retained, data=fixtures)
     for path in measured:
         if path in found.paths or is_test(path) or first.definition_file(path, kind):
             continue

@@ -236,7 +236,10 @@ def _classify(paths, read, hint, ownership, links, *, original_tests=None):
     for path in links:
         endpoint = _endpoint(path, paths, links)
         if endpoint is None:
-            result[path] = AMBIGUOUS
+            # Code that leads to no file cannot be read. A fixture (a linked directory, a dangling link) is
+            # data by its place, as a regular file of no Python name is.
+            code = PurePosixPath(path).suffix in project_kinds.CODE_SUFFIXES
+            result[path] = AMBIGUOUS if code else TEST if hint(path) else PRODUCT
         elif endpoint in oracle_targets:
             result[path] = result[endpoint] = TEST
         elif result.get(endpoint) == PRODUCT:

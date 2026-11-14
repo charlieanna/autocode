@@ -1258,8 +1258,8 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, c
             if target in entries:
                 manifests[path] = read(target)
         tests = {path for path in tracked if is_test(path)}
-        definition = {path for path in tracked if _definition_file(path)} | tests
-        definition = definition_inputs.linked_inputs(entries, read, definition)
+        fixed = {path for path in tracked if _definition_file(path)}
+        definition = definition_inputs.linked_inputs(entries, read, fixed | tests, data=tests - fixed)
 
         def resolve(literal, directory):
             for root in (directory, ".") if directory != "." else (".",):
@@ -1511,7 +1511,7 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, c
                 unestablished = follow_shell(command, cwd)
                 if unestablished:
                     break
-        found.paths = definition_inputs.linked_inputs(entries, read, definition | pinned)
+        found.paths = definition_inputs.linked_inputs(entries, read, definition | pinned, data=tests - fixed)
         found.boundary = unestablished
         if changes is not None:
             measured = definition_inputs.reviewed_changes(workspace, changes, patched)

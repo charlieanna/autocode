@@ -13,7 +13,11 @@ candidate's product code. Four gaps let it report PASS for broken behavior:
 - A configuration symlink was retained without retaining its target. The
   definition now follows links from the effective Git tree, including chains,
   directory links and missing targets. External or cyclic links cannot provide
-  a bound proof; replacing a retained input's parent is also refused.
+  a bound proof; replacing a retained input's parent is also refused. A link
+  among the tests that is a fixture they read, not the suite's definition or
+  code, is the exception since 2026-11-14: the base revision holds all there is
+  of it, its text, so an external or cyclic one is retained as that
+  (`linked_inputs`, `data`).
 - A zero exit from the extra run hid missing or skipped passing-test identities.
   Its report now receives the existing completeness, collection and preservation
   checks. Missing evidence remains UNVERIFIED; observed regressions remain FAIL.

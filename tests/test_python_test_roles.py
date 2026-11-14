@@ -494,6 +494,32 @@ class PinnedRolePolicyTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "ambiguous"):
                     result.is_test("test_alias.py")
 
+    def test_a_fixture_link_that_leads_to_no_file_has_the_role_of_its_place(self):
+        # A change that adds `tests/data/linked/alias -> real` ended its proof UNVERIFIED: "Product/test
+        # ownership is ambiguous; no proof commands were started for: tests/data/linked/alias".
+        sources = {"scan.py": "VALUE = 1\n", "tests/test_scan.py": self.CASE, "tests/data/tree/a.txt": "a\n"}
+        for link, target in (
+            ("tests/data/current", "tree"),
+            ("tests/data/gone", "nowhere"),
+            ("tests/data/host", "/etc/hostname"),
+            ("tests/data/up", "../../../outside"),
+            ("tests/data/loop", "loop"),
+        ):
+            with self.subTest(link=link):
+                added = self.roles(sources, candidates={link: target}, candidate_links={link: target})
+                self.assertTrue(added.is_test(link))
+                original = self.roles({**sources, link: target}, links={link: target})
+                self.assertTrue(original.is_test(link))
+                self.assertTrue(original.protected(link))
+        added = self.roles(sources, candidates={"docs/latest": "v2"}, candidate_links={"docs/latest": "v2"})
+        self.assertFalse(added.is_test("docs/latest"))
+        # Code that leads to no file cannot be read, so it keeps no role.
+        for link in ("tests/test_ghost.py", "ghost.py", "tests/helper.js"):
+            with self.subTest(link=link):
+                added = self.roles(sources, candidates={link: "missing"}, candidate_links={link: "missing"})
+                with self.assertRaisesRegex(ValueError, "ambiguous"):
+                    added.is_test(link)
+
     def test_mixed_runtime_test_link_ownership_keeps_both_entries_protected_but_refuses_changes(self):
         sources = {
             "pyproject.toml": '[tool.setuptools]\npackages=["pkg"]\n',
