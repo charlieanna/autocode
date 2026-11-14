@@ -111,14 +111,14 @@ class BriefObligationsTests(unittest.TestCase):
         draft["deliverables"] = ["todo.py"]
         draft["acceptance_criteria"][0]["criterion"] = task
         draft["acceptance_criteria"][0]["sources"] = [{"source_id": "task:0", "quote": task}]
-        draft["milestones"][0]["affected_paths"] = ["todo.py"]
+        draft["milestones"][0]["affected_paths"] = ["todo.py", "test_todo.py"]
         if second:
             draft["acceptance_criteria"].append({**draft["acceptance_criteria"][0], "id": "C2"})
             draft["milestones"][0]["acceptance_criteria"].append("C2")
         if initial:
             draft["initial_task"] = {
                 "objective": "Deliver the CLI",
-                "affected_paths": ["todo.py"],
+                "affected_paths": ["todo.py", "test_todo.py"],
                 "kind": "implement",
                 "milestone_id": "M1",
                 "requirements": ["Deliver the CLI"],
