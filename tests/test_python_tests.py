@@ -164,6 +164,50 @@ class DeclaredPythonEnvironmentTests(unittest.TestCase):
 
 
 class PythonTestCommandTests(unittest.TestCase):
+    def test_targeted_unittest_executes_only_saved_filters(self):
+        from autocode_verification_commands import configured_targeted
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "app.py").write_text("fast = 4\nguard = 9\n")
+            (root / "test_new.py").write_text(
+                "import unittest, app\n"
+                "class Cases(unittest.TestCase):\n"
+                " def test_fast(self): self.assertEqual(app.fast, 4)\n"
+                " def test_guard(self): self.assertEqual(app.guard, 9)\n"
+                " def test_excluded(self): self.fail('must remain excluded')\n"
+            )
+            for filters in (("-k", "fast", "-k", "guard"), ("-kfast", "-kguard")):
+                with self.subTest(filters=filters):
+                    saved = shlex.join([sys.executable, "-m", "unittest", "-v", *filters, "test_old"])
+                    command = configured_targeted({"regression": {"test_command": saved}}, ["test_new.py"])
+                    result = subprocess.run(shlex.split(command), cwd=root, capture_output=True, text=True)
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    self.assertIn("test_fast", result.stderr)
+                    self.assertIn("test_guard", result.stderr)
+                    self.assertNotIn("test_excluded", result.stderr)
+                    self.assertIn("Ran 2 tests", result.stderr)
+
+    def test_targeted_unittest_preserves_options_without_guessing_unknown_arity(self):
+        command = "env MODE=proof python3 -m unittest discover -v -s old -p 'test_*.py' -t root -k Fast -b"
+        self.assertEqual(
+            "env MODE=proof python3 -m unittest -v -k Fast -b test_new.py",
+            parse(command).targeted(["test_new.py"]),
+        )
+        command = "python3 -m unittest discover -v --start-directory=old --pattern=test_*.py --top-level-directory=root --durations 3 --locals -f -kFast"
+        self.assertEqual(
+            "python3 -m unittest -v --durations 3 --locals -f -kFast test_new.py",
+            parse(command).targeted(["test_new.py"]),
+        )
+        self.assertEqual(
+            "python3 -m unittest -v --durations=3 test_new.py",
+            parse("python3 -m unittest -v --durations=3 old").targeted(["test_new.py"]),
+        )
+        for tail in ("--custom-option value old", "-k", "-s"):
+            with self.subTest(tail=tail):
+                command = "python3 -m unittest -v " + tail
+                self.assertEqual(command, parse(command).targeted(["test_new.py"]))
+
     def test_targeted_pytest_keeps_interpreter_environment_and_collection_options(self):
         command = (
             "env PYTHONPATH='/support with spaces' PYTEST_PLUGINS=bootstrap "
