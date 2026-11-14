@@ -16,6 +16,16 @@ failure keeps the approved `test:` criterion; a fresh original pass proposes a
 results leave verification unresolved. This classification needs no report-only
 model repair, and never replaces the final regression or changed-code proof.
 
+A change may rewrite only files that tests read: a golden file, a snapshot or a
+fixture (`tests/golden/report.txt`, `src/__snapshots__/x.test.js.snap`,
+`testdata/report.golden`). No runner can be pointed at such a file, and the tests
+that read it are in files the change left alone. Where the runner names each test,
+the project's own suite is then the regression command: it runs on the original
+code with the changed files and with the change, and the tests that fail first and
+pass after are the proof (`autocode_verification_commands.held_by_suite`). A changed
+test file that holds code is never left to this, and a rewritten file that no test
+reads proves nothing.
+
 A guard that names its test exactly (`guard: test_c4_adds`) may name a test the project
 already has in a file the change leaves alone, as a final check does for the
 criteria earlier milestones proved. The targeted run covers only the changed test files,

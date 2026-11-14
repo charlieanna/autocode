@@ -10,6 +10,7 @@ try:
     from . import autocode_minitest_tests as minitest_tests
     from . import autocode_mocha_tests as mocha_tests
     from . import autocode_node_tests as node_tests
+    from . import autocode_project_kinds as project_kinds
     from . import autocode_python_tests as python_tests
     from .autocode_test_framework import Framework
 except ImportError:
@@ -19,6 +20,7 @@ except ImportError:
     import autocode_minitest_tests as minitest_tests
     import autocode_mocha_tests as mocha_tests
     import autocode_node_tests as node_tests
+    import autocode_project_kinds as project_kinds
     import autocode_python_tests as python_tests
     from autocode_test_framework import Framework
 
@@ -62,6 +64,8 @@ def select_commands(framework, test_paths, *, suite_command=None, regression_com
         derived = framework.targeted(roles.selectors(test_paths) if roles is not None else test_paths)
         if derived:
             regression, regression_source = derived, f"derived:{framework.name}"
+    if not regression and suite and held_by_suite(framework, suite, test_paths):
+        regression, regression_source = suite, f"suite:{framework.name}"
     builder_regression = str(reported.get("regression_command", "")).strip()
     if not regression and builder_regression:
         if _mentions_tests(builder_regression, test_paths):
@@ -75,6 +79,26 @@ def select_commands(framework, test_paths, *, suite_command=None, regression_com
         "regression_source": regression_source,
         "notes": notes,
     }
+
+
+def held_by_suite(framework, suite, test_paths) -> bool:
+    """True when the changed test files are all files that tests read, and the runner names each test.
+
+    A golden file, a snapshot or a fixture (``tests/golden/report.txt``, ``__snapshots__/x.test.js.snap``,
+    ``testdata/report.golden``) is no test a runner can be pointed at: the tests that read it are in files
+    the change left alone. The framework's own suite runs them, so it is the regression command, and its
+    per-test results say which tests fail on the original code with the changed files and pass with the
+    change. A real run that updated only a golden file ended by asking the person for a regression command
+    (2026-11-14). A changed test file that holds code is never left to this: no test of the suite may run it.
+    """
+    paths = list(test_paths)
+    return bool(
+        paths
+        and framework is not None
+        and suite == framework.suite
+        and framework.per_test
+        and all(PurePosixPath(path).suffix not in project_kinds.CODE_SUFFIXES for path in paths)
+    )
 
 
 def command_framework(command, *, test_report=None):

@@ -68,9 +68,10 @@ the person:
 - The original suite still runs as above. Its failure is accepted only when the
   runner reported complete per-test results (unittest, pytest, Go, `node:test`,
   Vitest, Jest or RSpec, also when the suite is the project's `npm test`), nothing
-  failed to collect, and every failing test is a listed one in a file the change
-  edited. Any other failing original test, a crash, a timeout or a runner without
-  per-test results keeps the gate closed, as before.
+  failed to collect, and every failing test is a listed one the change edited: its
+  own file, or a test file that holds no code, such as a golden file or a snapshot
+  the test reads. Any other failing original test, a crash, a timeout or a runner
+  without per-test results keeps the gate closed, as before.
 - A listed test may change with the code: the Builder gives it the new assertion,
   renames it to say what it now checks, or removes it when the criterion's new
   test covers it (owner decision, 2026-11-13). The regression proof does not count
@@ -90,7 +91,8 @@ when the original gate refused the Tester's PASS for exactly that conflict:
 - the changed suite passed;
 - the original suite reported complete per-test results;
 - every failing original test is defined in an original test file the change
-  edited, and the plan does not list it already.
+  edited, or in one it left alone while it rewrote a golden file or snapshot, and
+  the plan does not list it already.
 
 The runner adds each such test to a `test:` criterion's `supersedes`. It picks the
 criterion whose named test now sits in the same file, or else the first one. The

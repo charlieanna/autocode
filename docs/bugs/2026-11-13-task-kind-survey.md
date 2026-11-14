@@ -1200,10 +1200,59 @@ launched on it, the plan came back with `test: test_report_matches_the_golden_fi
 `tests/test_report.py::test_report_matches_the_golden_file`, and the second proof passed with that test
 failing first. Each run has two plan approvals and no question.
 
-Not run on real models: a change that rewrites only the golden file and no test file. Without a model, such a
-change's proof is `UNVERIFIED` ("The proving tests are not in the suite that ran"), since a golden file is a
-test file no runner targets. In all five runs here the Builder also added a test, so the proof had a test
-file to run.
+In all five runs here the Builder also added a test, so the proof had a test file to run. A change that
+rewrites only the golden file is section 41.
+
+## 41. Only the golden file or the snapshot is updated: the person is asked for a regression command (fixed)
+
+Real runs, Claude models as in section 37, 2026-11-14. Section 40's Python project, with a request that says
+which test covers the change: "Print it as 2026-03-04 instead ... The golden file test already covers the
+format, so just update tests/golden/report.txt to match; don't add or change any test code."
+
+| Runner | Result | Bundle manifest |
+| --- | --- | --- |
+| Section 40's fix alone | `WAITING_FOR_USER`, 9 stages, 182 s, $1.17. The code and the golden file are right, and no test code changed | `f4e4f2fd3b9f5341f82eb9f01cb4896a2d0e4db555adbd15060ab58ca4d8711e` |
+| With this fix | `TASK_COMPLETE`, 12 stages, 237 s, $1.23, two plan approvals and no question | `4ffba3cd5e4b2c629751a4ed9a455cd8bb8c75a0f70c56d31134e3d88c3b0501` |
+
+A golden file is a test file, and no runner can be pointed at it. With `report.py` and the golden file as
+the whole change, the proof had no regression command and ended `UNVERIFIED`: "The proving tests are not in
+the suite that ran, so it cannot show whether they fail on the original code: tests/golden/report.txt". The
+Resolver asked the person to "Correct the saved verification commands. Set the regression command to
+`python3 -m unittest -v tests.test_report.ReportTests.test_report_matches_the_golden_file`", with "Allow a
+test-code change ... This contradicts the user's 'don't add or change any test code'" as the other choice.
+
+Three things were in the way, fixed together:
+
+- **The proof had no command.** When every changed test file is one that tests read and the runner names
+  each test, the project's suite is now the regression command, and the tests that fail on the original code
+  with the rewritten files and pass with the change are the proof
+  (`autocode_verification_commands.held_by_suite`). A rewritten file that no test reads proves nothing.
+- **The replaced test's own file had not changed.** The original tests run with the original of every
+  changed test file, so the test that reads the golden file fails there. A test the approved plan lists as
+  replaced was accepted only "in a file the change edited"; it is now also accepted when the change rewrote a
+  test file that holds no code (`autocode_superseded_tests.edited`). The owner's rule is unchanged: only the
+  tests the approved plan lists may fail.
+- **An unlisted test in an unchanged file was not sent back to plan review.** Section 16's correction looked
+  for the failing test in the changed files only. It now finds the one original file that defines it
+  (`autocode_superseded_correction._reads_changed`).
+
+In the rerun the plan guarded the golden test, as in section 40. The first proof ran the suite, failed for
+that guard alone, and the plan came back with `test: test_report_matches_the_golden_file` replacing itself.
+The second proof passed, and the original-test check accepted the one listed failure.
+
+The same request for section 40's Vitest project ("the snapshot tests already cover the receipt, so just
+update the snapshots; don't touch the test file"), on the fixed tree only: `TASK_COMPLETE`, 14 stages, 277 s,
+$1.68, two plan approvals and no question (bundle manifest
+`5009b7c1a26e146bf6cba04bbd138f30645de9ba9cdf3df47de7edd82cc9ad25`). Its plan named both snapshot tests as
+`test:` and listed nothing as replaced. The first proof passed on `npm test --silent` with both tests failing
+first, the Tester's original-test check refused them, the runner listed both as replaced, and the run
+completed.
+
+One more kind, complete with no change needed: a feature of several parts in a small command-line
+application ("Add tags to notes": options on two commands, two new commands, a storage format that old files
+must keep working with, and the README). `TASK_COMPLETE`, 10 stages (one plan revision), 315 s, $2.45, ten
+criteria, one plan approval and no question (bundle manifest
+`488c7dade3e3c4674f36f495c9a5ec0e917921c9d95a6ed88b207b0d698fe6fc`).
 
 ## Also seen, not yet run on real models
 

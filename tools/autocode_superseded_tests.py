@@ -10,7 +10,8 @@ protected test file and the test's own name (``{"file": "tests/test_shipping.py"
 it, and only a ``test:`` criterion may carry one, so the regression proof still requires its new test to fail
 on the original code and pass on the fix. The changed original tests still all run: the result is accepted only when
 the run reported complete per-test results and every failure is one of the listed tests in a file the change
-edited. Any other failing original test, a crash, a timeout or an unattributed runner keeps the gate closed.
+edited, or beside a golden file or snapshot it rewrote (``edited``). Any other failing original test, a crash, a
+timeout or an unattributed runner keeps the gate closed.
 
 Pure functions over run state and runner receipts. Depends only on lower-level helpers.
 """
@@ -26,10 +27,12 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_contract_identity as contracts
+    from . import autocode_project_kinds as project_kinds
     from . import autocode_protected_store as store
     from . import autocode_test_cases as test_cases
 except ImportError:
     import autocode_contract_identity as contracts
+    import autocode_project_kinds as project_kinds
     import autocode_protected_store as store
     import autocode_test_cases as test_cases
 
@@ -179,13 +182,29 @@ def replaced(state: RunState):
     return (lambda test_id: any(matches(entry, test_id) for entry in entries)) if entries else None
 
 
+def edited(entry, changed) -> bool:
+    """Whether the change edits a superseded test: its file, or a test file that holds no code.
+
+    A test's expected text may live in a file it reads (a golden file, a snapshot, a fixture), and a change
+    of behavior may then rewrite that file alone: ``tests/golden/report.txt`` for a test in
+    ``tests/test_report.py``, ``src/__snapshots__/x.test.js.snap`` for one in ``src/x.test.js``. The original
+    tests run with the original of every changed test file, so such a test fails there as one whose own file
+    changed does. A real run that updated only a golden file stopped for the person (2026-11-14).
+    ``changed`` names the changed files of the original-test inventory.
+    """
+    names = set(changed or ())
+    return str(entry.get("file") or "") in names or any(
+        PurePosixPath(name).suffix not in project_kinds.CODE_SUFFIXES for name in names
+    )
+
+
 def excused(row, entries, changed) -> list[str] | None:
-    """The original run's failing test ids when each is a superseded test in a changed file, else None.
+    """The original run's failing test ids when each is a superseded test the change edits, else None.
 
     The run must have ended on its own with complete per-test results, nothing uncollected and at least one
-    failure. A superseded test in a file the change left alone is not excused: there it is not replaced.
+    failure. A superseded test the change left alone (``edited``) is not excused: there it is not replaced.
     """
-    entries = [entry for entry in entries or [] if entry.get("file") in set(changed or ())]
+    entries = [entry for entry in entries or [] if edited(entry, changed)]
     if not entries or not isinstance(row, dict) or row.get("timed_out") or row.get("error"):
         return None
     if type(row.get("exit_code")) is not int or row["exit_code"] == 0:
