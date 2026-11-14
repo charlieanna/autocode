@@ -637,6 +637,28 @@ def listing(also: Path | None = None, *, include_archived: bool = False, others=
     return _listing(also, include_archived=include_archived, others=others)
 
 
+def _listed_project_workspace(record: dict[str, Any], availability: str) -> str | None:
+    """The owning project path for a listed run row, resolving task worktrees to their project."""
+    workspace = record.get("workspace")
+    if not isinstance(workspace, str) or availability in ("malformed_record", "inaccessible"):
+        return None
+    path = Path(workspace)
+    project = _registry_project(path)
+    if (
+        project == path
+        and availability == "workspace_missing"
+        and path.parent.name == "worktrees"
+        and path.parent.parent.name == ".autocode"
+    ):
+        candidate = path.parent.parent.parent
+        try:
+            if (candidate / ".git").exists():
+                project = candidate
+        except OSError:
+            pass
+    return str(project)
+
+
 def _listing(also: Path | None = None, *, include_archived: bool = False, visit_run=None, others=()) -> dict[str, Any]:
     """Internal streaming projection: consume each validated checkpoint before the next read.
 
@@ -676,6 +698,7 @@ def _listing(also: Path | None = None, *, include_archived: bool = False, visit_
                 document[kind].setdefault(key, value)
     workspaces = [_workspace_listing(key, document["workspaces"][key]) for key in sorted(document["workspaces"])]
     runs = []
+    project_workspaces: dict[tuple[str, str], str | None] = {}
     for key in sorted(document["runs"]):
         record = document["runs"][key]
         if not isinstance(record, dict):
@@ -700,9 +723,18 @@ def _listing(also: Path | None = None, *, include_archived: bool = False, visit_
         # The central pointer record may predate migration. Surface the run's
         # authoritative task_id without writing either registry or checkpoint.
         task_id = diagnostic.pop("task_id", record.get("task_id"))
+        workspace_key = record.get("workspace")
+        if isinstance(workspace_key, str):
+            cache_key = (workspace_key, availability)
+            if cache_key not in project_workspaces:
+                project_workspaces[cache_key] = _listed_project_workspace(record, availability)
+            project_workspace = project_workspaces[cache_key]
+        else:
+            project_workspace = _listed_project_workspace(record, availability)
         runs.append(
             {
                 **record,
+                **({"project_workspace": project_workspace} if project_workspace is not None else {}),
                 "task_id": task_id,
                 "availability": availability,
                 "diagnostic": diagnostic,

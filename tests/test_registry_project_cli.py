@@ -151,6 +151,7 @@ class RegistryProjectCliTests(unittest.TestCase):
 
         listed = invoke("registry", "list")
         self.assertEqual([str(run)], [row["run_dir"] for row in listed["runs"]])
+        self.assertEqual([str(self.project)], [row["project_workspace"] for row in listed["runs"]])
         self.assertEqual(str(home / ".autocode"), invoke("registry", "location")["storage_root"])
         fleet = invoke("runs", "--all")
         self.assertEqual([str(run)], [row["run_dir"] for row in fleet["runs"]])
