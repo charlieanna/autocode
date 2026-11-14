@@ -302,7 +302,7 @@ def dispatch_unit(runtime, state: RunState, stage, workspace, run_dir):
     except ValueError as error:
         raise runtime.support.Paused("PAUSED_STALE_VALIDATION", str(error)) from error
     if stage == "orchestrator":
-        return unit.dispatch(state, workspace, run_dir)
+        return recovery_dispatch.dispatch_orchestrator(runtime, unit, state, workspace, run_dir, SKIP)
     if stage == acceptance_tests.STAGE:
         retained = acceptance_retry.dispatch(runtime, state, stage, workspace, run_dir, apply=unit.apply_job)
         if retained is not None:

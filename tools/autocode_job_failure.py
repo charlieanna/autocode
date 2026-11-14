@@ -37,6 +37,7 @@ try:
     from . import autocode_provider_refusal as provider_refusal
     from . import autocode_quota_route as quota_route
     from . import autocode_roles as roles
+    from . import autocode_route_recovery as route_recovery
     from . import autocode_run_status as run_status
     from . import autocode_source_scope as scope
     from . import autocode_stall_recovery as stall_recovery
@@ -52,6 +53,7 @@ except ImportError:
     import autocode_provider_refusal as provider_refusal
     import autocode_quota_route as quota_route
     import autocode_roles as roles
+    import autocode_route_recovery as route_recovery
     import autocode_run_status as run_status
     import autocode_source_scope as scope
     import autocode_stall_recovery as stall_recovery
@@ -408,6 +410,8 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
             + " "
             + quota_route.advice(failure["route"], original_attempt, kind="job")
         )
+        if not abandoned:
+            route_recovery.recover_job(runtime, launch, state, run_dir, workspace, reroute=reroute)
     runtime.write_json(Path(run_dir) / "state.json", state)
     for artifact in originals:
         artifact.unlink(missing_ok=True)
