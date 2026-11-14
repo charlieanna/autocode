@@ -712,7 +712,9 @@ def project(state: RunState, need=None):
             "PAUSED_PROVIDER_CAPACITY",
             "PAUSED_STAGE_ABANDONED",
             "PAUSED_INVALID_OUTPUT",
+            "PAUSED_PROCESS_CLEANUP",
         )
+        and native_need is None
         and not active
         and not state.get("active_runner_check")
     ):
