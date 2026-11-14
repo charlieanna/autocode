@@ -439,11 +439,10 @@ def _failed(row):
 
 
 def _listed(replaced, changed):
-    changed = set(changed)
     return [
         {"criterion": row["criterion"], "file": row["file"], "test": row["test"]}
         for row in replaced
-        if row["file"] in changed
+        if superseded_tests.edited(row, changed)
     ]
 
 

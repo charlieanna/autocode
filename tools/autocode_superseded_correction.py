@@ -13,8 +13,9 @@ that already passes. It qualifies only when the refusal is exactly this conflict
   fails on the original code and passes on the fix;
 - the candidate suite passed, and the original suite ended on its own with complete per-test results,
   nothing uncollected and at least one failure;
-- every failing original test is defined in exactly one original test file the change edited, and the
-  approved plan does not list it already;
+- every failing original test is defined in exactly one original test file the change edited (or one left
+  as it was beside a golden file or snapshot the change rewrote, superseded_tests.edited), and the approved
+  plan does not list it already;
 - the runner has not sent that test back before in this run.
 
 The draft adds each failing test to the ``supersedes`` list of a ``test:`` criterion: the first whose named
@@ -138,7 +139,7 @@ def proposal(state: RunState, receipt, workspace) -> dict | None:
     for test_id in failed:
         if not isinstance(test_id, str) or any(superseded_tests.matches(row, test_id) for row in listed):
             continue
-        entry = _entry(test_id, changed)
+        entry = _entry(test_id, changed) or _reads_changed(state, test_id, changed)
         if entry is None:
             return None
         if entry not in entries:
@@ -236,6 +237,19 @@ def _original(test_id: str, files: dict, root) -> dict | None:
         if re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", text):
             found.append({"file": file, "test": name})
     return found[0] if len(found) == 1 else None
+
+
+def _reads_changed(state: RunState, test_id: str, changed) -> dict | None:
+    """The original test a failing id names when the change edits not its file but a file it may read
+    (superseded_tests.edited): a golden file or a snapshot rewritten for the new behavior, the test left as it was."""
+    record = (state.get("settings") or {}).get("protected_tests") or {}
+    files = record.get("files") or {}
+    try:
+        with store.opened(record, state.get("workspace") or ".") as root:
+            entry = _original(test_id, files, root)
+    except (ValueError, OSError, KeyError):
+        return None
+    return entry if entry is not None and superseded_tests.edited(entry, changed) else None
 
 
 def guard_proposal(state: RunState) -> dict | None:
