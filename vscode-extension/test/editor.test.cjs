@@ -5649,6 +5649,52 @@ test('switching tabs preserves each tab draft and closes to the neighbor (#1558)
   assert.equal(ui.chat.run.runDir, run.runDir, 'the neighbor becomes active');
 });
 
+test('switching away from an unstarted chat does not copy its draft into another tab', async (t) => {
+  const ui = await openChat(t, chatView());
+  ui.chat.show();
+  await flush();
+  ui.type('Private draft for the new chat');
+  [...ui.document.querySelectorAll('.chat-tab')][0].click();
+  await flush();
+  assert.equal(ui.document.querySelector('#message').value, '', 'the existing chat keeps its empty draft');
+  [...ui.document.querySelectorAll('.chat-tab')][1].click();
+  await flush();
+  assert.equal(ui.document.querySelector('#message').value, 'Private draft for the new chat');
+  ui.chat.show();
+  await flush();
+  assert.equal(ui.document.querySelector('#message').value, '', 'another new chat starts empty');
+});
+
+test('closing an unstarted chat does not move its draft into the remaining chat', async (t) => {
+  const ui = await openChat(t, chatView());
+  ui.chat.show();
+  await flush();
+  ui.type('Draft for a chat I am closing');
+  [...ui.document.querySelectorAll('.chat-tab .close')][1].click();
+  await flush();
+  assert.equal(ui.document.querySelector('#message').value, '', 'the remaining chat keeps its own draft');
+});
+
+test('unstarted chat tabs identify their drafts and restore their labels', async (t) => {
+  const ui = await openChat(t, chatView());
+  ui.chat.show();
+  await flush();
+  ui.type('Fix the search filters\nMore detail here');
+  const names = () => [...ui.document.querySelectorAll('.chat-tab .name')].map((node) => node.textContent);
+  assert.deepEqual(names(), ['test', 'Draft: Fix the search filters']);
+  ui.chat.show();
+  await flush();
+  ui.type('Improve keyboard navigation');
+  assert.deepEqual(names(), ['test', 'Draft: Fix the search filters', 'Draft: Improve keyboard navi…']);
+  [...ui.document.querySelectorAll('.chat-tab')][1].click();
+  await flush();
+  assert.equal(ui.document.querySelector('#message').value, 'Fix the search filters\nMore detail here');
+  ui.type('');
+  assert.equal(names()[1], 'New chat', 'clearing the draft restores the default title');
+  const restored = await openChat(t, chatView(), false, { webviewState: ui.webviewState, timersEnabled: true });
+  assert.deepEqual([...restored.document.querySelectorAll('.chat-tab .name')].map((node) => node.textContent), names());
+});
+
 test('opening a run that already has a tab focuses it instead of duplicating (#1558)', async (t) => {
   const other = { workspace: '/ws', runDir: '/ws/.autocode/runs/other-run' };
   const ui = await openChat(t, chatView());
@@ -5659,6 +5705,43 @@ test('opening a run that already has a tab focuses it instead of duplicating (#1
   const names = [...ui.document.querySelectorAll('.chat-tab .name')].map((node) => node.textContent);
   assert.deepEqual(names, ['test', 'other-run']);
   assert.equal(ui.chat.run.runDir, run.runDir);
+});
+
+test('opening a saved run keeps the initial chat while its draft is still in the open webview', async (t) => {
+  const ui = await openChat(t, chatView(), false);
+  ui.type('Unsent initial draft');
+  ui.chat.show(run);
+  await flush();
+  assert.deepEqual([...ui.document.querySelectorAll('.chat-tab .name')].map((node) => node.textContent),
+    ['Draft: Unsent initial draft', 'test']);
+  assert.equal(ui.document.querySelector('#message').value, '', 'the opened run does not inherit the draft');
+  const reloaded = await openChat(t, chatView(), false, { webviewState: ui.webviewState, timersEnabled: true });
+  assert.equal(reloaded.document.querySelector('#message').value, '', 'the run remains empty after reloading');
+  ui.document.querySelector('.chat-tab').click();
+  await flush();
+  assert.equal(ui.document.querySelector('#message').value, 'Unsent initial draft');
+});
+
+test('opening a saved run keeps an unsent initial chat, including after webview restoration', async (t) => {
+  const first = await openChat(t, chatView(), false);
+  first.type('Keep this initial draft');
+  const restored = await openChat(t, chatView(), false, { webviewState: first.webviewState, timersEnabled: true });
+  restored.chat.show(run);
+  await flush();
+  const names = [...restored.document.querySelectorAll('.chat-tab .name')].map((node) => node.textContent);
+  assert.deepEqual(names, ['Draft: Keep this initial dra…', 'test']);
+  restored.document.querySelector('.chat-tab').click();
+  await flush();
+  assert.equal(restored.document.querySelector('#message').value, 'Keep this initial draft');
+});
+
+test('opening a saved run replaces the initial chat when its draft was cleared', async (t) => {
+  const ui = await openChat(t, chatView(), false);
+  ui.type('brief');
+  ui.type('');
+  ui.chat.show(run);
+  await flush();
+  assert.deepEqual([...ui.document.querySelectorAll('.chat-tab .name')].map((node) => node.textContent), ['test']);
 });
 
 test('a second new chat opens its own tab while another run stays open (#1558)', async (t) => {
@@ -7028,6 +7111,18 @@ test('Enter in the bound-raise field raises through its named command when the n
 
 // The tab strip works from the keyboard: a roving tabindex, arrows (and Home/End) that select
 // the same chat a click selects, and a close that is a real button, which the host presses.
+test('tab updates preserve keyboard focus on the close button', async (t) => {
+  const ui = await openChat(t, chatView());
+  ui.chat.show({ workspace: '/ws', runDir: '/ws/.autocode/runs/other' });
+  await flush();
+  const close = ui.document.querySelector('.chat-tab.active .close');
+  close.focus();
+  const updated = { ...chatView(), task: 'Updated task name' };
+  await ui.poll(updated);
+  assert.equal(ui.document.activeElement, ui.document.querySelector('.chat-tab.active .close'),
+    'a status update must not move focus away from the close button');
+});
+
 test('chat tabs are keyboard-reachable: arrows select and the close is a button', async (t) => {
   const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
   const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });

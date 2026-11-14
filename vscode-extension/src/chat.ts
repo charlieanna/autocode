@@ -59,7 +59,8 @@ interface ChatMessage {
   runDir?: string;
   /** Tab messages (#1558): the webview addresses tabs by their key. */
   tabKey?: string;
-  tabs?: { key?: string; run?: unknown }[];
+  hasDraft?: boolean;
+  tabs?: { key?: string; run?: unknown; hasDraft?: boolean }[];
   activeKey?: string;
 }
 
@@ -75,6 +76,8 @@ interface ChatTab {
   /** The run key for a run tab; a generated `new-…` key for a fresh chat. */
   key: string;
   run?: RunRef;
+  /** Whether the webview holds an unsent draft for this tab; its text stays in the webview. */
+  hasDraft: boolean;
   status?: StatusView;
   error: string;
   readError: string;
@@ -109,7 +112,7 @@ interface ChatTab {
 }
 
 function newTab(key: string, run?: RunRef): ChatTab {
-  return { key, run, error: "", readError: "", pendingBrief: "", starting: false, launching: false, startingLabel: "", comparisons: new Map(),
+  return { key, run, hasDraft: false, error: "", readError: "", pendingBrief: "", starting: false, launching: false, startingLabel: "", comparisons: new Map(),
     stagesError: "", stagesBusy: false, placesError: "", placesMissing: false, confirming: "" };
 }
 
@@ -201,9 +204,9 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
         ?? this.tabs.find((tab) => tab.status?.workspace === run.workspace && tab.status?.run_dir === run.runDir);
       if (existing) this.activate(existing.key);
       else {
-        // The boot placeholder ("new", never used) is adopted by the first run
-        // opened; explicit "+" tabs (new-…) stay until closed.
-        this.tabs = this.tabs.filter((tab) => tab.key !== "new");
+        // Replace the boot placeholder only while it has no unsent draft.
+        // Explicit "+" tabs (new-…) stay until closed.
+        this.tabs = this.tabs.filter((tab) => tab.key !== "new" || tab.hasDraft);
         const tab = newTab(runKey(run), run);
         this.tabs.push(tab);
         this.activate(tab.key);
@@ -718,6 +721,11 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       return;
     }
     if (message.type === "refresh") { await this.refresh(); return; }
+    if (message.type === "draft_changed" && message.tabKey) {
+      const tab = this.tabs.find((row) => row.key === message.tabKey);
+      if (tab) tab.hasDraft = message.hasDraft === true;
+      return;
+    }
     if (message.type === "select_tab" && message.tabKey) { this.activate(message.tabKey); return; }
     if (message.type === "close_tab" && message.tabKey) { this.close(message.tabKey); return; }
     if (message.type === "checkpoint") { await this.checkpoint(message); return; }
@@ -841,12 +849,12 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       return;
     }
     const saved = (message.tabs ?? [])
-      .map((row) => ({ key: typeof row.key === "string" ? row.key : "", run: asRunRef(row.run) }))
+      .map((row) => ({ key: typeof row.key === "string" ? row.key : "", run: asRunRef(row.run), hasDraft: row.hasDraft === true }))
       .filter((row) => row.key && (row.run || row.key.startsWith("new")));
     if (saved.length) {
       const retained = new Set(saved.filter((row) => row.run).map((row) => runKey(row.run!)));
       for (const key of this.notices.keys()) if (!retained.has(key)) this.closeNotice(key);
-      this.tabs = saved.map((row) => newTab(row.key, row.run));
+      this.tabs = saved.map((row) => ({ ...newTab(row.key, row.run), hasDraft: row.hasDraft }));
       this.activeKey = this.tabs.some((tab) => tab.key === message.activeKey)
         ? message.activeKey! : this.tabs[0]!.key;
       return;
