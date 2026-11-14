@@ -399,6 +399,105 @@ class GoalTests(unittest.TestCase):
             self.assertEqual(before["settings"][key], after["settings"][key])
         self.assertEqual(2, self.invoke("--approve-goal", old_token))
 
+    def test_public_plan_edits_retire_old_report_repairs_without_approving_or_dispatching(self):
+        import autocode_plan_file as plan_file
+
+        self.approve()
+        self.state["settings"]["joint_planning"] = True
+        original = copy.deepcopy(self.state)
+        for flag in ("--edit-goal", "--goal-file"):
+            with self.subTest(flag=flag):
+                self.state = copy.deepcopy(original)
+                self.state.update(status="PAUSED_INVALID_OUTPUT", next_stage="draft_plan")
+                old = copy.deepcopy(self.state["goal_contract"])
+                pending = {
+                    "original": {"stage": "draft_plan", "source_revision": "retained-source"},
+                    "contract_hash": old["hash"],
+                    "attempts": 2,
+                    "pins": {"rejected.jsonl": "retained-hash"},
+                    "error": "Malformed report",
+                }
+                self.state["pending_report_repair"] = copy.deepcopy(pending)
+                corrected = copy.deepcopy(old["body"])
+                corrected["constraints"].append("Keep the original behavior and repair its fixture")
+                path = self.run / "corrected-plan.json"
+                if flag == "--edit-goal":
+                    s.atomic_json(path, corrected)
+                else:
+                    path.write_text(
+                        plan_file.document(
+                            {
+                                "autocode_plan": plan_file.FORMAT,
+                                "goal_hash": plan_file.goal_hash(old["body"]),
+                                "revision": old["revision"],
+                                "approval_status": old["approval_status"],
+                                "contract": corrected,
+                            }
+                        )
+                    )
+                self.assertEqual(0, self.invoke(flag, str(path)), self.stdout + self.stderr)
+                self.assertNotIn("pending_report_repair", self.state)
+                archived = self.state["report_repair_archive"][-1]
+                self.assertEqual(pending, archived["repair"])
+                self.assertEqual("superseded_by_goal_edit", archived["reason"])
+                self.assertEqual(self.state["goal_contract"]["hash"], archived["contract_hash"])
+                self.assertEqual("review_plan", self.state["next_stage"])
+                self.assertFalse(g.approved(self.state))
+                for role, setting in original["settings"]["roles"].items():
+                    self.assertEqual(setting, self.state["settings"]["roles"][role])
+                for key, value in original["settings"]["limits"].items():
+                    self.assertEqual(value, self.state["settings"]["limits"][key])
+                self.assertEqual(2, self.invoke("--approve-goal", g.token(old)))
+
+    def test_resume_of_saved_edit_reaches_reviewer_without_replaying_repair(self):
+        self.approve()
+        self.state["settings"]["joint_planning"] = True
+        pending = {
+            "original": {"stage": "draft_plan", "source_revision": "retained-source"},
+            "contract_hash": self.state["goal_contract"]["hash"],
+            "attempts": 2,
+            "pins": {"rejected.jsonl": "retained-hash"},
+        }
+        lifecycle.install_draft(self.state, body(), origin="user_cli_edit")
+        # A checkpoint written before #3528: the accepted edit still carries its old repair.
+        self.state["pending_report_repair"] = copy.deepcopy(pending)
+        self.state.update(status="PAUSED_STALE_REPORT_ROUTE", stop_reason="Saved repair belongs to old stage")
+        called = []
+
+        def reviewer(**kwargs):
+            called.append(kwargs)
+            raise s.Paused("PAUSED_REQUESTED", "Fixture observed the independent reviewer dispatch")
+
+        with patch.object(runner, "check_joint_transports"):
+            self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=reviewer))
+        self.assertEqual(1, len(called), self.stdout + self.stderr)
+        self.assertFalse(called[0].get("report_only"))
+        self.assertEqual("review_plan", self.state["next_stage"])
+        self.assertEqual("PAUSED_REQUESTED", self.state["status"])
+        self.assertNotIn("pending_report_repair", self.state)
+        self.assertEqual(pending, self.state["report_repair_archive"][-1]["repair"])
+        self.assertFalse(g.approved(self.state))
+        self.assertFalse(any(e.get("kind") == "report_repair_resume_epoch" for e in self.state["user_events"]))
+
+    def test_model_revision_keeps_its_own_report_repair(self):
+        self.approve()
+        pending = {"contract_hash": self.state["goal_contract"]["hash"], "attempts": 2}
+        self.state["pending_report_repair"] = copy.deepcopy(pending)
+        lifecycle.install_draft(self.state, body(), origin="planner_draft")
+        self.assertEqual(pending, self.state.get("pending_report_repair"))
+        self.assertFalse(self.state.get("report_repair_archive"))
+
+    def test_rejected_plan_edit_preserves_pending_repair(self):
+        self.approve()
+        self.state.update(status="PAUSED_INVALID_OUTPUT", next_stage="draft_plan")
+        self.state["pending_report_repair"] = {"original": {"stage": "draft_plan"}, "attempts": 2}
+        before = copy.deepcopy(self.state)
+        path = self.run / "invalid-plan.json"
+        s.atomic_json(path, {"not": "a contract"})
+        self.assertEqual(2, self.invoke("--edit-goal", str(path)))
+        for key in ("goal_contract", "pending_report_repair", "report_repair_archive"):
+            self.assertEqual(before.get(key), self.state.get(key))
+
     def test_invalid_execution_reports_cannot_take_planning_feedback(self):
         self.approve()
         for stage in ("builder", "tester", "review_completion", None, "unknown"):
