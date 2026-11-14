@@ -442,3 +442,9 @@ Credentials are never entered into the chat or its webview. Existing chats keep
 their saved backend. Model overrides, explicit external role transports and
 backend-specific containment options are kept with their original backend when
 switching connections, so Kilo settings do not become direct API settings.
+
+
+The plan approval card and Run details show the complete material plan supplied by
+the core, including outcomes, deliverables, behaviors, failure cases, approach,
+decisions and verification. Long plans remain scrollable in full. If the core does
+not supply that review content, approval stays disabled until it is available.

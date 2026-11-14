@@ -360,6 +360,20 @@ class RunViewTests(unittest.TestCase):
         state = {"status": "AWAITING_GOAL_APPROVAL", "goal_contract": contract, "displayed_goal": token}
         public = run_view.view(state)
         displayed = public["displayed_plan"]
+        self.assertEqual(
+            {
+                "revision",
+                "hash",
+                "token",
+                "review_markdown",
+                "acceptance_criteria",
+                "constraints",
+                "permission_boundaries",
+                "git_delivery",
+                "scope_exclusions",
+            },
+            set(displayed),
+        )
         self.assertEqual(0, public["efficiency"]["delivery"]["verified_deliveries"])
         self.assertEqual((3, contract["hash"], token), (displayed["revision"], displayed["hash"], displayed["token"]))
         self.assertEqual(body, {key: displayed[key] for key in body})
@@ -425,6 +439,7 @@ class RunViewTests(unittest.TestCase):
         contract["hash"] = util.digest(contract)
         state = {"status": "AWAITING_GOAL_APPROVAL", "goal_contract": contract}
         self.assertNotIn("displayed_plan", run_view.view(state))
+
         state["displayed_goal"] = "r1:stale"
         self.assertNotIn("displayed_plan", run_view.view(state))
         state["displayed_goal"] = f"r1:{contract['hash']}"
@@ -433,6 +448,22 @@ class RunViewTests(unittest.TestCase):
         self.assertNotIn("displayed_plan", run_view.view(state))
         state["goal_contract"] = {"body": {}}
         self.assertNotIn("displayed_plan", run_view.view(state))
+
+    def test_malformed_material_rows_keep_status_readable_without_an_approval_projection(self):
+        for body in (
+            {"acceptance_criteria": ["not a criterion"]},
+            {"accepted_assumptions": ["not a decision"], "acceptance_criteria": []},
+            {"milestones": ["not a milestone"], "acceptance_criteria": []},
+        ):
+            with self.subTest(body=body):
+                contract = {"task_id": "t1", "revision": 1, "body": body}
+                contract["hash"] = util.digest(contract)
+                state = {
+                    "status": "AWAITING_GOAL_APPROVAL",
+                    "goal_contract": contract,
+                    "displayed_goal": f"r1:{contract['hash']}",
+                }
+                self.assertNotIn("displayed_plan", run_view.view(state))
 
     def approved_greeting(self):
         """A goal the real lifecycle drafted, showed and approved, so the projection follows what

@@ -299,7 +299,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tests/coordination_provider.py",
         ("tests.test_coordination_tui_e2e", "tests.test_planning_scope_cli", "tests.test_coordination_gate_cli"),
     ),
-    ("docs/schemas/status-view.schema.json", ("tests.test_json_contract",)),
+    ("docs/schemas/status-view.schema.json", ("tests.test_json_contract", "tests.test_plan_review_cli")),
     ("scenarios/catalog/greenfield-todo-cli/reference/", ("tests.test_brief_cli",)),
     ("scenarios/catalog/review-clean-pr/", ("tests.test_review_clean_fixture",)),
     ("scenarios/catalog/local-compose-two-services/", ("tests.test_local_compose_scenario",)),
@@ -507,6 +507,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # that previously broke master would remain. These are fake-provider consumers,
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        ("tools/autocode_plan_file.py", "tools/autocode_run_view.py"),
+        ("tests.test_plan_review_cli",),
+    ),
     (("tools/autocode_visual_protection.py",), ("tests.test_native_rework_transport",)),
     (
         (

@@ -292,9 +292,7 @@ def render(body: dict, *, exported_hash: str, revision: int, status: str) -> str
         out += [f"For: {_text(body['intended_user'])}", ""]
     if body.get("task_kind"):
         out += [f"Job type: {body['task_kind']}", ""]
-    for key, heading in SECTIONS:
-        if body.get(key):
-            out += [f"## {heading}", "", *(_item(row) for row in body[key]), ""]
+    out += _sections(body)
     out += _criteria(body.get("acceptance_criteria") or [])
     out += _milestones(body.get("milestones") or [])
     out += _first_task(body.get("initial_task"))
@@ -313,7 +311,43 @@ def render(body: dict, *, exported_hash: str, revision: int, status: str) -> str
     return util.redact("\n".join(out))
 
 
-def _criteria(rows) -> list[str]:
+def review_markdown(body: dict) -> str:
+    """Material terms of a canonical plan for a person reviewing it, without file/runner metadata.
+
+    The caller supplies the sealed body under its existing display-token guard. This text is display
+    only: clients retain the structured approval fields and never infer authority from Markdown.
+    File exports keep their existing FORMAT and rendering, including their provenance instructions.
+    """
+    body = masked(body)
+    out = []
+    if body.get("intended_outcome"):
+        out += [_text(body["intended_outcome"]), ""]
+    if body.get("intended_user"):
+        out += [f"For: {_text(body['intended_user'])}", ""]
+    if body.get("task_kind"):
+        out += [f"Job type: {_text(body['task_kind'])}", ""]
+    out += _sections(body)
+    out += _criteria(body.get("acceptance_criteria") or [], review=True)
+    out += _milestones(body.get("milestones") or [])
+    out += _first_task(body.get("initial_task"))
+    out += _decisions(body.get("accepted_assumptions") or [], body.get("delegated_decisions") or [], review=True)
+    out += _questions(body.get("open_blocking_questions") or [])
+    out += _examples(body.get("brief_acceptance"), review=True)
+    delivery = body.get("git_delivery")
+    if isinstance(delivery, dict) and delivery.get("kind") == "atomic_commit":
+        out += ["## Local commit", "", "Create one local atomic commit: " + _text(delivery.get("message", "")), ""]
+    return util.redact("\n".join(out)).strip()
+
+
+def _sections(body) -> list[str]:
+    out = []
+    for key, heading in SECTIONS:
+        if body.get(key):
+            out += [f"## {heading}", "", *(_item(row) for row in body[key]), ""]
+    return out
+
+
+def _criteria(rows, *, review=False) -> list[str]:
     if not rows:
         return []
     out = ["## Acceptance criteria", ""]
@@ -326,10 +360,24 @@ def _criteria(rows) -> list[str]:
             out += [f"Verified by: {_code(method)}", ""]
         if row.get("human_review"):
             out += ["A person reviews the result before the run completes.", ""]
+        elif review:
+            out += ["No separate person review is required.", ""]
+        if review and row.get("current_behavior"):
+            out += ["Current behavior:", "", _text(row["current_behavior"]), ""]
+        supersedes = [value for value in _list(row.get("supersedes")) if isinstance(value, dict)]
+        if review and supersedes:
+            out += ["Tests this criterion replaces:", ""]
+            out += [_item(_code(value.get("file", "")) + ": " + _code(value.get("test", ""))) for value in supersedes]
+            out += [""]
         sources = [source for source in _list(row.get("sources")) if isinstance(source, dict)]
         if sources:
             out += ["Quoted from the request:", ""]
-            out += [_item(f"{source.get('source_id', '')}: {source.get('quote', '')}") for source in sources]
+            out += [
+                _item(
+                    source.get("quote", "") if review else f"{source.get('source_id', '')}: {source.get('quote', '')}"
+                )
+                for source in sources
+            ]
             out += [""]
     return out
 
@@ -363,12 +411,20 @@ def _first_task(task) -> list[str]:
     return out + [""]
 
 
-def _decisions(assumed, delegated) -> list[str]:
+def _decisions(assumed, delegated, *, review=False) -> list[str]:
     rows = [("Assumed", row) for row in assumed] + [("Delegated", row) for row in delegated]
     if not rows:
         return []
     out = ["## Decisions", ""]
     for label, row in rows:
+        if review:
+            basis = {
+                "user_answer": "from your answer",
+                "delegated": "under your delegation",
+                "agent_proposed": "proposed in this plan",
+            }.get(row.get("basis"), str(row.get("basis", "")).replace("_", " "))
+            out += [_item(f"{label}" + (f" ({basis})" if basis else "") + f": {row.get('text', '')}")]
+            continue
         cited = f", answer {row['answer_id']}" if row.get("answer_id") else ""
         out += [_item(f"{label} ({row.get('basis', '')}{cited}): {row.get('text', '')}")]
     return out + [""]
@@ -387,7 +443,7 @@ def _questions(rows) -> list[str]:
     return out
 
 
-def _examples(acceptance) -> list[str]:
+def _examples(acceptance, *, review=False) -> list[str]:
     """The brief's exact-output examples the runner checks on the delivered program."""
     manifest = acceptance.get("manifest") if isinstance(acceptance, dict) else None
     observations = manifest.get("observations") if isinstance(manifest, dict) else None
@@ -397,11 +453,21 @@ def _examples(acceptance) -> list[str]:
         declaration = row.get("declaration")
         if not isinstance(declaration, dict):
             continue
+        if review:
+            argv = [str(declaration.get("program", "")), *map(str, _list(declaration.get("observe_argv")))]
+            # Inline code collapses real newlines; JSON quoting keeps every whitespace character
+            # visible and distinguishes one spaced argument from several arguments.
+            out += [_item("Command arguments: " + _code(json.dumps(argv, ensure_ascii=False)))]
+            out += [
+                _item("Exact output: " + _code(json.dumps(str(declaration.get("literal", "")), ensure_ascii=False)))
+            ]
+            continue
         command = " ".join([str(declaration.get("program", "")), *map(str, _list(declaration.get("observe_argv")))])
         out += [_item(f"{_code(command.strip())} prints {_code(str(declaration.get('literal', '')))}")]
     if not out:
         return []
-    return ["## Exact output from the request", "", "Checked on the delivered program:", "", *out, ""]
+    label = "The delivered program must produce:" if review else "Checked on the delivered program:"
+    return ["## Exact output from the request", "", label, "", *out, ""]
 
 
 def _names(values, *, code=False) -> str:
