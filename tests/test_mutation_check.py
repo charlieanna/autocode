@@ -149,7 +149,7 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual({"killed"}, {row[2] for row in self.outcomes(strong)})
         self.assertEqual(WINDOW, (self.tree / "app.py").read_text())
 
-    def test_only_the_proving_tests_run_each_with_its_own_empty_bytecode_cache(self):
+    def test_only_the_proving_tests_run_with_the_collection_owned_bytecode_cache(self):
         run = FakeRun(self.tree, WEAK)
         self.collect(run, command="env LANG=C /usr/bin/python3 -m unittest -v tests/test_app.py")
         self.assertEqual(["unmutated", *[f"mutant-{n:02d}" for n in range(1, 7)]], [c["label"] for c in run.calls])
@@ -162,7 +162,26 @@ class RunnerTests(unittest.TestCase):
             caches.add(cache)
             # Never the whole suite: the two proving tests, by name; the other judged test is not run.
             self.assertEqual(("-v", C1, C2), invocation.arguments)
-        self.assertEqual(len(run.calls), len(caches))
+        self.assertEqual(1, len(caches))
+
+    def test_each_collection_starts_with_a_fresh_cache_even_in_the_same_evidence_directory(self):
+        caches = []
+        for _ in range(2):
+            reference = FakeRun(self.tree, STRONG)
+
+            def run(command, label, timeout):
+                words = python_tests.parse(command).prefix
+                cache = Path(next(word.split("=", 1)[1] for word in words if word.startswith("PYTHONPYCACHEPREFIX=")))
+                if label == "unmutated":
+                    self.assertFalse(cache.exists() and any(cache.iterdir()), "old collection bytecode cannot leak in")
+                    cache.mkdir(parents=True, exist_ok=True)
+                    (cache / "previous-collection").write_text("old bytecode")
+                    caches.append(cache)
+                return reference(command, label, timeout)
+
+            check = self.collect(run)
+            self.assertIsNone(check["note"], check)
+        self.assertNotEqual(caches[0], caches[1])
 
     def test_the_original_bytes_come_back_and_an_error_never_reaches_the_proof(self):
         for error in (OSError("the runner lost its log directory"), RuntimeError("unexpected")):
@@ -300,6 +319,64 @@ class StaleBytecodeTests(unittest.TestCase):
     """A proving test may import the product in a Python of its own, started with a minimal environment: it
     reads and writes the tree's own __pycache__, which trusts a compile whose source has the same
     modification time (whole seconds) and size."""
+
+    def test_collection_reuses_dependencies_but_executes_each_equal_size_mutant(self):
+        temporary = tempfile.TemporaryDirectory(prefix="mutation-shared-pyc-")
+        self.addCleanup(temporary.cleanup)
+        tree = Path(temporary.name)
+        app = tree / "app.py"
+        app.write_text(LIMIT_FIVE)
+        os.utime(app, (EPOCH_2020, EPOCH_2020))
+        (tree / "dependency.py").write_text("VALUE = 17\n")
+        compiled = []
+        observations = []
+        script = (
+            "import app, dependency, json; print(json.dumps([app.limit(0), dependency.VALUE, dependency.__cached__]))"
+        )
+
+        def run(command, label, timeout):
+            invocation = python_tests.parse(command)
+            environment = dict(os.environ)
+            for word in invocation.prefix:
+                if "=" in word:
+                    key, value = word.split("=", 1)
+                    environment[key] = value
+            shown = subprocess.run(
+                [sys.executable, "-c", script],
+                cwd=tree,
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=timeout,
+            )
+            value, dependency, cached = json.loads(shown.stdout)
+            self.assertEqual(17, dependency)
+            compiled.append((cached, Path(cached).stat().st_mtime_ns))
+            observations.append((label, value))
+            ok = value == 0
+            results = {"complete": True, "passed": [ZERO] if ok else [], "failed": [] if ok else [ZERO]}
+            return {"exit_code": 0 if ok else 1, "timed_out": False, "duration_seconds": 0.1, "results": results}
+
+        check = mutation_check.collect(
+            "unittest",
+            COMMAND,
+            [{"id": "C1", "test_name": "test_c1_zero_is_zero"}],
+            {"fail_to_pass": [ZERO], "pass_to_pass": [], "not_run_on_base": []},
+            tree,
+            tree / "evidence",
+            [("app.py", "modified")],
+            lambda files: "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -2,0 +2,3 @@\n",
+            run,
+        )
+        self.assertIsNone(check["note"], check)
+        self.assertEqual([0, 5, 0, 0, 0, 0, 1], [value for _, value in observations])
+        self.assertEqual(
+            ["killed", "survived", "survived", "survived", "survived", "killed"],
+            [row["outcome"] for row in check["files"][0]["mutants"]],
+        )
+        self.assertEqual(1, len(set(compiled)), "unchanged dependency bytecode should be compiled only once")
+        self.assertEqual((LIMIT_FIVE, EPOCH_2020 * 1_000_000_000), (app.read_text(), app.stat().st_mtime_ns))
 
     def test_each_mutant_runs_its_own_code_when_two_are_written_in_the_same_second(self):
         temporary = tempfile.TemporaryDirectory(prefix="mutation-pyc-")

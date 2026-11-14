@@ -5,9 +5,12 @@ workspace's source unless --with-diff adds the run's diff:
 
 - ``recording/``: the replay recording ``autocode replay RUN --export`` writes (#708), so
   ``autocode replay BUNDLE/recording --into ...`` re-drives the run with no model;
-- ``run/``: ``state.json``, ``activity.jsonl``, every stage report (``iterations/**/*.json``, not
-  the before/after source snapshots), the check-replay receipts (``check-replay/**/*.json``) and the
-  last TAIL_LINES lines of each provider event stream (``iterations/**/*.jsonl``);
+- ``run/``: ``state.json``, ``activity.jsonl``, ``model-preflight.json``, every stage report
+  (``iterations/**/*.json``, not the before/after source snapshots), the check-replay receipts
+  (``check-replay/**/*.json``), the model-access preflight reports and supervision receipts
+  (``model-preflight/**/*.json``, plus any pre-move preflight attempt receipts under
+  ``pre-move-model-preflight/...``) and the last TAIL_LINES lines of each provider event stream
+  (``iterations/**/*.jsonl`` and ``model-preflight/**/*.jsonl``);
 - ``settings.json`` (the run's resolved settings), ``doctor.json`` (``autocode doctor --json`` for
   the workspace) and ``version.txt``.
 
@@ -42,10 +45,14 @@ from pathlib import Path
 
 try:
     from . import autocode_agent_env as agent_env
+    from . import autocode_build_worktree as build_worktree
+    from . import autocode_preflight_attempts as preflight_attempts
     from . import autocode_subcommands as subcommands
     from . import autocode_util as util
 except ImportError:
     import autocode_agent_env as agent_env
+    import autocode_build_worktree as build_worktree
+    import autocode_preflight_attempts as preflight_attempts
     import autocode_subcommands as subcommands
     import autocode_util as util
 
@@ -74,21 +81,65 @@ def _text(path: Path, *, tail: int | None = None) -> str:
     return text
 
 
-def run_files(run_dir: Path) -> dict[str, tuple[Path, int | None]]:
+def _has_symlink(path: Path, *, stop_at: Path | None = None) -> bool:
+    """Whether ``path`` or any parent directory down to ``stop_at`` is a symbolic link."""
+    current = path
+    while True:
+        if current.is_symlink():
+            return True
+        if stop_at is not None and current == stop_at:
+            return False
+        if current.parent == current:
+            return False
+        current = current.parent
+
+
+def _add_preflight_dir(
+    chosen: dict[str, tuple[Path, int | None]], directory: Path, prefix: str, *, stop_at: Path
+) -> None:
+    if not directory.is_dir() or _has_symlink(directory, stop_at=stop_at):
+        return
+    for path in sorted(directory.rglob("*.json")):
+        if path.is_file() and not _has_symlink(path, stop_at=directory) and not path.name.endswith(SNAPSHOT_SUFFIXES):
+            chosen[f"{prefix}/{path.relative_to(directory).as_posix()}"] = (path, None)
+    for path in sorted(directory.rglob("*.jsonl")):
+        if path.is_file() and not _has_symlink(path, stop_at=directory):
+            chosen[f"{prefix}/{path.relative_to(directory).as_posix()}"] = (path, TAIL_LINES)
+
+
+def run_files(
+    run_dir: Path, *, state: RunState | None = None, origin_dir: Path | None = None
+) -> dict[str, tuple[Path, int | None]]:
     """The run files a bundle carries: name inside the bundle -> (source file, tail lines or None)."""
     chosen: dict[str, tuple[Path, int | None]] = {}
-    for name in ("state.json", "activity.jsonl"):
-        if (run_dir / name).is_file():
-            chosen[f"run/{name}"] = (run_dir / name, None)
+    for name in ("state.json", "activity.jsonl", "model-preflight.json"):
+        candidate = run_dir / name
+        if candidate.is_file() and not candidate.is_symlink():
+            chosen[f"run/{name}"] = (candidate, None)
     for path in sorted((run_dir / "iterations").rglob("*.json")) if (run_dir / "iterations").is_dir() else []:
-        if path.is_file() and not path.name.endswith(SNAPSHOT_SUFFIXES):
+        if path.is_file() and not _has_symlink(path, stop_at=run_dir) and not path.name.endswith(SNAPSHOT_SUFFIXES):
             chosen[f"run/{path.relative_to(run_dir).as_posix()}"] = (path, None)
     for path in sorted((run_dir / "iterations").rglob("*.jsonl")) if (run_dir / "iterations").is_dir() else []:
-        if path.is_file():
+        if path.is_file() and not _has_symlink(path, stop_at=run_dir):
             chosen[f"run/{path.relative_to(run_dir).as_posix()}"] = (path, TAIL_LINES)
     for path in sorted((run_dir / "check-replay").rglob("*.json")) if (run_dir / "check-replay").is_dir() else []:
-        if path.is_file():
+        if path.is_file() and not _has_symlink(path, stop_at=run_dir):
             chosen[f"run/{path.relative_to(run_dir).as_posix()}"] = (path, None)
+    _add_preflight_dir(chosen, run_dir / "model-preflight", "run/model-preflight", stop_at=run_dir)
+    if origin_dir is not None and isinstance(state, dict):
+        origin_preflight = origin_dir / "model-preflight"
+        if origin_preflight.is_dir() and not _has_symlink(origin_preflight, stop_at=origin_dir):
+            origin_root = origin_preflight.resolve()
+            for record in preflight_attempts.records(state, run_dir, earlier_dirs=(origin_dir,)):
+                attempt_dir = Path(str(record.get("events") or "")).parent
+                if _has_symlink(attempt_dir, stop_at=origin_dir):
+                    continue
+                resolved_attempt = attempt_dir.resolve()
+                if resolved_attempt.is_dir() and resolved_attempt.is_relative_to(origin_root):
+                    rel = resolved_attempt.relative_to(origin_root).as_posix()
+                    _add_preflight_dir(
+                        chosen, resolved_attempt, f"run/pre-move-model-preflight/{rel}", stop_at=origin_dir
+                    )
     return chosen
 
 
@@ -163,6 +214,30 @@ def _diff(workspace: Path, state: RunState, archive: dict | None = None) -> tupl
     return result.stdout, "..".join(target)
 
 
+def _canonical_run(run_dir: Path) -> tuple[Path, Path, RunState, Path | None, str | None]:
+    """Resolve ``run_dir`` across an authenticated ``moved_to`` worktree pointer, refusing symlinks or tampering."""
+    workspace = _workspace(run_dir)
+    if _has_symlink(run_dir, stop_at=workspace) or (run_dir / "state.json").is_symlink():
+        raise ValueError(f"{run_dir} cannot be bundled across a symbolic link")
+    if not (run_dir / "state.json").is_file():
+        raise ValueError(f"{run_dir} has no state.json")
+    state: RunState = json.loads((run_dir / "state.json").read_text())
+    if build_worktree.moved(state) is not None:
+        resolved = build_worktree.resolve(workspace, run_dir, state)
+        if resolved is None:
+            raise ValueError(build_worktree.gone(workspace, state))
+        tree, child, saved = resolved
+        if (
+            _has_symlink(tree, stop_at=workspace)
+            or _has_symlink(child, stop_at=tree)
+            or (child / "state.json").is_symlink()
+        ):
+            raise ValueError(build_worktree.gone(workspace, state))
+        moved_note = f"{workspace.name}/.autocode/runs/{run_dir.name}"
+        return tree, child, saved, run_dir, moved_note
+    return workspace, run_dir, state, build_worktree.origin(state, run_dir), None
+
+
 def collect(run_dir, *, with_diff=False, environ=None, doctor=None, recording=None) -> tuple[dict, dict]:
     """The bundle's files (name -> bytes) and its manifest; the run directory is only read.
 
@@ -170,19 +245,18 @@ def collect(run_dir, *, with_diff=False, environ=None, doctor=None, recording=No
     """
     doctor, recording = doctor or _doctor, recording or _recording
     run_dir = Path(run_dir).absolute()
-    workspace = _workspace(run_dir)
-    if not (run_dir / "state.json").is_file():
-        raise ValueError(f"{run_dir} has no state.json")
+    workspace, run_dir, state, origin_dir, moved_note = _canonical_run(run_dir)
     secrets = secret_values(environ)
     files: dict[str, bytes] = {}
-    for name, (path, tail) in run_files(run_dir).items():
+    for name, (path, tail) in run_files(run_dir, state=state, origin_dir=origin_dir).items():
         files[name] = util.redact(_text(path, tail=tail), secrets).encode()
-    state = json.loads((run_dir / "state.json").read_text())
     files["settings.json"] = util.redact(
         json.dumps(state.get("settings") or {}, indent=2, sort_keys=True), secrets
     ).encode()
     files["version.txt"] = (subcommands.version_line() + "\n").encode()
-    notes = {}
+    notes: dict[str, str] = {}
+    if moved_note is not None:
+        notes["moved_from"] = util.redact(moved_note, secrets)
     try:
         report = doctor(workspace)
     except Exception as error:  # doctor checks the host; a bundle still helps without them

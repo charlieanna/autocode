@@ -201,7 +201,7 @@ class DiskFullCLI(unittest.TestCase):
         with patch.object(copies.subprocess, "run", side_effect=fail_import):
             flow.drive(codes=(2,))
         view = flow.status()
-        self.assertIn("Unsupported command: verification-copy-failure", view["view"]["stop_reason"])
+        self.assertIn("unsupported command: verification-copy-failure", view["view"]["stop_reason"].lower())
         self.assertIn("[REDACTED]", view["view"]["stop_reason"])
         self.assertNotIn("private_test_credential", str(view))
         self.assertFalse(view["view"]["done"])
