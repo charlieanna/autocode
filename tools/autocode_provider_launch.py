@@ -27,6 +27,7 @@ try:
     from . import autocode_tool_admission as tool_admission
     from . import autocode_util as util
     from . import autocode_verification_copy as verification_copy
+    from . import autocode_verification_failure as verification_failure
 except ImportError:
     import autocode_access_evidence as access_evidence
     import autocode_agent_env as agent_env
@@ -41,6 +42,7 @@ except ImportError:
     import autocode_tool_admission as tool_admission
     import autocode_util as util
     import autocode_verification_copy as verification_copy
+    import autocode_verification_failure as verification_failure
 
 
 def prepare(
@@ -324,11 +326,27 @@ def prepare(
                 "PAUSED_VERIFICATION_PREPARATION",
                 "Verification copy preparation timed out before provider launch; no model was started. " + str(error),
             ) from error
+        except verification_failure.GitPreparationFailed as error:
+            raise verification_failure.PrelaunchFailure(
+                "Verification copy was not prepared: "
+                + storage_errors.describe(
+                    error,
+                    operation="preparing a verification copy",
+                    location=run_dir,
+                    include_captured_stderr=True,
+                ),
+                error,
+            ) from error
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
             raise util.Paused(
                 "PAUSED_STALE_VALIDATION",
                 "Verification copy was not prepared: "
-                + storage_errors.describe(error, operation="preparing a verification copy", location=run_dir),
+                + storage_errors.describe(
+                    error,
+                    operation="preparing a verification copy",
+                    location=run_dir,
+                    include_captured_stderr=True,
+                ),
             ) from error
         environment.update(
             AUTOCODE_VERIFICATION_COPY=copy["manifest"], AUTOCODE_VERIFICATION_COPY_SHA256=copy["sha256"]

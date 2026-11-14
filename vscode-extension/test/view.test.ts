@@ -289,3 +289,12 @@ test("changeset status JSON is read, and its refusal is an error (#2066)", () =>
   assert.throws(() => readChangesetSummary(JSON.stringify({ error: "this run is in no change set" })), /in no change set/);
   assert.throws(() => readChangesetSummary("{}"), /did not return a change set/);
 });
+
+
+test("a missing human action is not a completion claim", () => {
+  for (const category of ["blocked", "stopped"]) {
+    assert.equal(needsSummary({ status: "PAUSED_VERIFICATION_PREPARATION", done: false, needs: null,
+      recovery: { category } }), "nothing needed from you");
+  }
+  assert.equal(needsSummary({ status: "TASK_COMPLETE", done: true, needs: null }), "nothing; the run is complete");
+});

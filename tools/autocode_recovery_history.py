@@ -59,6 +59,8 @@ _RESOLVER_ACTIONS = {
     "escalate": "stop the stage",
     "replan": "revise the plan",
     "hold": "stop here",
+    "blocked": "remain blocked on verification preparation",
+    "could_not_finish": "end the task without completion",
 }
 
 

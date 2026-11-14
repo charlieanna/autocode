@@ -25,11 +25,13 @@ try:
     from . import autocode_joint_inputs as joint_inputs
     from . import autocode_source_snapshot as source
     from . import autocode_util as util
+    from . import autocode_verification_failure as verification_failure
     from .autocode_verification_budget import PREPARATION_ALLOWANCE_SECONDS
 except ImportError:
     import autocode_joint_inputs as joint_inputs
     import autocode_source_snapshot as source
     import autocode_util as util
+    import autocode_verification_failure as verification_failure
     from autocode_verification_budget import PREPARATION_ALLOWANCE_SECONDS
 
 
@@ -331,10 +333,14 @@ def allocate(workspace, run_dir, *, source_paths=()):
     run = _run_directory(root, run_dir)
     control = run / ("tool-containment-" + uuid.uuid4().hex)
     control.mkdir(mode=0o700)
+    owned = control.lstat()
+    preparation = {}
     try:
         scratch = control / "scratch"
         scratch.mkdir(mode=0o700)
-        result = create(root, scratch, source_paths=source_paths, run_dir=run, _deadline=deadline)
+        result = create(
+            root, scratch, source_paths=source_paths, run_dir=run, _deadline=deadline, _preparation_context=preparation
+        )
         tree, provenance = execution(result["manifest"], result["sha256"], root)
         _remaining(deadline, "Verification source final authentication")
         return {
@@ -344,12 +350,40 @@ def allocate(workspace, run_dir, *, source_paths=()):
             "tree": str(tree),
             **provenance,
         }
-    except BaseException:
-        shutil.rmtree(control)
+    except BaseException as error:
+        cleanup_error = None
+        try:
+            current = control.lstat()
+            if not stat.S_ISDIR(current.st_mode) or (current.st_dev, current.st_ino, current.st_uid) != (
+                owned.st_dev,
+                owned.st_ino,
+                owned.st_uid,
+            ):
+                raise ValueError("Owned verification control directory changed before cleanup")
+            shutil.rmtree(control)
+            if control.exists() or control.is_symlink():
+                raise ValueError("Owned verification control directory remains after cleanup")
+        except (OSError, ValueError) as cleanup:
+            cleanup_error = str(cleanup)
+        if isinstance(error, subprocess.CalledProcessError):
+            raise verification_failure.GitPreparationFailed(
+                error,
+                workspace=root,
+                run_dir=run,
+                control=control,
+                source_revision=preparation.get("source_revision"),
+                source_paths=preparation.get("source_paths", list(source_paths)),
+                cleanup_confirmed=cleanup_error is None,
+                cleanup_error=cleanup_error,
+            ) from error
+        if cleanup_error:
+            error.add_note("Verification copy cleanup was not confirmed: " + cleanup_error)
         raise
 
 
-def create(workspace, scratch, *, source_paths=(), setup_executor=None, run_dir=None, _deadline=None):
+def create(
+    workspace, scratch, *, source_paths=(), setup_executor=None, run_dir=None, _deadline=None, _preparation_context=None
+):
     # Copying, packing, staging and committing share one finite allowance.
     # Outer command/client/stage supervisors keep their existing deadlines.
     started = time.monotonic()
@@ -371,6 +405,8 @@ def create(workspace, scratch, *, source_paths=(), setup_executor=None, run_dir=
     tree = scratch / "verification"
     tree.mkdir()  # Never reuse a previous stage's outputs.
     before = source.snapshot(root, paths=source_paths)
+    if _preparation_context is not None:
+        _preparation_context.update(source_revision=before["revision"], source_paths=before.get("source_paths", []))
     inputs = _inventory(root, source_paths)
     copied = {}
     for name, identity in inputs.items():

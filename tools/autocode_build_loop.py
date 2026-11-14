@@ -392,6 +392,9 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
                 # boundary check would have, rather than stopping to ask the person to continue.
                 consume_boundary(current)
             if getattr(runner, "native_calls", None) is not None:
+                # A collected pre-provider preparation failure grants no retry.
+                # Record its failed/blocked outcome before retaining the native hold.
+                recovery_dispatch.settle_prelaunch(runner, current, run_dir, workspace, error)
                 raise  # Retained native attempts grant no automatic recovery.
             fired = recovery_dispatch.recover(runner, current, run_dir, workspace, error)
             if fired == "capacity":

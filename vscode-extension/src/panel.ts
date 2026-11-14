@@ -417,11 +417,11 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
   let gap: string | null = null;
   let actionLabel: string | null = null;
   let actionEffect: string | null = null;
-  const stopped = view.recovery?.category === "stopped" ? {
-    title: view.recovery.title ?? "Stopped",
-    explanation: view.recovery.what_happened ?? "",
-    retained: view.recovery.retained ?? null,
-    newConversation: view.recovery.actions?.find((row) => row.kind === "new_conversation")?.label ?? null,
+  const stopped = ["stopped", "blocked"].includes(view.recovery?.category ?? "") ? {
+    title: view.recovery!.title ?? (view.recovery?.category === "blocked" ? "Blocked" : "Stopped"),
+    explanation: view.recovery!.what_happened ?? "",
+    retained: view.recovery!.retained ?? null,
+    newConversation: view.recovery?.category === "blocked" ? null : view.recovery!.actions?.find((row) => row.kind === "new_conversation")?.label ?? null,
   } : null;
   if (!view.done && !stopped) {
     try {
