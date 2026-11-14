@@ -316,6 +316,53 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual("draft_plan", current["next_stage"])
         self.assertEqual([], queued)
 
+    def test_strict_wire_schema_triage_answers_route_as_triage_even_with_drafted_arrays(self):
+        ready_with_drafts = {
+            **self.triage_answer(ready=True, questions=[]),
+            "requirements": [{"id": "R1", "text": "t", "source_quote": "q"}],
+            "required_behaviors": ["b"],
+            "acceptance_tests": ["a"],
+            "source_refs": ["handoff task text"],
+            "project_conventions": ["x" * 130],
+        }
+        current, queued = self.accept(ready_with_drafts)
+        self.assertEqual("ready", current[triage.SETTING]["outcome"])
+        self.assertEqual("requirements_gather", current["next_stage"])
+        self.assertNotIn("requirements_handoff", current)
+        self.assertEqual([], queued)
+
+        questions_with_drafts = {
+            **self.triage_answer(ready=False, questions=[QUESTION]),
+            "requirements": [{"id": "R1", "text": "t", "source_quote": "q"}],
+            "required_behaviors": ["b"],
+            "acceptance_tests": ["a"],
+        }
+        current_q, queued_q = self.accept(questions_with_drafts)
+        self.assertEqual("questions", current_q[triage.SETTING]["outcome"])
+        report_q = current_q["requirements_handoff"]["report"]
+        self.assertEqual([], report_q["requirements"])
+        self.assertEqual([], report_q["required_behaviors"])
+        self.assertEqual([], report_q["acceptance_tests"])
+        self.assertEqual([QUESTION], [row for kwargs in queued_q for row in kwargs["questions"]])
+
+        # Boundary checks for is_answer mutability/operator invariants:
+        self.assertFalse(
+            triage.is_answer(
+                {
+                    "summary": "Ask",
+                    "intended_outcome": "Greet",
+                    "open_questions": [QUESTION],
+                    "requirements": [],
+                    "required_behaviors": [],
+                    "acceptance_tests": [],
+                }
+            )
+        )
+        self.assertFalse(triage.is_answer({"ready": 1, "open_questions": [], "required_behaviors": ["b"]}))
+        for key in ("requirements", "required_behaviors", "acceptance_tests"):
+            with self.subTest(key=key):
+                self.assertFalse(triage.is_answer({"ready": False, "open_questions": [], key: ["x"]}))
+
 
 class EffortTests(unittest.TestCase):
     def decision(self, configured, declared, stage="requirements_gather"):

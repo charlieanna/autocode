@@ -208,15 +208,20 @@ def prompt(state: RunState, inventory, engine) -> str:
 
 
 def is_answer(value: dict) -> bool:
-    """A triage answer carries the ready field and drafts nothing: no requirements, behaviors or tests.
+    """Whether ``value`` is a triage answer rather than an ordinary full handoff.
 
     Presence alone is not the signal: provider machinery materializes an optional field with its
-    empty value (a repaired report gained ``ready: false`` beside a full draft, 2026-11-08), so a
-    report that drafted anything routes through the ordinary path whatever it carries.
+    empty value (a repaired report gained ``ready: false`` beside a full draft, 2026-11-08).
+    Strict wire schemas (``model_output_schema``) mark every property required, so a live model
+    answering triage with ``ready: true`` or blocking ``open_questions`` may also populate draft
+    arrays without having received ``requirement_coverage_checklist``; route those as triage, while
+    keeping ``ready: false`` with no questions and non-empty draft fields on the ordinary path.
     """
-    return "ready" in value and not any(
-        value.get(key) for key in ("requirements", "required_behaviors", "acceptance_tests")
-    )
+    if "ready" not in value:
+        return False
+    if value.get("ready") is True or questions(value):
+        return True
+    return not any(value.get(key) for key in ("requirements", "required_behaviors", "acceptance_tests"))
 
 
 def questions(value: dict) -> list:
