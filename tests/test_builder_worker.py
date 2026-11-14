@@ -346,7 +346,7 @@ class WorkerBoundaryTests(unittest.TestCase):
             self.assertEqual(0, worker.main(self.directory, "retry"))
         self.assertEqual(["builder"], self.calls)
         self.assertEqual("BUILT", self.result()["status"])
-        self.assertEqual(1, len(list(self.directory.glob("archived-terra-fixture-*"))))
+        self.assertEqual(1, len(list(self.directory.glob("archived-builder-fixture-*"))))
 
     def test_committed_implementation_does_not_publish_built_over_an_operator_pause(self):
         self.seed()
