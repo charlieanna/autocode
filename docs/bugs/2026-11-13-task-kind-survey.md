@@ -909,6 +909,31 @@ model call in every such run.
 Still open: `make test`, Maven, Gradle and CMake report only an exit code too, and a recipe or a build
 file can run anything, so a repair with no test change there still needs a changed test.
 
+## 32. Three more kinds of task: two complete, `make check` asks the person (fixed)
+
+On master with section 31's fix:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| Bug fix with a test in a Bun project (`bun test`, a `package.json` test script, no packages) | complete, 8 stages, 173 s, $1.10; suite `npm test --silent`, the plan's first draft named tests after `test:` and was repaired | `0a1d203e397ef86eefe285aed533106d3026a4a26766e8874b8972a6a3e8d933` |
+| A change of data alone: two missing French translations in a JSON file a Python package reads | complete, 8 stages, 126 s, $0.85; two new tests for the keys, two guards on the existing ones | `9193aa5c8fb2f691851ba9353cdd3e5802be006b6dc4aa6b77bc7e48408191a0` |
+| Bug fix with a test in a C project whose `Makefile` runs the tests with `make check` | asks the person, 9 stages, 166 s, $1.04 | `c990227d3df60a51f46fe444a0d028dbc7b7efed74bd3d7ec3c0112a9e1e3eee` |
+
+**`make check`.** The C project's `Makefile` has `all`, `check` and `clean`, and its README says "run the
+tests with `make check`", the name the GNU conventions give that target. Detection knew only a `test`
+target. The plan's criterion was ``run `make check` ``, which names no test file, so the proof could not
+adopt it (section 22) and ended `UNVERIFIED`: "No command to run the regression tests; pass
+--regression-command". The Resolver asked the person to "Set --test-command 'make check' and
+--regression-command 'make check'".
+
+Fixed in detection: a `check` rule in the root `Makefile` is the project's suite when it has no `test`
+rule (`autocode_toolchain_suite.make_target`). The same task then completes: 9 stages, 162 s, $0.83, suite
+`detected:make` `make check` (bundle manifest
+`14a8aabc66cb3a180d2f3e25980b32d78409f251c02d50fa3cefc7f4b9a71c8a`).
+
+Still open: a `GNUmakefile` or `makefile`, a test target of another name (`tests`, `unittest`), and a
+`Makefile` that includes the file its test rule is in.
+
 ## Also seen, not yet run on real models
 
 - **Claude Code refuses to edit some directories inside the stage's own directory.** With Edit and

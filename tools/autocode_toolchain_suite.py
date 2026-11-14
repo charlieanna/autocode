@@ -51,6 +51,12 @@ TOOLCHAIN_ROOTS = frozenset(
 PHPUNIT_CONFIGS = frozenset(project_kinds.PHPUNIT_CONFIGS)
 PHPUNIT_PACKAGE = "phpunit/phpunit"
 PHPUNIT_SUITE = "vendor/bin/phpunit"
+# The Makefile targets that run a project's tests, first match first: ``test``, and ``check``, the name
+# the GNU conventions give it and most C projects use. A C bug fix whose README said "run the tests with
+# `make check`" had no suite: the proof ended UNVERIFIED and the person was asked to "set --test-command
+# 'make check' and --regression-command 'make check'" (Claude models, 2026-11-14). A rule, never a
+# variable assigned with ``:=``.
+MAKE_TEST_TARGETS = ("test", "check")
 # A Perl distribution's tests are the ``.t`` files of its root ``t/`` directory, run with ``prove``, which
 # comes with Perl: ``-l`` puts ``lib/`` on the module path and ``-r`` runs the ``.t`` files of every
 # directory under ``t/``, so a test file a change adds anywhere there is part of the suite on the candidate
@@ -141,8 +147,8 @@ def detect(root, files, is_test_path) -> Framework | None:
         return Framework("cargo", "cargo test")
     if "Gemfile" in files and any(project_kinds.collected_by(p) == "ruby" for p in files):
         return Framework("rspec", "bundle exec rspec", runner="bundle exec rspec")
-    if "Makefile" in files and re.search(r"^test\s*:", _read(root / "Makefile"), re.M):
-        return Framework("make", "make test")
+    if target := make_target(root, files):
+        return Framework("make", f"make {target}")
     if found := build_tool(root, files):
         return found
     if found := phpunit(root, files):
@@ -153,6 +159,14 @@ def detect(root, files, is_test_path) -> Framework | None:
         # Through Bundler when the project pins its gems, as `bundle exec rspec` is above.
         return Framework("minitest", ("bundle exec " if "Gemfile" in files else "") + RUBY_SUITE)
     return None
+
+
+def make_target(root, files) -> str | None:
+    """The target of the root ``Makefile`` that runs the project's tests (MAKE_TEST_TARGETS), or None."""
+    if "Makefile" not in files:
+        return None
+    text = _read(Path(root) / "Makefile")
+    return next((name for name in MAKE_TEST_TARGETS if re.search(rf"^{name}[ \t]*:(?!=)", text, re.M)), None)
 
 
 def build_tool(root, files) -> Framework | None:

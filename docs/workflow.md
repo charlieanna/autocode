@@ -668,7 +668,7 @@ acceptance criterion a test can check as one concrete example, and sets its
 The matching and the rules are in `tools/autocode_test_cases.py`.
 
 Test commands are detected (pytest, unittest, Go, Jest/Vitest/Mocha, RSpec,
-Cargo, `make test`, Maven (`mvn -B -q test`), Gradle (`gradle --no-daemon -q test`), CMake with
+Cargo, a `Makefile`'s `test` target or, without one, its `check` target (`make test`, `make check`), Maven (`mvn -B -q test`), Gradle (`gradle --no-daemon -q test`), CMake with
 CTest (a root `CMakeLists.txt` that calls `enable_testing()` or includes `CTest`), PHPUnit in a Composer
 project (`vendor/bin/phpunit`, for a root `composer.json` with a PHPUnit configuration file or the
 `phpunit/phpunit` package), a Perl distribution's `.t` files under `t/` (`prove -lr t`, for a root
