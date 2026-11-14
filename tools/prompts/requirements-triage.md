@@ -20,4 +20,4 @@ inspect repository files for this pass and do not restate the task as a question
 ready=true with no open_questions. Otherwise ask the most useful question now; later
 Requirements turns can follow the answer. Restate the intended outcome in one sentence
 of your own words without inventing details you are still clarifying. This pass
-writes no requirements, behaviors or tests: later passes draft them with your answers.
+writes no requirements, behaviors or tests (leave those arrays, source_refs and project_conventions empty []): later passes draft them with your answers.

@@ -12,7 +12,7 @@ and no fewer; an empty requirement_trace is refused. disposition is covered,
 excluded or superseded. For covered, evidence is an acceptance criterion ID of this contract (for example "AC3",
 or "AC3 checks this"), or a required_behaviors entry copied exactly; a paraphrase is refused. The
 requirement's own text is not evidence, even copied exactly. For excluded,
-evidence is a scope_exclusions entry copied exactly and backed by a saved user answer; for superseded, it cites
+evidence is a scope_exclusions entry copied exactly and backed by a saved user answer (or by the requirement's own source_quote when the brief itself declares that item out of scope or not required); for superseded, it cites
 the saved answer or feedback event ID. While the draft has open_blocking_questions and no criteria yet, a covered
 row may say what it waits on (for example "pending Q1"); the next draft, after the answer, must cite criteria.
 disposition proxied is for a user-visible requirement whose result is rendered by code outside this checkout,

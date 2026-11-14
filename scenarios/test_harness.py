@@ -6907,6 +6907,14 @@ class BaselineTests(unittest.TestCase):
             baseline.command("opencode", None, Path("/p"), "openai/gpt-6-sol"),
         )
         self.assertEqual(
+            ["kilo", "run", "--auto", "--dir", "/p", "--model", "xiaomi-token-plan-sgp/mimo-v2.6-pro"],
+            baseline.command("kilocode", None, Path("/p"), "xiaomi-token-plan-sgp/mimo-v2.6-pro"),
+        )
+        self.assertEqual(
+            ["kilo", "run", "--auto", "--dir", "/p"],
+            baseline.command("kilocode", None, Path("/p"), None),
+        )
+        self.assertEqual(
             ["codex", "exec", "-C", "/p", "--sandbox", "workspace-write", "-"],
             baseline.command("codex", None, Path("/p"), None),
         )
@@ -6916,6 +6924,45 @@ class BaselineTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "unknown baseline"):
             baseline.command("nope", None, Path("/p"), None)
+
+    def test_run_baseline_uses_profile_builder_model_for_kilocode(self):
+        scenario = catalog.load("bugfix-iso-weeks")
+        with tempfile.TemporaryDirectory() as root:
+            root_path = Path(root)
+            args = argparse.Namespace(
+                fake=False,
+                profile="glm-mimo-kilo",
+                baseline="kilocode",
+                baseline_model=None,
+                baseline_command=None,
+                timeout_minutes=1,
+            )
+            seen = {}
+
+            def fake_run(argv, project, brief, log, *, env, timeout_seconds):
+                seen["argv"] = list(argv)
+                return {
+                    "argv": argv,
+                    "exit": 0,
+                    "timed_out": False,
+                    "seconds": 0.1,
+                    "status": baseline.CLAIMED,
+                    "log": str(log),
+                }
+
+            with patch.object(run.baseline, "run", side_effect=fake_run):
+                result = run.run_baseline(scenario, args, root_path, scenario.seed)
+            expected_builder = profiles.resolve("glm-mimo-kilo")["models"]["builder"]
+            self.assertIn("--model", seen["argv"])
+            self.assertEqual(expected_builder, seen["argv"][seen["argv"].index("--model") + 1])
+            self.assertEqual("kilo", seen["argv"][0])
+            self.assertIn("checks", result)
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf), self.assertRaises(SystemExit) as exited:
+                run.main(["compare", "--help"])
+            self.assertEqual(0, exited.exception.code)
+            self.assertIn("--baseline-model", buf.getvalue())
+            self.assertIn("for opencode and kilocode", buf.getvalue())
 
     def test_only_exit_zero_claims_completion(self):
         with tempfile.TemporaryDirectory() as root:

@@ -107,6 +107,53 @@ class RequirementPreservationTests(unittest.TestCase):
         trace = [{"requirement_id": "R1", "disposition": "excluded", "evidence": evidence}]
         goals.check_requirement_trace(current, {"requirement_trace": trace}, contract)  # does not raise
 
+    def test_brief_declared_exclusion_quotes_may_exclude_without_follow_up_event(self):
+        for quote in (
+            "Concurrent builders and real compiler processes are out of scope.",
+            "No HTTP API, external bank, or floating-point currency is in scope.",
+            "Intro. No background daemon or external queue is required.",
+            "Filesystem permission errors need not be mapped to exit 2.",
+            "Non-goals: distributed caching.",
+        ):
+            with self.subTest(quote=quote):
+                current = state()
+                current["requirements_handoff"] = {
+                    "report": {"requirements": [{"id": "R1", "text": "Excluded item", "source_quote": quote}]},
+                    "output": "x.json",
+                }
+                contract = body()
+                contract["scope_exclusions"] = [quote]
+                trace = [{"requirement_id": "R1", "disposition": "excluded", "evidence": quote}]
+                goals.check_requirement_trace(current, {"requirement_trace": trace}, contract)
+
+    def test_brief_declared_exclusion_still_requires_scope_exclusion_match_and_rejects_fabricated_events(self):
+        quote = "Concurrent builders are out of scope."
+        current = state()
+        current["requirements_handoff"] = {
+            "report": {"requirements": [{"id": "R1", "text": "No concurrency", "source_quote": quote}]},
+            "output": "x.json",
+        }
+        contract = body()
+        contract["scope_exclusions"] = ["Different text"]
+        trace = [{"requirement_id": "R1", "disposition": "excluded", "evidence": quote}]
+        with self.assertRaisesRegex(ValueError, "not present in scope_exclusions"):
+            goals.check_requirement_trace(current, {"requirement_trace": trace}, contract)
+
+        for fabricated in ("out of scope per feedback-99", "out of scope per intervention-1"):
+            with self.subTest(fabricated=fabricated):
+                contract["scope_exclusions"] = [fabricated]
+                trace = [{"requirement_id": "R1", "disposition": "excluded", "evidence": fabricated}]
+                with self.assertRaisesRegex(ValueError, "cannot be excluded without a saved user event"):
+                    goals.check_requirement_trace(current, {"requirement_trace": trace}, contract)
+
+        for non_exclusion in (None, "   ", "No empty job ids are accepted"):
+            with self.subTest(non_exclusion=non_exclusion):
+                current["requirements_handoff"]["report"]["requirements"][0]["source_quote"] = non_exclusion
+                contract["scope_exclusions"] = ["Excluded item"]
+                trace = [{"requirement_id": "R1", "disposition": "excluded", "evidence": "Excluded item"}]
+                with self.assertRaisesRegex(ValueError, "cannot be excluded without a saved user event"):
+                    goals.check_requirement_trace(current, {"requirement_trace": trace}, contract)
+
     def test_refreshed_handoff_dropping_a_requirement_without_citation_is_rejected(self):
         current = state("Print greeting. Reject empty input.")
         current["requirements_handoff"] = {

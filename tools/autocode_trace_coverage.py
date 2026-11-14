@@ -10,6 +10,26 @@ except ImportError:
     import autocode_brief_literals as brief_literals
 
 
+_BRIEF_EXCLUSION_QUOTE = (
+    re.compile(r"\b(?:out[- ]of[- ]scope|not\s+in\s+scope|outside\s+(?:the\s+)?scope)\b", re.IGNORECASE),
+    re.compile(r"(?:^|[.;])\s*no\b[^.;]*\b(?:is|are)\s+in\s+scope\b", re.IGNORECASE),
+    re.compile(r"(?:^|[.;])\s*no\b[^.;]*\b(?:is|are)\s+(?:required|needed)\b", re.IGNORECASE),
+    re.compile(r"\bneed\s+not\s+be\b", re.IGNORECASE),
+    re.compile(r"^\s*non-?goals?\b", re.IGNORECASE),
+)
+_EVENT_TOKEN = re.compile(r"(?<![\w-])(?:feedback|intervention)-[\w-]+")
+
+
+def brief_declares_exclusion(requirement, evidence: str = "") -> bool:
+    """Whether the requirement's grounded source_quote itself states an exclusion or non-requirement."""
+    if _EVENT_TOKEN.search(evidence):
+        return False
+    quote = requirement.get("source_quote")
+    if not isinstance(quote, str) or not quote.strip():
+        return False
+    return any(pattern.search(quote) for pattern in _BRIEF_EXCLUSION_QUOTE)
+
+
 def coverage_errors(requirements, by_id, contract, *, covered, cites_user_event):
     behaviors = set(contract.get("required_behaviors", []))
     criteria = {row["id"] for row in contract.get("acceptance_criteria", [])}
@@ -54,7 +74,7 @@ def coverage_errors(requirements, by_id, contract, *, covered, cites_user_event)
         if disposition == "excluded":
             if evidence not in exclusions:
                 errors.append(f"Requirement {row['id']} is not present in scope_exclusions")
-            if not cites_user_event(evidence):
+            if not cites_user_event(evidence) and not brief_declares_exclusion(row, evidence):
                 errors.append(f"Requirement {row['id']} cannot be excluded without a saved user event")
         if disposition == "superseded" and not cites_user_event(evidence):
             errors.append(f"Requirement {row['id']} cannot be superseded without a saved user event")

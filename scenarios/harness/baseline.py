@@ -43,6 +43,14 @@ PRESETS = {
         str(project),
         *(["--model", model] if model else []),
     ],
+    "kilocode": lambda project, model: [
+        "kilo",
+        "run",
+        "--auto",
+        "--dir",
+        str(project),
+        *(["--model", model] if model else []),
+    ],
 }
 
 

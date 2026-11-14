@@ -148,7 +148,7 @@ appropriate handoff field; do not also put it in ignored_statements merely becau
 it is procedural. For example, "This is a small fix; don't turn it into a project."
 is an applicable scope constraint, not permission to omit part of the requested fix.
 For genuinely nonoperative source text or excluded work, explain the actual treatment
-in summary so the confirmation screen can show it. Put unresolved contradictions in conflicts with the requirement ids.
+in summary so the confirmation screen can show it. Sentences in the task that explicitly declare items out of scope or not required (for example "X is out of scope" or "No daemon is required") belong in constraints and ignored_statements (explained in summary), not as positive feature requirements; if retained in requirements for provenance, keep the exact exclusion sentence as source_quote. Put unresolved contradictions in conflicts with the requirement ids.
 Do not label an explicit saved clarification or a historical/current distinction as
 an unresolved conflict. Preserve the applicable requirements and their provenance.
 The runner saves this report as a separate artifact for the Planner.

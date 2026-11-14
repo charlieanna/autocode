@@ -61,15 +61,18 @@ def settled_sample(tree, *, initial=False, notify=True):
 
     Unknown ownership still raises; denied inspection and other failures never
     enter this retry. Independent keeper deadline and signalling threads keep
-    running throughout the short settlement interval.
+    running throughout the short settlement interval. At least one retry runs
+    even when a single slow host scan exceeds the 0.5 s settlement window.
     """
     until = util.monotonic() + 0.5
+    retried = False
     while True:
         try:
             return tree.sample(initial=initial, notify=notify)
         except SessionScanIncomplete:
-            if util.monotonic() >= until:
+            if util.monotonic() >= until and retried:
                 raise
+            retried = True
             util.sleep(0.01)
 
 
@@ -384,7 +387,7 @@ class ProcessTree:
                 pass
         return process_table(candidates)
 
-    def _session_candidates(self, groups, sessions, *, pending=(), group_leaders=None):
+    def _session_candidates(self, groups, sessions, *, pending=(), group_leaders=None, retire_empty=True):
         """Find members, retiring an empty SID only across a stable PID scan.
 
         Linux and macOS reserve a live session's ID against PID allocation.
@@ -419,6 +422,8 @@ class ProcessTree:
                 if sid in sessions or group in groups:
                     candidates.add(pid)
             found = process_table(candidates)
+            if not retire_empty:
+                return found, sessions, refreshed
             observed = {row.get("session") for row in found.values()} & sessions
             # CONTINUE may have been sent without setsid running yet. A
             # same-birth creator still reserves its prospective numeric SID;
@@ -479,7 +484,7 @@ class ProcessTree:
         self.checkpoint(list(self.known.values()))
         return self.known[self.pid]
 
-    def sample(self, *, initial=False, notify=True):
+    def sample(self, *, initial=False, notify=True, retire_empty=True):
         self.known = {pid: row for pid, row in self.known.items() if self._included(row)}
         # Bind a missing observation to the birth we actually queried, even if
         # another admission replaces that PID while the native read is pending.
@@ -529,6 +534,7 @@ class ProcessTree:
                     sessions,
                     pending=pending,
                     group_leaders={pid: table.get(pid, self.groups.get(pid)) for pid in groups},
+                    retire_empty=retire_empty,
                 )
                 retained &= groups
                 for pid, row in refreshed.items():

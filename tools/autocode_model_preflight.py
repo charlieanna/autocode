@@ -269,6 +269,7 @@ def probe(
             deadline=deadline,
             prepare=lambda argv, env: bare(argv, env, home=home.name),
             role=role,
+            access_probe=True,
         )
     except (processes.ProcessError, OSError) as error:
         raise support.Paused(

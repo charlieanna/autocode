@@ -6,6 +6,7 @@ This does not import the workflow controller or change its production launcher.
 
 from __future__ import annotations
 
+import inspect
 import json
 import subprocess
 import time
@@ -126,6 +127,7 @@ def execute(
     prepare=None,
     role=None,
     report_recovery=False,
+    access_probe=False,
 ):
     """``prepare(argv, env) -> (argv, env)`` adjusts a tool launch before it runs (the access probe's bare agent).
 
@@ -167,6 +169,8 @@ def execute(
             launch_kwargs.update(report_recovery=True, planning=True)
         if hasattr(adapter, "parse_opencode_version"):
             launch_kwargs["opencode_version"] = adapter.local_settings(workspace, env=env)["version"]
+        if access_probe and "access_probe" in inspect.signature(adapter.launch).parameters:
+            launch_kwargs["access_probe"] = True
         try:
             from .providers import kilocode_probe
             from .providers.kilocode import KiloEffortError

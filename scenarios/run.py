@@ -785,7 +785,9 @@ def run_baseline(scenario, args, root: Path, solution: Path) -> dict:
         argv, env = baseline.fake_setup(out, solution)
     else:
         builder = (profiles.resolve(args.profile).get("models") or {}).get("builder")
-        model = args.baseline_model or (builder if args.baseline == "opencode" and not args.baseline_command else None)
+        model = args.baseline_model or (
+            builder if args.baseline in ("opencode", "kilocode") and not args.baseline_command else None
+        )
         argv, env = baseline.command(args.baseline, args.baseline_command, project, model), {}
     call = baseline.run(
         argv,
@@ -948,7 +950,7 @@ def main(argv=None) -> int:
     comparison.add_argument(
         "--baseline-model",
         help="model for the agent (default: the profile's builder model "
-        "for opencode; the agent's own default otherwise)",
+        "for opencode and kilocode; the agent's own default otherwise)",
     )
     comparison.add_argument(
         "--baseline-command",
