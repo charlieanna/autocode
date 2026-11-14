@@ -481,6 +481,172 @@ Open:
   clean trees, so it is not affected.
 - Mocha (its JSON reporter) and Minitest (verbose output) could be read the same way.
 
+## 18. TypeScript, a monorepo package and a dependency upgrade: a check's `npm ci` deletes the person's packages (fixed)
+
+Three kinds not yet tried, each with a brief as a person would write it. Five runs, $8.54:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| TypeScript with Vitest: "bookings that only touch should not conflict. Fix it and add a regression test." | complete, 8 stages, 138 s, $0.89; two new tests and three guards named by title | `3d4f8e209ba452dcbe218be0cc5fcc122809807e4872836fc52e062a6f6029aa` |
+| A bug in `packages/invoices` of a two-package repository, "leave packages/search alone", no `--package` | complete, 8 stages, 141 s, $0.85; only that package changed | `760dc85fd18e0f0856efb586c2f6a0efd0a12c4bf4686ff54d7e695748f04654` |
+| "Upgrade the ms dependency from 2.0.0 to 2.1.3, in package.json and package-lock.json, and make sure the tests still pass." | stopped (`PAUSED_INVALID_OUTPUT`), 282 s, $1.76 | `2190260b671dd61967e54d8cc2a6ccff42d4007e894f521ed476576c4d5ad4f9` |
+| The same upgrade on the fixed tree | complete, 19 stages, 475 s, $2.89, no question | `e0db0bc800c742f0356c55f5af6558b6775e7fc33a896239183db42805046265` |
+
+(A first run of the upgrade used a probe whose `npm test` script was wrong for Node 22, so the suite failed
+before the change. It asked the person whether it may correct the script, which the request did not cover:
+875 s, $2.15, manifest `b33dde4491ffaaaee61c947df6414c26b767361df9a7336d49e9f557735165ad`.)
+
+**The upgrade deleted the workspace's installed packages.** The plan's checks were `npm ci`, the installed
+version and `npm test`. A scratch copy's `node_modules` was a link to the workspace's own directory, and
+`npm ci` empties the directory behind such a link before it installs. The Tester's captured `npm ci`, run in
+its verification copy, emptied the workspace's `node_modules`; the runner's replay of `npm test` in a fresh
+scratch tree then failed with "Cannot find module 'ms'", the Tester's report was refused, and the Investigator
+(who took the cause to be the checks running in separate trees) sent the run to the person. A run of the same
+command by the runner would have done the same: its scratch trees were linked the same way.
+
+Fixed: a scratch tree and a verification copy get a directory of their own behind the link, which links each
+installed package and copies the files the package manager keeps beside them
+(`autocode_dependency_dirs.expose`). Emptying, replacing or reinstalling `node_modules` there changes that
+directory and nothing the person installed, and `npm ci` then works in the copy. The tree's files look as
+before: one link. A virtualenv and `vendor/` are still linked whole, so `pip install` in a copy still writes
+to the person's virtualenv. On the fixed tree the upgrade completed and the workspace kept its packages.
+
+The tests for this fix also showed `tests.test_package_scope_cli` red on master: since the mutation check
+stops at a mutant's first failing test, a `--package` run's `cd PACKAGE && RUNNER` was not read as the
+stopping runner, so no mutant a package's test caught was counted. Fixed separately (#3516).
+
+Open, from the fixed run, which needed two failed proofs and an Investigator before it completed:
+
+- **The original code is tested with the new packages.** Both proof trees use the packages installed in the
+  workspace, which after the Builder's `npm install` are the upgraded ones. A test that the installed version
+  is 2.1.3 passed on the original code too, so it proved nothing until the Investigator had it compare the
+  installed version with `package.json`. A dependency change cannot be shown to fail without it unless the
+  original tree gets the original packages.
+- **Guards that were all titles named no guard** (fixed, section 19). The four existing tests were guarded
+  by their titles, found nowhere, and the Builder copied them into the new test file as `test_ac3_...` to
+  `test_ac6_...`, as in section 5.
+- The plan named `node_modules` among its paths, so the proof counted the installed files as changed files of
+  the task.
+
+## 19. JavaScript: guards that are all titles are found nowhere beside a new test file (fixed)
+
+Seen in section 18's fixed run (manifest `e0db0bc800c742f0356c55f5af6558b6775e7fc33a896239183db42805046265`).
+The plan was what a person would want: two `test:` criteria for the upgraded manifest and lock file, in a new
+`tests/dependency.test.js`, and four guards on the project's existing tests, each by its title
+(`guard: a remembered session lasts thirty days`). The proof failed twice with "Preserve case AC3 … has no
+test named test_ac3_<what it checks>", and the Investigator had the Builder copy the four existing tests
+into the new file under `test_ac3_...` to `test_ac6_...` names, which is what section 5's fix was meant to end.
+
+A title is bound to a test only after the suite has run (`autocode_test_cases.titled`). The proof step told
+the verifier which guards exist by their exact test names, and a title is not one until then, so with every
+guard a title it was told of none. The verifier runs the whole suite on the original code with the change's
+test files only when there is a guard to find, so it never ran, and the existing tests in a file the change
+left alone were in no list the guards are searched in. Section 5's runs passed because the bug fix edited the
+existing test file, so the targeted run saw its tests, and the refactor's plan had one guard that was a test
+name.
+
+The proof step now names a guard by its declared title where the runner names tests by title
+(`autocode_test_cases.guard_names`), so the suite runs on the original code with the new test file and each
+titled guard rests on the existing test that passed there and with the change. A guard whose titled test
+fails with the change is still not proved.
+
+## 22. Java with Maven and C++ with CMake: the person is asked for test commands (fixed)
+
+Sections 20 and 21 (a Python dependency upgrade, and a rename or removal that existing tests must follow)
+are in a separate pull request that waits for an owner decision. The runs below were made on trees that
+also held its change (a Planner prompt paragraph about replaced tests, and the original-test gate's handling
+of a test file that can no longer load); none of these tasks replaces a test.
+
+Two bug fixes with a regression test, written as a person would write them, on master `40cf369`:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| Java, Maven and JUnit 5, tests named `exactMultipleNeedsNoExtraPage` | asks the person, 9 stages, 232 s, $1.66 | `d03847af3ecb6eb4bcb6923606b973e712cd2d5f4ef62f545042f7839863514e` |
+| C++, CMake and CTest, one test executable of plain checks | asks the person, 9 stages, 186 s, $1.14 | `d5e1b2eb7505121ae5c80b8a0abad6e413842aef68ebafaf9c824b9fcaa81faf` |
+
+Both Builders delivered the correct fix and a regression test. Both proofs were `UNVERIFIED`: "No
+command to run the regression tests; pass --regression-command" and "No project test command was found;
+existing behavior was not checked (pass --test-command)". The Resolver then asked the person to "Set
+the saved verification commands through the operator command correction: regression command `mvn test`
+(--regression-command 'mvn test') and suite/test command `mvn test`", and the same with the `cmake` and
+`ctest` command: a question about AutoCode's own flags, which a person in the VS Code client cannot even
+type.
+
+Two causes. Detection (`autocode_toolchain_suite.detect`) listed Go, Node, Cargo, RSpec, `make test` and
+Minitest, so a Maven, Gradle or CMake project had no suite. And the fallback for such a project, the
+approved plan's own command (section 1), takes only a command that names a test file, so it can tell
+which role the command plays; `mvn test` and `cmake ... && ctest ...` name none.
+
+Fixed in detection: a root `pom.xml` is a Maven project (`mvn -B -q test`), a root Gradle build or
+settings file a Gradle project (`gradle --no-daemon -q test`), each through the project's own `mvnw` or
+`gradlew` when it has one, and a root `CMakeLists.txt` that turns testing on (`enable_testing()` or
+`include(CTest)`) a CMake project (`cmake -S . -B build && cmake --build build && ctest --test-dir build
+--output-on-failure`). Each is judged by its exit code, as `make test` is: the suite passes on the
+original code, fails there with the change's test files, and passes with the change. A suite the
+project declares another way (`make test`, `go.mod`, `Cargo.toml`, a `package.json` test script) keeps
+priority, and a Python project that also builds a native part stays a Python project. Named JUnit
+results still need `--test-report` (docs/named-test-proof.md).
+
+The same two tasks with the fix:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| Java, Maven | complete, 8 stages, 201 s, $1.11; suite `detected:maven`, guards ``guard: run `mvn -B -q test` `` | `c78eecd8887a097a0952ef171e24ec832d81a979b7bd3867f92f958f4ec08dcc` |
+| C++, CMake | complete, 8 stages, 152 s, $0.83; suite `detected:cmake` | `ca595b22f82c267453211869f3dbe3d0ce009bfe9464ea2592671e3f436fa2b3` |
+| The Java task in a Gradle project | complete, 8 stages, 254 s, $1.07; guards ``guard: run `gradle --no-daemon -q test` `` | `0e8af291ccae3ccfe8f6b0438a897d67964b69fa63a6916d6e4aad77c7243a18` |
+
+Open: a project whose runner is still not detected and whose plan command names no test file (`dotnet
+test`, `composer test`, `mix test`, `swift test`, `sbt test`) stops the same way. A build directory the
+project does not ignore is section 24.
+
+## 23. Three more kinds of task (complete)
+
+On the tree with section 22's fix, each with one plan approval and no question:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| "This test fails on some runs and passes on others. Find out why and fix it" (Python; the code returned a set's order) | complete, 8 stages, 147 s, $0.84 | `59e4067f985d6605af6aad446fbb66987eda4e42a315098df7e1bc01c1b12c52` |
+| A new endpoint in an Express app, tested with Jest and supertest | complete, 8 stages, 157 s, $0.89 | `800873960cd8804d8c78c84ae17cd51a32dca173eb2b1f8d3dcd8a1672845211` |
+| "Add type hints to every function. Do not change what the code does" (Python) | complete, 8 stages, 151 s, $0.85 | `8bb24b005bcef8ec3e3e20414591e823a93fee31f1a42555c1bbe448ebae46ed` |
+
+## 24. A project that does not ignore its build directory: the Builder is refused for its build output (fixed)
+
+Section 22's Java and C++ tasks again, in the same projects without their `.gitignore`, on the tree with
+section 22's fix:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| C++, CMake, `build/` not ignored | `PAUSED_INVALID_OUTPUT`, 152 s, $0.67 | `7a9e7926fe26c94ef81ccb0431962e471e7764eb104ef026674b059fb5422428` |
+| Java, Maven, `target/` not ignored | complete after two refused Builder attempts, 13 stages, 587 s, $2.19 | `17f7aa24f0fbe444053b3a4481110122364d5e1463adeb36309c544e62ae2882` |
+
+Each Builder fixed the code, added the test and ran the project's tests, as its prompt asks. The build
+tool wrote its output beside the sources (`build/CMakeCache.txt`, `build/libpager.a`, ...;
+`target/maven-status/...`, `target/surefire-reports/...`), nothing ignores it, and the attempt was refused:
+"Builder attempts for this task changed files outside the assigned paths". The C++ plan's own check was
+`cmake -S . -B build && cmake --build build && ./build/pager_test`, so no retry could pass, and the
+Investigator ended with `needs_user`. The Maven run's Investigator told the Builder to build in a scratch
+copy and clean `target/`, which worked once and was lost in the next round.
+
+This is section 3's `Cargo.lock` again, many files at a time: a tool's by-product, not the stage's edit.
+`autocode_toolchain_byproducts` now also removes, when a stage ends, the files a build tool wrote into
+its own directory beside the manifest it builds (`target/` beside `pom.xml` or `Cargo.toml`, `build/` and
+`.gradle/` beside a Gradle file, `build/` beside `CMakeLists.txt`; `autocode_project_kinds.BUILD_DIRS`),
+and only when that directory held no file when the stage began. A directory that already held a file,
+committed or not, is the project's own and is measured as before; so is one a link leads to, and one the
+Builder's assigned paths touch. A file the project ignores there stays. The stage's record names each
+removed directory (`toolchain_byproducts`).
+
+The same two tasks with the fix:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| C++, CMake, `build/` not ignored | complete, 11 stages (the Tester sent the first build back once), 226 s, $1.14; both Builder records name `build/` | `5c82eb7513897bd7d540ae35b475c311d02e4f6d0841a5d6dc2cb8eb793c5217` |
+| Java, Maven, `target/` not ignored | complete, 8 stages, 206 s, $1.00 | `586fd988491db4f945b997d5d72275f783af851088a3569d646bcf47d849324d` |
+
+Open: build output in a directory that already held files when the stage began (a person's own earlier
+build, never ignored) is still charged to the stage. `node_modules/` a stage installs in a project that
+does not ignore it is not handled either.
+
 ## Also seen, not yet run on real models
 
 - **A new repository with no commit is refused** with a Git command for the person to type

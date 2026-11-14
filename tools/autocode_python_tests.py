@@ -275,7 +275,7 @@ class Invocation:
         original suite, which still supplies named base/candidate results.
         """
         if self.kind != "pytest":
-            return shlex.join([*self.prefix, self.python, "-m", "unittest", "-v", *files])
+            return self._targeted_unittest(files)
         values = {
             "-p",
             "-o",
@@ -324,6 +324,29 @@ class Invocation:
                 return shlex.join([*self.prefix, self.python, "-m", self.kind, *self.arguments])
             index += 1
         return shlex.join([*self.prefix, self.python, "-m", "pytest", *kept, *files])
+
+    def _targeted_unittest(self, files):
+        original = shlex.join([*self.prefix, self.python, "-m", self.kind, *self.arguments])
+        discovery = {"-s", "--start-directory", "-p", "--pattern", "-t", "--top-level-directory"}
+        flags = {"-b", "--buffer", "-c", "--catch", "-f", "--failfast", "--locals"}
+        kept, index = [], 0
+        while index < len(self.arguments):
+            word = self.arguments[index]
+            if word in discovery | {"-k", "--durations"}:
+                if index + 1 == len(self.arguments):
+                    return original
+                if word not in discovery:
+                    kept.extend(self.arguments[index : index + 2])
+                index += 2
+                continue
+            if word in flags or word.startswith(("-k", "--durations=")):
+                kept.append(word)
+            elif word.startswith("--") and word.split("=", 1)[0] in discovery:
+                pass
+            elif word.startswith("-") and word not in {"-v", "--verbose", "-q", "--quiet"}:
+                return original
+            index += 1
+        return shlex.join([*self.prefix, self.python, "-m", "unittest", "-v", *kept, *files])
 
 
 def parse(command):

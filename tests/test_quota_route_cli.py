@@ -442,7 +442,21 @@ class ContentFilterFinishCliTests(unittest.TestCase):
     model_of = staticmethod(QuotaRouteCliTests.model_of)
 
     def test_the_refused_builder_is_asked_for_another_model_and_continues_on_it(self):
-        self.launch(["Build a greeting tool", "--chat", "--builder-model", self.refused], 2, answers="CLI\nyes\n")
+        self.launch(
+            [
+                "Build a greeting tool",
+                "--chat",
+                "--no-auto-select",
+                "--builder-model",
+                self.refused,
+                "--tester-model",
+                "zai-coding-plan/glm-5.3",
+                "--completion-model",
+                "zai-coding-plan/glm-5.3",
+            ],
+            2,
+            answers="CLI\nyes\n",
+        )
         run_dir, paused = self.saved()
         args = ["--run-dir", str(run_dir)]
         published = human.current(paused)
@@ -476,6 +490,15 @@ class ContentFilterFinishCliTests(unittest.TestCase):
         self.assertEqual(
             [self.refused, self.other], [self.model_of(row) for row in builders], "the refused model is never replayed"
         )
+
+    def test_the_refused_builder_switches_across_vendors_and_completes_on_its_own(self):
+        self.launch(["Build a greeting tool", "--chat", "--builder-model", self.refused], 0, answers="CLI\nyes\n")
+        _, done = self.saved()
+        self.assertEqual("TASK_COMPLETE", done["status"])
+        builders = [row for row in done["stages"] if row["stage"] == "builder" and not row.get("runner_owned")]
+        self.assertEqual([self.refused, "zai-coding-plan/glm-5.3"], [self.model_of(row) for row in builders])
+        self.assertTrue(done["settings"]["roles"]["tester"]["model"].startswith("openai/"))
+        self.assertTrue(done["settings"]["roles"]["completion"]["model"].startswith("openai/"))
 
 
 if __name__ == "__main__":

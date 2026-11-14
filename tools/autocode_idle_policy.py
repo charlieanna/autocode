@@ -30,6 +30,9 @@ FAMILY_NAMES = {"mimo": "MiMo"}
 # The planning stages that return one report and nothing before it (autocode_roles.ALL_PLANNING_STAGES).
 PLANNING_FLOOR = 600
 PLANNING_FLOOR_ORIGIN = "runner default for Requirements, Planner and Plan Reviewer launches"
+# Bounded startup stream-liveness budget: fail fast when a wedged transport emits zero events (#3465).
+FIRST_EVENT_SECONDS = 90
+FIRST_EVENT_ORIGIN = "runner default before first provider event"
 
 
 def effective(limit, origin, model, stage=None):
@@ -47,3 +50,13 @@ def effective(limit, origin, model, stage=None):
         floors.append((PLANNING_FLOOR, PLANNING_FLOOR_ORIGIN))
     floor, label = max(floors, default=(0, origin))
     return (floor, label) if floor > limit else (limit, origin)
+
+
+def first_event_limit(limit, origin, *, stage_timeout=None):
+    """Return ``(seconds, origin)`` for initial stream liveness when using runner defaults."""
+    if origin != "runner_default" or not limit:
+        return None, None
+    candidates = [limit, FIRST_EVENT_SECONDS]
+    if isinstance(stage_timeout, (int, float)) and stage_timeout > 0:
+        candidates.append(stage_timeout)
+    return min(candidates), FIRST_EVENT_ORIGIN

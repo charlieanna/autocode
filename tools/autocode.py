@@ -441,11 +441,10 @@ def run_role(
         state, original_stage, limits.get("stage_timeout_seconds"), report_only=report_only
     )
     idle_timeout = limits.get("idle_timeout_seconds", 300)
-    idle_limit, idle_origin = idle_policy.effective(
-        idle_timeout,
-        state["settings"].get("budget_origins", {}).get("idle_timeout_seconds"),
-        model,
-        stage=original_stage,
+    saved_idle_origin = state["settings"].get("budget_origins", {}).get("idle_timeout_seconds")
+    idle_limit, idle_origin = idle_policy.effective(idle_timeout, saved_idle_origin, model, stage=original_stage)
+    first_event_limit, first_event_origin = idle_policy.first_event_limit(
+        idle_limit, saved_idle_origin, stage_timeout=stage_timeout
     )
     tool_timeout = limits.get("tool_timeout_seconds", 1800)
     with phase_timing.measure(state, "source_launcher_preparation", stage=stage, attempt=attempt):
@@ -762,6 +761,8 @@ def run_role(
                 idle_hint=JOB_IDLE_LIMIT if stage in jobs.STAGES else CHANGE_IDLE_LIMIT,
                 progress=progress_budget,
                 plain_text=configured_tool and getattr(adapter, "OUTPUT", None) == "report_file",
+                first_event_limit=first_event_limit,
+                first_event_origin=first_event_origin,
             )
 
             def checkpoint(owned):
@@ -775,7 +776,7 @@ def run_role(
                 checkpoint,
                 activity=activity,
                 activity_checkpoint=activity_checkpoint,
-                startup_grace=min(5, tool_timeout or 5),
+                startup_grace=min(5, tool_timeout or 5, first_event_limit or 5),
                 stop_requested=lambda: interventions.stop_now_requested(run_dir),
                 **({"on_root": on_root} if native is not None else {}),
             )
@@ -833,11 +834,7 @@ def run_role(
         timed_out=timed_out,
     )
     if timed_out:
-        timeout = getattr(activity, "timeout", None) or {
-            "kind": "stage",
-            "reason": f"Stage exceeded its {stage_timeout}-second hard runtime limit",
-        }
-        record.update(timeout_kind=timeout["kind"], timeout_reason=timeout["reason"])
+        role_launch.record_timeout(record, activity, stage_timeout)
     account_stage(state, record)
     if not cleanup_error and exit_code is not None:
         job_source.stopped(workspace, base, record)

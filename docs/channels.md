@@ -38,7 +38,7 @@ Everything is configured through the environment:
 | `AUTOCODE_BRIDGE_PROJECT` | the persistent checkout to build in (default: the daemon's directory). |
 | `AUTOCODE_BRIDGE_LABEL` | the label that takes an issue (default `autocode`). |
 | `AUTOCODE_BRIDGE_ACTORS` | a JSON array of GitHub logins allowed to steer runs. Replies from anyone else are ignored. |
-| `AUTOCODE_BRIDGE_OPTIONS` | a JSON array of launch options (engine, models, `--test-command`). Every human or run action flag is refused here. |
+| `AUTOCODE_BRIDGE_OPTIONS` | a JSON array of launch options (engine, models, `--test-command`). Add `--evidence-provenance live` when the bridge runs real models: without it each run's report says its provider evidence is unknown. Every human or run action flag is refused here. |
 | `AUTOCODE_BRIDGE_POLL_SECONDS` | seconds between polls (default 10). |
 | `AUTOCODE_BRIDGE_MAX_ACTIVE` | the most bridged runs in flight at once, a whole number from 1. Unset, every labeled issue starts as soon as it is seen. See [Many issues at once](#many-issues-at-once). |
 | `AUTOCODE_BRIDGE_OPEN_PR` | `1` to also push the branch and open the draft PR on completion; the default only prepares it. |
@@ -112,6 +112,9 @@ the terminal chat and the headless conformance client:
   `autocode changeset status` names. Words written before a gate was
   posted can never answer it: each gate remembers which comments it has already
   consumed.
+- **A reply is found however long the issue is.** Each poll reads the issue's
+  newest 30 comments, across GitHub's pages of 30, so a reply is read as long
+  as fewer than 30 comments arrive between two polls.
 - **Person-only stops stay person-only.** Pauses, retries and blockers are
   relayed with their reason, and acted on only by an allowlisted actor's
   explicit reply. Nothing resumes on its own.

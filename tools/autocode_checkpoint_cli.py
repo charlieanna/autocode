@@ -175,15 +175,43 @@ def step(state: RunState, run_dir, ident):
         changed = util.changed_paths(earlier["source"], saved["source"])
     else:
         commit, since = saved["source"]["head"], None
-        before = checkpoints.tree_files(state["workspace"], commit)
-        # Only the run's own scope, as `working` reads it; a file the step removed is in its record.
-        removed = [name for name in rows[0].get("changed_files") or [] if name in before and name not in after]
-        changed = sorted({*(name for name in after if before.get(name) != after.get(name)), *removed})
+        before, changed = since_start(state, commit, after, rows[:1])
     patch = patch_text(state, commit, changed, before, after, new_commit=saved["commit"])
     return {
         "version": 1,
         "checkpoint_id": ident,
         "since": since or "start",
+        "changed_files": changed,
+        "patch": patch[:200000],
+        "truncated": len(patch) > 200000,
+    }
+
+
+def since_start(state: RunState, commit, after, rows):
+    """The files at `commit` and the paths that differ from them in `after`. Only the run's own scope,
+    as `working` reads it: a file present in `after`, or one a step in `rows` removed (in its record)."""
+    before = checkpoints.tree_files(state["workspace"], commit)
+    recorded = {name for row in rows for name in row.get("changed_files") or []}
+    removed = [name for name in recorded if name in before and name not in after]
+    return before, sorted({*(name for name in after if before.get(name) != after.get(name)), *removed})
+
+
+def all_changes(state: RunState, run_dir):
+    """Everything the run changed: the newest saved step's code against the commit the first was saved on.
+    Display only, like ``step``: both sides are saved code, never the files on disk; no token, nothing
+    restored. This is the run's result, which a person reads instead of stepping through each step."""
+    rows = [row for row in state.get("code_checkpoints") or [] if row.get("available")]
+    if not rows:
+        raise ValueError("No code change has been saved yet")
+    first = receipt(state, run_dir, rows[0]["id"], current_plan=False)
+    last = first if len(rows) == 1 else receipt(state, run_dir, rows[-1]["id"], current_plan=False)
+    commit, after = first["source"]["head"], checkpoints.content_files(last["source"])
+    before, changed = since_start(state, commit, after, rows)
+    patch = patch_text(state, commit, changed, before, after, new_commit=last["commit"])
+    return {
+        "version": 1,
+        "since": "start",
+        "until": last["id"],
         "changed_files": changed,
         "patch": patch[:200000],
         "truncated": len(patch) > 200000,
@@ -414,6 +442,7 @@ def parser() -> argparse.ArgumentParser:
     action.add_argument("--restore", metavar="CHECKPOINT", help="Restore the code of a saved step; needs its token")
     action.add_argument("--working", action="store_true", help="Show what changed since the newest saved step")
     action.add_argument("--step", metavar="CHECKPOINT", help="Show what a saved step itself changed (display only)")
+    action.add_argument("--all", action="store_true", help="Show everything the run changed (display only)")
     result.add_argument("--expected-token", help="The exact token the comparison showed, for --restore")
     result.add_argument("--request-id", help="Stable ID of this action, so a repeat is recognized")
     result.add_argument("--json", action="store_true", help="Format output as JSON (default)")
@@ -432,6 +461,8 @@ def cli(argv):
             result = working(state, run_dir)
         elif args.step:
             result = step(state, run_dir, args.step)
+        elif args.all:
+            result = all_changes(state, run_dir)
         else:
             with util.run_lock(run_dir), checkout_lock.exclusive(workspace, run_dir):
                 workspace, run_dir, state = target(workspace, run_dir)

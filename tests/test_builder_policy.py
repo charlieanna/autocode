@@ -1310,7 +1310,7 @@ class PolicyBlackbox(unittest.TestCase):
 
     def test_independent_failure_resolver_retries_escalates_then_pauses(self):
         spec = bb.plan(
-            [([], "MAX_RETRIES must be 3", ["retry.py"])],
+            [([], "MAX_RETRIES must be 3", ["retry.py", "test_retry.py"])],
             {"M1": {"retry.py": "MAX_RETRIES = 5\n"}},
             {"M1": "from retry import MAX_RETRIES; assert MAX_RETRIES == 3"},
             "Preserve exactly three retries",
@@ -1346,7 +1346,7 @@ class PolicyBlackbox(unittest.TestCase):
         # Issue #611: the climb consults the person's cost cap before it spends, and names the arithmetic.
         self.seed(
             bb.plan(
-                [([], "Version prints 1", ["version.py"])],
+                [([], "Version prints 1", ["version.py", "test_version.py"])],
                 {"M1": {"version.py": "print(1)\n"}},
                 {"M1": "import version"},
                 "Print version",
@@ -1382,7 +1382,7 @@ class PolicyBlackbox(unittest.TestCase):
         # Issue #611: the climb consults the active-time budget you set before it spends, and names the arithmetic.
         self.seed(
             bb.plan(
-                [([], "Version prints 1", ["version.py"])],
+                [([], "Version prints 1", ["version.py", "test_version.py"])],
                 {"M1": {"version.py": "print(1)\n"}},
                 {"M1": "import version"},
                 "Print version",
@@ -1438,7 +1438,7 @@ class PolicyBlackbox(unittest.TestCase):
         # Issue #611: the climb consults the milestone budget you set before it spends, and names the arithmetic.
         self.seed(
             bb.plan(
-                [([], "Version prints 1", ["version.py"])],
+                [([], "Version prints 1", ["version.py", "test_version.py"])],
                 {"M1": {"version.py": "print(1)\n"}},
                 {"M1": "import version"},
                 "Print version",
@@ -1493,7 +1493,7 @@ class PolicyBlackbox(unittest.TestCase):
     def test_serial_noop_uses_same_bounded_policy(self):
         self.seed(
             bb.plan(
-                [([], "Version prints 1", ["version.py"])],
+                [([], "Version prints 1", ["version.py", "test_version.py"])],
                 {"M1": {"version.py": "print(1)\n"}},
                 {"M1": "import version"},
                 "Print version",

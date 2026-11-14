@@ -76,6 +76,23 @@ class IdlePolicyTests(unittest.TestCase):
             idle_policy.effective(300, "runner_default", MIMO, stage="draft_plan"),
         )
 
+    def test_first_event_limit_only_tightens_runner_default_and_honors_stage_timeout(self):
+        self.assertEqual((90, idle_policy.FIRST_EVENT_ORIGIN), idle_policy.first_event_limit(300, "runner_default"))
+        self.assertEqual((90, idle_policy.FIRST_EVENT_ORIGIN), idle_policy.first_event_limit(900, "runner_default"))
+        self.assertEqual((45, idle_policy.FIRST_EVENT_ORIGIN), idle_policy.first_event_limit(45, "runner_default"))
+        self.assertEqual(
+            (30, idle_policy.FIRST_EVENT_ORIGIN),
+            idle_policy.first_event_limit(300, "runner_default", stage_timeout=30),
+        )
+        for limit, origin in (
+            (300, "user_explicit"),
+            (300, "resolver_delegated"),
+            (300, None),
+            (0, "runner_default"),
+        ):
+            with self.subTest(limit=limit, origin=origin):
+                self.assertEqual((None, None), idle_policy.first_event_limit(limit, origin))
+
 
 if __name__ == "__main__":
     unittest.main()

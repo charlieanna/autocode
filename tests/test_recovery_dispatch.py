@@ -28,9 +28,9 @@ CHAIN_ORDER = (
     "job_failure",
     "network",
     "startup",
-    "route",
     "truncated_review",
     "reasoning_exhaustion",
+    "route",
     "capacity",
     "timeout",
     "external_directory_denial",
@@ -85,6 +85,22 @@ class ChainOrderTests(unittest.TestCase):
                 calls = []
                 self.assertEqual(row, self.chain(calls, fired=row))
                 self.assertEqual(list(CHAIN_ORDER[: index + 1]), calls)
+
+    def test_dispatch_orchestrator_recovers_non_native_pauses_and_reraises_unrecovered(self):
+        unit = SimpleNamespace(dispatch=lambda *_a: (_ for _ in ()).throw(s.Paused("PAUSED_BUDGET", "quota")))
+        rt = SimpleNamespace(support=s, native_calls=None)
+        with patch.object(recovery_dispatch, "recover", return_value="route"):
+            self.assertEqual(
+                "SKIP", recovery_dispatch.dispatch_orchestrator(rt, unit, {}, Path("/w"), Path("/r"), "SKIP")
+            )
+        with (
+            patch.object(recovery_dispatch, "recover", return_value=None),
+            self.assertRaises(s.Paused),
+        ):
+            recovery_dispatch.dispatch_orchestrator(rt, unit, {}, Path("/w"), Path("/r"), "SKIP")
+        native = SimpleNamespace(support=s, native_calls=object())
+        with self.assertRaises(s.Paused):
+            recovery_dispatch.dispatch_orchestrator(native, unit, {}, Path("/w"), Path("/r"), "SKIP")
 
 
 class SerialDispatchCapacityTests(unittest.TestCase):

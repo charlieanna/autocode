@@ -1119,8 +1119,8 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                                                      `edit_required` instead prescribes --edit-goal FILE
                                                      and `feedback_action` when offered, then fresh approval;
                                                      `guidance`, when set, says in prose what the
-                                                     alternatives do (the Tester's pause: --feedback
-                                                     revises the plan, a resume reruns the Tester);
+                                                     alternatives do (the Tester's pause: resume
+                                                     continues acceptance verification);
                                                      `action`, when set, is the one command that
                                                      continues (a source-only PAUSED_STALE_HANDOFF:
                                                      --resume-paused --accept-source-edit; a PAUSED_NO_PROGRESS its unchanged-
@@ -1497,14 +1497,15 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             need["action"] = "--resume-paused"
             return need
         if status == "PAUSED_ACCEPTANCE_TESTS" and "action" not in need:
-            # The named command is what a yes takes, so it is the resume: it reruns the Tester and a fresh
-            # proof. A plan change is the person's words, offered as chat.input's feedback (#1869). Naming
+            # The named command is what a yes takes, so it is the resume. A completed writer's
+            # execution-only failure can retain its report for fresh local verification (#3511).
+            # A plan change is the person's words, offered as chat.input's feedback (#1869). Naming
             # `--feedback 'WHAT TO CHANGE'` here sent that placeholder to Requirements as the plan feedback
             # when a person answered "y" at the chat's Continue prompt (live Kilo run, 2026-11-12).
             need["action"] = "--resume-paused"
             need["guidance"] = (
-                "--resume-paused reruns the Tester and a fresh proof on the same plan; "
-                "--feedback MESSAGE revises the plan."
+                "Resume continues acceptance verification on the same plan. A retained report is reused "
+                "when its plan, source and evidence still match; otherwise the Tester prepares fresh tests."
             )
         if "action" not in need and status == "PAUSED_TRANSPORT_CHANGED":
             try:

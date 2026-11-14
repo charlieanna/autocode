@@ -784,7 +784,11 @@ def wait_for_stage(
         {
             "idle_seconds": 0,
             "tool_elapsed_seconds": None,
-            "idle_limit_seconds": getattr(activity, "idle_limit", 0),
+            "idle_limit_seconds": (
+                activity.active_idle_limit()
+                if callable(getattr(activity, "active_idle_limit", None))
+                else getattr(activity, "idle_limit", 0)
+            ),
             "tool_limit_seconds": getattr(activity, "tool_limit", 0),
         },
     )

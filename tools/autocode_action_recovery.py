@@ -303,7 +303,7 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
         pass  # Durable pending repair is dispatched below, not original work.
     except support.Paused as error:
         fired = recovery_dispatch.recover(runner, state, run_dir, workspace, error)
-        if fired == "job_failure":
+        if fired == "job_failure" and state.get("status") != "RUNNING":
             print(state["stop_reason"])
             return 2
         if fired == "capacity":

@@ -514,6 +514,26 @@ def working_action(state: RunState, *, run_dir=None, workspace=None):
     }
 
 
+def all_changes_action(state: RunState, *, run_dir=None, workspace=None):
+    """The display-only `checkpoint --all` action: the run's whole change, named once a step is saved.
+
+    This is what a person reads: the result, not each step (owner decision 2026-11-13)."""
+    if not any(row.get("available") for row in state.get("code_checkpoints") or []):
+        return None
+    return {
+        "id": "all_changes",
+        "label": "Show all changes",
+        "next_command": [
+            "checkpoint",
+            "--workspace",
+            str(workspace) if workspace else "WORKSPACE",
+            "--run-dir",
+            str(run_dir) if run_dir else "RUN_DIR",
+            "--all",
+        ],
+    }
+
+
 def project(state: RunState, *, run_dir=None, workspace=None):
     reason = blocked_reason(state)
     rows = []
@@ -545,6 +565,7 @@ def project(state: RunState, *, run_dir=None, workspace=None):
         "blocked_reason": reason,
         "rows": rows,
         "working": working_action(state, run_dir=run_dir, workspace=workspace),
+        "all_changes": all_changes_action(state, run_dir=run_dir, workspace=workspace),
         "continuation": deepcopy(state.get("checkpoint_continuation")),
         "restores": deepcopy(state.get("checkpoint_restores", [])),
     }

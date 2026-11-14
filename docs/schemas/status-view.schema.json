@@ -335,6 +335,28 @@
                           "null"
                         ],
                         "description": "Effective effort when recorded; absent on historical attempts."
+                      },
+                      "stall_phase": {
+                        "type": "string",
+                        "enum": [
+                          "before_first_event",
+                          "during_tool_call",
+                          "during_reasoning_or_output"
+                        ],
+                        "description": "Classified provider stream phase when the attempt timed out or stalled."
+                      },
+                      "completed_tool_calls": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Count of unique completed provider tool calls recorded before the timeout."
+                      },
+                      "last_event_offset_seconds": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "minimum": 0,
+                        "description": "Seconds from launch until the last observed provider stream event, or null when unknown/no events arrived."
                       }
                     }
                   }

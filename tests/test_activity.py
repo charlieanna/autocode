@@ -788,6 +788,53 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual(2, self.monitor.snapshot()["idle_seconds"])
         self.assertEqual(2, self.monitor.snapshot()["tool_elapsed_seconds"])
 
+    def test_first_event_limit_stops_before_first_event_then_relaxes_after_first_event(self):
+        from autocode_activity import first_event_timeout_reason
+
+        monitor = ActivityMonitor(
+            self.path,
+            idle_seconds=300,
+            first_event_seconds=90,
+            first_event_origin="runner default before first provider event",
+            idle_origin="runner_default",
+            clock=lambda: self.now,
+        )
+        self.assertEqual(90, monitor.snapshot()["idle_limit_seconds"])
+        self.assertFalse(monitor.snapshot()["first_event_observed"])
+        self.assertIsNone(monitor.snapshot()["last_event_offset_seconds"])
+        self.now = 89
+        self.assertIsNone(monitor.expired())
+        self.now = 90
+        expired = monitor.expired()
+        self.assertEqual("idle", expired["kind"])
+        self.assertEqual(
+            first_event_timeout_reason(90, "runner default before first provider event"),
+            expired["reason"],
+        )
+
+        # Once a provider stream event arrives, the normal idle limit governs subsequent silence.
+        self.now = 0
+        second = self.path.with_name("second.jsonl")
+        second.touch()
+        monitor2 = ActivityMonitor(
+            second,
+            idle_seconds=300,
+            first_event_seconds=90,
+            first_event_origin="runner default before first provider event",
+            idle_origin="runner_default",
+            clock=lambda: self.now,
+        )
+        self.now = 20
+        second.write_text(json.dumps({"type": "thread.started", "thread_id": "t1"}) + "\n")
+        snapshot = monitor2.poll()
+        self.assertTrue(snapshot["first_event_observed"])
+        self.assertEqual(20, snapshot["last_event_offset_seconds"])
+        self.assertEqual(300, snapshot["idle_limit_seconds"])
+        self.now = 110
+        self.assertIsNone(monitor2.expired())
+        self.now = 320
+        self.assertEqual("idle", monitor2.expired()["kind"])
+
 
 if __name__ == "__main__":
     unittest.main()

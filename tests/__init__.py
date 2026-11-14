@@ -70,6 +70,15 @@ if "AUTOCODE_PROJECT_INDEX_HOME" not in os.environ:
 # test starts may import this package too (a fixture provider does): it inherits
 # the marker and keeps the XDG_CONFIG_HOME that test chose for it.
 USER_CONFIG_MARKER = "AUTOCODE_TEST_USER_CONFIG_HOME"
+# Where git says the repository is, whatever directory a command names (see below).
+GIT_REPOSITORY_VARIABLES = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_COMMON_DIR",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+)
 if USER_CONFIG_MARKER not in os.environ:
     _config_home = tempfile.mkdtemp(prefix="autocode-test-config-")
     os.environ[USER_CONFIG_MARKER] = os.environ["XDG_CONFIG_HOME"] = _config_home
@@ -82,6 +91,15 @@ if USER_CONFIG_MARKER not in os.environ:
     # folder was gone every new chat on that computer stopped at Requirements with
     # root_unavailable. A test that needs the variable sets it itself.
     os.environ.pop("AUTOCODE_SOURCE_CATALOG_HOME", None)
+    # Git exports the repository it is working on to every hook and to each command of
+    # `git bisect run` and `git rebase --exec`: GIT_DIR and its companions, which outrank
+    # `git -C` and the working directory. A suite started there handed them to every
+    # fixture's git, so `git init`, `git config` and `git commit` meant for a temporary
+    # repository ran in the developer's own: a bisect of two test modules left this
+    # checkout with core.bare = true, a fixture's user.name and its commits. A test that
+    # needs one of these sets it for the process it starts, which keeps it.
+    for _name in GIT_REPOSITORY_VARIABLES:
+        os.environ.pop(_name, None)
 
     def _remove_user_config_home(path=_config_home, owner=os.getpid()):
         if os.getpid() == owner:  # not a forked test process exiting

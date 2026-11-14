@@ -59,6 +59,7 @@ MODEL_FLAG = re.compile(r"--[a-z-]+-model\b")
 class JobModelRouteTests(JobHarness):
     def setUp(self):
         super().setUp()
+        self.options = (*self.options, "--no-auto-select")
         (self.workspace / ".autocode" / "bin" / "codex").write_text(REFUSING)
 
     def refused(self, kind="filter", model="gpt-6-sol", mode="exit42"):
@@ -542,6 +543,18 @@ class JobModelRouteTests(JobHarness):
             "--job-retry-token",
             need["job_retry_token"],
             message="did not stop on quota, a content-filter refusal, output limit, context window, provider authentication or a stopped-job timeout",
+        )
+
+    def test_a_refused_design_check_switches_on_its_own_by_default(self):
+        self.options = tuple(opt for opt in self.options if opt != "--no-auto-select")
+        run = self.refused()
+        view = run.status()
+        self.assertEqual("PAUSED_DESIGN_CONFLICT", view["status"])
+        self.assertEqual(["gpt-6-sol", "gpt-5.6-terra"], self.models())
+        [assignment] = view["route_assignments"]
+        self.assertEqual(
+            ("runner", "architect", "gpt-6-sol", "gpt-5.6-terra", "PAUSED_CONTENT_FILTER"),
+            tuple(assignment[key] for key in ("actor", "role", "from", "to", "pause_status")),
         )
 
 

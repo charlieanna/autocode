@@ -1207,6 +1207,32 @@ def unassigned(state: RunState, settings: dict) -> dict:
             route["model"] = event["from"]
             # A --<role>-model flag also saved its effort and origins; they are the same assignment (#3159).
             _undo_flag_provenance(settings, route, event)
+            runner_effort = event.get("runner_effort_before")
+            if isinstance(runner_effort, dict) and route.get("reasoning_effort") == runner_effort.get("to"):
+                if runner_effort.get("present"):
+                    route["reasoning_effort"] = runner_effort.get("from")
+                else:
+                    route.pop("reasoning_effort", None)
+            elif (
+                isinstance(effort := event.get("effort"), dict)
+                and not effort.get("named")
+                and route.get("reasoning_effort") == effort.get("to")
+            ):
+                if effort.get("from") is None:
+                    route.pop("reasoning_effort", None)
+                else:
+                    route["reasoning_effort"] = effort["from"]
+            sel_before = event.get("route_selection_before")
+            sel_routes = (settings.get("route_selection") or {}).get("routes")
+            if (
+                isinstance(sel_before, dict)
+                and isinstance(sel_routes, dict)
+                and sel_routes.get(event.get("role")) == sel_before.get("to")
+            ):
+                if sel_before.get("present"):
+                    sel_routes[event["role"]] = copy.deepcopy(sel_before.get("from"))
+                else:
+                    sel_routes.pop(event["role"], None)
         if event.get("role") == "stuck_investigator" and "investigator_pin_after" in event:
             investigation = settings.get("stuck_investigation") or {}
             if investigation.get("route") == event["investigator_pin_after"]:

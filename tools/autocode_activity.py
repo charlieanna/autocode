@@ -28,6 +28,7 @@ from pathlib import Path
 
 _ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 IDLE_REASON = "No new provider activity within the inactivity limit"
+FIRST_EVENT_REASON = "Provider emitted no initial stream event before startup stream-liveness limit"
 # Internal clock binding for the process supervisor. poll() includes it, while
 # snapshot() and persisted/public activity never do. The instant is captured
 # after the monitor lock is acquired and before potentially blocking event I/O.
@@ -49,6 +50,13 @@ def idle_timeout_reason(limit, origin=None, hint=CHANGE_IDLE_LIMIT):
     source = f", {_ORIGINS.get(origin, origin)}" if origin else ""
     advice = f"; {hint}" if hint else ""
     return f"{IDLE_REASON} ({limit:g} seconds{source}{advice})"
+
+
+def first_event_timeout_reason(limit, origin=None, hint=CHANGE_IDLE_LIMIT):
+    """Operator text for a before-first-event stream-liveness stop."""
+    source = f", {_ORIGINS.get(origin, origin)}" if origin else ""
+    advice = f"; {hint}" if hint else ""
+    return f"{FIRST_EVENT_REASON} ({limit:g} seconds{source}{advice})"
 
 
 class _ProjectedJsonLine:
@@ -162,6 +170,8 @@ class ActivityMonitor:
         idle_hint=CHANGE_IDLE_LIMIT,
         progress=None,
         plain_text=False,
+        first_event_seconds=None,
+        first_event_origin=None,
     ):
         self.path = Path(events_path)
         # A configured tool with no event protocol (``output = "report_file"``) writes its progress as plain
@@ -176,10 +186,15 @@ class ActivityMonitor:
         self.tool_limit = max(0, float(tool_seconds))
         self.idle_origin = idle_origin
         self.idle_hint = idle_hint
+        self.first_event_limit = max(0, float(first_event_seconds)) if first_event_seconds is not None else None
+        self.first_event_origin = first_event_origin
         self.clock = clock
         self._reporter = reporter
         self._lock = threading.RLock()
-        self._last_activity = clock()
+        self._started_at = clock()
+        self._last_activity = self._started_at
+        self._last_event_at = None
+        self._first_event_observed = False
         self._longest_idle = 0
         self._provider_active = False
         self._offset = 0
@@ -306,6 +321,8 @@ class ActivityMonitor:
     def _event(self, row, now):
         if not isinstance(row, dict):
             return
+        self._first_event_observed = True
+        self._last_event_at = now
         if self._progress is not None:
             self._progress.observe(row)
         event_type = row.get("type")
@@ -388,6 +405,8 @@ class ActivityMonitor:
         """A plain-text progress line: activity once per distinct line, never tool or report evidence."""
         text = _ANSI.sub("", line.decode("utf-8", errors="replace")).strip()
         if text:
+            self._first_event_observed = True
+            self._last_event_at = now
             self._text("plain:" + self._digest(text).hex(), text, now)
 
     def _read(self, now):
@@ -469,21 +488,40 @@ class ActivityMonitor:
             starts.append(self._fallback_started)
         return max(0, now - min(starts)) if starts else None
 
+    def _active_idle_limit(self, observed=None):
+        is_observed = self._first_event_observed if observed is None else observed
+        if not is_observed and self.first_event_limit is not None and self.first_event_limit > 0:
+            return min(self.idle_limit, self.first_event_limit) if self.idle_limit else self.first_event_limit
+        return self.idle_limit
+
+    def active_idle_limit(self):
+        """Current inactivity limit in seconds (startup first-event budget until the first stream event)."""
+        # Lock-free: wait_for_stage initializes and the watchdog inspects limits without waiting on _read I/O.
+        return self._active_idle_limit()
+
     def _expired(self, now):
         stop = self._progress.reason() if self._progress is not None else None
         if stop:
             return {"kind": "progress", "reason": stop}
         elapsed = self._tool_elapsed(now)
+        observed = self._first_event_observed
+        idle_limit = self._active_idle_limit(observed)
         if elapsed is not None:
             if self.tool_limit and elapsed >= self.tool_limit:
                 return {"kind": "tool", "reason": "Tool execution exceeded its fixed time limit"}
-        elif self.idle_limit and now - self._last_activity >= self.idle_limit:
-            return {"kind": "idle", "reason": self.idle_reason()}
+        elif idle_limit and now - self._last_activity >= idle_limit:
+            return {"kind": "idle", "reason": self._idle_reason_for(observed, idle_limit)}
         return None
+
+    def _idle_reason_for(self, observed, limit=None):
+        if not observed and self.first_event_limit is not None and self.first_event_limit > 0:
+            active = self._active_idle_limit(observed) if limit is None else limit
+            return first_event_timeout_reason(active, self.first_event_origin or self.idle_origin, self.idle_hint)
+        return idle_timeout_reason(self.idle_limit if limit is None else limit, self.idle_origin, self.idle_hint)
 
     def idle_reason(self, limit=None):
         """This stage's idle-stop text; the process supervisor uses it too when it stops the stage first."""
-        return idle_timeout_reason(self.idle_limit if limit is None else limit, self.idle_origin, self.idle_hint)
+        return self._idle_reason_for(self._first_event_observed, limit)
 
     def expired(self):
         with self._lock:
@@ -508,11 +546,15 @@ class ActivityMonitor:
             "idle_seconds": round(max(0, now - self._last_activity), 3),
             "longest_idle_seconds": round(self._longest_idle, 3),
             "tool_elapsed_seconds": round(elapsed, 3) if elapsed is not None else None,
-            "idle_limit_seconds": self.idle_limit,
+            "idle_limit_seconds": self._active_idle_limit(),
             "tool_limit_seconds": self.tool_limit,
             "active_tool_count": len(self._active),
             "completed_tool_count": len(self._closed),
             "process_fallback": self._fallback_started is not None,
+            "first_event_observed": self._first_event_observed,
+            "last_event_offset_seconds": (
+                round(max(0.0, self._last_event_at - self._started_at), 3) if self._last_event_at is not None else None
+            ),
             **({"progress_stop": self._progress.reason()} if self._progress is not None else {}),
         }
 

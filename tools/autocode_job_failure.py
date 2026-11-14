@@ -37,8 +37,10 @@ try:
     from . import autocode_provider_refusal as provider_refusal
     from . import autocode_quota_route as quota_route
     from . import autocode_roles as roles
+    from . import autocode_route_recovery as route_recovery
     from . import autocode_run_status as run_status
     from . import autocode_source_scope as scope
+    from . import autocode_stall_recovery as stall_recovery
     from . import autocode_util as util
 except ImportError:
     import autocode_context_window as context_window
@@ -51,8 +53,10 @@ except ImportError:
     import autocode_provider_refusal as provider_refusal
     import autocode_quota_route as quota_route
     import autocode_roles as roles
+    import autocode_route_recovery as route_recovery
     import autocode_run_status as run_status
     import autocode_source_scope as scope
+    import autocode_stall_recovery as stall_recovery
     import autocode_util as util
 
 RETRY_ACTION = "--resume-paused --retry-failed-stage --job-retry-token TOKEN"
@@ -296,6 +300,8 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
     record["metrics"] = runtime.support.event_metrics(record["events"])
     runtime.account_stage(state, record)
     record.update(job_failure_kind=kind, write_diagnosis=restoration, abandoned=abandoned)
+    if record.get("timed_out") and "stall_phase" not in record:
+        record.update(stall_recovery.classify_stall(record))
     config = record.get("job_configuration") or configuration(state)
     captured = record.get("job_source") or {}
     source_paths = captured.get("source_paths", scope.paths(state))
@@ -329,8 +335,12 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
         "write_diagnosis": restoration,
         "unrestored": restoration["unrestored"],
     }
-    if record.get("timed_out") and record.get("timeout_kind"):
-        failure["timeout_kind"] = record["timeout_kind"]
+    if record.get("timed_out"):
+        if record.get("timeout_kind"):
+            failure["timeout_kind"] = record["timeout_kind"]
+        for field in ("stall_phase", "completed_tool_calls", "last_event_offset_seconds"):
+            if field in record:
+                failure[field] = record[field]
     if type(record.get("stage_timeout_seconds")) is int and record["stage_timeout_seconds"] > 0:
         # The exact retry keeps the deadline this attempt ran under, which an automatic extension
         # may have raised for this job alone (#2823); the run's own stage limit is not changed.
@@ -346,9 +356,19 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
         "reason": reason,
         "write_diagnosis": restoration,
     }
-    if record.get("timed_out") and record.get("timeout_kind"):
-        # Which limit stopped it (the deadline, or the exploration budget's ``progress``): the retry handoff says so.
-        recovery["timeout_kind"] = record["timeout_kind"]
+    if record.get("timed_out"):
+        if record.get("timeout_kind"):
+            # Which limit stopped it (the deadline, or the exploration budget's ``progress``): the retry handoff says so.
+            recovery["timeout_kind"] = record["timeout_kind"]
+        for field in ("stall_phase", "completed_tool_calls", "last_event_offset_seconds"):
+            if field in record:
+                recovery[field] = record[field]
+        if not restoration["unrestored"] and stall_recovery.carries_executed_work(
+            stage, stage, report_only=bool(record.get("report_only"))
+        ):
+            recovery["executed_work"] = stall_recovery.executed(record)
+            if recovery["executed_work"].get("available"):
+                recovery["instruction"] = stall_recovery.INSTRUCTION
     state["recovery_context"] = recovery
     extension = job_deadline.plan(
         state, failure, recovery, abandoned=abandoned, deadline=record.get("stage_timeout_seconds")
@@ -390,6 +410,8 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
             + " "
             + quota_route.advice(failure["route"], original_attempt, kind="job")
         )
+        if not abandoned:
+            route_recovery.recover_job(runtime, launch, state, run_dir, workspace, reroute=reroute)
     runtime.write_json(Path(run_dir) / "state.json", state)
     for artifact in originals:
         artifact.unlink(missing_ok=True)

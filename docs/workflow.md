@@ -668,8 +668,10 @@ acceptance criterion a test can check as one concrete example, and sets its
 The matching and the rules are in `tools/autocode_test_cases.py`.
 
 Test commands are detected (pytest, unittest, Go, Jest/Vitest/Mocha, RSpec,
-Cargo, `make test`, and a Ruby project's Minitest or test-unit files under `test/`,
-named `*_test.rb` or `test_*.rb`, run through Bundler when there is a `Gemfile`);
+Cargo, `make test`, Maven (`mvn -B -q test`), Gradle (`gradle --no-daemon -q test`), CMake with
+CTest (a root `CMakeLists.txt` that calls `enable_testing()` or includes `CTest`), and a Ruby project's
+Minitest or test-unit files under `test/`, named `*_test.rb` or `test_*.rb`, run through Bundler when
+there is a `Gemfile`; Maven and Gradle run through the project's own `mvnw` or `gradlew` when it has one);
 `--test-command` and `--regression-command` set them for a new run. With per-test results (pytest, unittest, Go, node:test, Vitest, RSpec, `cargo test`) a proof needs a named test
 that ran and failed on base and passed on the fix; a test that only fails to
 import on base is not a reproduction. Without per-test results exit codes decide.
@@ -729,7 +731,11 @@ cannot repair it or invent missing caller scope for a legacy run.
 
 The scratch worktrees use the project's own environment: its `.venv`, `venv` or
 `node_modules` is linked in, and the Python tests run with the project's
-virtualenv interpreter even though the task worktree has none. Build-generated
+virtualenv interpreter even though the task worktree has none. A tree's
+`node_modules` link leads to a directory of the tree's own that links each
+installed package, so a check that empties or reinstalls it there (`npm ci`,
+`npm install`) changes the tree and not the packages the person installed.
+A virtualenv is linked whole. Build-generated
 source files that git ignores but that sit next to tracked code (such as a
 setuptools-scm or hatch-vcs `_version.py`) are copied from the project into every
 scratch tree, base and fix alike, so the package imports there. Ignored build

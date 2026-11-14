@@ -99,6 +99,7 @@ PROMPT = prompts.get("design-check-02.md") + stage_access.scratch_rule(STAGE) + 
 
 
 def packet(state: RunState, inventory: dict | None = None, engine: str | None = None) -> dict:
+    recovery = state.get("recovery_context")
     return {
         "stage": STAGE,
         "task": state["task"],
@@ -110,6 +111,7 @@ def packet(state: RunState, inventory: dict | None = None, engine: str | None = 
         "goal_contract": None,
         "current_task": None,
         "saved_answers": {},
+        **({"recovery_context": recovery} if isinstance(recovery, dict) and recovery.get("stage") == STAGE else {}),
     }
 
 

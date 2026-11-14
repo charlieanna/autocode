@@ -3,6 +3,8 @@
 import json
 import unittest
 
+from goal_fixtures import GREETING_TESTS
+
 from tests import test_subprocess as flow
 
 
@@ -33,7 +35,9 @@ class RetainedRepairFlow(unittest.TestCase):
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
         if broken:
             files = self.root / "broken-source.json"
-            files.write_text(json.dumps({"greet.py": "import sys\nprint('Hello, ' + sys.argv[1])\n"}))
+            # The plan for these files plans their test (#3440); the broken source fails its empty-name case.
+            source = "import sys\nprint('Hello, ' + sys.argv[1])\n"
+            files.write_text(json.dumps({"greet.py": source, "test_greeting.py": GREETING_TESTS}))
             self.env["AUTOCODE_FIXTURE_FILES"] = str(files)
         probe = self.root / "launches.jsonl"
         self.env["AUTOCODE_REGISTRY_LAUNCH_PROBE"] = str(probe)

@@ -1281,8 +1281,41 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertEqual(1, len(self.state["automatic_timeout_recoveries"]))
         archived = [row for row in self.state["stages"] if not row.get("runner_owned")][-1]
         self.assertEqual("idle", archived["timeout_kind"])
+        self.assertEqual("during_reasoning_or_output", archived.get("stall_phase"))
         self.assertTrue(Path(archived["events"]).is_file())
         self.assertNotIn("active_stage", self.state)
+
+    def test_before_first_event_dead_stream_fails_fast_and_records_stall_phase(self):
+        import autocode_usage as usage
+
+        self.start_task()
+        self.state["settings"]["limits"].update(
+            stage_timeout_seconds=60, idle_timeout_seconds=10, tool_timeout_seconds=10
+        )
+        self.state["settings"]["budget_origins"] = {"idle_timeout_seconds": "runner_default"}
+        script = """
+            import sys, time
+            sys.stdin.read()
+            time.sleep(30)
+        """
+        with (
+            patch.object(runner.idle_policy, "FIRST_EVENT_SECONDS", 0.3),
+            self.fake_provider(script),
+            contextlib.redirect_stdout(io.StringIO()),
+            self.assertRaises(support.Paused) as caught,
+        ):
+            self.real_terra()
+        self.assertEqual("PAUSED_PROVIDER_TIMEOUT", caught.exception.status)
+        record = support.read(self.run / "state.json")["active_stage"]
+        self.assertEqual("idle", record["timeout_kind"])
+        self.assertIn("initial stream event", record["timeout_reason"])
+        self.assertEqual("before_first_event", record.get("stall_phase"))
+        self.assertEqual(0, record.get("completed_tool_calls"))
+        self.assertIsNone(record.get("last_event_offset_seconds"))
+        attempt = usage.accounting(support.read(self.run / "state.json"))["attempts"][-1]
+        self.assertEqual("before_first_event", attempt.get("stall_phase"))
+        self.assertEqual(0, attempt.get("completed_tool_calls"))
+        self.assertIsNone(attempt.get("last_event_offset_seconds"))
 
 
 if __name__ == "__main__":

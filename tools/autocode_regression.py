@@ -67,6 +67,7 @@ try:
     from . import autocode_acceptance_tests as acceptance
     from . import autocode_base_command as base_command
     from . import autocode_base_patch as operator_patch
+    from . import autocode_changed_code_continuation as changed_code_continuation
     from . import autocode_changed_code_proof as changed_code
     from . import autocode_changed_code_trigger as changed_code_trigger
     from . import autocode_command_guards as command_guards
@@ -101,6 +102,7 @@ except ImportError:
     import autocode_acceptance_tests as acceptance
     import autocode_base_command as base_command
     import autocode_base_patch as operator_patch
+    import autocode_changed_code_continuation as changed_code_continuation
     import autocode_changed_code_proof as changed_code
     import autocode_changed_code_trigger as changed_code_trigger
     import autocode_command_guards as command_guards
@@ -703,6 +705,7 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
         and execution_context["identity"]["reuse_supported"]
         and not (inputs and inputs.unverified)
     ):
+        reusable = False
         try:
             result = util.read(saved["path"])
             if (
@@ -714,9 +717,25 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
                     for row in result["checks"].values()
                 )
             ):
-                return saved
+                reusable = True
         except (OSError, ValueError, TypeError, KeyError):
             pass
+        if reusable:
+            return changed_code_continuation.continue_proof(
+                state,
+                workspace,
+                run_dir,
+                saved,
+                framework,
+                inputs,
+                lambda: verify.execution_identity(
+                    workspace,
+                    command=options.get("test_command") or (framework.suite if framework else None),
+                    dependencies_from=state.get("project_workspace"),
+                    source_paths=source_scope.paths(state),
+                    ignored_inputs=inputs,
+                ),
+            )
     with runner_check.track(state, run_dir, STAGE, "Preparing regression checks", status.persist) as progress:
         proof = _prove(
             state,
@@ -735,7 +754,21 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
         proof["execution_context"] = execution_context
         if proof.get("path"):
             proof["receipt_sha256"] = util.file_hash(proof["path"])
-        return proof
+    return changed_code_continuation.continue_proof(
+        state,
+        workspace,
+        run_dir,
+        proof,
+        framework,
+        inputs,
+        lambda: verify.execution_identity(
+            workspace,
+            command=options.get("test_command") or (framework.suite if framework else None),
+            dependencies_from=state.get("project_workspace"),
+            source_paths=source_scope.paths(state),
+            ignored_inputs=inputs,
+        ),
+    )
 
 
 def _prove(
@@ -1079,10 +1112,7 @@ def _proving(
             )
         if coverage and not regression_command:
             regression_command = options.get("test_command")
-        named = test_cases.bound(due, framework.name if framework else None)
-        guards = sorted(
-            {case["test_name"] for case in named if case.get("kind") == "preserve" and case.get("test_name")}
-        )
+        guards = test_cases.guard_names(due, framework.name if framework else None)
         ahead = [] if all_due else pending_tests.withheld(state, workspace, due)
         kept.append(out / "scratch" / "candidate")
         result = verify.verify(
