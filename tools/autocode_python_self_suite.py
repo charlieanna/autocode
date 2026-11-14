@@ -293,7 +293,8 @@ def self_inclusions(source, file, root):
         for node in body:
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 for alias in node.names:
-                    original = (node.module + "." if isinstance(node, ast.ImportFrom) else "") + alias.name
+                    # ``from . import helper`` has no module name.
+                    original = ((node.module or "") + "." if isinstance(node, ast.ImportFrom) else "") + alias.name
                     names[alias.asname or alias.name.split(".")[0]] = _Reference(original)
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 if (
