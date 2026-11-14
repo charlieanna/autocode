@@ -471,6 +471,7 @@ class JobFailureTaskRunTests(JobHarness):
                 self.calls.unlink()
 
     def test_a_content_filter_finish_at_a_clean_exit_names_the_refusal(self):
+        self.options = (*self.options, "--no-auto-select")
         self.env["JOB_REPLAY"] = str(HERE / "tools" / "fixtures" / "opencode-content-filter-finish-run.jsonl")
         need = self.paused(self.start("filtered"))
         # The refusal is named first; #520 then adds the route-architect answer that continues on another model.
@@ -484,6 +485,7 @@ class JobFailureTaskRunTests(JobHarness):
 
     def test_a_compacted_context_at_a_clean_exit_names_the_stop_and_refuses_the_report(self):
         """The Kilo overflow log (#1942): the provider compacted and wrote a report, then exited 0."""
+        self.options = (*self.options, "--no-auto-select")
         self.env["JOB_REPLAY"] = str(HERE / "tools" / "fixtures" / "kilo-context-overflow-run.jsonl")
         need = self.paused(self.start("filtered"))
         self.assertTrue(

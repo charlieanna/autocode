@@ -724,3 +724,39 @@ class ParallelQuotaTests(unittest.TestCase):
 
     def test_two_quota_stopped_members_are_asked_in_turn_about_the_model_each_ran_on(self):
         self.two_stopped_members(QUOTA, "PAUSED_BUDGET")
+
+    def test_a_stopped_member_switches_on_its_own_and_completes_without_asking(self):
+        self.fixture("AUTOCODE_BUILDER_QUOTA_FAIL_ONCE", REFUSAL, "M1")
+        result = self.launch(
+            [
+                "Produce two outputs and combine",
+                "--max-parallel-builders",
+                "2",
+                "--chat",
+                "--builder-model",
+                GLM,
+                "--tester-model",
+                MIMO,
+                "--completion-model",
+                MIMO,
+            ],
+            0,
+            answers="yes\n",
+        )
+        _, state = self.saved()
+        self.assertEqual("TASK_COMPLETE", state["status"], result.stdout + result.stderr)
+        rows = self.workers(state)
+        m1_attempts = self.attempts(rows["M1"])
+        self.assertEqual(2, len(m1_attempts))
+        self.assertEqual(GLM, m1_attempts[0])
+        self.assertTrue(m1_attempts[1].startswith("openai/"), m1_attempts)
+        self.assertEqual([GLM], self.attempts(rows["M2"]))
+        (assignment,) = [e for e in state["user_events"] if e["kind"] == "route_assignment"]
+        self.assertEqual(
+            ("runner", GLM, m1_attempts[1], "PAUSED_CONTENT_FILTER", "M1"),
+            tuple(assignment[k] for k in ("actor", "from", "to", "pause_status", "milestone_id")),
+        )
+        self.assertEqual(
+            ["M1", "M2", "M3"],
+            [(self.project / name).read_text().strip() for name in ("a.txt", "b.txt", "combined.txt")],
+        )
