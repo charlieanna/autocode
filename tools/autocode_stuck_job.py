@@ -73,6 +73,7 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_classification_recovery as classification_recovery
     from . import autocode_failures as failures
     from . import autocode_model_identity as model_identity
@@ -90,6 +91,7 @@ try:
     from .autocode_investigation_policy import enabled, max_calls
     from .autocode_test_cases import COUNTEREXAMPLE, run_probes
 except ImportError:
+    import autocode_acceptance_tests as acceptance_tests
     import autocode_classification_recovery as classification_recovery
     import autocode_failures as failures
     import autocode_model_identity as model_identity
@@ -1056,12 +1058,16 @@ def drive(
     investigation. A request queued elsewhere (Builder failure classification) is still restored
     to its own pause when that authority refuses it.
 
-    Only a pause this invocation produced by attempting a stage (a new stage record) is
+    Only a pause this invocation produced by attempting a stage or a retained acceptance check is
     investigated: a guard re-asserting a known pause on resume launches nothing, since that
     pause was investigated when it happened or is now the user's decision.
     """
-    # Runner-owned records (orchestration, regression proof, AutoResolver receipts) are not attempts.
-    attempts = lambda: sum(1 for row in state.get("stages") or [] if not row.get("runner_owned"))
+    # Runner-owned records are not attempts. A retained report's newly spent local check is real
+    # work, though: its failure needs investigation even when no model ran in this invocation.
+    attempts = lambda: (
+        sum(1 for row in state.get("stages") or [] if not row.get("runner_owned"))
+        + (acceptance_tests.verification_attempts(state))
+    )
     attempted = attempts()
     fresh = lambda: attempts() > attempted
     owed: set[str] = set()  # PUBLISHED pauses this invocation sent to the Investigator

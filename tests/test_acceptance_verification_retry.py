@@ -16,7 +16,10 @@ import autocode_command_receipt as receipts
 import autocode_contract_identity as identity
 import autocode_run_view as run_view
 import autocode_source_scope as source_scope
+import autocode_stuck_job as stuck
 import autocode_util as util
+
+from tests.test_stuck_job import state_for
 
 
 class AcceptanceVerificationRetryTests(unittest.TestCase):
@@ -178,6 +181,7 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
         self.assertNotIn(retry.KEY, self.state[acceptance.KEY])
         archived = self.state[acceptance.KEY]["verification_retries"][0]
         self.assertEqual(1, archived["attempts"])
+        self.assertEqual(1, acceptance.verification_attempts(self.state))
         self.assertEqual(1, len(archived["failures"]))
 
     def test_repeated_failure_exhausts_without_model_replay_or_allowance_reset(self):
@@ -193,6 +197,54 @@ class AcceptanceVerificationRetryTests(unittest.TestCase):
         self.assertEqual(2, len(self.state[acceptance.KEY][retry.KEY]["failures"]))
         self.assertFalse(acceptance.receipts(self.state))
         self.runtime.run_role.assert_not_called()
+
+    def test_resumed_local_failure_reaches_investigator_without_another_model_record(self):
+        self.state.update(
+            version=3, settings={**state_for(workspace=str(self.workspace))["settings"], "spec_first": True}
+        )
+        self.reference.side_effect = None
+        self.reference.return_value = {"error": "original-reference execution missing"}
+        self.start_retry()
+        dispatched = []
+
+        class ReachedInvestigator(Exception):
+            pass
+
+        def dispatch(state, stage):
+            dispatched.append(stage)
+            if stage == stuck.STAGE:
+                raise ReachedInvestigator
+            return self.dispatch()
+
+        with self.assertRaises(ReachedInvestigator):
+            try:
+                stuck.drive(
+                    self.state,
+                    dispatch,
+                    active=lambda state: state["status"] == "RUNNING",
+                    skip=object(),
+                    paused=util.Paused,
+                    investigate=True,
+                )
+            except util.Paused as error:
+                self.fail(f"A newly attempted local check paused without investigation: {error}")
+        self.assertEqual([acceptance.STAGE, stuck.STAGE], dispatched)
+        self.assertEqual(1, len(self.state["stages"]))
+        self.assertEqual(1, self.state[acceptance.KEY][retry.KEY]["attempts"])
+
+        # Merely resuming the exhausted check is still an old pause, not a fresh attempt.
+        self.state["next_stage"] = acceptance.STAGE
+        dispatched.clear()
+        with self.assertRaises(util.Paused):
+            stuck.drive(
+                self.state,
+                dispatch,
+                active=lambda state: state["status"] == "RUNNING",
+                skip=object(),
+                paused=util.Paused,
+                investigate=True,
+            )
+        self.assertEqual([acceptance.STAGE], dispatched)
 
     def test_stale_source_report_plan_and_task_never_execute(self):
         self.start_retry()

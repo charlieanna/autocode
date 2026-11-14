@@ -13,6 +13,12 @@ from tests.test_acceptance_tests import catalog, fake_setup, materialize, taskru
 @unittest.skipUnless(sys.platform == "linux", "supervised fake provider requires supported Linux")
 class AcceptanceVerificationRetryCliTests(unittest.TestCase):
     def test_reference_launch_failure_retries_checks_with_one_writer_and_exact_plan(self):
+        self.exercise(always_fail=False)
+
+    def test_failed_resumed_check_reaches_investigation_without_another_writer(self):
+        self.exercise(always_fail=True)
+
+    def exercise(self, *, always_fail):
         with tempfile.TemporaryDirectory(prefix="acceptance-retry-cli-") as temporary:
             root = Path(temporary)
             scenario = dataclasses.replace(
@@ -38,11 +44,17 @@ import autocode_acceptance_reference as reference
 actual = reference.collect
 marker = Path({str(root / "failed-once")!r})
 def fail_once(*args, **kwargs):
-    if not marker.exists():
+    if {always_fail!r} or not marker.exists():
         marker.write_text('original reference launch failed before execution')
         return {{'error': 'Cannot classify passing tests against the original reference: original-reference execution did not produce complete named results'}}
     return actual(*args, **kwargs)
 reference.collect = fail_once
+run_role = autocode.run_role
+def pause_at_investigator(**kwargs):
+    if kwargs['state']['next_stage'] == 'investigate_stuck':
+        raise autocode.support.Paused('PAUSED_REQUESTED', 'Fixture stops at the Investigator boundary')
+    return run_role(**kwargs)
+autocode.run_role = pause_at_investigator
 raise SystemExit(autocode.cli())
 """)
             run = taskrun.TaskRun.start(
@@ -79,6 +91,12 @@ raise SystemExit(autocode.cli())
             view = run.resume_paused()
             logs = list(Path(run.run_dir).glob("iterations/*/acceptance-tests*.jsonl"))
             self.assertEqual(1, len(logs), "local failure must not buy another writing or report-repair call")
+            if always_fail:
+                self.assertEqual("PAUSED_REQUESTED", view["status"], view)
+                self.assertEqual("investigate_stuck", view["next_stage"], view)
+                self.assertEqual(token, view["approved_contract"]["token"])
+                self.assertFalse(list(Path(run.run_dir).glob("iterations/*/builder-*.jsonl")))
+                return
             if view["status"] == "PAUSED_REQUESTED" and view["next_stage"] == "orchestrator":
                 view = run.resume_paused()
             self.assertEqual("PAUSED_REQUESTED", view["status"], view)
