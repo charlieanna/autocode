@@ -1803,18 +1803,18 @@ class AcceptanceTestsCliTests(unittest.TestCase):
             self.scenario, fake_criteria={"C0": "test: test_receive_adds_units", **CASES}
         )
         run, project, view = self.run_to_end("--joint-planning", "--no-adaptive-planning", "--spec-first")
-        # The runner refuses the passing test; the Tester's repair reports C0 as already working; the runner
-        # relabels it guard: and plan review runs again; the user approves the corrected plan; then the build.
+        # Fresh original-code execution establishes C0 already worked. The runner proposes a guard
+        # directly, without a report-repair model call; the corrected plan still needs approval.
         self.assertTrue(view["done"], self.details(view))
         self.assertEqual(2, len(self.plan_approvals), "the corrected plan needs its own approval")
         criteria = {row["id"]: row for row in view["approved_contract"]["body"]["acceptance_criteria"]}
         self.assertEqual("guard: test_receive_adds_units", criteria["C0"]["verification_method"])
         self.assertEqual("passes", view["acceptance_tests"]["results"]["C0"])
         order = self.stage_order(run)
-        repair = order.index("acceptance-tests-report-repair")
-        self.assertIn("plan-challenge", order[repair:], order)  # plan review runs again on the corrected draft
-        self.assertLess(repair, order.index("acceptance-tests"), order)  # then the Tester, on the approved plan
-        self.assertLess(order.index("acceptance-tests"), order.index("builder"), order)
+        self.assertNotIn("acceptance-tests-report-repair", order)
+        first, second = [index for index, stage in enumerate(order) if stage == "acceptance-tests"]
+        self.assertIn("plan-challenge", order[first:second], order)
+        self.assertLess(second, order.index("builder"), order)
 
     def test_a_builder_that_edits_the_testers_file_goes_again_with_the_file_restored(self):
         run, project, view = self.run_to_end(
