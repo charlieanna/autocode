@@ -210,6 +210,24 @@ def titled(cases: list[dict], framework, test_ids) -> list[dict]:
     return result
 
 
+def guard_names(cases: list[dict], framework) -> list[str]:
+    """What the guards among ``cases`` name, for the proof to look for in the whole suite: each exact test
+    name and, where ``framework`` names tests by title (TITLE_RUNNERS), each declared title.
+
+    A title is bound to a test only once the suite has run (``titled``), so a plan whose guards were all
+    titles named no guard here. With a new test file beside them the proof then never ran the suite on the
+    original code, found the existing tests nowhere, and failed each guard as "no test named test_acN_"."""
+    return sorted(
+        {
+            name
+            for case in bound(cases, framework)
+            if case.get("kind") == "preserve"
+            for name in (case.get("test_name") or (framework in TITLE_RUNNERS and case.get("title")),)
+            if name
+        }
+    )
+
+
 def contract_cases(state: RunState, *, all_due: bool = False) -> list[dict]:
     """The approved plan's criteria marked ``test:`` or ``guard:`` that are due now (every one with ``all_due``,
     as at final completion), as ``plan_cases``. None in a design-only job: nothing there is proven by a test the
