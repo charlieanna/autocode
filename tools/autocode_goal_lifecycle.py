@@ -1128,7 +1128,7 @@ def _retain_equivalent_approval(state: RunState, origin, record) -> bool:
         import autocode_changeset_barrier as changeset_barrier
     if changeset_barrier.refusal(state):
         return False
-    contract = cast(dict, state.get("goal_contract") or {})
+    contract = state.get("goal_contract") or {}
     body = contract.get("body") or {}
     if (
         not contract
@@ -1184,8 +1184,9 @@ def _retain_equivalent_approval(state: RunState, origin, record) -> bool:
         return False
     candidate = copy.deepcopy(state)
     try:
-        validate_body(candidate, candidate["goal_contract"]["body"], ready=True, allow_legacy=True, origin=origin)
-        selected = token(candidate["goal_contract"])
+        candidate_contract = cast(dict, candidate["goal_contract"])
+        validate_body(candidate, candidate_contract["body"], ready=True, allow_legacy=True, origin=origin)
+        selected = token(candidate_contract)
         if isinstance(candidate.get("planning"), dict):
             candidate["planning"]["final_token"] = selected
         event = {
