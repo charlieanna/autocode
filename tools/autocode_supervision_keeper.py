@@ -363,6 +363,7 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
     if external is None:
         os.close(acknowledgement)
     triggered = threading.Event()
+    sample_wake = threading.Event()
     done = threading.Event()
     monitor_error = []
     admissions = queue.SimpleQueue()
@@ -385,6 +386,7 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
                 cleanup_started[0] = time.monotonic()
                 value.update(phase="stopping", cause=cause)
                 triggered.set()
+                sample_wake.set()
             if cause == "controller_finished" and external is not None:
                 return  # A normally exiting CLI discharges without signalling itself.
 
@@ -452,6 +454,7 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
                         and notice["guard"] == metadata["nonce"]
                     ):
                         admissions.put(notice["admit"])
+                        sample_wake.set()
                     elif (
                         external is not None
                         and isinstance(notice, dict)
@@ -459,6 +462,7 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
                         and notice["guard"] == metadata["nonce"]
                     ):
                         admissions.put(notice)
+                        sample_wake.set()
                     else:
                         trigger(
                             "controller_finished"
@@ -550,6 +554,9 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
     try:
         sample_tick = 0.0
         while not triggered.is_set():
+            sample_wake.clear()
+            if triggered.is_set():
+                break
             # Admission disk I/O belongs to the sampling thread. The lifeline
             # watcher must remain free to enforce EOF and the hard deadline.
             activity = False
@@ -589,9 +596,9 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
                     if not triggered.is_set():
                         reason[0] = "provider_stopped"
                 break
-            # This wait is interruptible by owner loss/deadline, not a test sleep.
+            # This wait is interruptible by owner loss/deadline or new admissions, not a test sleep.
             sample_tick = next_sample_tick(sample_tick, activity=activity)
-            triggered.wait(sample_tick)
+            sample_wake.wait(sample_tick)
         loop_exit = time.monotonic()
         discharged = external is not None and reason[0] == "controller_finished"
         if discharged:

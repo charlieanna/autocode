@@ -874,6 +874,116 @@ class PreflightCheckTests(unittest.TestCase):
         self.assertEqual(["plan/glm", "plan/mimo"], self.calls)
         self.assertFalse(probed(self.run_dir)["plan/glm"]["blocking"])
 
+    def test_probe_with_kilo_provider_passes_access_probe_and_skips_kilo_debug(self):
+        from providers import kilocode, kilocode_policy
+
+        adapter = kilocode.KiloProvider(
+            {
+                "name": "kilocode",
+                "command": [
+                    sys.executable,
+                    "run",
+                    "--dir",
+                    "{workspace}",
+                    "--model",
+                    "{model}",
+                    "--variant",
+                    "{effort}",
+                ],
+                "roles": {},
+            },
+            Path("/unused-provider.toml"),
+        )
+        launched = []
+
+        class FakeProc:
+            pid = 1
+            returncode = 0
+
+            def poll(self):
+                return 0
+
+        def fake_child(argv, directory, timeout, supervised, checkpoint=None, **options):
+            launched.append((list(argv), dict(options["env"]), options["stdout"]))
+            options["stdout"].write(
+                json.dumps({"type": "text", "part": {"text": json.dumps({"ok": True})}})
+                + "\n"
+                + json.dumps({"type": "step_finish", "part": {"reason": "stop"}})
+                + "\n"
+            )
+            return contextlib.nullcontext(FakeProc())
+
+        with (
+            patch.object(adapter, "validate_effort"),
+            patch.object(kilocode_policy, "effective_agent", side_effect=AssertionError("debug should not run")),
+            patch.object(preflight.transport, "_provider_child", side_effect=fake_child),
+            patch.object(preflight.processes, "wait_for_stage", return_value=(0, False)),
+        ):
+            outcome = preflight.probe(
+                adapter,
+                "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+                self.root,
+                self.run_dir,
+                effort="high",
+                role="plan_reviewer",
+            )
+        self.assertEqual("ok", outcome["status"])
+        self.assertEqual(1, len(launched))
+        argv, child_env, _ = launched[0]
+        self.assertEqual(preflight.PROBE_AGENT, argv[argv.index("--agent") + 1])
+        config = json.loads(child_env["KILO_CONFIG_CONTENT"])
+        self.assertEqual({"*": False}, config["agent"][preflight.PROBE_AGENT]["tools"])
+        self.assertEqual({"*": "deny"}, config["agent"][preflight.PROBE_AGENT]["permission"])
+
+    def test_transport_execute_omits_access_probe_for_adapter_without_parameter(self):
+        seen = {}
+
+        def launch(
+            role,
+            workspace,
+            run_dir,
+            session,
+            model,
+            effort,
+            allow_write,
+            *,
+            planning=False,
+            report=None,
+            schema=None,
+            prompt_file=None,
+            sandbox=None,
+            env=None,
+        ):
+            seen["called"] = True
+            return [sys.executable, "-c", "print('{}')"], dict(env), {}
+
+        adapter = types.SimpleNamespace(launch=launch, NORMALIZES_EVENTS=False, final_report=lambda *_a, **_k: None)
+        with (
+            patch.object(
+                preflight.transport,
+                "_provider_child",
+                return_value=contextlib.nullcontext(types.SimpleNamespace(pid=1, returncode=0)),
+            ),
+            patch.object(preflight.processes, "wait_for_stage", return_value=(0, False)),
+        ):
+            result = preflight.transport.execute(
+                adapter=adapter,
+                workspace=self.root,
+                directory=self.root / "legacy-probe",
+                model="m",
+                effort="low",
+                session=None,
+                allow_write=False,
+                prompt="hi",
+                schema={"type": "object"},
+                env={},
+                timeout=10,
+                supervised=False,
+                access_probe=True,
+            )
+        self.assertTrue(seen.get("called"))
+        self.assertEqual(0, result["exit_code"])
+
 
 class MixedProviderPreflightTests(unittest.TestCase):
     """A role bound with --role-transport is probed through its own tool, never the run's tool."""

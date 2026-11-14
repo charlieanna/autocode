@@ -2469,6 +2469,227 @@ class SampleCadenceTests(unittest.TestCase):
                 with contextlib.suppress(OSError):
                     os.close(fd)
 
+    def test_settled_enclosing_keeper_wakes_immediately_for_nested_admission_and_trigger(self):
+        import autocode_supervision_keeper as keeper
+
+        control_r, control_w = os.pipe()
+        ack_r, ack_w = os.pipe()
+        external_r, external_w = os.pipe()
+        provider = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            start_new_session=True,
+        )
+        self.addCleanup(provider.wait, timeout=10)
+        self.addCleanup(provider.kill)
+        nested = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            start_new_session=True,
+        )
+        self.addCleanup(nested.wait, timeout=10)
+        self.addCleanup(nested.kill)
+        nested_keeper = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            start_new_session=True,
+        )
+        self.addCleanup(nested_keeper.wait, timeout=10)
+        self.addCleanup(nested_keeper.kill)
+
+        receipt_path = self.root / "enclosing-receipt.json"
+        metadata = {
+            "schema": 1,
+            "nonce": "d" * 32,
+            "owner": supervision._identity(os.getpid()),
+            "keeper": supervision._identity(os.getpid()),
+            "provider": supervision._identity(provider.pid),
+            "receipt": str(receipt_path),
+            "started_at": "initial",
+        }
+        result = []
+        quiet_ticks = []
+        post_admit_wait_states = []
+        parked_at_cap = threading.Event()
+        real_next = keeper.next_sample_tick
+        real_wait = threading.Event.wait
+
+        def tracking_tick(current, *, activity, **kwargs):
+            nxt = real_next(current, activity=activity, **kwargs)
+            quiet_ticks.append((activity, nxt))
+            if not activity and nxt >= keeper.MAX_SAMPLE_TICK:
+                parked_at_cap.set()
+            return nxt
+
+        def tracking_wait(event, timeout=None):
+            if threading.current_thread() is thread and timeout is not None and timeout >= keeper.BASE_SAMPLE_TICK:
+                post_admit_wait_states.append(event.is_set())
+            return real_wait(event, timeout)
+
+        def run():
+            result.append(keeper.main(control_r, ack_w, external=external_r))
+
+        thread = threading.Thread(target=run, daemon=True)
+        try:
+            packet = {
+                "metadata": metadata,
+                "deadline": None,
+                "timing": keeper_timing(None),
+                "cleanup_policy": "interrupt_root",
+            }
+            with (
+                patch.object(keeper, "next_sample_tick", side_effect=tracking_tick),
+                patch.object(threading.Event, "wait", tracking_wait),
+                patch.object(keeper.KeeperTree, "admit") as admit_mock,
+                patch.object(keeper.KeeperTree, "admit_nested_session", return_value=True) as session_mock,
+            ):
+                os.write(control_w, (json.dumps(packet) + "\n").encode())
+                thread.start()
+                ready_line = supervision._read_line(ack_r, time.monotonic() + 10)
+                self.assertEqual({"armed": metadata["nonce"]}, ready_line)
+
+                # Wait until the sampling loop hits MAX_SAMPLE_TICK (0.5s) and sleeps inside sample_wake.wait(0.5).
+                self.assertTrue(parked_at_cap.wait(timeout=10))
+                time.sleep(0.05)
+
+                admitted_nonce = "e" * 32
+                nested_meta = {
+                    "schema": 1,
+                    "nonce": admitted_nonce,
+                    "owner": metadata["provider"],
+                    "keeper": supervision._identity(nested_keeper.pid),
+                    "provider": supervision._identity(nested.pid),
+                    "receipt": str(self.root / "nested-receipt.json"),
+                    "started_at": "nested",
+                }
+                t0 = time.monotonic()
+                os.write(control_w, (json.dumps({"admit": nested_meta, "guard": metadata["nonce"]}) + "\n").encode())
+                ack = supervision._read_line(ack_r, time.monotonic() + 5)
+                elapsed_admit = time.monotonic() - t0
+                admit_mock.assert_called_once_with(nested_meta, metadata["provider"])
+                self.assertEqual({"admitted": admitted_nonce}, ack)
+                self.assertLess(elapsed_admit, 0.4)
+
+                # Settle back to MAX_SAMPLE_TICK (0.5s), verifying sample_wake.clear() resets the event before waiting.
+                post_admit_wait_states.clear()
+                parked_at_cap.clear()
+                self.assertTrue(parked_at_cap.wait(timeout=10))
+                time.sleep(0.05)
+                self.assertIn(False, post_admit_wait_states)
+                session_nonce = "f" * 32
+                t1 = time.monotonic()
+                os.write(
+                    control_w,
+                    (
+                        json.dumps(
+                            {
+                                "admit_session": {"requested_session": nested.pid},
+                                "nested": {"nonce": session_nonce},
+                                "guard": metadata["nonce"],
+                            }
+                        )
+                        + "\n"
+                    ).encode(),
+                )
+                sack = supervision._read_line(ack_r, time.monotonic() + 5)
+                elapsed_session = time.monotonic() - t1
+                session_mock.assert_called_once()
+                self.assertEqual({"session_admitted": session_nonce, "creator": nested.pid}, sack)
+                self.assertLess(elapsed_session, 0.4)
+
+                # Settle back to MAX_SAMPLE_TICK (0.5s), then test immediate trigger wakeup.
+                parked_at_cap.clear()
+                self.assertTrue(parked_at_cap.wait(timeout=10))
+                time.sleep(0.05)
+                t_stop = time.monotonic()
+                os.write(control_w, (json.dumps({"finished": metadata["nonce"]}) + "\n").encode())
+                thread.join(timeout=10)
+                elapsed_stop = time.monotonic() - t_stop
+                self.assertFalse(thread.is_alive())
+                self.assertEqual([0], result)
+                self.assertLess(elapsed_stop, 0.4)
+        finally:
+            for fd in (control_r, control_w, ack_r, ack_w, external_r, external_w):
+                with contextlib.suppress(OSError):
+                    os.close(fd)
+
+    def test_trigger_landing_during_sample_wake_clear_breaks_before_sampling(self):
+        import autocode_supervision_keeper as keeper
+
+        control_r, control_w = os.pipe()
+        ack_r, ack_w = os.pipe()
+        external_r, external_w = os.pipe()
+        provider = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            start_new_session=True,
+        )
+        self.addCleanup(provider.wait, timeout=10)
+        self.addCleanup(provider.kill)
+
+        metadata = {
+            "schema": 1,
+            "nonce": "9" * 32,
+            "owner": supervision._identity(os.getpid()),
+            "keeper": supervision._identity(os.getpid()),
+            "provider": supervision._identity(provider.pid),
+            "receipt": str(self.root / "race-receipt.json"),
+            "started_at": "initial",
+        }
+        result = []
+        first_sample_done = threading.Event()
+        fired = [False]
+        post_trigger = [False]
+        post_trigger_samples = [0]
+        real_sample = keeper.processes.settled_sample
+        real_clear = threading.Event.clear
+
+        def counting_sample(tree, **kwargs):
+            rows = real_sample(tree, **kwargs)
+            if threading.current_thread() is thread:
+                if post_trigger[0]:
+                    post_trigger_samples[0] += 1
+                else:
+                    first_sample_done.set()
+            return rows
+
+        def hooked_clear(event):
+            real_clear(event)
+            if threading.current_thread() is thread and first_sample_done.is_set() and not fired[0]:
+                fired[0] = True
+                os.write(control_w, (json.dumps({"finished": metadata["nonce"]}) + "\n").encode())
+                deadline_wait = time.monotonic() + 10.0
+                while not event.is_set() and time.monotonic() < deadline_wait:
+                    time.sleep(0.005)
+                post_trigger[0] = True
+                real_clear(event)
+
+        def run():
+            result.append(keeper.main(control_r, ack_w, external=external_r))
+
+        thread = threading.Thread(target=run, daemon=True)
+        try:
+            packet = {
+                "metadata": metadata,
+                "deadline": None,
+                "timing": keeper_timing(None),
+                "cleanup_policy": "interrupt_root",
+            }
+            with (
+                patch.object(keeper.processes, "settled_sample", counting_sample),
+                patch.object(threading.Event, "clear", hooked_clear),
+            ):
+                os.write(control_w, (json.dumps(packet) + "\n").encode())
+                thread.start()
+                ready_line = supervision._read_line(ack_r, time.monotonic() + 10)
+                self.assertEqual({"armed": metadata["nonce"]}, ready_line)
+                self.assertTrue(first_sample_done.wait(timeout=10))
+                thread.join(timeout=15)
+                self.assertFalse(thread.is_alive())
+                self.assertTrue(fired[0])
+                self.assertEqual([0], result)
+                self.assertEqual(1, post_trigger_samples[0])
+        finally:
+            for fd in (control_r, control_w, ack_r, ack_w, external_r, external_w):
+                with contextlib.suppress(OSError):
+                    os.close(fd)
+
 
 if __name__ == "__main__":
     unittest.main()

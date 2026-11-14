@@ -485,6 +485,100 @@ class KiloToolReadinessTests(unittest.TestCase):
                     self.assertNotIn("bash", agent["permission"])
 
 
+class KiloAccessProbeLaunchTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.workspace = Path(temporary.name).resolve()
+        self.run_dir = self.workspace / ".autocode/runs/probe"
+        self.run_dir.mkdir(parents=True)
+
+    def _provider(self, *, with_agent=False):
+        cmd = [sys.executable, "run", "--model", "{model}", "--variant", "{effort}", "--dir", "{workspace}"]
+        if with_agent:
+            cmd = [sys.executable, "run", "--agent", "code", "--model", "{model}", "--variant", "{effort}"]
+        return kilocode.KiloProvider({"name": "kilocode", "command": cmd, "roles": {}}, Path("/unused-provider.toml"))
+
+    def test_access_probe_skips_policy_restrict_and_builds_minimal_deny_all_agent(self):
+        for with_agent in (False, True):
+            with self.subTest(with_agent=with_agent):
+                provider = self._provider(with_agent=with_agent)
+                env = {"PATH": os.environ["PATH"], "KILO_CONFIG_CONTENT": json.dumps({"agent": {"existing": {}}})}
+                with (
+                    patch.object(provider, "validate_effort") as validate,
+                    patch.object(policy, "restrict", side_effect=AssertionError("access probe skips restrict")),
+                ):
+                    argv, child, _ = provider.launch(
+                        "plan_reviewer",
+                        self.workspace,
+                        self.run_dir,
+                        None,
+                        "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+                        "high",
+                        False,
+                        planning=True,
+                        env=env,
+                        access_probe=True,
+                    )
+                validate.assert_called_once()
+                self.assertEqual(1, argv.count("--agent"))
+                agent_name = argv[argv.index("--agent") + 1]
+                self.assertTrue(agent_name.startswith("autocode_probe_"), agent_name)
+                self.assertNotIn("code", argv)
+                written = json.loads(child["KILO_CONFIG_CONTENT"])
+                agent = written["agent"][agent_name]
+                self.assertEqual("AutoCode model access probe", agent["description"])
+                self.assertEqual("primary", agent["mode"])
+                self.assertEqual({"*": False}, agent["tools"])
+                self.assertEqual({"*": "deny"}, agent["permission"])
+                self.assertEqual("xiaomi-token-plan-sgp/mimo-v2.6-pro", agent["model"])
+                self.assertIn("existing", written["agent"])
+
+    def test_access_probe_rejects_non_dict_inline_agents_and_unsafe_launch_flags(self):
+        provider = self._provider()
+        bad_env = {"PATH": os.environ["PATH"], "KILO_CONFIG_CONTENT": json.dumps({"agent": ["bad"]})}
+        with (
+            patch.object(provider, "validate_effort"),
+            self.assertRaisesRegex(ValueError, "inline agents must be an object"),
+        ):
+            provider.launch(
+                "requirements",
+                self.workspace,
+                self.run_dir,
+                None,
+                "fixture/model",
+                "high",
+                False,
+                planning=True,
+                env=bad_env,
+                access_probe=True,
+            )
+
+        for kwargs in (
+            {"allow_write": True},
+            {"session": "ses_1"},
+            {"containment": {}},
+            {"isolation": object()},
+            {"image_preparation": object()},
+            {"report_recovery": True},
+            {"portable_shell": True},
+        ):
+            with self.subTest(kwargs=kwargs), self.assertRaisesRegex(ValueError, "fresh read-only unisolated launch"):
+                opts = {"allow_write": False, "planning": True, "env": {"KILO_CONFIG_CONTENT": "{}"}, **kwargs}
+                allow_write = opts.pop("allow_write")
+                provider.launch(
+                    "requirements",
+                    self.workspace,
+                    self.run_dir,
+                    opts.pop("session", None),
+                    "fixture/model",
+                    "high",
+                    allow_write,
+                    access_probe=True,
+                    **opts,
+                )
+
+
 class KiloContainmentPolicyTests(unittest.TestCase):
     """The real restriction/containment seam with deterministic native observations."""
 
