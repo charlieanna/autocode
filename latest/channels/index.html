@@ -1900,7 +1900,7 @@
 
 
 <h1 id="channel-bridge-github-issues-as-the-front-door">Channel bridge: GitHub issues as the front door<a class="headerlink" href="#channel-bridge-github-issues-as-the-front-door" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/40cf36905cd327742ec6220679285a93f8e0c95d/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/ffe919240283949fbdd5e2246d860d2ea82991b4/README.md">← Back to README</a></p>
 <p>The channel bridge runs <code>autocode bridge</code> on the same persistent Linux host as
 the core. A team member opens an issue with the bridge label; the bridge starts
 a <strong>durable</strong> run (it survives the bridge, the terminal and the SSH session).
@@ -1950,7 +1950,7 @@ autocode bridge run       # the daemon; one per host (a lock file refuses a seco
 </tr>
 <tr>
 <td><code>AUTOCODE_BRIDGE_OPTIONS</code></td>
-<td>a JSON array of launch options (engine, models, <code>--test-command</code>). Every human or run action flag is refused here.</td>
+<td>a JSON array of launch options (engine, models, <code>--test-command</code>). Add <code>--evidence-provenance live</code> when the bridge runs real models: without it each run's report says its provider evidence is unknown. Every human or run action flag is refused here.</td>
 </tr>
 <tr>
 <td><code>AUTOCODE_BRIDGE_POLL_SECONDS</code></td>
@@ -2035,6 +2035,9 @@ the terminal chat and the headless conformance client:</p>
   <code>autocode changeset status</code> names. Words written before a gate was
   posted can never answer it: each gate remembers which comments it has already
   consumed.</li>
+<li><strong>A reply is found however long the issue is.</strong> Each poll reads the issue's
+  newest 30 comments, across GitHub's pages of 30, so a reply is read as long
+  as fewer than 30 comments arrive between two polls.</li>
 <li><strong>Person-only stops stay person-only.</strong> Pauses, retries and blockers are
   relayed with their reason, and acted on only by an allowlisted actor's
   explicit reply. Nothing resumes on its own.</li>
