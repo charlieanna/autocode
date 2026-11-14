@@ -21,7 +21,16 @@ Before that judgment, the failures it would report are rechecked deterministical
    regression: the change may have made it flaky.
 
 Missing evidence never quarantines: a rerun that did not report the test, a runner that cannot select
-it, or an incomplete run leaves the regression standing. ``recheck`` runs no command itself; the
+it, or an incomplete run leaves the regression standing.
+
+The other side of the same comparison is rechecked too (``pre_existing``). A test that failed in the
+original code's one suite run is subtracted as a pre-existing failure, and the baseline is reused for
+the rest of the run, so a test that failed there only by chance would hide a change that really breaks
+it. A test that failed in both complete runs (with the same exclusions, and at most ``MAX_SUSPECTS``)
+runs ``RERUNS`` more times on the original code. One that passed there runs ``RERUNS`` more times on the
+candidate, and when it fails on every run with the change it is a regression after all. One that fails
+on every run of the original code stays a pre-existing failure, as does one whose evidence is missing,
+which is what the comparison already decided. ``recheck`` runs no command itself; the
 caller supplies ``run(command, side, label)``. ``for_proof`` is autocode_verify's entry: it is given
 verify's own tree and suite helpers, and imports nothing from it.
 """
@@ -49,6 +58,14 @@ RULE = (
     "It is quarantined only when it also fails on the original code; otherwise it stays a regression."
 )
 QUARANTINE_REASON = "fails intermittently on the original code too, so its failure is not evidence against the change"
+PRE_EXISTING_RULE = (
+    "A suite test that failed on both the original code and the candidate is run alone "
+    f"{RERUNS} more times on the original code; if it passes there, {RERUNS} more times on the candidate. "
+    "It is a regression when it then failed on every run with the change; otherwise it stays a pre-existing failure."
+)
+UNMASKED = (
+    "Tests that failed once on the original code pass there when rerun alone, but fail on every run with the change"
+)
 
 
 def _complete(receipt) -> bool:
@@ -66,13 +83,25 @@ def suspects(on_candidate, base_receipt, *, protected=(), changed_texts=()) -> l
     Both runs must be complete; ``protected`` are tests a due case names; a test whose function name
     any of ``changed_texts`` (the changed files' sources) mentions is left to the ordinary judgment.
     """
+    return _eligible(on_candidate, base_receipt, "passed", protected, changed_texts)
+
+
+def masked(on_candidate, base_receipt, *, protected=(), changed_texts=()) -> list[str]:
+    """The candidate's failures that also failed on the original code, which the comparison subtracts.
+
+    The same rules as ``suspects``: both runs complete, no due case names it, no changed file mentions it.
+    """
+    return _eligible(on_candidate, base_receipt, "failed", protected, changed_texts)
+
+
+def _eligible(on_candidate, base_receipt, base_outcome, protected, changed_texts) -> list[str]:
     if not _complete(on_candidate) or not _complete(base_receipt):
         return []
     failed = set(on_candidate["results"].get("failed") or [])
-    passed = set(base_receipt["results"].get("passed") or [])
+    on_base = set(base_receipt["results"].get(base_outcome) or [])
     text = "\n".join(changed_texts)
     return sorted(
-        test for test in failed & passed if test not in set(protected) and not test_cases.named_in(test, text)
+        test for test in failed & on_base if test not in set(protected) and not test_cases.named_in(test, text)
     )
 
 
@@ -118,6 +147,71 @@ def recheck(framework_name, command, tests, run, *, directory=None) -> dict | No
     return record(tests, rows, command=narrowed)
 
 
+def _pre_existing_verdict(base, candidate) -> str:
+    if "pass" not in base[1:]:
+        return "pre_existing"
+    if not candidate[1:] or "missing" in candidate:
+        return "pre_existing"
+    return "flaky" if "pass" in candidate[1:] else "regression"
+
+
+def recheck_pre_existing(framework_name, command, tests, run, *, directory=None) -> dict | None:
+    """Rerun failures shared with the original code's suite run; None when there are none.
+
+    ``run`` is ``recheck``'s. The original code runs first; only a test that passed there runs on the
+    candidate. Each row's first entry on each side is the judged suite run.
+    """
+    tests = list(tests)
+    if not tests:
+        return None
+    if len(tests) > MAX_SUSPECTS:
+        return pre_existing_record(
+            tests,
+            note=f"{len(tests)} tests failed on both the original code and the candidate, more than the "
+            f"{MAX_SUSPECTS} rechecked, so they stay pre-existing failures without a recheck",
+        )
+    narrowed = proof_stability.narrow(framework_name, command, tests, directory=directory)
+    if not narrowed:
+        return pre_existing_record(
+            tests,
+            note="this runner cannot select the tests that failed on both sides alone, so they stay "
+            "pre-existing failures without a recheck",
+        )
+    base_runs = [run(narrowed, "base", f"pre-existing-base-{index}") for index in range(2, RERUNS + 2)]
+    on_base = {test: ["fail", *(proof_stability.outcome_of(r, test) for r in base_runs)] for test in tests}
+    passed = [test for test in tests if "pass" in on_base[test][1:]]
+    candidate_runs = []
+    if passed:
+        retry = proof_stability.narrow(framework_name, command, passed, directory=directory) or narrowed
+        candidate_runs = [run(retry, "candidate", f"pre-existing-candidate-{index}") for index in range(2, RERUNS + 2)]
+    rows = []
+    for test in tests:
+        candidate = (
+            ["fail", *(proof_stability.outcome_of(r, test) for r in candidate_runs)] if test in passed else ["fail"]
+        )
+        verdict = _pre_existing_verdict(on_base[test], candidate)
+        rows.append({"test": test, "base": on_base[test], "candidate": candidate, "verdict": verdict})
+    return pre_existing_record(tests, rows, command=narrowed)
+
+
+def pre_existing_record(tests, rows=(), *, command=None, note=None) -> dict:
+    rows = list(rows)
+    return {
+        "rule": PRE_EXISTING_RULE,
+        "reruns": RERUNS,
+        "suspects": list(tests),
+        "command": command,
+        "tests": rows,
+        "regressed": [row["test"] for row in rows if row["verdict"] == "regression"],
+        "note": note,
+    }
+
+
+def unmasked(recheck_record) -> list[str]:
+    """Tests the original code's suite run failed by chance that fail on every run with the change."""
+    return list(((recheck_record or {}).get("pre_existing") or {}).get("regressed") or [])
+
+
 def record(tests, rows=(), *, command=None, note=None) -> dict:
     rows = list(rows)
     return {
@@ -144,6 +238,8 @@ def explain(recheck_record) -> tuple[list[str], list[str]]:
     notes = []
     if recheck_record and recheck_record.get("note"):
         notes.append("Flaky-test recheck: " + recheck_record["note"])
+    if ((recheck_record or {}).get("pre_existing") or {}).get("note"):
+        notes.append("Pre-existing failure recheck: " + recheck_record["pre_existing"]["note"])
     if not names:
         return notes, []
     rows = {row["test"]: row for row in recheck_record["tests"]}
@@ -163,7 +259,10 @@ def for_proof(run, trees, on_candidate, comparable, helpers) -> list[str]:
 
     ``helpers`` are verify's ``(make_tree, run_suite, remove_tree)``. Only the failing tests run: in the
     candidate tree and, once one passed again there, in a fresh tree of the effective base (the one the
-    baseline ran, ``base_patch`` applied), removed afterwards. The record is the proof's ``suite_flakes``;
+    baseline ran, ``base_patch`` applied), removed afterwards. A failure the original code's suite run
+    shared is rechecked the other way round (``recheck_pre_existing``, base first, kept as the record's
+    ``pre_existing``), and one it shows the change really breaks is added to the proof's failures.
+    The record is the proof's ``suite_flakes``;
     its notes and review reasons join the proof's. Without a comparable base run nothing is rechecked.
     """
     make_tree, run_suite, remove_tree = helpers
@@ -178,7 +277,8 @@ def for_proof(run, trees, on_candidate, comparable, helpers) -> list[str]:
         except OSError:
             continue
     tests = suspects(on_candidate, comparable.get("receipt"), protected=named, changed_texts=texts)
-    if not tests:
+    shared = masked(on_candidate, comparable.get("receipt"), protected=named, changed_texts=texts)
+    if not tests and not shared:
         return []
     base_tree: list = []
 
@@ -203,14 +303,18 @@ def for_proof(run, trees, on_candidate, comparable, helpers) -> list[str]:
         run.checks[label] = run_suite(framework, command, tree, run.run_dir, label, timeout=run.timeout)
         return run.checks[label]
 
+    directory = getattr(framework, "directory", None)
     try:
-        found = recheck(
-            framework.name, run.commands["suite"], tests, rerun, directory=getattr(framework, "directory", None)
+        found = recheck(framework.name, run.commands["suite"], tests, rerun, directory=directory) or record([])
+        found["pre_existing"] = recheck_pre_existing(
+            framework.name, run.commands["suite"], shared, rerun, directory=directory
         )
     finally:
         if base_tree:
             remove_tree(run.workspace, base_tree[0])
     proof["suite_flakes"] = found
+    if unmasked(found):
+        run.fail.append(UNMASKED + ": " + ", ".join(unmasked(found)[:20]))
     notes, reasons = explain(found)
     run.notes.extend(notes)
     run.review_reasons.extend(reasons)

@@ -121,6 +121,83 @@ class RecheckTests(unittest.TestCase):
         self.assertEqual(["Flaky-test recheck: " + crowd["note"]], flakes.explain(crowd)[0])
 
 
+class PreExistingTests(unittest.TestCase):
+    """A failure the original code's one suite run shared is rerun there before it is subtracted."""
+
+    COMMAND = f"{sys.executable} -m unittest discover -v"
+
+    def test_only_failures_on_both_sides_that_no_case_or_changed_file_names(self):
+        candidate = receipt(failed=["t.A.test_both", "t.A.test_new", "t.A.test_named", "t.A.test_case"])
+        base = receipt(passed=["t.A.test_new"], failed=["t.A.test_both", "t.A.test_named", "t.A.test_case"])
+        found = flakes.masked(candidate, base, protected=["t.A.test_case"], changed_texts=["def test_named(self): ..."])
+        self.assertEqual(["t.A.test_both"], found)
+        self.assertEqual([], flakes.masked(candidate, receipt(failed=["t.A.test_both"], complete=False)))
+
+    def test_a_test_failing_every_run_of_the_original_code_stays_pre_existing(self):
+        run, calls = scripted({"base": [{"failed": [FLAKY]}, {"failed": [FLAKY]}]})
+        record = flakes.recheck_pre_existing("unittest", self.COMMAND, [FLAKY], run)
+        self.assertEqual(["base", "base"], [side for _, side, _ in calls])
+        self.assertIn(FLAKY, calls[0][0])
+        self.assertEqual("pre_existing", record["tests"][0]["verdict"])
+        self.assertEqual([], record["regressed"])
+
+    def test_a_chance_failure_on_the_original_code_does_not_hide_a_real_break(self):
+        run, calls = scripted(
+            {
+                "base": [{"passed": [FLAKY]}, {"failed": [FLAKY]}],
+                "candidate": [{"failed": [FLAKY]}, {"failed": [FLAKY]}],
+            }
+        )
+        record = flakes.recheck_pre_existing("unittest", self.COMMAND, [FLAKY], run)
+        self.assertEqual(["base", "base", "candidate", "candidate"], [side for _, side, _ in calls])
+        self.assertEqual(
+            {
+                "test": FLAKY,
+                "base": ["fail", "pass", "fail"],
+                "candidate": ["fail", "fail", "fail"],
+                "verdict": "regression",
+            },
+            record["tests"][0],
+        )
+        self.assertEqual([FLAKY], flakes.unmasked({"pre_existing": record}))
+
+    def test_a_test_flaky_on_both_sides_stays_out_of_the_comparison(self):
+        run, _ = scripted(
+            {
+                "base": [{"passed": [FLAKY]}, {"passed": [FLAKY]}],
+                "candidate": [{"failed": [FLAKY]}, {"passed": [FLAKY]}],
+            }
+        )
+        record = flakes.recheck_pre_existing("unittest", self.COMMAND, [FLAKY], run)
+        self.assertEqual("flaky", record["tests"][0]["verdict"])
+        self.assertEqual([], record["regressed"])
+
+    def test_missing_evidence_keeps_the_pre_existing_failure(self):
+        run, _ = scripted(
+            {"base": [{"passed": [FLAKY]}, {"passed": [FLAKY]}], "candidate": [{"failed": []}, {"failed": []}]}
+        )
+        record = flakes.recheck_pre_existing("unittest", self.COMMAND, [FLAKY], run)
+        self.assertEqual(["fail", "missing", "missing"], record["tests"][0]["candidate"])
+        self.assertEqual("pre_existing", record["tests"][0]["verdict"])
+        run, _ = scripted({"base": [{"failed": []}, {"failed": []}]})
+        verdict = flakes.recheck_pre_existing("unittest", self.COMMAND, [FLAKY], run)["tests"][0]["verdict"]
+        self.assertEqual("pre_existing", verdict)
+
+    def test_without_a_selector_or_with_too_many_failures_nothing_reruns(self):
+        run, calls = scripted({})
+        self.assertIsNone(flakes.recheck_pre_existing("unittest", self.COMMAND, [], run))
+        unselectable = flakes.recheck_pre_existing("unittest", "make test", [FLAKY], run)
+        many = flakes.recheck_pre_existing(
+            "unittest", self.COMMAND, [f"t.A.test_{n}" for n in range(flakes.MAX_SUSPECTS + 1)], run
+        )
+        self.assertEqual([], calls)
+        for record in (unselectable, many):
+            self.assertEqual([], record["regressed"])
+            self.assertIn("pre-existing failures without a recheck", record["note"])
+        notes, _ = flakes.explain({"pre_existing": many})
+        self.assertTrue(notes[0].startswith("Pre-existing failure recheck: "))
+
+
 class JudgmentTests(unittest.TestCase):
     def judge(self, quarantined):
         fail, unverified, notes = [], [], []
@@ -166,6 +243,9 @@ class ProofRunTests(unittest.TestCase):
                             handle.write(kind + "\\n")
                         count = LOG.read_text().split().count(kind)
                         self.assertNotIn(count, FAIL_ON[kind])
+
+                    def test_steady(self):
+                        pass
                 """
             )
         )
@@ -207,6 +287,24 @@ class ProofRunTests(unittest.TestCase):
         self.assertTrue(any(FLAKY in reason for reason in result["failures"]), result["failures"])
         self.assertEqual("regression", result["suite_flakes"]["tests"][0]["verdict"])
         self.assertEqual([], result["suite_flakes"]["quarantined"])
+
+    def test_a_chance_failure_on_the_original_code_does_not_hide_a_change_that_breaks_the_test(self):
+        result, runs = self.prove({"candidate": [1, 2, 3], "base": [1]})
+        self.assertEqual("FAIL", result["verdict"], result["failures"] + result["unverified"])
+        self.assertIn(flakes.UNMASKED + ": " + FLAKY, result["failures"])
+        self.assertEqual(["base", "candidate", "base", "base", "candidate", "candidate"], runs)
+        self.assertEqual([FLAKY], result["suite_flakes"]["pre_existing"]["regressed"])
+        self.assertTrue(
+            {"pre-existing-base-2", "pre-existing-base-3", "pre-existing-candidate-2", "pre-existing-candidate-3"}
+            <= set(result["checks"])
+        )
+        self.assertFalse((self.evidence / "scratch" / "flake-base").exists())
+
+    def test_a_test_that_fails_every_run_of_the_original_code_stays_a_pre_existing_failure(self):
+        result, runs = self.prove({"candidate": [1, 2, 3], "base": [1, 2, 3]})
+        self.assertEqual("PASS", result["verdict"], result["failures"] + result["unverified"])
+        self.assertEqual(["base", "candidate", "base", "base"], runs)
+        self.assertEqual("pre_existing", result["suite_flakes"]["pre_existing"]["tests"][0]["verdict"])
 
     def test_a_test_the_change_breaks_on_every_run_is_a_regression_without_touching_base_again(self):
         result, runs = self.prove({"candidate": [1, 2, 3], "base": [2, 3]})

@@ -541,8 +541,21 @@ before it is judged, AutoCode rechecks it (`tools/autocode_suite_flakes.py`,
 - A rerun that did not report the test, or a runner that cannot select it,
   never quarantines anything.
 
+The other side of the comparison is rechecked as well. A test that failed in
+the original code's one suite run is subtracted as a pre-existing failure, and
+that run is reused for every proof of the task, so a test that failed there
+only by chance could hide a change that really breaks it:
+
+- A test that failed on both sides, with the same exclusions and limit, runs
+  alone two more times on the original code.
+- One that passed there runs two more times on the candidate. When it fails on
+  every run with the change, the proof fails: the change breaks it.
+- One that fails every run on the original code stays a pre-existing failure,
+  as does one whose reruns did not report it. More than ten at once, or a
+  runner that cannot select them, are not rechecked and stay pre-existing.
+
 The decision, every run of each rechecked test and the quarantine reason are
-kept as `suite_flakes` in the proof's `verification.json` and in the run's
+kept as `suite_flakes` (the shared failures under `suite_flakes.pre_existing`) in the proof's `verification.json` and in the run's
 regression proof; a quarantine also adds a note and a review reason that the
 judging stages read. None of this is a question for the person.
 
