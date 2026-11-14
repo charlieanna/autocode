@@ -108,7 +108,7 @@ same ones the terminal chat's stage panel reads: `usage.accounting.attempts`,
 
 A finished run closes with a card: its result, how many requirements were
 checked, the files its saved steps and acceptance tests changed, the time its
-stages ran and its cost, with **Show changes** (the saved code changes below)
+stages ran and its cost, with **Show changes** (the run's whole change, below)
 and **Run details**. A new chat opens with what AutoCode does and three example
 requests; choosing one only fills the message box. A tab shows ● while its run
 waits for you and ✓ once it has finished, and the status bar names the working
@@ -149,10 +149,12 @@ once instead of letting it finish: nothing more is spent on it, its partial work
 and logs are kept, the run pauses ("Stopped by you"), and **Continue** runs that
 step again. The run's terminal Stop stays outside the chat.
 
-**Saved code changes** offers only the comparisons and restores named by the
-core. While this chat waits for one of its commands to finish, those buttons
-are disabled with an explanation. They become available again when the command
-finishes; inspecting a run started elsewhere does not disable a named comparison.
+**Changes** offers **Show all changes** once the run has saved a code change: one diff of
+everything the run changed, from where it started to its newest saved step, read from saved code
+(`code_checkpoints.all_changes`). The chat does not offer a step-by-step history to compare or go
+back to (owner decision 2026-11-13): a person asks for a change in the chat, and AutoCode takes it
+through Requirements and the plan again on the same branch. While this chat waits for one of its
+commands to finish, the button is disabled.
 
 **Run details** opens the detailed progress panel. The Runs list reads the local
 registry and the open project's chats, and retains unavailable pointers with their

@@ -2910,6 +2910,14 @@ that step's id) or, for the first step, the commit it was saved on (`since` is `
 run's own scope), and never the files on disk. It carries no token and restores nothing. A finished
 run's newest step still matches the files, so `compare` shows nothing there, but `step` shows its change.
 
+Once the run has an available step, `code_checkpoints.all_changes` (otherwise null) names the run's
+whole change in the same shape, `autocode checkpoint --all`. It is display only: it prints `{since,
+until, changed_files, patch, truncated}`, the newest saved step's code (`until` is its id) against the
+commit the first step was saved on (`since` is `"start"`), limited to the run's own scope, and never
+the files on disk. A file one step added and a later one removed is not listed. It carries no token
+and restores nothing. This is the diff the VS Code client shows a person; it does not offer the rows'
+`compare`, `step` or `restore` (owner decision 2026-11-13).
+
 While a Builder step runs, `code_checkpoints.working` (otherwise null) names one more action in the
 same shape, `autocode checkpoint --working`. It is display only: it prints `{since, changed_files,
 patch, truncated, compared_at}`, the files as they are now against the newest saved step (`since` is

@@ -27,7 +27,7 @@ status view, and takes the action the view names. It imports nothing from
 `tools/` and never reads `state.json`.
 
 Chat in the sidebar — several task tabs at once — give plan feedback, approve a
-reviewed plan, compare or restore saved code checkpoints, pause a working run
+reviewed plan, see everything a run changed, pause a working run
 after its current step, and continue with follow-up messages in the same run. Every change takes
 the same path (Requirements, plan, build, independent check); a question is answered without
 changing anything. Composer and scroll behavior adapt

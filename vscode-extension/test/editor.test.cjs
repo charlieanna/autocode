@@ -397,22 +397,17 @@ test('a relocated run takes the command the view names, not the start handle', (
   assert.throws(() => controller.prepare({ ...view, workspace: '/elsewhere' }, run, {}), /not this run/);
 });
 
-test('a relocated run accepts the checkpoint action the view names', async (t) => {
+test('a relocated run accepts the all-changes action the view names', async (t) => {
   const relocated = { workspace: '/real/project', runDir: '/real/project/.autocode/runs/test' };
-  const checkpoint = (flag, extra = []) => [
-    'checkpoint', '--workspace', relocated.workspace, '--run-dir', relocated.runDir, flag, 'cp1', ...extra,
-  ];
+  const all = ['checkpoint', '--workspace', relocated.workspace, '--run-dir', relocated.runDir, '--all'];
   const view = {
     status: 'PAUSED', done: false, workspace: relocated.workspace, run_dir: relocated.runDir,
-    code_checkpoints: { rows: [{ id: 'cp1', actions: [
-      { id: 'compare', next_command: checkpoint('--compare') },
-      { id: 'restore', next_command: checkpoint('--restore', ['--expected-token', '-', '--request-id', 'REQUEST_ID']) },
-    ] }] },
+    code_checkpoints: { rows: [], all_changes: { id: 'all_changes', next_command: all } },
   };
   const invoked = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: '{}' }));
   t.mock.method(RunController.prototype, 'status', async () => view);
-  assert.deepEqual(await controller.compareCheckpoint(run, 'cp1'), {});
-  assert.deepEqual(invoked.mock.calls[0].arguments[1], checkpoint('--compare'));
+  assert.deepEqual(await controller.allChanges(run), {});
+  assert.deepEqual(invoked.mock.calls[0].arguments[1], all);
 });
 
 test('a relocated run sends its message to the paths the view names', async (t) => {
@@ -3509,29 +3504,6 @@ test('chat shows the running step\'s activity and the live diff the view names (
   assert.ok(!text().includes('+print(1)'), 'a diff of an ended step is not left on screen');
 });
 
-test('a finished checkpoint action re-enables its buttons before the next read lands', async (t) => {
-  const ui = await openChat(t, checkpointView());
-  t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({
-    version: 1, checkpoint_id: 'cp-1', expected_token: 'checkpoint-v1:t', changed_files: ['app.txt'],
-    patch: '+x', truncated: false,
-  }) }));
-  let calls = 0;
-  let release;
-  // The compare's own status read answers; the read the follow-up refresh makes stays out.
-  t.mock.method(controller, 'status', () => {
-    calls++;
-    if (calls === 1) return Promise.resolve(structuredClone(checkpointView()));
-    return new Promise((resolve) => { release = () => resolve(structuredClone(checkpointView())); });
-  });
-  ui.document.querySelector('[data-checkpoint-action="compare"]').click();
-  await flush(); await flush();
-  const restore = ui.document.querySelector('[data-checkpoint-action="restore"]');
-  assert.equal(restore.disabled, false,
-    'the step\'s buttons come back when the action ends, without waiting for the next read');
-  release();
-  await flush();
-});
-
 test('the live diff the view names is offered while the Builder streams its log', async (t) => {
   const working = ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--working'];
   const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
@@ -4128,43 +4100,62 @@ function checkpointView() {
         { id: 'cp-legacy', label: 'Old step', changed_files: [], available: false,
           reason: 'no restorable source checkpoint', actions: [] },
       ],
+      all_changes: { id: 'all_changes', label: 'Show all changes',
+        next_command: ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--all'] },
     },
     chat: { context: 'ctx-1', messages: [], input: null },
   };
 }
 
-test('saved code changes render with only the actions the view named', async (t) => {
+const ALL_CHANGES = ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--all'];
+
+// Owner decision 2026-11-13: a person reads the run's result, not each saved step. The per-step
+// compare, step and restore the view still names are not offered, so nothing asks a person to pick a
+// step to go back to; a change is asked for in the chat and planned again.
+test('a run offers one diff of all its changes and no per-step buttons', async (t) => {
   const ui = await openChat(t, checkpointView());
   const text = ui.document.body.textContent;
-  assert.ok(text.includes('Saved code changes'), 'section missing');
-  assert.ok(text.includes('Fixture code · PASS'));
-  assert.ok(text.includes('2 file(s) changed'));
-  assert.ok(text.includes('no restorable source checkpoint'), 'unavailable rows explain themselves');
-  const buttons = [...ui.document.querySelectorAll('[data-checkpoint-action]')];
-  assert.deepEqual(
-    buttons.map((button) => button.dataset.checkpointId + ':' + button.dataset.checkpointAction),
-    ['cp-1:compare', 'cp-1:step', 'cp-1:restore'],
-    'unavailable rows offer no actions',
-  );
+  assert.ok(text.includes('Changes'), 'section missing');
+  assert.equal(ui.document.querySelector('#all-changes-show').textContent, 'Show all changes');
+  assert.equal(ui.document.querySelectorAll('[data-checkpoint-action]').length, 0, 'no per-step actions');
+  for (const label of ['Show what changed since here', 'Show what this step changed', 'Go back to here', 'Saved code changes']) {
+    assert.ok(!text.includes(label), `${label} is not offered`);
+  }
 });
 
-test('a saved step shows what that step itself changed', async (t) => {
+test('show all changes runs exactly the named argv and renders the run diff', async (t) => {
   const ui = await openChat(t, checkpointView());
-  const invoke = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({
-    version: 1, checkpoint_id: 'cp-1', since: 'start', changed_files: ['app.txt'],
-    patch: 'diff --step app.txt\n+hello', truncated: false,
-  }) }));
-  ui.document.querySelector('[data-checkpoint-action="step"]').click();
+  const calls = [];
+  t.mock.method(cli, 'invoke', async (_settings, argv) => {
+    calls.push(argv);
+    return { ...ok, stdout: JSON.stringify({ version: 1, since: 'start', until: 'cp-1', changed_files: ['app.txt'],
+      patch: '--- before/app.txt\n+++ step/app.txt\n+hello\n', truncated: false }) };
+  });
+  ui.document.querySelector('#all-changes-show').click();
   await flush(); await flush();
-  assert.deepEqual(invoke.mock.calls[0].arguments[1],
-    ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--step', 'cp-1']);
+  assert.deepEqual(calls, [ALL_CHANGES]);
   const text = ui.document.querySelector('#app').textContent;
-  assert.match(text, /1 file\(s\) changed in this step/);
+  assert.match(text, /1 file\(s\) changed in this run/);
   assert.ok(text.includes('+hello'));
-  assert.ok(!text.includes('differ from this checkpoint'), 'a step view is not a compare');
 });
 
-test('saved code changes render and compare inline during resolver_response pauses', async (t) => {
+test('a run with no saved change offers no diff of it', async (t) => {
+  const view = checkpointView();
+  view.code_checkpoints.all_changes = null;
+  const ui = await openChat(t, view);
+  assert.equal(ui.document.querySelector('#all-changes-show'), null);
+  assert.equal(ui.document.querySelector('#all-changes'), null);
+});
+
+test('a failed all-changes read says why in the section', async (t) => {
+  const ui = await openChat(t, checkpointView());
+  t.mock.method(cli, 'invoke', async () => ({ ...ok, code: 2, stdout: '', stderr: 'Input rejected: storage gone' }));
+  ui.document.querySelector('#all-changes-show').click();
+  await flush(); await flush();
+  assert.match(ui.document.querySelector('#app').textContent, /Could not show the changes: .*storage gone/);
+});
+
+test('all changes render during resolver_response pauses', async (t) => {
   const view = checkpointView();
   view.status = 'WAITING_FOR_USER';
   view.needs = {
@@ -4179,197 +4170,51 @@ test('saved code changes render and compare inline during resolver_response paus
     next_command: 'autocode --resolver-request req-1 --resolver-token - --resolver-response provide_information --resolver-message MESSAGE',
   };
   const ui = await openChat(t, view);
-  const text = ui.document.body.textContent;
-  assert.ok(text.includes('Reply with what changed or how you want to proceed'), 'resolver card missing');
-  assert.ok(text.includes('Saved code changes'), 'checkpoint section hidden during resolver_response');
-  assert.ok(text.includes('Fixture code · PASS'));
+  assert.ok(ui.document.body.textContent.includes('Reply with what changed or how you want to proceed'), 'resolver card missing');
   const invoke = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({
-    version: 1, checkpoint_id: 'cp-1', since: 'checkpoint', changed_files: ['app.txt'],
-    patch: 'diff --git a/app.txt b/app.txt\n+saved', truncated: false,
+    version: 1, since: 'start', changed_files: ['app.txt'], patch: '+saved', truncated: false,
   }) }));
-  ui.document.querySelector('[data-checkpoint-action="compare"]').click();
+  ui.document.querySelector('#all-changes-show').click();
   await flush(); await flush();
-  assert.deepEqual(invoke.mock.calls[0].arguments[1],
-    ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--compare', 'cp-1']);
-  assert.ok(ui.document.querySelector('#app').textContent.includes('1 file(s) differ from this checkpoint'));
+  assert.deepEqual(invoke.mock.calls[0].arguments[1], ALL_CHANGES);
   assert.ok(ui.document.querySelector('#app').textContent.includes('+saved'));
 });
 
-test('a raise confirmation names the open dialog in the chat while it pends', async (t) => {
-  host.config.set('confirmPersonOnly', false);
-  const ownController = new RunController(host.log);
-  const ui = await openChat(t, heldCostView('cost:current'), run, { controller: ownController });
-  const field = ui.document.querySelector('[data-question="raise:max_cost_usd"]');
-  field.value = '5'; field.dispatchEvent(new ui.window.Event('input'));
-  let release;
-  t.mock.method(host.vscode.window, 'showWarningMessage', () => new Promise((resolve) => { release = resolve; }));
-  ui.document.querySelector('#raise-bound').click();
-  await flush();
-  const hint = () => ui.document.querySelector('#send-hint').textContent;
-  assert.ok(hint().includes('answer the dialog that opened'), `the chat names the open dialog: ${hint()}`);
-  assert.ok(hint().includes('Set the cost cap to $5'), `the hint is the dialog's own question: ${hint()}`);
-  release(undefined);
-  await flush(); await flush();
-  assert.ok(!hint().includes('answer the dialog that opened'), `the hint reverts once the dialog is answered: ${hint()}`);
-});
-
-test('a restore confirmation names the open dialog in the chat while it pends', async (t) => {
-  const ui = await openChat(t, checkpointView());
-  t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({
-    version: 1, checkpoint_id: 'cp-1', expected_token: 'tok-1', changed_files: ['app.txt'], patch: '', truncated: false,
-  }) }));
-  let release;
-  t.mock.method(host.vscode.window, 'showWarningMessage', () => new Promise((resolve) => { release = resolve; }));
-  ui.document.querySelector('[data-checkpoint-action="restore"]').click();
-  await flush(); await flush();
-  const hint = () => ui.document.querySelector('#send-hint').textContent;
-  assert.ok(hint().includes('answer the dialog that opened'), `the chat names the open dialog: ${hint()}`);
-  assert.ok(hint().includes('Restore'), `the hint is the dialog's own question: ${hint()}`);
-  release(undefined);
-  await flush(); await flush();
-  assert.ok(!hint().includes('answer the dialog that opened'), `the hint reverts once the dialog is answered: ${hint()}`);
-});
-
 for (const outcome of ['success', 'failure']) {
-  test(`saved-code actions explain a pending chat command and recover after ${outcome}`, async (t) => {
+  test(`show all changes waits for a pending chat command and recovers after ${outcome}`, async (t) => {
     const ui = await openChat(t, checkpointView());
     let finish;
     const launch = t.mock.method(cli, 'stream', () => new Promise((resolve) => {
       finish = () => resolve(outcome === 'success' ? ok : { ...ok, code: 1, stderr: 'Fixture command failed' });
     }));
     t.after(() => finish?.());
-    const compare = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({
-      checkpoint_id: 'cp-1', changed_files: [], patch: '', blocked_reason: null,
+    const read = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({
+      since: 'start', changed_files: [], patch: '', truncated: false,
     }) }));
-    const actions = () => [...ui.document.querySelectorAll('[data-checkpoint-action]')];
-    assert.ok(actions().every((button) => !button.disabled), 'named actions start available');
-
+    const button = () => ui.document.querySelector('#all-changes-show');
+    assert.equal(button().disabled, false, 'the named action starts available');
     ui.document.querySelector('#take-action').click();
     await flush(); await flush();
     assert.equal(launch.mock.callCount(), 1, 'the existing command is still pending');
-    for (const button of actions()) button.click();
-    await flush();
-    assert.equal(compare.mock.callCount(), 0, 'checkpoint clicks must not interfere with the pending command');
-    assert.equal(launch.mock.callCount(), 1, 'no second run action starts');
-    assert.ok(actions().every((button) => button.disabled), 'busy controls must not silently accept a click');
-    assert.ok(ui.document.querySelector('#app').textContent.includes('Saved-code actions are available after the current AutoCode action finishes.'));
-
+    assert.equal(button().disabled, true, 'busy controls must not silently accept a click');
     finish(); await flush(); await flush();
-    assert.ok(actions().every((button) => !button.disabled), 'the named actions return when the command settles');
-    assert.ok(!ui.document.querySelector('#app').textContent.includes('Saved-code actions are available after the current AutoCode action finishes.'));
-    ui.document.querySelector('[data-checkpoint-action="compare"]').click();
-    await flush();
-    assert.deepEqual(compare.mock.calls[0].arguments[1],
-      ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--compare', 'cp-1']);
-    assert.ok(ui.document.querySelector('#app').textContent.includes('The files match this checkpoint.'));
+    assert.equal(button().disabled, false, 'the named action returns when the command settles');
+    button().click();
+    await flush(); await flush();
+    assert.deepEqual(read.mock.calls[0].arguments[1], ALL_CHANGES);
+    assert.ok(ui.document.querySelector('#app').textContent.includes('This run has not changed any files.'));
   });
 }
 
-test('a pending saved-code comparison explains its own busy state without duplicate reads', async (t) => {
-  const ui = await openChat(t, checkpointView());
-  let finish;
-  const compare = t.mock.method(cli, 'invoke', () => new Promise((resolve) => {
-    finish = () => resolve({ ...ok, stdout: JSON.stringify({
-      checkpoint_id: 'cp-1', changed_files: [], patch: '', blocked_reason: null,
-    }) });
-  }));
-  t.after(() => finish?.());
-  const button = () => ui.document.querySelector('[data-checkpoint-action="compare"]');
-  button().click(); await flush();
-  assert.equal(compare.mock.callCount(), 1);
-  button().click(); await flush();
-  assert.equal(compare.mock.callCount(), 1, 'the pending comparison is not dispatched again');
-  assert.equal(button().disabled, true, 'a pending comparison must publish its busy state immediately');
-  assert.ok(ui.document.querySelector('#app').textContent.includes('Saved-code actions are available after the current AutoCode action finishes.'));
-  finish(); await flush(); await flush();
-  assert.equal(button().disabled, false);
-  assert.ok(ui.document.querySelector('#app').textContent.includes('The files match this checkpoint.'));
-});
-
-test('a named saved-code comparison stays available during work not owned by this chat', async (t) => {
+test('an all-changes action the view did not name exactly is refused without a CLI call', async (t) => {
   const view = checkpointView();
-  view.status = 'RUNNING';
-  view.liveness = { kind: 'supervised' };
-  view.needs = { kind: 'continue' };
-  view.code_checkpoints.rows[0].actions = [view.code_checkpoints.rows[0].actions[0]];
-  const ui = await openChat(t, view);
-  const compare = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({
-    checkpoint_id: 'cp-1', changed_files: [], patch: '', blocked_reason: null,
-  }) }));
-  assert.ok(ui.document.querySelector('#app').textContent.includes('Thinking…'));
-  assert.equal(ui.document.querySelector('[data-checkpoint-action="compare"]').disabled, false);
-  ui.document.querySelector('[data-checkpoint-action="compare"]').click();
-  await flush();
-  assert.equal(compare.mock.callCount(), 1, 'working status alone must not suppress the named read-only action');
-  assert.ok(ui.document.querySelector('#app').textContent.includes('The files match this checkpoint.'));
-});
-
-test('compare runs exactly the named argv and renders the returned diff', async (t) => {
-  const ui = await openChat(t, checkpointView());
-  const calls = [];
-  t.mock.method(cli, 'invoke', async (_settings, argv) => {
-    calls.push(argv);
-    return { ...ok, stdout: JSON.stringify({ checkpoint_id: 'cp-1', expected_token: 'checkpoint-v1:t', changed_files: ['app.txt'],
-      patch: '--- checkpoint/app.txt\n+++ current/app.txt\n-later work\n', truncated: false, blocked_reason: null }) };
-  });
-  ui.document.querySelector('[data-checkpoint-action="compare"]').click();
-  await flush();
-  assert.deepEqual(calls, [['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--compare', 'cp-1']]);
-  const text = ui.document.body.textContent;
-  assert.ok(text.includes('1 file(s) differ from this checkpoint'));
-  assert.ok(text.includes('+++ current/app.txt'));
-  assert.ok(!text.includes('checkpoint-v1:t'), 'the inspection token never reaches the conversation');
-});
-
-test('restore asks the person and replays one stable request id', async (t) => {
-  const ui = await openChat(t, checkpointView());
-  const comparison = { checkpoint_id: 'cp-1', expected_token: 'checkpoint-v1:t', changed_files: ['app.txt'],
-    patch: 'diff', blocked_reason: null, source_branch: 'main' };
-  const restore = t.mock.method(controller, 'restoreCheckpoint', async () => {
-    throw new Error('network died');
-  });
-  t.mock.method(controller, 'compareCheckpoint', async () => comparison);
-  const modal = t.mock.method(host.vscode.window, 'showWarningMessage', async (_message, _options, choice) => choice);
-  ui.document.querySelector('[data-checkpoint-action="restore"]').click();
-  await flush();
-  assert.equal(modal.mock.callCount(), 1, 'restore is gated on a person confirming the comparison');
-  assert.equal(restore.mock.calls[0].arguments[2], 'checkpoint-v1:t', 'the token a fresh compare returned');
-  assert.match(String(restore.mock.calls[0].arguments[3]), /^[A-Za-z0-9_-]{8,100}$/);
-  const first = restore.mock.calls[0].arguments[3];
-  restore.mock.restore();
-  const retry = t.mock.method(controller, 'restoreCheckpoint', async () => ({ branch: 'autocode/checkpoint-1',
-    workspace: run.workspace, run_dir: run.runDir + '-child', status: 'PAUSED_REQUESTED', message: 'ok' }));
-  ui.document.querySelector('[data-checkpoint-action="restore"]').click();
-  await flush();
-  assert.equal(retry.mock.calls[0].arguments[3], first, 'a failed restore retries the same request id');
-  const saved = ui.saved.get('autocode.checkpoint.requests');
-  assert.ok(!saved || !saved[run.workspace + '\n' + run.runDir], 'success clears the request id');
-  const text = ui.document.body.textContent;
-  assert.ok(text.includes('Restored on a new branch: autocode/checkpoint-1'));
-  assert.ok(text.includes('Open restored candidate'));
-});
-
-test('a checkpoint action the view did not name exactly is refused without a CLI call', async (t) => {
-  const view = checkpointView();
-  view.code_checkpoints.rows[0].actions[0].next_command.push('--extra');
+  view.code_checkpoints.all_changes.next_command.push('--extra');
   t.mock.method(controller, 'status', async () => structuredClone(view));
   const invoke = t.mock.method(cli, 'invoke', async () => ok);
-  await assert.rejects(controller.compareCheckpoint(run, 'cp-1'), /Unsupported checkpoint action/);
+  await assert.rejects(controller.allChanges(run), /Unsupported all-changes action/);
+  view.code_checkpoints.all_changes = null;
+  await assert.rejects(controller.allChanges(run), /no diff of this run yet/);
   assert.equal(invoke.mock.callCount(), 0);
-  await assert.rejects(controller.compareCheckpoint(run, 'cp-missing'), /named no compare action/);
-});
-
-test('opening the restored candidate switches the chat to it', async (t) => {
-  const ui = await openChat(t, checkpointView());
-  const show = t.mock.method(ChatView.prototype, 'show', () => {});
-  ui.window.dispatchEvent(new ui.window.MessageEvent('message', { data: { type: 'checkpoint_result', runKey: run.workspace + '\n' + run.runDir, checkpoint: 'cp-1',
-    result: { branch: 'b', workspace: run.workspace, run_dir: '/ws/.autocode/runs/child' } } }));
-  await flush();
-  ui.document.getElementById('new-chat'); // webview still alive
-  const open = [...ui.document.querySelectorAll('button')].find((button) => button.textContent === 'Open restored candidate');
-  open.click();
-  await flush();
-  assert.deepEqual(show.mock.calls.at(-1).arguments[0], { workspace: run.workspace, runDir: '/ws/.autocode/runs/child' });
 });
 
 test('chat renders decision card and sticky action strip without button restlessness on poll', async (t) => {
@@ -6481,7 +6326,8 @@ test('a finished run closes with its result, requirements, changed files, cost a
   const done = meteredView({
     status: 'TASK_COMPLETE', done: true, needs: { kind: 'done' }, liveness: null,
     progress: { headline: 'Complete; current delivery verified', requirements: { checked: 8, failed: 0, unchecked: 0, awaiting_review: 0 } },
-    code_checkpoints: { rows: [{ id: 'c1', label: 'Builder step 1', changed_files: ['greet.py', 'README.md'], available: true, actions: [] }] },
+    code_checkpoints: { rows: [{ id: 'c1', label: 'Builder step 1', changed_files: ['greet.py', 'README.md'], available: true, actions: [] }],
+      all_changes: { id: 'all_changes', label: 'Show all changes', next_command: ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--all'] } },
     acceptance_tests: { files: ['test_greet.py'] },
   });
   done.usage.accounting.attempts = done.usage.accounting.attempts.map((row) => ({ ...row, active: false }));
@@ -6493,7 +6339,14 @@ test('a finished run closes with its result, requirements, changed files, cost a
   assert.match(card.textContent, /3 files: greet\.py, README\.md, test_greet\.py/);
   assert.match(card.textContent, /\$1\.21 of \$5\.00/);
   assert.ok(ui.document.getElementById('finish-show-changes'), 'saved changes exist, so it offers them');
-  assert.ok(ui.document.getElementById('saved-changes'));
+  assert.ok(ui.document.getElementById('all-changes'));
+  const read = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({ since: 'start',
+    changed_files: ['greet.py'], patch: '+print(2)', truncated: false }) }));
+  ui.document.getElementById('finish-show-changes').click();
+  await flush(); await flush();
+  assert.deepEqual(read.mock.calls[0].arguments[1], ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--all'],
+    "the finished card's Show changes shows the run's whole change");
+  assert.ok(card.ownerDocument.querySelector('#app').textContent.includes('+print(2)'));
   ui.document.getElementById('finish-details').click();
   assert.ok(ui.sent.some((message) => message.type === 'details'));
   assert.equal(ui.document.getElementById('struggling'), null);
@@ -7088,10 +6941,10 @@ test('a long rendered diff is bounded and scrolls instead of stretching the thre
 test('a long saved-code comparison is bounded and scrolls like the working diff', async (t) => {
   const long = '--- app.txt\n+++ app.txt\n' + Array.from({ length: 500 }, (_, i) => '+line ' + i).join('\n');
   const saved = await openChat(t, checkpointView());
-  t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({ checkpoint_id: 'cp-1',
+  t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({ since: 'start',
     changed_files: ['app.txt'], patch: long, truncated: false }) }));
-  saved.document.querySelector('[data-checkpoint-action="compare"]').click();
-  await flush();
+  saved.document.querySelector('#all-changes-show').click();
+  await flush(); await flush();
   const compared = saved.document.querySelector('#app pre.diff');
   assert.ok(compared, 'a saved-code comparison is marked as a diff');
   assert.ok(compared.textContent.includes('+line 499'));
@@ -7153,7 +7006,7 @@ test('a saved-code comparison colors its patch like the working diff', async (t)
   const saved = await openChat(t, checkpointView());
   t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({ checkpoint_id: 'cp-1',
     changed_files: ['greet.py'], patch: COLOR_PATCH, truncated: false }) }));
-  saved.document.querySelector('[data-checkpoint-action="compare"]').click();
+  saved.document.querySelector('#all-changes-show').click();
   await flush(); await flush();
   const compared = saved.document.querySelector('#app pre.diff');
   assert.equal(compared.textContent, COLOR_PATCH, 'coloring leaves the patch the core sent unchanged');

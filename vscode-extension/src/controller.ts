@@ -452,38 +452,17 @@ export class RunController {
     if (result.code !== 0) throw new Error(tail(result));
   }
 
-  /** The checkpoint action the view named, checked against the exact grammar before anything runs. */
-  private namedCheckpointAction(view: StatusView, run: RunRef, checkpointId: string,
-    actionId: "compare" | "step" | "restore"): CheckpointAction {
-    const row = (view.code_checkpoints?.rows ?? []).find((item) => item.id === checkpointId);
-    const action = row?.actions?.find((item) => item.id === actionId);
-    if (!row || !action) {
-      throw new ClientGap(`AutoCode named no ${actionId} action for saved code change ${checkpointId}`);
-    }
-    const flag = { compare: "--compare", step: "--step", restore: "--restore" }[actionId];
+  /** The view's named, display-only diff of everything the run changed, from saved code. */
+  async allChanges(run: RunRef): Promise<WorkingComparison> {
+    const view = await this.status(run);
+    const action = view.code_checkpoints?.all_changes;
+    if (!action) throw new ClientGap("AutoCode offers no diff of this run yet. It is offered once a code change is saved.");
     const own = effective(view, run);
-    const expected = ["checkpoint", "--workspace", own.workspace, "--run-dir", own.runDir, flag, checkpointId,
-      ...(actionId === "restore" ? ["--expected-token", "-", "--request-id", "REQUEST_ID"] : [])];
+    const expected = ["checkpoint", "--workspace", own.workspace, "--run-dir", own.runDir, "--all"];
     if (JSON.stringify(action.next_command) !== JSON.stringify(expected)) {
-      throw new ClientGap("Unsupported checkpoint action from AutoCode");
+      throw new ClientGap("Unsupported all-changes action from AutoCode");
     }
-    return action;
-  }
-
-  /** The named compare: what changed since the saved step, plus the token a restore must carry. */
-  async compareCheckpoint(run: RunRef, checkpointId: string): Promise<CheckpointComparison> {
-    const view = await this.status(run);
-    const action = this.namedCheckpointAction(view, run, checkpointId, "compare");
-    const result = await invoke(this.settings, action.next_command);
-    if (result.code !== 0) throw new Error(tail(result));
-    return JSON.parse(result.stdout) as CheckpointComparison;
-  }
-
-  /** The named step view: what one saved step itself changed, display only. */
-  async stepCheckpoint(run: RunRef, checkpointId: string): Promise<WorkingComparison> {
-    const view = await this.status(run);
-    const action = this.namedCheckpointAction(view, run, checkpointId, "step");
-    const result = await invoke(this.settings, action.next_command);
+    const result = await invoke(this.settings, expected);
     if (result.code !== 0) throw new Error(tail(result));
     return JSON.parse(result.stdout) as WorkingComparison;
   }
@@ -502,20 +481,6 @@ export class RunController {
     if (result.code !== 0) throw new Error(tail(result));
     return JSON.parse(result.stdout) as WorkingComparison;
   }
-
-  /**
-   * The named restore: a person's confirmed decision, bound to the token a
-   * fresh compare returned and a stable request id that makes replay safe.
-   */
-  async restoreCheckpoint(run: RunRef, checkpointId: string, expectedToken: string, requestId: string): Promise<CheckpointRestoreResult> {
-    const view = await this.status(run);
-    const action = this.namedCheckpointAction(view, run, checkpointId, "restore");
-    const argv = action.next_command.map((word) => (word === "REQUEST_ID" ? requestId : word));
-    const result = await this.mutating([run, effective(view, run)], () =>
-      invoke(this.settings, argv, { AUTOCODE_CHECKPOINT_EXPECTED_TOKEN: expectedToken }));
-    if (result.code !== 0) throw new Error(tail(result));
-    return JSON.parse(result.stdout) as CheckpointRestoreResult;
-  }
 }
 
 /** The payload `checkpoint --working` prints: display only, with no token. */
@@ -525,30 +490,6 @@ export interface WorkingComparison {
   patch?: string;
   truncated?: boolean;
   compared_at?: string;
-}
-
-/** The payload `checkpoint --compare` prints. */
-export interface CheckpointComparison {
-  checkpoint_id?: string;
-  expected_token?: string;
-  changed_files?: string[];
-  patch?: string;
-  truncated?: boolean;
-  blocked_reason?: string | null;
-  compared_at?: string;
-  source_branch?: string | null;
-}
-
-/** The payload `checkpoint --restore` prints. */
-export interface CheckpointRestoreResult {
-  operation?: string;
-  checkpoint_id?: string;
-  workspace?: string;
-  run_dir?: string;
-  branch?: string;
-  preserved_branch?: string;
-  status?: string;
-  message?: string;
 }
 
 /**

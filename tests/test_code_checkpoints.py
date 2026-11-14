@@ -502,6 +502,90 @@ class ProjectedRowActions(CodeCheckpoints):
         self.assertEqual("PAUSED_REQUESTED", payload["status"])
 
 
+class AllChanges(unittest.TestCase):
+    """`checkpoint --all`: the run's whole change, the one diff a person reads (owner decision 2026-11-13)."""
+
+    setUp = CodeCheckpoints.setUp
+    git = CodeCheckpoints.git
+    save = CodeCheckpoints.save
+
+    def all_changes(self):
+        named = checkpoints.project(self.state, run_dir=self.run, workspace=self.workspace)["all_changes"]
+        self.assertEqual(
+            ["checkpoint", "--workspace", str(self.workspace), "--run-dir", str(self.run), "--all"],
+            named["next_command"],
+        )
+        self.assertEqual("Show all changes", named["label"])
+        done = subprocess.run(
+            [sys.executable, str(TOOLS / "autocode.py"), *named["next_command"]],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "AUTOCODE_HOME": str(self.root / "registry")},
+            timeout=60,
+        )
+        self.assertEqual(0, done.returncode, done.stdout + done.stderr)
+        return json.loads(done.stdout)
+
+    def save_step(self, changed):
+        snap = util.snapshot(self.workspace)
+        self.state["iteration"] += 1
+        self.state["implementation"]["source_revision"] = snap["revision"]
+        self.state["stages"].append(
+            {
+                "stage": "builder",
+                "task_id": "bounded-task",
+                "source_revision": snap["revision"],
+                "exit_code": 0,
+                "finished_at": util.now(),
+                "changed_files": changed,
+            }
+        )
+        checkpoints.update(self.state, self.run)
+        self.save()
+        return self.state["code_checkpoints"][-1]["id"]
+
+    def test_it_spans_every_saved_step_from_the_start(self):
+        (self.workspace / "app.txt").write_text("second step\n")
+        (self.workspace / "new file.txt").unlink()
+        (self.workspace / "later.txt").write_text("added later\n")
+        last = self.save_step(["app.txt", "new file.txt", "later.txt"])
+        (self.workspace / "app.txt").write_text("not saved yet\n")
+        shown = self.all_changes()
+        self.assertEqual(("start", last), (shown["since"], shown["until"]))
+        # A file one step added and a later step removed is not part of the result.
+        self.assertEqual(["app.txt", "later.txt", "link", "run.sh"], shown["changed_files"])
+        self.assertIn("-baseline\n+second step\n", shown["patch"])
+        self.assertIn("+added later", shown["patch"])
+        self.assertNotIn("checkpoint code", shown["patch"], "the steps in between are not shown")
+        self.assertNotIn("not saved yet", shown["patch"], "saved code, never the files on disk")
+        self.assertNotIn("expected_token", shown, "display only: nothing here can restore")
+
+    def test_a_file_the_run_removed_is_shown_as_removed(self):
+        (self.workspace / "app.txt").unlink()
+        self.save_step(["app.txt"])
+        shown = self.all_changes()
+        self.assertIn("app.txt", shown["changed_files"])
+        self.assertIn("-baseline", shown["patch"])
+
+    def test_a_finished_run_still_shows_its_result(self):
+        self.state["status"] = "TASK_COMPLETE"
+        self.save()
+        shown = self.all_changes()
+        self.assertEqual(["app.txt", "link", "new file.txt", "run.sh"], shown["changed_files"])
+
+    def test_it_is_named_only_once_a_step_is_saved(self):
+        self.state["code_checkpoints"][0].update(available=False, reason="storage failed")
+        self.assertIsNone(checkpoints.project(self.state)["all_changes"])
+        self.state["code_checkpoints"] = []
+        self.assertIsNone(checkpoints.project(self.state)["all_changes"])
+        self.save()
+        self.assertEqual(2, operation.cli(["--workspace", str(self.workspace), "--run-dir", str(self.run), "--all"]))
+
+    def test_without_paths_it_uses_the_public_placeholders(self):
+        named = checkpoints.project(self.state)["all_changes"]["next_command"]
+        self.assertEqual(("WORKSPACE", "RUN_DIR"), (named[2], named[4]))
+
+
 class WorkingDiff(unittest.TestCase):
     """`checkpoint --working`: what the running Builder has changed so far, display only (#1643)."""
 
