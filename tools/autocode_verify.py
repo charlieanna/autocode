@@ -707,6 +707,8 @@ def test_environment(tree, env=None):
     tests are model-written code (autocode_agent_env).
     """
     environment = dict(agent_env.scrubbed(os.environ if env is None else env), PYTHONDONTWRITEBYTECODE="1", CI="1")
+    # Omit the controller's per-call marker from both test execution and receipt identity (#3549).
+    environment.pop("CODEX_TOOL_CALL_ID", None)
     roots = [str(Path(tree) / "src")] if (Path(tree) / "src").is_dir() else []
     roots.append(str(tree))
     roots.extend(test_env.scratch_import_roots(tree))
