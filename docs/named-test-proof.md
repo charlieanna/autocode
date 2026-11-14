@@ -513,6 +513,12 @@ coverage and authenticated mutation observations in `changed_code_evidence`
 (#2474). A line merely executed without a meaningful assertion does not pass.
 A named test must actually fail under the mutation; a setup/collection failure,
 missing test, interrupted command or timeout grants no positive evidence.
+Enforced Python mutation runs stop after the first selected test failure. The
+unmutated reference must still pass every selected test, and a survivor must run
+and pass them all. A completed early-stop capture proves only the selected tests
+it actually reports failing; its owned capture and explicit execution policy are
+checked again when reconstructing changed-line evidence. Older reports retain
+their requirement for every selected test result.
 
 Every changed executable line needs demonstrated mutation evidence or a precise
 reason checked by the existing independent Tester. This is its code-review

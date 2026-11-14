@@ -27,18 +27,18 @@ try:
     from . import autocode_command_receipt as command_receipt
     from . import autocode_diff_coverage as diff_coverage
     from . import autocode_mutants as mutants
+    from . import autocode_mutation_results as mutation_results
     from . import autocode_proof_stability as proof_stability
     from . import autocode_python_tests as python_tests
     from . import autocode_test_cases as test_cases
-    from . import autocode_verification_schedule as verification_schedule
 except ImportError:
     import autocode_command_receipt as command_receipt
     import autocode_diff_coverage as diff_coverage
     import autocode_mutants as mutants
+    import autocode_mutation_results as mutation_results
     import autocode_proof_stability as proof_stability
     import autocode_python_tests as python_tests
     import autocode_test_cases as test_cases
-    import autocode_verification_schedule as verification_schedule
 
 BUDGET_SECONDS = 900
 # A mutant that never returns (a negated loop condition) should not spend every other mutant's time:
@@ -103,23 +103,7 @@ def proved_outcome(receipt, tests) -> tuple[str, list[str]]:
     additionally requires complete results for exactly the selected tests and refuses
     collection/setup failures, missing tests and skipped tests.
     """
-    if not receipt or receipt.get("error") or receipt.get("interrupted"):
-        return "not_run", []
-    if receipt.get("timed_out"):
-        return "timeout", []
-    results = receipt.get("results") or {}
-    if not verification_schedule.complete_results(receipt) or any(
-        results.get(key) for key in ("setup_errors", "skipped", "collection_errors", "uncollected")
-    ):
-        return "not_run", []
-    passed, failed = set(results.get("passed") or []), set(results.get("failed") or [])
-    if passed | failed != set(tests):
-        return "not_run", []
-    if failed and type(receipt.get("exit_code")) is int and receipt["exit_code"] != 0:
-        return "killed", sorted(failed)
-    if not failed and receipt.get("exit_code") == 0:
-        return "survived", sorted(passed)
-    return "not_run", []
+    return mutation_results.outcome(receipt, tests)
 
 
 def collect(
@@ -291,6 +275,7 @@ def _collect(
             "the proving tests did not pass unmutated in the mutation check's own run, so no mutant ran", rows
         )
     bound = max(MUTANT_FLOOR_SECONDS, MUTANT_FACTOR * float(reference.get("duration_seconds") or 0))
+    mutant_command = mutation_results.stop_command(narrowed) if enforcement else narrowed
     unrun = 0
     for number, (row, target, source, times, mutant) in enumerate(planned, 1):
         entry = {"line": mutant.line, "operator": mutant.operator, "before": mutant.before, "after": mutant.after}
@@ -308,7 +293,7 @@ def _collect(
             # Each version its own whole second, so a cached compile keyed by modification time and size
             # (a test's own Python, started with a minimal environment, -E or -I) is never reused.
             os.utime(target, ns=(times.st_atime_ns, times.st_mtime_ns - number * 1_000_000_000))
-            receipt = run(isolated(narrowed, cache), label, limit)
+            receipt = run(isolated(mutant_command, cache), label, limit)
         except command_receipt.OwnershipUncertain:
             ownership_uncertain = strict
             raise
@@ -316,7 +301,13 @@ def _collect(
             if not ownership_uncertain:
                 target.write_bytes(source)
                 os.utime(target, ns=(times.st_atime_ns, times.st_mtime_ns))
-        outcome, observed = (proved_outcome if enforcement else judge)(receipt, passed)
+        outcome, observed = (
+            mutation_results.outcome(
+                receipt, passed, stopped=mutation_results.stops_after_failure(receipt.get("command", ""))
+            )
+            if enforcement
+            else judge(receipt, passed)
+        )
         survived = observed if outcome == "survived" else []
         if enforcement:
             entry.update(failed_tests=observed if outcome == "killed" else [], evidence=[receipt["output"]])
@@ -334,6 +325,7 @@ def _collect(
             selected_tests=tests,
             reference_output=reference["output"],
             selection="all_eligible_changed_sites",
+            execution_policy=mutation_results.STOP_POLICY,
             limit_per_file=max(len(source) for _, _, source, _, _ in planned),
         )
     return result
