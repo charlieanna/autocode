@@ -25,16 +25,20 @@ from typing import TYPE_CHECKING
 
 try:
     from . import autocode_command_guards as command_guards
+    from . import autocode_named_reporters as reporters
     from . import autocode_native_test_names as native_test_names
     from . import autocode_package_scope as package_scope
     from . import autocode_project_kinds as project_kinds
+    from . import autocode_rust_inline_tests as rust_inline_tests
     from . import autocode_test_cases as test_cases
     from . import autocode_verify as verify
 except ImportError:
     import autocode_command_guards as command_guards
+    import autocode_named_reporters as reporters
     import autocode_native_test_names as native_test_names
     import autocode_package_scope as package_scope
     import autocode_project_kinds as project_kinds
+    import autocode_rust_inline_tests as rust_inline_tests
     import autocode_test_cases as test_cases
     import autocode_verify as verify
 
@@ -94,11 +98,13 @@ def unnamed_cases(workspace, framework, tests, body, detect_in) -> str | None:
     project, before its first test exists, is not judged: the proof detects its suite on the changed code.
     """
     named = [case["id"] for case in test_cases.plan_cases(body)]
-    if not named or (framework is not None and framework.per_test):
+    if not named or reporters.suite_reports(framework, workspace):
         return None
     if framework is None and not _existing_tests(workspace):
         return None
-    if tests and package_scope.enclosing(workspace, tests, detect_in, runs=lambda found: found.per_test):
+    if tests and package_scope.enclosing(
+        workspace, tests, detect_in, runs=lambda found: reporters.suite_reports(found, workspace)
+    ):
         return None
     runner = f"the {framework.name} suite `{framework.suite}`" if framework is not None else "no runner AutoCode reads"
     return (
@@ -159,20 +165,32 @@ def untested_code(workspace, body) -> str | None:
     )
 
 
-def _test_paths(workspace) -> list[str]:
-    """The workspace's test paths, tracked or not."""
+def _workspace_files(workspace) -> list[str]:
     listed = subprocess.run(
         ["git", "-C", str(workspace), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
         capture_output=True,
         text=True,
     )
-    names = listed.stdout.split("\0") if listed.returncode == 0 else []
-    return [name for name in names if name and verify.is_test_path(name)]
+    return [name for name in listed.stdout.split("\0") if name] if listed.returncode == 0 else []
+
+
+def _test_paths(workspace) -> list[str]:
+    """The workspace's test paths, tracked or not."""
+    return [name for name in _workspace_files(workspace) if verify.is_test_path(name)]
 
 
 def _existing_tests(workspace) -> bool:
-    """Whether the workspace already holds test code (a test path that is a code file), tracked or not."""
-    return any(verify.is_code_path(name) for name in _test_paths(workspace))
+    """Whether the workspace already holds test code (a test path or inline Rust tests), tracked or not."""
+    files = _workspace_files(workspace)
+    if any(verify.is_code_path(name) for name in files if verify.is_test_path(name)):
+        return True
+    root = Path(workspace)
+    for name in files:
+        if name.endswith(".rs"):
+            path = root / name
+            if path.is_file() and not path.is_symlink() and rust_inline_tests.test_modules(path.read_bytes()):
+                return True
+    return False
 
 
 def check(state: RunState, body, *, origin=None) -> None:
@@ -192,7 +210,12 @@ def check(state: RunState, body, *, origin=None) -> None:
     if unnamed := unnamed_cases(workspace, framework, tests, body, detect):
         raise ValueError(unnamed)
     # A guard that is a command runs tests the project already has, where no runner names them.
-    if unusable := command_guards.problem(command_guards.plan_guards(body), framework, _test_paths(workspace)):
+    if unusable := command_guards.problem(
+        command_guards.plan_guards(body),
+        framework,
+        _test_paths(workspace),
+        per_test=reporters.suite_reports(framework, workspace),
+    ):
         raise ValueError(unusable)
     builds = (state.get("workflow") or {}).get("kind") in (None, "build", "bugfix")
     if builds and (untested := untested_code(workspace, body)):

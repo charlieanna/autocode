@@ -156,10 +156,12 @@ def bound(cases: list[dict], framework) -> list[dict]:
 # page, RSpec's full description, and a plan names it by that or by its last words, which are the example's
 # own. On real runs in an RSpec project (2026-11-13) a bug fix copied its two existing examples under
 # test_ac2_... names after two failed proofs, as the node:test runs had.
-TITLE_RUNNERS = frozenset({"node", "vitest", "jest", "rspec"})
+TITLE_RUNNERS = frozenset({"node", "vitest", "jest", "mocha", "rspec", "minitest"})
 _ANNOTATION = re.compile(r"\s+(?:[—–-]\s+.+|\(.+\))", re.DOTALL)
 # FILE.rb::FULL DESCRIPTION (autocode_rspec_tests): the descriptions of the example's groups, then its own.
 _RUBY_ID = re.compile(r"^[^:]*\.rb::(.+)$", re.DOTALL)
+_MINITEST_SPEC = re.compile(r"^test_\d+_(.+)$")
+_MINITEST_METHOD = re.compile(r"^test_[A-Za-z0-9_?!]+$")
 
 
 def _last_words(description: str) -> tuple[str, ...]:
@@ -171,9 +173,16 @@ def _last_words(description: str) -> tuple[str, ...]:
 
 def _titles(test_id: str) -> tuple[str, ...]:
     """The titles a runner's id ends with: FILE::suite::title (node:test), FILE::suite > title (Vitest),
-    FILE::groups title (RSpec)."""
+    FILE::groups title (RSpec), or FILE::Class::test_name (Minitest)."""
     if found := _RUBY_ID.match(test_id):
-        return _last_words(found.group(1))
+        rest = found.group(1)
+        if "::" in rest:
+            leaf = rest.rsplit("::", 1)[-1]
+            if spec := _MINITEST_SPEC.match(leaf):
+                return (spec.group(1), leaf)
+            if _MINITEST_METHOD.fullmatch(leaf):
+                return (leaf,)
+        return _last_words(rest)
     last = test_id.rsplit("::", 1)[-1]
     return (last, last.rsplit(" > ", 1)[-1])
 

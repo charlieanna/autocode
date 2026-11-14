@@ -80,6 +80,7 @@ try:
     from . import autocode_goals as goals
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_mutation_check as mutation_check
+    from . import autocode_named_reporters as reporters
     from . import autocode_package_scope as package_scope
     from . import autocode_package_writes as package_writes
     from . import autocode_pending_tests as pending_tests
@@ -114,6 +115,7 @@ except ImportError:
     import autocode_goals as goals
     import autocode_launch_inputs as launch_inputs
     import autocode_mutation_check as mutation_check
+    import autocode_named_reporters as reporters
     import autocode_package_scope as package_scope
     import autocode_package_writes as package_writes
     import autocode_pending_tests as pending_tests
@@ -1055,7 +1057,12 @@ def _proving(
         # Guards that are commands, where the runner names no test (autocode_command_guards). With no named
         # case and no changed test file, the change is coverage of what those commands already show.
         original_tests = [path for path in role_inventory.entries(workspace, base) if verify.is_test_path(path)]
-        guard_commands = command_guards.usable(command_guards.due(state, all_due=all_due), proving, original_tests)
+        guard_commands = command_guards.usable(
+            command_guards.due(state, all_due=all_due),
+            proving,
+            original_tests,
+            per_test=reporters.suite_reports(proving, workspace),
+        )
         if (
             guard_commands
             and not due

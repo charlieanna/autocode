@@ -30,10 +30,12 @@ import hashlib
 from pathlib import Path
 
 try:
+    from . import autocode_project_kinds as project_kinds
     from . import autocode_test_cases as test_cases
     from . import autocode_util as util
     from .autocode_stray_writes import StrayWrites
 except ImportError:
+    import autocode_project_kinds as project_kinds
     import autocode_test_cases as test_cases
     import autocode_util as util
     from autocode_stray_writes import StrayWrites
@@ -284,7 +286,11 @@ def all_files(state: RunState) -> dict[str, dict]:
 def protected(state: RunState) -> dict[str, dict]:
     """Fixed Tester files; blind tests hide source, but their loading metadata stays fixed."""
     if is_blind(state):
-        return {path: entry for path, entry in all_files(state).items() if Path(path).name in ("go.mod", "go.sum")}
+        return {
+            path: entry
+            for path, entry in all_files(state).items()
+            if Path(path).name in project_kinds.ALL_TEST_PREREQUISITES
+        }
     return all_files(state)
 
 
@@ -328,7 +334,7 @@ def edited(state: RunState, patch: bytes) -> list[str]:
             or current in files
             and line.startswith((b"deleted file", b"rename from"))
             or current in files
-            and Path(current).name in ("go.mod", "go.sum")
+            and Path(current).name in project_kinds.ALL_TEST_PREREQUISITES
             and line.startswith(b"+")
             and not line.startswith(b"+++")
         ):
@@ -352,7 +358,7 @@ def check_untouched(state: RunState, workspace) -> bool:
         target = Path(workspace) / path
         archived = Path(entry["archive"]).read_bytes()
         if sha256(target) == entry["sha256"] or (
-            Path(path).name not in ("go.mod", "go.sum")
+            Path(path).name not in project_kinds.ALL_TEST_PREREQUISITES
             and kept(archived, target.read_bytes() if target.is_file() else None)
         ):
             continue
@@ -409,7 +415,7 @@ def builder_note(state: RunState) -> str:
         )
         + (
             "Go prerequisite files are fixed byte-for-byte, including against additions; keep the reviewed metadata unchanged.\n"
-            if any(Path(path).name in ("go.mod", "go.sum") for path in files)
+            if any(Path(path).name in project_kinds.ALL_TEST_PREREQUISITES for path in files)
             else ""
         )
     )

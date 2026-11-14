@@ -22,12 +22,14 @@ try:
     from . import autocode_diff_coverage as diff_coverage
     from . import autocode_mutants as mutants
     from . import autocode_mutation_results as mutation_results
+    from . import autocode_rust_inline_tests as rust_inline_tests
     from . import autocode_verification_schedule as schedule
 except ImportError:
     import autocode_command_receipt as command_receipt
     import autocode_diff_coverage as diff_coverage
     import autocode_mutants as mutants
     import autocode_mutation_results as mutation_results
+    import autocode_rust_inline_tests as rust_inline_tests
     import autocode_verification_schedule as schedule
 
 MAX_CAPTURE_BYTES = 64 * 1024 * 1024
@@ -138,6 +140,8 @@ def inventory(tree, files, diff_text) -> list[dict]:
             selected = set()
             note = "Python type stub: no runtime statement"
         else:
+            if name.endswith(".rs") and selected:
+                selected -= rust_inline_tests.test_lines(data)
             note = "No language statement parser; coverage or independent review must classify changed lines"
         text = data.decode("utf-8", errors="replace").splitlines()
         comments = ("#",) if name.endswith((".py", ".pyi", ".sh", ".rb")) else ("//",)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shlex
 from pathlib import PurePosixPath
 
@@ -17,6 +18,7 @@ PYTHON_TEST_MODULE = python_tests.TEST_MODULE
 GO_TEST = project_kinds.targets("go")
 JS_TEST = project_kinds.targets("jest")
 RSPEC_TEST = project_kinds.targets("rspec")
+MINITEST_TEST = re.compile(r"^(?:.*_test|test_.*)\.rb$")
 
 
 class Framework:
@@ -106,6 +108,19 @@ class Framework:
         if self.name == "rspec":
             specs = [p for p in files if RSPEC_TEST.match(PurePosixPath(p).name)]
             return (f"{self.runner} " + " ".join(map(shlex.quote, specs))) if specs else None
+        if self.name == "minitest":
+            scripts = [
+                p
+                for p in files
+                if MINITEST_TEST.match(PurePosixPath(p).name) and PurePosixPath(p).name != "test_helper.rb"
+            ]
+            if not scripts:
+                return None
+            prefix = ["bundle", "exec"] if str(self.suite or "").startswith("bundle exec ") else []
+            if len(scripts) == 1:
+                return shlex.join([*prefix, "ruby", "-Ilib", "-Itest", scripts[0]])
+            requires = [arg for script in scripts for arg in ("-r", "./" + script.lstrip("./"))]
+            return shlex.join([*prefix, "ruby", "-Ilib", "-Itest", *requires, "-e", ""])
         return None
 
     def to_dict(self):

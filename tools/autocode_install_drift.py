@@ -15,6 +15,11 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+try:
+    from . import autocode_project_kinds as project_kinds
+except ImportError:
+    import autocode_project_kinds as project_kinds
+
 MAX_FILES = 10_000
 MAX_BYTES = 128 * 1024 * 1024
 
@@ -103,7 +108,10 @@ def _manifest(root: Path, patterns: tuple[tuple[str, str], ...]) -> dict[str, st
             raise ValueError("linked package directory cannot be compared")
         for path in directory.glob(pattern):
             relative = path.relative_to(root)
-            if "__pycache__" in relative.parts or path.suffix in (".pyc", ".pyo"):
+            if (
+                any(part in project_kinds.BYTECODE_DIRS for part in relative.parts)
+                or path.suffix in project_kinds.BYTECODE_SUFFIXES
+            ):
                 continue
             if any(part.endswith((".dist-info", ".egg-info")) for part in relative.parts):
                 continue

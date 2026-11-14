@@ -157,6 +157,18 @@ class JudgingTests(unittest.TestCase):
         )
         self.assertIn("--test-name-pattern", stability.narrow("node", "node --test test/a.test.js", ["a::adds"]))
         self.assertTrue(stability.narrow("vitest", "npx vitest run", ["a.test.ts::adds"]).endswith("-t adds"))
+        self.assertEqual(
+            "npx vitest run a.test.ts -t 'suite works'",
+            stability.narrow("vitest", "npx vitest run", ["a.test.ts::suite > works"]),
+        )
+        self.assertEqual(
+            "npx --no-install jest a.test.js -t 'suite works'",
+            stability.narrow("jest", "npx --no-install jest", ["a.test.js::suite > works"]),
+        )
+        self.assertEqual(
+            "npx --no-install mocha a.test.js --grep 'suite works'",
+            stability.narrow("mocha", "npx --no-install mocha", ["a.test.js::suite > works"]),
+        )
         for framework, command in (
             ("unittest", "python3 -m unittest tests; rm -rf /"),
             ("go", "go test -run TestA ./..."),

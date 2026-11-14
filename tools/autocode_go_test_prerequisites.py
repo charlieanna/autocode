@@ -10,9 +10,14 @@ import re
 
 try:
     from . import autocode_command_receipt as command_receipt
+    from . import autocode_project_kinds as project_kinds
+    from . import autocode_rust_inline_tests as rust_inline_tests
 except ImportError:
     import autocode_command_receipt as command_receipt
+    import autocode_project_kinds as project_kinds
+    import autocode_rust_inline_tests as rust_inline_tests
 
+_GO_FILES = project_kinds.TEST_PREREQUISITES["go"]
 _REQUIRE = re.compile(r'([^\s"`]+)\s+(v[^\s"`]+)\Z')
 _SUM = re.compile(r"(\S+) (v\S+?)(/go.mod)? (h1:[A-Za-z0-9+/]{43}=)\Z")
 
@@ -77,7 +82,7 @@ def metadata_changes(before, after, selected):
     for path, version, _ in new_sums.keys() - old_sums.keys():
         if selected.get(path) != version:
             raise ValueError("Go prerequisites cannot add a checksum for an unselected dependency")
-    return sorted(name for name in ("go.mod", "go.sum") if before.get(name, "") != after.get(name, ""))
+    return sorted(name for name in _GO_FILES if before.get(name, "") != after.get(name, ""))
 
 
 def selected_versions(run):
@@ -134,7 +139,7 @@ def _paths(paths):
             path.is_absolute()
             or str(path) != name
             or any(p in (".", "..", ".git", ".autocode") for p in path.parts)
-            or path.name not in ("go.mod", "go.sum")
+            or path.name not in _GO_FILES
         ):
             raise ValueError("Go prerequisites require literal contained manifest paths")
     return result
@@ -168,7 +173,7 @@ def from_trees(before_tree, after_tree, paths, evidence_dir, run_command):
     # Read/validate all path topology before launching even an offline command.
     for directory in sorted({str(Path(name).parent) for name in paths}):
         original, candidate = {}, {}
-        for name in ("go.mod", "go.sum"):
+        for name in _GO_FILES:
             relative = str(Path(directory) / name)
             for root, target in ((before_tree, original), (after_tree, candidate)):
                 value = _contents(root, relative)
@@ -218,7 +223,7 @@ def from_trees(before_tree, after_tree, paths, evidence_dir, run_command):
                     if new_sums[key] != value.get("GoModSum" if key[2] else "Sum"):
                         raise ValueError("Added Go checksum differs from the selected module artifact")
         for root, expected in ((before_tree, original), (after_tree, candidate)):
-            for name in ("go.mod", "go.sum"):
+            for name in _GO_FILES:
                 if _contents(root, str(Path(directory) / name)) != expected.get(name):
                     raise ValueError("Go metadata changed during prerequisite inspection")
         for name in changed:
@@ -248,17 +253,26 @@ def prepare_base(make_tree, workspace, base, run_dir, candidate, test_changes, c
     from pathlib import Path
 
     tree = make_tree(workspace, base, run_dir / "scratch" / "base-with-tests", workspace, test_changes, **options)
-    paths = [path for path in changes if Path(path).name in ("go.mod", "go.sum")]
+    rust_receipt = None
+    try:
+        rust_receipt = rust_inline_tests.splice_tree(
+            tree, candidate, test_changes, changes, run_dir / "rust-inline-tests"
+        )
+    except (OSError, ValueError) as error:
+        notes.append("Rust inline tests could not be spliced onto base: " + str(error))
+    paths = [path for path in changes if Path(path).name in _GO_FILES]
     if not paths:
-        return tree, None
+        return tree, ({"rust_inline_tests": rust_receipt} if rust_receipt else None)
     try:
         receipt = from_trees(tree, candidate, paths, run_dir / "go-test-prerequisites", run_command)
     except (OSError, ValueError) as error:
         # Dependency changes that are not loading prerequisites retain the ordinary base.
         notes.append("Go metadata was not admitted as a test prerequisite: " + str(error))
-        return tree, None
+        return tree, ({"rust_inline_tests": rust_receipt} if rust_receipt else None)
     for path, content in receipt["files"].items():
         (tree / path).write_text(content)
+    if rust_receipt:
+        receipt = {**receipt, "rust_inline_tests": rust_receipt}
     return tree, receipt
 
 
@@ -275,7 +289,7 @@ def from_attempt(workspace, record, paths, evidence_dir, run_command):
     evidence.mkdir(parents=True, exist_ok=True)
     original = Path(tempfile.mkdtemp(prefix="original-", dir=evidence))
     for directory in sorted({str(Path(name).parent) for name in paths}):
-        for basename in ("go.mod", "go.sum"):
+        for basename in _GO_FILES:
             name = str(Path(directory) / basename)
             expected = snapshot["files"].get(name)
             if expected is None:

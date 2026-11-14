@@ -157,14 +157,32 @@ class NamedCasesTests(unittest.TestCase):
         return CheckTests.state(self, project)
 
     def test_a_named_criterion_on_an_exit_code_runner_goes_back_to_the_planner(self):
+        make = {
+            "pager.sh": "page_count() { echo 1; }\n",
+            "tests/test_pager.sh": ". ./pager.sh\n",
+            "Makefile": "test:\n\tsh tests/test_pager.sh\n",
+        }
         refusal = (
-            r"Criteria C1 name a test after test: or guard:, but this project's tests run with the minitest suite "
-            r"`ruby -Ilib -Itest -e .*`, which reports only whether the whole run passed.*Write each of them without "
+            r"Criteria C1 name a test after test: or guard:, but this project's tests run with the make suite "
+            r"`make test`, which reports only whether the whole run passed.*Write each of them without "
             r"test: or guard:, as the command that runs its test file"
         )
         for method in ("test: test_partial_page_counted", "guard: test_exact"):
             with self.subTest(method=method), self.assertRaisesRegex(ValueError, refusal):
-                lifecycle.validate_body(self.state(MINITEST), named(method, "test/pager_test.rb"), ready=True)
+                lifecycle.validate_body(self.state(make), named(method, "tests/test_pager.sh"), ready=True)
+
+        opaque_npm = {
+            "package.json": '{"devDependencies": {"jest": "^29.0.0"}, "scripts": {"test": "react-scripts test"}}',
+            "src/pager.js": "exports.p = 1;\n",
+            "tests/pager.test.js": "test('ok', () => {});\n",
+        }
+        opaque_refusal = r"Criteria C1 name a test after test: or guard:.*`npm test --silent`, which reports only whether the whole run passed"
+        with self.assertRaisesRegex(ValueError, opaque_refusal):
+            lifecycle.validate_body(self.state(opaque_npm), named("test: ok", "tests/pager.test.js"), ready=True)
+        # An opaque npm wrapper allows command guards (matching command_guards.usable).
+        lifecycle.validate_body(
+            self.state(opaque_npm), named("guard: run `npm test --silent`", "tests/pager.test.js"), ready=True
+        )
 
     def test_test_code_no_runner_reads_is_judged_as_an_exit_code_runner(self):
         shell = {"pager.sh": "page_count() { echo 1; }\n", "tests/test_pager.sh": ". ./pager.sh\n"}
@@ -178,6 +196,9 @@ class NamedCasesTests(unittest.TestCase):
     def test_a_runner_with_per_test_results_or_none_detected_keeps_named_criteria(self):
         python = {"pager.py": "def page_count(total, size):\n    return total // size\n", "tests/test_pager.py": ""}
         lifecycle.validate_body(self.state(python), named("test: test_partial", "tests/test_pager.py"), ready=True)
+        lifecycle.validate_body(
+            self.state(MINITEST), named("test: test_partial_page_counted", "test/pager_test.rb"), ready=True
+        )
         # A new project has no runner yet; the proof detects its suite again on the changed code.
         lifecycle.validate_body(self.state({"tests/fixtures/x.json": "{}"}), named("test: test_partial"), ready=True)
         lifecycle.validate_body(self.state({"README.md": "new\n"}), named("test: test_partial"), ready=True)

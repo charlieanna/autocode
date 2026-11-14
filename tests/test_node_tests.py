@@ -105,7 +105,7 @@ class CommandTests(unittest.TestCase):
                 ({"test": "node --test", "posttest": "node clean.js"}, "npm test"),
                 ({"test": "node --test"}, "npm test -- tests/a.test.js"),  # appended after the script
                 ({"test": "node --test"}, "npm run build"),
-                ({"test": "mocha tests"}, "npm test"),
+                ({"test": "ava tests"}, "npm test"),
                 ({"test": "NODE_ENV=test node --test"}, "npm test"),
                 ({"test": "node --test | tap-spec"}, "npm test"),
                 ({"test": ["node", "--test"]}, "npm test"),

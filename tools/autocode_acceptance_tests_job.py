@@ -54,6 +54,7 @@ try:
     from . import autocode_acceptance_tests as acceptance
     from . import autocode_go_test_prerequisites as go_prerequisites
     from . import autocode_handoff_dedup as handoff
+    from . import autocode_project_kinds as project_kinds
     from . import autocode_run_status as run_status
     from . import autocode_stray_writes as stray_writes
     from . import autocode_test_cases as test_cases
@@ -68,6 +69,7 @@ except ImportError:
     import autocode_acceptance_tests as acceptance
     import autocode_go_test_prerequisites as go_prerequisites
     import autocode_handoff_dedup as handoff
+    import autocode_project_kinds as project_kinds
     import autocode_run_status as run_status
     import autocode_stray_writes as stray_writes
     import autocode_test_cases as test_cases
@@ -515,7 +517,7 @@ def apply(
     ``run_reference`` classifies current passing cases without another model or candidate execution."""
     stray = sorted(str(path) for path in record.get("changed_files") or [] if not is_test_path(str(path)))
     prerequisites = {}
-    if stray and all(Path(path).name in ("go.mod", "go.sum") for path in stray):
+    if stray and all(Path(path).name in project_kinds.ALL_TEST_PREREQUISITES for path in stray):
         try:
             prerequisites = go_prerequisites.from_attempt(
                 workspace,

@@ -8,9 +8,11 @@ from pathlib import PurePosixPath
 
 try:
     from . import autocode_project_inventory as project_inventory
+    from . import autocode_project_kinds as project_kinds
     from . import autocode_verification_schedule as schedule
 except ImportError:
     import autocode_project_inventory as project_inventory
+    import autocode_project_kinds as project_kinds
     import autocode_verification_schedule as schedule
 
 
@@ -47,25 +49,12 @@ def contains_go_project(paths) -> bool:
 # exists (#1783).
 MANIFESTS = frozenset(
     {
-        "pyproject.toml",
-        "setup.cfg",
+        *project_kinds.MANIFESTS,
+        *project_kinds.LOCKFILES,
         "Pipfile",
         "Pipfile.lock",
-        "poetry.lock",
-        "uv.lock",
-        "pdm.lock",
-        "package.json",
-        "package-lock.json",
-        "npm-shrinkwrap.json",
-        "yarn.lock",
-        "pnpm-lock.yaml",
-        "go.mod",
-        "go.sum",
-        "Cargo.toml",
-        "Cargo.lock",
         "pom.xml",
         "gradle.properties",
-        "Gemfile.lock",
         "composer.json",
         "composer.lock",
         "pubspec.yaml",

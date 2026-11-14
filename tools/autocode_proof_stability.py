@@ -226,8 +226,44 @@ def narrow(framework_name, command, test_ids, *, directory=None) -> str | None:
         names = sorted({re.escape(test.split("::")[-1]) for test in test_ids})
         pattern = "|".join(names)
         return "node --test --test-name-pattern " + shlex.quote(pattern) + " " + command[len("node --test ") :]
-    if framework_name == "vitest" and "vitest run" in command and " -t " not in command:
-        # Vitest matches -t against the full name, describe blocks included, so it is not anchored.
-        names = sorted({re.escape(test.split("::")[-1]) for test in test_ids})
-        return command + " -t " + shlex.quote("|".join(names))
+    if framework_name in ("vitest", "jest", "mocha"):
+        return _narrow_js(framework_name, command, test_ids)
     return None
+
+
+_JS_REGEX_META = re.compile(r"([.*+?^${}()|[\]\\])")
+
+
+def _narrow_js(framework_name: str, command: str, test_ids: list[str]) -> str | None:
+    """Narrow a direct Vitest, Jest, or Mocha command to the failing files and test names."""
+    if SHELL.search(command):
+        return None
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        return None
+    if not words:
+        return None
+    if framework_name == "vitest":
+        if "vitest run" not in command or any(w == "-t" or w.startswith("-t=") for w in words):
+            return None
+        filter_flag = "-t"
+    elif framework_name == "jest":
+        if not any(w == "jest" or w.endswith(("/jest", "/jest.js")) for w in words):
+            return None
+        if any(w in ("-t", "--testNamePattern") or w.startswith("--testNamePattern=") for w in words):
+            return None
+        filter_flag = "-t"
+    else:
+        if not any(w == "mocha" or w.endswith(("/mocha", "/mocha.js")) for w in words):
+            return None
+        if any(w in ("-g", "--grep", "-f", "--fgrep") or w.startswith(("--grep=", "--fgrep=")) for w in words):
+            return None
+        filter_flag = "--grep"
+    files = sorted({test.partition("::")[0] for test in test_ids if "::" in test and not test.startswith("[")})
+    missing_files = [file for file in files if file not in words]
+    raw_names = [test.partition("::")[2] if "::" in test else test for test in test_ids]
+    pattern = "|".join(sorted({_JS_REGEX_META.sub(r"\\\1", name.replace(" > ", " ")) for name in raw_names if name}))
+    if not pattern:
+        return None
+    return shlex.join([*words, *missing_files, filter_flag, pattern])
