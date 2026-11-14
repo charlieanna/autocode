@@ -11,12 +11,15 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 import autocode_toolchain_suite as toolchain_suite
 import autocode_verify as verify
+
+from tests.test_verify import Project
 
 LIBRARY = "module Pager\n  def self.page_count(total, size)\n    total / size\n  end\nend\n"
 FIXED = "module Pager\n  def self.page_count(total, size)\n    (total + size - 1) / size\n  end\nend\n"
@@ -35,6 +38,14 @@ VACUOUS = EXISTING.replace(
     "  end\n\n  def test_single_page\n    assert_equal 1, Pager.page_count(5, 5)\n  end\nend\n",
 )
 SEED = {"lib/pager.rb": LIBRARY, "test/pager_test.rb": EXISTING}
+GEMFILE = {"Gemfile": "source 'https://rubygems.org'\ngem 'rspec'\n"}
+PYTHON_TEST = "import unittest\n\n\nclass SmokeTest(unittest.TestCase):\n    def test_adds(self):\n        self.assertEqual(2, 1 + 1)\n"
+# Python test modules where a Python project's own suite would live, and beside the specs.
+PYTHON_TESTS = {
+    "test_generator.py": PYTHON_TEST,
+    "tests/engine/test_smoke.py": PYTHON_TEST,
+    "spec/test_contract.py": PYTHON_TEST,
+}
 
 
 def git(cwd, *args):
@@ -89,6 +100,38 @@ class DetectionTests(unittest.TestCase):
         ):
             with self.subTest(expected=expected):
                 self.assertEqual(expected, detect({**SEED, **extra}).name)
+
+    def test_a_ruby_project_that_declares_its_suite_is_not_a_python_project(self):
+        # A Rails backend with 483 specs was read as a pytest project for the eight Python test modules it
+        # also held, and every plan that named a spec was refused (2026-11-14).
+        python = sorted(PYTHON_TESTS)
+        for declared in (".rspec", "spec/spec_helper.rb", "test/test_helper.rb"):
+            with self.subTest(declared=declared):
+                self.assertTrue(toolchain_suite.python_is_secondary(["Gemfile", declared, *python]))
+        # Not a Gemfile alone, not the suite's files without a Gemfile, and not those of a project below the root.
+        self.assertFalse(toolchain_suite.python_is_secondary(["Gemfile", "spec/pager_spec.rb", *python]))
+        self.assertFalse(toolchain_suite.python_is_secondary([".rspec", "spec/spec_helper.rb", *python]))
+        self.assertFalse(
+            toolchain_suite.python_is_secondary(["Gemfile", "backend/.rspec", "backend/spec/spec_helper.rb", *python])
+        )
+        # A root that declares a Python project keeps Python first, as for every other toolchain.
+        for declared in ("pyproject.toml", "conftest.py", "pytest.ini", "requirements.txt"):
+            with self.subTest(declared=declared):
+                self.assertFalse(toolchain_suite.python_is_secondary(["Gemfile", ".rspec", declared, *python]))
+
+    def test_detection_runs_the_declared_ruby_suite_beside_python_tests(self):
+        for files, expected in (
+            ({".rspec": "--require spec_helper\n", "spec/pager_spec.rb": "RSpec.describe('Pager') {}\n"}, "rspec"),
+            (
+                {"spec/spec_helper.rb": "RSpec.configure {}\n", "spec/pager_spec.rb": "RSpec.describe('Pager') {}\n"},
+                "rspec",
+            ),
+            ({"test/test_helper.rb": 'require "minitest/autorun"\n', **SEED}, "minitest"),
+        ):
+            with self.subTest(files=sorted(files)):
+                project = Project({**GEMFILE, **files, **PYTHON_TESTS})
+                self.addCleanup(project.close)
+                self.assertEqual(expected, verify.detect_framework(project.root, python=sys.executable).name)
 
 
 @unittest.skipUnless(shutil.which("ruby"), "runs the project's tests with Ruby")

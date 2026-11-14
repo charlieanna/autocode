@@ -91,18 +91,30 @@ RUBY_SUITE = (
 # Root files that declare a Python project; any one keeps Python first.
 PYTHON_ROOTS = frozenset(("pyproject.toml", "setup.py", "setup.cfg", "tox.ini", "Pipfile", "conftest.py"))
 PYTHON_REQUIREMENTS = re.compile(r"requirements.*\.(txt|in)$")
+# What a Ruby project's test suite says about itself, beside a root ``Gemfile``: RSpec's options file and
+# the helper ``rspec --init`` writes, and the helper a Minitest suite loads. They declare the suite, as
+# ``conftest.py`` and ``pytest.ini`` declare a Python one. A Rails backend with 483 specs also held eight
+# Python test modules, one at its root and two under ``tests/``: it was read as a pytest project, so every
+# plan that named a spec was refused as a test "the regression proof would never run", three Planner
+# answers in a row, and the run paused for the person (GLM, 2026-11-14).
+RUBY_SUITE_ROOTS = frozenset((".rspec", "spec/spec_helper.rb", "test/test_helper.rb"))
 
 
 def python_is_secondary(files) -> bool:
     """True when the root is another toolchain's project and Python files are only incidental.
 
-    Python stays first when the root declares a Python project, or when Python test modules sit at
-    the root or in a top-level ``tests/`` or ``test/`` directory, where the project's own suite lives.
+    Python stays first when the root declares a Python project. Otherwise a Ruby project that declares
+    its own suite (``RUBY_SUITE_ROOTS``) is that project wherever Python test modules sit. For any other
+    toolchain Python also stays first when Python test modules sit at the root or in a top-level
+    ``tests/`` or ``test/`` directory, where the project's own suite lives.
     """
-    root_files = {path for path in files if "/" not in path}
-    if not root_files & TOOLCHAIN_ROOTS:
-        return False
+    names = set(files)
+    root_files = {path for path in names if "/" not in path}
     if root_files & (PYTHON_ROOTS | PYTEST_NATIVE_CONFIGS) or any(map(PYTHON_REQUIREMENTS.match, root_files)):
+        return False
+    if "Gemfile" in root_files and names & RUBY_SUITE_ROOTS:
+        return True
+    if not root_files & TOOLCHAIN_ROOTS:
         return False
     return not any(
         python_tests.TEST_MODULE.match(PurePosixPath(path).name)
