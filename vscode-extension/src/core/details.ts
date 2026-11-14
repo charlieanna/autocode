@@ -425,7 +425,8 @@ export function spendSummary(view: Row): string | null {
     }
     return `${builder}${single.planning_share ? ` · planning ${percent(single.planning_share)}` : ""} · checking ${percent(single.review_share)}`;
   }
-  return `${money(metrics.spent_usd)}${metrics.complete === true ? "" : "+"} across ${rows(metrics.by_job).length} jobs`;
+  const jobs = rows(metrics.by_job).length;
+  return `${money(metrics.spent_usd)}${metrics.complete === true ? "" : "+"} across ${jobs} ${jobs === 1 ? "job" : "jobs"}`;
 }
 
 function spendSection(view: Row): DetailSection | null {

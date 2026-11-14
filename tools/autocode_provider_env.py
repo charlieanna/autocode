@@ -9,11 +9,14 @@ from __future__ import annotations
 import re
 
 try:
+    from .autocode_agent_env import RUNNER_ONLY_ENV_VARS
     from .autocode_control_tokens import CONTROL_TOKEN_ENV_VARS
 except ImportError:
+    from autocode_agent_env import RUNNER_ONLY_ENV_VARS
     from autocode_control_tokens import CONTROL_TOKEN_ENV_VARS
 
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+_NON_CREDENTIAL_WITHHELD = CONTROL_TOKEN_ENV_VARS | RUNNER_ONLY_ENV_VARS
 
 
 def withheld_hint(names) -> str:
@@ -24,7 +27,7 @@ def withheld_hint(names) -> str:
         {
             name
             for name in names
-            if isinstance(name, str) and _NAME.fullmatch(name) and name.upper() not in CONTROL_TOKEN_ENV_VARS
+            if isinstance(name, str) and _NAME.fullmatch(name) and name.upper() not in _NON_CREDENTIAL_WITHHELD
         }
     )
     if not candidates:

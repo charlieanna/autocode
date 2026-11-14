@@ -29,6 +29,10 @@ except ImportError:
     from autocode_control_tokens import CONTROL_TOKEN_ENV_VARS
 
 PASS_VARIABLE = "AUTOCODE_PASS_ENV"
+# Runner-only daemon toggles: an agent or test subprocess inheriting AUTOCODE_SOURCE_HOST=1
+# can spawn a 30-minute snapshot host inside the stage's ProcessTree, keeping process_fallback
+# active after tools exit and killing the client's warm host on stage cleanup.
+RUNNER_ONLY_ENV_VARS = frozenset({"AUTOCODE_SOURCE_HOST"})
 # A whole underscore-separated word of the name, e.g. SSH_AUTH_SOCK or OPENAI_API_KEY.
 SECRET_WORDS = {"KEY", "AUTH", "PAT", "PRIVATE", "COOKIE"}
 # The end of a word, e.g. GH_TOKEN, AZURE_CLIENT_SECRET, GOOGLE_APPLICATION_CREDENTIALS, MYAPIKEY.
@@ -90,6 +94,7 @@ def withheld(env: Mapping[str, str]) -> list[str]:
         name
         for name, value in env.items()
         if name.upper() in CONTROL_TOKEN_ENV_VARS
+        or name.upper() in RUNNER_ONLY_ENV_VARS
         or (name not in keep and (git_config_secret if name in git_config else is_secret(name, value)))
     )
 

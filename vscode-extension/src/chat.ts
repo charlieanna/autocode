@@ -12,7 +12,7 @@ import { chosenMode, type RunModes } from "./core/modes";
 import { isWorking, RunStarting, waitsForFolder, type StatusView } from "./core/view";
 import { transitionNotice, waitsForPerson } from "./notify";
 import { runTotal, sessionTotal, totalText } from "./core/meter";
-import { applyEngine, engineOf, ENGINES, readSettings, selectIsolatedController, type Engine } from "./settings";
+import { applyEngine, engineOf, ENGINES, launchTarget, readSettings, selectIsolatedController, type Engine, type Settings } from "./settings";
 import { invoke, tail, STAGES_TIMEOUT_MS } from "./core/cli";
 import { chatRoute, chatSource, fillChatSet, fillSet, readStages, runListCommand, runRoute, type StageView } from "./core/stages";
 import { StageListCache } from "./core/stage-cache";
@@ -374,8 +374,9 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       })),
       session: this.sessionCost(),
       activeKey: this.activeKey,
-      // The chip names the engine the way its own picker does ("Codex", not "codex").
-      engine: ENGINE_LABELS[engineOf(readSettings()) as Engine] ?? engineOf(readSettings()),
+      // The chip names the engine the way its own picker does ("Codex", not "codex"); when no setting
+      // overrides the backend, the loaded stage list carries the core's own backend label.
+      engine: engineChipLabel(readSettings(), tab.stages?.label || this.stageLists.peek(newChatCall().key)?.label),
       // Only a chat that has not started chooses a mode; a run keeps the flow it started with.
       mode: !tab.run && this.modes ? chosenMode(this.modes, this.modeChoice)?.label ?? null : null,
       state: tab.run && tab.status
@@ -728,7 +729,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     if (message.type === "stopNow") { await this.pause(message, true); return; }
     if (message.type === "engine") {
       const before = engineOf(readSettings());
-      await pickEngine();
+      await pickEngine(this.active.stages?.label || this.stageLists.peek(newChatCall().key)?.label);
       if (engineOf(readSettings()) !== before) {
         // Another backend offers other models: a chat that has not started takes its list afresh.
         for (const tab of this.tabs) if (!tab.run) { tab.stages = undefined; tab.sharedStages = undefined; tab.stagesError = ""; }
@@ -1309,16 +1310,27 @@ const MODE_KEY = "autocode.chat.mode";
 
 const ENGINE_LABELS: Record<Engine, string> = { opencode: "OpenCode", codex: "Codex", claude: "Claude Code" };
 
+function engineChipLabel(settings: Settings, defaultLabel?: string): string {
+  const target = launchTarget(settings);
+  if (!target.explicit && defaultLabel) return defaultLabel;
+  return ENGINE_LABELS[target.engine as Engine] ?? target.engine;
+}
+
 /**
  * The engine new chats run on. This client's own launch option, chosen the same
  * way the Connections backend is: existing chats keep their saved engine.
  */
-async function pickEngine(): Promise<void> {
-  const current = engineOf(readSettings());
+async function pickEngine(defaultLabel?: string): Promise<void> {
+  const settings = readSettings();
+  const target = launchTarget(settings);
+  const current = target.engine;
+  const currentLabel = !target.explicit && defaultLabel
+    ? defaultLabel
+    : (ENGINE_LABELS[current as Engine] ?? current);
   const choices: Array<{ label: string; description?: string; engine?: Engine; command?: string }> = [
     ...ENGINES.map((engine) => ({
       label: ENGINE_LABELS[engine],
-      description: engine === current ? "current" : undefined,
+      description: (target.explicit || !defaultLabel || ENGINE_LABELS[engine] === defaultLabel) && engine === current ? "current" : undefined,
       engine,
     })),
     { label: "Connections…", description: "choose the backend", command: "autocode.connections" },
@@ -1326,7 +1338,7 @@ async function pickEngine(): Promise<void> {
     { label: "Configure in Settings…", command: "workbench.action.openSettings" },
   ];
   const picked = await vscode.window.showQuickPick(choices, {
-    placeHolder: `Engine for new chats (current: ${ENGINE_LABELS[current as Engine] ?? current})`,
+    placeHolder: `Engine for new chats (current: ${currentLabel})`,
   });
   if (!picked) return;
   if (picked.engine) {

@@ -273,6 +273,8 @@ test("spend restates run_metrics as /spend does, and says nothing before anythin
   ]);
   const noShare = { ...METRICS, single_model: { ...METRICS.single_model, builder_share: null } };
   assert.equal(spendSummary(view({ run_metrics: noShare })), "$2.50 across 3 jobs");
+  const oneJob = { ...noShare, by_job: [METRICS.by_job[0]] };
+  assert.equal(spendSummary(view({ run_metrics: oneJob })), "$2.50 across 1 job");
   assert.equal(section(runHeader(view()), "spend"), undefined);
   assert.equal(spendSummary(view({ run_metrics: { ...METRICS, schema: 2 } })), null, "an unknown schema is not guessed at");
   assert.deepEqual(runHeader(view())!.facts, []);
