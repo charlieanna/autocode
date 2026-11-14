@@ -125,14 +125,10 @@ test('action preflight status is fresh rather than joined to a pending poll', as
   await pending;
 });
 
-for (const kind of ['take', 'message', 'pause', 'restore']) {
+for (const kind of ['take', 'message', 'pause']) {
   test(`poll started before ${kind} cannot return its old status after the mutation`, async (t) => {
     const controller = new RunController(host.log);
     const old = deferred(), current = deferred(), action = deferred();
-    const checkpoint = { ...view('PAUSED'), code_checkpoints: { rows: [{ id: 'checkpoint-1', actions: [{
-      id: 'restore', next_command: ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir,
-        '--restore', 'checkpoint-1', '--expected-token', '-', '--request-id', 'REQUEST_ID'],
-    }] }] } };
     const pause = { ...view('RUNNING'), pause: { requested: false, next_command: [
       'intervention', 'submit', '--workspace', run.workspace, '--run-dir', run.runDir,
       '--request-id', 'REQUEST_ID', '--kind', 'pause', '--json',
@@ -141,24 +137,23 @@ for (const kind of ['take', 'message', 'pause', 'restore']) {
     t.mock.method(cli, 'readStatus', () => {
       calls++;
       if (calls === 1) return old.promise;
-      if ((kind === 'pause' || kind === 'restore') && calls === 2) return Promise.resolve(kind === 'pause' ? pause : checkpoint);
+      if (kind === 'pause' && calls === 2) return Promise.resolve(pause);
       return current.promise;
     });
-    const launch = t.mock.method(cli, kind === 'pause' || kind === 'restore' ? 'invoke' : 'stream', () => action.promise);
+    const launch = t.mock.method(cli, kind === 'pause' ? 'invoke' : 'stream', () => action.promise);
     const pending = poll(controller);
     const mutate = kind === 'take' ? controller.take(view('RUNNING'), run)
       : kind === 'message' ? controller.sendMessage({ ...view('PAUSED'), chat: {
         context: 'shown', input: { kind: 'feedback', next_command: 'autocode --feedback MESSAGE' },
       } }, run, 'exact feedback', 'shown')
-      : kind === 'pause' ? controller.pause(run, 'pause-1')
-      : controller.restoreCheckpoint(run, 'checkpoint-1', 'restore-token', 'restore-1');
+      : controller.pause(run, 'pause-1');
     await flush();
     assert.equal(launch.mock.callCount(), 1);
-    action.resolve(kind === 'restore' ? { ...ok, stdout: '{}' } : ok);
+    action.resolve(ok);
     await mutate;
     old.resolve(view('OBSOLETE'));
     await flush();
-    const expectedCalls = kind === 'pause' || kind === 'restore' ? 3 : 2;
+    const expectedCalls = kind === 'pause' ? 3 : 2;
     assert.equal(calls, expectedCalls, 'late poll must make/join a post-mutation read');
     const together = poll(controller);
     assert.equal(calls, expectedCalls, 'the replacement read is itself shared');

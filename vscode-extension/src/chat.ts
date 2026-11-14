@@ -6,7 +6,7 @@
  */
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
-import { RunController, type CheckpointComparison, type RunRef } from "./controller";
+import { RunController, type RunRef } from "./controller";
 import { requiresConfirmation } from "./core/next-command";
 import { chosenMode, type RunModes } from "./core/modes";
 import { isWorking, RunStarting, waitsForFolder, type StatusView } from "./core/view";
@@ -53,10 +53,6 @@ interface ChatMessage {
   stage?: string;
   model?: string;
   effort?: string;
-  checkpoint?: string;
-  action?: "compare" | "step" | "restore";
-  workspace?: string;
-  runDir?: string;
   /** Tab messages (#1558): the webview addresses tabs by their key. */
   tabKey?: string;
   hasDraft?: boolean;
@@ -87,8 +83,6 @@ interface ChatTab {
   continuePending?: boolean;
   /** What a run's start is doing before its first status view, in the core's words (#3079). */
   startingLabel: string;
-  /** Compare results this tab already holds, by checkpoint id. */
-  readonly comparisons: Map<string, CheckpointComparison>;
   /** A chat that has not started: the stages it will run, with its own picks (`stages list --json`). */
   stages?: StageView;
   stagesError: string;
@@ -112,7 +106,7 @@ interface ChatTab {
 }
 
 function newTab(key: string, run?: RunRef): ChatTab {
-  return { key, run, hasDraft: false, error: "", readError: "", pendingBrief: "", starting: false, launching: false, startingLabel: "", comparisons: new Map(),
+  return { key, run, hasDraft: false, error: "", readError: "", pendingBrief: "", starting: false, launching: false, startingLabel: "",
     stagesError: "", stagesBusy: false, placesError: "", placesMissing: false, confirming: "" };
 }
 
@@ -728,15 +722,10 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     }
     if (message.type === "select_tab" && message.tabKey) { this.activate(message.tabKey); return; }
     if (message.type === "close_tab" && message.tabKey) { this.close(message.tabKey); return; }
-    if (message.type === "checkpoint") { await this.checkpoint(message); return; }
+    if (message.type === "all_changes") { await this.allChanges(message); return; }
     if (message.type === "working_diff") { await this.workingDiff(message); return; }
     if (message.type === "pause") { await this.pause(message); return; }
     if (message.type === "stopNow") { await this.pause(message, true); return; }
-    if (message.type === "checkpoint_open") {
-      const opened = asRunRef({ workspace: message.workspace, runDir: message.runDir });
-      if (opened) this.show(opened);
-      return;
-    }
     if (message.type === "engine") {
       const before = engineOf(readSettings());
       await pickEngine();
@@ -983,73 +972,17 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     }
   }
 
-  /**
-   * A saved code change the person acted on. Compare is a read; restore is a
-   * person's confirmed decision, always gated on the comparison it quotes.
-   */
-  private async checkpoint(message: ChatMessage): Promise<void> {
+  /** The run's whole change: a read of saved code, offered once the view names it. */
+  private async allChanges(message: ChatMessage): Promise<void> {
     const tab = this.active;
     const run = tab.run;
-    const checkpointId = message.checkpoint ?? "";
-    if (!run || !checkpointId || message.runKey !== tab.key || this.busy.has(tab.key)) return;
+    if (!run || message.runKey !== tab.key || this.busy.has(tab.key)) return;
     const key = tab.key;
-    this.busy.add(key);
-    this.post();
     try {
-      if (message.action === "compare" || message.action === "step") {
-        const comparison = message.action === "compare"
-          ? await this.controller.compareCheckpoint(run, checkpointId)
-          : await this.controller.stepCheckpoint(run, checkpointId);
-        // A step view carries no restore token; never keep it where a restore would reuse it.
-        if (message.action === "compare") tab.comparisons.set(checkpointId, comparison);
-        void this.view?.webview.postMessage({ type: "checkpoint_compare", runKey: key, checkpoint: checkpointId,
-          kind: message.action, comparison });
-        return;
-      }
-      if (message.action !== "restore") return;
-      let comparison = tab.comparisons.get(checkpointId);
-      if (!comparison) {
-        comparison = await this.controller.compareCheckpoint(run, checkpointId);
-        tab.comparisons.set(checkpointId, comparison);
-        void this.view?.webview.postMessage({ type: "checkpoint_compare", runKey: key, checkpoint: checkpointId,
-          kind: "compare", comparison });
-      }
-      if (comparison.blocked_reason) throw new Error(comparison.blocked_reason);
-      const label = (tab.status?.code_checkpoints?.rows ?? []).find((row) => row.id === checkpointId)?.label ?? checkpointId;
-      const files = comparison.changed_files?.length ?? 0;
-      const question = `Restore "${label}" on a new branch?`;
-      // The dialog is the only place the question shows; name it in the chat while it
-      // pends, like the take path, so a parked dialog cannot read as a dead button.
-      tab.confirming = question;
-      this.post();
-      let proceed: string | undefined;
-      try {
-        proceed = await vscode.window.showWarningMessage(
-          question,
-          { modal: true,
-            detail: `${files} file(s) differ from this checkpoint. The current branch and later work stay intact; every milestone needs fresh verification, and the new candidate stays paused until you resume it.` },
-          "Restore",
-        );
-      } finally {
-        tab.confirming = "";
-        this.post();
-      }
-      if (proceed !== "Restore") return;
-      const requestId = await this.checkpointRequestId(key);
-      const result = await this.controller.restoreCheckpoint(run, checkpointId, comparison.expected_token ?? "", requestId);
-      tab.comparisons.delete(checkpointId);
-      await this.clearCheckpointRequest(key);
-      void this.view?.webview.postMessage({ type: "checkpoint_result", runKey: key, checkpoint: checkpointId, result });
+      const comparison = await this.controller.allChanges(run);
+      void this.view?.webview.postMessage({ type: "all_changes", runKey: key, comparison });
     } catch (error) {
-      void this.view?.webview.postMessage({ type: "checkpoint_compare", runKey: key, checkpoint: checkpointId, error: messageOf(error) });
-    } finally {
-      this.busy.delete(key);
-      // The action is over: say so at once. The result message re-rendered with the state
-      // that still said it was taking, and until this post the step's buttons stayed
-      // disabled and swallowed clicks, for as long as the next status read took.
-      this.post();
-      this.actions.changed();
-      await this.refresh();
+      void this.view?.webview.postMessage({ type: "all_changes", runKey: key, error: messageOf(error) });
     }
   }
 
@@ -1065,24 +998,6 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     } catch (error) {
       void this.view?.webview.postMessage({ type: "working_diff", runKey: key, error: messageOf(error) });
     }
-  }
-
-  /** A stable request id per run: replaying it reconciles a candidate instead of creating another. */
-  private async checkpointRequestId(key: string): Promise<string> {
-    const saved = this.storage.get<Record<string, string>>("autocode.checkpoint.requests") ?? {};
-    const existing = saved[key];
-    if (existing && /^[A-Za-z0-9_-]{8,100}$/.test(existing)) return existing;
-    const id = `vscode-${randomBytes(12).toString("hex")}`;
-    saved[key] = id;
-    await this.storage.update("autocode.checkpoint.requests", saved);
-    return id;
-  }
-
-  private async clearCheckpointRequest(key: string): Promise<void> {
-    const saved = this.storage.get<Record<string, string>>("autocode.checkpoint.requests") ?? {};
-    if (!(key in saved)) return;
-    delete saved[key];
-    await this.storage.update("autocode.checkpoint.requests", saved);
   }
 
   /**
