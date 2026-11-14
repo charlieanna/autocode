@@ -443,10 +443,16 @@ before a PASS is accepted, the runner requires its own current execution of each
   which runs nothing. A live step with backticks inside double quotes could
   never run ([bug note](bugs/2026-10-07-plan-check-shell-syntax.md)).
 - **When one does not reproduce.** The Tester's report is rejected with the
-  command, the runner's exit code and the end of its output. That is the ordinary
-  rejected-report path: a bounded report repair may drop the check or cite
-  another command that ran (each is replayed again), then the run pauses and
-  `--resume-paused` asks for a fresh validation.
+  command, the runner's exit code and the end of its output. The Tester then runs
+  again on the same source, once, and is told the command, how its replay ended
+  and to run every check it cites from the repository root
+  (`tools/autocode_reported_check_rerun.py`). A report repair has no tools: it
+  could only withdraw the check and mark what it supported as not verified, and
+  that report sent the task to a Builder with nothing to build. A second refusal
+  at the same source takes the ordinary rejected-report path: a bounded report
+  repair may drop the check or cite another command that ran (each is replayed
+  again), then the run pauses and `--resume-paused` asks for a fresh validation.
+  AutoCode makes this decision itself; nobody is asked.
 - **When a planned check already fails on the base.** A check the approved plan
   names, such as a linter over the whole tree, can fail for a reason the base
   revision already has, in files the change never touched. Before such a failure

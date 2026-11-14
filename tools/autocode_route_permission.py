@@ -12,6 +12,10 @@ def allows(settings, role, model, effort):
     Existing retry/ladder policies decide strength. This guard decides permission,
     including an advertised reasoning-level veto, without rediscovering accounts.
     """
+    if ((settings or {}).get("route_origins") or {}).get(role) == "user_explicit" and (
+        ((settings or {}).get("roles") or {}).get(role) or {}
+    ).get("model") == model:
+        return True
     selection = (settings or {}).get("route_selection")
     if not selection:
         return True

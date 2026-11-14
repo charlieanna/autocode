@@ -105,7 +105,7 @@ class CommandTests(unittest.TestCase):
                 ({"test": "node --test", "posttest": "node clean.js"}, "npm test"),
                 ({"test": "node --test"}, "npm test -- tests/a.test.js"),  # appended after the script
                 ({"test": "node --test"}, "npm run build"),
-                ({"test": "mocha tests"}, "npm test"),
+                ({"test": "ava tests"}, "npm test"),
                 ({"test": "NODE_ENV=test node --test"}, "npm test"),
                 ({"test": "node --test | tap-spec"}, "npm test"),
                 ({"test": ["node", "--test"]}, "npm test"),
@@ -616,10 +616,10 @@ class NodeTests(unittest.TestCase):
         "test('counts a partial last page',()=>assert.equal(pageCount(11,5),3));\n"
     )
 
-    def refactor(self, pager, added=None):
+    def refactor(self, pager, added=None, mark="guard: "):
         """The proof of a change to src/pager.js, in a project whose suite is ``npm test``, guarded by the two
         tests the project already has, each named by its title. ``added`` is a new test file's (name, guard,
-        source), whose test guards the change too."""
+        source), whose test guards the change too, or with the ``mark`` "test: " proves what the change adds."""
         project = Project(
             {
                 "package.json": json.dumps({"name": "pager", "scripts": {"test": "node --test tests/*.test.js"}}),
@@ -637,7 +637,7 @@ class NodeTests(unittest.TestCase):
                 "verification_method": "guard: returns the page count for an exact multiple",
             },
             {"id": "AC2", "criterion": "partial", "verification_method": "guard: counts a partial last page"},
-            *([{"id": "AC3", "criterion": "sizes", "verification_method": "guard: " + added[1]}] if added else []),
+            *([{"id": "AC3", "criterion": "sizes", "verification_method": mark + added[1]}] if added else []),
         ]
         state = {
             "goal_contract": {"body": {"task_kind": "build", "acceptance_criteria": criteria}},
@@ -695,6 +695,43 @@ class NodeTests(unittest.TestCase):
             },
             proof["case_tests"],
         )
+
+    FIRST_PAGE = (
+        "tests/first-page.test.js",
+        "test_ac3_first_page_of_any_items_is_one",
+        "const {test}=require('node:test');const assert=require('node:assert/strict');"
+        "const {firstPage}=require('../src/pager.js');\n"
+        "test('test_ac3_first_page_of_any_items_is_one',()=>assert.equal(firstPage(3),1));\n",
+    )
+    WITH_FIRST_PAGE = "function firstPage(total){return total>0?1:0;}\nmodule.exports={pageCount,firstPage};\n"
+
+    @unittest.skipUnless(shutil.which("npm"), "the project's suite is npm test")
+    def test_guards_that_are_all_titles_rest_on_the_existing_tests_beside_a_new_test_file(self):
+        # A dependency upgrade's plan guarded the four existing tests by their titles and proved the upgrade
+        # with new tests in a new file (live run, 2026-11-14). No guard was a test name, so the proof was
+        # told of no guard, never ran the suite on the original code with the new file, and found "no test
+        # named test_ac3_<what it checks>" for each; the Builder then copied the existing tests under those names.
+        proof, _ = self.refactor(
+            self.PAGER.replace("module.exports={pageCount};\n", self.WITH_FIRST_PAGE), self.FIRST_PAGE, "test: "
+        )
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual(
+            {
+                "AC1": ["tests/pager.test.js::returns the page count for an exact multiple"],
+                "AC2": ["tests/pager.test.js::counts a partial last page"],
+                "AC3": ["tests/first-page.test.js::test_ac3_first_page_of_any_items_is_one"],
+            },
+            proof["case_tests"],
+        )
+
+    @unittest.skipUnless(shutil.which("npm"), "the project's suite is npm test")
+    def test_a_titled_guard_broken_beside_a_new_test_file_is_not_proved(self):
+        broken = self.PAGER.replace("Math.ceil", "Math.floor")
+        proof, _ = self.refactor(
+            broken.replace("module.exports={pageCount};\n", self.WITH_FIRST_PAGE), self.FIRST_PAGE, "test: "
+        )
+        self.assertNotEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual([], proof["case_tests"]["AC2"])
 
     @unittest.skipUnless(shutil.which("npm"), "the project's suite is npm test")
     def test_a_refactor_that_breaks_a_guarded_test_of_the_npm_suite_is_not_proved(self):

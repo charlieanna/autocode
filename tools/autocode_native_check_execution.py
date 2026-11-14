@@ -24,12 +24,11 @@ if TYPE_CHECKING:
 try:
     from . import autocode_command_supervision as supervision
     from . import autocode_go_tests as go_tests
-    from . import autocode_jest_tests as jest_tests
+    from . import autocode_named_reporters as reporters
     from . import autocode_native_check_runtime as check_runtime
     from . import autocode_native_launch as native_launch
     from . import autocode_native_linux_check as linux_check
     from . import autocode_native_parent as parent
-    from . import autocode_node_tests as node_tests
     from . import autocode_python_tests as python_tests
     from . import autocode_runner_check as runner_check
     from . import autocode_source_scope as source_scope
@@ -42,12 +41,11 @@ try:
 except ImportError:
     import autocode_command_supervision as supervision
     import autocode_go_tests as go_tests
-    import autocode_jest_tests as jest_tests
+    import autocode_named_reporters as reporters
     import autocode_native_check_runtime as check_runtime
     import autocode_native_launch as native_launch
     import autocode_native_linux_check as linux_check
     import autocode_native_parent as parent
-    import autocode_node_tests as node_tests
     import autocode_python_tests as python_tests
     import autocode_runner_check as runner_check
     import autocode_source_scope as source_scope
@@ -253,12 +251,10 @@ class NativeCheckExecution:
         )
         # Use the existing lower runner parsers; the upper verify caller also
         # compares this with its unchanged instrumentation before execution.
-        if node_tests.command_words(command):
-            actual = node_tests.instrument(command, xml)
+        if actual := reporters.instrument(command, xml, None, tree):
+            pass
         elif vitest_tests.command_words(command, tree):
             actual = vitest_tests.instrument(command, xml, tree)
-        elif jest_tests.command_words(command, tree):
-            actual = jest_tests.instrument(command, xml, tree)
         elif framework == "pytest" and " -m pytest" in command:
             actual = f"{command} --junitxml={shlex.quote(str(xml))}"
         elif framework == "go" and (invocation := go_tests.parse(command)):

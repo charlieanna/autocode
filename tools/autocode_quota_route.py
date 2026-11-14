@@ -35,6 +35,7 @@ from pathlib import Path
 
 try:
     from . import autocode_context_window as context_window
+    from . import autocode_escalation as escalation
     from . import autocode_output_cap as output_cap
     from . import autocode_provider_refusal as provider_refusal
     from . import autocode_role_route as role_route
@@ -44,6 +45,7 @@ try:
     from . import autocode_verifier_independence as verifier_independence
 except ImportError:
     import autocode_context_window as context_window
+    import autocode_escalation as escalation
     import autocode_output_cap as output_cap
     import autocode_provider_refusal as provider_refusal
     import autocode_role_route as role_route
@@ -890,6 +892,126 @@ def _clashes(settings: dict, role: str, model: str, cross_check) -> str | None:
     return None
 
 
+ARCHITECT_MAX_EFFORT = "medium"
+INHERITED_ROLES = ("acceptance_tester", "architect", "resolver")
+_JOB_STAGE_ROLES: dict[str, tuple[str, ...]] = {
+    "acceptance_tester": ("write_acceptance_tests",),
+    "architect": ("check_design",),
+    "resolver": ("resolve", "diagnose"),
+}
+
+
+def derived_parent(settings: dict, child_role: str) -> str | None:
+    """The configured parent role that ``child_role`` inherits from, or None."""
+    roles_map = (settings or {}).get("roles") or {}
+    for parent in role_transport.DERIVED_ROLES.get(child_role, ()):
+        if isinstance(roles_map.get(parent), dict):
+            return parent
+    return None
+
+
+def derived_locked_by_job(state: RunState, child_role: str) -> bool:
+    """True when ``child_role`` has a live attempt or a current failed-job retry binding."""
+    stages = _JOB_STAGE_ROLES.get(child_role, ())
+    if (state.get("active_stage") or {}).get("stage") in stages:
+        return True
+    failure = state.get("job_failure") or {}
+    if failure.get("stage") not in stages:
+        return False
+    authorization = state.get("job_retry_authorization") or {}
+    authorized = (
+        authorization.get("consumed") is False
+        and authorization.get("stage") == failure.get("stage")
+        and authorization.get("token") == failure.get("job_retry_token")
+    )
+    return job_pause_current(state) or authorized
+
+
+def derived_overridden(state: RunState, child_role: str) -> bool:
+    """True when ``child_role`` has its own explicit route choice or recorded route assignment."""
+    settings = state.get("settings") or {}
+    if (settings.get("route_origins") or {}).get(child_role) == route_fit.USER_EXPLICIT:
+        return True
+    return any(row.get("role") == child_role for row in assignments(state))
+
+
+def inherited_route(settings: dict, child_role: str, parent_role: str | None = None) -> dict | None:
+    """The route ``child_role`` inherits from its parent role, capped and fitted."""
+    roles_map = (settings or {}).get("roles") or {}
+    parent = parent_role or derived_parent(settings, child_role)
+    parent_route = roles_map.get(parent) if parent else None
+    if not isinstance(parent_route, dict):
+        return None
+    target = copy.deepcopy(parent_route)
+    if child_role == "architect" and (
+        "reasoning_effort" not in target
+        or target.get("reasoning_effort")
+        not in (None, *route_fit.SCALE[: route_fit.SCALE.index(ARCHITECT_MAX_EFFORT) + 1])
+    ):
+        target["reasoning_effort"] = ARCHITECT_MAX_EFFORT
+    trial = copy.deepcopy(settings or {})
+    trial.setdefault("roles", {})[child_role] = target
+    fitted = route_fit.fit(trial, child_role, rerouted=True)
+    if fitted.reason == "fitted":
+        target["reasoning_effort"] = fitted.effort
+    return target
+
+
+def sync_derived_role(state: RunState, child_role: str, *, parent_role: str | None = None) -> dict | None:
+    """Synchronize an already-materialized inherited role with its parent; return provenance if changed."""
+    settings = state.get("settings") or {}
+    roles_map = settings.get("roles") or {}
+    if child_role not in INHERITED_ROLES or not isinstance(roles_map.get(child_role), dict):
+        return None
+    parent = parent_role or derived_parent(settings, child_role)
+    if not parent or derived_overridden(state, child_role) or derived_locked_by_job(state, child_role):
+        return None
+    target_route = inherited_route(settings, child_role, parent)
+    if target_route is None:
+        return None
+    before_route = copy.deepcopy(roles_map[child_role])
+    # Compare against the child with its own climbs undone: a child still on the rung its parent
+    # gives it has not been out-paced, so its climb stands and re-inheriting would relaunch the
+    # rung that was just rejected. Only a parent that actually moved re-derives the child.
+    unclimbed_route = escalation.unclimbed(state, settings, child_role)["roles"][child_role]
+    identities = settings.get("transport_identities")
+    target_key = role_transport.PREFIX + child_role
+    before_identity = copy.deepcopy(identities.get(target_key)) if isinstance(identities, dict) else None
+    roles_map[child_role] = copy.deepcopy(target_route)
+    role_transport.inherit(settings, child_role, parent)
+    after_identity = copy.deepcopy(identities.get(target_key)) if isinstance(identities, dict) else None
+    if unclimbed_route == target_route and after_identity == before_identity:
+        roles_map[child_role] = before_route
+        return None
+    state.setdefault("sessions", {}).pop(child_role, None)
+    change: dict = {
+        "parent": parent,
+        "from": before_route,
+        "to": copy.deepcopy(roles_map[child_role]),
+    }
+    if after_identity != before_identity:
+        change["transport_identity"] = {"from": before_identity, "to": after_identity}
+    return change
+
+
+def sync_inherited_routes(state: RunState, parent_role: str) -> dict[str, dict]:
+    """Synchronize all materialized derived roles that inherit from ``parent_role``."""
+    settings = state.get("settings") or {}
+    synced: dict[str, dict] = {}
+    for child_role in INHERITED_ROLES:
+        if derived_parent(settings, child_role) != parent_role:
+            continue
+        change = sync_derived_role(state, child_role, parent_role=parent_role)
+        if change is not None:
+            synced[child_role] = change
+    return synced
+
+
+def has_stale_inherited_route(state: RunState, parent_role: str) -> bool:
+    """True when any materialized inherited child of ``parent_role`` would change on sync."""
+    return bool(sync_inherited_routes(copy.deepcopy(state), parent_role))
+
+
 def _carry(state: RunState, role: str, stopped: str | None, model: str) -> None:
     """Keep a named model past the milestone boundary.
 
@@ -923,6 +1045,7 @@ def assign(
     saved as theirs and recorded as the assignment's ``effort``.
     """
     settings = state["settings"]
+    previous_settings = copy.deepcopy(settings)
     route = settings["roles"][role]
     record = {
         "kind": KIND,
@@ -975,6 +1098,12 @@ def assign(
         record["investigator_pin_before"] = copy.deepcopy(investigation.get("route"))
         investigation["route"] = copy.deepcopy(route)
         record["investigator_pin_after"] = copy.deepcopy(route)
+    settings_change = _flag_provenance(previous_settings, settings, role)
+    if settings_change:
+        record["settings_change"] = settings_change
+    inherited = sync_inherited_routes(state, role)
+    if inherited:
+        record["inherited_routes"] = inherited
     state.setdefault("sessions", {}).pop(role, None)
     state.setdefault("user_events", []).append(record)
     return copy.deepcopy(record)
@@ -1137,10 +1266,14 @@ _FLAG_ORIGINS = ("route_origins", "effort_origins")
 def _flag_provenance(previous: dict, selected: dict, role: str) -> dict:
     """What else the resume flags changed on ``role`` beside its model, so ``unassigned`` can undo it."""
     change = {}
-    before = ((previous.get("roles") or {}).get(role) or {}).get("reasoning_effort")
+    previous_route = (previous.get("roles") or {}).get(role) or {}
+    before = previous_route.get("reasoning_effort")
     after = ((selected.get("roles") or {}).get(role) or {}).get("reasoning_effort")
     if before != after:
-        change["reasoning_effort"] = {"from": before, "to": after}
+        effort_change: dict = {"from": before, "to": after}
+        if before is None and "reasoning_effort" in previous_route:
+            effort_change["present"] = True
+        change["reasoning_effort"] = effort_change
     for section in _FLAG_ORIGINS:
         old, new = previous.get(section) or {}, selected.get(section) or {}
         if old.get(role) != new.get(role):
@@ -1159,7 +1292,7 @@ def _undo_flag_provenance(settings: dict, route: dict, event: dict) -> None:
     role = event.get("role")
     effort = change.get("reasoning_effort")
     if effort and route.get("reasoning_effort") == effort["to"]:
-        if effort["from"] is None:
+        if effort["from"] is None and not effort.get("present"):
             route.pop("reasoning_effort", None)
         else:
             route["reasoning_effort"] = effort["from"]
@@ -1202,11 +1335,50 @@ def unassigned(state: RunState, settings: dict) -> dict:
     """
     settings = copy.deepcopy(settings)
     for event in reversed(assignments(state)):
+        for child_role, child_change in (event.get("inherited_routes") or {}).items():
+            child_route = (settings.get("roles") or {}).get(child_role)
+            if isinstance(child_route, dict) and child_route == child_change.get("to"):
+                settings["roles"][child_role] = copy.deepcopy(child_change["from"])
+            if "transport_identity" in child_change and isinstance(settings.get("transport_identities"), dict):
+                identities = settings["transport_identities"]
+                target_key = role_transport.PREFIX + child_role
+                if identities.get(target_key) == child_change["transport_identity"].get("to"):
+                    before_id = child_change["transport_identity"].get("from")
+                    if before_id is None:
+                        identities.pop(target_key, None)
+                    else:
+                        identities[target_key] = copy.deepcopy(before_id)
         route = (settings.get("roles") or {}).get(event.get("role"))
         if isinstance(route, dict) and event.get("from") and route.get("model") == event.get("to"):
             route["model"] = event["from"]
             # A --<role>-model flag also saved its effort and origins; they are the same assignment (#3159).
             _undo_flag_provenance(settings, route, event)
+            runner_effort = event.get("runner_effort_before")
+            if isinstance(runner_effort, dict) and route.get("reasoning_effort") == runner_effort.get("to"):
+                if runner_effort.get("present"):
+                    route["reasoning_effort"] = runner_effort.get("from")
+                else:
+                    route.pop("reasoning_effort", None)
+            elif (
+                isinstance(effort := event.get("effort"), dict)
+                and not effort.get("named")
+                and route.get("reasoning_effort") == effort.get("to")
+            ):
+                if effort.get("from") is None:
+                    route.pop("reasoning_effort", None)
+                else:
+                    route["reasoning_effort"] = effort["from"]
+            sel_before = event.get("route_selection_before")
+            sel_routes = (settings.get("route_selection") or {}).get("routes")
+            if (
+                isinstance(sel_before, dict)
+                and isinstance(sel_routes, dict)
+                and sel_routes.get(event.get("role")) == sel_before.get("to")
+            ):
+                if sel_before.get("present"):
+                    sel_routes[event["role"]] = copy.deepcopy(sel_before.get("from"))
+                else:
+                    sel_routes.pop(event["role"], None)
         if event.get("role") == "stuck_investigator" and "investigator_pin_after" in event:
             investigation = settings.get("stuck_investigation") or {}
             if investigation.get("route") == event["investigator_pin_after"]:

@@ -1298,7 +1298,8 @@ function modelsChip(tab: ChatTab): { label: string; disabled: boolean; title: st
   if (!offer || !runListCommand(offer.next_command)) return null;
   if (tab.modelsBusy) return { label: `Models · ${tab.modelsBusy}`, disabled: true, title: tab.modelsBusy };
   // The core offers a change only between stages (`stage_models`); its reason is the tooltip.
-  if (!offer.changeable) return { label: "Models · after this stage", disabled: true, title: offer.reason ?? "This chat's models cannot change now." };
+  if (!offer.changeable) return { label: tab.status?.status === "PAUSED_VERIFICATION_UNCERTAIN" ? "Models · unavailable" : "Models · after this stage",
+    disabled: true, title: offer.reason ?? "This chat's models cannot change now." };
   return { label: "Models", disabled: false, title: "Change a stage's model and reasoning level for this chat from its next stage" };
 }
 

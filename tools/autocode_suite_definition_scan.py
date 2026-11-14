@@ -47,6 +47,12 @@ _RUNNER_CONFIG_BASENAMES = frozenset(
         "vitest.config.mjs",
         "vitest.config.ts",
         "vitest.config.mts",
+        # PHPUnit's configuration names the test directories and the bootstrap file; prove reads its
+        # options (a dry run, another test list) from .proverc.
+        "phpunit.xml",
+        "phpunit.xml.dist",
+        "phpunit.dist.xml",
+        ".proverc",
     }
 )
 DEFINITION_FILE_BASENAMES = _MANIFEST_BASENAMES | _RUNNER_CONFIG_BASENAMES

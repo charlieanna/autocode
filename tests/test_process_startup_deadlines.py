@@ -441,3 +441,28 @@ class StartupDeadlineTests(unittest.TestCase):
         self.assertEqual(-signal.SIGTERM, code)
         self.assertTrue(expired)
         self.assertEqual("tool", monitor.timeout["kind"])
+
+    def test_wait_for_stage_uses_first_event_limit_even_before_first_poll(self):
+        with tempfile.TemporaryDirectory() as folder:
+            monitor = ActivityMonitor(
+                Path(folder) / "events.jsonl",
+                idle_seconds=300,
+                tool_seconds=0,
+                first_event_seconds=2,
+                first_event_origin="runner default before first provider event",
+                clock=lambda: 0.0,
+            )
+
+            class ImmediateClock:
+                value = 0.0
+
+                def __call__(self):
+                    return self.value
+
+            clock = ImmediateClock()
+            monitor.clock = clock
+            monitor._started_at = 0.0
+            monitor._last_activity = 0.0
+            self.assertEqual(2, monitor.active_idle_limit())
+            self.assertIn("initial stream event", monitor.idle_reason())
+            self.assertEqual(2, monitor.snapshot()["idle_limit_seconds"])

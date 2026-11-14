@@ -56,6 +56,7 @@ try:
     from . import autocode_implementation_discrepancy as implementation_discrepancy
     from . import autocode_liveness as liveness_policy
     from . import autocode_member_stop as member_stop
+    from . import autocode_model_listing_failure as model_listing_failure
     from . import autocode_operational_information as operational_information
     from . import autocode_output_policy as output_policy
     from . import autocode_package_scope as package_scope
@@ -122,6 +123,7 @@ except ImportError:
     import autocode_implementation_discrepancy as implementation_discrepancy
     import autocode_liveness as liveness_policy
     import autocode_member_stop as member_stop
+    import autocode_model_listing_failure as model_listing_failure
     import autocode_operational_information as operational_information
     import autocode_output_policy as output_policy
     import autocode_package_scope as package_scope
@@ -237,7 +239,7 @@ def view(
         import autocode_checkpoint_reconciliation as reconciliation
     reconcile = (
         None
-        if verification_failure.presentation(state)
+        if (verification_failure.presentation(state) or model_listing_failure.presentation(state))
         else reconciliation.offer(state, liveness, controller=controller, stop_pending=stop_pending)
     )
     if reconcile is not None:
@@ -328,7 +330,7 @@ def view(
             needs=need,
             held_cause=pause_authority.answered_cause(state),
             ready=(controller or {}).get("kind") == "ready",
-            internal_failure=verification_failure.presentation(state),
+            internal_failure=(verification_failure.presentation(state) or model_listing_failure.presentation(state)),
         ),
         "current_task": {key: task.get(key) for key in ("id", "objective", "milestone_id")} if task else None,
         # The kind of job named for the request (autocode_workflows.WORKFLOWS);
@@ -986,7 +988,7 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
         from . import autocode_changeset_barrier as changeset_barrier
     except ImportError:
         import autocode_changeset_barrier as changeset_barrier
-    if verification_failure.presentation(state):
+    if verification_failure.presentation(state) or model_listing_failure.presentation(state):
         return {"needs": None, "pause_category": "autocode", "pause_category_label": "AutoCode", "next_command": None}
     if changeset_barrier.held_approval(state):
         held_need = {
@@ -1117,8 +1119,8 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                                                      `edit_required` instead prescribes --edit-goal FILE
                                                      and `feedback_action` when offered, then fresh approval;
                                                      `guidance`, when set, says in prose what the
-                                                     alternatives do (the Tester's pause: --feedback
-                                                     revises the plan, a resume reruns the Tester);
+                                                     alternatives do (the Tester's pause: resume
+                                                     continues acceptance verification);
                                                      `action`, when set, is the one command that
                                                      continues (a source-only PAUSED_STALE_HANDOFF:
                                                      --resume-paused --accept-source-edit; a PAUSED_NO_PROGRESS its unchanged-
@@ -1154,7 +1156,7 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                                                      --abandon-stage ATTEMPT as deterministic recovery
     """
     status = state.get("status", "")
-    if status in COMPLETE or verification_failure.presentation(state):
+    if status in COMPLETE or (verification_failure.presentation(state) or model_listing_failure.presentation(state)):
         return None
     if retired := workflows.retired_stage(state):
         # Saved at a stage this runtime no longer runs (owner decision 2026-11-10): nothing resumes it.
@@ -1495,14 +1497,15 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             need["action"] = "--resume-paused"
             return need
         if status == "PAUSED_ACCEPTANCE_TESTS" and "action" not in need:
-            # The named command is what a yes takes, so it is the resume: it reruns the Tester and a fresh
-            # proof. A plan change is the person's words, offered as chat.input's feedback (#1869). Naming
+            # The named command is what a yes takes, so it is the resume. A completed writer's
+            # execution-only failure can retain its report for fresh local verification (#3511).
+            # A plan change is the person's words, offered as chat.input's feedback (#1869). Naming
             # `--feedback 'WHAT TO CHANGE'` here sent that placeholder to Requirements as the plan feedback
             # when a person answered "y" at the chat's Continue prompt (live Kilo run, 2026-11-12).
             need["action"] = "--resume-paused"
             need["guidance"] = (
-                "--resume-paused reruns the Tester and a fresh proof on the same plan; "
-                "--feedback MESSAGE revises the plan."
+                "Resume continues acceptance verification on the same plan. A retained report is reused "
+                "when its plan, source and evidence still match; otherwise the Tester prepares fresh tests."
             )
         if "action" not in need and status == "PAUSED_TRANSPORT_CHANGED":
             try:

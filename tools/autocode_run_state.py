@@ -261,6 +261,7 @@ KEYS: frozenset[str] = frozenset(
         "regression_proofs",
         "repair_plan",
         "report_repair_archive",
+        "reported_check_reruns",
         "report_repair_history",
         "report_repair_lifetime_attempts",
         "reports",
@@ -373,11 +374,16 @@ class RunState(TypedDict, total=False):
     # Builder rounds the runner queued because an approved plan check failed on the candidate, bounded per
     # command; written by autocode_planned_check_rework, read there and by autocode_resolver_recovery.
     planned_check_reworks: list
+    # Reviewer stages the runner started again because a check the reviewer reported did not pass its clean
+    # replay, once for each source; written and read only by autocode_reported_check_rerun.
+    reported_check_reruns: list
     # A person's reports that the built code departs from the approved plan, each bound to that plan's token, the
     # task and the source revision (#3045); written only by autocode_implementation_discrepancy.record, read there
     # for the reviewers' context packet (autocode_stage_context) and the status view's implementation_discrepancy.
     implementation_discrepancies: list
     acceptance_tests: dict  # spec-first receipts, redirect, contract-bound pending test names and the runner's own Tester rewrites; route pins names, job writes receipts and rewrites; read by job/check/run_view
+    # autocode_acceptance_verification_retry owns nested verification_retry and verification_retries:
+    # pinned completed reports, local retry counts and preserved failures; dispatch and public resume consume them.
     criteria_revision: str | None  # hash of the criteria; follow_up clears it before a fresh plan
     # The approved contract; written by goals. A revision loaded with --goal-file also names that file in
     # its record's plan_file (autocode_goal_file writes it, and reads it for the approval stop;
@@ -475,7 +481,7 @@ class RunState(TypedDict, total=False):
     _fixture_pause_reconcile_reads: Any
     _fixture_saved_diff: Any
     _fixture_verification: Any
-    active_seconds: Any
+    active_seconds: Any  # stage accounting and changed_code_continuation charge active work; budget gates read it
     active_stage_workers: Any
     affected_paths: Any
     agent_request: Any

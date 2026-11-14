@@ -79,3 +79,12 @@ class RouteLevelsTests(unittest.TestCase):
         self.assertFalse(permission.allows(settings, "builder", "plan/model", "max"))
         self.assertFalse(permission.allows(settings, "builder", "other/model", "high"))
         self.assertTrue(permission.allows({}, "builder", "other/model", "high"))
+        explicit = {
+            **settings,
+            "roles": {"builder": {"model": "other/model"}},
+            "route_origins": {"builder": "user_explicit"},
+        }
+        self.assertTrue(permission.allows(explicit, "builder", "other/model", "high"))
+        self.assertFalse(permission.allows(explicit, "builder", "third/model", "high"))
+        explicit["route_origins"]["builder"] = "runner_default"
+        self.assertFalse(permission.allows(explicit, "builder", "other/model", "high"))

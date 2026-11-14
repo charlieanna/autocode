@@ -73,6 +73,7 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_classification_recovery as classification_recovery
     from . import autocode_failures as failures
     from . import autocode_model_identity as model_identity
@@ -90,6 +91,7 @@ try:
     from .autocode_investigation_policy import enabled, max_calls
     from .autocode_test_cases import COUNTEREXAMPLE, run_probes
 except ImportError:
+    import autocode_acceptance_tests as acceptance_tests
     import autocode_classification_recovery as classification_recovery
     import autocode_failures as failures
     import autocode_model_identity as model_identity
@@ -516,6 +518,7 @@ def packet(state: RunState, state_path, inventory: dict | None = None, engine: s
         for key, entry in (state.get("failure_history") or {}).items()
         if (entry.get("identity") or {}).get("stage") == request["stage"]
     }
+    recovery = state.get("recovery_context")
     return {
         "stage": STAGE,
         "task": state["task"],
@@ -533,6 +536,7 @@ def packet(state: RunState, state_path, inventory: dict | None = None, engine: s
         "goal_contract": state.get("goal_contract"),
         "current_task": state.get("current_task"),
         "saved_answers": state.get("answers", {}),
+        **({"recovery_context": recovery} if isinstance(recovery, dict) and recovery.get("stage") == STAGE else {}),
         **({"builder_failure": request["failure_evidence"]} if request.get("mode") == "builder_failure" else {}),
         # What earlier runs learned about this repository; advisory, never authority (#2943).
         **({"project_notes": notes} if (notes := project_notes.context(state)) else {}),
@@ -656,7 +660,9 @@ def cited_files(value: dict, workspace, run_dir) -> dict[str, Path]:
 def release_route(state: RunState) -> dict:
     """The Investigator's route exists only while it runs: saved roles are re-validated on resume
     (e.g. native Codex runs refuse a non-Codex role), and a pinned route may be an OpenCode one."""
-    return (state.get("settings") or {}).get("roles", {}).pop(ROUTE, None) or {}
+    settings = state.get("settings") or {}
+    (settings.get("transport_identities") or {}).pop(f"role:{ROUTE}", None)
+    return (settings.get("roles") or {}).pop(ROUTE, None) or {}
 
 
 def apply(
@@ -1056,12 +1062,16 @@ def drive(
     investigation. A request queued elsewhere (Builder failure classification) is still restored
     to its own pause when that authority refuses it.
 
-    Only a pause this invocation produced by attempting a stage (a new stage record) is
+    Only a pause this invocation produced by attempting a stage or a retained acceptance check is
     investigated: a guard re-asserting a known pause on resume launches nothing, since that
     pause was investigated when it happened or is now the user's decision.
     """
-    # Runner-owned records (orchestration, regression proof, AutoResolver receipts) are not attempts.
-    attempts = lambda: sum(1 for row in state.get("stages") or [] if not row.get("runner_owned"))
+    # Runner-owned records are not attempts. A retained report's newly spent local check is real
+    # work, though: its failure needs investigation even when no model ran in this invocation.
+    attempts = lambda: (
+        sum(1 for row in state.get("stages") or [] if not row.get("runner_owned"))
+        + (acceptance_tests.verification_attempts(state))
+    )
     attempted = attempts()
     fresh = lambda: attempts() > attempted
     owed: set[str] = set()  # PUBLISHED pauses this invocation sent to the Investigator

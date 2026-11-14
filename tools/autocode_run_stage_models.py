@@ -30,6 +30,7 @@ FLAG = "--stage-model"
 VIA = "stage_models"
 BUSY = "A stage is working. Pause the chat, or wait until it asks you something, to change its models."
 NO_ROUTES = "This run has no saved routes yet; its models are chosen when it starts."
+CHECK_UNCERTAIN = "A previous check has not been confirmed stopped. Models cannot be changed while this run is paused."
 
 
 def _choices():
@@ -38,6 +39,14 @@ def _choices():
     except ImportError:
         import autocode_stage_choices as stage_choices
     return stage_choices
+
+
+def _quota_route():
+    try:
+        from . import autocode_quota_route as quota_route
+    except ImportError:
+        import autocode_quota_route as quota_route
+    return quota_route
 
 
 def backend(settings: dict) -> str:
@@ -62,6 +71,8 @@ def busy(state: RunState) -> str | None:
     """Why the run's models cannot be changed now, or None when it is between stages."""
     if not routes(state):
         return NO_ROUTES
+    if state.get("status") == "PAUSED_VERIFICATION_UNCERTAIN" and state.get("active_runner_check"):
+        return CHECK_UNCERTAIN
     if state.get("status") == "RUNNING" or state.get("active_stage") or state.get("active_runner_check"):
         return BUSY
     return None
@@ -109,7 +120,11 @@ def refusal(state: RunState, role: str, model: str, effort: str) -> str | None:
         return reason
     if not model or any(character.isspace() for character in model):
         return "Name the model without spaces"
-    if current[role]["model"] == model and current[role]["effort"] == effort_level(effort):
+    if (
+        current[role]["model"] == model
+        and current[role]["effort"] == effort_level(effort)
+        and not _quota_route().has_stale_inherited_route(state, role)
+    ):
         return f"The {_choices().LABELS[role]} already runs {model} at {effort}"
     return None
 

@@ -15,6 +15,11 @@ import re
 import stat
 from pathlib import Path
 
+try:
+    from . import autocode_project_kinds as project_kinds
+except ImportError:
+    import autocode_project_kinds as project_kinds
+
 VERSION = 1
 MAX_FILE_BYTES = 256 * 1024
 MAX_TOTAL_BYTES = 2 * 1024 * 1024
@@ -26,7 +31,7 @@ _EXCLUDED = frozenset(
         "vendor",
         "venv",
         "env",
-        "__pycache__",
+        *project_kinds.BYTECODE_DIRS,
         "build",
         "dist",
         "target",

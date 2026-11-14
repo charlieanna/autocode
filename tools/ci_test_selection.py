@@ -538,6 +538,19 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         (
+            "tools/providers/command.py",
+            "tools/autocode_model_listing_failure.py",
+            "tools/autocode_model_listing_failure_recovery.py",
+            "tools/autocode_run_actions.py",
+            "tools/autocode_action_recovery.py",
+            "tools/autocode_run_view.py",
+            "tools/autocode_recovery_view.py",
+            "tools/autocode_status_command.py",
+        ),
+        ("tests.test_model_listing_failure", "tests.test_model_listing_failure_cli"),
+    ),
+    (
+        (
             "tools/autocode_storage_errors.py",
             "tools/autocode_verification_copy.py",
             "tools/autocode_verification_failure.py",
@@ -996,6 +1009,16 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_stop.py",
         ),
         ("tests.test_stop_now_runner_check_cli", "tests.test_runner_check_cancellation"),
+    ),
+    (
+        (
+            "tools/autocode_job_failure.py",
+            "tools/autocode_job_source.py",
+            "tools/autocode_run_records.py",
+            "tools/autocode_stop.py",
+            "tools/autocode_interventions.py",
+        ),
+        ("tests.test_job_person_stop", "tests.test_stop_now_job_cli"),
     ),
     (
         (

@@ -8,9 +8,11 @@ from pathlib import PurePosixPath
 
 try:
     from . import autocode_project_inventory as project_inventory
+    from . import autocode_project_kinds as project_kinds
     from . import autocode_verification_schedule as schedule
 except ImportError:
     import autocode_project_inventory as project_inventory
+    import autocode_project_kinds as project_kinds
     import autocode_verification_schedule as schedule
 
 
@@ -47,25 +49,12 @@ def contains_go_project(paths) -> bool:
 # exists (#1783).
 MANIFESTS = frozenset(
     {
-        "pyproject.toml",
-        "setup.cfg",
+        *project_kinds.MANIFESTS,
+        *project_kinds.LOCKFILES,
         "Pipfile",
         "Pipfile.lock",
-        "poetry.lock",
-        "uv.lock",
-        "pdm.lock",
-        "package.json",
-        "package-lock.json",
-        "npm-shrinkwrap.json",
-        "yarn.lock",
-        "pnpm-lock.yaml",
-        "go.mod",
-        "go.sum",
-        "Cargo.toml",
-        "Cargo.lock",
         "pom.xml",
         "gradle.properties",
-        "Gemfile.lock",
         "composer.json",
         "composer.lock",
         "pubspec.yaml",
@@ -439,8 +428,10 @@ def repaired_by_flip(base_suite, on_base_with_tests, on_candidate):
 # autocode_jest_tests) and run the project's test files themselves, so what such a suite
 # runs is decided by its test files and the manifests and runner configs the definition scan pins
 # (autocode_verify._base_suite_definition). ``make test`` and a script package.json names run anything a
-# recipe says, which that scan does not read, so they are left out.
-EXIT_REPAIR_RUNNERS = frozenset({"jest", "mocha", "minitest"})
+# recipe says, which that scan does not read, so they are left out. PHPUnit runs the tests its configuration
+# file names and ``prove -lr t`` the ``.t`` files under ``t/`` with the options of a ``.proverc``; both
+# files are runner configs of that scan.
+EXIT_REPAIR_RUNNERS = frozenset({"jest", "mocha", "minitest", "phpunit", "prove"})
 
 
 def exit_repair_suite(framework, suite, adopted) -> bool:

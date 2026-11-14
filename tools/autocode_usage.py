@@ -552,6 +552,15 @@ def accounting(state: RunState):
                 "rejected": bool(record.get("rejected")),
                 "interrupted": bool(record.get("interrupted") or record.get("abandoned")),
                 "timed_out": bool(record.get("timed_out")),
+                **({"stall_phase": record["stall_phase"]} if "stall_phase" in record else {}),
+                **(
+                    {"completed_tool_calls": record["completed_tool_calls"]} if "completed_tool_calls" in record else {}
+                ),
+                **(
+                    {"last_event_offset_seconds": record["last_event_offset_seconds"]}
+                    if "last_event_offset_seconds" in record
+                    else {}
+                ),
                 "exit_code": record.get("exit_code"),
                 "report_only": bool(record.get("report_only")),
                 "planning": bool(record.get("planning")),

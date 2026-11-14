@@ -128,9 +128,12 @@ def _same_file(container: str, name: str) -> bool:
 
 def own_names(rest: str) -> tuple[str, ...]:
     """The names a test may have by itself in the part of a runner's id after its file: the last of
-    ``suite::title`` (pytest, node:test) and of ``group > title`` (Vitest, Jest), shortest first."""
+    ``suite::title`` (pytest, node:test, Minitest) and of ``group > title`` (Vitest, Jest, Mocha)."""
     last = rest.rsplit("::", 1)[-1]
-    return tuple(dict.fromkeys((last.rsplit(" > ", 1)[-1], last)))
+    names = [last.rsplit(" > ", 1)[-1], last]
+    if spec := re.match(r"^test_\d+_(.+)$", last):
+        names.insert(0, spec.group(1))
+    return tuple(dict.fromkeys(names))
 
 
 def matches(entry: dict, test_id: str) -> bool:

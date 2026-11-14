@@ -481,7 +481,467 @@ Open:
   clean trees, so it is not affected.
 - Mocha (its JSON reporter) and Minitest (verbose output) could be read the same way.
 
+## 18. TypeScript, a monorepo package and a dependency upgrade: a check's `npm ci` deletes the person's packages (fixed)
+
+Three kinds not yet tried, each with a brief as a person would write it. Five runs, $8.54:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| TypeScript with Vitest: "bookings that only touch should not conflict. Fix it and add a regression test." | complete, 8 stages, 138 s, $0.89; two new tests and three guards named by title | `3d4f8e209ba452dcbe218be0cc5fcc122809807e4872836fc52e062a6f6029aa` |
+| A bug in `packages/invoices` of a two-package repository, "leave packages/search alone", no `--package` | complete, 8 stages, 141 s, $0.85; only that package changed | `760dc85fd18e0f0856efb586c2f6a0efd0a12c4bf4686ff54d7e695748f04654` |
+| "Upgrade the ms dependency from 2.0.0 to 2.1.3, in package.json and package-lock.json, and make sure the tests still pass." | stopped (`PAUSED_INVALID_OUTPUT`), 282 s, $1.76 | `2190260b671dd61967e54d8cc2a6ccff42d4007e894f521ed476576c4d5ad4f9` |
+| The same upgrade on the fixed tree | complete, 19 stages, 475 s, $2.89, no question | `e0db0bc800c742f0356c55f5af6558b6775e7fc33a896239183db42805046265` |
+
+(A first run of the upgrade used a probe whose `npm test` script was wrong for Node 22, so the suite failed
+before the change. It asked the person whether it may correct the script, which the request did not cover:
+875 s, $2.15, manifest `b33dde4491ffaaaee61c947df6414c26b767361df9a7336d49e9f557735165ad`.)
+
+**The upgrade deleted the workspace's installed packages.** The plan's checks were `npm ci`, the installed
+version and `npm test`. A scratch copy's `node_modules` was a link to the workspace's own directory, and
+`npm ci` empties the directory behind such a link before it installs. The Tester's captured `npm ci`, run in
+its verification copy, emptied the workspace's `node_modules`; the runner's replay of `npm test` in a fresh
+scratch tree then failed with "Cannot find module 'ms'", the Tester's report was refused, and the Investigator
+(who took the cause to be the checks running in separate trees) sent the run to the person. A run of the same
+command by the runner would have done the same: its scratch trees were linked the same way.
+
+Fixed: a scratch tree and a verification copy get a directory of their own behind the link, which links each
+installed package and copies the files the package manager keeps beside them
+(`autocode_dependency_dirs.expose`). Emptying, replacing or reinstalling `node_modules` there changes that
+directory and nothing the person installed, and `npm ci` then works in the copy. The tree's files look as
+before: one link. A virtualenv and `vendor/` are still linked whole, so `pip install` in a copy still writes
+to the person's virtualenv. On the fixed tree the upgrade completed and the workspace kept its packages.
+
+The tests for this fix also showed `tests.test_package_scope_cli` red on master: since the mutation check
+stops at a mutant's first failing test, a `--package` run's `cd PACKAGE && RUNNER` was not read as the
+stopping runner, so no mutant a package's test caught was counted. Fixed separately (#3516).
+
+Open, from the fixed run, which needed two failed proofs and an Investigator before it completed:
+
+- **The original code is tested with the new packages.** Both proof trees use the packages installed in the
+  workspace, which after the Builder's `npm install` are the upgraded ones. A test that the installed version
+  is 2.1.3 passed on the original code too, so it proved nothing until the Investigator had it compare the
+  installed version with `package.json`. A dependency change cannot be shown to fail without it unless the
+  original tree gets the original packages.
+- **Guards that were all titles named no guard** (fixed, section 19). The four existing tests were guarded
+  by their titles, found nowhere, and the Builder copied them into the new test file as `test_ac3_...` to
+  `test_ac6_...`, as in section 5.
+- The plan named `node_modules` among its paths, so the proof counted the installed files as changed files of
+  the task.
+
+## 19. JavaScript: guards that are all titles are found nowhere beside a new test file (fixed)
+
+Seen in section 18's fixed run (manifest `e0db0bc800c742f0356c55f5af6558b6775e7fc33a896239183db42805046265`).
+The plan was what a person would want: two `test:` criteria for the upgraded manifest and lock file, in a new
+`tests/dependency.test.js`, and four guards on the project's existing tests, each by its title
+(`guard: a remembered session lasts thirty days`). The proof failed twice with "Preserve case AC3 … has no
+test named test_ac3_<what it checks>", and the Investigator had the Builder copy the four existing tests
+into the new file under `test_ac3_...` to `test_ac6_...` names, which is what section 5's fix was meant to end.
+
+A title is bound to a test only after the suite has run (`autocode_test_cases.titled`). The proof step told
+the verifier which guards exist by their exact test names, and a title is not one until then, so with every
+guard a title it was told of none. The verifier runs the whole suite on the original code with the change's
+test files only when there is a guard to find, so it never ran, and the existing tests in a file the change
+left alone were in no list the guards are searched in. Section 5's runs passed because the bug fix edited the
+existing test file, so the targeted run saw its tests, and the refactor's plan had one guard that was a test
+name.
+
+The proof step now names a guard by its declared title where the runner names tests by title
+(`autocode_test_cases.guard_names`), so the suite runs on the original code with the new test file and each
+titled guard rests on the existing test that passed there and with the change. A guard whose titled test
+fails with the change is still not proved.
+
+## 22. Java with Maven and C++ with CMake: the person is asked for test commands (fixed)
+
+Sections 20 and 21 (a Python dependency upgrade, and a rename or removal that existing tests must follow)
+are in a separate pull request that waits for an owner decision. The runs below were made on trees that
+also held its change (a Planner prompt paragraph about replaced tests, and the original-test gate's handling
+of a test file that can no longer load); none of these tasks replaces a test.
+
+Two bug fixes with a regression test, written as a person would write them, on master `40cf369`:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| Java, Maven and JUnit 5, tests named `exactMultipleNeedsNoExtraPage` | asks the person, 9 stages, 232 s, $1.66 | `d03847af3ecb6eb4bcb6923606b973e712cd2d5f4ef62f545042f7839863514e` |
+| C++, CMake and CTest, one test executable of plain checks | asks the person, 9 stages, 186 s, $1.14 | `d5e1b2eb7505121ae5c80b8a0abad6e413842aef68ebafaf9c824b9fcaa81faf` |
+
+Both Builders delivered the correct fix and a regression test. Both proofs were `UNVERIFIED`: "No
+command to run the regression tests; pass --regression-command" and "No project test command was found;
+existing behavior was not checked (pass --test-command)". The Resolver then asked the person to "Set
+the saved verification commands through the operator command correction: regression command `mvn test`
+(--regression-command 'mvn test') and suite/test command `mvn test`", and the same with the `cmake` and
+`ctest` command: a question about AutoCode's own flags, which a person in the VS Code client cannot even
+type.
+
+Two causes. Detection (`autocode_toolchain_suite.detect`) listed Go, Node, Cargo, RSpec, `make test` and
+Minitest, so a Maven, Gradle or CMake project had no suite. And the fallback for such a project, the
+approved plan's own command (section 1), takes only a command that names a test file, so it can tell
+which role the command plays; `mvn test` and `cmake ... && ctest ...` name none.
+
+Fixed in detection: a root `pom.xml` is a Maven project (`mvn -B -q test`), a root Gradle build or
+settings file a Gradle project (`gradle --no-daemon -q test`), each through the project's own `mvnw` or
+`gradlew` when it has one, and a root `CMakeLists.txt` that turns testing on (`enable_testing()` or
+`include(CTest)`) a CMake project (`cmake -S . -B build && cmake --build build && ctest --test-dir build
+--output-on-failure`). Each is judged by its exit code, as `make test` is: the suite passes on the
+original code, fails there with the change's test files, and passes with the change. A suite the
+project declares another way (`make test`, `go.mod`, `Cargo.toml`, a `package.json` test script) keeps
+priority, and a Python project that also builds a native part stays a Python project. Named JUnit
+results still need `--test-report` (docs/named-test-proof.md).
+
+The same two tasks with the fix:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| Java, Maven | complete, 8 stages, 201 s, $1.11; suite `detected:maven`, guards ``guard: run `mvn -B -q test` `` | `c78eecd8887a097a0952ef171e24ec832d81a979b7bd3867f92f958f4ec08dcc` |
+| C++, CMake | complete, 8 stages, 152 s, $0.83; suite `detected:cmake` | `ca595b22f82c267453211869f3dbe3d0ce009bfe9464ea2592671e3f436fa2b3` |
+| The Java task in a Gradle project | complete, 8 stages, 254 s, $1.07; guards ``guard: run `gradle --no-daemon -q test` `` | `0e8af291ccae3ccfe8f6b0438a897d67964b69fa63a6916d6e4aad77c7243a18` |
+
+Open: a project whose runner is still not detected and whose plan command names no test file (`dotnet
+test`, `mix test`, `swift test`, `sbt test`) stops the same way; PHP with PHPUnit is section 29 and Perl
+is section 30. A build
+directory the project does not ignore is section 24.
+
+## 23. Three more kinds of task (complete)
+
+On the tree with section 22's fix, each with one plan approval and no question:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| "This test fails on some runs and passes on others. Find out why and fix it" (Python; the code returned a set's order) | complete, 8 stages, 147 s, $0.84 | `59e4067f985d6605af6aad446fbb66987eda4e42a315098df7e1bc01c1b12c52` |
+| A new endpoint in an Express app, tested with Jest and supertest | complete, 8 stages, 157 s, $0.89 | `800873960cd8804d8c78c84ae17cd51a32dca173eb2b1f8d3dcd8a1672845211` |
+| "Add type hints to every function. Do not change what the code does" (Python) | complete, 8 stages, 151 s, $0.85 | `8bb24b005bcef8ec3e3e20414591e823a93fee31f1a42555c1bbe448ebae46ed` |
+
+## 24. A project that does not ignore its build directory: the Builder is refused for its build output (fixed)
+
+Section 22's Java and C++ tasks again, in the same projects without their `.gitignore`, on the tree with
+section 22's fix:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| C++, CMake, `build/` not ignored | `PAUSED_INVALID_OUTPUT`, 152 s, $0.67 | `7a9e7926fe26c94ef81ccb0431962e471e7764eb104ef026674b059fb5422428` |
+| Java, Maven, `target/` not ignored | complete after two refused Builder attempts, 13 stages, 587 s, $2.19 | `17f7aa24f0fbe444053b3a4481110122364d5e1463adeb36309c544e62ae2882` |
+
+Each Builder fixed the code, added the test and ran the project's tests, as its prompt asks. The build
+tool wrote its output beside the sources (`build/CMakeCache.txt`, `build/libpager.a`, ...;
+`target/maven-status/...`, `target/surefire-reports/...`), nothing ignores it, and the attempt was refused:
+"Builder attempts for this task changed files outside the assigned paths". The C++ plan's own check was
+`cmake -S . -B build && cmake --build build && ./build/pager_test`, so no retry could pass, and the
+Investigator ended with `needs_user`. The Maven run's Investigator told the Builder to build in a scratch
+copy and clean `target/`, which worked once and was lost in the next round.
+
+This is section 3's `Cargo.lock` again, many files at a time: a tool's by-product, not the stage's edit.
+`autocode_toolchain_byproducts` now also removes, when a stage ends, the files a build tool wrote into
+its own directory beside the manifest it builds (`target/` beside `pom.xml` or `Cargo.toml`, `build/` and
+`.gradle/` beside a Gradle file, `build/` beside `CMakeLists.txt`; `autocode_project_kinds.BUILD_DIRS`),
+and only when that directory held no file when the stage began. A directory that already held a file,
+committed or not, is the project's own and is measured as before; so is one a link leads to, and one the
+Builder's assigned paths touch. A file the project ignores there stays. The stage's record names each
+removed directory (`toolchain_byproducts`).
+
+The same two tasks with the fix:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| C++, CMake, `build/` not ignored | complete, 11 stages (the Tester sent the first build back once), 226 s, $1.14; both Builder records name `build/` | `5c82eb7513897bd7d540ae35b475c311d02e4f6d0841a5d6dc2cb8eb793c5217` |
+| Java, Maven, `target/` not ignored | complete, 8 stages, 206 s, $1.00 | `586fd988491db4f945b997d5d72275f783af851088a3569d646bcf47d849324d` |
+
+Open: build output in a directory that already held files when the stage began (a person's own earlier
+build, never ignored) is still charged to the stage. `node_modules/` a stage installs in a project that
+does not ignore it is not handled either.
+
+## 25. Four more kinds of task (complete)
+
+On master with sections 22 and 24's fixes, each with one plan approval and no question:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| Rust bug fix in a project with neither a `.gitignore` nor a `Cargo.lock` | complete, 10 stages, 158 s, $1.23 | `b76e5d9698a4575fd4266357ebe3c3487b3fbead880940c87c918032080b8175` |
+| Python package in a `src/` layout, pytest with a `conftest.py` fixture and parametrized tests, its own virtualenv | complete, 10 stages, 219 s, $1.35 | `411889d1b49c830e4d5642ebd9489d2eb25e5b64067175f3213490ea45b5dd9c` |
+| Two unrelated changes in one request (a display bug and a new command) | complete, 8 stages, 158 s, $1.10 | `9764e1921a54bc254d195ed49fd873bb708da1ca6890e28b0376c790114bb198` |
+| TypeScript refactor (extract a function, behavior unchanged), Vitest | complete, 10 stages, 198 s, $1.36; the Tester's report was refused twice for its form and repaired without a new check | `1532d861bfda72f903033a261cf491496c1282e78344e2acf6ff0d100d72f0b9` |
+
+## 26. Five more kinds of task: three complete, two stop
+
+With section 20's fix on top of master, each with one plan approval:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| Bug fix in a project whose suite already has an unrelated failing test, which the request says to leave | complete, 8 stages, 124 s, $0.86; the failing test is untouched | `f49cfc876dad4f017f95f4bcf70f524615f222e5a9a27316fd376ada39397144` |
+| A question about the code ("what does it do when ..., and is that tested? do not change anything") | answered by Requirements with the lines it read, nothing changed, 12 s, $0.05 | `10b66731534b91d11387d800d484b7f9da1a1185032621b3dccb76ab677f2c1f` |
+| A new endpoint in a Flask app, pytest with a fixture, its own virtualenv | complete, 10 stages, 252 s, $1.57 | `3a50676e0c169013420e5b1d754c44dcf70653fcbc6566be5b4fd2f7078dcdc5` |
+| Move a module into a new package and update its imports | `PAUSED_INVALID_OUTPUT`, 265 s, $1.50, with a correct move | `842776c4b8338566fde172e2413cd0f48429e75a4e23dbe9f6ae1b6f5eb411fe` |
+| One change across a Python package and a Node package of the same repository, tests on both sides | `PAUSED_REPEATED_FAILURE` before any Builder, 147 s, $0.90 (section 27) | `92120aada17d98ed37640f29df153d163be9c0aeef06d79e7b8505a38f49da69` |
+
+Open: the module move is section 20's stop in another form. `tests/test_pager.py` changed only its import
+(`from pager import ...` became `from paging.pager import ...`), no test in it changed, and the suite passes
+with the change. The original file can no longer be loaded once `pager.py` is gone, so the original-test
+gate refused the Tester's PASS, and the Investigator asked the person to approve a plan that lists the
+four untouched tests as replaced. Section 20's fix does not accept it: it requires that an import the
+file gains binds no name the file already bound, and here the same names are imported from the module's
+new place. Whether the gate may accept the same names from a moved module waits for the same decision.
+
+## 27. One change with tests in two projects of a repository: the plan is refused (fixed)
+
+"Notes can be archived. Return it from the API as a boolean `archived` field in packages/api, and in
+packages/web show an archived note's line in brackets. Add tests on both sides." `packages/api` is Python
+with unittest, `packages/web` a Node package with `node --test`.
+
+The Planner named both test files. The plan check refused the draft three times, the same way: "The
+regression proof would never run the plan's tests packages/web/tests/format.test.js: it runs the plan's
+tests with one suite". The Planner tried plain milestones, then a new `packages/package.json`, then a new
+root `package.json` whose script runs both suites; none can satisfy a check that accepts only a suite
+that already exists. The Investigator then asked the person: "the runner's regression proof can run only
+one suite per plan. How should it proceed? (a) split it into two runs ... (b) let the web test sit
+outside the regression proof; or (c) approve a cross-language workaround". Every option is a question
+about AutoCode's own machinery.
+
+The refusal protected something real. Without it the proof ran only the tests its own suite collects:
+the other project's new test was run with that project's suite on the candidate, as part of the suite
+that must keep passing, and never on the original code. A new test there that the original code already
+passes was accepted (`tests.test_companion_tests` shows it failing on master).
+
+Fixed in the proof, not in the check. Each changed test the proof's suite cannot run is proven by the
+suite of the project around it, with the same steps as a change to that project alone
+(`autocode_companion_suites.test_suites`, `autocode_companion_tests`): that suite's run on the original
+code, the changed tests on the original code and with the change, their repeats, and the whole suite
+with the change. Its failures are the proof's, named with the project, and a `test:` criterion may rest
+on a test that suite showed fail before and pass after. The plan check now refuses only a test that no
+suite would run: one of another kind than the proof's suite runs, in a directory with no suite of its
+own for that kind.
+
+The first real run with that fix accepted the plan and proved both sides: the root's suite showed the
+Python test fail on the original code, and `packages/web`'s suite showed the Node test fail there and pass
+with the change. It then failed four proofs on one criterion, "guard: a pinned note is starred", a test
+the Node package already has, and the Resolver asked the person "How should AC4's preserve check be bound
+so the proof can map it?" (`WAITING_FOR_USER`, 23 stages, 517 s, $3.69; bundle manifest
+`8376372751c3e3b810542971133095f561bb5eccba56ce8d7e1913f769994151`). A guard names a `node:test` test by
+its title (section 19), but only where the proof's own runner names tests by title: beside a Python suite
+the title was read as prose and looked for as `test_ac4_...`. A guard is now matched in another project's
+suite as that suite names its tests, by name or by title, and a title guard's test file in a project the
+change does not test is found by the title it spells.
+
+With both, a real run completes: the root's suite proved the two Python criteria and their guard, and
+`packages/web`'s suite proved the two Node criteria and the two guards named by title (`TASK_COMPLETE`,
+17 stages, 315 s, $2.15; bundle manifest
+`c84eacfed28d445eb5cca4569a462fe9f280ea4e5bff6be4c54477f78a996aae`). That run built the two milestones
+one after the other (`--max-parallel-builders 1`).
+
+**A parallel Builder that edits the project instead of its own copy (fixed).** Two runs of the same
+task with the default two Builders side by side stopped before any proof, `PAUSED_ORCHESTRATOR_DRIFT`,
+"Parent source changed during the build" (10 stages, 287 s, $1.74, bundle manifest
+`47c4f972fdc3e91804b71a371531b834692f272086ea9f96cc52b14d203bfbd2`; 7 stages, 233 s, $1.18, bundle
+manifest `5942b71fa793a5c7b678822d6cbcfe3971ad4e7bbf13ca9cdd040fd4be018cc8`). Each Builder works in its
+own worktree under `.autocode/builders/`, and its prompt names only that directory. In both runs the
+Builder for `packages/web` (Haiku) read and edited `PROJECT/packages/web/...` by absolute path instead,
+with the Edit and Write tools. In the first the Investigator saw it and the retry built in the worktree,
+but the edits left in the project still ended the batch. Nothing was lost or merged wrongly: the stop is
+the guard against exactly this. But the person is left to clean up after AutoCode's own Builder.
+
+The Claude Code backend pre-approved Edit and Write (`--allowedTools`), and a pre-approved tool edits
+any path on the machine. Measured on Claude Code 2.1.325 with a stage's own flags: without the
+pre-approval, `--permission-mode acceptEdits` accepts the same edits inside the stage's directory
+(source files, `.github/`, `.gitignore`, `.autocode/`) and refuses one outside it, in the parent
+directory or anywhere else. The backend no longer pre-approves them (`providers/claude.WRITE_ALLOWED`),
+so a Builder's stray edit is refused where it is made. Of the 248 Edit and Write calls in the real runs
+of this survey up to then, 242 were inside the stage's own directory and the other six were these stray
+ones.
+
+That alone was not enough. Claude Code's refusal reads "Claude requested permissions to write to PATH,
+but you haven't granted it yet". In four runs with it, two Builders strayed: one corrected the path, and
+one took the refusal for a permission to ask for, reported "Grant file edit permissions within the
+current_task.affected_paths", and the person was asked (`WAITING_FOR_USER`, 8 stages, 161 s, $0.95,
+bundle manifest `256dffabf5d146d334c632980d1e30d6edcfaed0078f0b21970942f73dfa3d9c`). The mistake is a
+path, and the runner knows the right one. Before each Edit and Write, Claude Code now runs a small hook
+of AutoCode's (`providers/claude_edit_scope.py`): for a path outside the stage's directory its refusal
+says so, says that no permission changes it, and names the stage's own file at the same place. In the
+next real run where a Builder strayed, it read that and edited its worktree's file in the next call
+(bundle manifest `20079fd8529bbf4a0c37fa15306fbab60a83954b5d34e92d97d4deb1bd90dcf5`). The hook grants
+nothing: an edit it lets through is still judged by Claude Code, and when it fails Claude Code's own
+refusal stands.
+
+Bash is not confined by this: the Claude Code backend still has no kernel containment, and a command may
+write where the process can. The stop above remains the guard for that.
+
+**A Tester's check that only worked from where its last command had left it (fixed).** That same run
+then paused for another reason, `PAUSED_BUILDER_CLASSIFICATION` (13 stages, 287 s, $1.33). The proof had
+passed. The Tester (Sonnet) ran `cd packages/api && python3 -m unittest discover`, and Claude Code keeps
+a `cd` for the next command, so its `cd packages/web && npm test` failed and it cited
+`cd ../web && npm test --silent` instead. The runner replays a cited check from the repository root,
+where that command fails, and rightly refused the report. The repaired report could then only say the
+web criteria were not verified, the run went back to a Builder with nothing to change, and the
+Investigator called it "a routing/operational issue". The backend now sets
+`CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1`, so every command of a stage starts in the stage's
+directory (measured on 2.1.325), and a check written for one command is one the runner can replay.
+Three real runs with all of this, two Builders side by side, each completed in the eleven stages the task
+needs with no report repair (191 s, 199 s and 212 s; $1.45, $1.38 and $1.46; bundle manifests
+`c2eed3f6a662b98ea6e8b522f1fff5717e446aa3cd00dffa8b6c79754cae0e56`,
+`fd6aa8fc149cd31dee6114131385437d2481db4cec240b9c3414b210d93c0a2d`,
+`71d210e81900df59a0825dfd4b08936bfccb0e95053dcc6457b2d128ecd18f56`).
+
+**A Tester report refused only because a cited check does not replay (fixed).** That run's refusal went
+to a report repair, which has no tools: it withdrew the check and marked the web criteria not verified.
+The blocked report sent the task to a Builder, which had nothing to build, and the Investigator paused
+the run for the person. The cause is removed on Claude Code, but the route was the same on every
+backend. Now the stage that cited the check runs again on the same source, once for each source and
+twice for a task, and is told the command, how its replay ended and to run every check from the
+repository root (`tools/autocode_reported_check_rerun.py`). A second refusal at the same source keeps
+the earlier route.
+
+The original-test gate is as before: in a run of the whole repository it replays the original tests with
+the root's suite, so the original tests of a nested project of another kind are not replayed there. The
+nested project's own suite still runs with the change, where an existing test the change breaks fails
+the proof.
+
+## 28. Five more kinds of task (complete)
+
+On master with section 27's fixes, each with one plan approval and no question:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| "Make both linear. Results must stay exactly the same, including order" (two quadratic Python functions) | complete, 10 stages, 487 s, $2.72; the plan grew to ten criteria, with unhashable and NaN keys kept exact | `3545e4987d949b526183193d7c4d6ec6c54a056a00e81962928d34102cdfe29a` |
+| A new column in a SQLite table, with database files of the current version kept working | complete, 10 stages, 225 s, $1.66; two of the new tests open a database made with the old schema | `e303d13ea208982d9b5d4146a714fe093982bc4b51469608b77b076415431b53` |
+| A bug reported as a pasted traceback and the value that caused it | complete, 10 stages, 198 s, $1.35 | `46f76b4e7d75bec3828efd5238fe6e303f9c858d98062a744eb9cc13052a475e` |
+| A new command-line flag that must also be documented in the README | complete, 9 stages, 171 s, $1.05; the Builder's last message was not a report and was repaired; the Tester checked the README row with `grep` | `b609958acf986f6acada0fab19a256e1997d7d3b583c9ec720ff0eda8ea89789` |
+| "`ruff check .` reports a pile of problems. Clean them all up. Don't change what the code does, and don't loosen the config" | complete, 11 stages, 195 s, $1.41; the Tester's report cited a file as evidence for a criterion and was repaired | `a394f76c1b520027d4b433e5af90f62dc6f5c7796aa875d48d4da08490344d70` |
+
+## 29. PHP with Composer and PHPUnit: a pause in planning, then a question about test commands (fixed)
+
+A bug fix with a regression test in a Composer project (`composer.json`, `phpunit.xml`, `src/Pager.php`,
+`tests/PagerTest.php`, the packages installed in an ignored `vendor/`), on master `826d30b`:
+
+| Project | Result | Bundle manifest |
+| --- | --- | --- |
+| `.gitignore` lists `vendor/` only | `PAUSED_STALE_VALIDATION` in planning, 69 s, $0.59 | `198d136b4c3eb88cf711446c6efde7f03705c3068f3126ee03aa56a2816765b7` |
+| `.gitignore` also lists `.phpunit.result.cache` | asks the person, 13 stages, 321 s, $1.91 | `9d51bdec9602ce83fb5f81ee85b50606a7041d991254b37b90f0373db28d400a` |
+
+**The pause.** PHPUnit writes `.phpunit.result.cache` in the project root every time it runs. The Plan
+Reviewer ran the tests to read the code, the file appeared, and a read-only stage had "changed the
+repository". It is the tool's by-product, as Cargo's `Cargo.lock` is (section 3): now removed when the
+stage ends, beside PHPUnit's configuration or `composer.json`, and so is the `.phpunit.cache/` directory a
+PHPUnit configuration can name (`autocode_project_kinds`, the `php` row's `run_files` and `build_dirs`;
+`autocode_toolchain_byproducts`).
+
+**The question.** No suite was detected. The plan's draft was first refused for naming tests after
+`test:` ("this project's tests run with no runner AutoCode reads"), and its repair wrote four commands,
+one for each test: `vendor/bin/phpunit --filter test_ac1_twenty_items_at_ten_is_two_pages
+tests/PagerTest.php` and so on. The Builder's fix and tests were correct. The proof then took "the first
+approved command that runs a test file" as the suite and the regression command (section 1). The two new
+tests' criteria were not read as commands, because `vendor/bin/phpunit` was not a command word the plan
+check knows, so the first was a guard: ``guard: run `vendor/bin/phpunit --filter
+testPartialPageCountsAsAPage tests/PagerTest.php` ``, which passes on the original code by definition.
+The proof failed twice ("The regression tests also pass on the unfixed base code"), and the Resolver asked
+the person to "Correct the saved verification commands. Set the regression command to ...".
+
+Fixed in detection: a root `composer.json` with a PHPUnit configuration file (`phpunit.xml`,
+`phpunit.xml.dist`, `phpunit.dist.xml`) or the `phpunit/phpunit` package is a PHPUnit project, and its
+suite is `vendor/bin/phpunit`, judged by its exit code as Maven's is (`autocode_toolchain_suite.phpunit`).
+A `Makefile` test target or a Node test script keeps priority. `php`, `phpunit` and `composer` are
+command words a plan's check may start with, and a file named `FooTest.php` is a test file by its name.
+
+The same task with the fix:
+
+| Project | Result | Bundle manifest |
+| --- | --- | --- |
+| `.gitignore` lists `vendor/` only | complete, 8 stages, 220 s, $0.95; the cache file was removed after the Plan Reviewer and after the Builder | `002449217d4b1f4926521643b9e0d9882a8c4c3008a480cc02ef5bb3caa13fdd` |
+| `.gitignore` also lists `.phpunit.result.cache` | complete, 8 stages, 164 s, $0.79; suite `detected:phpunit` | `a1005f44a79f8821a364dbcc4746ea836acf1f0e2a886e7a0258e522fb454e09` |
+
+Still open: in a project whose runner is not detected, a plan that gives each test its own command can
+still have a guard's command taken as the regression command, as above. Pest, PHPUnit installed outside
+`vendor/bin`, and `composer test` scripts that run something else are not detected.
+
+## 30. Perl with `prove`: the person is asked for the test command (fixed)
+
+A bug fix with a regression test in a Perl distribution (`cpanfile`, `lib/Acme/Pager.pm`, `t/pager.t` with
+`Test::More`, run with `prove -l t`), on master with section 29's fix: the person is asked to "Correct the
+saved verification commands for the regression proof: set the suite command to `prove -l t/pager.t` and the
+regression command to `prove -l t/pager.t`", after 10 stages, 222 s, $1.37, with a correct fix and a
+correct test (bundle manifest `731fdb6743e9c4a18ed172b51d202f135e2c040429d048f4c00e743b9a84b3e3`).
+
+The table had one Perl suffix, `.pl`. A module (`.pm`) was not code, `t/pager.t` was not a test file by its
+name or its directory, and no suite was detected. The plan's criterion was a command, ``run `prove -l
+t/pager.t` ``, but `prove` was not a command word, and the proof's fallback to an approved command (section
+1) needs a test file it knows. Both proofs said "No regression test was added or changed" and "No project
+test command was found".
+
+Fixed in the table and in detection. `.pm` and `.t` are Perl files, a `.t` file is a test file, and a root
+`t/` directory holds tests, with their helper modules (`autocode_project_kinds`). A pure-Perl distribution
+(a root `cpanfile`, `Makefile.PL` or `Build.PL`, or a module under `lib/`, and no `.xs` file) with `.t`
+files under `t/` runs them with `prove -lr t`, judged by its exit code as PHPUnit is
+(`autocode_toolchain_suite.perl_tests`). `prove` comes with Perl. A `Makefile` test target keeps priority.
+`perl` and `prove` are command words a plan's check may start with.
+
+The same task with the fix completes: 8 stages, 144 s, $1.04, suite `detected:prove`, the plan's guard
+``guard: run `prove -lr t` `` (bundle manifest
+`96122539cbb38ff28f076a72b3e0a0cc45a8d41556ee55fb05b1a82384a9292c`).
+
+Still open: a distribution with C code (`.xs`), which must be built before its tests run; one whose tests
+are only under `xt/`; and a distribution with no test yet, where the first `t/` file has no suite on the
+original code.
+
+## 31. Perl and PHP: a failing test to repair asks the person (fixed)
+
+Section 11's request in a Perl distribution, on master with section 30's fix: "t/pager.t fails:
+page_count(20, 10) gives 3 and the test expects 2. Fix lib/Acme/Pager.pm so the tests pass. Do not change
+the tests." The fix was correct. Both proofs said "No regression test was added or changed, so the bug is
+not shown to be reproduced", and the Resolver asked the person to "Set the saved regression command to
+`prove -l t/pager.t`": 10 stages, 187 s, $1.16 (bundle manifest
+`408f9cade121f6f872e31801fd05b55e60ac61a5f0adb42ee09a121410364e5e`).
+
+`prove` and PHPUnit report only an exit code, and neither was among the runners whose failing suite may
+show a repair that changes no test (`autocode_first_suite.EXIT_REPAIR_RUNNERS`: Jest, Mocha, Minitest).
+Both run the project's own test files, and the files that say which are now ones the proof holds to the
+original, as `jest.config.js` is (`autocode_suite_definition_scan`): PHPUnit's `phpunit.xml`,
+`phpunit.xml.dist` and `phpunit.dist.xml`, and prove's `.proverc`. So both are such runners now. The
+rule is unchanged: the suite failed on the original code, passes with the change, and the change is code
+alone.
+
+With the fix, the same request completes in both:
+
+| Project | Result | Bundle manifest |
+| --- | --- | --- |
+| Perl, `prove -lr t` | complete, 9 stages, 126 s, $0.86 | `86f8495ff0e3caa0e01785ea5138770cb9aa8ef260e91862e021e352f63e6979` |
+| PHP, `vendor/bin/phpunit` | complete, 9 stages, 214 s, $1.38 | `5b866cb8995448ada1f4dd881191c1e07fe8f87373c9365d34c9344fd30ff3c3` |
+
+In both, the Tester's first report was refused once and repaired in six seconds: the changed line has no
+mutation outcome in these languages, so the Tester must give its reason for the line, and its first report
+did not (Perl) or cited the test file in a form the runner does not read (PHP). Not a stop, but one more
+model call in every such run.
+
+Still open: `make test`, Maven, Gradle and CMake report only an exit code too, and a recipe or a build
+file can run anything, so a repair with no test change there still needs a changed test.
+
+## 32. Three more kinds of task: two complete, `make check` asks the person (fixed)
+
+On master with section 31's fix:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| Bug fix with a test in a Bun project (`bun test`, a `package.json` test script, no packages) | complete, 8 stages, 173 s, $1.10; suite `npm test --silent`, the plan's first draft named tests after `test:` and was repaired | `0a1d203e397ef86eefe285aed533106d3026a4a26766e8874b8972a6a3e8d933` |
+| A change of data alone: two missing French translations in a JSON file a Python package reads | complete, 8 stages, 126 s, $0.85; two new tests for the keys, two guards on the existing ones | `9193aa5c8fb2f691851ba9353cdd3e5802be006b6dc4aa6b77bc7e48408191a0` |
+| Bug fix with a test in a C project whose `Makefile` runs the tests with `make check` | asks the person, 9 stages, 166 s, $1.04 | `c990227d3df60a51f46fe444a0d028dbc7b7efed74bd3d7ec3c0112a9e1e3eee` |
+
+**`make check`.** The C project's `Makefile` has `all`, `check` and `clean`, and its README says "run the
+tests with `make check`", the name the GNU conventions give that target. Detection knew only a `test`
+target. The plan's criterion was ``run `make check` ``, which names no test file, so the proof could not
+adopt it (section 22) and ended `UNVERIFIED`: "No command to run the regression tests; pass
+--regression-command". The Resolver asked the person to "Set --test-command 'make check' and
+--regression-command 'make check'".
+
+Fixed in detection: a `check` rule in the root `Makefile` is the project's suite when no other suite is
+detected (`autocode_toolchain_suite.make_target`); in a project with a build tool or a test runner of its
+own, `check` is often lint alone. The same task then completes: 9 stages, 162 s, $0.83, suite
+`detected:make` `make check` (bundle manifest
+`14a8aabc66cb3a180d2f3e25980b32d78409f251c02d50fa3cefc7f4b9a71c8a`).
+
+Still open: a `GNUmakefile` or `makefile`, a test target of another name (`tests`, `unittest`), and a
+`Makefile` that includes the file its test rule is in.
+
 ## Also seen, not yet run on real models
+
+- **Claude Code refuses to edit some directories inside the stage's own directory.** With Edit and
+  Write accepted for the directory (`acceptEdits`), Claude Code 2.1.325 still refuses a file under
+  `.vscode/`, `.husky/` or `.claude/`, with or without a pre-approved rule; `.github/`, `.gitignore`
+  and `.autocode/` are accepted (measured with `claude -p`, 2026-11-14). A task that must change
+  such a file can only do it through a shell command. No task run has needed one yet.
 
 - **A new repository with no commit is refused** with a Git command for the person to type
   (`autocode_workspaces.create`), while an empty folder that is not a repository is set up

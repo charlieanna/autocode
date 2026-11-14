@@ -28,6 +28,7 @@ try:
     from .. import autocode_goals as goals
     from .. import autocode_launch_inputs as launch_inputs
     from .. import autocode_providers
+    from .. import autocode_quota_route as quota_route
     from .. import autocode_recovery_novelty as novelty
     from .. import autocode_resolver_human as human
     from .. import autocode_resolver_recommendation as recommendation
@@ -46,6 +47,7 @@ except ImportError:
     import autocode_goals as goals
     import autocode_launch_inputs as launch_inputs
     import autocode_providers
+    import autocode_quota_route as quota_route
     import autocode_recovery_novelty as novelty
     import autocode_resolver_human as human
     import autocode_resolver_recommendation as recommendation
@@ -227,7 +229,11 @@ def prepare(state: RunState, stage, state_path, schema_dir, *, retry_authorizati
         )
     # Inherit the planner model, not its conversation. A dedicated route keeps
     # resolver sessions separate from planning, completion and implementation.
-    state["settings"]["roles"].setdefault("resolver", copy.deepcopy(state["settings"]["roles"]["task_planner"]))
+    roles = state["settings"]["roles"]
+    if "resolver" in roles:
+        quota_route.sync_derived_role(state, "resolver")
+    else:
+        roles["resolver"] = copy.deepcopy(roles["task_planner"])
     role_transport.inherit(state.get("settings"), "resolver", "task_planner")
     request = execution_request(state, "review_completion", state_path, schema_dir, report_stage=stage)
     instruction, payload = request.prompt.split("CURRENT HANDOFF DATA\n", 1)
@@ -345,7 +351,11 @@ def prepare_diagnosis(state: RunState, stage, state_path, schema_dir):
     if stage != "diagnose":
         raise ValueError(f"Autoresolver cannot run {stage}")
     diagnosis_guard(state, Path(state["workspace"]))
-    state["settings"]["roles"].setdefault("resolver", copy.deepcopy(state["settings"]["roles"]["task_planner"]))
+    roles = state["settings"]["roles"]
+    if "resolver" in roles:
+        quota_route.sync_derived_role(state, "resolver")
+    else:
+        roles["resolver"] = copy.deepcopy(roles["task_planner"])
     role_transport.inherit(state.get("settings"), "resolver", "task_planner")
     # Reuse the Plan Reviewer's handoff context (current source, task, evidence
     # inventory) for input only; the output schema below is unrelated to and far

@@ -207,3 +207,24 @@ class RouteEvidenceTests(unittest.TestCase):
         result = record(rows)["attempt_accounting"]
         self.assertEqual((3, 1), (result["attempts"], result["accepted_attempts"]))
         self.assertEqual(2.25, result["reported_cost_usd"]["known"])
+
+    def test_stall_phases_are_counted_when_present_without_requiring_legacy_rows(self):
+        rows = attempts()
+        rows[1]["stall_phase"] = "before_first_event"
+        rows.append(
+            {
+                "role": "planner",
+                "model": GLM,
+                "duration_seconds": 90,
+                "rejected": True,
+                "timed_out": True,
+                "stall_phase": "during_tool_call",
+            }
+        )
+        result = record(rows)
+        accounting = result["attempt_accounting"]
+        self.assertEqual(
+            {"before_first_event": 1, "during_tool_call": 1, "during_reasoning_or_output": 0},
+            accounting["stall_phases"],
+        )
+        selector.parse({"as_of": "x", "roles": {"planner": [entry([result])]}})

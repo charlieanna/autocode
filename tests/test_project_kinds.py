@@ -30,6 +30,7 @@ class TestRoleTests(unittest.TestCase):
         "TestCalc.cs",
         "Test_Calc.swift",
         "CalcTest.scala",
+        "CalcTest.php",
         "test_calc.sh",
     )
     SUPPORT = ("conftest.py", "Calc.test.tsx.snap")
@@ -44,6 +45,8 @@ class TestRoleTests(unittest.TestCase):
         "Latest.java",
         "Contest.kt",
         "Testament.cs",
+        "Contest.php",
+        "CalcTests.php",
         "calc_test.sh",
         "README.md",
     )
@@ -66,7 +69,7 @@ class TestRoleTests(unittest.TestCase):
             self.assertFalse(test_examples.is_test_file(f"src/{name}"), name)
 
     def test_code_is_known_by_the_suffix_of_any_language(self):
-        for path in ("a.py", "a.pyi", "a.tsx", "a.go", "a.rs", "a.rb", "a.kts", "a.hpp", "a.zig", "a.sh"):
+        for path in ("a.py", "a.pyi", "a.tsx", "a.go", "a.rs", "a.rb", "a.kts", "a.hpp", "a.zig", "a.sh", "A.pm"):
             self.assertTrue(verify.is_code_path(path), path)
         for path in ("a.md", "a.json", "a.toml", "a.txt", "Makefile"):
             self.assertFalse(verify.is_code_path(path), path)
@@ -75,6 +78,8 @@ class TestRoleTests(unittest.TestCase):
         self.assertTrue(verify.is_test_path("pkg/__tests__/a.js"))
         self.assertTrue(verify.is_test_path("spec/a.rb"))
         self.assertFalse(verify.is_test_path("pkg/spec/a.rb"))
+        self.assertTrue(verify.is_test_path("t/lib/Helper.pm"))  # a Perl distribution's tests and their helpers
+        self.assertFalse(verify.is_test_path("lib/t/Helper.pm"))
         self.assertIs(kinds.TEST_DIRS, python_test_roles.TEST_DIRS)
         self.assertIs(kinds.ROOT_TEST_DIRS, python_test_roles.ROOT_TEST_DIRS)
 
@@ -97,9 +102,9 @@ class RunnerTests(unittest.TestCase):
         self.assertNotIn("minitest", plan_test_suite.RUNNER_KIND)
 
     def test_per_test_results_come_from_the_runners_the_table_names(self):
-        for name in ("pytest", "unittest", "go", "node", "vitest", "jest", "rspec", "cargo"):
+        for name in ("pytest", "unittest", "go", "node", "vitest", "jest", "mocha", "rspec", "minitest", "cargo"):
             self.assertTrue(Framework(name, "suite").per_test, name)
-        for name in ("mocha", "make", "minitest", "npm"):
+        for name in ("make", "npm"):
             self.assertFalse(Framework(name, "suite").per_test, name)
 
     def test_a_targeted_run_is_given_only_its_runners_test_files(self):
@@ -119,13 +124,64 @@ class RunnerTests(unittest.TestCase):
 class ProjectFilesTests(unittest.TestCase):
     def test_manifests_and_lockfiles_come_from_the_languages_rows(self):
         self.assertEqual(
-            {"package.json", "go.mod", "Cargo.toml", "pyproject.toml", "setup.py", "setup.cfg", "Gemfile"},
+            {
+                "package.json",
+                "go.mod",
+                "Cargo.toml",
+                "pyproject.toml",
+                "setup.py",
+                "setup.cfg",
+                "Gemfile",
+                "composer.json",
+                "cpanfile",
+                "Makefile.PL",
+                "Build.PL",
+            },
             set(package_scope.MANIFESTS),
         )
-        self.assertEqual({"Cargo.lock": "Cargo.toml"}, byproducts.LOCKFILES)
+        self.assertEqual(
+            {
+                "go.sum": "go.mod",
+                "Gemfile.lock": "Gemfile",
+                "uv.lock": "pyproject.toml",
+                "poetry.lock": "pyproject.toml",
+                "pdm.lock": "pyproject.toml",
+                "package-lock.json": "package.json",
+                "npm-shrinkwrap.json": "package.json",
+                "yarn.lock": "package.json",
+                "pnpm-lock.yaml": "package.json",
+                "bun.lock": "package.json",
+                "bun.lockb": "package.json",
+                "Cargo.lock": "Cargo.toml",
+                "composer.lock": "composer.json",
+            },
+            byproducts.LOCKFILES,
+        )
+        # PHPUnit's record of its last run, beside its configuration or Composer's manifest.
+        phpunit = ("phpunit.xml", "phpunit.xml.dist", "phpunit.dist.xml", "composer.json")
+        self.assertEqual({".phpunit.result.cache": phpunit}, byproducts.RUN_FILES)
+        self.assertIn("__pycache__", kinds.CACHE_DIRS)
+        self.assertIn(".pytest_cache", kinds.CACHE_DIRS)
+        self.assertEqual({"__pycache__"}, kinds.BYTECODE_DIRS)
+        self.assertEqual((".pyc", ".pyo"), kinds.BYTECODE_SUFFIXES)
+        self.assertEqual(("go.mod", "go.sum"), kinds.TEST_PREREQUISITES["go"])
+        self.assertEqual(frozenset({"go.mod", "go.sum"}), kinds.ALL_TEST_PREREQUISITES)
         for language in kinds.LANGUAGES:
             for lockfile, manifest in language.lockfiles.items():
                 self.assertIn(manifest, language.manifests, lockfile)
+
+    def test_build_directories_come_from_the_languages_rows(self):
+        gradle = ("build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts")
+        phpunit = ("phpunit.xml", "phpunit.xml.dist", "phpunit.dist.xml", "composer.json")
+        self.assertEqual(
+            {
+                "target": ("Cargo.toml", "pom.xml"),
+                "build": (*gradle, "CMakeLists.txt"),
+                ".gradle": gradle,
+                ".phpunit.cache": phpunit,
+            },
+            byproducts.BUILD_DIRS,
+        )
 
     def test_every_language_is_named_once_and_every_targeted_language_says_what_its_runners_run(self):
         names = [language.name for language in kinds.LANGUAGES]

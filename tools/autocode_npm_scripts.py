@@ -62,3 +62,65 @@ def test_script(command, tree) -> tuple[dict, list[str], str] | None:
     except (OSError, ValueError, TypeError, AttributeError, RuntimeError):
         return None
     return (scripts, extra, prefix) if isinstance(scripts, dict) else None
+
+
+_UNSAFE_SHELL = re.compile(r"[;|<>`$()\n\r\\]")
+
+
+def split_and(script) -> list[str] | None:
+    """Split a composite ``a && b`` npm script into single commands, or None for unsupported shell syntax."""
+    if not isinstance(script, str) or "&&" not in script or _UNSAFE_SHELL.search(script):
+        return None
+    parts: list[str] = []
+    buf: list[str] = []
+    quote: str | None = None
+    i = 0
+    n = len(script)
+    while i < n:
+        ch = script[i]
+        if quote is not None:
+            if ch == quote:
+                quote = None
+            buf.append(ch)
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            buf.append(ch)
+            i += 1
+            continue
+        if script[i : i + 2] == "&&":
+            parts.append("".join(buf).strip())
+            buf.clear()
+            i += 2
+            continue
+        if ch == "&":
+            return None  # single background `&`
+        buf.append(ch)
+        i += 1
+    if quote is not None:
+        return None
+    parts.append("".join(buf).strip())
+    if len(parts) < 2 or any(not part or words(part) is None for part in parts):
+        return None
+    return parts
+
+
+def safe_root_script(command, tree) -> list[str] | None:
+    """Return split ``&&`` steps for a root ``npm test`` without extra args, lifecycle hooks, or ``.npmrc``."""
+    if tree is None:
+        return None
+    found = test_script(command, tree)
+    if not found:
+        return None
+    scripts, extra, prefix = found
+    if extra or prefix != "." or "pretest" in scripts or "posttest" in scripts:
+        return None
+    if (Path(tree) / ".npmrc").exists():
+        return None
+    return split_and(scripts.get("test"))
+
+
+def npm_exec_call(steps: list[str]) -> str:
+    """Wrap composite ``&&`` script steps for deterministic exit-code-preserving ``npm exec --silent --call``."""
+    return "npm exec --silent --call " + shlex.quote(" && ".join(steps))

@@ -32,10 +32,12 @@ import subprocess
 from pathlib import Path, PurePosixPath
 
 try:
+    from . import autocode_dependency_dirs as dependency_dirs
     from . import autocode_project_kinds as project_kinds
     from . import autocode_test_root as test_roots
     from .autocode_test_framework import Framework
 except ImportError:
+    import autocode_dependency_dirs as dependency_dirs
     import autocode_project_kinds as project_kinds
     import autocode_test_root as test_roots
     from autocode_test_framework import Framework
@@ -342,4 +344,4 @@ def link_node_modules(tree, roots) -> None:
             None,
         )
         if source is not None:
-            target.symlink_to(source.resolve(), target_is_directory=True)
+            dependency_dirs.expose(source.resolve(), target, dependency_dirs.view_in(tree, package))

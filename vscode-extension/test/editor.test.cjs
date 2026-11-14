@@ -2308,6 +2308,18 @@ test('a started chat changes a stage\'s model from the chat box between stages, 
   assert.equal(chip.hidden, true, 'an older core offers nothing to change');
 });
 
+test('a paused uncertain check does not say models change after a running stage', async (t) => {
+  const reason = 'A previous check has not been confirmed stopped. Models cannot be changed while this run is paused.';
+  const list = ['stages', 'list', '--run-dir', run.runDir, '--json'];
+  const paused = { ...chatView(), status: 'PAUSED_VERIFICATION_UNCERTAIN',
+    stage_models: { changeable: false, reason, next_command: list } };
+  const ui = await openChat(t, paused);
+  const chip = ui.document.getElementById('models-picker');
+  assert.equal(chip.disabled, true);
+  assert.equal(ui.document.getElementById('models-name').textContent, 'Models · unavailable');
+  assert.equal(chip.title, reason);
+});
+
 test('a started chat\'s Models chip says it is reading the chat\'s models, and comes back when the pick is cancelled', async (t) => {
   const list = ['stages', 'list', '--run-dir', run.runDir, '--json'];
   const initial = { ...chatView(), stage_models: { changeable: true, reason: null, next_command: list } };

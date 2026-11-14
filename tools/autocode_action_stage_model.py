@@ -61,6 +61,7 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
                 raise ValueError(str(error)) from None
         if runner.interventions.pending(run_dir):
             raise ValueError("Apply the queued intervention before changing a stage's model")
+        previous_settings = copy.deepcopy(candidate["settings"])
         before = candidate["settings"]["roles"][role].get("reasoning_effort")
         record = quota_route.assign(
             candidate,
@@ -71,11 +72,25 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
             attempt={"pause_status": candidate.get("status"), "role": role},
             effort=level,
         )
+        event = candidate["user_events"][-1]
+        candidate["settings"].setdefault("route_origins", {})[role] = route_fit.USER_EXPLICIT
         if level is None:
             # The model's own level, sent as no level at all: the person's choice, never refitted.
             candidate["settings"]["roles"][role]["reasoning_effort"] = None
             candidate["settings"].setdefault("effort_origins", {})[role] = route_fit.USER_EXPLICIT
-            candidate["user_events"][-1]["effort"] = {"from": before, "to": None, "named": True}
+            (candidate["settings"].get("effort_fits") or {}).pop(role, None)
+            if candidate["settings"].get("effort_fits") == {}:
+                candidate["settings"].pop("effort_fits")
+            event["effort"] = {"from": before, "to": None, "named": True}
+            for child_role, extra in quota_route.sync_inherited_routes(candidate, role).items():
+                inherited = event.setdefault("inherited_routes", {})
+                if child_role in inherited:
+                    inherited[child_role]["to"] = extra["to"]
+                else:
+                    inherited[child_role] = extra
+        settings_change = quota_route._flag_provenance(previous_settings, candidate["settings"], role)
+        if settings_change:
+            event["settings_change"] = settings_change
         runner.commit_user_action(state, candidate, run_dir)
     except (ValueError, KeyError) as error:
         return runner.status_command.reject_input(runner, state, workspace, run_dir, error)

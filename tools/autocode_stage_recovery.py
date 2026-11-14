@@ -809,6 +809,8 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
         automatic_recovery=True,
         rejection_reason="Timed-out non-terminal provider request automatically archived; partial work retained",
     )
+    if "stall_phase" not in record:
+        record.update(stall_recovery.classify_stall(record))
     failures.record(state, record, error, records.now())
     originals = records.archive_rejected_stage(state, run_dir, record, record["rejection_reason"])
     state["sessions"].pop(record.get("route_role", record["role"]), None)
@@ -878,6 +880,9 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
         },
         "timeout_kind": record.get("timeout_kind", "stage"),
         "timeout_reason": record.get("timeout_reason", str(error)),
+        "stall_phase": record["stall_phase"],
+        "completed_tool_calls": record["completed_tool_calls"],
+        "last_event_offset_seconds": record["last_event_offset_seconds"],
         "changed_files": record["changed_files"],
         "events": record["events"],
         "source_snapshot": record["after_ref"],
@@ -917,11 +922,9 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
             "An unavailable capture is an evidence gap to retain and report, never verified source. "
             "This packet is unverified source, not a completed report or passing test evidence."
         )
-    continues_tester = semantic_stage == "tester" and next_stage == "tester" and not record.get("report_only")
-    if continues_tester:
-        # A stream-stalled Tester ran real checks before the provider stopped; the relaunch got only an
-        # instruction to inspect a multi-thousand-line archived log, so it redid the stage from nothing
-        # (#3309). The packet is context, never citable evidence.
+    if stall_recovery.carries_executed_work(semantic_stage, next_stage, report_only=bool(record.get("report_only"))):
+        # A stream-stalled read-only or Tester stage ran real calls before the provider stopped; the relaunch
+        # receives bounded, unverified executed_work so it can skip redundant exploration (#3309, #3465).
         recovery["executed_work"] = stall_recovery.executed(record)
         if recovery["executed_work"].get("available"):
             recovery["instruction"] += " " + stall_recovery.INSTRUCTION

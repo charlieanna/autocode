@@ -156,10 +156,12 @@ def bound(cases: list[dict], framework) -> list[dict]:
 # page, RSpec's full description, and a plan names it by that or by its last words, which are the example's
 # own. On real runs in an RSpec project (2026-11-13) a bug fix copied its two existing examples under
 # test_ac2_... names after two failed proofs, as the node:test runs had.
-TITLE_RUNNERS = frozenset({"node", "vitest", "jest", "rspec"})
+TITLE_RUNNERS = frozenset({"node", "vitest", "jest", "mocha", "rspec", "minitest"})
 _ANNOTATION = re.compile(r"\s+(?:[—–-]\s+.+|\(.+\))", re.DOTALL)
 # FILE.rb::FULL DESCRIPTION (autocode_rspec_tests): the descriptions of the example's groups, then its own.
 _RUBY_ID = re.compile(r"^[^:]*\.rb::(.+)$", re.DOTALL)
+_MINITEST_SPEC = re.compile(r"^test_\d+_(.+)$")
+_MINITEST_METHOD = re.compile(r"^test_[A-Za-z0-9_?!]+$")
 
 
 def _last_words(description: str) -> tuple[str, ...]:
@@ -171,9 +173,16 @@ def _last_words(description: str) -> tuple[str, ...]:
 
 def _titles(test_id: str) -> tuple[str, ...]:
     """The titles a runner's id ends with: FILE::suite::title (node:test), FILE::suite > title (Vitest),
-    FILE::groups title (RSpec)."""
+    FILE::groups title (RSpec), or FILE::Class::test_name (Minitest)."""
     if found := _RUBY_ID.match(test_id):
-        return _last_words(found.group(1))
+        rest = found.group(1)
+        if "::" in rest:
+            leaf = rest.rsplit("::", 1)[-1]
+            if spec := _MINITEST_SPEC.match(leaf):
+                return (spec.group(1), leaf)
+            if _MINITEST_METHOD.fullmatch(leaf):
+                return (leaf,)
+        return _last_words(rest)
     last = test_id.rsplit("::", 1)[-1]
     return (last, last.rsplit(" > ", 1)[-1])
 
@@ -195,6 +204,14 @@ def _declares(declared: str, title: str) -> bool:
     )
 
 
+def title_in(declared: str, text: str) -> bool:
+    """Whether ``text`` (a test file's source) spells a declared title, as written, unquoted, or without the
+    annotation after it. A file that spells it may hold the test; ``titled`` binds it only to a test that ran."""
+    spellings = {declared, _unquoted(declared)}
+    spellings |= {_ANNOTATION.sub("", spelling) for spelling in spellings}
+    return any(spelling and spelling in text for spelling in spellings)
+
+
 def titled(cases: list[dict], framework, test_ids) -> list[dict]:
     """``cases`` with a declared title bound as the ``test_name`` where ``framework`` names tests by title
     (TITLE_RUNNERS) and one of ``test_ids`` has exactly that title: the longest such title. A declaration
@@ -208,6 +225,24 @@ def titled(cases: list[dict], framework, test_ids) -> list[dict]:
         found = [] if case.get("test_name") or not declared else [t for t in known if _declares(declared, t)]
         result.append({**case, "test_name": max(found, key=len)} if found else case)
     return result
+
+
+def guard_names(cases: list[dict], framework) -> list[str]:
+    """What the guards among ``cases`` name, for the proof to look for in the whole suite: each exact test
+    name and, where ``framework`` names tests by title (TITLE_RUNNERS), each declared title.
+
+    A title is bound to a test only once the suite has run (``titled``), so a plan whose guards were all
+    titles named no guard here. With a new test file beside them the proof then never ran the suite on the
+    original code, found the existing tests nowhere, and failed each guard as "no test named test_acN_"."""
+    return sorted(
+        {
+            name
+            for case in bound(cases, framework)
+            if case.get("kind") == "preserve"
+            for name in (case.get("test_name") or (framework in TITLE_RUNNERS and case.get("title")),)
+            if name
+        }
+    )
 
 
 def contract_cases(state: RunState, *, all_due: bool = False) -> list[dict]:

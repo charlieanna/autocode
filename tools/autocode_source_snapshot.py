@@ -13,8 +13,10 @@ import stat
 from pathlib import Path
 
 try:
+    from . import autocode_project_kinds as project_kinds
     from . import autocode_util as util
 except ImportError:
+    import autocode_project_kinds as project_kinds
     import autocode_util as util
 
 
@@ -78,8 +80,8 @@ def _include(root, relative, files):
         for child in sorted(path.iterdir()):
             if (
                 child.name.casefold() not in _INTERNAL
-                and child.name != "__pycache__"
-                and not child.name.endswith(".pyc")
+                and child.name not in project_kinds.BYTECODE_DIRS
+                and not child.name.endswith(project_kinds.BYTECODE_SUFFIXES)
             ):
                 _include(root, child.relative_to(root), files)
     else:

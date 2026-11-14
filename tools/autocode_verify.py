@@ -800,7 +800,7 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
         return read(xml_path)
     if str(xml_path).endswith(".vitest.json"):
         return vitest_tests.results(xml_path, tree)
-    if not framework or not framework.per_test or framework.name in ("node", "vitest", "jest", "cargo"):
+    if not framework or not framework.per_test or framework.name not in ("pytest", "unittest", "go"):
         return None
     if framework.name == "go":
         invocation = go_tests.parse(package_scope.split(framework, receipt.get("command") or framework.suite)[1])
@@ -919,7 +919,7 @@ def link_dependencies(source_root, tree):
             source = root / name
             if source.is_dir():
                 if not target.exists() and not target.is_symlink():
-                    target.symlink_to(source.resolve(), target_is_directory=True)
+                    dependency_dirs.expose(source.resolve(), target, dependency_dirs.view_in(tree))
                 break
     package_scope.link_node_modules(tree, roots)  # a package inside the repository has its own
 
@@ -2678,6 +2678,7 @@ def verify(
     if roles is None or not role_inventory.matches(roles, workspace, changes):
         roles = role_inventory.from_git(workspace, base, is_test_path, changes=changes)
     tests, sources, ambiguous = roles.partition(changes)
+    runnable_tests, sources = changed_tests.inline_tests(workspace, base, tests, sources, changes)
     if framework is not None:
         framework = copy.copy(framework)
         framework.test_roles = roles
@@ -2696,7 +2697,7 @@ def verify(
     proof: dict = {}
     commands = select_commands(
         framework,
-        [p for p in tests if changes[p] != "deleted"],
+        runnable_tests,
         suite_command=suite_command,
         regression_command=regression_command,
         reported=reported,
@@ -2706,7 +2707,6 @@ def verify(
         notes += classify_generated_sources(
             dependencies_from or workspace, generated_record, unrecorded=generated_unrecorded
         )[1]
-    runnable_tests = [p for p in tests if changes[p] != "deleted"]
     # Coverage the source already has: no test changed, so nothing can flip; the guards must hold.
     existing_guards = preserve_only and not runnable_tests
     # A repair whose regression test the project already had (first_suite.existing_repair): the suite on
@@ -2877,7 +2877,7 @@ def verify(
                 review_reasons.append("the regression proof rests on the whole suite's exit code")
                 if on_base["exit_code"] == 0 and not preserve:
                     fail.append("The new tests pass on the unfixed base code, so they do not reproduce the bug")
-        elif tests and sources and not baseline_timed_out and not ambiguous:
+        elif runnable_tests and sources and not baseline_timed_out and not ambiguous:
             unverified.append("No command to run the regression tests; pass --regression-command")
 
         # No regressions: the suite on the candidate, compared with base.
@@ -2945,7 +2945,8 @@ def _seam_names(workspace, base, changes, receipt, *, roles=None):
             test_words |= proof_seam.words(after)
         else:
             before = "" if status == "added" else _git(workspace, "show", f"{base}:{path}", check=False)
-            added |= proof_seam.added_names(path, before, after)
+            src_added, inline_words = changed_tests.seam_words(path, before, after, proof_seam)
+            added, test_words = added | src_added, test_words | inline_words
     return proof_seam.used(_read(receipt.get("output") or ""), added, test_words)
 
 

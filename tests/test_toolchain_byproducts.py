@@ -1,9 +1,11 @@
-"""A lockfile the project's toolchain writes while a stage runs it is not the stage's edit.
+"""A lockfile or build directory the project's toolchain writes while a stage runs it is not the stage's edit.
 
 A live Rust bug fix (Claude models, 2026-11-13) paused 65 seconds in: the Planner ran Cargo to read
 a project with no ``Cargo.lock``, Cargo wrote one, and the read-only stage had "changed the
 repository". A Builder that ran ``cargo test`` was refused for a file outside its assigned paths.
-Real Git workspaces; no provider is launched.
+A Builder that ran the tests of a C++ project with no ``.gitignore`` was refused for every file CMake
+wrote under ``build/``, and the run paused with a correct fix; the same in a Maven project took two
+refused attempts (Claude models, 2026-11-14). Real Git workspaces; no provider is launched.
 """
 
 from __future__ import annotations
@@ -109,6 +111,209 @@ class DiscardTests(Workspace):
                 self.assertEqual([], byproducts.discard(self.root, before))
         self.assertEqual([], byproducts.discard(None, self.snapshot()))
         self.assertTrue((self.root / "Cargo.lock").is_file())
+
+
+POM = "<project/>\n"
+MAVEN_OUTPUT = {
+    "target/classes/example/Pager.class": "\xca\xfe",
+    "target/maven-status/maven-compiler-plugin/compile/default-compile/inputFiles.lst": "Pager.java\n",
+    "target/surefire-reports/TEST-example.PagerTest.xml": "<testsuite/>\n",
+}
+CMAKE_OUTPUT = {
+    "build/CMakeCache.txt": "CMAKE_BUILD_TYPE:STRING=\n",
+    "build/CMakeFiles/pager.dir/build.make": "all:\n",
+    "build/Makefile": "all:\n",
+    "build/libpager.a": "!<arch>\n",
+}
+
+
+class BuildDirectoryTests(Workspace):
+    def setUp(self):
+        super().setUp()
+        self.write(
+            {"pom.xml": POM, "CMakeLists.txt": "project(pager CXX)\n", "src/main/java/Pager.java": "class Pager {}\n"}
+        )
+        self.commit("build files")
+
+    def test_a_build_directory_the_tool_created_during_the_stage_is_removed(self):
+        for output, directory in ((MAVEN_OUTPUT, "target"), (CMAKE_OUTPUT, "build")):
+            with self.subTest(directory=directory):
+                before = self.snapshot()
+                self.write(output)
+                self.assertEqual({directory: sorted(output)}, byproducts.built(self.root, before["files"]))
+                self.assertEqual([directory + "/"], byproducts.discard(self.root, before))
+                self.assertFalse((self.root / directory).exists())
+                self.assertEqual(before["revision"], self.snapshot()["revision"])
+
+    def test_gradles_build_and_cache_directories_are_removed_beside_any_gradle_file(self):
+        for build_file in ("build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"):
+            with self.subTest(build_file=build_file):
+                self.write({f"app/{build_file}": ""})
+                self.commit(build_file)
+                before = self.snapshot()
+                self.write({"app/build/classes/Pager.class": "x", "app/.gradle/8.14/fileHashes.lock": "x"})
+                self.assertEqual(["app/.gradle/", "app/build/"], byproducts.discard(self.root, before))
+                self.assertEqual(before["revision"], self.snapshot()["revision"])
+                git(self.root, "rm", "-q", f"app/{build_file}")
+                self.commit("removed")
+
+    def test_cargos_target_directory_is_removed_with_its_lockfile(self):
+        before = self.snapshot()
+        self.write({"Cargo.lock": LOCK, "target/debug/deps/pager.d": "x", "target/CACHEDIR.TAG": "x"})
+        self.assertEqual(["Cargo.lock", "target/"], byproducts.discard(self.root, before))
+        self.assertEqual(before["revision"], self.snapshot()["revision"])
+
+    def test_a_build_directory_that_already_held_a_file_is_the_projects_own(self):
+        for committed in (False, True):
+            with self.subTest(committed=committed):
+                self.write({"build/README.md": "Release scripts.\n"})
+                if committed:
+                    self.commit("build notes")
+                before = self.snapshot()
+                self.write(CMAKE_OUTPUT)
+                self.assertEqual({}, byproducts.built(self.root, before["files"]))
+                self.assertEqual([], byproducts.discard(self.root, before))
+                for name in CMAKE_OUTPUT:
+                    self.assertTrue((self.root / name).is_file(), name)
+                self.assertNotEqual(before["revision"], self.snapshot()["revision"])
+                for name in CMAKE_OUTPUT:
+                    (self.root / name).unlink()
+
+    def test_only_a_directory_beside_its_manifest_qualifies(self):
+        before = self.snapshot()
+        stray = {"docs/target/notes.txt": "x", "docs/build/site.html": "x", "src/build.txt": "x", "target.txt": "x"}
+        self.write(stray)
+        self.assertEqual([], byproducts.discard(self.root, before))
+        for name in stray:
+            self.assertTrue((self.root / name).is_file(), name)
+
+    def test_a_file_the_project_ignores_in_the_directory_stays_with_its_directory(self):
+        self.write({".gitignore": "*.log\n"})
+        self.commit("ignore logs")
+        before = self.snapshot()
+        self.write({**MAVEN_OUTPUT, "target/build.log": "kept\n"})
+        self.assertEqual(["target/"], byproducts.discard(self.root, before))
+        self.assertEqual(["build.log"], sorted(path.name for path in (self.root / "target").rglob("*")))
+        self.assertEqual(before["revision"], self.snapshot()["revision"])
+
+    def test_a_directory_the_project_ignores_is_never_listed(self):
+        self.write({".gitignore": "target/\n"})
+        self.commit("ignore target")
+        before = self.snapshot()
+        self.write(MAVEN_OUTPUT)
+        self.assertEqual([], byproducts.discard(self.root, before))
+        self.assertTrue((self.root / "target/classes/example/Pager.class").is_file())
+
+    def test_a_link_named_like_a_build_directory_is_left(self):
+        elsewhere = Path(self.temp.name) / "elsewhere"
+        elsewhere.mkdir()
+        (elsewhere / "kept.txt").write_text("x")
+        before = self.snapshot()
+        (self.root / "target").symlink_to(elsewhere, target_is_directory=True)
+        self.assertEqual([], byproducts.discard(self.root, before))
+        self.assertTrue((elsewhere / "kept.txt").is_file())
+
+    def test_a_build_directory_the_assigned_paths_touch_is_the_builders_own(self):
+        for owned in (["build/"], ["build"], ["build/CMakeCache.txt"], ["build/CMakeFiles/"]):
+            with self.subTest(owned=owned):
+                before = self.snapshot()
+                self.write(CMAKE_OUTPUT)
+                self.assertEqual([], byproducts.discard(self.root, before, owned=owned))
+                for name in CMAKE_OUTPUT:
+                    self.assertTrue((self.root / name).is_file(), name)
+                    (self.root / name).unlink()
+
+    def test_a_builder_that_built_and_tested_is_charged_only_with_its_own_edit(self):
+        before = self.snapshot()
+        self.write({**CMAKE_OUTPUT, "src/main/java/Pager.java": "class Pager { int pages; }\n"})
+        record = {}
+        role_launch.record_after(
+            {"current_task": {"affected_paths": ["src/main/java/Pager.java"]}},
+            record,
+            self.root,
+            Path(self.temp.name) / "builder-01",
+            before,
+            Path("missing.jsonl"),
+            save=MagicMock(),
+            allow_write=True,
+        )
+        self.assertEqual(["src/main/java/Pager.java"], record["changed_files"])
+        self.assertEqual(["build/"], record["toolchain_byproducts"])
+
+    def test_a_read_only_stage_that_ran_the_tests_leaves_the_repository_unchanged(self):
+        before = self.snapshot()
+        self.write(MAVEN_OUTPUT)
+        record = {}
+        after = role_launch.record_after(
+            {}, record, self.root, Path(self.temp.name) / "tester-01", before, Path("missing.jsonl"), save=MagicMock()
+        )
+        self.assertEqual(before["revision"], after["revision"])
+        self.assertEqual([], record["changed_files"])
+        self.assertEqual(["target/"], record["toolchain_byproducts"])
+
+
+PHPUNIT_CACHE = '{"version":1,"defects":[],"times":{"PagerTest::testPartialPage":0.001}}'
+
+
+class TestRunnerCacheTests(Workspace):
+    """PHPUnit's record of its last run: a real Plan Reviewer ran the tests of a PHP project that does not
+    ignore it, and the run paused for the person 69 seconds in (Claude models, 2026-11-14)."""
+
+    def setUp(self):
+        super().setUp()
+        self.write({"composer.json": "{}\n", "phpunit.xml": "<phpunit/>\n", "tests/PagerTest.php": "<?php\n"})
+        self.commit("php project")
+
+    def test_the_result_cache_phpunit_wrote_during_the_stage_is_removed(self):
+        before = self.snapshot()
+        self.write({".phpunit.result.cache": PHPUNIT_CACHE})
+        self.assertEqual([".phpunit.result.cache"], byproducts.created(self.root, before["files"]))
+        self.assertEqual([".phpunit.result.cache"], byproducts.discard(self.root, before))
+        self.assertFalse((self.root / ".phpunit.result.cache").exists())
+        self.assertEqual(before["revision"], self.snapshot()["revision"])
+
+    def test_it_is_removed_beside_phpunits_configuration_or_composers_manifest(self):
+        for beside in ("phpunit.xml", "phpunit.xml.dist", "phpunit.dist.xml", "composer.json"):
+            with self.subTest(beside=beside):
+                self.write({f"api/{beside}": "{}\n"})
+                self.commit(beside)
+                before = self.snapshot()
+                self.write({"api/.phpunit.result.cache": PHPUNIT_CACHE})
+                self.assertEqual(["api/.phpunit.result.cache"], byproducts.discard(self.root, before))
+                git(self.root, "rm", "-q", f"api/{beside}")
+                self.commit("removed")
+
+    def test_phpunits_cache_directory_is_removed_too(self):
+        before = self.snapshot()
+        self.write({".phpunit.cache/test-results": PHPUNIT_CACHE, ".phpunit.cache/code-coverage/x": "x"})
+        self.assertEqual([".phpunit.cache/"], byproducts.discard(self.root, before))
+        self.assertFalse((self.root / ".phpunit.cache").exists())
+        self.assertEqual(before["revision"], self.snapshot()["revision"])
+
+    def test_a_result_cache_the_project_already_had_is_never_touched(self):
+        self.write({".phpunit.result.cache": PHPUNIT_CACHE})
+        before = self.snapshot()
+        self.write({".phpunit.result.cache": PHPUNIT_CACHE.replace("0.001", "0.002")})
+        self.assertEqual([], byproducts.discard(self.root, before))
+        self.assertTrue((self.root / ".phpunit.result.cache").is_file())
+
+    def test_a_file_of_that_name_away_from_a_php_project_is_left(self):
+        before = self.snapshot()
+        self.write({"docs/.phpunit.result.cache": PHPUNIT_CACHE, "docs/.phpunit.cache/test-results": "x"})
+        self.assertEqual([], byproducts.discard(self.root, before))
+        self.assertTrue((self.root / "docs/.phpunit.result.cache").is_file())
+        self.assertTrue((self.root / "docs/.phpunit.cache/test-results").is_file())
+
+    def test_a_read_only_stage_that_ran_phpunit_leaves_the_repository_unchanged(self):
+        before = self.snapshot()
+        self.write({".phpunit.result.cache": PHPUNIT_CACHE})
+        record = {}
+        after = role_launch.record_after(
+            {}, record, self.root, Path(self.temp.name) / "review-01", before, Path("missing.jsonl"), save=MagicMock()
+        )
+        self.assertEqual(before["revision"], after["revision"])
+        self.assertEqual([], record["changed_files"])
+        self.assertEqual([".phpunit.result.cache"], record["toolchain_byproducts"])
 
 
 class StageTests(Workspace):

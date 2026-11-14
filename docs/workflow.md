@@ -668,8 +668,14 @@ acceptance criterion a test can check as one concrete example, and sets its
 The matching and the rules are in `tools/autocode_test_cases.py`.
 
 Test commands are detected (pytest, unittest, Go, Jest/Vitest/Mocha, RSpec,
-Cargo, `make test`, and a Ruby project's Minitest or test-unit files under `test/`,
-named `*_test.rb` or `test_*.rb`, run through Bundler when there is a `Gemfile`);
+Cargo, `make test`, Maven (`mvn -B -q test`), Gradle (`gradle --no-daemon -q test`), CMake with
+CTest (a root `CMakeLists.txt` that calls `enable_testing()` or includes `CTest`), PHPUnit in a Composer
+project (`vendor/bin/phpunit`, for a root `composer.json` with a PHPUnit configuration file or the
+`phpunit/phpunit` package), a Perl distribution's `.t` files under `t/` (`prove -lr t`, for a root
+`cpanfile`, `Makefile.PL` or `Build.PL`, or a module under `lib/`, and no `.xs` file), and a Ruby project's
+Minitest or test-unit files under `test/`, named `*_test.rb` or `test_*.rb`, run through Bundler when
+there is a `Gemfile`; Maven and Gradle run through the project's own `mvnw` or `gradlew` when it has one;
+when none of these is found, a `Makefile`'s `check` target, `make check`);
 `--test-command` and `--regression-command` set them for a new run. With per-test results (pytest, unittest, Go, node:test, Vitest, RSpec, `cargo test`) a proof needs a named test
 that ran and failed on base and passed on the fix; a test that only fails to
 import on base is not a reproduction. Without per-test results exit codes decide.
@@ -729,7 +735,11 @@ cannot repair it or invent missing caller scope for a legacy run.
 
 The scratch worktrees use the project's own environment: its `.venv`, `venv` or
 `node_modules` is linked in, and the Python tests run with the project's
-virtualenv interpreter even though the task worktree has none. Build-generated
+virtualenv interpreter even though the task worktree has none. A tree's
+`node_modules` link leads to a directory of the tree's own that links each
+installed package, so a check that empties or reinstalls it there (`npm ci`,
+`npm install`) changes the tree and not the packages the person installed.
+A virtualenv is linked whole. Build-generated
 source files that git ignores but that sit next to tracked code (such as a
 setuptools-scm or hatch-vcs `_version.py`) are copied from the project into every
 scratch tree, base and fix alike, so the package imports there. Ignored build
@@ -914,9 +924,26 @@ the changed tests, the proof is unverified and names the tests and the suite tha
 cannot run them; it never reports that they pass on the original code, which it
 did not observe (#2889).
 
-The proof runs one suite, but a change can reach more than one project. Every
-other project whose code the change touches and whose tests the proof's suite
-cannot run (the root, or the innermost directory with its own manifest) runs its
+A change may add or change tests in more than one project: a field an API
+returns, tested in a Python package, and the line that shows it, tested in a Node
+package beside it. Each changed test the proof's suite cannot run is proven by
+the suite of the project around it (the innermost directory with its own
+manifest), exactly as a change to that project alone is proven: that suite's own
+run on the original code, the project's changed tests on the original code and
+with the change, their repeats, and the project's whole suite with the change.
+A failure or an unverified finding there is the proof's, named with its project
+(`In packages/web/: ...`), and a `test:` criterion may rest on a test that suite
+showed fail on the original code and pass with the change. The proof's own suite
+is the one that runs the remaining tests, or the first project's when the root's
+runs none of them. The checks keep each receipt as `companion_tests:DIR:CHECK`
+(`companion_tests:packages/web:regression_on_base`), and the proof's notes name
+the files and the suite. A changed test in a directory where no suite runs its
+kind is named in a note and is not run. A run with `--package`, `--test-root`,
+`--test-command` or `--regression-command` keeps to the suite it names.
+
+A change can also reach the code of a project whose tests it does not change.
+Every other project whose code the change touches and whose tests the proof's
+suite cannot run (the root, or the innermost directory with its own manifest) runs its
 own detected suite twice, on the original code and with the change. A test that
 passed and no longer passes, or a suite that passed and now fails, fails the
 proof; a suite that already fails on the original code without per-test results,
@@ -935,7 +962,10 @@ suite never holds that test, and another project's whole suite may report no
 per-test results (`npm test`), so each test file outside the proof's suite that
 names a guard's test is run by its own project's suite, targeted at those files,
 on the original code and with the change, whether or not the change touched that
-project's code. The guard rests on its test when it passed in both complete runs;
+project's code. A guard may name such a test by the title that project's runner
+knows it by (`guard: a pinned note is starred` for a `node:test` test beside a
+Python project): the file that spells the title is run the same way, and the
+guard is bound to the test as that suite names it. The guard rests on its test when it passed in both complete runs;
 a failing variant there breaks it, and a run that does not finish leaves it
 unverified rather than refuted. The checks keep both receipts as
 `companion_guards_on_base:DIR` and `companion_guards_on_candidate:DIR`, and the
@@ -943,11 +973,11 @@ proof's notes name the files and the command.
 
 A plan is checked for this when it is drafted and when it is approved. If the
 test files its milestones name (a Python test module, a Go test, an RSpec spec or
-a JavaScript or TypeScript `.test`/`.spec` file) include some the proof's suite
-would never run, because they are of another kind than the suite runs and are not
-all inside one directory whose own suite runs them, the draft is refused with the
-files and the suite named, and the Planner moves the tests before any Builder
-runs. Helpers and fixtures in a test directory are not judged, and neither is a
+a JavaScript or TypeScript `.test`/`.spec` file) include some no suite would
+ever run, because they are of another kind than the proof's suite runs and the
+project directory around them has no suite of its own for that kind, the draft
+is refused with the files and the suite named, and the Planner moves the tests
+before any Builder runs. Helpers and fixtures in a test directory are not judged, and neither is a
 run whose commands the person chose. A Node package in a
 Python repository (this repository's `vscode-extension/`) is the case it was
 added for: its tests were handed to the root's pytest, which cannot run them, and

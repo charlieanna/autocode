@@ -25,16 +25,22 @@ from typing import TYPE_CHECKING
 
 try:
     from . import autocode_command_guards as command_guards
+    from . import autocode_companion_suites as companion_suites
+    from . import autocode_named_reporters as reporters
     from . import autocode_native_test_names as native_test_names
     from . import autocode_package_scope as package_scope
     from . import autocode_project_kinds as project_kinds
+    from . import autocode_rust_inline_tests as rust_inline_tests
     from . import autocode_test_cases as test_cases
     from . import autocode_verify as verify
 except ImportError:
     import autocode_command_guards as command_guards
+    import autocode_companion_suites as companion_suites
+    import autocode_named_reporters as reporters
     import autocode_native_test_names as native_test_names
     import autocode_package_scope as package_scope
     import autocode_project_kinds as project_kinds
+    import autocode_rust_inline_tests as rust_inline_tests
     import autocode_test_cases as test_cases
     import autocode_verify as verify
 
@@ -66,17 +72,30 @@ def planned_tests(body) -> list[str]:
 
 
 def problems(workspace, framework, tests, detect_in, *, scoped=False) -> list[str]:
-    """The ``tests`` the proof will not run: those of another kind than ``framework`` runs, unless none of them
-    is of its kind and the project around them all has a suite that runs them (autocode_package_scope.enclosing,
-    never in a ``scoped`` run). A runner of no known kind (``make test``) may run any test, so none is named."""
+    """The ``tests`` the proof will not run: those of another kind than ``framework`` runs, unless the project
+    around them has a suite that runs their kind (never in a ``scoped`` run). That is the project around them
+    all when none is of the framework's kind (autocode_package_scope.enclosing), and otherwise, for each, the
+    project around it, whose own suite then proves its tests (autocode_companion_suites.test_suites): a change
+    with tests in a Python package and in a Node package beside it is proven by both suites. A runner of no
+    known kind (``make test``) may run any test, so none is named."""
     expected = RUNNER_KIND.get(framework.name) if framework is not None else None
     if expected is None:
         return []
     other = [test for test in tests if kind(test) != expected]
-    if not other or scoped or len(other) < len(tests):
+    if not other or scoped:
         return other
     holds = lambda found: all(kind(test) == RUNNER_KIND.get(found.name) for test in tests)  # noqa: E731
-    return [] if package_scope.enclosing(workspace, tests, detect_in, runs=holds) else other
+    if len(other) == len(tests) and package_scope.enclosing(workspace, tests, detect_in, runs=holds):
+        return []
+    return [test for test in other if not _own_suite(workspace, test, detect_in)]
+
+
+def _own_suite(workspace, test, detect_in) -> bool:
+    """Whether the project around ``test`` (a directory below the root with its own manifest) has a suite
+    that runs tests of its kind. Judged before the file exists, so by its kind and never by targeting it."""
+    project = companion_suites.project_of(workspace, test)
+    found = package_scope.detect(workspace, project, detect_in) if project != companion_suites.ROOT else None
+    return found is not None and RUNNER_KIND.get(found.name) == kind(test)
 
 
 def unnamed_cases(workspace, framework, tests, body, detect_in) -> str | None:
@@ -94,11 +113,13 @@ def unnamed_cases(workspace, framework, tests, body, detect_in) -> str | None:
     project, before its first test exists, is not judged: the proof detects its suite on the changed code.
     """
     named = [case["id"] for case in test_cases.plan_cases(body)]
-    if not named or (framework is not None and framework.per_test):
+    if not named or reporters.suite_reports(framework, workspace):
         return None
     if framework is None and not _existing_tests(workspace):
         return None
-    if tests and package_scope.enclosing(workspace, tests, detect_in, runs=lambda found: found.per_test):
+    if tests and package_scope.enclosing(
+        workspace, tests, detect_in, runs=lambda found: reporters.suite_reports(found, workspace)
+    ):
         return None
     runner = f"the {framework.name} suite `{framework.suite}`" if framework is not None else "no runner AutoCode reads"
     return (
@@ -159,20 +180,32 @@ def untested_code(workspace, body) -> str | None:
     )
 
 
-def _test_paths(workspace) -> list[str]:
-    """The workspace's test paths, tracked or not."""
+def _workspace_files(workspace) -> list[str]:
     listed = subprocess.run(
         ["git", "-C", str(workspace), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
         capture_output=True,
         text=True,
     )
-    names = listed.stdout.split("\0") if listed.returncode == 0 else []
-    return [name for name in names if name and verify.is_test_path(name)]
+    return [name for name in listed.stdout.split("\0") if name] if listed.returncode == 0 else []
+
+
+def _test_paths(workspace) -> list[str]:
+    """The workspace's test paths, tracked or not."""
+    return [name for name in _workspace_files(workspace) if verify.is_test_path(name)]
 
 
 def _existing_tests(workspace) -> bool:
-    """Whether the workspace already holds test code (a test path that is a code file), tracked or not."""
-    return any(verify.is_code_path(name) for name in _test_paths(workspace))
+    """Whether the workspace already holds test code (a test path or inline Rust tests), tracked or not."""
+    files = _workspace_files(workspace)
+    if any(verify.is_code_path(name) for name in files if verify.is_test_path(name)):
+        return True
+    root = Path(workspace)
+    for name in files:
+        if name.endswith(".rs"):
+            path = root / name
+            if path.is_file() and not path.is_symlink() and rust_inline_tests.test_modules(path.read_bytes()):
+                return True
+    return False
 
 
 def check(state: RunState, body, *, origin=None) -> None:
@@ -192,7 +225,12 @@ def check(state: RunState, body, *, origin=None) -> None:
     if unnamed := unnamed_cases(workspace, framework, tests, body, detect):
         raise ValueError(unnamed)
     # A guard that is a command runs tests the project already has, where no runner names them.
-    if unusable := command_guards.problem(command_guards.plan_guards(body), framework, _test_paths(workspace)):
+    if unusable := command_guards.problem(
+        command_guards.plan_guards(body),
+        framework,
+        _test_paths(workspace),
+        per_test=reporters.suite_reports(framework, workspace),
+    ):
         raise ValueError(unusable)
     builds = (state.get("workflow") or {}).get("kind") in (None, "build", "bugfix")
     if builds and (untested := untested_code(workspace, body)):
@@ -204,10 +242,10 @@ def check(state: RunState, body, *, origin=None) -> None:
         runs = SHOWN[RUNNER_KIND[framework.name]]
         raise ValueError(
             f"The regression proof would never run the plan's tests {', '.join(unrun)}: it runs the plan's tests "
-            f"with one suite, here the {framework.name} suite `{framework.suite}`, which runs {runs} tests, and no "
-            "project directory around all of the plan's tests has a suite of its own that runs them all. Put every "
-            f"new or changed test where one suite runs them all: {runs} tests for `{framework.suite}`, or every "
-            "test inside one project directory with its own manifest and suite (a Gemfile, package.json, go.mod or "
-            "pyproject.toml there), which the proof then runs while the root's suite still checks the code outside "
-            "it. Name each test file in the affected_paths of its milestone"
+            f"with the {framework.name} suite `{framework.suite}`, which runs {runs} tests, and a test of another "
+            "kind with the suite of the project directory around it, and no such directory has a suite that runs "
+            f"these. Put every new or changed test where a suite runs it: {runs} tests for `{framework.suite}`, "
+            "and a test of another kind inside a project directory that already has its own manifest and a suite "
+            "for that kind (a Gemfile, package.json, go.mod or pyproject.toml there), which the proof then runs "
+            "for the tests there. Name each test file in the affected_paths of its milestone"
         )

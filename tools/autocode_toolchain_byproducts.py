@@ -1,4 +1,4 @@
-"""Lockfiles a project's own toolchain writes while a stage runs it.
+"""Lockfiles, result caches and build directories a project's own toolchain writes while a stage runs it.
 
 Cargo writes ``Cargo.lock`` beside ``Cargo.toml`` the first time any Cargo command resolves the
 project. In a project that neither commits nor ignores it, a read-only stage that ran Cargo to
@@ -11,11 +11,29 @@ tool writes it again whenever it is missing. The runner removes it when the stag
 the stage's source is measured, so the repository is as the stage found it. Only a file that was
 absent when the stage began is ever removed. One that existed (committed or not) is the project's
 own and is measured like any other file, and a Builder whose task owns the path keeps what it
-wrote. Pure over the workspace and the stage's before-snapshot; imports nothing from the runner.
+wrote.
+
+A build directory is the same kind of file, many times over. Maven writes ``target/``, Gradle
+``build/`` and ``.gradle/``, Cargo ``target/``, and a CMake project is configured into ``build/``.
+In a project that does not ignore the directory, a Builder that ran the project's tests was
+refused for every file its build tool wrote there: a real C++ bug fix ended
+``PAUSED_INVALID_OUTPUT`` with a correct fix, and the same fix in a Maven project took two refused
+Builder attempts and twice the cost (Claude models, 2026-11-14). Files a tool wrote into such a
+directory, beside the manifest it builds, are removed the same way, and only when the directory
+held no file when the stage began: one that did is the project's own.
+
+A test runner's own record of its last run is the same kind again. PHPUnit writes
+``.phpunit.result.cache`` in the project root every time it runs. In a PHP project that does not ignore
+it, a Plan Reviewer that ran the tests to read the code had "changed the repository", and the run paused
+for a person 69 seconds in (``PAUSED_STALE_VALIDATION``, Claude models, 2026-11-14). It is removed as a
+lockfile is, beside PHPUnit's configuration or Composer's manifest.
+
+Pure over the workspace and the stage's before-snapshot; imports nothing from the runner.
 """
 
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 from pathlib import Path, PurePosixPath
@@ -28,11 +46,18 @@ except ImportError:
 # The lockfile a toolchain creates on its own, and the manifest it resolves beside it: each language's
 # ``lockfiles`` in autocode_project_kinds.
 LOCKFILES = project_kinds.LOCKFILES
+# A file a tool writes on its own whenever it runs, and the files it is written beside: each language's
+# ``run_files`` in autocode_project_kinds.
+RUN_FILES = project_kinds.RUN_FILES
+# The directory a build tool creates on its own, and the manifests it builds beside it: each
+# language's ``build_dirs`` in autocode_project_kinds.
+BUILD_DIRS = project_kinds.BUILD_DIRS
 
 
-def _untracked(workspace) -> list[str]:
-    """Untracked, unignored lockfile paths in ``workspace``, as the source snapshot would list them."""
-    pathspecs = [spec for name in LOCKFILES for spec in (name, f":(glob)**/{name}")]
+def _untracked(workspace, pathspecs=None) -> list[str]:
+    """Untracked, unignored paths in ``workspace`` under ``pathspecs`` (the lockfiles when None), as the
+    source snapshot would list them."""
+    pathspecs = pathspecs or [spec for name in (*LOCKFILES, *RUN_FILES) for spec in (name, f":(glob)**/{name}")]
     try:
         listed = subprocess.run(
             ["git", "-C", str(workspace), "ls-files", "-z", "--others", "--exclude-standard", "--", *pathspecs],
@@ -45,34 +70,73 @@ def _untracked(workspace) -> list[str]:
     return sorted(name for name in listed.stdout.split("\0") if name) if listed.returncode == 0 else []
 
 
+def _beside(name) -> tuple[str, ...]:
+    """The files a lockfile or a tool's run file named ``name`` is written beside; () for any other name."""
+    return (LOCKFILES[name],) if name in LOCKFILES else RUN_FILES.get(name, ())
+
+
 def created(workspace, before_files) -> list[str]:
-    """The lockfiles written since ``before_files`` (a snapshot's ``files``) beside their manifest."""
+    """The lockfiles and tools' run files written since ``before_files`` (a snapshot's ``files``), each
+    beside its manifest."""
     root = Path(workspace)
     found = []
     for name in _untracked(root):
-        path = PurePosixPath(name)
         target = root / name
         if (
             name in before_files
-            or path.name not in LOCKFILES
             or target.is_symlink()
             or not target.is_file()
-            or not (target.parent / LOCKFILES[path.name]).is_file()
+            or not any((target.parent / manifest).is_file() for manifest in _beside(PurePosixPath(name).name))
         ):
             continue
         found.append(name)
     return found
 
 
+def _build_dir(root, name) -> str | None:
+    """The outermost build directory the file ``name`` lies in: a BUILD_DIRS name beside its manifest."""
+    parts = PurePosixPath(name).parts
+    for index, part in enumerate(parts[:-1]):
+        if any(root.joinpath(*parts[:index], manifest).is_file() for manifest in BUILD_DIRS.get(part, ())):
+            return "/".join(parts[: index + 1])
+    return None
+
+
+def built(workspace, before_files) -> dict[str, list[str]]:
+    """The build directories written since ``before_files``, each with the untracked files in it.
+
+    A directory that held any file the snapshot lists (committed or not) is the project's own, and so
+    is one reached through a link."""
+    root = Path(workspace)
+    pathspecs = [spec for name in BUILD_DIRS for spec in (f"{name}/", f":(glob)**/{name}/**")]
+    found: dict[str, list[str]] = {}
+    for name in _untracked(root, pathspecs):
+        if directory := _build_dir(root, name):
+            found.setdefault(directory, []).append(name)
+    return {
+        directory: names
+        for directory, names in found.items()
+        if not any(existing.startswith(directory + "/") for existing in before_files)
+        and not any((root / parent).is_symlink() for parent in (directory, *map(str, PurePosixPath(directory).parents)))
+    }
+
+
 def _owns(owned, name) -> bool:
     return any(name == root.rstrip("/") or name.startswith(root.rstrip("/") + "/") for root in owned)
 
 
+def _touches(owned, directory) -> bool:
+    """Whether an assigned path is ``directory``, holds it or lies inside it."""
+    return _owns(owned, directory) or any(root.rstrip("/").startswith(directory + "/") for root in owned)
+
+
 def discard(workspace, before, *, owned=()) -> list[str]:
-    """Remove the lockfiles a tool created during the stage; return their names.
+    """Remove the lockfiles, run files and build output a tool created during the stage; return the
+    files' names and each build directory as ``NAME/``.
 
     ``before`` is the stage's before-snapshot. ``owned`` is a writing stage's assigned paths: a
-    lockfile inside them is part of its task and stays. Nothing is removed on any doubt.
+    lockfile inside them, or a build directory they touch, is part of its task and stays. Nothing is
+    removed on any doubt.
     """
     files = (before or {}).get("files")
     if not workspace or not isinstance(files, dict):
@@ -86,4 +150,18 @@ def discard(workspace, before, *, owned=()) -> list[str]:
         except OSError:
             continue
         removed.append(name)
+    for directory, names in sorted(built(workspace, files).items()):
+        if _touches(owned, directory):
+            continue
+        for name in names:
+            try:
+                os.unlink(Path(workspace) / name)
+            except OSError:
+                continue
+        # The directories the files were in, deepest first; one that still holds a file (an ignored
+        # one, or one that could not be removed) stays.
+        for current, _dirs, _files in os.walk(Path(workspace) / directory, topdown=False):
+            with contextlib.suppress(OSError):
+                os.rmdir(current)
+        removed.append(directory + "/")
     return removed

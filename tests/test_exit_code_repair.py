@@ -9,7 +9,8 @@ only an exit code shows the same thing as a whole: it fails on the original code
 and the change is code alone, with the suite's own files as they were.
 
 The cases run real commands in a Ruby project, with Minitest's detected suite and with a test script only the
-plan names, and in a shell and a Makefile project; no provider runs.
+plan names, in a Perl distribution with prove, in a PHPUnit project (its command a stand-in) and in a shell
+and a Makefile project; no provider runs.
 tools/autocode_first_suite.py
 """
 
@@ -20,11 +21,14 @@ import unittest
 from unittest import mock
 
 import autocode_first_suite as first_suite
+import autocode_launch_inputs as launch_inputs
 import autocode_regression as regression
 import autocode_util as util
 import autocode_verify as verify
 from autocode_test_framework import Framework
 
+from . import test_perl_suite as perl
+from . import test_phpunit_suite as php
 from .test_verify import Project
 
 FIXED = "module Pager\n  def self.page_count(total, size)\n    (total + size - 1) / size\n  end\nend\n"
@@ -59,6 +63,7 @@ def contract(*methods, kind="bugfix"):
 
 class Proving(unittest.TestCase):
     seed: dict = {}
+    installed = False  # whether the project has ignored packages the proof's copies need
 
     def setUp(self):
         self.project = Project(self.seed)
@@ -75,8 +80,12 @@ class Proving(unittest.TestCase):
             "settings": {"regression": {}},
             "goal_contract": goal_contract,
         }
+        run_dir = self.project.root.parent / "run"
+        if self.installed:
+            run_dir.mkdir()
+            launch_inputs.record(state, self.project.root, run_dir)  # as a run does when it starts
         with mock.patch.object(verify.diff_coverage, "collect", return_value=None):
-            return regression.prove(state, self.project.root, self.project.root.parent / "run")
+            return regression.prove(state, self.project.root, run_dir)
 
     def shown(self, proof):
         return any(SHOWN in note for note in proof["notes"])
@@ -89,6 +98,8 @@ class RuleTests(unittest.TestCase):
             (Framework("jest", suite), suite, None, True),
             (Framework("mocha", "npx --no-install mocha"), "npx --no-install mocha", None, True),
             (Framework("minitest", "ruby -e 1"), "ruby -e 1", None, True),
+            (Framework("phpunit", "vendor/bin/phpunit"), "vendor/bin/phpunit", None, True),
+            (Framework("prove", "prove -lr t"), "prove -lr t", None, True),
             (None, "ruby tests/pager_check.rb", "ruby tests/pager_check.rb", True),
             # A command the person typed, a recipe and a package script run whatever they say.
             (None, "sh run.sh", None, False),
@@ -100,6 +111,15 @@ class RuleTests(unittest.TestCase):
         ):
             with self.subTest(framework=framework and framework.name, command=command):
                 self.assertEqual(eligible, first_suite.exit_repair_suite(framework, command, adopted))
+
+    def test_the_files_that_say_what_phpunit_and_prove_run_are_held_to_the_original(self):
+        # They are the suite's own files, as jest.config.js is: a change to one is a change to what runs.
+        for path in ("phpunit.xml", "phpunit.xml.dist", "api/phpunit.dist.xml", ".proverc"):
+            with self.subTest(path=path):
+                self.assertTrue(verify._definition_file(path))
+        for path in ("composer.json", "cpanfile", "src/phpunit.xml.md"):
+            with self.subTest(path=path):
+                self.assertFalse(verify._definition_file(path))
 
     def test_a_suite_fails_as_a_whole_when_it_completed_nonzero_without_naming_a_test(self):
         ran = lambda health, command="make test": {"command": command, "health": health}  # noqa: E731
@@ -171,7 +191,73 @@ class MinitestTests(Proving):
         proof = self.prove(contract(criterion), {"lib/pager.rb": FIXED})
         self.assertEqual(verify.PASS, proof["verdict"], proof)
         self.assertEqual((framework.suite, "detected:minitest"), tuple(proof["commands"].values())[:2])
+        self.assertIn(
+            "Existing tests that fail on the original code pass with the change: "
+            "test/pager_test.rb::PagerTest::test_partial_last_page",
+            proof["notes"],
+        )
+
+
+@unittest.skipUnless(shutil.which("prove"), "the project's suite is its .t files, run with Perl's prove")
+class PerlTests(Proving):
+    """ "t/pager.t fails. Fix the module", in a Perl distribution: the test that shows the bug is already there."""
+
+    seed = {"cpanfile": perl.CPANFILE, "lib/Acme/Pager.pm": perl.PAGER, "t/pager.t": perl.REGRESSION}
+    criterion = "`prove -l t/pager.t` fails on the original code and passes with the fix"
+
+    def test_the_detected_suite_shows_the_repair(self):
+        proof = self.prove(contract(self.criterion), {"lib/Acme/Pager.pm": perl.FIXED})
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual(("prove -lr t", "detected:prove"), tuple(proof["commands"].values())[:2])
+        self.assertEqual((["lib/Acme/Pager.pm"], []), (proof["source_files"], proof["test_files"]))
         self.assertTrue(self.shown(proof), proof["notes"])
+
+    def test_a_change_that_leaves_the_suite_failing_shows_no_repair(self):
+        proof = self.prove(contract(self.criterion), {"lib/Acme/Pager.pm": perl.PAGER.replace("+ 1", "+ 1 + 0")})
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertFalse(self.shown(proof), proof["notes"])
+
+    def test_options_that_make_prove_run_nothing_are_not_this_repair(self):
+        # `prove -D` is a dry run: it lists the test files and exits 0. A .proverc is not code.
+        proof = self.prove(
+            contract(self.criterion), {"lib/Acme/Pager.pm": perl.PAGER.replace("+ 1", "+ 1 + 0"), ".proverc": "-D\n"}
+        )
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertIn(f"{NO_TEST}, so the bug is not shown to be reproduced", " ".join(proof["failures"]))
+        self.assertFalse(self.shown(proof), proof["notes"])
+
+
+class PhpunitTests(Proving):
+    """The same request in a Composer project: PHPUnit's suite, judged by its exit code."""
+
+    seed = {**php.SEED, "tests/PagerTest.php": php.REGRESSION}
+    installed = True
+    criterion = "`vendor/bin/phpunit` fails on the original code and passes with the fix"
+
+    def setUp(self):
+        super().setUp()
+        # `composer install` has run, as in a person's project: vendor/ is there and ignored.
+        self.project.write({"vendor/bin/phpunit": php.STAND_IN, "vendor/autoload.php": "<?php\n"})
+        (self.project.root / "vendor/bin/phpunit").chmod(0o755)
+
+    def test_the_detected_suite_shows_the_repair(self):
+        proof = self.prove(contract(self.criterion), {"src/Pager.php": php.FIXED})
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual(("vendor/bin/phpunit", "detected:phpunit"), tuple(proof["commands"].values())[:2])
+        self.assertEqual((["src/Pager.php"], []), (proof["source_files"], proof["test_files"]))
+        self.assertTrue(self.shown(proof), proof["notes"])
+
+    def test_a_change_that_leaves_the_suite_failing_shows_no_repair(self):
+        proof = self.prove(contract(self.criterion), {"src/Pager.php": php.PAGER.replace("+ 1", "+ 1 + 0")})
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertFalse(self.shown(proof), proof["notes"])
+
+    def test_a_change_to_phpunits_configuration_is_not_this_repair(self):
+        narrowed = php.CONFIG.replace("<directory>tests</directory>", "<directory>tests/unit</directory>")
+        proof = self.prove(contract(self.criterion), {"src/Pager.php": php.FIXED, "phpunit.xml": narrowed})
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertIn(f"{NO_TEST}, so the bug is not shown to be reproduced", " ".join(proof["failures"]))
+        self.assertFalse(self.shown(proof), proof["notes"])
 
 
 class ShellTests(Proving):
