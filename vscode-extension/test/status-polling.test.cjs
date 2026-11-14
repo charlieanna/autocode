@@ -253,7 +253,7 @@ test('a CLI call that never exits times out instead of hanging the caller foreve
 
 test('the registry and mode listings pass a timeout so a wedged CLI cannot freeze the sidebar', async (t) => {
   const controller = new RunController(host.log);
-  const launch = t.mock.method(cli, 'invoke', async (_settings, args) => ({
+  const launch = t.mock.method(cli, 'invokeRead', async (_settings, args) => ({
     code: 0, stdout: args[0] === 'registry' ? '{"runs": [], "diagnostics": []}'
       : '{"schema_version": 1, "default": "full", "modes": []}',
     stderr: '', rejected: false,

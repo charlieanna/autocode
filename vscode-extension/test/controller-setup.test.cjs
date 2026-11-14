@@ -22,7 +22,7 @@ test('selection verifies the candidate controller before saving workspace-only C
   host.config.set('cliArgs', ['/editable/tools/autocode.py']);
   const selected = '/isolated env/bin/autocode';
   host.vscode.window.showOpenDialog = async () => [{ fsPath: selected }];
-  const invoke = t.mock.method(cli, 'invoke', async () => ({ code: 0, stdout: JSON.stringify(listing(true)), stderr: '' }));
+  const invoke = t.mock.method(cli, 'invokeRead', async () => ({ code: 0, stdout: JSON.stringify(listing(true)), stderr: '' }));
   const config = host.vscode.workspace.getConfiguration();
   const update = t.mock.method(config, 'update');
   t.mock.method(host.vscode.workspace, 'getConfiguration', () => config);
@@ -42,7 +42,7 @@ test('selection verifies the candidate controller before saving workspace-only C
 test('cancel, unsafe, failed, old and malformed candidate reads cannot change settings', async (t) => {
   const before = [['cliPath', '/old/autocode'], ['cliArgs', ['old.py']]];
   host.vscode.window.showOpenDialog = async () => undefined;
-  const invoke = t.mock.method(cli, 'invoke', async () => { throw new Error('must not run'); });
+  const invoke = t.mock.method(cli, 'invokeRead', async () => { throw new Error('must not run'); });
   assert.equal(await settings.selectIsolatedController(blocked(), '/project'), false);
   assert.equal(invoke.mock.callCount(), 0);
   host.vscode.window.showOpenDialog = async () => [{ fsPath: '/candidate/autocode' }];
@@ -68,7 +68,7 @@ test('chat offers the named setup action before allocating a run, and leaves lau
   const tab = {};
   const warning = t.mock.method(host.vscode.window, 'showWarningMessage', async () => 'Select isolated AutoCode CLI');
   host.vscode.window.showOpenDialog = async () => [{ fsPath: '/isolated/autocode' }];
-  const invoke = t.mock.method(cli, 'invoke', async () => ({ code: 0, stdout: JSON.stringify(listing(true)), stderr: '' }));
+  const invoke = t.mock.method(cli, 'invokeRead', async () => ({ code: 0, stdout: JSON.stringify(listing(true)), stderr: '' }));
   const notice = t.mock.method(host.vscode.window, 'showInformationMessage', async () => undefined);
   assert.equal(await place(tab, { list: blocked() }), undefined);
   assert.equal(warning.mock.calls[0].arguments[0], listing().controller.detail);

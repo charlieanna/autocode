@@ -180,6 +180,11 @@ def accounting(rows, *, issues=()):
 
 
 def measurement(rows):
+    return _measurement(rows)
+
+
+def _measurement(rows, *, native_accounting=None):
+    """Share accounting only when it came from this same event-file read."""
     rows = list(rows)
     samples, seen, missing, pending = [], {}, 0, False
     for row in rows:
@@ -222,7 +227,7 @@ def measurement(rows):
                 {"input_tokens": sum(values), "cached_input_tokens": values[1], "cache_write_tokens": values[2]}
             )
     known = [value for value in samples if value is not None]
-    pending = accounting(rows)["unfinished_request"]
+    pending = (accounting(rows) if native_accounting is None else native_accounting)["unfinished_request"]
     return {
         "basis": "reported-opencode-step" if known else "unavailable",
         "observed_requests": len(samples),
@@ -281,7 +286,7 @@ def read(path):
         issues.append(f"events unavailable: {error}")
     result = accounting(rows, issues=issues)
     result["event_file"] = identity
-    return {**measurement(rows), "accounting": result}
+    return {**_measurement(rows, native_accounting=result), "accounting": result}
 
 
 def saved_metrics(state: RunState, key):

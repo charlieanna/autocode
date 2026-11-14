@@ -1,7 +1,7 @@
 /** Reading the extension's settings into a CLI launch. */
 
 import * as vscode from "vscode";
-import { invoke, tail, STATUS_TIMEOUT_MS, type CliOptions } from "./core/cli";
+import { invokeRead, tail, STATUS_TIMEOUT_MS, type CliOptions } from "./core/cli";
 import { readWorktrees, type WorktreeList } from "./core/worktrees";
 
 export interface Settings extends CliOptions {
@@ -37,7 +37,7 @@ export async function selectIsolatedController(list: WorktreeList, folder: strin
   });
   if (!selected?.length) return false;
   const command = selected[0]!.fsPath;
-  const result = await invoke({ ...readSettings(), command, prefix: [], cwd: folder },
+  const result = await invokeRead({ ...readSettings(), command, prefix: [], cwd: folder },
     action.nextCommand, {}, STATUS_TIMEOUT_MS);
   if (result.code !== 0) throw new Error(`Selected AutoCode CLI could not be checked: ${tail(result)}`);
   const verified = readWorktrees(result.stdout);

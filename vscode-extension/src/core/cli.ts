@@ -6,7 +6,9 @@
  * than argv because a process command line is world-readable.
  */
 
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { createHash } from "node:crypto";
+import { resolve } from "node:path";
 
 /** What a CLI call returned. Mirrors the fields `TaskRun` keeps for a caller. */
 export interface CliResult {
@@ -35,6 +37,48 @@ export function invoke(options: CliOptions, args: string[], env: Record<string, 
   return stream(options, args, env, undefined, EXIT_GRACE_MS, timeoutMs);
 }
 
+/** A read's UI deadline passed; its configured CLI has not yet been collected. */
+export class ReadDeadlineExceeded extends Error {
+  constructor(timeoutMs: number, readonly collected: Promise<void>, pending = true) {
+    super(`AutoCode did not finish this read within ${timeoutMs / 1000}s.${pending ? " Waiting for its reader to finish before reading again." : ""}`);
+    this.name = "ReadDeadlineExceeded";
+  }
+}
+
+interface ReadLease {
+  error?: ReadDeadlineExceeded;
+  child?: ChildProcessWithoutNullStreams;
+  collected: Promise<void>;
+  release(): void;
+}
+
+// Healthy preflights remain fresh. Only an expired, uncollected reader prevents
+// another identical launch; a UI timeout never proves a wrapper's child stopped.
+const readLeases = new Map<string, Set<ReadLease>>();
+
+/** A public read with a UI deadline, retaining its reader until natural exit. */
+export function invokeRead(options: CliOptions, args: string[], env: Record<string, string> = {}, timeoutMs = STATUS_TIMEOUT_MS): Promise<CliResult> {
+  const environment = launchEnv({ ...(options.env ?? {}), ...env });
+  const key = createHash("sha256").update(JSON.stringify([buildArgv(options, args), resolve(options.cwd ?? process.cwd()),
+    Object.entries(environment).filter(([, value]) => value !== undefined).sort(([left], [right]) => left.localeCompare(right))])).digest("hex");
+  const leases = readLeases.get(key) ?? new Set<ReadLease>();
+  const held = [...leases].find((lease) => lease.error);
+  if (held) return Promise.reject(held.error);
+  let collected!: () => void;
+  const lease: ReadLease = {
+    collected: new Promise<void>((done) => { collected = done; }),
+    release: () => {
+      leases.delete(lease);
+      lease.child = undefined;
+      if (!leases.size && readLeases.get(key) === leases) readLeases.delete(key);
+      collected();
+    },
+  };
+  leases.add(lease);
+  readLeases.set(key, leases);
+  return execute(options, args, env, undefined, EXIT_GRACE_MS, timeoutMs, lease, environment);
+}
+
 /**
  * Run one CLI call, reporting output as it arrives.
  *
@@ -45,7 +89,7 @@ export function invoke(options: CliOptions, args: string[], env: Record<string, 
  * grandchild can hold them forever) before the action is complete anyway. */
 export const EXIT_GRACE_MS = 2000;
 
-/** A status poll must not hang the conversation: after this, the read fails and the next tick can try again. */
+/** UI read deadline; failing the read does not establish reader collection. */
 export const STATUS_TIMEOUT_MS = 30_000;
 
 /** A stage list lists the backend's models: seconds on OpenCode. After this the read fails and says so. */
@@ -69,13 +113,34 @@ export function stream(
   exitGraceMs = EXIT_GRACE_MS,
   timeoutMs?: number,
 ): Promise<CliResult> {
+  return execute(options, args, env, onOutput, exitGraceMs, timeoutMs);
+}
+
+function execute(
+  options: CliOptions,
+  args: string[],
+  env: Record<string, string>,
+  onOutput: ((chunk: string) => void) | undefined,
+  exitGraceMs: number,
+  timeoutMs?: number,
+  read?: ReadLease,
+  environment?: NodeJS.ProcessEnv,
+): Promise<CliResult> {
   const { file, args: argv } = buildArgv(options, args);
   return new Promise((resolve, reject) => {
-    const child = spawn(file, argv, {
-      cwd: options.cwd,
-      env: launchEnv({ ...(options.env ?? {}), ...env }),
-      shell: false,
-    });
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawn(file, argv, {
+        cwd: options.cwd,
+        env: environment ?? launchEnv({ ...(options.env ?? {}), ...env }),
+        shell: false,
+      });
+    } catch (error) {
+      read?.release();
+      reject(error);
+      return;
+    }
+    if (read) read.child = child;
     let stdout = "";
     let stderr = "";
     let settled = false;
@@ -93,29 +158,42 @@ export function stream(
         if (settled) return;
         settled = true;
         if (grace) clearTimeout(grace);
-        child.kill("SIGKILL");
-        reject(new Error(`autocode timed out after ${timeoutMs}ms: ${file} ${argv.join(" ")}`));
+        if (read) {
+          read.error = new ReadDeadlineExceeded(timeoutMs, read.collected, read.child !== undefined);
+          reject(read.error);
+        } else {
+          child.kill("SIGKILL");
+          reject(new Error(`autocode timed out after ${timeoutMs}ms: ${file} ${argv.join(" ")}`));
+        }
       }, timeoutMs);
     }
     child.stdout.on("data", (chunk: Buffer) => {
+      if (settled) return;
       stdout += chunk.toString();
       onOutput?.(chunk.toString());
     });
     child.stderr.on("data", (chunk: Buffer) => {
+      if (settled) return;
       stderr += chunk.toString();
       onOutput?.(chunk.toString());
     });
     child.on("error", (error: NodeJS.ErrnoException) => {
+      if (read && child.pid === undefined) read.release();
+      if (settled) return;
       const hint = error.code === "ENOENT" ? `Is ${file} on PATH? Set "autocode.cliPath" in settings.` : error.message;
-      if (!settled) { settled = true; if (grace) clearTimeout(grace); if (timer) clearTimeout(timer); }
+      settled = true;
+      if (grace) clearTimeout(grace);
+      if (timer) clearTimeout(timer);
       reject(new Error(`${file} could not start: ${hint}`));
     });
     // A controller that exits at a pause boundary may leave a provider child
     // holding stdio open; the action is over when the process is gone (#1556).
     child.on("exit", (code) => {
+      read?.release();
+      if (settled) return;
       grace = setTimeout(() => finish(code), exitGraceMs);
     });
-    child.on("close", (code) => finish(code));
+    child.on("close", (code) => { read?.release(); finish(code); });
   });
 }
 
@@ -129,7 +207,7 @@ export async function readStatus<T>(options: CliOptions, workspace: string, runD
   // Use the public TaskRun reader grammar. With --status last, the core's
   // conservative legacy-worker check can mistake polling for another writer.
   // Bounded: a hung --status must not freeze the conversation's poll loop.
-  const result = await stream(options, ["--status", "--workspace", workspace, "--run-dir", runDir], {}, undefined, EXIT_GRACE_MS, STATUS_TIMEOUT_MS);
+  const result = await invokeRead(options, ["--status", "--workspace", workspace, "--run-dir", runDir]);
   if (result.code !== 0) throw new Error(tail(result));
   return parse(result.stdout);
 }

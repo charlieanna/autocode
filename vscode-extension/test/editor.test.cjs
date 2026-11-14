@@ -695,7 +695,12 @@ test('status polling uses the core-recognized read-only command grammar', async 
   assert.equal(spawn.mock.calls[0].arguments[2].shell, false);
 });
 
-beforeEach(() => { controller = new RunController(host.log); });
+beforeEach((t) => {
+  controller = new RunController(host.log);
+  // Read and action fixtures return the same public answers. The separate
+  // read-timeout tests exercise the actual read lifecycle and child custody.
+  t.mock.method(cli, 'invokeRead', (...args) => cli.invoke(...args));
+});
 
 afterEach(() => {
   RunPanel.disposeAll();
@@ -4468,6 +4473,53 @@ test('a failed status read keeps the transcript but disables chat actions until 
   assert.equal(send().disabled, false);
   assert.ok(!ui.document.querySelector('#app').textContent.includes('couldn’t read the latest status'));
   assert.equal(ui.document.querySelector('#chat-error').textContent, '');
+});
+
+test('a read deadline holds polling and recovers only with the fresh displayed approval token', async (t) => {
+  const own = new RunController(host.log);
+  const ui = await openChat(t, chatView(), run, { controller: own });
+  const { EventEmitter } = require('node:events');
+  const children = [];
+  t.mock.method(require('node:child_process'), 'spawn', () => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+    child.pid = 45000 + children.length;
+    child.kill = () => { throw new Error('read deadline must not signal the transport'); };
+    children.push(child); return child;
+  });
+  t.after(() => children.forEach((child) => { child.emit('exit', 0); child.emit('close', 0); }));
+  own.status.mock.mockImplementation(RunController.prototype.status.bind(own));
+  const take = () => ui.document.querySelector('#take-action');
+  const reading = ui.chat.refresh();
+  t.mock.timers.tick(30000); await reading; await flush();
+  assert.equal(take().disabled, true, 'the old approval loses authority on a failed read');
+  assert.ok(ui.document.querySelector('#messages').textContent.includes('Build the requested CLI'));
+  assert.match(ui.document.querySelector('#chat-error').textContent, /Waiting for its reader/);
+  await ui.chat.refresh();
+  assert.equal(children.length, 1, 'polling remains responsive without replacing the uncollected reader');
+  children[0].emit('exit', 0); children[0].emit('close', 0);
+  const current = chatView();
+  current.needs.token = 'r2:def';
+  current.displayed_plan = { ...current.displayed_plan, revision: 2, hash: 'def', token: 'r2:def' };
+  current.next_command = current.next_command.replace('r1:abc', 'r2:def');
+  const finish = (child) => {
+    child.stdout.emit('data', Buffer.from(JSON.stringify({ view: current })));
+    child.emit('exit', 0); child.emit('close', 0);
+  };
+  const recovered = ui.chat.refresh();
+  assert.equal(children.length, 2);
+  finish(children[1]); await recovered; await flush();
+  assert.equal(take().disabled, false);
+  assert.equal(ui.document.querySelector('#chat-error').textContent, '');
+  const launch = t.mock.method(cli, 'stream', async () => {
+    own.status.mock.mockImplementation(async () => ({ status: 'PAUSED_INTERVENTION', done: false, needs: null }));
+    return ok;
+  });
+  take().click(); await flush();
+  assert.equal(children.length, 3, 'approval still performs its own fresh preflight');
+  finish(children[2]); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1);
+  assert.equal(launch.mock.calls[0].arguments[2].AUTOCODE_APPROVE_GOAL_TOKEN, 'r2:def');
 });
 
 test('a failed status read disables requirements Continue (#1593)', async (t) => {
