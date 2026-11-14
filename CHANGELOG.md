@@ -103,6 +103,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **Changing a stage's model reaches the roles that inherit from it** (#3442): changing a run's Tester model left its already-materialized acceptance-test writer on the old route, and the same held for the Design Reviewer's capped `architect` route and the Resolver's route inherited from the task planner. An inherited role a run has already materialized is now re-derived from its parent when that parent's model or level changes, takes the parent's transport identity and clears its stale session; the child's own explicit choice, a live attempt or a current failed-job retry binding still wins. A child's own reasoning climb survives that sync unless the parent actually moved, so a Resolver that climbed after a rejected report is not relaunched on the rung that was just rejected.
 - **VS Code keeps and distinguishes unsent chats**: opening a run from History no longer removes an initial chat with a draft, switching or closing tabs does not copy a draft into another chat, and draft tabs show a short preview. Keyboard focus stays on a tab’s close button when status updates change its label.
 
 - **Saving a stage model no longer queries the backend a second time for its response**: the saved choices and model options now come from the catalogue that validated the change, so a later listing failure cannot turn an accepted save into an empty model list. Each new operation still checks availability and verifier independence afresh.
