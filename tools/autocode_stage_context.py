@@ -336,6 +336,10 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
             deferred_backlog=state.get("deferred_backlog", []),
             preserved_checkpoint=state.get("pre_goal_checkpoint"),
         )
+        if stage not in ("requirements_gather", "requirements", "draft_plan") and (
+            requirements := ((state.get("requirements_handoff") or {}).get("report") or {}).get("requirements")
+        ):
+            base["requirements"] = [{"id": row["id"], "text": row["text"]} for row in requirements]
         base["milestone_status"] = goals.milestone_status(state, current)
         base["prior_validation_reports"] = [
             {k: entry["validation"].get(k) for k in ("output", "source_revision", "contract_revision", "verdict")}

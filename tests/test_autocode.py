@@ -690,6 +690,37 @@ class RetrofitTest(unittest.TestCase):
         self.assertIn("fixture-source", text)
         self.assertIn("READ_ONLY_PRIVATE_CACHE", text)
 
+    def test_context_packet_includes_execution_requirements_from_handoff(self):
+        self.state["version"] = 3
+        self.state["requirements_handoff"] = {
+            "report": {
+                "requirements": [
+                    {"id": "R1", "text": "Use stdlib only.", "source_quote": "Build stdlib package."},
+                    {"id": "R2", "text": "Deterministic topology.", "source_quote": "Lexicographic ready node."},
+                ]
+            }
+        }
+        expected = [
+            {"id": "R1", "text": "Use stdlib only."},
+            {"id": "R2", "text": "Deterministic topology."},
+        ]
+        for stage in ("builder", "tester", "review_completion", "review_checkpoint", "plan_task"):
+            with self.subTest(stage=stage):
+                text, _ = stage_context.context_packet(self.state, stage, self.run / "state.json")
+                packet = json.loads(text.split("\nCURRENT HANDOFF DATA\n", 1)[1])
+                self.assertEqual(expected, packet["requirements"])
+        for stage in ("requirements_gather", "requirements", "draft_plan"):
+            with self.subTest(stage=stage):
+                text, _ = stage_context.context_packet(self.state, stage, self.run / "state.json")
+                packet = json.loads(text.split("\nCURRENT HANDOFF DATA\n", 1)[1])
+                self.assertNotIn("requirements", packet)
+        for handoff in (None, {"report": None}, {"report": {"requirements": []}}):
+            with self.subTest(handoff=handoff):
+                self.state["requirements_handoff"] = handoff
+                text, _ = stage_context.context_packet(self.state, "builder", self.run / "state.json")
+                packet = json.loads(text.split("\nCURRENT HANDOFF DATA\n", 1)[1])
+                self.assertNotIn("requirements", packet)
+
     def test_compaction_keeps_all_errors_and_test_totals(self):
         text = "ok\nok\n.....\nError first\nframe.rb:9\nError second\n3 tests, 2 failures\n"
         c = s.compact_output(text)
