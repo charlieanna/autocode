@@ -1140,10 +1140,7 @@ def _retain_equivalent_approval(state: RunState, origin, record) -> bool:
     ):
         return False
     record = record or {}
-    if record.get("rejected"):
-        return False
-    current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=s.snapshot)
-    if not record.get("source_revision") or record.get("source_revision") != current.get("revision"):
+    if record.get("rejected") or not record.get("source_revision"):
         return False
     last = limit_events.last_decision(state)
     if not isinstance(last, dict) or last.get("kind") != "goal_approval":
@@ -1181,6 +1178,15 @@ def _retain_equivalent_approval(state: RunState, origin, record) -> bool:
     if prior_event is None or prior_event.get("actor") != "user_cli":
         return False
     if not equivalent_reviewed_body(body, prior.get("body") or {}):
+        return False
+    workspace = state.get("workspace")
+    if not workspace:
+        return False
+    try:
+        current = source_scope.snapshot(Path(workspace), state, base_snapshot=s.snapshot)
+    except (ValueError, s.Paused, OSError):
+        return False
+    if record.get("source_revision") != current.get("revision"):
         return False
     candidate = copy.deepcopy(state)
     try:

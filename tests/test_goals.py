@@ -3255,7 +3255,16 @@ class GoalTests(unittest.TestCase):
         two_sentence_brief = (
             "`greet.py NAME` prints greetings as `Hello, NAME!` one per line and exits 0. Keep output deterministic."
         )
-        for case in ("selector", "criterion", "exclusion", "milestone", "out_of_scope", "feedback", "source_moved"):
+        for case in (
+            "selector",
+            "criterion",
+            "exclusion",
+            "milestone",
+            "out_of_scope",
+            "feedback",
+            "source_moved",
+            "absent_workspace",
+        ):
             with self.subTest(case=case):
                 self.setUp()
                 first_kwargs = {}
@@ -3369,7 +3378,16 @@ class GoalTests(unittest.TestCase):
                 elif case == "source_moved":
                     second_body, second_record = self._sealed_joint_plan(2)
                     (self.root / "greet.py").write_text("print('changed')\n")
+                elif case == "absent_workspace":
+                    second_body, second_record = self._sealed_joint_plan(2)
+                    self.state["workspace"] = str(self.root / "missing-workspace")
 
+                if case == "absent_workspace":
+                    lifecycle.install_draft(self.state, second_body, origin="finalize_plan", record=second_record)
+                    self.assertEqual("RESOLVER_PENDING", self.state["status"])
+                    self.assertEqual("draft", self.state["goal_contract"]["approval_status"])
+                    self.assertFalse(g.approved(self.state))
+                    continue
                 lifecycle.install_draft(self.state, second_body, origin="finalize_plan", record=second_record)
                 self.state["planning"]["final_token"] = g.token(self.state["goal_contract"])
                 lifecycle.human.evaluate(self.state)
