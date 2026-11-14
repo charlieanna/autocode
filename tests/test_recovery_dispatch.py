@@ -29,18 +29,20 @@ CHAIN_ORDER = (
     "startup",
     "route",
     "truncated_review",
+    "reasoning_exhaustion",
     "capacity",
     "timeout",
     "external_directory_denial",
     "no_progress",
 )
 
-# Where each row's recoverer lives: five in their own modules, four on the runner.
+# Where each row's recoverer lives: six in their own modules, four on the runner.
 MODULE_ROWS = {
     "job_failure": (recovery_dispatch.job_failure, "recover"),
     "network": (recovery_dispatch.network_retry, "recover"),
     "startup": (recovery_dispatch.provider_recovery, "recover_startup"),
     "route": (recovery_dispatch.route_recovery, "recover"),
+    "reasoning_exhaustion": (recovery_dispatch.output_cap_recovery, "recover"),
     "no_progress": (recovery_dispatch.resolver_recovery, "recover_no_progress"),
 }
 
@@ -66,6 +68,7 @@ class ChainOrderTests(unittest.TestCase):
             return recovery_dispatch.recover(runtime, {}, Path("/run"), Path("/work"), s.Paused("PAUSED_TEST", "x"))
 
     def test_every_row_is_recorded(self):
+        self.assertEqual(list(CHAIN_ORDER), [name for name, _ in recovery_dispatch.RECOVERY_CHAIN])
         self.assertEqual(set(CHAIN_ORDER), set(MODULE_ROWS) | set(RUNTIME_ROWS))
         self.assertEqual(len(CHAIN_ORDER), len(MODULE_ROWS) + len(RUNTIME_ROWS))
 

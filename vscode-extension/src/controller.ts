@@ -27,7 +27,7 @@ import {
   ClientGap,
   type OpenDecision,
 } from "./core/next-command";
-import { readChangesetSummary, readRegistryList, readStatusPayload, approvalToken, planForApproval, type ChangesetSummary, type CheckpointAction, type IntegerCommandInput, type RegistryAction, type RegistryList, type StatusView } from "./core/view";
+import { readChangesetSummary, readRegistryList, readStatusPayload, approvalToken, hasPlanReview, planForApproval, type ChangesetSummary, type CheckpointAction, type IntegerCommandInput, type RegistryAction, type RegistryList, type StatusView } from "./core/view";
 import { FULL_START_ARGS, readRunModes, type RunModes } from "./core/modes";
 import { readSettings, type Settings } from "./settings";
 
@@ -346,6 +346,9 @@ export class RunController {
     if (!summary) throw new ClientGap("this run is in no change set");
     if (key === "approval" && summary.approval.set_token !== shownToken) {
       throw new ClientGap("a plan in the change set changed since it was displayed; review the plans again");
+    }
+    if (key === "approval" && !summary.runs.every((row) => hasPlanReview(row.plan))) {
+      throw new ClientGap("the complete plans are unavailable; review every plan before approving the change set");
     }
     const args = changesetAction(summary, key);
     this.log.appendLine(`$ autocode ${args.join(" ")}`);
