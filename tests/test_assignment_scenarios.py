@@ -692,10 +692,10 @@ class AssignmentScenarios(unittest.TestCase):
         milestones = [
             {
                 "id": "M1",
-                "objective": "Create src/new.py",
+                "objective": "Create src/new.py with a regression test",
                 "depends_on": [],
                 "acceptance_criteria": ["C1"],
-                "affected_paths": ["src/new.py"],
+                "affected_paths": ["src/new.py", "test_new.py"],
             }
         ]
         self.approve(milestones, criteria)
