@@ -516,6 +516,7 @@ def packet(state: RunState, state_path, inventory: dict | None = None, engine: s
         for key, entry in (state.get("failure_history") or {}).items()
         if (entry.get("identity") or {}).get("stage") == request["stage"]
     }
+    recovery = state.get("recovery_context")
     return {
         "stage": STAGE,
         "task": state["task"],
@@ -533,6 +534,7 @@ def packet(state: RunState, state_path, inventory: dict | None = None, engine: s
         "goal_contract": state.get("goal_contract"),
         "current_task": state.get("current_task"),
         "saved_answers": state.get("answers", {}),
+        **({"recovery_context": recovery} if isinstance(recovery, dict) and recovery.get("stage") == STAGE else {}),
         **({"builder_failure": request["failure_evidence"]} if request.get("mode") == "builder_failure" else {}),
         # What earlier runs learned about this repository; advisory, never authority (#2943).
         **({"project_notes": notes} if (notes := project_notes.context(state)) else {}),
