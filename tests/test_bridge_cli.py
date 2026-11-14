@@ -469,6 +469,23 @@ class AdmissionTests(unittest.TestCase):
         bridge.tick()  # the daemon drives 7 to completion, delivers it, and starts 8 in the same poll
         self.assertEqual([7, 8], self.launched)
 
+    def test_the_start_notice_calls_a_run_durable_only_when_it_is(self):
+        # Found by the live trial: in the no-systemd mode the notice also said "durable run".
+        self.bridge(None).tick()
+        durable = next(body for issue, body in self.client.posted if issue == 7 and "took this issue" in body)
+        self.assertIn("started a durable run", durable)
+
+        self.client.posted.clear()
+        for number in (7, 8, 9):
+            store.path("owner", "repo", number).unlink()
+            self.runs[number].advance_until_input = lambda: None
+        launch = self.launch
+        self.launch = lambda *args, **kwargs: {**launch(*args, **kwargs), "owned": True}
+        self.bridge(None).tick()
+        owned = next(body for issue, body in self.client.posted if issue == 7 and "took this issue" in body)
+        self.assertNotIn("durable", owned)
+        self.assertIn("works while the bridge is running", owned)
+
     def test_a_run_nothing_can_resume_frees_its_slot(self):
         bridge = self.bridge(1)
         bridge.tick()

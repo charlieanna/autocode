@@ -152,15 +152,30 @@ class Client:
         issue = self._call("GET", f"/repos/{ref.owner}/{ref.repo}/issues/{ref.number}")
         if "pull_request" in issue:
             raise GitHubError(f"{ref} is a pull request, not an issue")
-        comments = []
-        if issue.get("comments") and max_comments:
-            # Ask for the last page that holds the newest comments.
-            per_page = min(max_comments, 100)
-            page = max(1, -(-int(issue["comments"]) // per_page))
-            comments = self._call(
+        comments = self._newest_comments(ref, issue.get("comments"), max_comments) if issue.get("comments") else []
+        return {**issue, "comments_list": comments}
+
+    def _newest_comments(self, ref: IssueRef, total: object, max_comments: int) -> list:
+        """The newest max_comments comments, oldest first, read from the last page backwards.
+
+        GitHub lists comments oldest first, so the newest are on the last page, and that page is
+        short whenever the total is not a multiple of the page size: the 31st comment is alone on
+        the second page of 30. Reading only that page hid the comments just before the boundary,
+        so the pages before it are read until the newest max_comments are in hand.
+        """
+        if not max_comments:
+            return []
+        per_page = min(max_comments, 100)
+        page = max(1, -(-int(total) // per_page)) if total else 1
+        comments: list = []
+        while page >= 1 and len(comments) < max_comments:
+            rows = self._call(
                 "GET", f"/repos/{ref.owner}/{ref.repo}/issues/{ref.number}/comments?per_page={per_page}&page={page}"
             )
-        return {**issue, "comments_list": comments[-max_comments:] if max_comments else []}
+            if isinstance(rows, list):
+                comments = rows + comments
+            page -= 1
+        return comments[-max_comments:]
 
     def open_issues(self, owner: str, repo: str, label: str) -> list[dict]:
         """Open, non-PR issues carrying one label, newest first."""
@@ -187,17 +202,7 @@ class Client:
     def pull_request_with_comments(self, ref: IssueRef, max_comments: int = 30) -> dict:
         """Read a pull request with up to max_comments of its most recent issue comments under "comments_list"."""
         pull = self.pull_request(ref)
-        comments = []
-        if max_comments:
-            per_page = min(max_comments, 100)
-            total = pull.get("comments")
-            page = max(1, -(-int(total) // per_page)) if total else 1
-            raw = self._call(
-                "GET", f"/repos/{ref.owner}/{ref.repo}/issues/{ref.number}/comments?per_page={per_page}&page={page}"
-            )
-            if isinstance(raw, list):
-                comments = raw
-        return {**pull, "comments_list": comments[-max_comments:]}
+        return {**pull, "comments_list": self._newest_comments(ref, pull.get("comments"), max_comments)}
 
     def pull_request_files(self, ref: IssueRef) -> list[dict]:
         """Every changed file, including GitHub's new-side patch anchors."""

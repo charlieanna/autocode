@@ -14,6 +14,7 @@ import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 import autocode_evidence_document as evidence_document
 import autocode_evidence_provenance as evidence_provenance
@@ -65,12 +66,48 @@ class ClientTests(unittest.TestCase):
 
         return github.Client(token=token, api="https://api.example", transport=transport), calls
 
+    def paged(self, total):
+        """A client whose transport pages the comments as GitHub does: oldest first, per_page to a page."""
+        rows = [{"id": number, "body": f"comment {number}"} for number in range(1, total + 1)]
+        calls = []
+
+        def transport(method, url, headers, body):
+            calls.append((method, url, headers, None))
+            query = parse_qs(urlsplit(url).query)
+            if not query:  # the issue or the pull request itself
+                return 200, {"title": "Bug", "comments": total}
+            size, page = int(query["per_page"][0]), int(query["page"][0])
+            return 200, rows[(page - 1) * size : page * size]
+
+        return github.Client(token="t", api="https://api.example", transport=transport), calls
+
     def test_issue_fetches_the_newest_comments(self):
-        client, calls = self.client([(200, {"title": "Bug", "comments": 45}), (200, [{"body": "late"}])])
+        client, calls = self.paged(45)  # the last page holds 15, so the 15 before them are on the page before
         issue = client.issue(REF, max_comments=30)
-        self.assertEqual([{"body": "late"}], issue["comments_list"])
+        self.assertEqual(list(range(16, 46)), [row["id"] for row in issue["comments_list"]])
         self.assertEqual("https://api.example/repos/acme/widgets/issues/7/comments?per_page=30&page=2", calls[1][1])
         self.assertEqual("Bearer t", calls[0][2]["Authorization"])
+
+    def test_a_comment_just_past_a_page_boundary_does_not_hide_the_ones_before_it(self):
+        # The 31st comment is alone on the second page. Reading only that page returned one comment,
+        # so a reply written as the 30th was never seen again once anyone wrote after it.
+        client, _ = self.paged(31)
+        self.assertEqual(list(range(2, 32)), [row["id"] for row in client.issue(REF)["comments_list"]])
+        client, _ = self.paged(31)
+        pull = client.pull_request_with_comments(REF)
+        self.assertEqual(list(range(2, 32)), [row["id"] for row in pull["comments_list"]])
+
+    def test_a_full_last_page_and_a_short_issue_are_read_in_one_request(self):
+        for total, expected in ((60, list(range(31, 61))), (9, list(range(1, 10)))):
+            with self.subTest(total=total):
+                client, calls = self.paged(total)
+                self.assertEqual(expected, [row["id"] for row in client.issue(REF)["comments_list"]])
+                self.assertEqual(2, len(calls))  # the issue, then one page of comments
+
+    def test_more_comments_than_one_page_holds_are_gathered_newest_last(self):
+        client, _ = self.paged(250)
+        issue = client.issue(REF, max_comments=150)
+        self.assertEqual(list(range(101, 251)), [row["id"] for row in issue["comments_list"]])
 
     def test_a_pull_request_is_not_an_issue(self):
         client, _ = self.client([(200, {"title": "x", "pull_request": {}})])

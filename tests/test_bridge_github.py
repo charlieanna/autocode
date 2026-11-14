@@ -3,9 +3,11 @@
 import tempfile
 import unittest
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import autocode_bridge_github as bridge_github
 import autocode_bridge_store as store
+import autocode_github as github
 
 
 class FakeClient:
@@ -76,6 +78,32 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(
             [], selected.new_comments({"initial_comment_id": 0, "comments_seen": [identity]}, selected.issue(7))
         )
+
+
+class PagedIssueTests(unittest.TestCase):
+    """The channel over the real client, against a transport that pages comments as GitHub does."""
+
+    def channel(self, rows):
+        def transport(method, url, headers, body):
+            query = parse_qs(urlsplit(url).query)
+            if not query:
+                return 200, {"number": 7, "state": "open", "comments": len(rows)}
+            size, page = int(query["per_page"][0]), int(query["page"][0])
+            return 200, rows[(page - 1) * size : page * size]
+
+        client = github.Client(token="t", api="https://api.example", transport=transport)
+        return bridge_github.GitHubChannel(client, "owner/repo", "autocode", ("dev",))
+
+    def test_an_approval_before_a_page_boundary_is_found_after_someone_writes_past_it(self):
+        # The plan is the 29th comment and `dev` approves as the 30th. Before the next poll a
+        # passer-by writes the 31st, which starts a new page: the approval must still be read.
+        rows = [{"id": number, "user": {"login": "autocode-bot"}, "body": "status"} for number in range(1, 30)]
+        rows.append({"id": 30, "user": {"login": "dev"}, "body": "approve"})
+        rows.append({"id": 31, "user": {"login": "stranger"}, "body": "thanks for looking at this"})
+        selected = self.channel(rows)
+        record = {"initial_comment_id": 0, "comments_seen": [], "gate": {"floor": 29}}
+        found = selected.new_comments(record, selected.issue(7))
+        self.assertEqual([(30, "dev", "approve")], [(row.id, row.actor, row.text) for row in found])
 
 
 class StoreTests(unittest.TestCase):
