@@ -25,11 +25,11 @@ class OutputLengthRouteCliTests(unittest.TestCase):
         self.entry = entrypoint(self.entry)
         self.env.update(AUTOCODE_FIXTURE_MODE="no-human")
 
-    def stopped(self, stage):
+    def stopped(self, stage, extra=()):
         self.env["AUTOCODE_FIXTURE_TRUNCATE_STAGE"] = stage
-        self.launch(["Build a greeting tool", "--chat"], 2, answers="CLI\nyes\n")
+        self.launch(["Build a greeting tool", "--chat", *extra], 2, answers="CLI\nyes\n")
         directory, state = self.saved()
-        run = TaskRun(self.project, directory, command=tuple(self.entry), env=self.env, timeout=60)
+        run = TaskRun(self.project, directory, command=tuple(self.entry), env=self.env, timeout=180)
         return run, state
 
     def test_builder_length_stop_accepts_only_an_explicit_valid_model_then_resumes(self):
@@ -45,10 +45,10 @@ class OutputLengthRouteCliTests(unittest.TestCase):
         original_goal = view["approved_contract"]
         original_usage = view["usage"]
         original_state = (run.run_dir / "state.json").read_bytes()
-        # Automatic selection built on GPT-6 Luna, whose truncated attempt moved to GPT-6 Sol on its own
-        # (#1426 step 9); Sol's truncated attempt had no permitted alternative left, GLM being the
-        # Tester's and Completion Reviewer's model, so the run asked (#1729).
-        self.assertEqual("openai/gpt-6-sol", route["stopped_model"])
+        # Automatic selection built on GPT-6 Luna, whose truncated attempt moved to GPT-6 Sol (permitted set)
+        # and then GPT-6 Astra (configured roles); GLM is the checkers' model and Luna's first attempt already
+        # wrote workspace files so the checkers cannot swap onto OpenAI, leaving the run to ask.
+        self.assertEqual("openai/gpt-6-astra", route["stopped_model"])
         for model, message in (
             (route["stopped_model"], "already uses"),
             ("gpt-6-luna", "provider/model"),
@@ -63,10 +63,14 @@ class OutputLengthRouteCliTests(unittest.TestCase):
         answered = run.assign_model("builder", "openai/gpt-6-luna")
         self.assertFalse(answered["done"])
         self.assertEqual("output_limit", route["cause"])
-        switched, assignment = answered["route_assignments"]
+        first_switch, second_switch, assignment = answered["route_assignments"]
         self.assertEqual(
-            ("runner", "openai/gpt-6-luna", route["stopped_model"], "PAUSED_OUTPUT_CAP"),
-            tuple(switched[k] for k in ("actor", "from", "to", "pause_status")),
+            ("runner", "openai/gpt-6-luna", "openai/gpt-6-sol", "PAUSED_OUTPUT_CAP"),
+            tuple(first_switch[k] for k in ("actor", "from", "to", "pause_status")),
+        )
+        self.assertEqual(
+            ("runner", "openai/gpt-6-sol", route["stopped_model"], "PAUSED_OUTPUT_CAP"),
+            tuple(second_switch[k] for k in ("actor", "from", "to", "pause_status")),
         )
         self.assertEqual(
             ("user_cli", route["stopped_model"], "openai/gpt-6-luna", "PAUSED_OUTPUT_CAP"),
@@ -87,7 +91,7 @@ class OutputLengthRouteCliTests(unittest.TestCase):
         self.assertEqual(original_events, event_path.read_bytes())
 
     def test_planner_length_stop_offers_a_route_without_replaying_on_plain_resume(self):
-        run, state = self.stopped("draft_plan")
+        run, state = self.stopped("draft_plan", extra=("--no-auto-select",))
         view = run.status()
         route = view["needs"]["route"]
         self.assertEqual("output_limit", route["cause"])
@@ -123,12 +127,25 @@ class OutputLengthJobCliTests(JobHarness):
 
     def setUp(self):
         super().setUp()
+        self.options = (*self.options, "--no-auto-select")
         provider = job_fixtures.REFUSING.replace(
             "print(json.dumps({'type':'error','error':error}),flush=True)",
             "print(json.dumps({'type':'turn.failed','error':{'code':'output_token_limit','message':'response output exhausted'},'usage':{'input_tokens':429,'output_tokens':32000}}),flush=True)",
         )
         (self.workspace / ".autocode" / "bin" / "codex").write_text(provider)
         self.env.update(REFUSE_MODEL="gpt-6-sol")
+
+    def test_length_stopped_job_switches_on_its_own_by_default(self):
+        self.options = tuple(opt for opt in self.options if opt != "--no-auto-select")
+        run = self.start("exit42")
+        view = run.status()
+        self.assertEqual("PAUSED_DESIGN_CONFLICT", view["status"], view)
+        self.assertEqual(["gpt-6-sol", view["routes"]["architect"]["model"]], self.models())
+        (assignment,) = view["route_assignments"]
+        self.assertEqual(
+            ("runner", "gpt-6-sol", view["routes"]["architect"]["model"], "PAUSED_OUTPUT_CAP"),
+            tuple(assignment[k] for k in ("actor", "from", "to", "pause_status")),
+        )
 
     def test_length_stopped_job_requires_fresh_answer_token_and_never_routes_back(self):
         run = self.start("exit42")

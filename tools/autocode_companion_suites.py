@@ -22,20 +22,30 @@ test files name a guard's test and whose tests the proof's suite cannot run, the
 those files with that project's own suite; autocode_regression runs it on the original code and with the
 change, and ``guard_results`` gives the tests a guard may rest on: those that passed in both complete runs.
 
+A change may also add or change tests in more than one project: a field the API returns, tested in a
+Python package, and the line that shows it, tested in a Node package beside it. One suite cannot run both,
+so a plan that named both test files was refused when it was drafted, three times, and the person was
+asked how to proceed (a real run, 2026-11-14). ``test_suites`` names, for the changed test files the
+proof's suite cannot run, the suite of each project around them; autocode_companion_tests proves each
+project's tests with its own suite, as if the change had touched that project alone.
+
 Pure helpers over paths, frameworks and receipts: nothing here runs a command.
 """
 
 from __future__ import annotations
 
 from pathlib import PurePosixPath
+from typing import Any
 
 try:
     from . import autocode_command_receipt as command_receipt
     from . import autocode_package_scope as package_scope
+    from . import autocode_project_kinds as project_kinds
     from . import autocode_verification_commands as verification_commands
 except ImportError:
     import autocode_command_receipt as command_receipt
     import autocode_package_scope as package_scope
+    import autocode_project_kinds as project_kinds
     import autocode_verification_commands as verification_commands
 
 ROOT = ""
@@ -71,9 +81,66 @@ def _tests_of(project, own, test_files) -> list[str]:
     ]
 
 
-def find(root, framework, root_framework, code_paths, test_files, detect_in) -> tuple[list, list[str]]:
+def test_suites(root, root_framework, tests, detect_in, *, is_code=None) -> tuple:
+    """(framework, suites, notes): the proof's suite for the changed test files ``tests``, and the suite of
+    each other project that holds some of them.
+
+    The proof's suite is chosen as before (autocode_package_scope.for_tests: the root's, or that of the project
+    around every test). When it chooses tests by kind and cannot run some of them, each of those belongs to
+    the project around it (``project_of``): that project's own detected suite proves the ones it runs, as a
+    run of that project alone would. Each such suite is a dict of ``project``, ``framework`` and ``files``.
+    The proof's own suite is then chosen for the tests it does run, so each test runs as it would have run
+    alone; when it runs none, the first project's suite is the proof's. A test file of a known kind that no
+    suite there runs gets a note. Only code counts (``is_code(path)``): a changed fixture or data file in a
+    test directory is no test of its own, and when no other project has a suite the choice is as it was.
+    """
+    tests = sorted(tests)
+    framework = package_scope.for_tests(root, root_framework, tests, detect_in) or root_framework
+    stray = [
+        test
+        for test in tests
+        if (is_code is None or is_code(test)) and verification_commands.cannot_run(framework, [test])
+    ]
+    if framework is None or not stray:
+        return framework, [], []
+    grouped: dict[str, list[str]] = {}
+    for test in stray:
+        grouped.setdefault(project_of(root, test), []).append(test)
+    suites: list[dict[str, Any]] = []
+    notes: list[str] = []
+    for project, files in sorted(grouped.items()):
+        found = root_framework if project == ROOT else package_scope.detect(root, project, detect_in)
+        runs = [file for file in files if found is not None and not verification_commands.cannot_run(found, [file])]
+        left = [file for file in files if file not in runs and project_kinds.collected_by(file)]
+        if left:
+            notes.append(
+                f"The changed tests {', '.join(left)} are in {where(project)}, and neither the proof's suite "
+                f"`{framework.suite}` nor a suite of that project runs them, so they were not run"
+            )
+        if runs:
+            suites.append({"project": project, "framework": found, "files": runs})
+    if not suites:
+        return framework, [], notes
+    held = [test for test in tests if test not in stray]
+    if held:
+        framework = package_scope.for_tests(root, root_framework, held, detect_in) or root_framework
+    elif suites:
+        framework = suites.pop(0)["framework"]
+    own = getattr(framework, "directory", None) or ROOT
+    suites = [suite for suite in suites if suite["project"] != own]
+    notes += [
+        f"The changed tests {', '.join(suite['files'])} are in {where(suite['project'])}, whose tests the proof's "
+        f"suite `{framework.suite}` cannot run, so that project's own suite `{suite['framework'].suite}` proves "
+        "them as it would alone"
+        for suite in suites
+    ]
+    return framework, suites, notes
+
+
+def find(root, framework, root_framework, code_paths, test_files, detect_in, *, proven=()) -> tuple[list, list[str]]:
     """(suites, notes): the suite of each other project around ``code_paths`` the proof's ``framework`` cannot
-    run the tests of.
+    run the tests of. A project in ``proven`` has its own proof of its changed tests (``test_suites``), which
+    already runs its suite on the original code and with the change.
 
     ``root_framework`` is the suite detected at the repository root; ``test_files`` the original code's test
     files; ``detect_in(directory)`` detects a suite with that directory as the project root. A project the
@@ -86,7 +153,9 @@ def find(root, framework, root_framework, code_paths, test_files, detect_in) -> 
     suites, notes = [], []
     for project in sorted({project_of(root, path) for path in code_paths}):
         tests = _tests_of(project, own, test_files)
-        if project == own or not tests or not verification_commands.cannot_run(framework, tests):
+        if project == own or project in proven or not tests:
+            continue
+        if not verification_commands.cannot_run(framework, tests):
             continue
         found = root_framework if project == ROOT else package_scope.detect(root, project, detect_in)
         if found is None:

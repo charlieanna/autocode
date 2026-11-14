@@ -281,7 +281,7 @@ def validate_model(model, worker, family):
         raise ValueError(f"The producing worker ran on {previous}; choose another model family")
 
 
-def assign_child(row, worker, model, *, abandon):
+def assign_child(row, worker, model, *, abandon, effort=None, sync_effort=False):
     """Archive the uncertain attempt and mirror the assigned route while holding the child lock."""
     workspace, directory = Path(row["workspace"]), Path(row["run_dir"])
     with util.workspace_lock(workspace):
@@ -296,6 +296,8 @@ def assign_child(row, worker, model, *, abandon):
             raise ValueError("The quota-stopped Builder attempt is no longer current")
         abandon(child, directory, workspace, worker["attempt_id"])
         child["settings"]["roles"]["builder"]["model"] = model
+        if sync_effort:
+            child["settings"]["roles"]["builder"]["reasoning_effort"] = effort
         child.setdefault("sessions", {}).pop("builder", None)
         autocode_status.persist(directory / "state.json", child)
     row["retry_requested"] = True

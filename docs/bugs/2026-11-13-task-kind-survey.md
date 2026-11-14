@@ -647,6 +647,102 @@ Open: build output in a directory that already held files when the stage began (
 build, never ignored) is still charged to the stage. `node_modules/` a stage installs in a project that
 does not ignore it is not handled either.
 
+## 25. Four more kinds of task (complete)
+
+On master with sections 22 and 24's fixes, each with one plan approval and no question:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| Rust bug fix in a project with neither a `.gitignore` nor a `Cargo.lock` | complete, 10 stages, 158 s, $1.23 | `b76e5d9698a4575fd4266357ebe3c3487b3fbead880940c87c918032080b8175` |
+| Python package in a `src/` layout, pytest with a `conftest.py` fixture and parametrized tests, its own virtualenv | complete, 10 stages, 219 s, $1.35 | `411889d1b49c830e4d5642ebd9489d2eb25e5b64067175f3213490ea45b5dd9c` |
+| Two unrelated changes in one request (a display bug and a new command) | complete, 8 stages, 158 s, $1.10 | `9764e1921a54bc254d195ed49fd873bb708da1ca6890e28b0376c790114bb198` |
+| TypeScript refactor (extract a function, behavior unchanged), Vitest | complete, 10 stages, 198 s, $1.36; the Tester's report was refused twice for its form and repaired without a new check | `1532d861bfda72f903033a261cf491496c1282e78344e2acf6ff0d100d72f0b9` |
+
+## 26. Five more kinds of task: three complete, two stop
+
+With section 20's fix on top of master, each with one plan approval:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| Bug fix in a project whose suite already has an unrelated failing test, which the request says to leave | complete, 8 stages, 124 s, $0.86; the failing test is untouched | `f49cfc876dad4f017f95f4bcf70f524615f222e5a9a27316fd376ada39397144` |
+| A question about the code ("what does it do when ..., and is that tested? do not change anything") | answered by Requirements with the lines it read, nothing changed, 12 s, $0.05 | `10b66731534b91d11387d800d484b7f9da1a1185032621b3dccb76ab677f2c1f` |
+| A new endpoint in a Flask app, pytest with a fixture, its own virtualenv | complete, 10 stages, 252 s, $1.57 | `3a50676e0c169013420e5b1d754c44dcf70653fcbc6566be5b4fd2f7078dcdc5` |
+| Move a module into a new package and update its imports | `PAUSED_INVALID_OUTPUT`, 265 s, $1.50, with a correct move | `842776c4b8338566fde172e2413cd0f48429e75a4e23dbe9f6ae1b6f5eb411fe` |
+| One change across a Python package and a Node package of the same repository, tests on both sides | `PAUSED_REPEATED_FAILURE` before any Builder, 147 s, $0.90 (section 27) | `92120aada17d98ed37640f29df153d163be9c0aeef06d79e7b8505a38f49da69` |
+
+Open: the module move is section 20's stop in another form. `tests/test_pager.py` changed only its import
+(`from pager import ...` became `from paging.pager import ...`), no test in it changed, and the suite passes
+with the change. The original file can no longer be loaded once `pager.py` is gone, so the original-test
+gate refused the Tester's PASS, and the Investigator asked the person to approve a plan that lists the
+four untouched tests as replaced. Section 20's fix does not accept it: it requires that an import the
+file gains binds no name the file already bound, and here the same names are imported from the module's
+new place. Whether the gate may accept the same names from a moved module waits for the same decision.
+
+## 27. One change with tests in two projects of a repository: the plan is refused (fixed)
+
+"Notes can be archived. Return it from the API as a boolean `archived` field in packages/api, and in
+packages/web show an archived note's line in brackets. Add tests on both sides." `packages/api` is Python
+with unittest, `packages/web` a Node package with `node --test`.
+
+The Planner named both test files. The plan check refused the draft three times, the same way: "The
+regression proof would never run the plan's tests packages/web/tests/format.test.js: it runs the plan's
+tests with one suite". The Planner tried plain milestones, then a new `packages/package.json`, then a new
+root `package.json` whose script runs both suites; none can satisfy a check that accepts only a suite
+that already exists. The Investigator then asked the person: "the runner's regression proof can run only
+one suite per plan. How should it proceed? (a) split it into two runs ... (b) let the web test sit
+outside the regression proof; or (c) approve a cross-language workaround". Every option is a question
+about AutoCode's own machinery.
+
+The refusal protected something real. Without it the proof ran only the tests its own suite collects:
+the other project's new test was run with that project's suite on the candidate, as part of the suite
+that must keep passing, and never on the original code. A new test there that the original code already
+passes was accepted (`tests.test_companion_tests` shows it failing on master).
+
+Fixed in the proof, not in the check. Each changed test the proof's suite cannot run is proven by the
+suite of the project around it, with the same steps as a change to that project alone
+(`autocode_companion_suites.test_suites`, `autocode_companion_tests`): that suite's run on the original
+code, the changed tests on the original code and with the change, their repeats, and the whole suite
+with the change. Its failures are the proof's, named with the project, and a `test:` criterion may rest
+on a test that suite showed fail before and pass after. The plan check now refuses only a test that no
+suite would run: one of another kind than the proof's suite runs, in a directory with no suite of its
+own for that kind.
+
+The first real run with that fix accepted the plan and proved both sides: the root's suite showed the
+Python test fail on the original code, and `packages/web`'s suite showed the Node test fail there and pass
+with the change. It then failed four proofs on one criterion, "guard: a pinned note is starred", a test
+the Node package already has, and the Resolver asked the person "How should AC4's preserve check be bound
+so the proof can map it?" (`WAITING_FOR_USER`, 23 stages, 517 s, $3.69; bundle manifest
+`8376372751c3e3b810542971133095f561bb5eccba56ce8d7e1913f769994151`). A guard names a `node:test` test by
+its title (section 19), but only where the proof's own runner names tests by title: beside a Python suite
+the title was read as prose and looked for as `test_ac4_...`. A guard is now matched in another project's
+suite as that suite names its tests, by name or by title, and a title guard's test file in a project the
+change does not test is found by the title it spells.
+
+With both, a real run completes: the root's suite proved the two Python criteria and their guard, and
+`packages/web`'s suite proved the two Node criteria and the two guards named by title (`TASK_COMPLETE`,
+17 stages, 315 s, $2.15; bundle manifest
+`c84eacfed28d445eb5cca4569a462fe9f280ea4e5bff6be4c54477f78a996aae`). That run built the two milestones
+one after the other (`--max-parallel-builders 1`).
+
+**Open: a parallel Builder that edits the project instead of its own copy.** Two runs of the same task
+with the default two Builders side by side stopped before any proof, `PAUSED_ORCHESTRATOR_DRIFT`, "Parent
+source changed during the build" (10 stages, 287 s, $1.74, bundle manifest
+`47c4f972fdc3e91804b71a371531b834692f272086ea9f96cc52b14d203bfbd2`; 7 stages, 233 s, $1.18, bundle
+manifest `5942b71fa793a5c7b678822d6cbcfe3971ad4e7bbf13ca9cdd040fd4be018cc8`). Each Builder works in its
+own worktree under `.autocode/builders/`, and its prompt names only that directory. In both runs the
+Builder for `packages/web` (Haiku) read and edited `PROJECT/packages/web/...` by absolute path instead,
+with the Edit and Write tools. In the first the Investigator saw it and the retry built in the worktree,
+but the edits left in the project still ended the batch. Nothing was lost or merged wrongly: the stop is
+the guard against exactly this. But the person is left to clean up after AutoCode's own Builder. The
+Claude Code backend pre-approves Edit and Write for any path; without that pre-approval Claude Code
+2.1.325 accepts an edit inside the stage's directory and refuses one outside it, which the model can
+correct in the same stage. That is the next fix.
+
+The original-test gate is as before: in a run of the whole repository it replays the original tests with
+the root's suite, so the original tests of a nested project of another kind are not replayed there. The
+nested project's own suite still runs with the change, where an existing test the change breaks fails
+the proof.
+
 ## Also seen, not yet run on real models
 
 - **A new repository with no commit is refused** with a Git command for the person to type
