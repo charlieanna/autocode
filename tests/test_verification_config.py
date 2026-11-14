@@ -238,7 +238,7 @@ class VerificationCommandGuards(unittest.TestCase):
         settings = configuration.configure_resume(state, state["settings"], args)
         self.assertEqual("go test ./...", settings["regression"]["test_command"])
         self.assertEqual("verification_commands_changed", state["user_events"][-1]["kind"])
-        for status, stage in (("PAUSED_ACCEPTANCE_TESTS", "builder"), ("PAUSED_REQUESTED", "write_acceptance_tests")):
+        for status, stage in (("PAUSED_ACCEPTANCE_TESTS", "builder"), ("PAUSED_REQUESTED", "review_completion")):
             with self.subTest(status=status, stage=stage):
                 state = self.state()
                 state.update(status=status, next_stage=stage)
