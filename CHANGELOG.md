@@ -101,6 +101,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **VS Code keeps and distinguishes unsent chats**: opening a run from History no longer removes an initial chat with a draft, switching or closing tabs does not copy a draft into another chat, and draft tabs show a short preview. Keyboard focus stays on a tab’s close button when status updates change its label.
+
 - **Saving a stage model no longer queries the backend a second time for its response**: the saved choices and model options now come from the catalogue that validated the change, so a later listing failure cannot turn an accepted save into an empty model list. Each new operation still checks availability and verifier independence afresh.
 - **`autocode bundle` includes redacted model-preflight receipts and follows moved worktree runs** (#3466): diagnostic bundles now export `model-preflight.json`, `model-preflight/**/*.json` receipts and bounded `model-preflight/**/*.jsonl` event tails (with secret redaction), resolve `moved_to` worktree pointers to bundle the canonical run's current state, artifacts and workspace diff while retaining pre-move preflight attempts under `run/pre-move-model-preflight/`, and refuse symlinked or out-of-project `moved_to` targets.
 - Mutation checks reuse unchanged Python bytecode within one proof collection instead of recompiling dependencies for every mutant. Each collection starts with a fresh cache; distinct source timestamps keep equal-size mutants from executing stale bytecode. Test selection, evidence checks and deadlines remain unchanged (#3478).

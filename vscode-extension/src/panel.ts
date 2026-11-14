@@ -2033,7 +2033,7 @@ window.addEventListener('message', (event) => {
   if (data && data.type === 'sent' && chatEnvelope && data.runKey === chatEnvelope.runKey) {
     const field = document.getElementById('message');
     if (field.value === data.text) field.value = '';
-    saveDraft(); updateComposer(); chatBehavior.resize();
+    saveDraft(); renderTabs(chatEnvelope); updateComposer(); chatBehavior.resize();
   }
   if (data && data.type === 'restore_draft') {
     const saved = vscode.getState() || {};
@@ -2041,10 +2041,11 @@ window.addEventListener('message', (event) => {
     const key = data.runKey || '';
     if (!drafts[key]) drafts[key] = data.text;
     vscode.setState({ ...saved, drafts });
+    vscode.postMessage({ type: 'draft_changed', tabKey: key, hasDraft: Boolean(drafts[key] && drafts[key].length) });
     const field = document.getElementById('message');
     if (chatEnvelope && key === chatEnvelope.runKey && !field.value.trim() && data.text) {
       field.value = data.text;
-      saveDraft(); updateComposer(); chatBehavior.resize();
+      saveDraft(); renderTabs(chatEnvelope); updateComposer(); chatBehavior.resize();
     }
   }
   if (data && data.type === 'checkpoint_compare') {
@@ -2071,6 +2072,7 @@ function saveDraft() {
   const drafts = saved.drafts || {};
   drafts[chatEnvelope.runKey] = document.getElementById('message').value;
   vscode.setState({ ...saved, drafts });
+  vscode.postMessage({ type: 'draft_changed', tabKey: chatEnvelope.runKey, hasDraft: drafts[chatEnvelope.runKey].length > 0 });
 }
 
 function updateComposer() {
@@ -2123,8 +2125,15 @@ function updateComposer() {
 /** The open chats (#1558): one tab per run or fresh chat, addressed by tab key. */
 function renderTabs(data) {
   const host = document.getElementById('chat-tabs');
-  if (!host) return;
-  const rows = data.tabs || [{ key: data.runKey || '', name: data.runKey ? 'Chat' : 'New chat' }];
+  if (!host || !data) return;
+  const drafts = (vscode.getState() || {}).drafts || {};
+  const rows = (data.tabs || [{ key: data.runKey || '', name: data.runKey ? 'Chat' : 'New chat' }]).map((tab) => {
+    const draft = !tab.run && typeof drafts[tab.key] === 'string' ? drafts[tab.key].split('\\n').find((line) => line.trim())?.trim() : '';
+    return draft ? { ...tab, name: 'Draft: ' + (draft.length > 22 ? draft.slice(0, 21) + '…' : draft) } : tab;
+  });
+  const focusedClose = document.activeElement && document.activeElement.classList.contains('close')
+    ? document.activeElement.parentElement : null;
+  const focusedCloseKey = focusedClose && data.activeKey === activeTabKey ? focusedClose.dataset.key : null;
   tabKeys = rows.map((tab) => tab.key);
   activeTabKey = data.activeKey || '';
   const signature = JSON.stringify([rows, data.activeKey]);
@@ -2137,6 +2146,7 @@ function renderTabs(data) {
   rows.forEach((tab) => {
     const item = el('div', 'chat-tab' + (tab.key === data.activeKey ? ' active' : ''));
     item.role = 'tab';
+    item.dataset.key = tab.key;
     item.tabIndex = tab.key === data.activeKey ? 0 : -1;
     item.setAttribute('aria-selected', tab.key === data.activeKey ? 'true' : 'false');
     const name = el('span', 'name', tab.name);
@@ -2174,7 +2184,10 @@ function renderTabs(data) {
   // A new chat opens past the visible strip; keep the chat you are in on screen.
   const active = host.querySelector('.chat-tab.active');
   if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  if (stripHadFocus && active) active.focus();
+  if (stripHadFocus && active) {
+    const close = focusedCloseKey && [...host.children].find((item) => item.dataset.key === focusedCloseKey)?.querySelector('.close');
+    (close || active).focus();
+  }
 }
 
 function renderChat(data) {
@@ -2201,11 +2214,14 @@ function renderChat(data) {
     const field = document.getElementById('message');
     // A re-key of a chat that never started must not eat an unsent brief: the host
     // replaces the fresh-chat tab while the person is typing in it.
-    const leavingUnstarted = chatEnvelope && !chatEnvelope.selectedRun;
-    if (leavingUnstarted && field.value.trim() && !incoming) {
+    const rekeyedUnstarted = chatEnvelope && !chatEnvelope.selectedRun
+      && !(data.tabs || []).some((tab) => tab.key === chatEnvelope.runKey)
+      && !(chatEnvelope.tabs || []).some((tab) => tab.key === data.runKey);
+    if (rekeyedUnstarted && field.value.trim() && !incoming) {
       const drafts = saved.drafts || {};
       drafts[data.runKey] = field.value;
       vscode.setState({ ...saved, drafts });
+      vscode.postMessage({ type: 'draft_changed', tabKey: data.runKey, hasDraft: true });
     } else {
       field.value = incoming;
     }
@@ -2492,7 +2508,7 @@ if (chatMode) {
   document.getElementById('details').addEventListener('click', () => {
     if (chatEnvelope && chatEnvelope.runKey) vscode.postMessage({ type: 'details' });
   });
-  document.getElementById('message').addEventListener('input', () => { saveDraft(); updateComposer(); });
+  document.getElementById('message').addEventListener('input', () => { saveDraft(); renderTabs(chatEnvelope); updateComposer(); });
   document.getElementById('composer').addEventListener('submit', (event) => {
     event.preventDefault();
     if (document.getElementById('send-message').disabled) return;
@@ -2529,7 +2545,8 @@ vscode.postMessage({
   type: 'ready',
   hasSelectedRun: chatMode && Object.prototype.hasOwnProperty.call(initialWebviewState, 'selectedRun'),
   selectedRun: chatMode ? initialWebviewState.selectedRun || null : null,
-  tabs: chatMode ? initialWebviewState.tabs || [] : [],
+  tabs: chatMode ? (initialWebviewState.tabs || []).map((tab) => ({ ...tab,
+    hasDraft: typeof (initialWebviewState.drafts || {})[tab.key] === 'string' && (initialWebviewState.drafts || {})[tab.key].length > 0 })) : [],
   activeKey: chatMode ? initialWebviewState.activeTabKey || '' : '',
 });
 </script>
