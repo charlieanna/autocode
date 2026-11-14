@@ -13,7 +13,7 @@ const host = editor();
 useTypeScriptSourcesWhenNotCompiled(host);
 const cli = host.load('core/cli.js');
 const { RunController } = host.load('controller.js');
-const { RunPanel, panelHtml, stateFor } = host.load('panel.js');
+const { RunPanel, panelHtml, stateFor, changesetState } = host.load('panel.js');
 const { ChatView } = host.load('chat.js');
 const { RunItem, RunsProvider } = host.load('runsView.js');
 const { readRegistryList } = host.load('core/view.js');
@@ -820,6 +820,7 @@ function approvalView() {
     // which the original string-array fixture accidentally hid from the renderer.
     displayed_plan: {
       revision: 1, hash: 'abc', token: 'r1:abc',
+      review_markdown: 'Provide migration safely\n\n## Acceptance criteria\n\n### AC1\n\nPreserve user data <script>bad()</script>\n\nVerified by: `Run migration test`\n\nA person reviews the result before the run completes.\n\n### AC2\n\nKeep export stable\n\nVerified by: `Compare export fixture`\n\nNo separate person review is required.\n\n## Constraints\n\n- Never delete the original data\n\n## Permissions\n\n- Only edit app.py\n\n## Out of scope\n\n- billing-api: the server response is not covered <script>excluded()</script>',
       acceptance_criteria: [
         { id: 'AC1', criterion: 'Preserve user data <script>bad()</script>', verification_method: 'Run migration test', human_review: true },
         { id: 'AC2', criterion: 'Keep export stable', verification_method: 'Compare export fixture', human_review: false },
@@ -868,8 +869,8 @@ async function openPanel(t, initial, onAction, panelController = controller) {
 test('approval renders structured criteria, verification, human review, constraints and permissions as text', async (t) => {
   const ui = await openPanel(t, approvalView());
   const text = ui.document.body.textContent;
-  for (const expected of ['AC1', 'Preserve user data <script>bad()</script>', 'Run migration test', 'Human review: required',
-    'AC2', 'Compare export fixture', 'Human review: not required', 'Never delete the original data', 'Only edit app.py']) {
+  for (const expected of ['AC1', 'Preserve user data <script>bad()</script>', 'Run migration test', 'A person reviews the result before the run completes.',
+    'AC2', 'Compare export fixture', 'No separate person review is required.', 'Never delete the original data', 'Only edit app.py']) {
     assert.ok(text.includes(expected), `missing approval content: ${expected}`);
   }
   const headings = [...ui.document.querySelectorAll('h2')].map((node) => node.textContent);
@@ -891,13 +892,14 @@ for (const surface of ['chat', 'Run details']) {
   test(`excluded repositories are visible before approval in ${surface}`, async (t) => {
     const view = approvalView();
     const ui = surface === 'chat' ? await openChat(t, chatView(view)) : await openPanel(t, view);
-    assert.ok(ui.document.body.textContent.includes('Not covered'));
+    assert.ok(ui.document.body.textContent.includes('Out of scope'));
     assert.ok(ui.document.body.textContent.includes(view.displayed_plan.scope_exclusions[0]));
     assert.equal(ui.document.querySelectorAll('script').length, 1, 'excluded work stays text');
   });
   test(`the approved local commit is visible in ${surface}`, async (t) => {
     const view = approvalView();
     view.displayed_plan.git_delivery = { kind: 'atomic_commit', message: 'Add JSON export' };
+    view.displayed_plan.review_markdown += '\n\n## Local commit\n\nCreate one local atomic commit: Add JSON export';
     const ui = surface === 'chat' ? await openChat(t, chatView(view)) : await openPanel(t, view);
     assert.ok(ui.document.body.textContent.includes('Create one local atomic commit: Add JSON export'));
   });
@@ -1417,13 +1419,13 @@ test('chat approval uses the displayed plan token and advances only when the cor
   approval.pause_category_label = 'Your decision';
   const ui = await openChat(t, approval);
   const planText = ui.document.querySelector('#app').textContent;
-  for (const expected of ['Plan to approve', 'Preserve user data', 'You check this one yourself', 'Never delete the original data', 'Only edit app.py']) {
+  for (const expected of ['Plan to approve', 'Preserve user data', 'A person reviews the result before the run completes.', 'Never delete the original data', 'Only edit app.py']) {
     assert.ok(planText.includes(expected), expected);
   }
   assert.ok(!planText.includes('Plan the approval is bound to'));
   assert.ok(!planText.includes('Human review: not required'));
-  assert.ok(!planText.includes('Run migration test'));
-  assert.ok(!planText.includes('Compare export fixture'));
+  assert.ok(planText.includes('Run migration test'));
+  assert.ok(planText.includes('Compare export fixture'));
   assert.ok(!planText.includes('I couldn’t finish this step.'));
   assert.ok(!planText.includes('Open Run details to see what needs attention.'));
   assert.equal(ui.document.querySelector('#take-action').textContent, 'Approve and build');
@@ -1498,18 +1500,18 @@ test('chat review acceptance does not continue when the fresh view names a perso
   assert.equal(launch.mock.callCount(), 1, 'accepting criteria cannot authorize recovery');
 });
 
-test('chat shows the plan to approve in plain words, without revision, criterion IDs or verification commands', async (t) => {
+test('chat shows the full canonical plan terms without approval tokens or file machinery', async (t) => {
   const ui = await openChat(t, chatView());
   const app = ui.document.querySelector('#app');
   const headings = [...app.querySelectorAll('h2')].map((node) => node.textContent);
   assert.ok(headings.includes('Plan to approve'), headings.join(' | '));
   const text = app.textContent;
-  for (const expected of ['Preserve user data <script>bad()</script>', 'Keep export stable', 'You check this one yourself',
-    'Never delete the original data', 'Only edit app.py']) {
+  for (const expected of ['Preserve user data <script>bad()</script>', 'Keep export stable',
+    'A person reviews the result before the run completes.', 'AC1', 'AC2', 'Run migration test',
+    'Compare export fixture', 'Never delete the original data', 'Only edit app.py']) {
     assert.ok(text.includes(expected), `missing plan content: ${expected}`);
   }
-  for (const hidden of ['AC1', 'AC2', 'revision', 'bound to', 'Run migration test', 'Compare export fixture',
-    'Verification', 'Human review', 'acceptance criteria', 'permission boundaries']) {
+  for (const hidden of ['r1:abc', 'revision', 'bound to', 'front matter', 'goal_hash', 'permission_boundaries']) {
     assert.ok(!text.includes(hidden), `chat shows plan internals: ${hidden}`);
   }
   assert.equal(ui.document.querySelectorAll('script').length, 1, 'model text must not become markup');
@@ -6287,7 +6289,7 @@ test('cap-counted cost renders above historical cost and polling retains its unk
 });
 
 function changesetSummary(token) {
-  const plan = (id) => ({ revision: 1, acceptance_criteria: [{ id, criterion: `criterion ${id}`, verification_method: 'test', human_review: false }], constraints: [], permission_boundaries: [], scope_exclusions: [`${id}: billing-api integration is excluded`] });
+  const plan = (id) => ({ revision: 1, review_markdown: `## Acceptance criteria\n\n${id}: criterion ${id}\n\nVerified by: test\n\n## Out of scope\n\n${id}: billing-api integration is excluded`, acceptance_criteria: [{ id, criterion: `criterion ${id}`, verification_method: 'test', human_review: false }], constraints: [], permission_boundaries: [], scope_exclusions: [`${id}: billing-api integration is excluded`] });
   return {
     changeset: 'changeset-1',
     runs: [
@@ -6544,6 +6546,7 @@ function shownText(document) {
 function planWithOrder(extra = {}) {
   const view = approvalView();
   view.displayed_plan = { ...view.displayed_plan, milestones: MILESTONES, end_to_end_flow: FLOW, ...extra };
+  view.displayed_plan.review_markdown += '\n\n## Milestones\n\n' + view.displayed_plan.milestones.map((m) => m.id + ': ' + m.objective + '\nCriteria: ' + m.acceptance_criteria.join(', ')).join('\n\n') + '\n\n## End-to-end flow\n\n' + view.displayed_plan.end_to_end_flow.join('\n\n');
   return view;
 }
 
@@ -6561,7 +6564,7 @@ test('test_ac2_cards_render_milestones_and_flow', async (t) => {
     const root = ui.document.body;
     const text = shownText(ui.document);
     const button = ui.document.querySelector('#take-action') || ui.take();
-    for (const expected of ['M1', 'Build the core', 'AC1', 'AC1: Preserve user data', 'Step one', 'Step two']) {
+    for (const expected of ['M1', 'Build the core', 'AC1', 'Preserve user data', 'Step one', 'Step two']) {
       assert.ok(text.includes(expected), `${surface} missing ${expected}`);
     }
     const flowNode = [...root.querySelectorAll('*')].find((n) => n.children.length === 0 && n.textContent.includes('Step two'));
@@ -7267,4 +7270,78 @@ test('Requirements finite options still show the select control without repeatin
   assert.ok(select, 'finite option menus keep their select control');
   assert.equal(ui.document.querySelectorAll('#app .q').length, 0, 'backticked match in thread suppresses duplicate card label');
   assert.ok(ui.document.querySelector('#take-action'));
+});
+
+test('complete material canonical plan is reviewable before approval on both existing surfaces', async (t) => {
+  const material = [
+    'Provide a deterministic greeting CLI', 'A local developer', 'greet.py',
+    'Print Hello, NAME for a nonempty name', 'Reject an empty name with nonzero exit status',
+    'A standard-library Python CLI using sys.argv', 'User selected CLI',
+    'Empty inputs formerly returned success', 'test_greeting.py::test_old_empty',
+    'Source quote with exact whitespace', 'Final material line after a long plan',
+  ];
+  const review = '# Plan\n\n' + material.slice(0, -1).map((s) => '## ' + s).join('\n\n')
+    + '\n\n' + Array.from({length: 120}, (_, i) => '- Complete plan step ' + i).join('\n')
+    + '\n\n' + material.at(-1) + '\n\n<script>unsafePlan()</script> [unsafe](command:unsafe) ![remote](https://example.invalid/image.png)';
+  for (const surface of ['chat', 'Run details']) {
+    await t.test(surface, async (t) => {
+      const view = approvalView(); view.displayed_plan.review_markdown = review;
+      const ui = surface === 'chat' ? await openChat(t, view) : await openPanel(t, view);
+      const app = ui.document.querySelector('#app');
+      const button = app.querySelector('#take-action') || ui.take();
+      for (const expected of material) {
+        const text = shownText(ui.document);
+        assert.ok(text.includes(expected), `${surface} omitted ${expected}`);
+      }
+      const last = [...app.querySelectorAll('*')].find((node) => node.children.length === 0 && node.textContent.includes(material.at(-1)));
+      assert.ok(last.compareDocumentPosition(button) & 4, 'the whole plan precedes approval');
+      assert.equal(app.querySelectorAll('script, img, a[href^="command:"]').length, 0);
+    });
+  }
+});
+
+test('canonical review content is required before either editor surface can dispatch approval', async (t) => {
+  for (const surface of ['chat', 'Run details']) {
+    for (const review_markdown of [undefined, null, {}, '', ' \n\t']) {
+      await t.test(surface + ' ' + JSON.stringify(review_markdown), async (t) => {
+        const view = approvalView(); view.displayed_plan.review_markdown = review_markdown;
+        const ui = surface === 'chat' ? await openChat(t, view) : await openPanel(t, view);
+        const launch = t.mock.method(cli, 'stream', async () => ok);
+        const button = ui.document.querySelector('#take-action') || ui.take();
+        assert.equal(button.disabled, true);
+        button.click(); await flush();
+        assert.equal(launch.mock.callCount(), 0);
+        await assert.rejects(controller.take(view, run, {}, view.needs.token), /complete plan is unavailable/);
+        assert.equal(launch.mock.callCount(), 0);
+      });
+    }
+  }
+});
+
+test('change-set approval requires full review content from every canonical member plan', async (t) => {
+  const ownController = new RunController(host.log);
+  const summary = changesetSummary('set-complete');
+  delete summary.runs[1].plan.review_markdown;
+  t.mock.method(ownController, 'changeset', async () => structuredClone(summary));
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  const state = changesetState(summary);
+  assert.equal(state.offer, null);
+  assert.ok(state.note.includes('complete plans'));
+  await assert.rejects(ownController.takeChangeset({}, run, 'approval', 'set-complete'), /complete plans are unavailable/);
+  assert.equal(launch.mock.callCount(), 0);
+});
+
+test('exact output review keeps escaped whitespace and spaced command arguments visible', async (t) => {
+  const argv = '["todo.py", "list", "buy milk", "`quoted`", "line\\nbreak"]';
+  const output = '"  first\\t`quoted`\\nsecond\\n\\n  "';
+  for (const surface of ['chat', 'Run details']) {
+    await t.test(surface, async (t) => {
+      const view = approvalView();
+      view.displayed_plan.review_markdown += '\n\n## Exact output from the request\n\n- Command arguments: ``' + argv + '``\n- Exact output: ``' + output + '``';
+      const ui = surface === 'chat' ? await openChat(t, view) : await openPanel(t, view);
+      const codes = [...ui.document.querySelectorAll('.plan-content code')].map((node) => node.textContent);
+      assert.ok(codes.includes(argv), surface + ' lost argument boundaries');
+      assert.ok(codes.includes(output), surface + ' lost exact escaped whitespace');
+    });
+  }
 });

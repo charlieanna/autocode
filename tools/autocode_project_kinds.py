@@ -108,7 +108,7 @@ LANGUAGES: tuple[Language, ...] = (
         collected=r".*\.(test|spec)\.[cm]?[jt]sx?",
         shown="JavaScript or TypeScript",
         runners=("node", "jest", "vitest", "mocha"),
-        per_test=("node", "vitest"),
+        per_test=("node", "vitest", "jest"),
         manifests=("package.json",),
     ),
     Language(

@@ -483,6 +483,7 @@ def view(
                     "revision": contract["revision"],
                     "hash": contract["hash"],
                     "token": state["displayed_goal"],
+                    "review_markdown": plan_file.review_markdown(contract["body"]),
                     **{
                         key: deepcopy(contract["body"].get(key))
                         for key in (
@@ -501,7 +502,7 @@ def view(
                         }
                     ),
                 }
-        except (KeyError, TypeError, ValueError):
+        except (AttributeError, KeyError, TypeError, ValueError):
             pass  # Missing, stale or unsealed plans cannot supply approval authority.
         approved = plan
         if approved is not None:

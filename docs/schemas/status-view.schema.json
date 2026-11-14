@@ -841,8 +841,10 @@
         },
         "displayed_plan": {
           "type": "object",
-          "description": "Present while a sealed plan is displayed for approval. milestones and end_to_end_flow (#2434) carry the completion order the person approves and are present only where the contract body has them; sealed legacy plans omit both.",
+          "description": "Present while a sealed plan is displayed for approval. review_markdown contains its complete material terms for display only; structured fields and token remain authoritative. milestones and end_to_end_flow (#2434) are present only where the contract body has them; sealed legacy plans omit both.",
+          "required": ["review_markdown"],
           "properties": {
+            "review_markdown": {"type": "string", "description": "Core-generated readable material terms of this exact canonical plan, without file front matter, approval tokens or opaque runner records; never parsed as action authority."},
             "milestones": {
               "type": "array",
               "items": {

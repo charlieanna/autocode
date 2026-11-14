@@ -97,9 +97,9 @@ class RunnerTests(unittest.TestCase):
         self.assertNotIn("minitest", plan_test_suite.RUNNER_KIND)
 
     def test_per_test_results_come_from_the_runners_the_table_names(self):
-        for name in ("pytest", "unittest", "go", "node", "vitest", "rspec", "cargo"):
+        for name in ("pytest", "unittest", "go", "node", "vitest", "jest", "rspec", "cargo"):
             self.assertTrue(Framework(name, "suite").per_test, name)
-        for name in ("jest", "mocha", "make", "minitest", "npm"):
+        for name in ("mocha", "make", "minitest", "npm"):
             self.assertFalse(Framework(name, "suite").per_test, name)
 
     def test_a_targeted_run_is_given_only_its_runners_test_files(self):

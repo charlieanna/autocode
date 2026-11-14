@@ -745,7 +745,7 @@ def run_command(
 def _with_results(framework, command, xml_path, tree=None, *, scripts=True):
     """``command`` asking its runner for per-test results. ``scripts`` false leaves an ``npm test`` whose
     script is node's own test runner as written (a native check runs exactly the command it planned)."""
-    if instrumented := reporters.instrument(command, xml_path, tree if scripts else None):
+    if instrumented := reporters.instrument(command, xml_path, tree if scripts else None, tree):
         return instrumented
     if vitest_tests.command_words(command, tree):
         return vitest_tests.instrument(command, xml_path, tree)
@@ -765,7 +765,7 @@ def expects_results(framework, command, tree=None, *, scripts=True):
     """True when this command, run by the runner, must yield per-test results."""
     if framework is not None and framework.name == "junit":
         return bool(command)
-    if reporters.reports(command, tree if scripts else None):
+    if reporters.reports(command, tree if scripts else None, tree):
         return True
     if vitest_tests.command_words(command, tree):
         return True
@@ -796,11 +796,11 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
     Node and Vitest report as a collection error executed and is judged like any
     other failing test, so it is not in ``uncollected``.
     """
-    if read := reporters.reader(xml_path, receipt):
+    if read := reporters.reader(xml_path, receipt, tree):
         return read(xml_path)
     if str(xml_path).endswith(".vitest.json"):
         return vitest_tests.results(xml_path, tree)
-    if not framework or not framework.per_test or framework.name in ("node", "vitest", "cargo"):
+    if not framework or not framework.per_test or framework.name in ("node", "vitest", "jest", "cargo"):
         return None
     if framework.name == "go":
         invocation = go_tests.parse(package_scope.split(framework, receipt.get("command") or framework.suite)[1])
@@ -1566,7 +1566,7 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_
     package, command = package_scope.split(framework, command)  # a package's suite runs from its directory
     root = Path(tree) / package if package else tree
     scripts = native_execution is None  # a native check runs exactly the command it planned
-    extension = reporters.extension(command, root if scripts else None) or (
+    extension = reporters.extension(command, root if scripts else None, root) or (
         "vitest.json" if vitest_tests.command_words(command, root) else "junit.xml"
     )
     xml = Path(evidence_dir) / f"{label}.{extension}"
@@ -1906,11 +1906,14 @@ def scratch_run(
     review_mutation=False,
     review_mutation_deadline=None,
     review_source=None,
+    acceptance_preflight=False,
 ) -> dict:
     """Execute in a copy of HEAD plus current changes and an optional reviewed patch.
     File/link overlays preserve cited inputs. Review mutation returns a typed
     observation; it never fabricates a receipt for an absent project command.
     """
+    if type(acceptance_preflight) is not bool:
+        raise ValueError("Acceptance preflight must be a boolean")
     workspace, run_dir = Path(workspace), Path(run_dir)
     native_scope = None
     ownership_uncertain = False
@@ -1954,6 +1957,7 @@ def scratch_run(
                 timeout=timeout,
                 review_mutation=review_mutation,
                 review_mutation_deadline=review_mutation_deadline,
+                acceptance_preflight=acceptance_preflight,
             )
             if review_mutation:
                 review_mutations.validate(answer.get("review_mutation"), run_dir)
@@ -1991,30 +1995,38 @@ def scratch_run(
                 framework = Framework("unittest", f"{shlex.quote(python)} -m unittest discover -v", python=python)
             detect = lambda directory: detect_framework(directory, python=python)  # noqa: E731
             suites = scratch_suites.suites(tree, framework, tests, detect)  # one per project the tests are in
-            if isinstance(suites, str):
-                return {"error": suites, "results": None}
-            receipt = scratch_suites.merged(
-                run_suite(found, command, tree, run_dir, label, timeout=timeout, native_execution=native_execution)
-                for found, command, label in suites
+            receipt = scratch_suites.run_selected(
+                tree,
+                tests,
+                suites,
+                lambda found, command, label: run_suite(
+                    found, command, tree, run_dir, label, timeout=timeout, native_execution=native_execution
+                ),
+                acceptance_preflight=acceptance_preflight,
             )
         else:
             # A command naming the workspace's absolute path runs against the copy, never the workspace.
             for root in dict.fromkeys((str(workspace.resolve()), str(workspace))):
                 command = command.replace(root, str(tree))
             framework = command_framework(command) or package_scope.recognize(command, command_framework)
-            # A command whose reporter the runner owns (npm test, RSpec, Vitest) names its tests as well.
+            # A reporter-owned command can name tests without a recognized framework object.
             if framework or (native_execution is None and expects_results(None, command, tree)):
-                receipt = run_suite(
+                receipt = scratch_suites.explicit(
+                    tree,
+                    tests,
                     framework,
                     command,
-                    tree,
-                    run_dir,
-                    "scratch-command",
-                    timeout=timeout,
-                    native_execution=native_execution,
+                    lambda found, selected, label: run_suite(
+                        found, selected, tree, run_dir, label, timeout=timeout, native_execution=native_execution
+                    ),
+                    schedule.complete_results,
+                    acceptance_preflight=acceptance_preflight,
                 )
-                if framework and (nothing := schedule.shows_nothing(receipt)):
-                    return {**receipt, "error": nothing}
+                if framework and receipt.get("error") in (
+                    "Test command reported zero tests or incomplete per-test results",
+                    "Test command reported only skipped tests",
+                ):
+                    return receipt
             else:
                 receipt = run_command(
                     command, tree, run_dir / "scratch-command.log", timeout=timeout, native_execution=native_execution

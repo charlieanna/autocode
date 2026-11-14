@@ -283,6 +283,7 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
                     workspace,
                     run_dir / "check-replay" / "acceptance-recovery",
                     tests=tests,
+                    acceptance_preflight=True,
                     timeout=verify.DEFAULT_TIMEOUT,
                 )
 

@@ -124,6 +124,7 @@ export interface DisplayedPlan {
   revision?: number;
   hash?: string;
   token?: string;
+  review_markdown?: string;
   acceptance_criteria?: AcceptanceCriterion[];
   constraints?: string[];
   permission_boundaries?: string[];
@@ -535,6 +536,7 @@ export function planForApproval(view: StatusView): DisplayedPlan | null {
   if (!plan?.token) return null;
   const asked = approvalToken(view);
   if (asked === null || plan.token !== asked) return null;
+  if (!hasPlanReview(plan)) return null;
   // A matching token is insufficient if this client cannot display the full
   // approval projection. Refuse malformed/older shapes instead of hiding terms.
   if (!Array.isArray(plan.acceptance_criteria) || !plan.acceptance_criteria.every((row) =>
@@ -553,6 +555,11 @@ export function planForApproval(view: StatusView): DisplayedPlan | null {
   const flow = plan.end_to_end_flow === undefined ? [] : plan.end_to_end_flow;
   if (!Array.isArray(flow) || !flow.every((step) => typeof step === "string")) return null;
   return plan;
+}
+
+/** Canonical review content must be present; a summary from an older core cannot replace it. */
+export function hasPlanReview(plan: DisplayedPlan | null | undefined): boolean {
+  return typeof plan?.review_markdown === "string" && plan.review_markdown.trim().length > 0;
 }
 
 /** Cost so far, in the words the view supports: unknown cost is not zero. */

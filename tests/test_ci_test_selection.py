@@ -38,6 +38,32 @@ class AccessTransportConsumerTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
                 self.assertEqual(consumers, set(kept))
 
+    def test_python_self_suite_policy_keeps_its_public_counterexamples_when_slow(self):
+        consumers = {
+            "tests.test_python_self_suite",
+            "tests.test_python_self_suite_cli",
+            "tests.test_acceptance_self_suite_preflight",
+        }
+        for path in (
+            "tools/autocode_python_self_suite.py",
+            "tools/autocode_wrapped_runner.py",
+            "tools/autocode_acceptance_tests_job.py",
+            "tools/autocode_verify.py",
+            "tools/autocode_scratch_suites.py",
+            "tools/autocode_verification_preparation.py",
+            "tools/autocode_verification_prepare_worker.py",
+            "tools/autocode_action_authority.py",
+            "tools/units/autoreview.py",
+            "tools/prompts/acceptance-tests.md",
+            "tools/prompts/fragments/test-cases/named-proof-note.md",
+            "tools/prompts/fragments/autoplanner/example-criteria-rule.md",
+            "tests/fixtures/python_self_suite.py.txt",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {name: "" for name in (*consumers, "tests.test_unrelated")})
+                kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
+                self.assertEqual(consumers, set(kept))
+
     def test_contained_tester_hint_keeps_actual_packet_and_projection_controls(self):
         consumers = {"tests.test_tester_executed_proof", "tests.test_proof_projection"}
         for path in (
@@ -53,6 +79,18 @@ class AccessTransportConsumerTests(unittest.TestCase):
             with self.subTest(path=path):
                 selected = run_suite.select_tests([path], {name: "" for name in [*consumers, "tests.test_unrelated"]})
                 self.assertTrue(consumers <= selected.keys())
+
+    def test_plan_review_content_keeps_the_public_approval_regression_when_slow(self):
+        consumer = "tests.test_plan_review_cli"
+        for path in (
+            "tools/autocode_plan_file.py",
+            "tools/autocode_run_view.py",
+            "docs/schemas/status-view.schema.json",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
 
     def test_command_cancellation_keeps_the_public_stop_and_ownership_regressions_when_slow(self):
         consumers = {"tests.test_stop_now_runner_check_cli", "tests.test_runner_check_cancellation"}

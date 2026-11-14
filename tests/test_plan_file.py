@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import unittest
 
@@ -96,6 +97,91 @@ def text_of(exported: str) -> list[str]:
 
 
 class PlanFileTests(unittest.TestCase):
+    def test_review_exact_examples_preserve_whitespace_backticks_and_argument_boundaries(self):
+        for literal in ("1 buy milk [open]\n", "first\nsecond\n\n", " \t`quoted`  ", "  leading and trailing  "):
+            with self.subTest(literal=literal):
+                command = ["todo.py", "list", "buy milk", "`quoted`", "line\nbreak"]
+                original = {
+                    "brief_acceptance": {
+                        "manifest": {
+                            "observations": [
+                                {
+                                    "declaration": {
+                                        "program": command[0],
+                                        "observe_argv": command[1:],
+                                        "literal": literal,
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+                text = plan_file.review_markdown(original)
+                with self.subTest(representation="argv"):
+                    self.assertIn(json.dumps(command, ensure_ascii=False), text)
+                with self.subTest(representation="literal"):
+                    self.assertIn(json.dumps(literal, ensure_ascii=False), text)
+
+    def test_review_shows_all_material_terms_without_file_or_runner_metadata(self):
+        original = body()
+        original["acceptance_criteria"][0].update(
+            current_behavior="Today refunds close one store day too soon",
+            supersedes=[{"file": "tests/test_refunds.py", "test": "test_old_window"}],
+        )
+        original["git_delivery"] = {"kind": "atomic_commit", "message": "Correct the refund window"}
+        untouched = copy.deepcopy(original)
+        text = plan_file.review_markdown(original)
+        for value in (
+            "Add refunds to the shop package.",
+            "Shop staff",
+            "shop/refunds.py",
+            "Disputed orders cannot be refunded",
+            "Compute the window in store time",
+            "Today refunds close one store day too soon",
+            "test_old_window",
+            "until 23:59:59 on March 31 in store time",
+            "Store time is UTC+2",
+            "Round half up",
+            "shop/receipt.py",
+            "Refunds close after 30 store days",
+            "Correct the refund window",
+            "ID AMOUNT [open|done]",
+        ):
+            with self.subTest(value=value):
+                self.assertIn(value, text)
+        self.assertEqual(untouched, original)
+        self.assertIn("Assumed (from your answer): Store time is UTC+2", text)
+        self.assertIn("Delegated (under your delegation): Round half up", text)
+        self.assertIn("No separate person review is required.", text)
+        for hidden in (
+            "front matter",
+            "goal_hash",
+            "source_trace",
+            "risk_acceptance",
+            "source_id",
+            "task:0",
+            "answer Q1",
+        ):
+            self.assertNotIn(hidden, text)
+        self.assertIn("The delivered program must produce:", text)
+        self.assertNotIn("Checked on the delivered program:", text)
+
+    def test_review_redacts_credentials_and_supports_legacy_missing_sections(self):
+        token = "ghp_" + "a1B2" * 9
+        text = plan_file.review_markdown({"intended_outcome": "Keep legacy plan", "constraints": [token]})
+        self.assertIn("Keep legacy plan", text)
+        self.assertNotIn(token, text)
+        self.assertNotIn("Milestones", text)
+        self.assertNotIn("End-to-end flow", text)
+
+    def test_file_format_one_export_bytes_stay_unchanged_by_ui_review_rendering(self):
+        exported = plan_file.export(body(), revision=3, approved=True)
+        self.assertEqual(1, plan_file.FORMAT)
+        self.assertEqual(
+            "89034db831d247d6702b8d91112f853e8ac3385a0f968d60ecfb7bcba0af4fbf",
+            hashlib.sha256(exported.encode()).hexdigest(),
+        )
+
     def test_export_then_read_gives_back_the_body_and_its_goal_hash(self):
         original = body()
         exported = plan_file.export(copy.deepcopy(original), revision=3, approved=True)

@@ -192,7 +192,7 @@ test("an approval is bound to the token the run asks for", () => {
 
 test("a revised plan is not the plan the token approves", () => {
   const shown = {
-    revision: 20, hash: "abc", token: "r20:abc",
+    revision: 20, hash: "abc", token: "r20:abc", review_markdown: "A complete canonical plan",
     acceptance_criteria: [{ id: "AC1", criterion: "one", verification_method: "run the test", human_review: false }],
     constraints: [], permission_boundaries: [],
   };
@@ -212,7 +212,7 @@ function approvalProjection(terms: Record<string, unknown> = {}) {
     status: "AWAITING_GOAL_APPROVAL", done: false,
     needs: { kind: "approve_plan", token: "plan-7" },
     displayed_plan: {
-      token: "plan-7",
+      token: "plan-7", review_markdown: "Print Hello with a test",
       acceptance_criteria: [{ id: "AC1", criterion: "Print Hello", verification_method: "test: hello", human_review: false }],
       constraints: [], permission_boundaries: [], scope_exclusions: [],
       ...terms,
@@ -297,4 +297,11 @@ test("a missing human action is not a completion claim", () => {
       recovery: { category } }), "nothing needed from you");
   }
   assert.equal(needsSummary({ status: "TASK_COMPLETE", done: true, needs: null }), "nothing; the run is complete");
+});
+
+
+test("approval refuses missing, empty or malformed canonical review content", () => {
+  for (const review_markdown of [undefined, null, false, 7, {}, [], "", " \n\t"]) {
+    assert.equal(planForApproval(approvalProjection({ review_markdown })), null, JSON.stringify(review_markdown));
+  }
 });

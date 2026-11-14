@@ -9,7 +9,7 @@
 import * as vscode from "vscode";
 import { ClientGap, integerValue, leavesForPerson, requiresConfirmation, type OpenDecision } from "./core/next-command";
 import type { AcceptanceCriterion, ChangesetSummary, DisplayedPlan, IntegerCommandInput, Question, StatusView } from "./core/view";
-import { approvalToken, isWorking, needsSummary, pauseLabel, planForApproval, progressLine, usageLine } from "./core/view";
+import { approvalToken, hasPlanReview, isWorking, needsSummary, pauseLabel, planForApproval, progressLine, usageLine } from "./core/view";
 import type { RunController, RunRef } from "./controller";
 import { markdown, type TextNode } from "./chat-markdown";
 import { chatStyles, installChatBehavior } from "./upstream/kilo-chat";
@@ -98,7 +98,7 @@ export interface PanelState {
   checkpoints: { id: string; label: string; at: string | null; files: number; available: boolean; reason: string | null; verdict: string | null; actions: { id: string; label: string }[] }[];
   checkpointsBlocked: string | null;
   /** The plan the current token asks to approve, only when the view shows it. */
-  plan: { revision: number | null; criteria: AcceptanceCriterion[]; constraints: string[]; boundaries: string[]; exclusions: string[]; delivery: string | null; milestones: { id: string; objective: string; acceptance_criteria: string[] }[]; flow: string[] } | null;
+  plan: { revision: number | null; review: TextNode[]; criteria: AcceptanceCriterion[]; constraints: string[]; boundaries: string[]; exclusions: string[]; delivery: string | null; milestones: { id: string; objective: string; acceptance_criteria: string[] }[]; flow: string[] } | null;
   /** The token the approval is bound to; the webview echoes it back so a stale click cannot approve. */
   token: string | null;
   /** False when the action would be an approval of a plan this client never displayed. */
@@ -144,9 +144,11 @@ export interface ChangesetState {
 /** The panel's change-set card for a `changeset status --json` summary. */
 export function changesetState(summary: ChangesetSummary): ChangesetState {
   const { approval, verification } = summary;
-  const approving = Boolean(approval.next_command?.length);
+  const complete = summary.runs.every((row) => hasPlanReview(row.plan));
+  const approving = Boolean(approval.next_command?.length) && complete;
   let note: string | null = null;
-  if (verification.done) note = "Checked together: done. Merge order: " + verification.merge_order.join(", then ");
+  if (approval.next_command?.length && !complete) note = "The complete plans have not loaded here yet, so there is nothing to approve. Refresh to load them.";
+  else if (verification.done) note = "Checked together: done. Merge order: " + verification.merge_order.join(", then ");
   else if (!approving && approval.waiting_on.length && verification.waiting_on.length) note = "A set approval waits for a complete plan from: " + approval.waiting_on.join(", ");
   else if (verification.result?.current && !verification.result.passed) note = "The integration check failed. Reopen the run that diverged (autocode changeset reopen) or waive it with a reason (autocode changeset waive).";
   else if (!verification.waiting_on.length && !verification.check) note = "Every run is complete, but nothing has checked them together. Name the set's check (autocode changeset check-command) or waive it with a reason (autocode changeset waive).";
@@ -561,6 +563,7 @@ function planShape(view: StatusView): PanelState["plan"] {
 function planOf(plan: DisplayedPlan): NonNullable<PanelState["plan"]> {
   return {
     revision: plan.revision ?? null,
+    review: markdown(plan.review_markdown ?? ""),
     criteria: plan.acceptance_criteria ?? [],
     constraints: plan.constraints ?? [],
     boundaries: plan.permission_boundaries ?? [],
@@ -1602,48 +1605,9 @@ function render(state) {
       state.criteria.forEach((row) => cardContent.appendChild(el('div', 'row', row.criterion)));
     }
 
-    if (state.plan && state.plan.delivery) {
-      cardContent.appendChild(el('div', 'row', state.plan.delivery));
-    }
-
     if (state.plan) {
       cardContent.appendChild(el('h2', null, 'Plan to approve'));
-      if (state.plan.milestones.length) {
-        cardContent.appendChild(el('h2', null, 'Milestones'));
-        state.plan.milestones.forEach((milestone) => {
-          const box = el('div', 'decision');
-          box.appendChild(el('div', 'q', milestone.id + ': ' + milestone.objective));
-          if (milestone.acceptance_criteria.length) {
-            const criteria = el('div', 'why', 'Criteria: ' + milestone.acceptance_criteria.join(', '));
-            box.appendChild(criteria);
-          }
-          cardContent.appendChild(box);
-        });
-      }
-      if (state.plan.flow.length) {
-        cardContent.appendChild(el('h2', null, 'End-to-end flow'));
-        state.plan.flow.forEach((step) => cardContent.appendChild(el('div', 'row', step)));
-      }
-      const milestoneCriteria = new Set((state.plan.milestones || []).flatMap((m) => m.acceptance_criteria || []));
-      state.plan.criteria.forEach((criterion) => {
-        const item = el('div', 'row');
-        const prefix = criterion.id && milestoneCriteria.has(criterion.id) ? criterion.id + ': ' : '';
-        item.appendChild(el('span', null, prefix + criterion.criterion));
-        if (criterion.human_review) item.appendChild(el('span', 'why', 'You check this one yourself'));
-        cardContent.appendChild(item);
-      });
-      if (state.plan.constraints.length) {
-        cardContent.appendChild(el('h2', null, 'Constraints'));
-        state.plan.constraints.forEach((text) => cardContent.appendChild(el('div', 'row', text)));
-      }
-      if (state.plan.boundaries.length) {
-        cardContent.appendChild(el('h2', null, 'What it may do'));
-        state.plan.boundaries.forEach((text) => cardContent.appendChild(el('div', 'row', text)));
-      }
-      if (state.plan.exclusions.length) {
-        cardContent.appendChild(el('h2', null, 'Not covered'));
-        state.plan.exclusions.forEach((text) => cardContent.appendChild(el('div', 'row', text)));
-      }
+      renderPlan(cardContent, state.plan);
     }
 
     if (state.gap) {
@@ -1805,52 +1769,9 @@ function render(state) {
     state.criteria.forEach((row) => app.appendChild(el('div', 'row', row.id + ': ' + row.criterion)));
   }
 
-  if (state.plan && state.plan.delivery) {
-    app.appendChild(el('div', 'row', state.plan.delivery));
-  }
-
   if (state.plan) {
     app.appendChild(el('h2', null, 'Plan to approve · revision ' + (state.plan.revision === null ? '?' : state.plan.revision)));
-    app.appendChild(el('div', 'why',
-      state.plan.criteria.length + ' acceptance criteria  ·  '
-      + state.plan.constraints.length + ' constraints  ·  '
-      + state.plan.boundaries.length + ' permission boundaries'));
-    if (state.plan.milestones.length) {
-      app.appendChild(el('h2', null, 'Milestones'));
-      state.plan.milestones.forEach((milestone) => {
-        const box = el('div', 'decision');
-        box.appendChild(el('div', 'q', milestone.id + ': ' + milestone.objective));
-        if (milestone.acceptance_criteria.length) {
-          const criteria = el('div', 'why', 'Criteria: ' + milestone.acceptance_criteria.join(', '));
-          box.appendChild(criteria);
-        }
-        app.appendChild(box);
-      });
-    }
-    if (state.plan.flow.length) {
-      app.appendChild(el('h2', null, 'End-to-end flow'));
-      state.plan.flow.forEach((step) => app.appendChild(el('div', 'row', step)));
-    }
-    state.plan.criteria.forEach((criterion) => {
-      const item = el('div', 'decision');
-      item.appendChild(el('div', 'q', criterion.id + ': ' + criterion.criterion));
-      item.appendChild(el('div', 'why', 'Verification:'));
-      item.appendChild(el('pre', null, criterion.verification_method));
-      item.appendChild(el('div', 'why', 'Human review: ' + (criterion.human_review ? 'required' : 'not required')));
-      app.appendChild(item);
-    });
-    if (state.plan.constraints.length) {
-      app.appendChild(el('h2', null, 'Constraints'));
-      state.plan.constraints.forEach((text) => app.appendChild(el('div', 'row', text)));
-    }
-    if (state.plan.boundaries.length) {
-      app.appendChild(el('h2', null, 'What it may do'));
-      state.plan.boundaries.forEach((text) => app.appendChild(el('div', 'row', text)));
-    }
-    if (state.plan.exclusions.length) {
-      app.appendChild(el('h2', null, 'Not covered'));
-      state.plan.exclusions.forEach((text) => app.appendChild(el('div', 'row', text)));
-    }
+    renderPlan(app, state.plan);
   }
 
   if (state.changeset) renderChangeset(state.changeset, state);
@@ -1973,37 +1894,19 @@ function render(state) {
   }
 }
 
+function renderPlan(parent, plan) {
+  const content = el('div', 'plan-content message-content');
+  appendFormatted(content, plan.review);
+  parent.appendChild(content);
+}
+
 function renderChangeset(set, state) {
   app.appendChild(el('h2', null, set.id ? 'Change set ' + set.id : 'Change set'));
   set.runs.forEach((row) => app.appendChild(el('div', 'row',
     row.target + ' (' + (row.role === 'source' ? 'source run' : 'linked run') + '): ' + row.status + (row.needs ? ', needs ' + row.needs : ''))));
   set.plans.forEach((entry) => {
     app.appendChild(el('div', 'why', entry.target + ': plan revision ' + (entry.plan.revision === null ? '?' : entry.plan.revision)));
-    if (entry.plan.milestones.length) {
-      app.appendChild(el('h3', null, 'Milestones'));
-      entry.plan.milestones.forEach((milestone) => {
-        app.appendChild(el('div', 'row', milestone.id + ': ' + milestone.objective));
-        if (milestone.acceptance_criteria.length) {
-          app.appendChild(el('div', 'why', 'Criteria: ' + milestone.acceptance_criteria.join(', ')));
-        }
-      });
-    }
-    if (entry.plan.flow.length) {
-      app.appendChild(el('h3', null, 'End-to-end flow'));
-      entry.plan.flow.forEach((step) => app.appendChild(el('div', 'row', step)));
-    }
-    entry.plan.criteria.forEach((criterion) => {
-      app.appendChild(el('div', 'row', criterion.id + ': ' + criterion.criterion));
-      app.appendChild(el('pre', null, criterion.verification_method));
-      if (criterion.human_review) app.appendChild(el('div', 'why', 'You check this one yourself'));
-    });
-    for (const [title, rows] of [['Constraints', entry.plan.constraints], ['What it may do', entry.plan.boundaries], ['Not covered', entry.plan.exclusions]]) {
-      if (rows.length) {
-        app.appendChild(el('h3', null, title));
-        rows.forEach((text) => app.appendChild(el('div', 'row', text)));
-      }
-    }
-    if (entry.plan.delivery) app.appendChild(el('div', 'row', entry.plan.delivery));
+    renderPlan(app, entry.plan);
   });
   if (set.note) app.appendChild(el('div', 'notice', set.note));
   if (set.offer) {

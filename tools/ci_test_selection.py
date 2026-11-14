@@ -95,6 +95,31 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         for path in ("scenarios/harness/driver.py", "docs/schemas/status-view.schema.json")
     ),
     *(
+        (
+            path,
+            (
+                "tests.test_python_self_suite",
+                "tests.test_python_self_suite_cli",
+                "tests.test_acceptance_self_suite_preflight",
+            ),
+        )
+        for path in (
+            "tools/autocode_python_self_suite.py",
+            "tools/autocode_wrapped_runner.py",
+            "tools/autocode_acceptance_tests_job.py",
+            "tools/autocode_verify.py",
+            "tools/autocode_scratch_suites.py",
+            "tools/autocode_verification_preparation.py",
+            "tools/autocode_verification_prepare_worker.py",
+            "tools/autocode_action_authority.py",
+            "tools/units/autoreview.py",
+            "tools/prompts/acceptance-tests.md",
+            "tools/prompts/fragments/test-cases/named-proof-note.md",
+            "tools/prompts/fragments/autoplanner/example-criteria-rule.md",
+            "tests/fixtures/python_self_suite.py.txt",
+        )
+    ),
+    *(
         (path, ("tests.test_tester_executed_proof", "tests.test_proof_projection"))
         for path in (
             "tools/autocode.py",
@@ -303,7 +328,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tests/coordination_provider.py",
         ("tests.test_coordination_tui_e2e", "tests.test_planning_scope_cli", "tests.test_coordination_gate_cli"),
     ),
-    ("docs/schemas/status-view.schema.json", ("tests.test_json_contract",)),
+    ("docs/schemas/status-view.schema.json", ("tests.test_json_contract", "tests.test_plan_review_cli")),
     ("scenarios/catalog/greenfield-todo-cli/reference/", ("tests.test_brief_cli",)),
     ("scenarios/catalog/review-clean-pr/", ("tests.test_review_clean_fixture",)),
     ("scenarios/catalog/local-compose-two-services/", ("tests.test_local_compose_scenario",)),
@@ -532,6 +557,10 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_build_loop.py",
         ),
         ("tests.test_storage_errors", "tests.test_verification_preparation_failure"),
+    ),
+    (
+        ("tools/autocode_plan_file.py", "tools/autocode_run_view.py"),
+        ("tests.test_plan_review_cli",),
     ),
     (("tools/autocode_visual_protection.py",), ("tests.test_native_rework_transport",)),
     (

@@ -22,6 +22,11 @@ What to do:
    once and assert every listed case's obligations in it. Report each case ID separately, pointing to that
    same function and file. Do not create duplicate functions or differently named copies for those IDs.
    Cases with different test_name values remain separate; never merge them by similar English wording.
+   Never satisfy a suite-delivery criterion by launching this test's own module, file or self-including
+   discovery suite from a test, including behind a reentry guard. The core refuses known self-suite
+   commands before execution/protection. Assert product behavior directly; legitimate runner integration
+   tests launch distinct isolated fixture tests. Keep approved names/criteria intact: an invalid aggregate
+   verification strategy needs plan review, not a silent remapping or weakened assertion.
 3. A "test:" case is new behavior unless its listed kind explicitly identifies it as already delivered in
    the completed prior turn. Retain an identified inherited test unchanged; it may pass today's code,
    and its fresh original-reference fail-first proof remains required. New behavior normally fails on
