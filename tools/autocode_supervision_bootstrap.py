@@ -57,7 +57,12 @@ def main():
     # Only the controller owns the write end. EOF before release means it died;
     # none of the provider's code or credentials has been used yet.
     try:
-        if not select.select([release], [], [], 15)[0] or os.read(release, 1) != b"G":
+        if not select.select([release], [], [], 15)[0] or os.read(release, 1) != b"A":
+            return 126
+        # The keeper is armed and watched before A. Its original deadline and
+        # owner lifeline now bound this wait, including a slow durable checkpoint.
+        # A separate 15-second release timer could expire while safely owned.
+        if os.read(release, 1) != b"G":
             return 126
     finally:
         os.close(release)

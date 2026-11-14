@@ -22,12 +22,14 @@ import uuid
 from pathlib import Path
 
 try:
+    from . import autocode_dependency_dirs as dependency_dirs
     from . import autocode_joint_inputs as joint_inputs
     from . import autocode_source_snapshot as source
     from . import autocode_util as util
     from . import autocode_verification_failure as verification_failure
     from .autocode_verification_budget import PREPARATION_ALLOWANCE_SECONDS
 except ImportError:
+    import autocode_dependency_dirs as dependency_dirs
     import autocode_joint_inputs as joint_inputs
     import autocode_source_snapshot as source
     import autocode_util as util
@@ -472,7 +474,8 @@ def create(
     for name in ("node_modules", ".venv", "venv", "vendor"):
         original, target = root / name, tree / name
         if original.is_dir() and not target.exists() and not target.is_symlink():
-            target.symlink_to(original.resolve(), target_is_directory=True)
+            # Beside the copy, not in it: the manifest binds the link, and a check may rebuild what is behind it.
+            dependency_dirs.expose(original.resolve(), target, scratch / "dependencies" / name)
     if source.snapshot(root, paths=source_paths) != before:
         raise ValueError("Source changed while preparing verification copy")
     _remaining(deadline, "Verification source authentication")

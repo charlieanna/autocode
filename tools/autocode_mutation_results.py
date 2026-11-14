@@ -3,9 +3,11 @@
 import shlex
 
 try:
+    from . import autocode_package_scope as package_scope
     from . import autocode_python_tests as python_tests
     from . import autocode_verification_schedule as schedule
 except ImportError:
+    import autocode_package_scope as package_scope
     import autocode_python_tests as python_tests
     import autocode_verification_schedule as schedule
 
@@ -27,7 +29,10 @@ def stop_command(command):
 
 
 def stops_after_failure(command):
-    invocation = python_tests.parse(command)
+    # A package's run enters its directory first (``cd PACKAGE && RUNNER``, autocode_package_scope.command):
+    # the runner inside is the one that stops. Read as the whole command, it was no runner at all, so every
+    # mutant a package's test caught counted as not run and each changed line there was left without evidence.
+    invocation = python_tests.parse(package_scope.within(command))
     if invocation is None:
         return False
     arguments = list(invocation.arguments)

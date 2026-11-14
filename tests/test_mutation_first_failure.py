@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 import autocode_mutation_check as mutation
 import autocode_mutation_results as mutation_results
+import autocode_package_scope as package_scope
 import autocode_verify as verify
 
 from tests import test_changed_code_measurement as fixtures
@@ -101,6 +102,30 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(command, mutation_results.stop_command(command))
         for candidate in (command, "make test", "python -m pytest -k --maxfail=1", "python -m unittest -v -k -f"):
             self.assertFalse(mutation_results.stops_after_failure(candidate), candidate)
+
+    def test_a_packages_command_stops_as_the_runner_inside_it_does(self):
+        # A --package run's proof runs `cd PACKAGE && RUNNER`; the collector's early stop is in RUNNER.
+        runner = "env PYTHONPYCACHEPREFIX=/tmp/cache python3 -m unittest -f -v test_greet.TestGreet.test_ada"
+        self.assertTrue(mutation_results.stops_after_failure(runner))
+        self.assertTrue(mutation_results.stops_after_failure(package_scope.command("packages/greet", runner)))
+        whole = package_scope.command("packages/greet", runner.replace(" -f", ""))
+        self.assertFalse(mutation_results.stops_after_failure(whole), "the runner inside does not stop")
+        for candidate in (
+            f"cd ../elsewhere && {runner}",
+            f"cd packages/greet; {runner}",
+            f"cd packages/greet && make {runner}",
+        ):
+            self.assertFalse(mutation_results.stops_after_failure(candidate), candidate)
+        selected = ["test_greet.TestGreet.test_ada", "test_greet.TestGreet.test_blank"]
+        receipt = {
+            "command": package_scope.command("packages/greet", runner),
+            "exit_code": 1,
+            "results": {"complete": True, "passed": selected[:1], "failed": selected[1:], "skipped": [], "total": 2},
+        }
+        stopped = mutation_results.stops_after_failure(receipt["command"])
+        self.assertEqual(
+            ("killed", selected[1:]), mutation_results.outcome(receipt, [*selected, "later"], stopped=stopped)
+        )
 
 
 class EvidenceTests(unittest.TestCase):
