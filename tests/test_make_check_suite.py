@@ -51,6 +51,18 @@ class DetectionTests(unittest.TestCase):
         self.assertEqual("make test", detect({**SEED, "Makefile": both}).suite)
         self.assertEqual("make test", detect({**SEED, "Makefile": "test:\n\tsh tests/test_pager.sh\n"}).suite)
 
+    def test_a_suite_detected_another_way_comes_before_a_check_target(self):
+        # In such a project `make check` is often lint alone; a `test` rule still comes before the build tool.
+        lint = "check:\n\t@true\n"
+        for files, expected in (
+            ({"pom.xml": "<project/>\n", "src/test/java/PagerTest.java": ""}, "maven"),
+            ({"cpanfile": "", "lib/Pager.pm": "1;\n", "t/pager.t": ""}, "prove"),
+            ({"test/pager_test.rb": ""}, "minitest"),
+        ):
+            with self.subTest(expected=expected):
+                self.assertEqual(expected, detect({**files, "Makefile": lint}).name)
+                self.assertEqual("make test", detect({**files, "Makefile": lint + "test:\n\t@true\n"}).suite)
+
     def test_only_a_rule_of_that_name_is_a_test_target(self):
         for makefile in (
             "all:\n\t@true\n",

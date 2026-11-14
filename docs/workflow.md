@@ -668,13 +668,14 @@ acceptance criterion a test can check as one concrete example, and sets its
 The matching and the rules are in `tools/autocode_test_cases.py`.
 
 Test commands are detected (pytest, unittest, Go, Jest/Vitest/Mocha, RSpec,
-Cargo, a `Makefile`'s `test` target or, without one, its `check` target (`make test`, `make check`), Maven (`mvn -B -q test`), Gradle (`gradle --no-daemon -q test`), CMake with
+Cargo, `make test`, Maven (`mvn -B -q test`), Gradle (`gradle --no-daemon -q test`), CMake with
 CTest (a root `CMakeLists.txt` that calls `enable_testing()` or includes `CTest`), PHPUnit in a Composer
 project (`vendor/bin/phpunit`, for a root `composer.json` with a PHPUnit configuration file or the
 `phpunit/phpunit` package), a Perl distribution's `.t` files under `t/` (`prove -lr t`, for a root
 `cpanfile`, `Makefile.PL` or `Build.PL`, or a module under `lib/`, and no `.xs` file), and a Ruby project's
 Minitest or test-unit files under `test/`, named `*_test.rb` or `test_*.rb`, run through Bundler when
-there is a `Gemfile`; Maven and Gradle run through the project's own `mvnw` or `gradlew` when it has one);
+there is a `Gemfile`; Maven and Gradle run through the project's own `mvnw` or `gradlew` when it has one;
+when none of these is found, a `Makefile`'s `check` target, `make check`);
 `--test-command` and `--regression-command` set them for a new run. With per-test results (pytest, unittest, Go, node:test, Vitest, RSpec, `cargo test`) a proof needs a named test
 that ran and failed on base and passed on the fix; a test that only fails to
 import on base is not a reproduction. Without per-test results exit codes decide.

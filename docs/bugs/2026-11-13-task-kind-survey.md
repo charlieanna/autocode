@@ -926,8 +926,9 @@ adopt it (section 22) and ended `UNVERIFIED`: "No command to run the regression 
 --regression-command". The Resolver asked the person to "Set --test-command 'make check' and
 --regression-command 'make check'".
 
-Fixed in detection: a `check` rule in the root `Makefile` is the project's suite when it has no `test`
-rule (`autocode_toolchain_suite.make_target`). The same task then completes: 9 stages, 162 s, $0.83, suite
+Fixed in detection: a `check` rule in the root `Makefile` is the project's suite when no other suite is
+detected (`autocode_toolchain_suite.make_target`); in a project with a build tool or a test runner of its
+own, `check` is often lint alone. The same task then completes: 9 stages, 162 s, $0.83, suite
 `detected:make` `make check` (bundle manifest
 `14a8aabc66cb3a180d2f3e25980b32d78409f251c02d50fa3cefc7f4b9a71c8a`).
 
