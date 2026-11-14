@@ -23,8 +23,20 @@ criterion. The Plan Reviewer reviews the draft, the approval screen shows each e
 test", and approval binds to it as to any plan. Anything else, or a second refusal of the same test, keeps the
 existing pause.
 
-Pure apart from reading the edited test files, except ``send_back``, which installs the draft (the runner's
-rejection path, autocode.reject_completed_stage, calls it).
+A guard the change itself alters is the same conflict seen earlier, by the regression proof (2026-11-14). A
+plan may guard an existing test whose expected text the change must rewrite: a golden file the test reads, or
+the assertion itself. With the change's test files that test fails on the original code, so the proof refuses
+the guard ("describes behavior the fix restores"), and a real run then spent a Tester, a Completion Reviewer and
+a Resolver to ask the person "How should AC5 be classified?". Whether a named test must fail first or pass
+before and after is how the runner proves a criterion, not what the person agreed to (autocode_test_cases.proof),
+so ``relabel_guards`` builds that revision too, once, before the review stage launches: the criterion becomes
+``test:`` and supersedes the original test it names. It qualifies only when the plan is approved, the proof
+failed for nothing but such guards, and each failing test is one that exactly one original test file defines
+and the plan does not list. The Plan Reviewer and the approval screen see it as above.
+
+Pure apart from reading the edited test files, except ``send_back`` and ``relabel_guards``, which install the
+draft (the runner's rejection path, autocode.reject_completed_stage, calls the first; the review stages'
+dispatch, autocode_completion_result.before_review, the second).
 State: ``superseded_corrections`` (the tests sent back, with the contract revision and receipt).
 """
 
@@ -40,10 +52,12 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_contract_identity as contracts
+    from . import autocode_protected_store as store
     from . import autocode_superseded_tests as superseded_tests
     from . import autocode_test_cases as test_cases
 except ImportError:
     import autocode_contract_identity as contracts
+    import autocode_protected_store as store
     import autocode_superseded_tests as superseded_tests
     import autocode_test_cases as test_cases
 
@@ -194,6 +208,136 @@ def send_back(state: RunState, record, error) -> bool:
     try:
         lifecycle.install_draft(
             candidate, found["body"], origin=ORIGIN, changes=found["changes"], record=record, queue_human=False
+        )
+    except ValueError:
+        return False
+    planning_cycle.start(candidate)
+    cast(dict, state).clear()
+    state.update(candidate)
+    return True
+
+
+# The regression proof's words for a guard whose test fails on the original code (autocode_regression.CHANGED_GUARD).
+_CHANGED_GUARD = "has a test that fails on the original code"
+_REVIEWS = ("tester", "review_checkpoint", "review_completion")
+
+
+def _original(test_id: str, files: dict, root) -> dict | None:
+    """The one original test file that defines the test a runner's id names, with that name, or None."""
+    found = []
+    for file, value in files.items():
+        name = _test_name(test_id, file) if "symlink" not in value else ""
+        if not name or not superseded_tests.matches({"file": file, "test": name}, test_id):
+            continue
+        try:
+            text = (root / file).read_text(errors="replace")
+        except OSError:
+            continue
+        if re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", text):
+            found.append({"file": file, "test": name})
+    return found[0] if len(found) == 1 else None
+
+
+def guard_proposal(state: RunState) -> dict | None:
+    """The corrected draft for a proof that failed only for guards the change alters, or None.
+
+    Returns ``body`` (the approved plan with each such guard a ``test:`` criterion that supersedes its original
+    test), ``changes`` (declared for plan review) and ``tests`` (the entries, each with its criterion).
+    """
+    proof = state.get("regression_proof") or {}
+    guards = proof.get("changed_guards")
+    failures = proof.get("failures") or []
+    if (
+        proof.get("verdict") != "FAIL"
+        or proof.get("unverified")
+        or not isinstance(guards, list)
+        or not guards
+        or len(failures) != len(guards)
+        or not all(_CHANGED_GUARD in str(failure) for failure in failures)
+    ):
+        return None
+    try:
+        if not contracts.approved(state):
+            return None
+    except (KeyError, TypeError):
+        return None  # a contract that was never sealed approves nothing
+    record = (state.get("settings") or {}).get("protected_tests") or {}
+    files = record.get("files") or {}
+    if not files:
+        return None
+    body = copy.deepcopy((state.get("goal_contract") or {}).get("body") or {})
+    rows = {row.get("id"): row for row in body.get("acceptance_criteria") or [] if isinstance(row, dict)}
+    listed, sent, tests = superseded_tests.approved(state), _sent(state), []
+    try:
+        with store.opened(record, state.get("workspace") or ".") as root:
+            for guard in guards:
+                row = rows.get(guard.get("id"))
+                method = str((row or {}).get("verification_method") or "").strip()
+                if row is None or test_cases.mark(method) != test_cases.GUARD_MARK or not guard.get("tests"):
+                    return None
+                entries = [
+                    entry for test_id in guard["tests"] if (entry := _original(str(test_id), files, root)) is not None
+                ]
+                if len(entries) != len(guard["tests"]):
+                    return None
+                row["verification_method"] = test_cases.MARK + method[len(test_cases.GUARD_MARK) :]
+                for entry in entries:
+                    if (entry["file"], entry["test"]) in sent or entry in listed:
+                        return None
+                    if entry not in row.setdefault(superseded_tests.KEY, []):
+                        row[superseded_tests.KEY].append(dict(entry))
+                        tests.append({"criterion": row["id"], **entry})
+        superseded_tests.validate(state, body.get("acceptance_criteria"))
+    except (ValueError, OSError):
+        return None
+    changes = [
+        {
+            "item": row["criterion"],
+            "change": "reworded",
+            "basis": "runner_proof",
+            "answer_id": "",
+            "replacement": (
+                f"test: instead of guard:, superseding {row['file']}::{row['test']} (with the change's test files "
+                "this original test fails on the original code and passes with the change, so the change alters "
+                "what it expects; review whether this criterion's behavior is meant to change, and reword the "
+                "criterion if it is not)"
+            ),
+        }
+        for row in tests
+    ]
+    return {"body": body, "changes": changes, "tests": tests} if tests else None
+
+
+def relabel_guards(state: RunState, stage, revision) -> bool:
+    """Install the corrected draft for a proof that refused only guards the change alters, and begin plan review.
+
+    Called before a review stage launches, after its proof ran; ``revision()`` is the current source's, which
+    the proof must be of. False, leaving the state as it was, when the proof is not that conflict or the draft
+    cannot be installed.
+    """
+    if stage not in _REVIEWS:
+        return False
+    try:
+        from . import autocode_goal_lifecycle as lifecycle
+        from . import autocode_planning_cycle as planning_cycle
+    except ImportError:
+        import autocode_goal_lifecycle as lifecycle
+        import autocode_planning_cycle as planning_cycle
+    found = guard_proposal(state)
+    if found is None or (state.get("regression_proof") or {}).get("source_revision") != revision():
+        return False
+    candidate = copy.deepcopy(state)
+    candidate.setdefault("superseded_corrections", []).append(
+        {
+            "contract_revision": (state.get("goal_contract") or {}).get("revision"),
+            "tests": found["tests"],
+            "receipt": (state.get("regression_proof") or {}).get("path"),
+            "output": None,
+        }
+    )
+    try:
+        lifecycle.install_draft(
+            candidate, found["body"], origin=ORIGIN, changes=found["changes"], record=None, queue_human=False
         )
     except ValueError:
         return False

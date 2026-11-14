@@ -336,11 +336,14 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         ):
             resolver_runtime.operational_boundary(runner, current, run_dir, workspace)
         try:
-            completion_result.before_review(current, stage, workspace, run_dir)
+            replanned = completion_result.before_review(current, stage, workspace, run_dir)
         except support.Paused as error:
             if interventions.pending_admission_pause(error.status, str(error)) and not current.get("active_stage"):
                 consume_boundary(current)
             raise
+        if replanned is True:  # the plan went back to plan review: launch nothing, restart from the saved state
+            runner.write_json(state_path, current)
+            return runner.orchestrator.SKIP
         try:
             launch_inputs.guard(current, workspace, run_dir)
         except ValueError as error:

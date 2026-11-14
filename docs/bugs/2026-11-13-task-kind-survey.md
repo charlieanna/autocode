@@ -1160,6 +1160,51 @@ Three more kinds, each `TASK_COMPLETE` with one plan approval and no question:
 | A bug fix in a Python project whose tests are named `*_test.py` and sit beside the code (`python_files = ["*_test.py"]`) | 10 stages (one plan revision), 173 s, $1.29 | `8b596d2f5923e7adf2344cf962f5d0566ddc01be8bf715a37d8e3be384afad9c` |
 | A bug fix in a repository whose projects sit in subdirectories (a Go module in `backend/`, a Node package in `frontend/`, only a README at the root); the fix is in the backend | 10 stages (one plan revision), 157 s, $1.22; the proof's suite is `cd backend && go test ./...` | `debdbd9f545e736ebb979edc69706329dcaa48892d257418a5afa8c9f8bcb994` |
 
+## 40. Expected output kept in a golden or snapshot file: the person is asked how to classify a criterion (fixed)
+
+Real runs, Claude models as in section 37, 2026-11-14. Each request changes what the code prints, in a
+project whose expected output is a file a test reads:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| Python: "The report prints the joining date as 4/3/2026. Print it as 2026-03-04 instead"; the expected report is `tests/golden/report.txt` | `WAITING_FOR_USER`, 10 stages, 237 s, $1.40. The code, the golden file and the tests are right | `4f753805923a67730e0d99206d64ac238deee325be117be3ae1043b94a806903` |
+| Vitest: print the receipt's amounts in dollars; the expected receipt is a snapshot file (`toMatchSnapshot`) | complete, 14 stages, 278 s, $1.71, two plan approvals | `604f4652d91dd61df63c3ca64e1f6d964fb7990217ccea0b193b732bdced2f3a` |
+| Go: line the stock report up in columns; the expected output is `testdata/report.golden` | complete, 12 stages, 250 s, $1.34, two plan approvals | `82ead557aba988fe3f8c2d7fb3d899feee2594335915ce62dc8746c109e7f92c` |
+
+The Vitest and Go plans did not mention the existing test that reads the file. The Tester's original-test
+gate refused the change ("Failing original tests: ... Only an approved plan criterion's supersedes list can
+replace an original test"), the runner listed the test as replaced, and the plan went back to plan review and
+approval (section 16's correction).
+
+The Python plan named that test as a guard: `guard: test_report_matches_the_golden_file`. The change
+rewrites the golden file, so with the change's test files the test fails on the original code, and the proof
+refused the guard twice: "Preserve case AC5 ... has a test that fails on the original code, so it describes
+behavior the fix restores: tag it restore, or rewrite the test". The Tester reported FAIL for that alone,
+the Completion Reviewer and the Resolver each reported a "contract contradiction", and the person was asked
+"How should AC5 be classified?", with "change AC5's verification_method from 'guard:' to 'test:'" as the
+recommended answer. Whether a named test must fail first or pass before and after is how AutoCode proves a
+criterion, not something the person agreed to (`autocode_test_cases.proof`).
+
+Fixed (`autocode_superseded_correction.relabel_guards`): before a review stage launches, a proof that failed
+for nothing but such guards sends the plan back to plan review with each one a `test:` criterion that lists
+the original test it replaces. It applies only to an approved plan, to a test that exactly one original test
+file defines and the plan does not list, and once per test. The same request twice on the fixed tree:
+
+| Run | Result | Bundle manifest |
+| --- | --- | --- |
+| First | complete, 12 stages, 217 s, $1.17 | `d603868421a0acf75d5cb73f8ef2c5e216a1c52c6f3d782881ca8c18583b0725` |
+| Second | complete, 12 stages, 205 s, $1.14 | `1167eca3d79471f74e9519f9d9157cd4cd6a1be929cb9864e56055c1d098c022` |
+
+Both plans guarded the golden test again. In both, the first proof failed for that guard alone, no Tester
+launched on it, the plan came back with `test: test_report_matches_the_golden_file` replacing
+`tests/test_report.py::test_report_matches_the_golden_file`, and the second proof passed with that test
+failing first. Each run has two plan approvals and no question.
+
+Not run on real models: a change that rewrites only the golden file and no test file. Without a model, such a
+change's proof is `UNVERIFIED` ("The proving tests are not in the suite that ran"), since a golden file is a
+test file no runner targets. In all five runs here the Builder also added a test, so the proof had a test
+file to run.
+
 ## Also seen, not yet run on real models
 
 - **Claude Code refuses to edit some directories inside the stage's own directory.** With Edit and
