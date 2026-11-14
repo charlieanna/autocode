@@ -2109,7 +2109,16 @@ function renderTabs(data) {
   const drafts = (vscode.getState() || {}).drafts || {};
   const rows = (data.tabs || [{ key: data.runKey || '', name: data.runKey ? 'Chat' : 'New chat' }]).map((tab) => {
     const draft = !tab.run && typeof drafts[tab.key] === 'string' ? drafts[tab.key].split('\\n').find((line) => line.trim())?.trim() : '';
-    return draft ? { ...tab, name: 'Draft: ' + (draft.length > 22 ? draft.slice(0, 21) + '…' : draft) } : tab;
+    return draft ? { ...tab, name: 'Draft: ' + (draft.length > 22 ? draft.slice(0, 21) + '…' : draft), title: 'Draft: ' + draft } : tab;
+  });
+  // Several requests can have the same visible prefix, including identical requests.
+  // Number those tabs by their stable key so a reorder or status refresh cannot swap them.
+  const groups = new Map();
+  rows.forEach((tab) => { const group = groups.get(tab.name) || []; group.push(tab.key); groups.set(tab.name, group); });
+  const numbers = new Map();
+  groups.forEach((keys) => {
+    if (keys.length < 2) return;
+    keys.sort().forEach((key, index) => numbers.set(key, index + 1));
   });
   const focusedClose = document.activeElement && document.activeElement.classList.contains('close')
     ? document.activeElement.parentElement : null;
@@ -2129,7 +2138,8 @@ function renderTabs(data) {
     item.dataset.key = tab.key;
     item.tabIndex = tab.key === data.activeKey ? 0 : -1;
     item.setAttribute('aria-selected', tab.key === data.activeKey ? 'true' : 'false');
-    const name = el('span', 'name', tab.name);
+    const visibleName = numbers.has(tab.key) ? numbers.get(tab.key) + ' · ' + tab.name : tab.name;
+    const name = el('span', 'name', visibleName);
     item.appendChild(name);
     if (tab.needs) {
       const dot = el('span', 'dot needs', '●');
@@ -2148,14 +2158,14 @@ function renderTabs(data) {
       const close = el('button', 'close', '×');
       close.type = 'button';
       close.title = 'Close chat';
-      close.setAttribute('aria-label', 'Close chat ' + tab.name);
+      close.setAttribute('aria-label', 'Close chat ' + visibleName);
       close.addEventListener('click', (event) => {
         event.stopPropagation();
         vscode.postMessage({ type: 'close_tab', tabKey: tab.key });
       });
       item.appendChild(close);
     }
-    item.title = tab.name;
+    item.title = numbers.has(tab.key) ? numbers.get(tab.key) + ' · ' + (tab.title || tab.name) : (tab.title || tab.name);
     item.addEventListener('click', () => {
       if (tab.key !== data.activeKey) vscode.postMessage({ type: 'select_tab', tabKey: tab.key });
     });

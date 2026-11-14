@@ -1186,6 +1186,41 @@ test('the Runs list groups task-worktree runs under their owning project', async
   }
 });
 
+test('repeated History titles identify each run and keep its own open target', async () => {
+  const title = 'Repeat the same request for the same project, with a long identical opening';
+  const listed = [
+    { id: 'b', workspace: '/alpha', runDir: '/alpha/.autocode/runs/b', taskId: null,
+      availability: 'available', status: 'TASK_COMPLETE', title, updatedAt: '2026-11-11T11:00:03Z' },
+    { id: 'a', workspace: '/alpha', runDir: '/alpha/.autocode/runs/a', taskId: null,
+      availability: 'available', status: 'RUNNING', title, updatedAt: '2026-11-11T11:00:02Z' },
+    { id: 'c', workspace: '/alpha', runDir: '/alpha/.autocode/runs/c', taskId: null,
+      availability: 'available', status: 'TASK_COMPLETE', title: 'A different request', updatedAt: '2026-11-11T11:00:01Z' },
+  ];
+  const provider = new RunsProvider({ list: async () => ({ runs: listed, diagnostics: [] }) });
+  try {
+    await provider.refresh();
+    const [recent, project] = provider.getChildren();
+    const rows = provider.getChildren(recent);
+    assert.match(rows[0].label, /^2 · Repeat/);
+    assert.match(rows[1].label, /^1 · Repeat/);
+    assert.equal(rows[2].label, 'A different request');
+    assert.notEqual(rows[0].label, rows[1].label);
+    assert.ok(rows[0].description.includes(new Date(listed[0].updatedAt).toLocaleString()));
+    assert.deepEqual(rows[0].command.arguments[0], { workspace: '/alpha', runDir: listed[0].runDir });
+    assert.deepEqual(rows[1].command.arguments[0], { workspace: '/alpha', runDir: listed[1].runDir });
+    const grouped = provider.getChildren(project);
+    assert.equal(grouped[0].label, rows[0].label, 'the same chat has the same number in both sections');
+    assert.equal(grouped[1].label, rows[1].label);
+    // A refresh may change activity order; labels still point to the same two chats.
+    listed[1].updatedAt = '2026-11-11T11:00:04Z';
+    await provider.refresh();
+    const refreshed = provider.getChildren(provider.getChildren()[0]);
+    assert.equal(refreshed[0].run.id, 'a');
+    assert.equal(refreshed[0].label, rows[1].label);
+    assert.equal(refreshed[1].label, rows[0].label);
+  } finally { provider.dispose(); }
+});
+
 test('a finished chat shows the check icon, not the working sync icon', async () => {
   const listed = [
     { id: 'done', workspace: '/alpha', runDir: '/alpha/.autocode/runs/done', availability: 'available',
@@ -5533,6 +5568,25 @@ test('one hung status read does not freeze the other tabs (#1711)', async (t) =>
   await flush();
   releaseHung({ status: 'RUNNING', done: false, needs: { kind: 'continue' }, chat: { phase: null, context: 'c', input: null, messages: [] } });
   await flush();
+});
+
+test('similar open chats have distinct tabs and full request tooltips', async (t) => {
+  const other = { workspace: '/ws', runDir: '/ws/.autocode/runs/second-run' };
+  const firstTask = 'Investigate the same very long opening, then fix the first issue';
+  const secondTask = 'Investigate the same very long opening, then fix the second issue';
+  const ui = await openChat(t, chatView(), run, {
+    statusFor: (target) => ({ ...chatView(), task: target.runDir === other.runDir ? secondTask : firstTask }),
+  });
+  ui.chat.show(other);
+  await flush(); await flush();
+  const tabs = [...ui.document.querySelectorAll('.chat-tab')];
+  assert.notEqual(tabs[0].querySelector('.name').textContent, tabs[1].querySelector('.name').textContent);
+  assert.equal(tabs[0].title.includes(firstTask), true);
+  assert.equal(tabs[1].title.includes(secondTask), true);
+  tabs[0].click(); await flush();
+  assert.equal(ui.chat.run.runDir, run.runDir, 'the distinct label still opens its own chat');
+  [...ui.document.querySelectorAll('.chat-tab')][1].click(); await flush();
+  assert.equal(ui.chat.run.runDir, other.runDir);
 });
 
 test('a run tab is named after the request it works on and stays in view (#1528)', async (t) => {

@@ -2,7 +2,7 @@
 
 import * as vscode from "vscode";
 import type { RunController } from "./controller";
-import { byLatest, recentRuns, relativeTime } from "./core/recent";
+import { activity, byLatest, recentRuns, relativeTime } from "./core/recent";
 import type { RegistryRun } from "./core/view";
 
 export interface WorkspaceNode {
@@ -28,12 +28,13 @@ export class RunItem extends vscode.TreeItem {
     readonly workspace: string,
     recent = false,
     now = Date.now(),
+    duplicateNumber?: number,
   ) {
-    super(labelFor(run), vscode.TreeItemCollapsibleState.None);
+    super(duplicateNumber ? `${duplicateNumber} · ${labelFor(run)}` : labelFor(run), vscode.TreeItemCollapsibleState.None);
     // A run listed under Recent is also listed under its project; tree ids must differ.
     this.id = recent ? `recent:${run.id}` : run.id;
     this.resourceUri = vscode.Uri.file(run.runDir);
-    this.description = describe(run, recent, now);
+    this.description = describe(run, recent, now, Boolean(duplicateNumber));
     const project = projectOf(run);
     this.tooltip = new vscode.MarkdownString(
       [
@@ -124,15 +125,18 @@ function groupByWorkspace(runs: RegistryRun[], now = Date.now()): RunNode[] {
     byWorkspace.set(project, items);
   }
   const nodes: RunNode[] = [];
+  // Compare the actual displayed labels, including titles truncated at the same point.
+  // Assign numbers by run path so a refresh with the same chats cannot swap their identities.
+  const duplicates = duplicateNumbers(runs);
   // Archived chats stay out of Recent; a visible Archived section lists them when asked for.
   const recent = recentRuns(runs.filter((run) => !run.archived));
   if (recent.length > 0) {
-    const items = recent.map((run) => new RunItem(run, run.workspace, true, now));
+    const items = recent.map((run) => new RunItem(run, run.workspace, true, now, duplicates.get(run.runDir)));
     nodes.push({ kind: "workspace", label: "Recent", recent: true, runs: items });
   }
   const archived = runs.filter((run) => run.archived);
   if (archived.length > 0) {
-    const items = archived.map((run) => new RunItem(run, run.workspace, true, now));
+    const items = archived.map((run) => new RunItem(run, run.workspace, true, now, duplicates.get(run.runDir)));
     nodes.push({ kind: "workspace", label: "Archived", archived: true, runs: items });
   }
   // Each project's runs are already newest first, so its first run is its latest activity.
@@ -142,7 +146,7 @@ function groupByWorkspace(runs: RegistryRun[], now = Date.now()): RunNode[] {
       label: basename(project),
       project,
       collapsed: recent.length > 0,
-      runs: items.map((run) => new RunItem(run, run.workspace, false, now)),
+      runs: items.map((run) => new RunItem(run, run.workspace, false, now, duplicates.get(run.runDir))),
     });
   }
   if (nodes.length === 0) {
@@ -153,6 +157,24 @@ function groupByWorkspace(runs: RegistryRun[], now = Date.now()): RunNode[] {
     });
   }
   return nodes;
+}
+
+function duplicateNumbers(runs: RegistryRun[]): Map<string, number> {
+  const groups = new Map<string, RegistryRun[]>();
+  for (const run of runs) {
+    if (run.availability !== "available" || !run.title) continue;
+    const label = labelFor(run);
+    const group = groups.get(label) ?? [];
+    group.push(run);
+    groups.set(label, group);
+  }
+  const result = new Map<string, number>();
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    group.sort((a, b) => a.runDir < b.runDir ? -1 : a.runDir > b.runDir ? 1 : 0);
+    group.forEach((run, index) => result.set(run.runDir, index + 1));
+  }
+  return result;
 }
 
 function workspaceItem(node: WorkspaceNode): vscode.TreeItem {
@@ -199,10 +221,11 @@ function labelFor(run: RegistryRun): string {
   return `${basename(projectOf(run))} (${run.availability})`;
 }
 
-function describe(run: RegistryRun, recent: boolean, now: number): string {
+function describe(run: RegistryRun, recent: boolean, now: number, exactTime = false): string {
   const archived = run.archived ? " · archived" : "";
   if (run.availability !== "available") return (run.diagnostic ?? "") + archived;
-  const when = relativeTime(run, now);
+  const timestamp = activity(run);
+  const when = exactTime && timestamp !== null ? new Date(timestamp).toLocaleString() : relativeTime(run, now);
   // Under Recent the project tells chats apart; under a project the status does.
   const stage = run.nextStage ? ` → ${run.nextStage}` : "";
   const detail = recent ? basename(projectOf(run)) : `${run.status ?? "unknown"}${stage}`;

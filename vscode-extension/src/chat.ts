@@ -110,11 +110,15 @@ function newTab(key: string, run?: RunRef): ChatTab {
     stagesError: "", stagesBusy: false, placesError: "", placesMissing: false, confirming: "" };
 }
 
-function tabName(tab: ChatTab): string {
+function tabTitle(tab: ChatTab): string {
   if (!tab.run) return "New chat";
   // The request the run is working on reads better than its directory name.
   const request = (tab.status?.task ?? tab.pendingBrief ?? "").split("\n", 1)[0]!.trim();
-  const name = request || (tab.run.runDir.split("/").filter(Boolean).pop() ?? tab.run.runDir);
+  return request || (tab.run.runDir.split("/").filter(Boolean).pop() ?? tab.run.runDir);
+}
+
+function tabName(tab: ChatTab): string {
+  const name = tabTitle(tab);
   return name.length > 22 ? `${name.slice(0, 21)}…` : name;
 }
 
@@ -367,7 +371,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       waitingOn: tab.run ? "" : tab.confirming,
       selectedRun: tab.run ?? null, persistSelection,
       tabs: this.tabs.map((row) => ({
-        key: row.key, name: tabName(row), busy: row.starting || this.busy.has(row.key), run: row.run ?? null,
+        key: row.key, name: tabName(row), title: tabTitle(row), busy: row.starting || this.busy.has(row.key), run: row.run ?? null,
         // Never offered while this client is acting on the tab: its own action is not a wait.
         needs: !this.busy.has(row.key) && !row.starting && waitsForPerson(row.status),
         finished: row.status?.done === true,
