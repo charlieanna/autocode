@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 import autocode_bundle as bundle
+import autocode_doctor as doctor
 
 # Credential canaries (#712): token shapes the shared redaction knows, and one environment value it does not.
 GITHUB_TOKEN = "ghp_" + "C" * 36
@@ -106,6 +107,51 @@ class BundleTests(unittest.TestCase):
             ],
             manifest["files"],
         )
+
+    def test_collection_records_unrun_diagnostics_without_checking_backend_health(self):
+        with mock.patch.object(
+            doctor, "all_checks", side_effect=subprocess.TimeoutExpired(["kilo", "models"], 90)
+        ) as live_checks:
+            files, manifest = bundle.collect(self.run, environ=ENVIRONMENT, recording=self.no_recording)
+        live_checks.assert_not_called()
+        report = json.loads(files["doctor.json"])
+        self.assertEqual("not_run", report["status"])
+        self.assertIsNone(report["ok"])
+        self.assertEqual([], report["checks"])
+        self.assertIn("live", report["reason"].lower())
+        self.assertIn("run/iterations/001/builder-01.json", files)
+        row = next(row for row in manifest["files"] if row["path"] == "doctor.json")
+        self.assertEqual(hashlib.sha256(files["doctor.json"]).hexdigest(), row["sha256"])
+
+    def test_bundle_cli_exports_retained_evidence_without_live_checks(self):
+        before = {path: path.read_bytes() for path in self.run.rglob("*") if path.is_file()}
+        stdout = io.StringIO()
+        with (
+            mock.patch.object(
+                doctor, "all_checks", side_effect=subprocess.TimeoutExpired(["kilo", "models"], 90)
+            ) as live_checks,
+            mock.patch.object(bundle, "_recording", self.recording_with('{"retained": true}')),
+            mock.patch.dict("os.environ", ENVIRONMENT),
+            contextlib.redirect_stdout(stdout),
+        ):
+            self.assertEqual(0, bundle.cli(["--run-dir", str(self.run), "--with-diff", "--json"]))
+        live_checks.assert_not_called()
+        result = json.loads(stdout.getvalue())
+        with tarfile.open(result["bundle"]) as archive:
+            prefix = f"autocode-bundle-{self.run.name}/"
+            manifest_bytes = archive.extractfile(prefix + "manifest.json").read()
+            self.assertEqual(result["manifest_sha256"], hashlib.sha256(manifest_bytes).hexdigest())
+            manifest = json.loads(manifest_bytes)
+            self.assertEqual(result["manifest"], manifest)
+            retained = {row["path"]: archive.extractfile(prefix + row["path"]).read() for row in manifest["files"]}
+            self.assertIn("diff.patch", retained)
+            self.assertEqual(b'{"retained": true}', retained["recording/recording.json"])
+            self.assertEqual("not_run", json.loads(retained["doctor.json"])["status"])
+            for row in manifest["files"]:
+                self.assertEqual(row["sha256"], hashlib.sha256(retained[row["path"]]).hexdigest())
+                for canary in CANARIES:
+                    self.assertNotIn(canary.encode(), retained[row["path"]])
+        self.assertEqual(before, {path: path.read_bytes() for path in self.run.rglob("*") if path.is_file()})
 
     def test_with_diff_adds_the_runs_diff_against_its_base_commit(self):
         (self.workspace / "app.py").write_text("SOURCE_LINE = 2\n")

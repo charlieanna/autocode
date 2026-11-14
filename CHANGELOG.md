@@ -112,6 +112,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **Run bundles no longer depend on a live backend health check**: evidence export keeps `doctor.json` as an explicit not-run record instead of querying accounts, tools or model rosters before writing the archive. Retained reports, redaction, replay files and manifest hashes remain available when the backend is unhealthy; `autocode doctor` still performs its normal checks (#3514).
+
 - **VS Code describes a paused verification check accurately**: when a check’s cleanup is unconfirmed, the Models control no longer says a stage is working or that the choice will return after it. The control remains unavailable until AutoCode can safely change models.
 
 - **A project whose tests run with `make check` is proven** ([task-kind survey](docs/bugs/2026-11-13-task-kind-survey.md), section 32): only a `Makefile` with a `test` target had a detected suite, so a C bug fix in a project tested with `make check` ended by asking the person to set `--test-command` and `--regression-command`. A `check` target is now the project's suite when no other suite is detected.
