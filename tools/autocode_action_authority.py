@@ -34,6 +34,7 @@ try:
     from . import autocode_limit_events as limit_events
     from . import autocode_member_stop as member_stop
     from . import autocode_milestones as milestones
+    from . import autocode_no_progress_recovery as no_progress_recovery
     from . import autocode_operational_information as operational_information
     from . import autocode_pause_authority as pause_authority
     from . import autocode_planning as planning
@@ -59,6 +60,7 @@ except ImportError:
     import autocode_limit_events as limit_events
     import autocode_member_stop as member_stop
     import autocode_milestones as milestones
+    import autocode_no_progress_recovery as no_progress_recovery
     import autocode_operational_information as operational_information
     import autocode_pause_authority as pause_authority
     import autocode_planning as planning
@@ -234,6 +236,25 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
         runner.write_json(state_path, state)
         print(state.get("stop_reason") or state.get("next_action"))
         return 2
+    no_progress_reconciled = False
+    if (
+        args.resume_paused
+        and not decision_action
+        and not explicit_recovery_requested(args, state)
+        and no_progress_recovery.pending_legacy(state)
+    ):
+        wave = (
+            runner.dispatch.select(state)
+            if state.get("next_stage") == "orchestrator" and hasattr(runner, "dispatch")
+            else None
+        )
+        settled = no_progress_recovery.reconcile_legacy(runner, state, run_dir, workspace, wave=wave)
+        if settled == "ended":
+            print(state.get("stop_reason") or state.get("next_action"))
+            return 2
+        if settled == "continue":
+            no_progress_reconciled = True
+            decided.evidence_reconciled = True
     if (
         args.resume_paused
         and not decision_action
@@ -267,7 +288,7 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
             runner.write_json(state_path, state)
             print(lifecycle.render(state))
             return 2
-    specific_recovery = False
+    specific_recovery = no_progress_reconciled
     if (
         args.resume_paused
         and not decision_action
