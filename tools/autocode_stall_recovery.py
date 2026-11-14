@@ -17,13 +17,26 @@ Leaf module: reads one event log and depends only on ``autocode_util``.
 from __future__ import annotations
 
 import json
+import math
 from itertools import islice
 from typing import Any
 
 try:
+    from . import autocode_roles as roles
     from . import autocode_util as util
 except ImportError:
+    import autocode_roles as roles
     import autocode_util as util
+
+READ_ONLY_STAGES = frozenset(
+    {
+        *roles.ALL_PLANNING_STAGES,
+        "review_completion",
+        "review_checkpoint",
+        "check_design",
+        "investigate_stuck",
+    }
+)
 
 MAX_CALLS = 40
 MAX_DETAIL = 200
@@ -240,4 +253,89 @@ def executed(record: object) -> dict[str, Any]:
         "calls": calls,
         "truncated": more,
         "instruction": INSTRUCTION,
+    }
+
+
+def carries_executed_work(semantic_stage: object, next_stage: object, *, report_only: bool = False) -> bool:
+    """Whether an automatic timeout relaunch should receive read-only/Tester ``executed_work``."""
+    if report_only:
+        return False
+    if semantic_stage == "tester" and next_stage == "tester":
+        return True
+    return isinstance(semantic_stage, str) and semantic_stage in READ_ONLY_STAGES and next_stage == semantic_stage
+
+
+def _slot_id(value: object) -> str | None:
+    if isinstance(value, (str, int)) and not isinstance(value, bool):
+        text = str(value)
+        return text or None
+    return None
+
+
+def classify_stall(record: object, *, last_event_offset_seconds: object = None) -> dict[str, Any]:
+    """Classify where a timed-out attempt stalled and how many tool calls completed."""
+    activity = record.get("activity") if isinstance(record, dict) else None
+    offset = last_event_offset_seconds
+    if offset is None and isinstance(activity, dict):
+        offset = activity.get("last_event_offset_seconds")
+    clean_offset: float | None = (
+        round(float(offset), 3)
+        if isinstance(offset, (int, float)) and not isinstance(offset, bool) and math.isfinite(offset) and offset >= 0
+        else None
+    )
+    first_observed = bool(isinstance(activity, dict) and activity.get("first_event_observed"))
+    rows = _rows(record.get("events") if isinstance(record, dict) else None)
+    if not rows:
+        if first_observed or clean_offset is not None:
+            return {
+                "stall_phase": "during_reasoning_or_output",
+                "completed_tool_calls": 0,
+                "last_event_offset_seconds": clean_offset,
+            }
+        return {
+            "stall_phase": "before_first_event",
+            "completed_tool_calls": 0,
+            "last_event_offset_seconds": None,
+        }
+    open_slots: set[tuple[str, object, str]] = set()
+    completed_slots: set[tuple[str, object, str]] = set()
+    for index, row in enumerate(rows):
+        event_type = row.get("type")
+        part = row.get("part")
+        if event_type == "tool_use" and isinstance(part, dict) and isinstance(part.get("state"), dict):
+            raw_status = part["state"].get("status")
+            part_id = _slot_id(part.get("id")) or _slot_id(part.get("callID"))
+            slot = ("part", row.get("sessionID"), part_id) if part_id else ("anon", None, str(index))
+            if raw_status in ("pending", "running"):
+                if slot not in completed_slots:
+                    open_slots.add(slot)
+            elif raw_status in ("completed", "error", "failed", "declined"):
+                open_slots.discard(slot)
+                completed_slots.add(slot)
+            continue
+        item = row.get("item")
+        if (
+            event_type in ("item.started", "item.updated", "item.completed")
+            and isinstance(item, dict)
+            and isinstance(item.get("type"), str)
+            and item["type"] in ITEM_TOOLS
+        ):
+            item_id = _slot_id(item.get("id"))
+            slot = ("item", None, item_id) if item_id else ("anon", None, str(index))
+            raw_status = item.get("status")
+            if event_type == "item.started" or (
+                event_type == "item.updated" and raw_status in ("in_progress", "pending", "running")
+            ):
+                if slot not in completed_slots:
+                    open_slots.add(slot)
+            elif (event_type == "item.completed" and raw_status not in ("in_progress", "pending", "running")) or (
+                event_type == "item.updated" and raw_status in ("completed", "failed", "error", "declined")
+            ):
+                open_slots.discard(slot)
+                completed_slots.add(slot)
+    phase = "during_tool_call" if open_slots else "during_reasoning_or_output"
+    return {
+        "stall_phase": phase,
+        "completed_tool_calls": len(completed_slots),
+        "last_event_offset_seconds": clean_offset,
     }

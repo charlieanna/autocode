@@ -23,6 +23,7 @@ from pathlib import Path
 
 try:
     from . import autocode_acceptance_tests as acceptance_tests
+    from . import autocode_acceptance_verification_retry as acceptance_retry
     from . import autocode_assignment as assignment
     from . import autocode_brief_obligations as brief_obligations
     from . import autocode_builder_failure as builder_failure
@@ -75,6 +76,7 @@ try:
     from .units import common as units_common
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
+    import autocode_acceptance_verification_retry as acceptance_retry
     import autocode_assignment as assignment
     import autocode_brief_obligations as brief_obligations
     import autocode_builder_failure as builder_failure
@@ -301,6 +303,10 @@ def dispatch_unit(runtime, state: RunState, stage, workspace, run_dir):
         raise runtime.support.Paused("PAUSED_STALE_VALIDATION", str(error)) from error
     if stage == "orchestrator":
         return unit.dispatch(state, workspace, run_dir)
+    if stage == acceptance_tests.STAGE:
+        retained = acceptance_retry.dispatch(runtime, state, stage, workspace, run_dir, apply=unit.apply_job)
+        if retained is not None:
+            return retained
     state_path = run_dir / "state.json"
     request = prepare_request(state, stage, state_path, runtime.SCHEMA_DIR)
     runtime.rotate_if_needed(state, request.route_role, run_dir)

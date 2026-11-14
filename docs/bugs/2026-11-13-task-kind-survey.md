@@ -522,13 +522,33 @@ Open, from the fixed run, which needed two failed proofs and an Investigator bef
   is 2.1.3 passed on the original code too, so it proved nothing until the Investigator had it compare the
   installed version with `package.json`. A dependency change cannot be shown to fail without it unless the
   original tree gets the original packages.
-- **`package.json` is held at the original as part of the suite's definition**, because it holds the test
-  script. The run of the original suite over the change therefore read the old manifest, the new tests that
-  read it failed there, the suite comparison was dropped, and the four guards on existing tests named by
-  title were credited nowhere. The Builder copied them into the new test file as `test_ac3_...` to
+- **Guards that were all titles named no guard** (fixed, section 19). The four existing tests were guarded
+  by their titles, found nowhere, and the Builder copied them into the new test file as `test_ac3_...` to
   `test_ac6_...`, as in section 5.
 - The plan named `node_modules` among its paths, so the proof counted the installed files as changed files of
   the task.
+
+## 19. JavaScript: guards that are all titles are found nowhere beside a new test file (fixed)
+
+Seen in section 18's fixed run (manifest `e0db0bc800c742f0356c55f5af6558b6775e7fc33a896239183db42805046265`).
+The plan was what a person would want: two `test:` criteria for the upgraded manifest and lock file, in a new
+`tests/dependency.test.js`, and four guards on the project's existing tests, each by its title
+(`guard: a remembered session lasts thirty days`). The proof failed twice with "Preserve case AC3 … has no
+test named test_ac3_<what it checks>", and the Investigator had the Builder copy the four existing tests
+into the new file under `test_ac3_...` to `test_ac6_...` names, which is what section 5's fix was meant to end.
+
+A title is bound to a test only after the suite has run (`autocode_test_cases.titled`). The proof step told
+the verifier which guards exist by their exact test names, and a title is not one until then, so with every
+guard a title it was told of none. The verifier runs the whole suite on the original code with the change's
+test files only when there is a guard to find, so it never ran, and the existing tests in a file the change
+left alone were in no list the guards are searched in. Section 5's runs passed because the bug fix edited the
+existing test file, so the targeted run saw its tests, and the refactor's plan had one guard that was a test
+name.
+
+The proof step now names a guard by its declared title where the runner names tests by title
+(`autocode_test_cases.guard_names`), so the suite runs on the original code with the new test file and each
+titled guard rests on the existing test that passed there and with the change. A guard whose titled test
+fails with the change is still not proved.
 
 ## Also seen, not yet run on real models
 

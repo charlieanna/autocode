@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_acceptance_tests as acceptance_tests
+    from . import autocode_acceptance_verification_retry as acceptance_retry
     from . import autocode_approval_provenance as approval_provenance
     from . import autocode_build_worktree as build_worktree
     from . import autocode_checkout_lock as checkout_lock
@@ -47,6 +48,7 @@ try:
     from .units import common
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
+    import autocode_acceptance_verification_retry as acceptance_retry
     import autocode_approval_provenance as approval_provenance
     import autocode_build_worktree as build_worktree
     import autocode_checkout_lock as checkout_lock
@@ -335,6 +337,11 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         if stage == "orchestrator":
             record_resume(runner, args, current, state_path)  # every check that could hold the pause passed
             return autopilot.unit_module(stage).dispatch(current, workspace, run_dir)
+        if stage == acceptance_tests.STAGE and (current.get(acceptance_tests.KEY) or {}).get(acceptance_retry.KEY):
+            record_resume(runner, args, current, state_path)
+            return acceptance_retry.dispatch(
+                runner, current, stage, workspace, run_dir, apply=autopilot.unit_module(stage).apply_job
+            )
         request = autopilot.prepare_request(
             current,
             stage,

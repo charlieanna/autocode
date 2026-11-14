@@ -48,6 +48,7 @@ try:
     from . import autocode_source_scope as source_scope
     from . import autocode_stage_stops as stage_stops
     from . import autocode_stale_handoff as stale_handoff
+    from . import autocode_stall_recovery as stall_recovery
     from . import autocode_status
     from . import autocode_support as support
     from . import autocode_tool_handoff as tool_handoff
@@ -82,6 +83,7 @@ except ImportError:
     import autocode_source_scope as source_scope
     import autocode_stage_stops as stage_stops
     import autocode_stale_handoff as stale_handoff
+    import autocode_stall_recovery as stall_recovery
     import autocode_status
     import autocode_support as support
     import autocode_tool_handoff as tool_handoff
@@ -352,7 +354,19 @@ def stage_deadline_and_progress(state: RunState, stage: str, configured_timeout,
     return stage_timeout, budget_meta, first_reply_budget.ProgressBudget(max_calls)
 
 
-def activity_monitor(events, *, idle_limit, tool_timeout, reporter, idle_origin, idle_hint, progress, plain_text):
+def activity_monitor(
+    events,
+    *,
+    idle_limit,
+    tool_timeout,
+    reporter,
+    idle_origin,
+    idle_hint,
+    progress,
+    plain_text,
+    first_event_limit=None,
+    first_event_origin=None,
+):
     """Construct an ActivityMonitor with optional per-stage progress budget."""
     return activity_monitor_mod.ActivityMonitor(
         events,
@@ -363,6 +377,8 @@ def activity_monitor(events, *, idle_limit, tool_timeout, reporter, idle_origin,
         idle_hint=idle_hint,
         progress=progress,
         plain_text=plain_text,
+        first_event_seconds=first_event_limit,
+        first_event_origin=first_event_origin,
     )
 
 
@@ -385,6 +401,8 @@ def supervision(
     idle_hint,
     progress,
     plain_text,
+    first_event_limit=None,
+    first_event_origin=None,
 ):
     """Build ``(activity_monitor, activity_checkpoint)`` for a supervised stage wait."""
     monitor = activity_monitor(
@@ -396,6 +414,8 @@ def supervision(
         idle_hint=idle_hint,
         progress=progress,
         plain_text=plain_text,
+        first_event_limit=first_event_limit,
+        first_event_origin=first_event_origin,
     )
     checkpoint = activity_reporter(
         state,
@@ -411,6 +431,18 @@ def supervision(
         clock=clock,
     )
     return monitor, checkpoint
+
+
+def record_timeout(record, activity, stage_timeout):
+    """Persist timeout kind/reason and stall-phase telemetry onto a timed-out stage record."""
+    timeout = getattr(activity, "timeout", None) or {
+        "kind": "stage",
+        "reason": f"Stage exceeded its {stage_timeout}-second hard runtime limit",
+    }
+    record.update(timeout_kind=timeout["kind"], timeout_reason=timeout["reason"])
+    snap = activity.snapshot() if callable(getattr(activity, "snapshot", None)) else None
+    offset = snap.get("last_event_offset_seconds") if isinstance(snap, dict) else None
+    record.update(stall_recovery.classify_stall(record, last_event_offset_seconds=offset))
 
 
 def activity_reporter(

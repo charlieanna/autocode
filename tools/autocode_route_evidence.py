@@ -10,6 +10,8 @@ from __future__ import annotations
 import math
 from statistics import median
 
+STALL_PHASES = ("before_first_event", "during_tool_call", "during_reasoning_or_output")
+
 
 def amount(value):
     try:
@@ -44,6 +46,7 @@ def snapshot(rows, accepted_count, *, pending_workers=False):
         else:
             reported.append((row.get("reported_cost_usd"), uncertain))
         estimated.append((row.get("historical_estimated_cost_usd"), uncertain))
+    stall_phases = {phase: sum(row.get("stall_phase") == phase for row in rows) for phase in STALL_PHASES}
     return {
         "schema": 1,
         "scope": "role_model_all_attempts",
@@ -56,6 +59,7 @@ def snapshot(rows, accepted_count, *, pending_workers=False):
         "duration_seconds": _quantity(duration, uncertain=pending_workers),
         "reported_cost_usd": _quantity(reported, uncertain=pending_workers),
         "historical_estimated_cost_usd": _quantity(estimated, uncertain=pending_workers),
+        **({"stall_phases": stall_phases} if any("stall_phase" in row for row in rows) else {}),
     }
 
 
@@ -94,6 +98,15 @@ def _valid_accounting(value):
         > count
     ):
         return False
+    if "stall_phases" in value:
+        phases = value["stall_phases"]
+        if (
+            not isinstance(phases, dict)
+            or set(phases) != set(STALL_PHASES)
+            or any(not _count(phases[phase]) for phase in STALL_PHASES)
+            or sum(phases.values()) > value["failed_attempts"]
+        ):
+            return False
     return all(
         _valid_quantity(value.get(key), count)
         and not ((value["pending_workers"] or value["active_attempts"]) and value[key]["complete"])

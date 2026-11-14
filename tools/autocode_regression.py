@@ -1079,10 +1079,7 @@ def _proving(
             )
         if coverage and not regression_command:
             regression_command = options.get("test_command")
-        named = test_cases.bound(due, framework.name if framework else None)
-        guards = sorted(
-            {case["test_name"] for case in named if case.get("kind") == "preserve" and case.get("test_name")}
-        )
+        guards = test_cases.guard_names(due, framework.name if framework else None)
         ahead = [] if all_due else pending_tests.withheld(state, workspace, due)
         kept.append(out / "scratch" / "candidate")
         result = verify.verify(
