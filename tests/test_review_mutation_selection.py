@@ -141,7 +141,7 @@ class SelectedReviewMutationTests(unittest.TestCase):
             self.assertCountEqual(SELECTED, selectors)
             self.assertEqual(("env", "LANG=C"), invocation.prefix[:2])
             caches.extend(word for word in invocation.prefix if word.startswith("PYTHONPYCACHEPREFIX="))
-        self.assertEqual(len(run.calls), len(set(caches)))
+        self.assertEqual(1, len(set(caches)), "one collection reuses unchanged bytecode")
         self.assertGreater(len(run.calls), 1)
 
     def test_pytest_judges_selected_node_ids_without_a_case_name_convention(self):
