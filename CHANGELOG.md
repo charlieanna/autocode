@@ -101,6 +101,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **Saving a stage model no longer queries the backend a second time for its response**: the saved choices and model options now come from the catalogue that validated the change, so a later listing failure cannot turn an accepted save into an empty model list. Each new operation still checks availability and verifier independence afresh.
 - **`autocode bundle` includes redacted model-preflight receipts and follows moved worktree runs** (#3466): diagnostic bundles now export `model-preflight.json`, `model-preflight/**/*.json` receipts and bounded `model-preflight/**/*.jsonl` event tails (with secret redaction), resolve `moved_to` worktree pointers to bundle the canonical run's current state, artifacts and workspace diff while retaining pre-move preflight attempts under `run/pre-move-model-preflight/`, and refuse symlinked or out-of-project `moved_to` targets.
 - Mutation checks reuse unchanged Python bytecode within one proof collection instead of recompiling dependencies for every mutant. Each collection starts with a fresh cache; distinct source timestamps keep equal-size mutants from executing stale bytecode. Test selection, evidence checks and deadlines remain unchanged (#3478).
 - Refuse known Python tests that recursively launch their own suite before acceptance execution and named proof; plan suite-delivery checks from the runner's actual evidence while retaining behavioral tests and legitimate distinct runner fixtures (#3447).
