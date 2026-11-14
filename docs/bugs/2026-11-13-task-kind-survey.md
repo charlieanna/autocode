@@ -597,7 +597,7 @@ The same two tasks with the fix:
 
 Open: a project whose runner is still not detected and whose plan command names no test file (`dotnet
 test`, `composer test`, `mix test`, `swift test`, `sbt test`) stops the same way. A build directory the
-project does not ignore (`build/`, `target/`) is not yet treated as the build tool's by-product.
+project does not ignore is section 24.
 
 ## 23. Three more kinds of task (complete)
 
@@ -608,6 +608,44 @@ On the tree with section 22's fix, each with one plan approval and no question:
 | "This test fails on some runs and passes on others. Find out why and fix it" (Python; the code returned a set's order) | complete, 8 stages, 147 s, $0.84 | `59e4067f985d6605af6aad446fbb66987eda4e42a315098df7e1bc01c1b12c52` |
 | A new endpoint in an Express app, tested with Jest and supertest | complete, 8 stages, 157 s, $0.89 | `800873960cd8804d8c78c84ae17cd51a32dca173eb2b1f8d3dcd8a1672845211` |
 | "Add type hints to every function. Do not change what the code does" (Python) | complete, 8 stages, 151 s, $0.85 | `8bb24b005bcef8ec3e3e20414591e823a93fee31f1a42555c1bbe448ebae46ed` |
+
+## 24. A project that does not ignore its build directory: the Builder is refused for its build output (fixed)
+
+Section 22's Java and C++ tasks again, in the same projects without their `.gitignore`, on the tree with
+section 22's fix:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| C++, CMake, `build/` not ignored | `PAUSED_INVALID_OUTPUT`, 152 s, $0.67 | `7a9e7926fe26c94ef81ccb0431962e471e7764eb104ef026674b059fb5422428` |
+| Java, Maven, `target/` not ignored | complete after two refused Builder attempts, 13 stages, 587 s, $2.19 | `17f7aa24f0fbe444053b3a4481110122364d5e1463adeb36309c544e62ae2882` |
+
+Each Builder fixed the code, added the test and ran the project's tests, as its prompt asks. The build
+tool wrote its output beside the sources (`build/CMakeCache.txt`, `build/libpager.a`, ...;
+`target/maven-status/...`, `target/surefire-reports/...`), nothing ignores it, and the attempt was refused:
+"Builder attempts for this task changed files outside the assigned paths". The C++ plan's own check was
+`cmake -S . -B build && cmake --build build && ./build/pager_test`, so no retry could pass, and the
+Investigator ended with `needs_user`. The Maven run's Investigator told the Builder to build in a scratch
+copy and clean `target/`, which worked once and was lost in the next round.
+
+This is section 3's `Cargo.lock` again, many files at a time: a tool's by-product, not the stage's edit.
+`autocode_toolchain_byproducts` now also removes, when a stage ends, the files a build tool wrote into
+its own directory beside the manifest it builds (`target/` beside `pom.xml` or `Cargo.toml`, `build/` and
+`.gradle/` beside a Gradle file, `build/` beside `CMakeLists.txt`; `autocode_project_kinds.BUILD_DIRS`),
+and only when that directory held no file when the stage began. A directory that already held a file,
+committed or not, is the project's own and is measured as before; so is one a link leads to, and one the
+Builder's assigned paths touch. A file the project ignores there stays. The stage's record names each
+removed directory (`toolchain_byproducts`).
+
+The same two tasks with the fix:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| C++, CMake, `build/` not ignored | complete, 11 stages (the Tester sent the first build back once), 226 s, $1.14; both Builder records name `build/` | `5c82eb7513897bd7d540ae35b475c311d02e4f6d0841a5d6dc2cb8eb793c5217` |
+| Java, Maven, `target/` not ignored | complete, 8 stages, 206 s, $1.00 | `586fd988491db4f945b997d5d72275f783af851088a3569d646bcf47d849324d` |
+
+Open: build output in a directory that already held files when the stage began (a person's own earlier
+build, never ignored) is still charged to the stage. `node_modules/` a stage installs in a project that
+does not ignore it is not handled either.
 
 ## Also seen, not yet run on real models
 

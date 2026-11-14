@@ -32,7 +32,7 @@ PYTEST_NATIVE_CONFIGS = frozenset(("pytest.ini", ".pytest.ini", "pytest.toml", "
 # bug fixes in a Maven project and a CMake project delivered correct code and then asked the person to
 # pass --test-command and --regression-command (2026-11-14, docs/bugs/2026-11-13-task-kind-survey.md).
 # Each is judged by its exit code, as `make test` is. The project's own wrapper runs when it has one.
-GRADLE_ROOTS = ("build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts")
+GRADLE_ROOTS = project_kinds.GRADLE_FILES
 # CMake commands are case-insensitive; a project has tests for CTest when it turns testing on.
 CMAKE_TESTS = re.compile(r"^[ \t]*(?:enable_testing[ \t]*\(|include[ \t]*\([ \t]*CTest[ \t]*\))", re.I | re.M)
 CMAKE_SUITE = "cmake -S . -B build && cmake --build build && ctest --test-dir build --output-on-failure"
