@@ -1049,6 +1049,43 @@ handed out no validate task, so it shows the task completing, not the new check 
 Still open: the Investigator can only retry the stuck stage or pause. A fault it finds in an earlier
 stage's output, of any other kind, still ends in a question to the person.
 
+## 37. Four more kinds of task: two complete, two ask the person about the proof (open)
+
+Real runs, Claude models (Sonnet 5.5 Requirements, Planner and Tester, Opus 5.5 reviewers, Haiku 4.5
+Builder), 2026-11-14, each with one plan approval.
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| Add a value whose module is generated: `colors.py` is written from `colors.json` by `tools/gen.py`, and a test checks it is up to date | `TASK_COMPLETE`, 8 stages, 146 s, $0.93. The Builder changed the JSON and ran the generator | `a71c1514da89e83ef092822cf443d42a892cae7f34bc54ddfe996ff3c0de6476` |
+| A bug fix with a test that reads a sample file through a directory of fixtures | `TASK_COMPLETE`, 10 stages, 240 s, $1.51. The seed's links (a linked directory and a linked file) reached the project as plain copies, because the scenario harness copies a seed's links as files, so this run says nothing about symlinks | `e7d982c2dbdd10b83d18ceab3cae614182d416d113e31fc8c614a78dc17d948d` |
+| A bug fix in a project whose only tests are doctests ("keep it that way, do not add a tests directory") | `TASK_COMPLETE` after two questions about the proof, 21 stages (counting repairs), 599 s, $4.21 | `6325bbdb50f5c015483190e04760a6b1c539468db39a55ca8cf60c4cc2efb12b` |
+| "Someone committed `amounts.py` with merge conflict markers in it, so nothing imports. Resolve it: keep both sides. The tests already cover both" | `WAITING_FOR_USER`, 10 stages, 174 s, $1.12. The fix is right and all four tests pass | `e384c27b468afe8f969c3853b40f8c2ae00bad3795861032bca8a30e1fd9be9b` |
+
+**Doctests are not tests to the runner.** The first plan (fix `textutil.py`, add the example to the
+docstring, check with `python -m doctest textutil.py`) was refused: "This plan changes code (textutil.py) and
+plans no test, and the project has no tests yet." Requirements then asked the person "How do you want the
+fix proven? (a) Allow one top-level test_textutil.py ... (b) Keep docstring examples only". The answer was
+(b), the plan was refused again for the same reason, and the person was asked again with (a) as the
+proposed answer. The run finished with a `test_textutil.py` of unittest cases beside the doctests, which the
+request had asked not to have. A doctest lives in the file it tests, so the new example and the fix arrive
+in one file and the proof has no test file to run on the original code. Open: the proof would have to run
+the change's docstring examples against the original code's functions.
+
+**A repair of code that cannot be loaded has no test that "ran and failed".** With the conflict markers
+`amounts.py` is a syntax error, so on the original code pytest reports one collection error for
+`tests/test_amounts.py` and no test. The change touches `amounts.py` alone and all four existing tests pass
+with it. The proof failed twice with "No regression test was added or changed, so the bug is not shown to be
+reproduced", because an existing test shows a repair only when it ran and failed on the original code
+(`first_suite.repairable_failures`: "Collection errors are not tests that ran"), and the same rule holds for
+a bug fix's new tests ("On the unfixed code the new tests only fail to import or collect"). The Resolver
+then asked the person to "Set the saved regression command to `python3 -m pytest tests/test_amounts.py`
+(which fails on base at collection and passes on the candidate) through the verification-command
+correction", which the proof would refuse for the same reason. The same proof passes when the original
+code's tests fail by assertion, even when every one of them fails ("Every test of the original code failed
+there and passes with the change; nothing passing was lost"). Open, pending the owner's decision on
+whether unchanged tests that could not load on the original code, and all pass with the change, show the
+repair.
+
 ## Also seen, not yet run on real models
 
 - **Claude Code refuses to edit some directories inside the stage's own directory.** With Edit and
