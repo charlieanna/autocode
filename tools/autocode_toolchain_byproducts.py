@@ -1,4 +1,4 @@
-"""Lockfiles and build directories a project's own toolchain writes while a stage runs it.
+"""Lockfiles, result caches and build directories a project's own toolchain writes while a stage runs it.
 
 Cargo writes ``Cargo.lock`` beside ``Cargo.toml`` the first time any Cargo command resolves the
 project. In a project that neither commits nor ignores it, a read-only stage that ran Cargo to
@@ -22,6 +22,12 @@ Builder attempts and twice the cost (Claude models, 2026-11-14). Files a tool wr
 directory, beside the manifest it builds, are removed the same way, and only when the directory
 held no file when the stage began: one that did is the project's own.
 
+A test runner's own record of its last run is the same kind again. PHPUnit writes
+``.phpunit.result.cache`` in the project root every time it runs. In a PHP project that does not ignore
+it, a Plan Reviewer that ran the tests to read the code had "changed the repository", and the run paused
+for a person 69 seconds in (``PAUSED_STALE_VALIDATION``, Claude models, 2026-11-14). It is removed as a
+lockfile is, beside PHPUnit's configuration or Composer's manifest.
+
 Pure over the workspace and the stage's before-snapshot; imports nothing from the runner.
 """
 
@@ -40,6 +46,9 @@ except ImportError:
 # The lockfile a toolchain creates on its own, and the manifest it resolves beside it: each language's
 # ``lockfiles`` in autocode_project_kinds.
 LOCKFILES = project_kinds.LOCKFILES
+# A file a tool writes on its own whenever it runs, and the files it is written beside: each language's
+# ``run_files`` in autocode_project_kinds.
+RUN_FILES = project_kinds.RUN_FILES
 # The directory a build tool creates on its own, and the manifests it builds beside it: each
 # language's ``build_dirs`` in autocode_project_kinds.
 BUILD_DIRS = project_kinds.BUILD_DIRS
@@ -48,7 +57,7 @@ BUILD_DIRS = project_kinds.BUILD_DIRS
 def _untracked(workspace, pathspecs=None) -> list[str]:
     """Untracked, unignored paths in ``workspace`` under ``pathspecs`` (the lockfiles when None), as the
     source snapshot would list them."""
-    pathspecs = pathspecs or [spec for name in LOCKFILES for spec in (name, f":(glob)**/{name}")]
+    pathspecs = pathspecs or [spec for name in (*LOCKFILES, *RUN_FILES) for spec in (name, f":(glob)**/{name}")]
     try:
         listed = subprocess.run(
             ["git", "-C", str(workspace), "ls-files", "-z", "--others", "--exclude-standard", "--", *pathspecs],
@@ -61,19 +70,23 @@ def _untracked(workspace, pathspecs=None) -> list[str]:
     return sorted(name for name in listed.stdout.split("\0") if name) if listed.returncode == 0 else []
 
 
+def _beside(name) -> tuple[str, ...]:
+    """The files a lockfile or a tool's run file named ``name`` is written beside; () for any other name."""
+    return (LOCKFILES[name],) if name in LOCKFILES else RUN_FILES.get(name, ())
+
+
 def created(workspace, before_files) -> list[str]:
-    """The lockfiles written since ``before_files`` (a snapshot's ``files``) beside their manifest."""
+    """The lockfiles and tools' run files written since ``before_files`` (a snapshot's ``files``), each
+    beside its manifest."""
     root = Path(workspace)
     found = []
     for name in _untracked(root):
-        path = PurePosixPath(name)
         target = root / name
         if (
             name in before_files
-            or path.name not in LOCKFILES
             or target.is_symlink()
             or not target.is_file()
-            or not (target.parent / LOCKFILES[path.name]).is_file()
+            or not any((target.parent / manifest).is_file() for manifest in _beside(PurePosixPath(name).name))
         ):
             continue
         found.append(name)
@@ -118,8 +131,8 @@ def _touches(owned, directory) -> bool:
 
 
 def discard(workspace, before, *, owned=()) -> list[str]:
-    """Remove the lockfiles and build output a tool created during the stage; return the lockfiles'
-    names and each build directory as ``NAME/``.
+    """Remove the lockfiles, run files and build output a tool created during the stage; return the
+    files' names and each build directory as ``NAME/``.
 
     ``before`` is the stage's before-snapshot. ``owned`` is a writing stage's assigned paths: a
     lockfile inside them, or a build directory they touch, is part of its task and stays. Nothing is

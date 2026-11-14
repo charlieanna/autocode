@@ -37,7 +37,19 @@ GRADLE_ROOTS = project_kinds.GRADLE_FILES
 CMAKE_TESTS = re.compile(r"^[ \t]*(?:enable_testing[ \t]*\(|include[ \t]*\([ \t]*CTest[ \t]*\))", re.I | re.M)
 CMAKE_SUITE = "cmake -S . -B build && cmake --build build && ctest --test-dir build --output-on-failure"
 # Root build files that name a non-Python project's own toolchain.
-TOOLCHAIN_ROOTS = frozenset(("go.mod", "Cargo.toml", "package.json", "pom.xml", "CMakeLists.txt", *GRADLE_ROOTS))
+TOOLCHAIN_ROOTS = frozenset(
+    ("go.mod", "Cargo.toml", "package.json", "pom.xml", "CMakeLists.txt", "composer.json", *GRADLE_ROOTS)
+)
+# A Composer project tested with PHPUnit: PHPUnit's configuration at the root, or PHPUnit among the
+# project's packages. Composer installs its command as `vendor/bin/phpunit`. Without this a
+# PHP bug fix had no suite, the approved plan's first command that names a test file was taken as the
+# regression command, and that was a guard (`vendor/bin/phpunit --filter testAnExistingTest
+# tests/PagerTest.php`), which passes on the original code: the proof failed twice and the person was
+# asked to "correct the saved verification commands" (Claude models, 2026-11-14). Judged by its exit
+# code, as Maven is.
+PHPUNIT_CONFIGS = frozenset(project_kinds.PHPUNIT_CONFIGS)
+PHPUNIT_PACKAGE = "phpunit/phpunit"
+PHPUNIT_SUITE = "vendor/bin/phpunit"
 # Ruby's own test files (Minitest, test-unit) in the conventional root ``test/`` directory. A helper
 # such as test_helper.rb is loaded by the tests that need it, never as a test file itself.
 RUBY_TEST = re.compile(r"^test/(?:.*/)?(?:.*_test|test_.*)\.rb$")
@@ -79,7 +91,7 @@ def _read(path) -> str:
 
 
 def detect(root, files, is_test_path) -> Framework | None:
-    """The suite a Go, Node, Rust, Ruby, Make, Maven, Gradle or CMake project declares, or None.
+    """The suite a Go, Node, Rust, Ruby, Make, Maven, Gradle, CMake or PHPUnit project declares, or None.
 
     A Ruby project with no RSpec suite and no ``make test`` runs the test files of its ``test/``
     directory (``ruby_tests``): without it the proof had no command, and a live run asked the person
@@ -121,6 +133,8 @@ def detect(root, files, is_test_path) -> Framework | None:
         return Framework("make", "make test")
     if found := build_tool(root, files):
         return found
+    if found := phpunit(root, files):
+        return found
     if ruby_tests(files):
         # Through Bundler when the project pins its gems, as `bundle exec rspec` is above.
         return Framework("minitest", ("bundle exec " if "Gemfile" in files else "") + RUBY_SUITE)
@@ -137,6 +151,21 @@ def build_tool(root, files) -> Framework | None:
     if "CMakeLists.txt" in files and CMAKE_TESTS.search(_read(Path(root) / "CMakeLists.txt")):
         return Framework("cmake", CMAKE_SUITE)
     return None
+
+
+def phpunit(root, files) -> Framework | None:
+    """The suite of a Composer project at ``root`` that is tested with PHPUnit, or None."""
+    if "composer.json" not in files:
+        return None
+    if not PHPUNIT_CONFIGS.intersection(files):
+        try:
+            package = json.loads(_read(Path(root) / "composer.json") or "{}")
+        except ValueError:
+            return None
+        tables = [package.get(name) for name in ("require", "require-dev")] if isinstance(package, dict) else []
+        if not any(isinstance(table, dict) and PHPUNIT_PACKAGE in table for table in tables):
+            return None
+    return Framework("phpunit", PHPUNIT_SUITE)
 
 
 def ruby_tests(files) -> list[str]:

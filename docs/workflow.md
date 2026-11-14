@@ -669,7 +669,9 @@ The matching and the rules are in `tools/autocode_test_cases.py`.
 
 Test commands are detected (pytest, unittest, Go, Jest/Vitest/Mocha, RSpec,
 Cargo, `make test`, Maven (`mvn -B -q test`), Gradle (`gradle --no-daemon -q test`), CMake with
-CTest (a root `CMakeLists.txt` that calls `enable_testing()` or includes `CTest`), and a Ruby project's
+CTest (a root `CMakeLists.txt` that calls `enable_testing()` or includes `CTest`), PHPUnit in a Composer
+project (`vendor/bin/phpunit`, for a root `composer.json` with a PHPUnit configuration file or the
+`phpunit/phpunit` package), and a Ruby project's
 Minitest or test-unit files under `test/`, named `*_test.rb` or `test_*.rb`, run through Bundler when
 there is a `Gemfile`; Maven and Gradle run through the project's own `mvnw` or `gradlew` when it has one);
 `--test-command` and `--regression-command` set them for a new run. With per-test results (pytest, unittest, Go, node:test, Vitest, RSpec, `cargo test`) a proof needs a named test

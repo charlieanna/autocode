@@ -596,8 +596,8 @@ The same two tasks with the fix:
 | The Java task in a Gradle project | complete, 8 stages, 254 s, $1.07; guards ``guard: run `gradle --no-daemon -q test` `` | `0e8af291ccae3ccfe8f6b0438a897d67964b69fa63a6916d6e4aad77c7243a18` |
 
 Open: a project whose runner is still not detected and whose plan command names no test file (`dotnet
-test`, `composer test`, `mix test`, `swift test`, `sbt test`) stops the same way. A build directory the
-project does not ignore is section 24.
+test`, `mix test`, `swift test`, `sbt test`) stops the same way; PHP with PHPUnit is section 29. A build
+directory the project does not ignore is section 24.
 
 ## 23. Three more kinds of task (complete)
 
@@ -801,6 +801,51 @@ On master with section 27's fixes, each with one plan approval and no question:
 | A bug reported as a pasted traceback and the value that caused it | complete, 10 stages, 198 s, $1.35 | `46f76b4e7d75bec3828efd5238fe6e303f9c858d98062a744eb9cc13052a475e` |
 | A new command-line flag that must also be documented in the README | complete, 9 stages, 171 s, $1.05; the Builder's last message was not a report and was repaired; the Tester checked the README row with `grep` | `b609958acf986f6acada0fab19a256e1997d7d3b583c9ec720ff0eda8ea89789` |
 | "`ruff check .` reports a pile of problems. Clean them all up. Don't change what the code does, and don't loosen the config" | complete, 11 stages, 195 s, $1.41; the Tester's report cited a file as evidence for a criterion and was repaired | `a394f76c1b520027d4b433e5af90f62dc6f5c7796aa875d48d4da08490344d70` |
+
+## 29. PHP with Composer and PHPUnit: a pause in planning, then a question about test commands (fixed)
+
+A bug fix with a regression test in a Composer project (`composer.json`, `phpunit.xml`, `src/Pager.php`,
+`tests/PagerTest.php`, the packages installed in an ignored `vendor/`), on master `826d30b`:
+
+| Project | Result | Bundle manifest |
+| --- | --- | --- |
+| `.gitignore` lists `vendor/` only | `PAUSED_STALE_VALIDATION` in planning, 69 s, $0.59 | `198d136b4c3eb88cf711446c6efde7f03705c3068f3126ee03aa56a2816765b7` |
+| `.gitignore` also lists `.phpunit.result.cache` | asks the person, 13 stages, 321 s, $1.91 | `9d51bdec9602ce83fb5f81ee85b50606a7041d991254b37b90f0373db28d400a` |
+
+**The pause.** PHPUnit writes `.phpunit.result.cache` in the project root every time it runs. The Plan
+Reviewer ran the tests to read the code, the file appeared, and a read-only stage had "changed the
+repository". It is the tool's by-product, as Cargo's `Cargo.lock` is (section 3): now removed when the
+stage ends, beside PHPUnit's configuration or `composer.json`, and so is the `.phpunit.cache/` directory a
+PHPUnit configuration can name (`autocode_project_kinds`, the `php` row's `run_files` and `build_dirs`;
+`autocode_toolchain_byproducts`).
+
+**The question.** No suite was detected. The plan's draft was first refused for naming tests after
+`test:` ("this project's tests run with no runner AutoCode reads"), and its repair wrote four commands,
+one for each test: `vendor/bin/phpunit --filter test_ac1_twenty_items_at_ten_is_two_pages
+tests/PagerTest.php` and so on. The Builder's fix and tests were correct. The proof then took "the first
+approved command that runs a test file" as the suite and the regression command (section 1). The two new
+tests' criteria were not read as commands, because `vendor/bin/phpunit` was not a command word the plan
+check knows, so the first was a guard: ``guard: run `vendor/bin/phpunit --filter
+testPartialPageCountsAsAPage tests/PagerTest.php` ``, which passes on the original code by definition.
+The proof failed twice ("The regression tests also pass on the unfixed base code"), and the Resolver asked
+the person to "Correct the saved verification commands. Set the regression command to ...".
+
+Fixed in detection: a root `composer.json` with a PHPUnit configuration file (`phpunit.xml`,
+`phpunit.xml.dist`, `phpunit.dist.xml`) or the `phpunit/phpunit` package is a PHPUnit project, and its
+suite is `vendor/bin/phpunit`, judged by its exit code as Maven's is (`autocode_toolchain_suite.phpunit`).
+A `Makefile` test target or a Node test script keeps priority. `php`, `phpunit` and `composer` are
+command words a plan's check may start with, and a file named `FooTest.php` is a test file by its name.
+
+The same task with the fix:
+
+| Project | Result | Bundle manifest |
+| --- | --- | --- |
+| `.gitignore` lists `vendor/` only | complete, 8 stages, 220 s, $0.95; the cache file was removed after the Plan Reviewer and after the Builder | `002449217d4b1f4926521643b9e0d9882a8c4c3008a480cc02ef5bb3caa13fdd` |
+| `.gitignore` also lists `.phpunit.result.cache` | complete, 8 stages, 164 s, $0.79; suite `detected:phpunit` | `a1005f44a79f8821a364dbcc4746ea836acf1f0e2a886e7a0258e522fb454e09` |
+
+Still open: in a project whose runner is not detected, a plan that gives each test its own command can
+still have a guard's command taken as the regression command, as above. Pest, PHPUnit installed outside
+`vendor/bin`, and `composer test` scripts that run something else are not detected.
 
 ## Also seen, not yet run on real models
 
