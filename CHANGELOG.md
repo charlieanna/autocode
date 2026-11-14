@@ -47,6 +47,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Incomplete changed-line mutation studies continue unattempted sites from authenticated evidence instead of returning the same partial proof at every review (#3524). Completed, failed and timed-out observations stay intact; additional bounded windows count against active time and do not repeat the passing functional proof or grant completion to unrun sites.
+
 - Mutation checks stop running a mutant's remaining tests after a selected test detects it (#3494). Every selected test still has to pass on unchanged code and on a surviving mutant; setup errors, incomplete captures and timeouts never count as a detected mutation. This keeps the existing time limit and checks every eligible site.
 
 - **What AutoCode knows about each language is one table** ([shared causes](docs/bugs/2026-11-13-shared-root-causes.md#one-table-of-project-kinds)): which files are tests, which runner runs them, which runners name each test, which files make a directory a project and which lockfiles a toolchain writes on its own were hand-written lists copied across nine modules, so each missing language or layout was a separate bug. They now come from one row per language in `tools/autocode_project_kinds.py`. Behavior is unchanged, except that the example tests shown to a stage now include Java, Kotlin, C#, Swift, Scala and shell tests.

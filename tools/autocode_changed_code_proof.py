@@ -35,10 +35,23 @@ except ImportError:
     import autocode_util as util
     import autocode_verify as verify
 
-VERSION = 2
+VERSION = 3
 
 
-def collect(proof, result, framework, workspace, out, tree, execution_context, *, source_paths=()):
+def collect(
+    proof,
+    result,
+    framework,
+    workspace,
+    out,
+    tree,
+    execution_context,
+    *,
+    source_paths=(),
+    previous=None,
+    evidence_dir=None,
+    deadline=None,
+):
     """Measure one exact candidate; keep gaps when a tool or attribution is absent."""
     source_revision = proof["source_revision"]
     context = util.digest(execution_context)
@@ -65,8 +78,15 @@ def collect(proof, result, framework, workspace, out, tree, execution_context, *
         source_revision=source_revision,
         proof_context=context,
     )
-    receipts = []
-    evidence = Path(out) / "mutation-check"
+    if previous is not None and (
+        previous.get("execution_context") != execution_context or not intact(previous, result)
+    ):
+        raise ValueError("Retained changed-code evidence is not intact in this execution context")
+    coverage_outputs = {row["output"] for row in coverage_receipts}
+    receipts = [
+        row for row in (previous or {}).get("changed_code_receipts", []) if row["output"] not in coverage_outputs
+    ]
+    evidence = Path(evidence_dir) if evidence_dir is not None else Path(out) / "mutation-check"
     # Scratch copies contain the nested repository's files, not its Git
     # metadata. Compare copyable file inventories rather than a submodule's
     # revision token against a flattened directory. Still pin the full original
@@ -98,6 +118,8 @@ def collect(proof, result, framework, workspace, out, tree, execution_context, *
             lambda chosen: verify.product_diff(workspace, result["base"], chosen),
             run,
             enforcement=True,
+            previous=previous.get("mutation_check") if previous is not None else None,
+            deadline=deadline,
         )
         if proof.get("verdict") == verify.PASS
         else mutation.record("The regression proof has not passed")

@@ -477,7 +477,7 @@ class RunState(TypedDict, total=False):
     _fixture_pause_reconcile_reads: Any
     _fixture_saved_diff: Any
     _fixture_verification: Any
-    active_seconds: Any
+    active_seconds: Any  # stage accounting and changed_code_continuation charge active work; budget gates read it
     active_stage_workers: Any
     affected_paths: Any
     agent_request: Any

@@ -16,6 +16,7 @@ runs the commands.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import os
 import shlex
@@ -172,6 +173,7 @@ def collect_selected_tests(
     clock=time.monotonic,
     deadline=None,
     enforcement=False,
+    previous=None,
 ):
     """Report mutations against independently observed passing tests, without inventing named cases.
 
@@ -202,6 +204,7 @@ def collect_selected_tests(
             deadline=deadline,
             strict=True,
             enforcement=enforcement,
+            previous=previous,
         )
     except command_receipt.OwnershipUncertain:
         raise
@@ -223,6 +226,7 @@ def _collect(
     deadline=None,
     strict=False,
     enforcement=False,
+    previous=None,
 ) -> dict:
     if not tests:
         return record("no judged test is named after a due case, so the mutation check ran no test")
@@ -260,6 +264,22 @@ def _collect(
         planned += [(row, target, source, times, mutant) for mutant in made]
     if not planned:
         return record("no changed product line has a mutation site, so the mutation check ran no test", rows)
+    retained = {}
+    if previous is not None:
+        # The caller authenticates source, command, runtime and capture custody.
+        # Rebuild the entire site inventory too: no ordinal or display snippet
+        # may transfer a completed observation to another mutation.
+        old = [item for file in previous.get("files", []) for item in file.get("mutants", [])]
+        if (
+            not enforcement
+            or previous.get("selected_tests") != tests
+            or previous.get("execution_policy") != mutation_results.STOP_POLICY
+            or [(file.get("path"), file.get("sha256")) for file in previous.get("files", [])]
+            != [(file.get("path"), file.get("sha256")) for file in rows]
+            or [item.get("site_id") for item in old] != [mutant.id for *_, mutant in planned]
+        ):
+            return record("The retained mutation study does not match the selected tests and exact sites", rows)
+        retained = {item["site_id"]: item for item in old}
     evidence.mkdir(parents=True, exist_ok=True)
     if deadline is None:
         deadline, reference_limit = clock() + BUDGET_SECONDS, BUDGET_SECONDS
@@ -280,7 +300,19 @@ def _collect(
     for number, (row, target, source, times, mutant) in enumerate(planned, 1):
         entry = {"line": mutant.line, "operator": mutant.operator, "before": mutant.before, "after": mutant.after}
         if enforcement:
-            entry.update(end_line=mutant.end_line, source_sha256=mutant.source_sha256, failed_tests=[], evidence=[])
+            entry.update(
+                site_id=mutant.id,
+                end_line=mutant.end_line,
+                source_sha256=mutant.source_sha256,
+                failed_tests=[],
+                evidence=[],
+            )
+        prior = retained.get(mutant.id)
+        if prior is not None and (prior.get("outcome") != "not_run" or prior.get("evidence")):
+            # Even a failed, incomplete or timed-out attempt is retained. Only
+            # sites the prior window never launched get another command.
+            row["mutants"].append(copy.deepcopy(prior))
+            continue
         remaining = deadline - clock()
         if remaining < MUTANT_FLOOR_SECONDS:
             unrun += 1
