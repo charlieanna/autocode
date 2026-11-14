@@ -20,3 +20,10 @@ Internal technical_decision receipts are engineering context, not saved human in
 Never cite one as user_answer, user_feedback or delegated authority for a protected delta.
 Keep existing test names and assertions. A planned case needs a separate new test if matching its id
 would otherwise require renaming an existing test; a guard must keep the original coverage as well.
+REPLACED TESTS: an existing test that the request itself makes impossible to keep as it is (it calls or imports
+something the request renames or removes, or the request asks for that test to go) is listed in supersedes on the
+test: criterion that replaces it, as {"file": "<its test file>", "test": "<its own name>"}, one entry for each such
+test. Read the test files first and list every test that names what is renamed or removed; list no test that only
+has to keep passing, and put no supersedes on a guard. The person approves that list with the plan, and the runner
+refuses a change to any existing test that is not on it. A rename with no new behavior still needs one test:
+criterion to carry the list: name an existing test that must change with the rename.

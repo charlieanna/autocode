@@ -550,6 +550,62 @@ The proof step now names a guard by its declared title where the runner names te
 titled guard rests on the existing test that passed there and with the change. A guard whose titled test
 fails with the change is still not proved.
 
+## 20. A Python dependency upgrade (completes)
+
+"Upgrade the packaging dependency from 23.2 to 24.2 in requirements.txt and make sure the tests still pass", in
+a project with its own virtualenv. Complete in one pass with no question: 10 stages, 202 s, $1.33 (manifest
+`a3f4474ffc006a1a1c4c02998c202aeb2b92390c4c11b8b7bb672e0748c911f3`). The plan's check installed 24.2 into a
+temporary directory and ran the tests against it there, so the person's virtualenv was not touched; it still
+holds 23.2 afterwards, which is what the request asked for (the file, not the environment).
+
+## 21. A rename or a removal that existing tests must follow stops for the person (fix written)
+
+Two everyday requests in small Python projects, both on master `c23927d` plus section 19's fix:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| "Rename page_count to count_pages everywhere: definition, callers, tests, README" | `PAUSED_INVALID_OUTPUT` after a passing proof, 168 s, $0.80 | `69a4d7334120d4bbd7eb97efd37652cd348f5abd27ac44b1d545b13d90afb221` |
+| "Remove the deprecated legacy_total function and its tests" | asks the person to approve "AC1's supersedes list", 172 s, $1.07 | `65c8b449891bee98d5acccdd62e13bfe71f49dcf4067f443b76d5a6f8f1b55e7` |
+
+Both delivered exactly the right change. The cause is the same:
+
+- **The original test file cannot load against the change.** The original-test gate re-runs the original
+  test files against the new code, so that a weakened assertion cannot earn a pass. `tests/test_pager.py`
+  starts with `from pager import last_page_size, page_count`; after the rename that import fails, unittest
+  reports `unittest.loader._FailedTest.test_pager`, and none of the file's tests runs. A plan may list the
+  tests it replaces (`supersedes`), but the gate accepted a failure only test by test, never a file that could
+  not load, so **no plan could have passed**: the Investigator said so and the run paused. The removal would
+  have met the same wall after the person's approval, since `tests/test_billing.py` imports `legacy_total`.
+- **The Planner was never told about `supersedes`.** The field is in the plan's schema and nowhere in its
+  instructions. The rename's plan listed nothing; the removal's plan listed nothing although the request
+  said "and its tests", so its proof failed twice with "Existing tests were removed" and the Resolver asked
+  the person to approve a plan change in the plan's own field names.
+
+Fix (the gate change is the owner's decision, asked 2026-11-14):
+
+- For a Python test file that cannot load against the change, AutoCode compares the original and the changed
+  file as syntax trees (`autocode_test_file_changes.summary`): which original tests the change altered, and
+  whether everything around the others is as it was (fixtures, class headers, helpers, module statements;
+  imports may only go or narrow, and nothing new may rebind a name the file had). The gate accepts the file
+  only when the changed suite passed, every altered test is one the plan replaces, and the rest is intact.
+  A kept test whose assertion or fixture changed, or an import rebound to something else, keeps it closed.
+- When the plan lists nothing, the runner drafts the plan revision itself, as it already does for a test
+  changed in place: it lists exactly the altered tests, and only when the rest of the file is intact.
+- The planning instructions now say when to list a test as replaced (a rename or removal that the test
+  calls or imports, or a request for the test to go), and that a rename needs one `test:` criterion to
+  carry the list.
+
+On the fixed tree both requests completed with no question and one plan approval each, the Planner having
+listed the replaced tests in the plan:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| Rename | complete, 11 stages, 223 s, $1.66; three tests listed as replaced, `test_last_page_size` kept as a guard | `65265f0ec1678a56c8f8e5dab3fcbd13e26ba12a3539c1118d450dded85a01d4` |
+| Removal | complete, 10 stages, 164 s, $1.18; the two `legacy_total` tests listed as replaced | `98e44be55dcf4be9752f6ee4808ef3aced18079f700562de6ca3efe6fc3e2291` |
+
+Open: only Python test files are compared this way. A Go or Rust package that no longer compiles, or a Node
+ES module whose import fails, still keeps the gate closed for a rename.
+
 ## Also seen, not yet run on real models
 
 - **A new repository with no commit is refused** with a Git command for the person to type

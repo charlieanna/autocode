@@ -14,7 +14,9 @@ that already passes. It qualifies only when the refusal is exactly this conflict
 - the candidate suite passed, and the original suite ended on its own with complete per-test results,
   nothing uncollected and at least one failure;
 - every failing original test is defined in exactly one original test file the change edited, and the
-  approved plan does not list it already;
+  approved plan does not list it already; or the failure is a changed Python test file that could not be
+  loaded against the change (a rename, a removal), whose altered tests are then the ones listed, provided
+  the rest of the file is as it was (autocode_test_file_changes);
 - the runner has not sent that test back before in this run.
 
 The draft adds each failing test to the ``supersedes`` list of a ``test:`` criterion: the first whose named
@@ -120,9 +122,24 @@ def proposal(state: RunState, receipt, workspace) -> dict | None:
     if not changed or not isinstance(failed, list) or not failed:
         return None
     listed = superseded_tests.approved(state)
-    entries = []
+    structure: dict = receipt["structure"] if isinstance(receipt.get("structure"), dict) else {}
+    entries: list[dict] = []
+    unloadable = set()
     for test_id in failed:
         if not isinstance(test_id, str) or any(superseded_tests.matches(row, test_id) for row in listed):
+            continue
+        unloaded = superseded_tests.unloaded_file(test_id, changed)
+        if unloaded is not None:
+            unloadable.add(unloaded)
+            # The original file could not be loaded against the change (a rename, a removal): the tests the
+            # change altered in it are the ones replaced, when the rest of the file is as it was.
+            found = structure.get(unloaded)
+            if not isinstance(found, dict) or found.get("intact") is not True:
+                return None
+            have = {(row.get("file"), row.get("test")) for row in [*listed, *entries]}
+            entries += [
+                {"file": unloaded, "test": name} for name in found.get("altered") or [] if (unloaded, name) not in have
+            ]
             continue
         entry = _entry(test_id, changed)
         if entry is None:
@@ -133,7 +150,7 @@ def proposal(state: RunState, receipt, workspace) -> dict | None:
     if not entries or any((row["file"], row["test"]) in sent for row in entries):
         return None
     # Every failure must be one listed test in an edited file, the gate's own rule for accepting the run.
-    if not superseded_tests.excused(original, [*listed, *entries], changed):
+    if not superseded_tests.excused(original, [*listed, *entries], changed, structure):
         return None
     body = copy.deepcopy((state.get("goal_contract") or {}).get("body") or {})
     rows = {row.get("id"): row for row in body.get("acceptance_criteria") or [] if isinstance(row, dict)}
@@ -158,6 +175,11 @@ def proposal(state: RunState, receipt, workspace) -> dict | None:
                 f"supersedes {row['file']}::{row['test']} (the change edited this original test and the original "
                 "gate saw it fail while the changed suite passed; review whether it asserts the behavior this "
                 "criterion changes, and remove the entry if it does not)"
+                if row["file"] not in unloadable
+                else f"supersedes {row['file']}::{row['test']} (the original {row['file']} can no longer be "
+                "loaded against the change, which altered this test; every other test in the file is unchanged "
+                "and passes with the change; review whether the approved change requires this test to change or "
+                "go, and remove the entry if it does not)"
             ),
         }
         for row in tests

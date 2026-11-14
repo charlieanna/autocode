@@ -41,6 +41,7 @@ try:
     from . import autocode_python_test_roles as test_roles
     from . import autocode_python_tests as python_tests
     from . import autocode_superseded_tests as superseded_tests
+    from . import autocode_test_file_changes as file_changes
     from . import autocode_test_role_correction as role_correction
     from . import autocode_test_role_inventory as role_inventory
     from . import autocode_util as util
@@ -55,6 +56,7 @@ except ImportError:
     import autocode_python_test_roles as test_roles
     import autocode_python_tests as python_tests
     import autocode_superseded_tests as superseded_tests
+    import autocode_test_file_changes as file_changes
     import autocode_test_role_correction as role_correction
     import autocode_test_role_inventory as role_inventory
     import autocode_util as util
@@ -350,6 +352,11 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
             # Nothing was typed or detected at launch, before the plan existed (autocode_plan_proof_command).
             result["plan_command"] = original
         replaced = superseded_tests.approved(state)
+        # What the change did to each changed Python test file, read from its two texts: an original file
+        # that can no longer load is judged by it (superseded_tests.excused).
+        structure = _structure(record, workspace, changed)
+        if structure:
+            result["structure"] = structure
         command = replay_command(original, changed, workspace)
         if command != original:
             result["replayed_command"] = command
@@ -370,7 +377,7 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
                 label,
                 execute,
                 policy=policy,
-                accepted_failure=lambda row: superseded_tests.excused(row, replaced, changed) is not None,
+                accepted_failure=lambda row: superseded_tests.excused(row, replaced, changed, structure) is not None,
             )
 
         result["candidate"] = run("candidate")
@@ -390,7 +397,7 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
             result["verdict"] = "FAIL"
         if replaced and not _failed(result["candidate"]) and command_receipt.completed(result["original"]):
             # The approved plan replaces these original tests (#2748): only their failures are accepted.
-            excused = superseded_tests.excused(result["original"], replaced, changed)
+            excused = superseded_tests.excused(result["original"], replaced, changed, structure)
             if excused:
                 result["verdict"] = "PASS"
                 result["superseded"] = {"tests": _listed(replaced, changed), "excused_failures": excused}
@@ -436,6 +443,23 @@ def _failed(row):
         or bool(row.get("timed_out"))
         or not command_receipt.completed(row)
     )
+
+
+def _structure(record, workspace, changed) -> dict:
+    """autocode_test_file_changes.summary of each changed original Python test file, by its name."""
+    found = {}
+    with store.opened(record, workspace) as original_root:
+        for name in changed:
+            if not name.endswith(".py") or "symlink" in record["files"][name]:
+                continue
+            try:
+                candidate = path_in(workspace, name).read_text(errors="replace")
+            except (OSError, ValueError):
+                candidate = None  # deleted, or no longer a regular file inside the project
+            summary = file_changes.summary(path_in(original_root, name).read_text(errors="replace"), candidate)
+            if summary is not None:
+                found[name] = summary
+    return found
 
 
 def _listed(replaced, changed):
@@ -496,5 +520,6 @@ def _superseded_ready(state: RunState, result):
         return False
     replaced = superseded_tests.approved(state)
     changed = result.get("changed_tests") or []
-    excused = superseded_tests.excused(row, replaced, changed)
+    # The receipt's structure is bound with it to the original files and to this source revision.
+    excused = superseded_tests.excused(row, replaced, changed, result.get("structure"))
     return bool(excused) and accepted == {"tests": _listed(replaced, changed), "excused_failures": excused}

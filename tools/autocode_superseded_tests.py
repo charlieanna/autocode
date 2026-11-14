@@ -11,6 +11,7 @@ it, and only a ``test:`` criterion may carry one, so the regression proof still 
 on the original code and pass on the fix. The changed original tests still all run: the result is accepted only when
 the run reported complete per-test results and every failure is one of the listed tests in a file the change
 edited. Any other failing original test, a crash, a timeout or an unattributed runner keeps the gate closed.
+An original Python test file that cannot be loaded against the change is accepted only as ``excused`` says.
 
 Pure functions over run state and runner receipts. Depends only on lower-level helpers.
 """
@@ -176,11 +177,49 @@ def replaced(state: RunState):
     return (lambda test_id: any(matches(entry, test_id) for entry in entries)) if entries else None
 
 
-def excused(row, entries, changed) -> list[str] | None:
+_UNLOADED = re.compile(r"(?:unittest\.loader\.(?:_FailedTest|ModuleImportFailure)\.|::)(.+)")
+
+
+def unloaded_file(test_id, changed) -> str | None:
+    """The one changed Python test file a runner's id says could not be loaded, else None.
+
+    unittest names the module it could not import (``unittest.loader._FailedTest.tests.test_pager``, or the
+    file's own name when it ran the file); pytest names the file or the module after an empty class name."""
+    found = _UNLOADED.fullmatch(str(test_id))
+    if not found:
+        return None
+    module = found.group(1).removesuffix(".py").replace("/", ".").strip(".")
+    if not module:
+        return None
+    files = [
+        name
+        for name in changed or ()
+        if name.endswith(".py") and ("." + name[:-3].replace("/", ".")).endswith("." + module)
+    ]
+    return files[0] if len(files) == 1 else None
+
+
+def _accounted(file, entries, structure) -> bool:
+    """Whether every test the change altered in ``file`` is one the plan replaces, and the rest is as it was
+    (autocode_test_file_changes.summary)."""
+    found = (structure or {}).get(file)
+    if not isinstance(found, dict) or found.get("intact") is not True or not isinstance(found.get("altered"), list):
+        return False
+    listed = {entry.get("test") for entry in entries if entry.get("file") == file}
+    return set(found["altered"]) <= listed
+
+
+def excused(row, entries, changed, structure=None) -> list[str] | None:
     """The original run's failing test ids when each is a superseded test in a changed file, else None.
 
-    The run must have ended on its own with complete per-test results, nothing uncollected and at least one
-    failure. A superseded test in a file the change left alone is not excused: there it is not replaced.
+    The run must have ended on its own with complete per-test results and at least one failure. A
+    superseded test in a file the change left alone is not excused: there it is not replaced.
+
+    Nothing may be uncollected, except a changed original file that could not be loaded against the change
+    and whose every altered test the plan replaces (``structure``, by file: what the change did to it, read
+    from the two texts). A rename or a removal the plan approved changes what such a file imports, so none
+    of its tests can run as they were; the tests the plan does not list are then known to be unchanged, with
+    everything around them, and the caller requires them to pass with the change.
     """
     entries = [entry for entry in entries or [] if entry.get("file") in set(changed or ())]
     if not entries or not isinstance(row, dict) or row.get("timed_out") or row.get("error"):
@@ -191,14 +230,22 @@ def excused(row, entries, changed) -> list[str] | None:
     if not isinstance(results, dict) or results.get("complete") is not True:
         return None
     failed = results.get("failed")
+    unloaded = results.get("uncollected", results.get("collection_errors")) or []
     if (
         not isinstance(failed, list)
         or not failed
-        or results.get("uncollected", results.get("collection_errors"))
+        or not isinstance(unloaded, list)
         or type(results.get("total")) is not int
         or results["total"] <= 0
     ):
         return None
-    if all(isinstance(test, str) and any(matches(entry, test) for entry in entries) for test in failed):
+    for test in unloaded:
+        file = unloaded_file(test, changed)
+        if file is None or test not in failed or not _accounted(file, entries, structure):
+            return None
+    if all(
+        isinstance(test, str) and (test in unloaded or any(matches(entry, test) for entry in entries))
+        for test in failed
+    ):
         return sorted(failed)
     return None

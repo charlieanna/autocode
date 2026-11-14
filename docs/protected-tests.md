@@ -99,6 +99,36 @@ really asserts the changed behavior, and approval follows as for any plan. The r
 records each test it sent back under `superseded_corrections`. If the same test is
 refused again, or the refusal is anything else, the run pauses as before.
 
+### A rename or a removal: the original test file cannot load
+
+A request to rename a function everywhere, or to remove one with its tests,
+changes what a test file imports. The original file then cannot be loaded against
+the change (`ImportError`), so none of its tests runs and no result says which of
+them the change left alone. For a Python test file AutoCode answers that from the
+two texts instead, without running them (`autocode_test_file_changes`): which of
+the original file's tests the change altered, and whether everything around the
+others is as it was. The replay accepts an original file that cannot load only
+when all of these hold (owner decision pending, 2026-11-14):
+
+- the changed suite passed;
+- every test the change altered in that file (changed, moved or gone) is a listed
+  one;
+- the rest of the file is intact: every other top-level statement, each kept
+  class's header and members that are not tests (`setUp`, helpers, attributes)
+  and each kept helper function are unchanged, compared as syntax trees; an
+  import may only go or lose names; a new import, class or function may only
+  bind a name the original file did not bind.
+
+So a test the plan does not list is still the test the project had, reading the
+fixtures and names it read, and it passed with the change. A changed fixture, a
+rebound import or an altered test that is not listed keeps the gate closed. The
+receipt records the comparison under `structure`.
+
+When the plan lists nothing, the runner drafts the revision as above: it lists
+exactly the tests the change altered in that file, and only when the rest of the
+file is intact. Other languages are not read this way yet: there the gate stays
+closed for a file that cannot load.
+
 A failed original gate names the failing original tests. Its pause counts as
 AutoCode's gate conflict, not as a model or provider failure.
 
