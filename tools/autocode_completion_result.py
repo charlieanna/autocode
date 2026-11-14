@@ -18,26 +18,33 @@ def before_review(state: RunState, stage, workspace, run_dir):
     This avoids requiring a judge to claim that an undelivered commit exists.
     The changed HEAD receives fresh runner proof and ordinary independent review.
     Plans without executable regression cases retain the final completion gate.
+
+    True when the stage must not launch: its proof refused only guards the change itself alters, so the plan
+    went back to plan review with them corrected (autocode_superseded_correction.relabel_guards).
     """
     try:
         from . import autocode_git_delivery as delivery
         from . import autocode_regression as regression
         from . import autocode_source_scope as source_scope
+        from . import autocode_superseded_correction as replanned
         from .autocode_util import Paused
     except ImportError:
         import autocode_git_delivery as delivery
         import autocode_regression as regression
         import autocode_source_scope as source_scope
+        import autocode_superseded_correction as replanned
         from autocode_util import Paused
     regression.before_review(state, stage, workspace, run_dir)
     if stage not in ("tester", "review_checkpoint", "review_completion"):
-        return
+        return False
+    if replanned.relabel_guards(state, stage, lambda: source_scope.snapshot(workspace, state)["revision"]):
+        return True
     _reconcile_proof_finding(state, workspace)
     if stage == "review_completion":
         _reconcile_preservation_review(state, workspace, run_dir)
     try:
         if delivery.requirement((state.get("goal_contract") or {}).get("body") or {}) is None:
-            return
+            return False
         current = source_scope.snapshot(workspace, state)
         if (
             regression.required(state, all_due=True)
@@ -47,6 +54,7 @@ def before_review(state: RunState, stage, workspace, run_dir):
             regression.before_review(state, stage, workspace, run_dir)
     except (OSError, ValueError) as error:
         raise Paused("PAUSED_COMPLETION_GATE", "Git delivery required: " + str(error)) from error
+    return False
 
 
 def _reconcile_preservation_review(state: RunState, workspace, run_dir):

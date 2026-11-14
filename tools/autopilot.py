@@ -296,7 +296,9 @@ def dispatch_unit(runtime, state: RunState, stage, workspace, run_dir):
     runtime.workflow.dispatch_guard(state, stage, workspace)
     admit_validation(runtime, state, stage, workspace, run_dir)
     unit = unit_module(stage)
-    completion_result.before_review(state, stage, workspace, run_dir)
+    if completion_result.before_review(state, stage, workspace, run_dir) is True:
+        runtime.write_json(Path(run_dir) / "state.json", state)
+        return SKIP  # the plan went back to plan review with its changed guards corrected
     try:
         launch_inputs.guard(state, workspace, run_dir)
     except ValueError as error:

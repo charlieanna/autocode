@@ -1478,6 +1478,13 @@ def _variant(test):
     return container, test_cases.function_name(test)
 
 
+# A guard: whose test fails on the original code with the change's test files (check_cases).
+CHANGED_GUARD = (
+    "has a test that fails on the original code, so it describes behavior the fix restores: tag it restore, "
+    "or rewrite the test to assert the behavior that already worked"
+)
+
+
 def check_cases(
     proof, cases, refused=None, *, suite_passing=(), failing=(), ignored=(), by_id=False, incomplete=False, others=()
 ):
@@ -1714,12 +1721,19 @@ def check_cases(
         ]
         if proof["verdict"] == verify.PASS:
             proof["verdict"] = verify.UNVERIFIED
-    failures += [
-        f"Preserve case {test_cases.case_text(case)} has a test that fails on the original code, so it "
-        "describes behavior the fix restores: tag it restore, or rewrite the test to assert the behavior "
-        "that already worked"
-        for case in mistagged
-    ]
+    failures += [f"Preserve case {test_cases.case_text(case)} {CHANGED_GUARD}" for case in mistagged]
+    if mistagged:
+        # What autocode_superseded_correction.guard_proposal revises the plan from: each guard and its tests.
+        proof["changed_guards"] = [
+            {
+                "id": case["id"],
+                "tests": sorted(
+                    set(test_cases.match_cases([case], usable(proof["fail_to_pass"]), framework=framework)[case["id"]])
+                    - set(unrun)
+                ),
+            }
+            for case in mistagged
+        ]
     if failures:
         proof["failures"] = list(proof.get("failures") or []) + failures
         proof["verdict"] = verify.FAIL

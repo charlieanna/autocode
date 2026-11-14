@@ -99,6 +99,25 @@ really asserts the changed behavior, and approval follows as for any plan. The r
 records each test it sent back under `superseded_corrections`. If the same test is
 refused again, or the refusal is anything else, the run pauses as before.
 
+The same conflict can show earlier, in the regression proof. A plan may guard
+an existing test (`guard: test_report_matches_the_golden_file`) whose expected
+text the change must rewrite: a golden file the test reads, or the assertion
+itself. With the change's test files that test fails on the original code, so
+the proof refuses the guard. Whether a named test must fail first or pass before
+and after is how AutoCode proves a criterion, not something the person agreed
+to, so AutoCode revises the plan itself here too, before the Tester launches. It
+does so only when:
+
+- the plan is approved;
+- the proof failed for nothing but such guards, with nothing unverified;
+- each failing test is one that exactly one original test file defines, and the
+  plan does not list it already.
+
+Each such criterion becomes `test:` and gains the original test in its
+`supersedes`. The draft goes back to plan review and approval as above, once per
+test. A guard on a test the change adds, a proof with any other failure and a
+second refusal of the same test keep the existing route.
+
 A failed original gate names the failing original tests. Its pause counts as
 AutoCode's gate conflict, not as a model or provider failure.
 
