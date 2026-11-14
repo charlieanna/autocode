@@ -245,6 +245,7 @@ def apply_job(stage, state: RunState, value, record, workspace, *, run_dir=None)
                 tests=tests,
                 command=command_policy.configured_targeted(state.get("settings"), tests)
                 or _planned_go_targeted(state, tests),
+                acceptance_preflight=True,
                 timeout=verify.DEFAULT_TIMEOUT,
             ),
             evidence_dir=evidence_dir,

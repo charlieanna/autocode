@@ -1,0 +1,128 @@
+import hashlib
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+
+TODO_PY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "todo.py")
+
+SCENARIO_TESTS = [
+    "test_ac1_add_then_list_format",
+    "test_ac2_complete_marks_done",
+    "test_ac3_id_stability_never_reused",
+    "test_ac4_unknown_complete_id",
+    "test_ac5_malformed_store_safe_failure",
+]
+
+
+def run_todo(cwd, *args):
+    return subprocess.run(
+        [sys.executable, TODO_PY] + list(args),
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+
+def read_store(cwd):
+    with open(os.path.join(cwd, "todos.json"), "rb") as fh:
+        return fh.read()
+
+
+class TodoCliTests(unittest.TestCase):
+    def test_ac1_add_then_list_format(self):
+        with tempfile.TemporaryDirectory() as cwd:
+            added = run_todo(cwd, "add", "buy milk")
+            self.assertEqual(added.returncode, 0, added.stderr)
+            listed = run_todo(cwd, "list")
+            self.assertEqual(listed.returncode, 0, listed.stderr)
+            self.assertEqual(listed.stdout, "1 buy milk [open]\n")
+
+    def test_ac2_complete_marks_done(self):
+        with tempfile.TemporaryDirectory() as cwd:
+            added = run_todo(cwd, "add", "buy milk")
+            self.assertEqual(added.returncode, 0, added.stderr)
+            completed = run_todo(cwd, "complete", "1")
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            listed = run_todo(cwd, "list")
+            self.assertEqual(listed.returncode, 0, listed.stderr)
+            self.assertEqual(listed.stdout, "1 buy milk [done]\n")
+
+    def test_ac3_id_stability_never_reused(self):
+        with tempfile.TemporaryDirectory() as cwd:
+            first = run_todo(cwd, "add", "buy milk")
+            self.assertEqual(first.returncode, 0, first.stderr)
+            second = run_todo(cwd, "add", "walk dog")
+            self.assertEqual(second.returncode, 0, second.stderr)
+            listed = run_todo(cwd, "list")
+            self.assertEqual(listed.returncode, 0, listed.stderr)
+            lines = listed.stdout.splitlines()
+            self.assertIn("1 buy milk [open]", lines)
+            self.assertIn("2 walk dog [open]", lines)
+            third = run_todo(cwd, "add", "wash dishes")
+            self.assertEqual(third.returncode, 0, third.stderr)
+            listed = run_todo(cwd, "list")
+            self.assertEqual(listed.returncode, 0, listed.stderr)
+            self.assertIn("3 wash dishes [open]", listed.stdout.splitlines())
+            completed = run_todo(cwd, "complete", "1")
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            fourth = run_todo(cwd, "add", "nap")
+            self.assertEqual(fourth.returncode, 0, fourth.stderr)
+            listed = run_todo(cwd, "list")
+            self.assertEqual(listed.returncode, 0, listed.stderr)
+            lines = listed.stdout.splitlines()
+            self.assertIn("4 nap [open]", lines)
+            self.assertNotIn("1 nap [open]", lines)
+
+    def test_ac4_unknown_complete_id(self):
+        with tempfile.TemporaryDirectory() as cwd:
+            added = run_todo(cwd, "add", "buy milk")
+            self.assertEqual(added.returncode, 0, added.stderr)
+            before = read_store(cwd)
+            before_sha = hashlib.sha256(before).hexdigest()
+            completed = run_todo(cwd, "complete", "999")
+            self.assertNotEqual(completed.returncode, 0)
+            after = read_store(cwd)
+            self.assertEqual(hashlib.sha256(after).hexdigest(), before_sha)
+            self.assertEqual(after, before)
+
+    def test_ac5_malformed_store_safe_failure(self):
+        malformed = b"{not json"
+        with tempfile.TemporaryDirectory() as cwd:
+            seeded = run_todo(cwd, "add", "seed")
+            self.assertEqual(seeded.returncode, 0, seeded.stderr)
+            with open(os.path.join(cwd, "todos.json"), "wb") as fh:
+                fh.write(malformed)
+            for args in (("add", "x"), ("list",), ("complete", "1")):
+                result = run_todo(cwd, *args)
+                self.assertNotEqual(result.returncode, 0, args)
+                self.assertEqual(read_store(cwd), malformed, args)
+
+    def test_ac8_regression_suite_runs(self):
+        if os.environ.get("TODO_AC8_REENTRY") == "1":
+            for name in SCENARIO_TESTS:
+                self.assertTrue(callable(getattr(TodoCliTests, name, None)))
+            return
+        env = dict(os.environ)
+        env["TODO_AC8_REENTRY"] = "1"
+        root = os.path.dirname(os.path.abspath(__file__))
+        proc = subprocess.run(
+            [sys.executable, "-m", "unittest", "test_todo", "-v"],
+            cwd=root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+        out = proc.stdout + proc.stderr
+        self.assertEqual(proc.returncode, 0, out)
+        for name in SCENARIO_TESTS:
+            self.assertIn(name, out)
+        self.assertRegex(out, r"Ran [1-9][0-9]* tests? in ")
+        self.assertRegex(out, r"\nOK(\s|\n|$)")
+
+
+if __name__ == "__main__":
+    unittest.main()

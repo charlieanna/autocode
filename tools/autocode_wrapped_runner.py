@@ -1,4 +1,4 @@
-"""A node:test file that runs another test runner cannot prove a named case (#380).
+"""Refuse known Node runner wrappers and recursive Python suites as named proof.
 
 The runner reads node:test's own per-test results as named proof (autocode_node_tests). A
 node:test case that spawns ``npm test -- -t NAME`` through child_process passes or fails on that
@@ -17,14 +17,21 @@ guidance forbids wrappers in any form (autocode_test_cases.NAMED_PROOF_NOTE).
 
 from __future__ import annotations
 
+import json
 import re
 import shlex
 from pathlib import Path, PurePosixPath
 
 try:
     from . import autocode_node_tests as node_tests
+    from . import autocode_package_scope as package_scope
+    from . import autocode_python_self_suite as python_self_suite
+    from . import autocode_verification_commands as command_policy
 except ImportError:
     import autocode_node_tests as node_tests
+    import autocode_package_scope as package_scope
+    import autocode_python_self_suite as python_self_suite
+    import autocode_verification_commands as command_policy
 
 SPAWN_MODULE = re.compile(
     r"(?:\bfrom\s*|\b(?:require|import)\s*\(\s*)['\"](?:(?:node:)?child_process|execa|cross-spawn)['\"]"
@@ -112,12 +119,12 @@ def spawned_runner(source: str) -> str | None:
 
 
 def refusals(root, test_ids) -> dict[str, str]:
-    """Why each node:test test in ``test_ids`` cannot prove a named case, for those in a wrapper file.
+    """Why known Python self-suite / node:test wrapper files cannot prove named cases.
 
     A node:test id is ``file::name`` (autocode_node_tests.results), the file relative to ``root``;
-    ids of other runners, and files outside ``root``, are left alone.
+    Python module/file prefixes resolve only inside root; other runners and outside files are left alone.
     """
-    found, refused = {}, {}
+    found, refused = {}, python_self_suite.named_refusals(root, test_ids)
     for test in test_ids:
         file = test.split("::", 1)[0]
         path = PurePosixPath(file)
@@ -128,6 +135,104 @@ def refusals(root, test_ids) -> dict[str, str]:
         if found[file]:
             refused[test] = found[file]
     return refused
+
+
+def file_refusals(root, files) -> dict[str, str]:
+    """Self-including Python suites refused before acceptance files execute/freeze."""
+    return python_self_suite.refusals(root, files)
+
+
+PREFLIGHT_ERROR = "Self-including Python acceptance tests: "
+
+
+def execution_refusal(root, files, suites):
+    """Check every actual selected command before any product suite executes."""
+    root = Path(root).resolve()
+    commands, refused = [], []
+    for framework, command, _ in suites:
+        if framework is None or framework.name not in ("unittest", "pytest"):
+            continue
+        package, inner = package_scope.split(framework, command)
+        cwd = package_scope.directory_in(root, package) if package else root
+        if cwd is None:
+            continue
+        try:
+            argv = shlex.split(inner)
+        except ValueError:
+            continue
+        commands.append({"framework": framework.name, "command": command})
+        refused.extend(python_self_suite.selected_refusals(root, files, argv, cwd))
+    if not refused:
+        return None
+    payload = {"schema": 1, "tree": str(root), "tests": list(files), "suites": commands, "refused": refused}
+    return {
+        "error": PREFLIGHT_ERROR
+        + " ".join(python_self_suite.reason(row["file"], row["inner_command"]) for row in refused),
+        "results": None,
+        "acceptance_refusal": payload,
+    }
+
+
+def valid_preflight_refusal(result, workspace, out, parameters):
+    """Re-derive a negative result from exact request inputs; never accept test evidence."""
+    if parameters.get("acceptance_preflight") is not True or not isinstance(result, dict):
+        return False
+    if set(result) != {"error", "results", "acceptance_refusal"} or result["results"] is not None:
+        return False
+    if any(parameters.get(key) for key in ("patch", "files", "links", "review_mutation", "native_execution")):
+        return False
+    payload = result["acceptance_refusal"]
+    tree, workspace = Path(out).resolve() / "scratch/tree", Path(workspace).resolve()
+    if (
+        not isinstance(payload, dict)
+        or payload.get("tree") != str(tree)
+        or payload.get("tests") != parameters.get("tests")
+    ):
+        return False
+    try:
+        original_error = PREFLIGHT_ERROR + " ".join(
+            python_self_suite.reason(row["file"], row["inner_command"]) for row in payload["refused"]
+        )
+        if result["error"] != original_error:
+            return False
+        rebased = json.loads(json.dumps(result))
+        rebased["acceptance_refusal"]["tree"] = str(workspace)
+        for row in rebased["acceptance_refusal"]["suites"]:
+            row["command"] = _rebase_command(row["command"], tree, workspace)
+        for row in rebased["acceptance_refusal"]["refused"]:
+            row["inner_command"] = _rebase_command(row["inner_command"], tree, workspace)
+        rebased["error"] = PREFLIGHT_ERROR + " ".join(
+            python_self_suite.reason(row["file"], row["inner_command"])
+            for row in rebased["acceptance_refusal"]["refused"]
+        )
+        suites = []
+        for row in rebased["acceptance_refusal"]["suites"]:
+            command = row["command"]
+            framework = command_policy.command_framework(command) or package_scope.recognize(
+                command, command_policy.command_framework
+            )
+            if framework is None or framework.name != row["framework"]:
+                return False
+            suites.append((framework, command, "acceptance-preflight"))
+        configured = parameters.get("command")
+        if configured is not None and [shlex.split(row[1]) for row in suites] != [shlex.split(configured)]:
+            return False
+        expected = execution_refusal(workspace, parameters["tests"], suites)
+        return expected is not None and json.dumps(expected, sort_keys=True, allow_nan=False) == json.dumps(
+            rebased, sort_keys=True, allow_nan=False
+        )
+    except (OSError, ValueError, TypeError, KeyError):
+        return False
+
+
+def _rebase_command(command, before, after):
+    """Rebase whole path argument identities, never arbitrary source-like text."""
+    words = shlex.split(command)
+    prefix = str(before)
+    rebased = [
+        str(after) + word[len(prefix) :] if word == prefix or word.startswith(prefix + "/") else word for word in words
+    ]
+    return command if rebased == words else shlex.join(rebased)
 
 
 def _refusal(root, file):

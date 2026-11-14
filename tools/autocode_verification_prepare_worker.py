@@ -6,11 +6,13 @@ from pathlib import Path
 try:
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_util as util
+    from . import autocode_verification_preparation as preparation
     from . import autocode_verification_recovery as recovery
     from . import autocode_verify as verify
 except ImportError:
     import autocode_launch_inputs as launch_inputs
     import autocode_util as util
+    import autocode_verification_preparation as preparation
     import autocode_verification_recovery as recovery
     import autocode_verify as verify
 
@@ -64,6 +66,8 @@ def main():
         else:
             answer["receipt"] = value
     util.atomic_json(result, answer)
+    if parameters.get("acceptance_preflight") is True and "acceptance_refusal" in answer.get("receipt", {}):
+        print(preparation.PREFLIGHT_PUBLICATION + util.file_hash(result), flush=True)
 
 
 if __name__ == "__main__":
