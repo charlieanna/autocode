@@ -235,7 +235,7 @@ class ClimbCapBlackbox(unittest.TestCase):
         """The product's own check passes but the Tester's fails: the Completion Reviewer sends the work back, the
         Resolver asks for it to be checked again, and the Tester climbs its ladder, GPT-6 Sol High to XHigh."""
         spec = bb.plan(
-            [([], "Version prints 1", ["version.py"])],
+            [([], "Version prints 1", ["version.py", "test_version.py"])],
             {"M1": {"version.py": "print(1)\n"}},
             {"M1": "import version"},
             "Print version",

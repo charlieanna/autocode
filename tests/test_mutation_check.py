@@ -337,6 +337,7 @@ class StaleBytecodeTests(unittest.TestCase):
         def run(command, label, timeout):
             invocation = python_tests.parse(command)
             environment = dict(os.environ)
+            environment.pop("PYTHONDONTWRITEBYTECODE", None)  # This fixture observes actual cache writes.
             for word in invocation.prefix:
                 if "=" in word:
                     key, value = word.split("=", 1)

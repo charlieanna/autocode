@@ -56,6 +56,7 @@ try:
     from . import autocode_finding_rescope as finding_rescope
     from . import autocode_findings as findings
     from . import autocode_goal_file as goal_file
+    from . import autocode_limit_events as limit_events
     from . import autocode_milestones as checkpoints
     from . import autocode_native_test_names as native_test_names
     from . import autocode_operational_change as operational_change
@@ -79,6 +80,7 @@ try:
     from . import autocode_util as s
     from . import autocode_verification_plan as verification_plan
     from . import autocode_workflows as workflows
+    from .autocode_contract_identity import equivalent_reviewed_body, historical_approval
     from .autocode_goals import (
         BODY_SCHEMA,
         BRIEF_FIELDS,
@@ -111,6 +113,7 @@ except ImportError:
     import autocode_finding_rescope as finding_rescope
     import autocode_findings as findings
     import autocode_goal_file as goal_file
+    import autocode_limit_events as limit_events
     import autocode_milestones as checkpoints
     import autocode_native_test_names as native_test_names
     import autocode_operational_change as operational_change
@@ -134,6 +137,7 @@ except ImportError:
     import autocode_util as s
     import autocode_verification_plan as verification_plan
     import autocode_workflows as workflows
+    from autocode_contract_identity import equivalent_reviewed_body, historical_approval
     from autocode_goals import (
         BODY_SCHEMA,
         BRIEF_FIELDS,
@@ -444,6 +448,8 @@ def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=
             state.update({"status": "RUNNING", "phase": "PLANNING", "next_stage": "finalize_plan"})
         else:
             planning_cycle.start(state)
+        return
+    if not questions and _retain_equivalent_approval(state, origin, record):
         return
     record = record or {}
     proposed_by = {
@@ -1043,30 +1049,18 @@ def approval_boundary_refusal(state: RunState):
     return None
 
 
-def _approve(state: RunState, selected, *, initial_assignment_proof=None, source=None):
-    if reason := approval_boundary_refusal(state):
-        raise ValueError(reason)
+def _seal_and_assign_approved_goal(
+    state: RunState,
+    selected: str,
+    event: dict,
+    *,
+    current=None,
+    initial_assignment_proof=None,
+):
     contract = cast(dict, state["goal_contract"])
-    if not sealed(contract) or selected != token(contract) or state.get("displayed_goal") != selected:
-        raise ValueError("Approve only the current displayed draft token; show the goal again")
-    validate_body(state, contract["body"], ready=True, allow_legacy=True, origin=contract.get("origin"))
-    if contract["body"]["open_blocking_questions"] or state.get("pending_questions"):
-        raise ValueError("Blocking questions still need answers")
-    if open_obligations(state):
-        raise ValueError(
-            "Rejected assumptions still have unresolved obligations: "
-            + ", ".join(ob["id"] for ob in open_obligations(state))
-        )
     joint = state.get("settings", {}).get("joint_planning")
-    if joint and (
-        cast(dict, state.get("planning", {})).get("final_token") != selected or "initial_task" not in contract["body"]
-    ):
-        raise ValueError("Joint planning requires the Plan Reviewer's final plan before approval")
     prepared_progressive = progressive_state.prepare_seal(state, selected)
     recorded_under = finding_rescope.previous_approved(state)
-    event = {"kind": "goal_approval", "actor": "user_cli", "at": s.now(), "token": selected}
-    if source:
-        event["source"] = source
     state.setdefault("user_events", []).append(event)
     contract.update(approval_status="approved", approval_event=event)
     review_routing.bind_approval(state)
@@ -1077,7 +1071,8 @@ def _approve(state: RunState, selected, *, initial_assignment_proof=None, source
     )
     state.update({"phase": "READY_TO_EXECUTE", "status": "RUNNING", "next_stage": "plan_task"})
     # Approval authorizes the selected inventory, including Git-ignored deliverables.
-    current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=s.snapshot) if joint else None
+    if joint and current is None:
+        current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=s.snapshot)
     carried = []
     if checkpoints.enabled(state):
         current = current or source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=s.snapshot)
@@ -1111,6 +1106,134 @@ def _approve(state: RunState, selected, *, initial_assignment_proof=None, source
         )
         record_decision(state, decision)
     recovery_context.revision_approved(state)
+
+
+def _retain_equivalent_approval(state: RunState, origin, record) -> bool:
+    """Carry an authenticated person approval forward when a runner-only re-review leaves every contract term and review judgment unchanged."""
+    if origin not in workflows.FINAL_REVIEW_ORIGINS:
+        return False
+    settings = state.get("settings") or {}
+    if not settings.get("joint_planning") or settings.get("design_manifest"):
+        return False
+    if progressive_state.enabled(state) or (state.get("planning") or {}).get("progressive"):
+        return False
+    if any(
+        state.get(key)
+        for key in ("active_stage", "uncertain_artifacts", "pending_report_repair", "changeset_approval", "parent_run")
+    ):
+        return False
+    try:
+        from . import autocode_changeset_barrier as changeset_barrier
+    except ImportError:
+        import autocode_changeset_barrier as changeset_barrier
+    if changeset_barrier.refusal(state):
+        return False
+    contract = state.get("goal_contract") or {}
+    body = contract.get("body") or {}
+    if (
+        not contract
+        or not sealed(contract)
+        or body.get("open_blocking_questions")
+        or state.get("pending_questions")
+        or open_obligations(state)
+        or "initial_task" not in body
+    ):
+        return False
+    record = record or {}
+    if record.get("rejected") or not record.get("source_revision"):
+        return False
+    last = limit_events.last_decision(state)
+    if not isinstance(last, dict) or last.get("kind") != "goal_approval":
+        return False
+    root_token = (
+        last.get("token")
+        if last.get("actor") == "user_cli"
+        else last.get("retained_from_token")
+        if last.get("actor") == "workflow_policy" and last.get("source") == workflows.RETAINED_APPROVAL_SOURCE
+        else None
+    )
+    if not isinstance(root_token, str) or not root_token:
+        return False
+    history = state.get("contract_history") or []
+    matches = [
+        row
+        for row in history
+        if isinstance(row, dict)
+        and row.get("task_id") == contract.get("task_id")
+        and type(row.get("revision")) is int
+        and isinstance(row.get("hash"), str)
+        and token(row) == root_token
+    ]
+    if len(matches) != 1:
+        return False
+    prior = matches[0]
+    if any(
+        isinstance(row, dict)
+        and (row.get("revision") or 0) > prior["revision"]
+        and row.get("origin") in ("user_cli_edit", "resolver_recommendation")
+        for row in history
+    ):
+        return False
+    prior_event = historical_approval(state, prior)
+    if prior_event is None or prior_event.get("actor") != "user_cli":
+        return False
+    if not equivalent_reviewed_body(body, prior.get("body") or {}):
+        return False
+    workspace = state.get("workspace")
+    if not workspace:
+        return False
+    try:
+        current = source_scope.snapshot(Path(workspace), state, base_snapshot=s.snapshot)
+    except (ValueError, s.Paused, OSError):
+        return False
+    if record.get("source_revision") != current.get("revision"):
+        return False
+    candidate = copy.deepcopy(state)
+    try:
+        candidate_contract = cast(dict, candidate["goal_contract"])
+        validate_body(candidate, candidate_contract["body"], ready=True, allow_legacy=True, origin=origin)
+        selected = token(candidate_contract)
+        if isinstance(candidate.get("planning"), dict):
+            candidate["planning"]["final_token"] = selected
+        event = {
+            "kind": "goal_approval",
+            "actor": "workflow_policy",
+            "source": workflows.RETAINED_APPROVAL_SOURCE,
+            "retained_from_token": root_token,
+            "at": s.now(),
+            "token": selected,
+        }
+        _seal_and_assign_approved_goal(candidate, selected, event, current=current)
+    except ValueError:
+        return False
+    cast(dict, state).clear()
+    state.update(candidate)
+    return True
+
+
+def _approve(state: RunState, selected, *, initial_assignment_proof=None, source=None):
+    if reason := approval_boundary_refusal(state):
+        raise ValueError(reason)
+    contract = cast(dict, state["goal_contract"])
+    if not sealed(contract) or selected != token(contract) or state.get("displayed_goal") != selected:
+        raise ValueError("Approve only the current displayed draft token; show the goal again")
+    validate_body(state, contract["body"], ready=True, allow_legacy=True, origin=contract.get("origin"))
+    if contract["body"]["open_blocking_questions"] or state.get("pending_questions"):
+        raise ValueError("Blocking questions still need answers")
+    if open_obligations(state):
+        raise ValueError(
+            "Rejected assumptions still have unresolved obligations: "
+            + ", ".join(ob["id"] for ob in open_obligations(state))
+        )
+    joint = state.get("settings", {}).get("joint_planning")
+    if joint and (
+        cast(dict, state.get("planning", {})).get("final_token") != selected or "initial_task" not in contract["body"]
+    ):
+        raise ValueError("Joint planning requires the Plan Reviewer's final plan before approval")
+    event = {"kind": "goal_approval", "actor": "user_cli", "at": s.now(), "token": selected}
+    if source:
+        event["source"] = source
+    _seal_and_assign_approved_goal(state, selected, event, initial_assignment_proof=initial_assignment_proof)
 
 
 def resolve_passing_checkpoint(state: RunState, question_id, text):

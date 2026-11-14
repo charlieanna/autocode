@@ -6,7 +6,10 @@ human gate has it posted to its issue (questions with ids and options, the
 complete plan a token approves, a pause's reason); an allowlisted reply is reduced
 to the one action the fresh status view names. Control tokens never leave the
 host, free text never approves, and between gates the worker runs independently.
-Configuration is environment-first, like examples/github-issue.
+With ``AUTOCODE_BRIDGE_MAX_ACTIVE`` set, at most that many bridged runs are in
+flight at once; newer labeled issues wait, queued, and start oldest first as runs
+settle (autocode_issue_admission). Configuration is environment-first, like
+examples/github-issue.
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ try:
     from . import autocode_bridge_worker as worker
     from . import autocode_github as github
     from . import autocode_issue as issue_tool
+    from . import autocode_issue_admission as admission
     from . import autocode_util as util
     from .autocode_taskrun import TaskRunError
 except ImportError:
@@ -36,6 +40,7 @@ except ImportError:
     import autocode_bridge_worker as worker
     import autocode_github as github
     import autocode_issue as issue_tool
+    import autocode_issue_admission as admission
     import autocode_util as util
     from autocode_taskrun import TaskRunError
 
@@ -57,6 +62,7 @@ class Config:
     poll_seconds: float
     open_pr: bool
     owned: bool = False  # the explicit no-systemd mode: runs live with the daemon
+    max_active: int | None = None  # bridged runs in flight at once; None starts every labeled issue
 
     @classmethod
     def from_env(cls, environ=None, *, project=None, poll_seconds=None) -> Config:
@@ -87,6 +93,10 @@ class Config:
         if not (0.5 <= seconds <= 3600):
             raise ConfigError("AUTOCODE_BRIDGE_POLL_SECONDS must be between 0.5 and 3600")
         options = names("AUTOCODE_BRIDGE_OPTIONS")
+        try:
+            max_active = admission.parse_limit(environ.get("AUTOCODE_BRIDGE_MAX_ACTIVE"))
+        except ValueError as error:
+            raise ConfigError(f"AUTOCODE_BRIDGE_MAX_ACTIVE {error}") from None
         return cls(
             repo=repo,
             project=selected,
@@ -96,6 +106,7 @@ class Config:
             poll_seconds=seconds,
             open_pr=environ.get("AUTOCODE_BRIDGE_OPEN_PR", "").lower() in ("1", "true", "yes"),
             owned=environ.get("AUTOCODE_BRIDGE_OWNED", "").lower() in ("1", "true", "yes"),
+            max_active=max_active,
         )
 
 
@@ -121,15 +132,71 @@ class Bridge:
 
     # ---------------------------------------------------------------- discovery
 
-    def discover(self) -> None:
+    def discover(self) -> dict[int, dict]:
+        """Take each newly labeled issue, or queue it under a limit; the open labeled issues by number."""
+        labeled = {}
         for issue in self.channel.open_labeled_issues():
             number = issue.get("number")
             if not isinstance(number, int) or issue.get("state") != "open" or "pull_request" in issue:
                 continue
+            labeled[number] = issue
             existing = store.load(self.channel.owner, self.channel.repo, number)
             if existing is not None:
                 continue
-            self.take(issue)
+            if self.config.max_active is None:
+                self.take(issue)
+            else:
+                self.queue(issue)
+        return labeled
+
+    def queue(self, issue: dict) -> None:
+        """Remember a labeled issue that waits for a slot; admission starts it, oldest first."""
+        number = issue["number"]
+        store.save(
+            {
+                "owner": self.channel.owner,
+                "repo": self.channel.repo,
+                "number": number,
+                "title": (issue.get("title") or f"Issue {number}").strip(),
+                "url": issue.get("html_url"),
+                "project": str(self.config.project),
+                "gate": {"key": "queued"},
+                "queued": True,
+                "queued_at": util.now(),
+                "failed": None,
+            }
+        )
+
+    def start_queued(self, labeled: dict[int, dict]) -> None:
+        """Start queued issues that are still open and labeled while a slot is free; tell the rest once."""
+        waiting: tuple = ()
+        for _ in range(len(labeled) + 1):  # a refused start frees its slot for the next issue in this poll
+            rows = store.records()
+            queued = [
+                record
+                for record in rows
+                if record.get("queued")
+                and record.get("owner") == self.channel.owner
+                and record.get("repo") == self.channel.repo
+                and record.get("number") in labeled
+            ]
+            decision = admission.admit(queued, sum(1 for record in rows if holds_slot(record)), self.config.max_active)
+            waiting = decision.waiting
+            if not decision.start:
+                break
+            for record in decision.start:
+                self.take(labeled[record["number"]])
+        limit = self.config.max_active
+        for record in waiting:
+            if record.get("queued_notice"):
+                continue
+            record["queued_notice"] = self.post(  # a notice that could not be posted is tried again next poll
+                record["number"],
+                f"**AutoCode queued this issue.** This bridge works on at most {limit} "
+                f"issue{'s' if limit != 1 else ''} at a time, and every slot is in use. This one starts when "
+                "an issue in progress finishes or stops, oldest issue first. Nothing is needed from you until then.",
+            )
+            store.save(record)
 
     def take(self, issue: dict) -> None:
         number = issue["number"]
@@ -182,7 +249,7 @@ class Bridge:
     # ---------------------------------------------------------------- one record
 
     def tend(self, record: dict) -> None:
-        if record.get("failed"):
+        if record.get("failed") or record.get("queued"):
             return
         if record.get("initial_comment_id") is None:  # a restart between provisioning and the floor: heal it
             issue_now = self.safe_issue(record["number"])
@@ -201,6 +268,7 @@ class Bridge:
             if not record["ready"]:
                 return
         view = run.status()
+        self.note_settled(record, view)
         self.relay_gate(record, run, view)
         self.consume_replies(record, run)
         if record.get("owned"):  # an owned run only moves when the daemon drives it to its next boundary
@@ -208,6 +276,13 @@ class Bridge:
                 # A no-progress stop keeps its saved boundary; the tick's caller reports it.
                 run.advance_until_input()
         self.deliver(record, run)
+
+    def note_settled(self, record: dict, view: dict) -> None:
+        """Remember whether the run still holds its slot: a settled run frees it, a follow-up takes it again."""
+        settled = admission.settled(view)
+        if record.get("settled") is not settled:
+            record["settled"] = settled
+            store.save(record)
 
     def relay_gate(self, record: dict, run, view: dict) -> None:
         result = bridge_relay.relay(view, record, worker.changeset_summary(run, view))
@@ -258,6 +333,7 @@ class Bridge:
         if record.get("pr_prepared"):
             return
         view = run.status()
+        self.note_settled(record, view)  # an owned run the daemon just drove to its end frees its slot in this poll
         if not view.get("done"):
             return
         number = record["number"]
@@ -293,8 +369,9 @@ class Bridge:
             return None
 
     def tick(self) -> None:
+        labeled = None
         try:
-            self.discover()
+            labeled = self.discover()
         except github.GitHubError as error:
             print(f"autocode bridge: discovery failed: {error}", file=sys.stderr)
         for record in store.records():
@@ -305,6 +382,8 @@ class Bridge:
                     f"autocode bridge: tending {record.get('owner')}/{record.get('repo')}#{record.get('number')} failed: {error}",
                     file=sys.stderr,
                 )
+        if labeled is not None:  # only issues seen open and labeled this poll may start
+            self.start_queued(labeled)
 
     def run(self, *, once: bool = False) -> int:
         # The lock file stays open (and the lock held) for the daemon's whole life.
@@ -318,6 +397,18 @@ class Bridge:
                 if once:
                     return 0
                 self.sleep(self.config.poll_seconds)
+
+
+def holds_slot(record: dict) -> bool:
+    """A bridged issue whose run is in flight: started, not refused at start, and not settled.
+
+    ``settled`` is what the run's last status view said. A record that never had its view read
+    (one saved before the limit existed, or whose run cannot be read) is free only once delivered.
+    """
+    if record.get("queued") or record.get("failed"):
+        return False
+    settled = record.get("settled")
+    return not (bool(record.get("pr_prepared")) if settled is None else settled)
 
 
 def cmd_run(args) -> int:
@@ -340,6 +431,11 @@ def cmd_check(args) -> int:
         config = Config.from_env(project=args.project)
         print(
             f"config     {config.repo} label {config.label!r}, {len(config.actors)} actor(s), options {list(config.options) or 'none'}"
+        )
+        print(
+            f"limit      at most {config.max_active} bridged run(s) in flight at once"
+            if config.max_active
+            else "limit      none: every labeled issue starts at once (AUTOCODE_BRIDGE_MAX_ACTIVE sets one)"
         )
     except ConfigError as error:
         print(f"config     ✖ {error}")

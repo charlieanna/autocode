@@ -21,11 +21,13 @@ try:
     from . import autocode_command_receipt as command_receipt
     from . import autocode_diff_coverage as diff_coverage
     from . import autocode_mutants as mutants
+    from . import autocode_mutation_results as mutation_results
     from . import autocode_verification_schedule as schedule
 except ImportError:
     import autocode_command_receipt as command_receipt
     import autocode_diff_coverage as diff_coverage
     import autocode_mutants as mutants
+    import autocode_mutation_results as mutation_results
     import autocode_verification_schedule as schedule
 
 MAX_CAPTURE_BYTES = 64 * 1024 * 1024
@@ -397,20 +399,12 @@ def _names(value):
     )
 
 
-def _outcome(receipt, selected, root):
-    if not _owned(receipt, root) or not schedule.complete_results(receipt):
+def _outcome(receipt, selected, root, *, stopped=False):
+    if not _owned(receipt, root):
         return "not_run", []
-    results = receipt["results"]
-    if any(results.get(key) for key in ("skipped", "setup_errors", "collection_errors", "uncollected")):
-        return "not_run", []
-    passed, failed = set(results["passed"]), set(results["failed"])
-    if passed | failed != set(selected):
-        return "not_run", []
-    if failed and receipt["exit_code"] != 0:
-        return "killed", sorted(failed)
-    if not failed and receipt["exit_code"] == 0:
-        return "survived", sorted(passed)
-    return "not_run", []
+    return mutation_results.outcome(
+        receipt, selected, stopped=stopped and mutation_results.stops_after_failure(receipt.get("command", ""))
+    )
 
 
 def mutation_envelope(report, *, source_revision, proof_context, receipts, root):
@@ -444,7 +438,15 @@ def mutation_envelope(report, *, source_revision, proof_context, receipts, root)
             entry.update(outcome="not_run", failed_tests=[], evidence=[])
             references = row.get("evidence")
             if eligible and row.get("source_sha256") == file.get("sha256") and _names(references):
-                observed = [_outcome(outputs.get(ref), selected, root) for ref in references]
+                observed = [
+                    _outcome(
+                        outputs.get(ref),
+                        selected,
+                        root,
+                        stopped=report.get("execution_policy") == mutation_results.STOP_POLICY,
+                    )
+                    for ref in references
+                ]
                 failed = sorted({name for outcome, names in observed if outcome == "killed" for name in names})
                 if (
                     all(outcome == "killed" for outcome, _ in observed)

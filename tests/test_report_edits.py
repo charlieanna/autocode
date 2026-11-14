@@ -348,6 +348,83 @@ class ReportEditsTests(unittest.TestCase):
         self.assertEqual(["R1"], [row["id"] for row in result["requirements"]])
         self.assertEqual("old summary", base["summary"])
 
+    def test_remove_edit_accepts_omitted_or_null_value_json_while_add_and_replace_require_it(self):
+        for idx, remove_edit in enumerate(
+            (
+                {"op": "remove", "path": ["extra"]},
+                {"op": "remove", "path": ["extra"], "value_json": None},
+            )
+        ):
+            patch = {
+                "repair_report": {
+                    "sha256": file_hash(self.source),
+                    "edits": [
+                        remove_edit,
+                        {"op": "add", "path": ["proposed_assumptions", 0, "category"], "value_json": '"behavior"'},
+                    ],
+                }
+            }
+            out = self.root / f"remove-ok-{idx}.json"
+            out.write_text(json.dumps(patch))
+            fixed = runner.load_stage_report({**self.record, "output": str(out)})
+            self.assertEqual(
+                {
+                    "summary": "original",
+                    "proposed_assumptions": [{"text": "Preserve empty pages", "category": "behavior"}],
+                },
+                fixed,
+            )
+        for bad_op in ("add", "replace"):
+            for idx, omitted_or_null in enumerate(
+                (
+                    {"op": bad_op, "path": ["summary"]},
+                    {"op": bad_op, "path": ["summary"], "value_json": None},
+                )
+            ):
+                bad_patch = {"repair_report": {"sha256": file_hash(self.source), "edits": [omitted_or_null]}}
+                out = self.root / f"bad-{bad_op}-{idx}.json"
+                out.write_text(json.dumps(bad_patch))
+                with self.assertRaises(ValueError):
+                    runner.load_stage_report({**self.record, "output": str(out)})
+
+    def test_add_edit_accepts_bare_text_when_target_schema_property_is_plain_string(self):
+        base = {"summary": "original", "proposed_assumptions": [{"category": "behavior"}]}
+        self.source.write_text(json.dumps(base))
+        descriptor = {**self.descriptor, "sha256": file_hash(self.source), "content": base}
+        offered = edits.prepare(self.schema, descriptor, "requirements_gather")
+        record = {**self.record, "schema": str(offered)}
+        patch = {
+            "repair_report": {
+                "sha256": descriptor["sha256"],
+                "edits": [
+                    {
+                        "op": "add",
+                        "path": ["proposed_assumptions", 0, "text"],
+                        "value_json": "Existing stores continue to load.",
+                    }
+                ],
+            }
+        }
+        Path(record["output"]).write_text(json.dumps(patch))
+        fixed = runner.load_stage_report(record)
+        validate_schema(fixed, self.original_schema)
+        self.assertEqual("Existing stores continue to load.", fixed["proposed_assumptions"][0]["text"])
+        # Enum string fields still refuse unquoted bare text on add.
+        enum_base = {"summary": "original", "proposed_assumptions": [{"text": "ok"}]}
+        self.source.write_text(json.dumps(enum_base))
+        enum_desc = {**self.descriptor, "sha256": file_hash(self.source), "content": enum_base}
+        enum_offered = edits.prepare(self.schema, enum_desc, "requirements_gather")
+        enum_record = {**self.record, "schema": str(enum_offered)}
+        enum_patch = {
+            "repair_report": {
+                "sha256": enum_desc["sha256"],
+                "edits": [{"op": "add", "path": ["proposed_assumptions", 0, "category"], "value_json": "behavior"}],
+            }
+        }
+        Path(enum_record["output"]).write_text(json.dumps(enum_patch))
+        with self.assertRaisesRegex(ValueError, "not JSON"):
+            runner.load_stage_report(enum_record)
+
     def test_text_that_is_not_json_stays_refused_where_its_meaning_is_unclear(self):
         base = {"summary": "old", "count": 1, "items": ["a"], "rows": [{"id": "R1"}]}
         for op, path in (

@@ -19,6 +19,20 @@ const CLI = process.env.AUTOCODE_WALK_CLI;
 const SCRIPT = process.env.AUTOCODE_WALK_SCRIPT;
 const skip = !CLI || !SCRIPT ? 'set AUTOCODE_WALK_CLI and AUTOCODE_WALK_SCRIPT to walk against a real AutoCode' : false;
 
+function isolateWalkProjectIndex(env = process.env) {
+  if (env.AUTOCODE_PROJECT_INDEX_HOME) return null;
+  const walkIndexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'walk-index-'));
+  env.AUTOCODE_PROJECT_INDEX_HOME = walkIndexHome;
+  return () => {
+    try { fs.rmSync(walkIndexHome, { recursive: true, force: true }); } catch {}
+  };
+}
+
+if (!skip) {
+  const cleanupWalkIndex = isolateWalkProjectIndex();
+  if (cleanupWalkIndex) process.on('exit', cleanupWalkIndex);
+}
+
 const host = editor();
 const { RunController } = host.load('controller.js');
 const { ChatView } = host.load('chat.js');
@@ -112,8 +126,18 @@ token = f"r{contract['revision']}:{contract['hash']}"
 approval = {"kind": "goal_approval", "token": token, "actor": "user_cli"}
 contract["approval_status"] = "approved"
 contract["approval_event"] = approval
-receipt = {"id": "cp-1", "commit": seed, "run_dir": run, "contract_hash": contract["hash"],
-           "source": {"head": seed, "files": tree_files(root, seed)}}
+# The saved step's own commit, off the seed and without moving HEAD: greet.py as the step left it.
+def git(*args, env=None, data=None):
+    return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, check=True,
+                          input=data, env=env).stdout.strip()
+index = {**__import__("os").environ, "GIT_INDEX_FILE": str(pathlib.Path(run, "step.index"))}
+git("read-tree", seed, env=index)
+blob = git("hash-object", "-w", "--stdin", data="print('saved step')\\n")
+git("update-index", "--cacheinfo", "100644," + blob + ",greet.py", env=index)
+step = git("commit-tree", git("write-tree", env=index), "-p", seed, "-m", "step")
+pathlib.Path(run, "step.index").unlink()
+receipt = {"id": "cp-1", "commit": step, "run_dir": run, "contract_hash": contract["hash"],
+           "source": {"head": seed, "files": tree_files(root, step)}}
 path = pathlib.Path(run, "cp-1.json")
 path.write_text(json.dumps(receipt))
 state = {
@@ -125,7 +149,7 @@ state = {
   "code_checkpoints": [{
     "id": "cp-1", "label": "Fixture step", "at": "2026-11-11T08:30:00Z", "changed_files": ["greet.py"],
     "available": True, "receipt": str(path), "receipt_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-    "commit": seed, "recorded_check": {"verdict": "PASS"},
+    "commit": step, "recorded_check": {"verdict": "PASS"},
   }],
 }
 pathlib.Path(run, "state.json").write_text(json.dumps(state, indent=2))
@@ -458,36 +482,20 @@ test('walk: archiving and deleting a chat run the named registry commands and st
   assert.equal(gone, undefined, 'the deleted chat is gone from the real registry');
 });
 
-test('walk: a saved step compares for real and its restore is named, confirmed and taken', { skip }, async (t) => {
+test("walk: a saved run shows its whole change for real, and no per-step buttons", { skip }, async (t) => {
   const { root, restore } = buildWorkspace();
   const ui = await openWalkChat(t, root, restore);
-  const compare = ui.document.querySelector('[data-checkpoint-action="compare"]');
-  assert.ok(compare, 'the saved step offers its compare');
-  compare.click();
-  // Wait for the compare's own diff (the row's counts appear without it).
-  await waitFor(() => ui.document.querySelector('#app').textContent.includes('+print'));
-  // The buttons re-render when the action ends; click the live, enabled one.
-  await waitFor(() => {
-    const btn = ui.document.querySelector('[data-checkpoint-action="restore"]');
-    return Boolean(btn && !btn.disabled);
-  });
-  const restoreBtn = ui.document.querySelector('[data-checkpoint-action="restore"]');
-  assert.ok(restoreBtn && !restoreBtn.disabled, 'the saved step offers its restore');
-  let release;
-  t.mock.method(host.vscode.window, 'showWarningMessage', (question, _options, button) => {
-    assert.match(question, /Restore "Fixture step"/, 'the dialog names the step');
-    return new Promise((resolve) => { release = (answer) => resolve(answer); });
-  });
-  restoreBtn.click();
-  await waitFor(() => release);
-  assert.ok(release, 'the restore confirmation opened');
-  const hint = () => ui.document.querySelector('#send-hint').textContent;
-  assert.ok(hint().includes('answer the dialog that opened'), `the chat names the open dialog: ${hint()}`);
-  const before = execFileSync('git', ['-C', root, 'branch', '--list'], { encoding: 'utf8' });
-  release('Restore');
-  await waitFor(() => ui.document.querySelector('#app').textContent.includes('Restored on a new branch'));
-  const after = execFileSync('git', ['-C', root, 'branch', '--list'], { encoding: 'utf8' });
-  assert.notEqual(after, before, 'the restore put the saved step on a real branch');
+  const show = await waitFor(() => ui.document.querySelector('#all-changes-show'));
+  assert.ok(show, 'the run offers its whole change');
+  assert.equal(ui.document.querySelectorAll('[data-checkpoint-action]').length, 0,
+    'no step is offered to compare or go back to (owner decision 2026-11-13)');
+  fs.writeFileSync(path.join(root, 'greet.py'), "print('not saved yet')\n");
+  show.click();
+  await waitFor(() => ui.document.querySelector('#app').textContent.includes("+print('saved step')"));
+  const text = ui.document.querySelector('#app').textContent;
+  assert.match(text, /1 file\(s\) changed in this run/);
+  assert.ok(text.includes("-print('hi')") && text.includes("+print('saved step')"), 'the seed against the saved step: ' + text.slice(-300));
+  assert.ok(!text.includes('not saved yet'), 'the change is read from saved code, not the files on disk');
 });
 
 test('walk: closing a chat mid-reply returns every poll to the ordinary interval', { skip }, async (t) => {
@@ -677,7 +685,7 @@ test('walk: the status line keeps its liveness without the poll interval, and go
   assert.ok(statusText.includes('$5'), 'the line recovers: ' + statusText);
 });
 
-test("walk: two runs racing on one project see each other's work, and a restore leaves the tree alone", { skip }, async (t) => {
+test("walk: two runs racing on one project see each other's work in the live diff", { skip }, async (t) => {
   const { root, builder, restore } = buildWorkspace();
   claimSupervision(builder);
   // One project, one tree: A (the saved step) changed greet.py, B (the Builder) wrote helper.py.
@@ -685,11 +693,6 @@ test("walk: two runs racing on one project see each other's work, and a restore 
   fs.writeFileSync(path.join(root, 'helper.py'), "print('B wrote this')\n");
   const ui = await openWalkChat(t, root, restore);
   const text = () => ui.document.querySelector('#app').textContent;
-
-  // A's compare against its saved step names BOTH runs' work: one tree, every diff sees it all.
-  ui.document.querySelector('[data-checkpoint-action="compare"]').click();
-  await waitFor(() => text().includes('+print'));
-  assert.ok(text().includes('helper.py'), "A's changes since its checkpoint include B's file: " + text().slice(-200));
 
   // B's own diff, in its tab, names A's work just the same.
   ui.chat.show({ workspace: root, runDir: builder });
@@ -703,25 +706,6 @@ test("walk: two runs racing on one project see each other's work, and a restore 
   await waitFor(() => text().includes('+print'));
   assert.ok(text().includes('greet.py') || text().includes("A changed this"),
     "B's changes so far include A's file: " + text().slice(-200));
-
-  // A restores while B builds: the candidate lands on its own branch and the tree stays put.
-  ui.chat.show({ workspace: root, runDir: restore });
-  await ui.chat.refresh();
-  await waitFor(() => {
-    const btn = ui.document.querySelector('[data-checkpoint-action="restore"]');
-    return btn && !btn.disabled ? btn : false;
-  });
-  let release;
-  t.mock.method(host.vscode.window, 'showWarningMessage', () => new Promise((resolve) => { release = resolve; }));
-  ui.document.querySelector('[data-checkpoint-action="restore"]').click();
-  await waitFor(() => release);
-  release('Restore');
-  await waitFor(() => text().includes('Restored on a new branch'));
-  const branches = execFileSync('git', ['-C', root, 'branch', '--list'], { encoding: 'utf8' });
-  assert.ok(branches.includes('autocode/checkpoint-'), 'the candidate is on its own branch: ' + branches.trim());
-  const head = execFileSync('git', ['-C', root, 'branch', '--show-current'], { encoding: 'utf8' }).trim();
-  assert.equal(head, 'master', "the restore leaves the shared checkout where it was: B's tree is untouched");
-  assert.ok(fs.existsSync(path.join(root, 'helper.py')), "B's file survives the restore");
 });
 
 test('walk: closing a chat mid-run leaves the run working and the chat comes back to it', { skip }, async (t) => {
@@ -973,13 +957,6 @@ test('walk: a paused chat survives a reload, and resuming runs the run\'s own co
     return item;
   });
   t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
-  const compares = [];
-  const realCompare = RunController.prototype.compareCheckpoint;
-  t.mock.method(RunController.prototype, 'compareCheckpoint', async function (run, checkpointId) {
-    const comparison = await realCompare.call(this, run, checkpointId);
-    compares.push(comparison);
-    return comparison;
-  });
   const wsState = host.workspaceState;
   let saved = {};
   const openWindow = () => {
@@ -1012,16 +989,16 @@ test('walk: a paused chat survives a reload, and resuming runs the run\'s own co
   await first.dom.window.acquireVsCodeApi().postMessage({ type: 'ready' });
   await first.chat.show({ workspace: root, runDir: restore }), await first.chat.refresh();
   const text = () => first.dom.window.document.querySelector('#app').textContent;
-  await waitFor(() => text().includes('Fixture step'), 30000);
+  await waitFor(() => text().includes('Show all changes'), 30000);
   await waitFor(() => statusItems[0].text.includes('AutoCode'), 30000);
   assert.ok(statusItems[0].text.includes('AutoCode'), 'the status line follows the opened chat: ' + statusItems[0].text);
   const field = first.dom.window.document.querySelector('#message');
   field.value = 'A draft that must survive the reload';
   field.dispatchEvent(new first.dom.window.Event('input'));
   await flush();
-  first.dom.window.document.querySelector('[data-checkpoint-action="compare"]').click();
+  first.dom.window.document.querySelector('#all-changes-show').click();
   await waitFor(() => text().includes('+print'), 30000);
-  assert.ok(text().includes('diff --checkpoint'), 'the compare card is open before the reload');
+  assert.ok(text().includes('diff --checkpoint'), 'the run diff is open before the reload: ' + text().slice(-400));
 
   // The window reloads: the extension and the webview are torn down and rebuilt.
   first.context.subscriptions.forEach((item) => item.dispose?.());
@@ -1031,29 +1008,14 @@ test('walk: a paused chat survives a reload, and resuming runs the run\'s own co
   t.after(() => second.dom.window.close());
   await second.dom.window.acquireVsCodeApi().postMessage({ type: 'ready' });
   const text2 = () => second.dom.window.document.querySelector('#app').textContent;
-  await waitFor(() => text2().includes('Fixture step'), 30000);
-  assert.ok(text2().includes('Fixture step'), "the paused chat's card comes back after the reload");
+  await waitFor(() => text2().includes('Show all changes'), 30000);
+  assert.ok(text2().includes('Show all changes'), "the paused chat's card comes back after the reload");
   assert.equal(second.dom.window.document.querySelector('#message').value, 'A draft that must survive the reload',
     'the unsent draft survives the reload');
   await waitFor(() => statusItems[1].text.includes('AutoCode'), 30000);
   assert.ok(statusItems[1].text.includes('AutoCode'), 'the status line comes back on the restored chat: ' + statusItems[1].text);
   assert.ok(!text2().includes('diff --checkpoint'),
-    'the cached comparison card does not survive the reload');
-
-  // Restore re-compares for itself before it asks.
-  let asked;
-  let releaseRestore;
-  t.mock.method(host.vscode.window, 'showWarningMessage', (question) => {
-    asked = String(question);
-    return new Promise((resolve) => { releaseRestore = resolve; });
-  });
-  second.dom.window.document.querySelector('[data-checkpoint-action="restore"]').click();
-  await waitFor(() => text2().includes('diff --checkpoint'), 30000);
-  await waitFor(() => Boolean(releaseRestore), 30000);
-  assert.match(asked, /Restore "Fixture step"/, 'the restore asks after re-comparing');
-  assert.equal(compares.length, 2, 'the restore after the reload re-compares instead of reusing the cached comparison');
-  releaseRestore(undefined);   // declined: this walk is about the state, not a second restore
-  await flush(); await flush();
+    'the shown diff does not survive the reload');
 
   // Resuming runs the run's own named command; on a host without that provider, the CLI says so
   // and the chat reports it — the resume is the run's, not the client's, to complete.
@@ -1251,7 +1213,7 @@ test("walk: an edit sent mid-walk is taken up by the run at its next boundary", 
 });
 
 
-test('walk: two windows on one workspace keep their own drafts and serialize their actions', { skip }, async (t) => {
+test('walk: two windows on one workspace keep their own drafts and status lines', { skip }, async (t) => {
   const { root, restore } = buildWorkspace();
   host.config.set('cliPath', CLI);
   host.config.set('cliArgs', [SCRIPT]);
@@ -1311,55 +1273,6 @@ test('walk: two windows on one workspace keep their own drafts and serialize the
 
   // Both windows watch the run: two status lines, each its own.
   await waitFor(() => bars.length >= 2 && bars.every((bar) => bar.text.includes('AutoCode')), 30000);
-
-  // Both windows act on the same run at once: the run lock serializes them, and the shared
-  // workspaceState gives both the same request id, so only one candidate can be created.
-  const requests = [];
-  const cli = host.load('core/cli.js');
-  const realInvoke = cli.invoke;
-  t.mock.method(cli, 'invoke', (options, argv, env, timeoutMs) => {
-    if (argv[0] === 'checkpoint' && argv.includes('--restore')) requests.push(argv[argv.indexOf('--request-id') + 1]);
-    return realInvoke(options, argv, env, timeoutMs);
-  });
-  // The CLI is made slow so the two restores overlap on the run lock.
-  const slow = path.join(root, 'slow-cli.sh');
-  fs.writeFileSync(slow, '#!/bin/sh\nsleep 2\nexec "$@"\n');
-  fs.chmodSync(slow, 0o755);
-  host.config.set('cliPath', slow);
-  host.config.set('cliArgs', [CLI, SCRIPT]);
-  let releaseA, releaseB;
-  t.mock.method(host.vscode.window, 'showWarningMessage', (question) => {
-    assert.match(question, /Restore "Fixture step"/);
-    return new Promise((resolve) => {
-      if (!releaseA) releaseA = resolve;
-      else releaseB = resolve;
-    });
-  });
-  const restoreBtn = (dom) => dom.window.document.querySelector('[data-checkpoint-action="restore"]');
-  await waitFor(() => restoreBtn(a.dom) && !restoreBtn(a.dom).disabled, 30000);
-  restoreBtn(a.dom).click();
-  await waitFor(() => Boolean(releaseA), 30000);
-  restoreBtn(b.dom).click();
-  await waitFor(() => Boolean(releaseB), 30000);
-  releaseA('Restore');
-  releaseB('Restore');
-  // One window's restore lands; the other is refused by the run lock, and both say so.
-  const errA = () => a.dom.window.document.querySelector('#chat-error').textContent;
-  const errB = () => b.dom.window.document.querySelector('#chat-error').textContent;
-  const appA = () => a.dom.window.document.querySelector('#app').textContent;
-  const appB = () => b.dom.window.document.querySelector('#app').textContent;
-  await waitFor(() => (appA().includes('Restored on a new branch') || errA().includes('run lock'))
-    && (appB().includes('Restored on a new branch') || errB().includes('run lock')), 60000);
-  const wonA = appA().includes('Restored on a new branch');
-  const wonB = appB().includes('Restored on a new branch');
-  assert.equal(wonA !== wonB, true, 'exactly one window restores; the other is refused by the run lock');
-  const loser = wonA ? appB() : appA();
-  assert.ok(loser.includes('run lock'), 'the refused window says why: ' + loser.slice(-200));
-  assert.equal(requests.length, 2, 'both windows named their restore');
-  assert.equal(requests[0], requests[1], 'both carried the same request id: the workspace state is shared');
-  const branches = execFileSync('git', ['-C', root, 'branch', '--list'], { encoding: 'utf8' })
-    .split('\n').filter((line) => line.includes('autocode/checkpoint-'));
-  assert.equal(branches.length, 1, 'one candidate branch, never two: ' + branches.join(' | '));
 });
 
 test('walk: a spec-first Requirements interview answers open questions in the composer and keeps spoken context', { skip }, async (t) => {
@@ -1789,4 +1702,19 @@ report_path.write_text(json.dumps(out))
   assert.deepEqual(runById.planner.chosen, { model: 'zai-coding-plan/glm-5.3', effort: 'high' });
   assert.deepEqual(runById.builder.chosen, { model: 'xiaomi-token-plan-sgp/mimo-v2.6-pro', effort: 'xhigh' });
   assert.deepEqual(runById.tester.chosen, { model: 'fake/requirements', effort: 'low' });
+});
+
+test('walk project index isolation creates and cleans up a temporary index home without overriding explicit env', () => {
+  const unsetEnv = {};
+  const cleanup = isolateWalkProjectIndex(unsetEnv);
+  assert.equal(typeof cleanup, 'function');
+  assert.ok(unsetEnv.AUTOCODE_PROJECT_INDEX_HOME.includes('walk-index-'));
+  assert.equal(fs.existsSync(unsetEnv.AUTOCODE_PROJECT_INDEX_HOME), true);
+  fs.writeFileSync(path.join(unsetEnv.AUTOCODE_PROJECT_INDEX_HOME, 'projects.json'), '{}');
+  cleanup();
+  assert.equal(fs.existsSync(unsetEnv.AUTOCODE_PROJECT_INDEX_HOME), false);
+
+  const explicitEnv = { AUTOCODE_PROJECT_INDEX_HOME: '/custom/index-home' };
+  assert.equal(isolateWalkProjectIndex(explicitEnv), null);
+  assert.equal(explicitEnv.AUTOCODE_PROJECT_INDEX_HOME, '/custom/index-home');
 });

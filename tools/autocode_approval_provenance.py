@@ -278,6 +278,8 @@ def _who(row: dict) -> str:
     provenance = row["provenance"]
     if provenance is None:
         if row["actor"] == "workflow_policy":
+            if row.get("source") == "retained_plan_approval":
+                return "automatically, retaining the earlier approval of the same plan terms"
             return "under the workflow policy"
         return "by someone AutoCode did not record (saved before it recorded who approved)"
     name, email = provenance["git_user_name"], provenance["git_user_email"]

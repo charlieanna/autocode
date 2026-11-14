@@ -691,4 +691,16 @@ test("the reason a run waits for never shows a command to type", () => {
   const plain = runHeader(view({ summary: { state: "needs_you", label: "Needs you", sentence: "Answer the question." },
     needs: { kind: "answer", reason: "The plan names two exports (CSV and JSON); pick one." } }));
   assert.ok(section(plain, "where")?.lines.includes("Waiting for: The plan names two exports (CSV and JSON); pick one."));
+  // A stopped step's recorded reason keeps its plain sentences while stripping --resolver-* flags, token env vars and `autocode resume`.
+  const savedReason = "AutoResolver could not resolve the Builder's model limit. Provide corrective information or leave the run paused. "
+    + "Provide corrective information with --resolver-request req-1 --resolver-token - (reads AUTOCODE_RESOLVER_TOKEN) "
+    + "--resolver-response provide_information --resolver-message TEXT, then autocode resume.";
+  const stopped = runHeader(view({
+    status: "PAUSED_RESOLVER",
+    summary: { state: "stopped", label: "Stopped", sentence: savedReason },
+    recovery: { saved_reason: savedReason },
+  }))!;
+  assert.equal(stopped.sentence, "AutoResolver could not resolve the Builder's model limit. Provide corrective information or leave the run paused.");
+  const recorded = section(stopped, "where")?.lines.join("\n") ?? "";
+  assert.doesNotMatch(recorded, /--resolver-request|AUTOCODE_RESOLVER_TOKEN|autocode resume/);
 });

@@ -324,6 +324,295 @@ class BridgeTests(unittest.TestCase):
             bridge_cli.Config.from_env({"AUTOCODE_BRIDGE_GITHUB_REPO": "owner/repo", "AUTOCODE_BRIDGE_ACTORS": "dev"})
 
 
+class SlotRun(FakeRun):
+    """A scripted run for one of several issues; ``stopped`` ends it with nothing left to ask."""
+
+    def __init__(self, number):
+        super().__init__()
+        self.workspace = Path(f"/work/project/.autocode/issues/owner-repo-{number}")
+        self.run_dir = self.workspace / ".autocode" / "runs" / f"issue-{number}"
+
+    def status(self):
+        if self.state == "working":
+            return {"status": "RUNNING"}
+        if self.state == "stopped":
+            return {"status": "STOPPED"}
+        if self.state == "unresumable":
+            return {"status": "PAUSED", "needs": {"kind": "resume", "new_run_required": True, "reason": "retired"}}
+        return super().status()
+
+
+class AdmissionTests(unittest.TestCase):
+    """AUTOCODE_BRIDGE_MAX_ACTIVE: labeled issues beyond the limit wait, and start oldest first."""
+
+    def setUp(self):
+        import os
+
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        saved = os.environ.get("AUTOCODE_BRIDGE_HOME")
+        os.environ["AUTOCODE_BRIDGE_HOME"] = home.name
+        self.addCleanup(
+            lambda: (
+                os.environ.pop("AUTOCODE_BRIDGE_HOME", None)
+                if saved is None
+                else os.environ.__setitem__("AUTOCODE_BRIDGE_HOME", saved)
+            )
+        )
+        self.client = FakeClient(
+            {
+                number: {
+                    "issue": {
+                        "number": number,
+                        "state": "open",
+                        "title": f"Task {number}",
+                        "labels": [{"name": "autocode"}],
+                    },
+                    "comments": [],
+                }
+                for number in (9, 7, 8)  # the channel lists them in no particular order
+            }
+        )
+        self.runs = {number: SlotRun(number) for number in (7, 8, 9)}
+        self.launched = []
+
+    def launch(self, project, ref, issue, options, owned=False):
+        run = self.runs[ref.number]
+        self.launched.append(ref.number)
+        return {
+            "owner": "owner",
+            "repo": "repo",
+            "number": ref.number,
+            "title": issue["title"],
+            "project": str(project),
+            "worktree": str(run.workspace),
+            "branch": f"autocode/issue-{ref.number}",
+            "run_dir": str(run.run_dir),
+            "options": options,
+            "receipt": {"launch_id": "a" * 32},
+            "ready": True,
+            "gate": {},
+            "delivered": False,
+            "pr_url": None,
+        }
+
+    def bridge(self, max_active):
+        from autocode_bridge_github import GitHubChannel
+
+        config = bridge_cli.Config(
+            repo="owner/repo",
+            project=Path("/work/project"),
+            label="autocode",
+            actors=("dev",),
+            options=(),
+            poll_seconds=10.0,
+            open_pr=False,
+            max_active=max_active,
+        )
+        return bridge_cli.Bridge(
+            config,
+            GitHubChannel(self.client, "owner/repo", "autocode", ("dev",)),
+            launch=self.launch,
+            adopt=lambda record: self.runs[record["number"]],
+            prepare=lambda record, *, open_: "PR body written",
+        )
+
+    def queued_notices(self, number):
+        return [body for issue, body in self.client.posted if issue == number and "queued this issue" in body]
+
+    def test_without_a_limit_every_labeled_issue_starts_at_once(self):
+        self.bridge(None).tick()
+        self.assertEqual([7, 8, 9], sorted(self.launched))
+        self.assertEqual([], [body for _, body in self.client.posted if "queued this issue" in body])
+
+    def test_issues_beyond_the_limit_wait_and_are_told_once(self):
+        bridge = self.bridge(1)
+        bridge.tick()
+        self.assertEqual([7], self.launched)  # the oldest issue takes the one slot
+        self.assertEqual([], self.queued_notices(7))  # an issue that starts at once is never told it waits
+        for number in (8, 9):
+            record = store.load("owner", "repo", number)
+            self.assertEqual("queued", record["gate"]["key"])
+            self.assertTrue(record["queued_at"])
+            self.assertNotIn("run_dir", record)
+            self.assertEqual(1, len(self.queued_notices(number)))
+            self.assertIn("at most 1 issue at a time", self.queued_notices(number)[0])
+        bridge.tick()
+        bridge.tick()
+        self.assertEqual([7], self.launched)  # a run waiting for an answer keeps its slot
+        self.assertEqual([1, 1], [len(self.queued_notices(number)) for number in (8, 9)])
+
+    def test_a_queued_issue_starts_when_a_run_is_delivered_then_when_one_stops(self):
+        bridge = self.bridge(1)
+        bridge.tick()
+        self.runs[7].state = "done"
+        bridge.tick()  # 7 is delivered, which frees its slot for the next oldest issue
+        self.assertEqual([7, 8], self.launched)
+        self.assertTrue(any(issue == 8 and "took this issue" in body for issue, body in self.client.posted))
+        self.assertEqual("queued", store.load("owner", "repo", 9)["gate"]["key"])
+        bridge.tick()
+        self.assertEqual([7, 8], self.launched)
+        self.runs[8].state = "stopped"  # ended without delivering: nothing left to ask, so it settles
+        bridge.tick()
+        self.assertEqual([7, 8, 9], self.launched)
+        self.assertNotIn("queued", store.load("owner", "repo", 9))
+
+    def test_an_owned_run_the_daemon_drives_to_its_end_frees_its_slot_in_that_poll(self):
+        # Found by the real-CLI end-to-end run: the slot was read before the daemon advanced an owned run.
+        launch = self.launch
+        self.launch = lambda *args, **kwargs: {**launch(*args, **kwargs), "owned": True}
+        self.runs[7].advance_until_input = lambda: setattr(self.runs[7], "state", "done")
+        bridge = self.bridge(1)
+        bridge.tick()  # 7 starts and waits on its question
+        self.assertEqual([7], self.launched)
+        self.runs[7].state = "working"
+        bridge.tick()  # the daemon drives 7 to completion, delivers it, and starts 8 in the same poll
+        self.assertEqual([7, 8], self.launched)
+
+    def test_a_run_nothing_can_resume_frees_its_slot(self):
+        bridge = self.bridge(1)
+        bridge.tick()
+        self.runs[7].state = "unresumable"
+        bridge.tick()
+        self.assertEqual([7, 8], self.launched)
+
+    def test_a_notice_that_could_not_be_posted_is_tried_again(self):
+        posting = self.client.issue_comment
+
+        def offline(ref, body):
+            raise github.GitHubError("GitHub is unreachable")
+
+        bridge = self.bridge(1)
+        self.client.issue_comment = offline
+        bridge.tick()
+        self.assertEqual([], self.queued_notices(8))
+        self.client.issue_comment = posting
+        bridge.tick()
+        bridge.tick()
+        self.assertEqual(1, len(self.queued_notices(8)))
+
+    def test_two_slots_start_the_two_oldest_issues(self):
+        self.bridge(2).tick()
+        self.assertEqual([7, 8], self.launched)
+        self.assertIn("at most 2 issues at a time", self.queued_notices(9)[0])
+
+    def test_a_queued_issue_that_lost_its_label_or_closed_does_not_start(self):
+        bridge = self.bridge(1)
+        bridge.tick()
+        self.client.issues[8]["issue"]["labels"] = []
+        self.client.issues[9]["issue"]["state"] = "closed"
+        self.runs[7].state = "done"
+        bridge.tick()
+        bridge.tick()
+        self.assertEqual([7], self.launched)
+        self.client.issues[8]["issue"]["labels"] = [{"name": "autocode"}]
+        bridge.tick()
+        self.assertEqual([7, 8], self.launched)  # labeled again, it takes the free slot
+
+    def test_a_refused_start_does_not_hold_a_slot(self):
+        def refused(project, ref, issue, options, owned=False):
+            if ref.number == 7:
+                raise worker.BridgeError("branch autocode/issue-7 already exists")
+            return self.launch(project, ref, issue, options, owned)
+
+        bridge = self.bridge(1)
+        bridge.launch = refused
+        bridge.tick()
+        self.assertTrue(store.load("owner", "repo", 7)["failed"])
+        self.assertEqual([8], self.launched)  # the refused start's slot goes to the next issue in the same poll
+        self.assertEqual([], self.queued_notices(8))
+        self.assertEqual(1, len(self.queued_notices(9)))
+
+    def test_a_follow_up_on_a_delivered_run_takes_its_slot_again(self):
+        bridge = self.bridge(1)
+        bridge.tick()
+        self.runs[7].state = "done"
+        self.runs[8].state = "done"
+        bridge.tick()  # 7 is delivered and 8 starts
+        self.runs[7].state = "plan"  # a follow-up reopened the delivered run
+        bridge.tick()  # 8 is delivered, but 7 is in flight again
+        self.assertEqual([7, 8], self.launched)
+        self.assertEqual("queued", store.load("owner", "repo", 9)["gate"]["key"])
+
+    def test_a_delivered_record_saved_before_the_limit_holds_no_slot(self):
+        for number, delivered in ((5, True), (6, False)):
+            store.save(
+                {
+                    "owner": "owner",
+                    "repo": "repo",
+                    "number": number,
+                    "project": "/work/project",
+                    "worktree": f"/work/project/.autocode/issues/owner-repo-{number}",
+                    "branch": f"autocode/issue-{number}",
+                    "run_dir": f"/gone/{number}",
+                    "gate": {"key": "done" if delivered else "working"},
+                    "pr_prepared": delivered,
+                }
+            )
+        self.assertEqual(
+            [False, True], [bridge_cli.holds_slot(store.load("owner", "repo", number)) for number in (5, 6)]
+        )
+
+    def test_another_repositorys_queued_issue_is_left_alone(self):
+        foreign = [
+            {"owner": owner, "repo": repo, "number": 7, "project": "/work/x", "gate": {"key": "queued"}, "queued": True}
+            for owner, repo in (("owner", "elsewhere"), ("other", "repo"))
+        ]
+        for record in foreign:
+            store.save(dict(record))
+        self.bridge(1).tick()
+        self.assertEqual([7], self.launched)
+        self.assertEqual([], self.queued_notices(7))  # this repository's #7 started; nothing was said for the others
+        for record in foreign:
+            self.assertEqual({**record, "version": store.VERSION}, store.load(record["owner"], record["repo"], 7))
+
+    def test_a_limit_removed_later_starts_what_was_queued(self):
+        self.bridge(1).tick()
+        self.bridge(None).tick()
+        self.assertEqual([7, 8, 9], self.launched)
+
+    def test_words_written_while_queued_cannot_answer_the_run(self):
+        bridge = self.bridge(1)
+        bridge.tick()
+        early = comment(self.client, 8, "dev", "postgres")
+        self.runs[7].state = "done"
+        bridge.tick()  # 8 starts
+        bridge.tick()
+        bridge.tick()
+        self.assertEqual([], self.runs[8].calls)
+        self.assertGreaterEqual(store.load("owner", "repo", 8)["initial_comment_id"], early)
+
+    def test_the_limit_comes_from_the_environment(self):
+        base = {"AUTOCODE_BRIDGE_GITHUB_REPO": "owner/repo", "AUTOCODE_BRIDGE_ACTORS": '["dev"]'}
+        self.assertIsNone(bridge_cli.Config.from_env(base).max_active)
+        self.assertEqual(3, bridge_cli.Config.from_env({**base, "AUTOCODE_BRIDGE_MAX_ACTIVE": "3"}).max_active)
+        for text in ("0", "many"):
+            with self.subTest(text=text), self.assertRaisesRegex(bridge_cli.ConfigError, "AUTOCODE_BRIDGE_MAX_ACTIVE"):
+                bridge_cli.Config.from_env({**base, "AUTOCODE_BRIDGE_MAX_ACTIVE": text})
+
+    def test_check_reports_the_limit(self):
+        import contextlib
+        import io
+        import os
+        from unittest import mock
+
+        base = {"AUTOCODE_BRIDGE_GITHUB_REPO": "owner/repo", "AUTOCODE_BRIDGE_ACTORS": '["dev"]', "GITHUB_TOKEN": "t"}
+        args = bridge_cli.parser().parse_args(["check", "--project", "/work/project"])
+        for extra, expected in (
+            ({"AUTOCODE_BRIDGE_MAX_ACTIVE": "2"}, "limit      at most 2 bridged run(s) in flight at once"),
+            ({}, "limit      none: every labeled issue starts at once"),
+        ):
+            output = io.StringIO()
+            with (
+                self.subTest(extra=extra),
+                mock.patch.dict(os.environ, {**base, **extra}, clear=True),
+                mock.patch.object(worker, "durable_availability", return_value={"available": True}),
+                contextlib.redirect_stdout(output),
+            ):
+                bridge_cli.cmd_check(args)
+            self.assertIn(expected, output.getvalue())
+
+
 class ParserTests(unittest.TestCase):
     def test_the_subcommands_parse(self):
         parsed = bridge_cli.parser().parse_args(["run", "--once"])

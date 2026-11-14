@@ -40,6 +40,7 @@ Everything is configured through the environment:
 | `AUTOCODE_BRIDGE_ACTORS` | a JSON array of GitHub logins allowed to steer runs. Replies from anyone else are ignored. |
 | `AUTOCODE_BRIDGE_OPTIONS` | a JSON array of launch options (engine, models, `--test-command`). Every human or run action flag is refused here. |
 | `AUTOCODE_BRIDGE_POLL_SECONDS` | seconds between polls (default 10). |
+| `AUTOCODE_BRIDGE_MAX_ACTIVE` | the most bridged runs in flight at once, a whole number from 1. Unset, every labeled issue starts as soon as it is seen. See [Many issues at once](#many-issues-at-once). |
 | `AUTOCODE_BRIDGE_OPEN_PR` | `1` to also push the branch and open the draft PR on completion; the default only prepares it. |
 | `AUTOCODE_BRIDGE_OWNED` | `1` for the explicit no-systemd mode: runs live with the daemon process, as the [GitHub Action](https://github.com/charlieanna/autocode/blob/master/examples/github-issue/issue_action.py)'s runs do. A daemon restart interrupts them; prefer the durable mode on a host that supports it. |
 
@@ -63,6 +64,34 @@ Everything is configured through the environment:
    bridge posts why and what to reply (`resume`, or `model NAME`).
 5. On completion the bridge commits the change on the run's branch and
    prepares the evidence pull request (and opens it when configured).
+
+## Many issues at once
+
+Label as many issues as you like. With `AUTOCODE_BRIDGE_MAX_ACTIVE=2` the bridge
+works on two at a time and queues the rest: a queued issue gets one comment
+saying it waits, and starts when an issue in progress finishes or stops, lowest
+issue number first. Each issue still has its own run, branch, conversation and
+pull request.
+
+- **What holds a slot.** An issue holds its slot from the start of its run until
+  that run is delivered, stops with nothing left to ask, or can no longer be
+  resumed. A run waiting for your answer or approval keeps its slot, so the
+  number of issues asking for you at once is bounded too. A start the bridge
+  refused holds none.
+- **What the limit does not do.** It only decides when a queued issue starts.
+  Your answer or approval always continues its own run, and a follow-up on a
+  delivered issue takes a slot again, so more runs than the limit can be in
+  flight for a while; no new issue starts until the count is back under it.
+- **Queued issues.** Only an issue that is still open and still carries the label
+  starts; remove the label to take it off the queue. Comments written while it
+  waited cannot answer its run. `autocode bridge status` lists it with the gate
+  `queued`, and `autocode bridge check` prints the limit.
+- **A run whose state can no longer be read** counts as it did when it was last
+  read; remove its record to free a slot it still holds.
+
+Unset, the bridge behaves as before the limit existed. Removing the limit later
+starts every issue still queued. There is no total cost cap across issues yet:
+each run keeps the cap its launch options give it.
 
 ## The rules the bridge keeps
 
@@ -109,4 +138,5 @@ in the project's `.autocode/issues`, so a person can always pick a run up with
 
 A refused start (durable execution unavailable, a missing engine, a leftover
 branch) is posted to the issue and recorded with its reason; the bridge does
-not retry it automatically. Remove the record to let it try again.
+not retry it automatically. Remove the record to let it try again. Under a
+limit, a refused start's slot goes to the next queued issue in the same poll.

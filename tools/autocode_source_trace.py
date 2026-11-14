@@ -318,6 +318,7 @@ def _survival_errors(body, records, waivers):
         protected_locations = source_metadata.output_locations(record["text"])
         ticket_title_key = source_metadata.ticket_title_key(record["text"])
         ticket_reference_keys = source_metadata.ticket_reference_keys(record["text"])
+        autocode_refs = source_metadata.autocode_reference_tokens(record["text"])
         for sentence in cues.sentences(record["text"]):
             citing = _citing(criteria, sentence, record["id"])
             if not citing:
@@ -329,6 +330,7 @@ def _survival_errors(body, records, waivers):
                 protected_locations=protected_locations,
                 ticket_title_key=ticket_title_key,
                 ticket_reference_keys=ticket_reference_keys,
+                autocode_reference_tokens=autocode_refs,
             )
             numbers = _NUMBER.findall(_REFERENCE.sub(" ", _STANDARD.sub(" ", value_text)))
             cents = _cents(value_text)
@@ -426,10 +428,11 @@ def quotable(records):
 def _coverage_scoped(records):
     """Direct human sources subject to mandatory sentence-by-sentence coverage.
 
-    Linked GitHub issues/PRs (kind="linked issue") remain citable in criteria and checked by
-    citation/survival rules, while their reporter/commenter prose never forces out_of_scope noise (#3344).
+    Linked GitHub issues/PRs (kind="linked issue") and referenced workspace design documents
+    (kind="design document") remain citable in criteria and checked by citation/survival rules,
+    while their background prose never forces out_of_scope noise (#3344).
     """
-    return [row for row in records if row.get("kind") != "linked issue"]
+    return [row for row in records if row.get("kind") not in ("linked issue", "design document")]
 
 
 def _turn_scoped(state: RunState, records):

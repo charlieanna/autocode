@@ -388,6 +388,24 @@ class ReadyGateTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "changed a number the source states: 7"):
                     self.ready(body([criterion("C1", "Process rows.", [text])]), records=records)
 
+    def test_autocode_criterion_and_artifact_metadata_do_not_become_number_obligations(self):
+        # Regression for #3464 (#3287): unquoted references to AutoCode's own AC IDs, stage
+        # artifact stems, milestone/criterion labels, and revision tokens are metadata, not
+        # product quantities; real numbers and output uses still require exact survival.
+        text = "Keep AC5 and AC6 from discovery-02 under milestone M2 (revision r5), and preserve exit code 7."
+        records = [{"id": "task:0", "kind": "task", "text": text}]
+        self.ready(body([criterion("C1", "Preserve exit code 7.", [text])]), records=records)
+        with self.assertRaisesRegex(ValueError, "changed a number the source states: 7"):
+            self.ready(body([criterion("C1", "Preserve exit codes.", [text])]), records=records)
+
+        output_use = "Keep AC5 from discovery-02. Emit AC5 when the check fails."
+        output_records = [{"id": "task:0", "kind": "task", "text": output_use}]
+        with self.assertRaisesRegex(ValueError, "changed a number.*5"):
+            self.ready(
+                body([criterion("C1", "Emit the criterion label when the check fails.", [output_use])]),
+                records=output_records,
+            )
+
     def test_location_outputs_unknown_source_ids_and_real_examples_remain_protected(self):
         cases = (
             ("Print exactly:\n- `tools/parser.py:292–363`: location.", "Print a location.", "changed a number"),

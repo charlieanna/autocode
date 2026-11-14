@@ -59,6 +59,18 @@ class PlainTextTests(unittest.TestCase):
             "Approve the correction?\nAC1 current: \"a\"\n\nReply exactly 'accept'.", person_text.plain(text)
         )
 
+    def test_parenthetical_command_hints_are_removed_without_dropping_the_plain_sentence(self):
+        reason = (
+            "Last cause: No new provider activity within the inactivity limit "
+            "(300 seconds, runner default; change it with autocode resume --max-idle-seconds N). "
+            "The plan names two exports (CSV and JSON); pick one."
+        )
+        self.assertEqual(
+            "Last cause: No new provider activity within the inactivity limit. "
+            "The plan names two exports (CSV and JSON); pick one.",
+            person_text.plain(reason),
+        )
+
     def test_empty_text_passes_through(self):
         for text in (None, ""):
             self.assertEqual(text, person_text.plain(text))

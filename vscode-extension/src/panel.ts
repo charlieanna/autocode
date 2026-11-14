@@ -95,8 +95,8 @@ export interface PanelState {
   unreadable?: boolean;
   /** Saved code changes and the actions the view named for them (#1532). */
   workingDiff: { label: string } | null;
-  checkpoints: { id: string; label: string; at: string | null; files: number; available: boolean; reason: string | null; verdict: string | null; actions: { id: string; label: string }[] }[];
-  checkpointsBlocked: string | null;
+  /** The run's whole change, once a step is saved: the one diff a person reads (owner decision 2026-11-13). */
+  allChanges: { label: string } | null;
   /** The plan the current token asks to approve, only when the view shows it. */
   plan: { revision: number | null; review: TextNode[]; criteria: AcceptanceCriterion[]; constraints: string[]; boundaries: string[]; exclusions: string[]; delivery: string | null; milestones: { id: string; objective: string; acceptance_criteria: string[] }[]; flow: string[] } | null;
   /** The token the approval is bound to; the webview echoes it back so a stale click cannot approve. */
@@ -532,17 +532,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
         requested: view.pause.stop_now.requested === true || !Array.isArray(view.pause.stop_now.next_command),
       } : null,
     } : null,
-    checkpoints: (view.code_checkpoints?.rows ?? []).map((row) => ({
-      id: row.id,
-      label: row.label ?? row.id,
-      at: row.at ?? null,
-      files: row.changed_files?.length ?? 0,
-      available: row.available !== false,
-      reason: row.reason ?? null,
-      verdict: row.recorded_check?.verdict ?? null,
-      actions: (row.actions ?? []).map((action) => ({ id: action.id, label: action.label })),
-    })),
-    checkpointsBlocked: view.code_checkpoints?.blocked_reason ?? null,
+    allChanges: view.code_checkpoints?.all_changes?.next_command ? { label: view.code_checkpoints.all_changes.label ?? "Show all changes" } : null,
     workingDiff: view.code_checkpoints?.working?.next_command ? { label: view.code_checkpoints.working.label ?? "Show changes so far" } : null,
     plan,
     token: approvalToken(view),
@@ -739,9 +729,8 @@ function emptyState(run: RunRef): PanelState {
     taking: false,
     working: false,
     pauseOffer: null,
-    checkpoints: [],
+    allChanges: null,
     workingDiff: null,
-    checkpointsBlocked: null,
     plan: null,
     boundRaise: null,
     token: null,
@@ -1024,14 +1013,13 @@ const chatBehavior = chatMode ? (${installChatBehavior.toString()})() : null;
 let current = null;
 let answers = Object.create(null);
 let renderedState = '';
-let checkpointCompare = Object.create(null);
+let allChangesCompare = null;
 let workingCompare = null;
 const ACTIVITY_MARKS = { command: '$', edit: '±', tool: '·', thinking: '∴', message: '»' };
 // The live agent log kept by entry id across reads (the terminal chat's LiveLog).
 const liveLog = new Map();
 // Folded log lines a person opened (a run of thoughts or of like tool calls), by their first entry's id.
 const openThoughts = new Set();
-let checkpointResult = null;
 const tabScroll = Object.create(null);
 // The tab strip's keyboard state: the tab keys in order and the selected one.
 let tabKeys = [];
@@ -1273,11 +1261,13 @@ function renderFinish(state) {
   if (state.meter && state.meter.total) fact('Cost', state.meter.total);
   if (facts.childNodes.length) body.appendChild(facts);
   const actions = el('div', 'actions');
-  if (state.checkpoints && state.checkpoints.length) {
+  if (state.allChanges) {
     const show = el('button', null, 'Show changes');
     show.id = 'finish-show-changes';
+    show.disabled = Boolean(state.taking || state.unreadable);
     show.addEventListener('click', () => {
-      const target = document.getElementById('saved-changes');
+      requestAllChanges(state);
+      const target = document.getElementById('all-changes');
       if (target && target.scrollIntoView) target.scrollIntoView({ block: 'start', behavior: 'smooth' });
     });
     actions.appendChild(show);
@@ -1291,56 +1281,31 @@ function renderFinish(state) {
   app.appendChild(card);
 }
 
-function renderSavedChanges(state) {
-  if (!chatMode || !state.checkpoints || !state.checkpoints.length) return;
-  const savedHeading = el('h2', null, 'Saved code changes');
-  savedHeading.id = 'saved-changes';
-  app.appendChild(savedHeading);
-  if (state.checkpointsBlocked) app.appendChild(el('div', 'why', state.checkpointsBlocked));
-  if (state.taking && state.checkpoints.some((cp) => cp.available && cp.actions.length)) {
-    app.appendChild(el('div', 'why', 'Saved-code actions are available after the current AutoCode action finishes.'));
+function requestAllChanges(state) {
+  vscode.postMessage({ type: 'all_changes', runKey: state.workspace + '\\n' + state.runDir });
+}
+
+/** The run's result: one diff of everything it changed, never a step-by-step history to pick from. */
+function renderAllChanges(state) {
+  if (!chatMode || !state.allChanges) return;
+  const heading = el('h2', null, 'Changes');
+  heading.id = 'all-changes';
+  app.appendChild(heading);
+  const box = el('div', 'decision');
+  const show = el('button', 'secondary', state.allChanges.label);
+  show.id = 'all-changes-show';
+  show.disabled = Boolean(state.taking || state.unreadable);
+  show.addEventListener('click', () => requestAllChanges(state));
+  box.appendChild(show);
+  if (allChangesCompare && allChangesCompare.error) {
+    box.appendChild(el('div', 'why', 'Could not show the changes: ' + allChangesCompare.error));
+  } else if (allChangesCompare) {
+    const comparison = allChangesCompare.comparison || {};
+    const files = (comparison.changed_files || []).length;
+    box.appendChild(el('div', 'why', files + ' file(s) changed in this run' + (comparison.truncated ? ' · diff truncated' : '')));
+    box.appendChild(diffBlock(comparison.patch, 'This run has not changed any files.'));
   }
-  state.checkpoints.forEach((cp) => {
-    const box = el('div', 'decision');
-    const title = cp.label + (cp.verdict ? ' · ' + cp.verdict : '');
-    box.appendChild(el('div', 'q', title));
-    if (cp.available) {
-      box.appendChild(el('div', 'why', cp.files + ' file(s) changed' + (cp.at ? ' · ' + new Date(cp.at).toLocaleDateString() : '')));
-      cp.actions.forEach((action) => {
-        const button = el('button', action.id === 'restore' ? null : 'secondary', action.label);
-        button.dataset.checkpointAction = action.id;
-        button.dataset.checkpointId = cp.id;
-        button.disabled = Boolean(state.taking || state.unreadable);
-        button.addEventListener('click', () => vscode.postMessage({ type: 'checkpoint', action: action.id,
-          checkpoint: cp.id, runKey: state.workspace + '\\n' + state.runDir }));
-        box.appendChild(button);
-      });
-    } else {
-      box.appendChild(el('div', 'why', cp.reason || 'The saved source for this step is not retained.'));
-    }
-    const compare = checkpointCompare[cp.id];
-    if (compare && compare.error) {
-      box.appendChild(el('div', 'why', 'Comparison failed: ' + compare.error));
-    } else if (compare) {
-      const comparison = compare.comparison || {};
-      const files = (comparison.changed_files || []).length;
-      const step = compare.kind === 'step';
-      box.appendChild(el('div', 'why', step
-        ? files + ' file(s) changed in this step' + (comparison.truncated ? ' · diff truncated' : '')
-        : files + ' file(s) differ from this checkpoint' + (comparison.truncated ? ' · diff truncated' : '')));
-      box.appendChild(diffBlock(comparison.patch, step ? 'This step changed no files.' : 'The files match this checkpoint.'));
-    }
-    if (checkpointResult && checkpointResult.checkpoint === cp.id && checkpointResult.result) {
-      const result = checkpointResult.result;
-      box.appendChild(el('div', 'notice',
-        'Restored on a new branch: ' + (result.branch || 'created') + '. The original branch and later work stay intact.'));
-      const open = el('button', 'secondary', 'Open restored candidate');
-      open.addEventListener('click', () => vscode.postMessage({ type: 'checkpoint_open',
-        workspace: result.workspace, runDir: result.run_dir }));
-      box.appendChild(open);
-    }
-    app.appendChild(box);
-  });
+  app.appendChild(box);
 }
 
 function formatDuration(seconds) {
@@ -1511,7 +1476,7 @@ function render(state) {
     state.chat && [state.chat.phase, state.chat.notice, state.chat.progress, state.chat.activity, state.chat.log, state.chat.now, state.chat.review, state.chat.input && state.chat.input.kind],
     state.chat && (state.chat.messages || []).filter((row) => String(row.id || '').startsWith('requirements-question-')),
     state.workingDiff, state.boundRaise, state.done, state.finish,
-    state.meter && state.meter.struggling, state.checkpoints,
+    state.meter && state.meter.struggling, state.allChanges,
   ] : state;
   const serialized = JSON.stringify(chatSlice);
   if (serialized === renderedState) return;
@@ -1546,7 +1511,7 @@ function render(state) {
       cardContent.appendChild(el('div', 'notice', 'Reply with what changed or how you want to proceed. Recovery is reviewed before the run can continue.'));
       if (state.boundRaise) renderBoundRaise(cardContent, state);
       app.appendChild(card);
-      renderSavedChanges(state);
+      renderAllChanges(state);
       return;
     }
 
@@ -1704,7 +1669,7 @@ function render(state) {
     if (cardContent.childNodes.length > 0) app.appendChild(card);
     if (strip.childNodes.length > 0) app.appendChild(strip);
     if (state.done && state.finish) renderFinish(state);
-    renderSavedChanges(state);
+    renderAllChanges(state);
     updateActionButton();
     if (focusedQuestion) {
       const input = [...document.querySelectorAll('[data-question]')].find((node) => node.dataset.question === focusedQuestion);
@@ -2033,7 +1998,7 @@ window.addEventListener('message', (event) => {
   if (data && data.type === 'sent' && chatEnvelope && data.runKey === chatEnvelope.runKey) {
     const field = document.getElementById('message');
     if (field.value === data.text) field.value = '';
-    saveDraft(); updateComposer(); chatBehavior.resize();
+    saveDraft(); renderTabs(chatEnvelope); updateComposer(); chatBehavior.resize();
   }
   if (data && data.type === 'restore_draft') {
     const saved = vscode.getState() || {};
@@ -2041,25 +2006,20 @@ window.addEventListener('message', (event) => {
     const key = data.runKey || '';
     if (!drafts[key]) drafts[key] = data.text;
     vscode.setState({ ...saved, drafts });
+    vscode.postMessage({ type: 'draft_changed', tabKey: key, hasDraft: Boolean(drafts[key] && drafts[key].length) });
     const field = document.getElementById('message');
     if (chatEnvelope && key === chatEnvelope.runKey && !field.value.trim() && data.text) {
       field.value = data.text;
-      saveDraft(); updateComposer(); chatBehavior.resize();
+      saveDraft(); renderTabs(chatEnvelope); updateComposer(); chatBehavior.resize();
     }
   }
-  if (data && data.type === 'checkpoint_compare') {
-    checkpointCompare[data.checkpoint] = data.error ? { error: data.error }
-      : { comparison: data.comparison, kind: data.kind === 'step' ? 'step' : 'compare' };
+  if (data && data.type === 'all_changes' && chatEnvelope && data.runKey === chatEnvelope.runKey) {
+    allChangesCompare = data.error ? { error: data.error } : { comparison: data.comparison };
     renderedState = '';
     if (current) render(current);
   }
   if (data && data.type === 'working_diff' && chatEnvelope && data.runKey === chatEnvelope.runKey) {
     workingCompare = data.error ? { error: data.error } : { comparison: data.comparison };
-    renderedState = '';
-    if (current) render(current);
-  }
-  if (data && data.type === 'checkpoint_result') {
-    checkpointResult = data;
     renderedState = '';
     if (current) render(current);
   }
@@ -2071,6 +2031,7 @@ function saveDraft() {
   const drafts = saved.drafts || {};
   drafts[chatEnvelope.runKey] = document.getElementById('message').value;
   vscode.setState({ ...saved, drafts });
+  vscode.postMessage({ type: 'draft_changed', tabKey: chatEnvelope.runKey, hasDraft: drafts[chatEnvelope.runKey].length > 0 });
 }
 
 function updateComposer() {
@@ -2123,8 +2084,15 @@ function updateComposer() {
 /** The open chats (#1558): one tab per run or fresh chat, addressed by tab key. */
 function renderTabs(data) {
   const host = document.getElementById('chat-tabs');
-  if (!host) return;
-  const rows = data.tabs || [{ key: data.runKey || '', name: data.runKey ? 'Chat' : 'New chat' }];
+  if (!host || !data) return;
+  const drafts = (vscode.getState() || {}).drafts || {};
+  const rows = (data.tabs || [{ key: data.runKey || '', name: data.runKey ? 'Chat' : 'New chat' }]).map((tab) => {
+    const draft = !tab.run && typeof drafts[tab.key] === 'string' ? drafts[tab.key].split('\\n').find((line) => line.trim())?.trim() : '';
+    return draft ? { ...tab, name: 'Draft: ' + (draft.length > 22 ? draft.slice(0, 21) + '…' : draft) } : tab;
+  });
+  const focusedClose = document.activeElement && document.activeElement.classList.contains('close')
+    ? document.activeElement.parentElement : null;
+  const focusedCloseKey = focusedClose && data.activeKey === activeTabKey ? focusedClose.dataset.key : null;
   tabKeys = rows.map((tab) => tab.key);
   activeTabKey = data.activeKey || '';
   const signature = JSON.stringify([rows, data.activeKey]);
@@ -2137,6 +2105,7 @@ function renderTabs(data) {
   rows.forEach((tab) => {
     const item = el('div', 'chat-tab' + (tab.key === data.activeKey ? ' active' : ''));
     item.role = 'tab';
+    item.dataset.key = tab.key;
     item.tabIndex = tab.key === data.activeKey ? 0 : -1;
     item.setAttribute('aria-selected', tab.key === data.activeKey ? 'true' : 'false');
     const name = el('span', 'name', tab.name);
@@ -2174,7 +2143,10 @@ function renderTabs(data) {
   // A new chat opens past the visible strip; keep the chat you are in on screen.
   const active = host.querySelector('.chat-tab.active');
   if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  if (stripHadFocus && active) active.focus();
+  if (stripHadFocus && active) {
+    const close = focusedCloseKey && [...host.children].find((item) => item.dataset.key === focusedCloseKey)?.querySelector('.close');
+    (close || active).focus();
+  }
 }
 
 function renderChat(data) {
@@ -2201,16 +2173,19 @@ function renderChat(data) {
     const field = document.getElementById('message');
     // A re-key of a chat that never started must not eat an unsent brief: the host
     // replaces the fresh-chat tab while the person is typing in it.
-    const leavingUnstarted = chatEnvelope && !chatEnvelope.selectedRun;
-    if (leavingUnstarted && field.value.trim() && !incoming) {
+    const rekeyedUnstarted = chatEnvelope && !chatEnvelope.selectedRun
+      && !(data.tabs || []).some((tab) => tab.key === chatEnvelope.runKey)
+      && !(chatEnvelope.tabs || []).some((tab) => tab.key === data.runKey);
+    if (rekeyedUnstarted && field.value.trim() && !incoming) {
       const drafts = saved.drafts || {};
       drafts[data.runKey] = field.value;
       vscode.setState({ ...saved, drafts });
+      vscode.postMessage({ type: 'draft_changed', tabKey: data.runKey, hasDraft: true });
     } else {
       field.value = incoming;
     }
     current = null; renderedState = ''; answers = Object.create(null);
-    checkpointCompare = Object.create(null); checkpointResult = null; workingCompare = null;
+    allChangesCompare = null; workingCompare = null;
     liveLog.clear();
     openThoughts.clear();
   }
@@ -2492,7 +2467,7 @@ if (chatMode) {
   document.getElementById('details').addEventListener('click', () => {
     if (chatEnvelope && chatEnvelope.runKey) vscode.postMessage({ type: 'details' });
   });
-  document.getElementById('message').addEventListener('input', () => { saveDraft(); updateComposer(); });
+  document.getElementById('message').addEventListener('input', () => { saveDraft(); renderTabs(chatEnvelope); updateComposer(); });
   document.getElementById('composer').addEventListener('submit', (event) => {
     event.preventDefault();
     if (document.getElementById('send-message').disabled) return;
@@ -2529,7 +2504,8 @@ vscode.postMessage({
   type: 'ready',
   hasSelectedRun: chatMode && Object.prototype.hasOwnProperty.call(initialWebviewState, 'selectedRun'),
   selectedRun: chatMode ? initialWebviewState.selectedRun || null : null,
-  tabs: chatMode ? initialWebviewState.tabs || [] : [],
+  tabs: chatMode ? (initialWebviewState.tabs || []).map((tab) => ({ ...tab,
+    hasDraft: typeof (initialWebviewState.drafts || {})[tab.key] === 'string' && (initialWebviewState.drafts || {})[tab.key].length > 0 })) : [],
   activeKey: chatMode ? initialWebviewState.activeTabKey || '' : '',
 });
 </script>

@@ -12,7 +12,9 @@ preflight_charged_seconds lets reconciliation add only uncharged elapsed time.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import math
+import os
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -108,6 +110,96 @@ def _clean(metadata):
     return value
 
 
+def _valid_identity(row) -> bool:
+    return (
+        isinstance(row, dict)
+        and type(row.get("pid")) is int
+        and row["pid"] > 0
+        and type(row.get("birth_identity")) in (int, float)
+        and (type(row["birth_identity"]) is int or math.isfinite(row["birth_identity"]))
+        and row["birth_identity"] > 0
+    )
+
+
+def _recorded_processes(directory: Path) -> list[dict]:
+    path = directory / "processes.json"
+    if not path.exists():
+        return []
+    if path.is_symlink():
+        raise ValueError("probe process inventory is symlinked")
+    rows = json.loads(path.read_text())
+    if not isinstance(rows, list) or not all(_valid_identity(row) for row in rows):
+        raise ValueError("probe process inventory is malformed")
+    return rows
+
+
+def _same_current_process(saved: dict) -> bool:
+    pid = os.getpid()
+    if saved.get("pid") != pid:
+        return False
+    current = processes.process_table({pid}).get(pid)
+    return bool(current and processes.matches(saved, current))
+
+
+def _settled_cleanup(metadata, directory: Path):
+    """Verify process, group and session absence when a probe's keeper cleanup was uncertain.
+
+    A clean stopped keeper receipt uses ``_clean`` directly. When the keeper exited with
+    ``phase == "uncertain"`` or a ``cleanup_error`` (such as transient ``SessionScanIncomplete``),
+    or lost its keeper after pre-exec admission of a dedicated group and session, a later
+    reconciliation can settle the interrupted probe only after confirming the previous owner,
+    keeper, provider and every recorded process are gone by birth, and every owned group and
+    session is empty across a settled native scan.
+    """
+    value = _clean(metadata)
+    if value is not None:
+        return value, None
+    value = receipts.load(metadata)
+    if not value or value["phase"] not in ("stopped", "uncertain", "armed", "stopping"):
+        return None, None
+    provider = metadata["provider"]
+    dedicated_group = type(provider.get("group")) is int and provider["group"] == provider["pid"]
+    dedicated_session = type(provider.get("session")) is int and provider["session"] == provider["pid"]
+    if value["phase"] in ("armed", "stopping") and not (dedicated_group and dedicated_session):
+        return None, None
+    if "session_admissions" in value and not isinstance(value["session_admissions"], list):
+        raise ValueError("provider session admissions are malformed")
+    extra = _recorded_processes(directory)
+    owner = metadata["owner"]
+    identities = [
+        *([owner] if not _same_current_process(owner) else []),
+        metadata["keeper"],
+        provider,
+        *value.get("processes", []),
+        *extra,
+    ]
+    if processes.live_processes(identities):
+        return None, None
+    all_rows = [provider, *value.get("processes", []), *extra]
+    groups = [row for row in all_rows if type(row.get("group")) is int and row["group"] == row["pid"]]
+    sessions = [provider] if dedicated_session else []
+    session_admissions = value.get("session_admissions", ())
+    if groups or sessions or session_admissions:
+        tree = processes.ProcessTree(
+            provider["pid"],
+            lambda rows: None,
+            groups=groups,
+            sessions=sessions,
+            session_admissions=session_admissions,
+        )
+        tree.known.update({row["pid"]: dict(row) for row in all_rows})
+        if processes.settled_sample(tree, notify=False) or tree.groups or tree.sessions or tree.session_admissions:
+            return None, None
+    settled = {
+        "settled_at": util.now(),
+        "prior_phase": value["phase"],
+        "prior_cause": value.get("cause"),
+        "prior_cleanup_error": value.get("cleanup_error"),
+        "reason": "recorded processes and admitted groups/sessions confirmed gone",
+    }
+    return value, settled
+
+
 def reconcile(runner, state: RunState, run_dir, checkpoint=None):
     """Settle only bound probe attempts; no workflow-stage recovery is invoked."""
     if checkpoint is None:
@@ -115,24 +207,36 @@ def reconcile(runner, state: RunState, run_dir, checkpoint=None):
     for record in records(state, run_dir):
         if record.get("preflight_complete"):
             continue
+        directory = Path(record["events"]).parent
         try:
-            value = _clean(record.get("supervision"))
+            value, settled = _settled_cleanup(record.get("supervision"), directory)
             if value is None:
                 raise ValueError("provider cleanup has not been verified")
             started = dt.datetime.fromisoformat(record["started_at"])
             ended = dt.datetime.fromisoformat(value["observed_at"])
-            duration = (ended - started).total_seconds()
-            if duration < 0:
+            receipt_duration = (ended - started).total_seconds()
+            if receipt_duration < 0:
                 raise ValueError("provider receipt precedes admission")
+            prior_duration = record.get("duration_seconds", 0)
+            duration = max(prior_duration if isinstance(prior_duration, (int, float)) else 0, receipt_duration)
+            finished_at = value["observed_at"]
+            if isinstance(record.get("finished_at"), str) and record["finished_at"]:
+                prior_end = dt.datetime.fromisoformat(record["finished_at"])
+                if prior_end > ended:
+                    finished_at = record["finished_at"]
         except (OSError, ValueError, KeyError, TypeError, processes.ProcessError) as error:
             raise support.Paused(
                 "PAUSED_PROCESS_CLEANUP",
-                f"Model access probe cannot be retried: {error}. Evidence: {Path(record['events']).parent}",
+                f"Model access probe cannot be retried: {error}. Evidence: {directory}",
             ) from error
+        if settled is not None:
+            if directory.is_dir() and not directory.is_symlink():
+                util.atomic_json(directory / "cleanup-settled.json", settled)
+            record["preflight_cleanup_settled"] = settled
         record.update(
             metrics=_metrics(record),
             duration_seconds=duration,
-            finished_at=value["observed_at"],
+            finished_at=finished_at,
             preflight_complete=True,
             interrupted=True,
         )
@@ -142,9 +246,13 @@ def reconcile(runner, state: RunState, run_dir, checkpoint=None):
             "at": record["finished_at"],
             "seconds": round(duration, 2),
             "status": "PAUSED_PROVIDER_UNCERTAIN",
-            "detail": "the previous probe was interrupted",
+            "detail": (
+                "the previous probe was interrupted; provider cleanup confirmed gone on recheck"
+                if settled is not None
+                else "the previous probe was interrupted"
+            ),
             "blocking": False,
-            "evidence": str(Path(record["events"]).parent),
+            "evidence": str(directory),
         }
         _charge(runner, state, record)
         checkpoint()

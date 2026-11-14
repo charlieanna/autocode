@@ -25,10 +25,12 @@ if TYPE_CHECKING:
 import re
 
 try:
+    from . import autocode_linked_designs as linked_designs
     from . import autocode_requirements_review as requirements_review
     from . import autocode_source_log as source_log
     from .autocode_conversation import task_user_texts
 except ImportError:
+    import autocode_linked_designs as linked_designs
     import autocode_requirements_review as requirements_review
     import autocode_source_log as source_log
     from autocode_conversation import task_user_texts
@@ -140,11 +142,30 @@ def _task_sources(state: RunState):
 
 
 def source_texts(state: RunState):
-    """Human task sources, brief feedback, answers and linked origin issues a source_quote may cite."""
-    texts = _task_sources(state)
-    texts += [event.get("text", "") for event in state.get("brief_feedback", [])]
-    texts += [event.get("text", "") for event in state.get("answers", {}).values() if isinstance(event, dict)]
+    """Human task sources, brief feedback, answers, linked issues and user-named design docs a source_quote may cite."""
+    user_texts = list(_task_sources(state))
+    user_texts += [event.get("text", "") for event in state.get("brief_feedback", [])]
+    user_texts += [event.get("text", "") for event in state.get("answers", {}).values() if isinstance(event, dict)]
+    texts = list(user_texts)
     texts += [row["text"] for row in source_log.linked_issue_records(state) if row.get("text")]
+    logged_designs = source_log.linked_design_records(state)
+    texts += [row["text"] for row in logged_designs if row.get("text")]
+    workspace = state.get("workspace")
+    if workspace:
+        seen_paths = {row.get("path") for row in logged_designs if isinstance(row.get("path"), str)}
+        fallback_paths: list[str] = []
+        if source_log.records(state) is None:
+            for msg in user_texts:
+                for rel in linked_designs.extract_paths(msg):
+                    if rel not in seen_paths and rel not in fallback_paths:
+                        fallback_paths.append(rel)
+        for rel in linked_designs.buildable_turn_paths(state.get("turns")):
+            if rel not in seen_paths and rel not in fallback_paths:
+                fallback_paths.append(rel)
+        for rel in fallback_paths:
+            content = linked_designs.read_design_file(workspace, rel)
+            if content:
+                texts.append(content)
     return [text for text in texts if text]
 
 

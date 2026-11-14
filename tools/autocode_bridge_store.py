@@ -70,7 +70,7 @@ def load(owner: str, repo: str, number: int) -> dict | None:
 
 def save(record: dict) -> None:
     required: tuple[str, ...] = ("owner", "repo", "number", "project", "gate")
-    if not record.get("failed"):
+    if not record.get("failed") and not record.get("queued"):  # a queued issue has no run yet
         required = (*required, "worktree", "branch", "run_dir")
     for key in required:
         if not record.get(key):

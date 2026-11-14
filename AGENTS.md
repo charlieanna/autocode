@@ -33,6 +33,18 @@ implementation and verification decisions already delegated here. Exact-plan
 binding, independent verification, evidence checks and the thin-client interface
 remain required.
 
+**Owner decision, 2026-11-13:** operating agents carrying out requested repository
+work may merge its verified pull requests to `master` without asking for a separate
+approval for each pull request. This includes fixes and necessary follow-up
+corrections within that work. Review the exact diff, complete task-focused
+verification, require green CI for the current head, and resolve review concerns
+and merge conflicts before merging. Record the merge and its verification evidence.
+Material scope decisions outside the requested work remain the owner's.
+
+This delegates repository merge authority to the operating agent. It does not
+authorize automatic merging by the AutoCode product or its clients, change selected
+model routes or spending caps, or grant other publishing authority.
+
 ## Own verification through the outcome
 
 **Owner decision, 2026-11-13:** agents must notice and investigate failures
@@ -76,8 +88,9 @@ report repair, routing, stage scheduling, or any pause AutoCode can settle itsel
  same way, in any issue, not only in new code. Do not add a new person question,
  flag or confirmation for machinery to work around one.
 
-Spending caps, model routes the owner chose, publishing and merging remain the
-owner's, as above.
+Spending caps, model routes the owner chose and other publishing decisions remain
+the owner's. Repository merges by the operating agent follow the delegation above;
+automatic merging by the AutoCode product or its clients remains unauthorized.
 
 ## AutoCode delivers no untested code
 
@@ -189,12 +202,19 @@ It is a client of the
   optional `view.chat.input.next_command` message offer, or the optional
   `view.pause.next_command` boundary pause the owner approved on 2026-10-19
   for #1598, its `view.pause.stop_now` variant that ends the running step at once, owner request
-  2026-11-12 for #3263, and a saved step's `compare`/`restore` or the running Builder's
-  display-only `code_checkpoints.working` diff, owner decision 2026-10-19), so it can
+  2026-11-12 for #3263, the running Builder's display-only `code_checkpoints.working` diff,
+  owner decision 2026-10-19, and the run's display-only `code_checkpoints.all_changes` diff),
+  so it can
   do nothing the headless conformance client (#1012,
   `scenarios/harness/conformance.py`) cannot. Where the view names no action the
   client could take, that is a gap in the CLI or the view: report it, never work
   around it here;
+- it shows a person the run's result, not its steps (owner decision 2026-11-13): one
+  diff of everything the run changed (`code_checkpoints.all_changes`), and no saved step's
+  `compare`, `step` or `restore`, so nothing asks a person to pick a step to go back to. A
+  person asks for a change in the chat; a follow-up goes back through Requirements and the
+  plan on the same branch, building on the work already there. The core still names the
+  per-step actions for the CLI and the terminal chat;
 - connection checks and sign-in take only the connection view's named
   `actions[].next_command` argument array (`docs/task-run.md#connections-for-clients`);
 - it never launches a model on its own, and binds an approval to the plan token

@@ -1147,7 +1147,12 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     # The bridge drives the CLI as a subprocess (its tests launch the CLI, so imports cannot select them).
     (
-        ("tools/autocode_bridge_", "tools/autocode_github.py", "tools/autocode_subcommands.py"),
+        (
+            "tools/autocode_bridge_",
+            "tools/autocode_issue_admission.py",
+            "tools/autocode_github.py",
+            "tools/autocode_subcommands.py",
+        ),
         ("tests.test_bridge_cli", "tests.test_bridge_end_to_end"),
     ),
     # `autocode changeset` drives runs as subprocesses, so imports cannot select its CLI test.

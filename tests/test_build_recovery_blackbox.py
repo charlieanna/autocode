@@ -505,7 +505,7 @@ class RecoveryBlackbox(unittest.TestCase):
 
     def test_17_behavioral_drift_five_retries_fails_three_retry_contract(self):
         spec = bb.plan(
-            [([], "Set MAX_RETRIES to exactly 3", ["retry.py"])],
+            [([], "Set MAX_RETRIES to exactly 3", ["retry.py", "test_retry.py"])],
             {"M1": {"retry.py": "MAX_RETRIES = 5\n"}},
             {"M1": "from retry import MAX_RETRIES; assert MAX_RETRIES == 3"},
             "Configure a strict maximum of three retries",
@@ -551,7 +551,13 @@ class RecoveryBlackbox(unittest.TestCase):
 
     def test_19_permission_denial_preserved_on_next_handoff(self):
         spec = bb.plan(
-            [([], "Write the assigned health function only if permitted", ["server/health.py"])],
+            [
+                (
+                    [],
+                    "Write the assigned health function only if permitted",
+                    ["server/health.py", "server/test_health.py"],
+                )
+            ],
             {"M1": {"server/health.py": "def health(): return {'status':'ok'}\n"}},
             {"M1": "from server.health import health; assert health()['status']=='ok'"},
             "Implement a scoped health function",

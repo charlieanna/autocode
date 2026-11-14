@@ -3,6 +3,7 @@ stopped at the hold to reroute it (#2485). When the provider refuses that retry,
 asks for is taken the way the stop names it (#3159)."""
 
 import json
+import shlex
 import tempfile
 import unittest
 from pathlib import Path
@@ -88,11 +89,40 @@ class ResolverRetryRouteCLI(unittest.TestCase):
         # provider's content filter, and the stop offers --abandon-stage, then --resume-paused
         # --resolver-model MODEL. Both steps must be taken, and the Resolver must run on MODEL.
         scenario, root, driver = self.driver(SCENARIO_FAKE_REFUSE_RESOLVER=REFUSED)
-        # The fake refuses every Resolver call on the saved model, so the driver's resume makes no progress.
-        with self.assertRaises(DriveError):
-            driver.drive(scenario.brief)
+        # The refused attempt is now published as a model-choice gate. The driver leaves this
+        # owner decision unanswered, rather than resuming the same refused call until it errors.
+        before = driver.drive(scenario.brief)
+        self.assertEqual("WAITING_FOR_USER", before["status"])
+        need = before["needs"]
+        self.assertEqual(
+            ("answer", "operational_exhaustion", "PAUSED_CONTENT_FILTER"),
+            tuple(need[key] for key in ("kind", "resolver_scope", "pause_origin")),
+        )
+        self.assertEqual(
+            ("route-resolver", "resolver", "content_filter", REFUSED),
+            tuple(need["route"][key] for key in ("question_id", "role", "cause", "stopped_model")),
+        )
+        self.assertEqual(["route-resolver"], [question["id"] for question in need["questions"]])
+        self.assertEqual(
+            ["--answer", "route-resolver=MODEL", "--resolver-token", "-"],
+            shlex.split(before["next_command"])[-4:],
+        )
+        self.assertEqual((REFUSED, "derived"), tuple(before["routes"]["resolver"][key] for key in ("model", "origin")))
+        self.assertEqual([], before["route_assignments"])
         stopped = driver.state()
         attempt = "002/resolver-01"
+        request = stopped["resolver_human_request"]
+        self.assertTrue(need["resolver_token"])
+        self.assertEqual(
+            (request["request_id"], request["request_token"]),
+            (need["resolver_request_id"], need["resolver_token"]),
+        )
+        refused = [row for row in before["usage"]["accounting"]["attempts"] if row["stage"] == "resolve"]
+        self.assertEqual(
+            [(attempt, REFUSED, 3)], [(row["attempt_id"], row["model"], row["exit_code"]) for row in refused]
+        )
+        calls = [json.loads(line) for line in (root / "resolver-calls.jsonl").read_text().splitlines()]
+        self.assertEqual([(REFUSED, True)], [(row["model"], row["refused"]) for row in calls])
         self.assertEqual("resolve", stopped["active_stage"]["stage"])
         self.assertIn(f"--abandon-stage {attempt}, then --resume-paused --resolver-model MODEL", stopped["stop_reason"])
         self.assertTrue(stopped["resolution_request"]["novelty_hold"], "the Resolver was held before its retry")
