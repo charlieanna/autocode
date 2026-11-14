@@ -393,7 +393,7 @@ def _source_refs():
         try:
             target = path.resolve(strict=True)
             relative = target.relative_to(root)
-        except (OSError, ValueError):
+        except (OSError, RuntimeError, ValueError):  # a link that loops is a RuntimeError before Python 3.13
             continue
         # Select directly stored inventory files. Aliases can resolve in this
         # workspace yet dangle in the copy when any link target is ignored.

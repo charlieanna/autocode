@@ -163,7 +163,8 @@ class DataLinkTests(unittest.TestCase):
             guard.retain(self.root, self.project.evidence / "partial", files, self.command)
 
 
-DASHED = REPORT.replace("{count}", "{'-' if count is None else count}")
+# Python 3.11 has no quote of the string's own kind inside an f-string's braces.
+DASHED = REPORT.replace("{count}", '{"-" if count is None else count}')
 DASH_TEST = (
     "\n    def test_a_missing_count_is_a_dash(self):\n        self.assertEqual('pen: -\\n', render([('pen', None)]))\n"
 )
