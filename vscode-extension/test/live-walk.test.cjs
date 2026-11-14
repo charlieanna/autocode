@@ -19,6 +19,20 @@ const CLI = process.env.AUTOCODE_WALK_CLI;
 const SCRIPT = process.env.AUTOCODE_WALK_SCRIPT;
 const skip = !CLI || !SCRIPT ? 'set AUTOCODE_WALK_CLI and AUTOCODE_WALK_SCRIPT to walk against a real AutoCode' : false;
 
+function isolateWalkProjectIndex(env = process.env) {
+  if (env.AUTOCODE_PROJECT_INDEX_HOME) return null;
+  const walkIndexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'walk-index-'));
+  env.AUTOCODE_PROJECT_INDEX_HOME = walkIndexHome;
+  return () => {
+    try { fs.rmSync(walkIndexHome, { recursive: true, force: true }); } catch {}
+  };
+}
+
+if (!skip) {
+  const cleanupWalkIndex = isolateWalkProjectIndex();
+  if (cleanupWalkIndex) process.on('exit', cleanupWalkIndex);
+}
+
 const host = editor();
 const { RunController } = host.load('controller.js');
 const { ChatView } = host.load('chat.js');
@@ -1688,4 +1702,19 @@ report_path.write_text(json.dumps(out))
   assert.deepEqual(runById.planner.chosen, { model: 'zai-coding-plan/glm-5.3', effort: 'high' });
   assert.deepEqual(runById.builder.chosen, { model: 'xiaomi-token-plan-sgp/mimo-v2.6-pro', effort: 'xhigh' });
   assert.deepEqual(runById.tester.chosen, { model: 'fake/requirements', effort: 'low' });
+});
+
+test('walk project index isolation creates and cleans up a temporary index home without overriding explicit env', () => {
+  const unsetEnv = {};
+  const cleanup = isolateWalkProjectIndex(unsetEnv);
+  assert.equal(typeof cleanup, 'function');
+  assert.ok(unsetEnv.AUTOCODE_PROJECT_INDEX_HOME.includes('walk-index-'));
+  assert.equal(fs.existsSync(unsetEnv.AUTOCODE_PROJECT_INDEX_HOME), true);
+  fs.writeFileSync(path.join(unsetEnv.AUTOCODE_PROJECT_INDEX_HOME, 'projects.json'), '{}');
+  cleanup();
+  assert.equal(fs.existsSync(unsetEnv.AUTOCODE_PROJECT_INDEX_HOME), false);
+
+  const explicitEnv = { AUTOCODE_PROJECT_INDEX_HOME: '/custom/index-home' };
+  assert.equal(isolateWalkProjectIndex(explicitEnv), null);
+  assert.equal(explicitEnv.AUTOCODE_PROJECT_INDEX_HOME, '/custom/index-home');
 });
