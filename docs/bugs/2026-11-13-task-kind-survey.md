@@ -647,7 +647,16 @@ Open: build output in a directory that already held files when the stage began (
 build, never ignored) is still charged to the stage. `node_modules/` a stage installs in a project that
 does not ignore it is not handled either.
 
-## Also seen, not yet run on real models
+## 25. Four more kinds of task (complete)
+
+On master with sections 22 and 24's fixes, each with one plan approval and no question:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| Rust bug fix in a project with neither a `.gitignore` nor a `Cargo.lock` | complete, 10 stages, 158 s, $1.23 | `b76e5d9698a4575fd4266357ebe3c3487b3fbead880940c87c918032080b8175` |
+| Python package in a `src/` layout, pytest with a `conftest.py` fixture and parametrized tests, its own virtualenv | complete, 10 stages, 219 s, $1.35 | `411889d1b49c830e4d5642ebd9489d2eb25e5b64067175f3213490ea45b5dd9c` |
+| Two unrelated changes in one request (a display bug and a new command) | complete, 8 stages, 158 s, $1.10 | `9764e1921a54bc254d195ed49fd873bb708da1ca6890e28b0376c790114bb198` |
+| TypeScript refactor (extract a function, behavior unchanged), Vitest | complete, 10 stages, 198 s, $1.36; the Tester's report was refused twice for its form and repaired without a new check | `1532d861bfda72f903033a261cf491496c1282e78344e2acf6ff0d100d72f0b9` |
 
 - **A new repository with no commit is refused** with a Git command for the person to type
   (`autocode_workspaces.create`), while an empty folder that is not a repository is set up
