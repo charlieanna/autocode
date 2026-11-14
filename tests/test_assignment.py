@@ -277,7 +277,10 @@ class UndoCreatedTests(RetainedChangesTests):
             root,
             checkpoints=[{"id": "code-m1", "commit": m1_commit}],
         )
-        self.assertIn("restored pre-existing files to their committed content, so a retry is not refused for them: tests/m1.sh", message)
+        self.assertIn(
+            "restored pre-existing files to their committed content, so a retry is not refused for them: tests/m1.sh",
+            message,
+        )
         self.assertIn("edits retained for inspection: notes.txt", message)
         self.assertEqual("#!/bin/sh\necho m1\n", (root / "tests/m1.sh").read_text())
         self.assertTrue(os.access(root / "tests/m1.sh", os.X_OK))

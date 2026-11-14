@@ -626,7 +626,9 @@ def assert_within_assignment(state: RunState, record):
         )
     if outside:  # files the assignment created or moved from a saved checkpoint are restored for retries
         checkpoints = state.get("code_checkpoints") or ()
-        msg = assignment.undo_created(outside, state.get("stages", []), record, state.get("workspace"), checkpoints=checkpoints)
+        msg = assignment.undo_created(
+            outside, state.get("stages", []), record, state.get("workspace"), checkpoints=checkpoints
+        )
         raise support.Paused("PAUSED_ASSIGNMENT_SCOPE", msg)
 
 

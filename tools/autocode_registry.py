@@ -644,14 +644,18 @@ def _listed_project_workspace(record: dict[str, Any], availability: str) -> str 
         return None
     path = Path(workspace)
     project = _registry_project(path)
-    if project == path and availability == "workspace_missing":
-        if path.parent.name == "worktrees" and path.parent.parent.name == ".autocode":
-            candidate = path.parent.parent.parent
-            try:
-                if (candidate / ".git").exists():
-                    project = candidate
-            except OSError:
-                pass
+    if (
+        project == path
+        and availability == "workspace_missing"
+        and path.parent.name == "worktrees"
+        and path.parent.parent.name == ".autocode"
+    ):
+        candidate = path.parent.parent.parent
+        try:
+            if (candidate / ".git").exists():
+                project = candidate
+        except OSError:
+            pass
     return str(project)
 
 
@@ -694,6 +698,7 @@ def _listing(also: Path | None = None, *, include_archived: bool = False, visit_
                 document[kind].setdefault(key, value)
     workspaces = [_workspace_listing(key, document["workspaces"][key]) for key in sorted(document["workspaces"])]
     runs = []
+    project_workspaces: dict[tuple[str, str], str | None] = {}
     for key in sorted(document["runs"]):
         record = document["runs"][key]
         if not isinstance(record, dict):
@@ -718,7 +723,14 @@ def _listing(also: Path | None = None, *, include_archived: bool = False, visit_
         # The central pointer record may predate migration. Surface the run's
         # authoritative task_id without writing either registry or checkpoint.
         task_id = diagnostic.pop("task_id", record.get("task_id"))
-        project_workspace = _listed_project_workspace(record, availability)
+        workspace_key = record.get("workspace")
+        if isinstance(workspace_key, str):
+            cache_key = (workspace_key, availability)
+            if cache_key not in project_workspaces:
+                project_workspaces[cache_key] = _listed_project_workspace(record, availability)
+            project_workspace = project_workspaces[cache_key]
+        else:
+            project_workspace = _listed_project_workspace(record, availability)
         runs.append(
             {
                 **record,

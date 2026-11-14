@@ -736,7 +736,9 @@ class AssignmentScenarios(unittest.TestCase):
         m1_record = next(row for row in reversed(self.state["stages"]) if row.get("stage") == "builder")
         m1_source = s.snapshot(self.root)
         m1_commit = code_checkpoints.capture_tree(self.root, m1_source, self.run)
-        self.state["code_checkpoints"] = [{"id": "code-m1", "commit": m1_commit, "source_revision": m1_record["source_revision"]}]
+        self.state["code_checkpoints"] = [
+            {"id": "code-m1", "commit": m1_commit, "source_revision": m1_record["source_revision"]}
+        ]
         # Dispatch milestone 2 owning only docs/other.txt while M1's edits remain uncommitted.
         decision = {
             "status": "CONTINUE",
