@@ -2044,7 +2044,7 @@
 
 
 <h1 id="execution-and-completion">Execution and completion<a class="headerlink" href="#execution-and-completion" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/a45d3e60d966c3160ea9e052cd68984034e2d162/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/44f0848b80b10e8a2106cbe7046a799f781013c9/README.md">← Back to README</a></p>
 <p>This page covers independent milestone Builders, milestone checkpoints and acceptance,
 open findings, timeouts and recovery, and the completion gate.</p>
 <h2 id="the-projects-own-tests-as-examples">The project's own tests as examples<a class="headerlink" href="#the-projects-own-tests-as-examples" title="Permanent link">&para;</a></h2>
@@ -2420,17 +2420,30 @@ before a PASS is accepted, the runner requires its own current execution of each
 <li><strong>What is refused.</strong> A check that runs <code>git status</code> is refused before anything
   runs: it reads the working tree's state, not the product, and once the work is
   committed and merged it lists nothing
-  (<a href="https://github.com/charlieanna/autocode/blob/a45d3e60d966c3160ea9e052cd68984034e2d162/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
+  (<a href="https://github.com/charlieanna/autocode/blob/44f0848b80b10e8a2106cbe7046a799f781013c9/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
   that names <code>git status</code> is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
   slice's check, a user's <code>--edit-goal</code> or <code>--goal-file</code>. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
-  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/a45d3e60d966c3160ea9e052cd68984034e2d162/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
+  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/44f0848b80b10e8a2106cbe7046a799f781013c9/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
   A new plan with a command that <code>/bin/sh</code> cannot parse is refused at the same
   points, in the same repair. The replay runs each planned command with
   <code>/bin/sh -c</code>, so the runner asks that shell to read the command with <code>sh -n</code>,
   which runs nothing. A live step with backticks inside double quotes could
-  never run (<a href="https://github.com/charlieanna/autocode/blob/a45d3e60d966c3160ea9e052cd68984034e2d162/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
+  never run (<a href="https://github.com/charlieanna/autocode/blob/44f0848b80b10e8a2106cbe7046a799f781013c9/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
+<li><strong>A validate task's new steps are run when it is written.</strong> A Completion
+  Reviewer or Resolver that finds a criterion without evidence hands the Tester a
+  validate task, with steps of its own. Such a step must exit 0 in this replay,
+  and a Tester cannot change it. A validate task changes no code, so the runner
+  runs each new command step once, in the same clean copy, when its author hands
+  the task in (<code>tools/autocode_validate_task_steps.py</code>). A step that fails sends
+  the report back to its author with the command, how it ended and the end of its
+  output: the author rewords a wrong step, or returns a task that fixes the code
+  when the step shows a defect. A command the approved plan already runs, or one
+  the last accepted validation passed on this same source, is not run again here,
+  and a failure the base revision has identically is the base's, as below. An
+  implement task's steps are not run: they may fail until the Builder works
+  (<a href="https://github.com/charlieanna/autocode/blob/44f0848b80b10e8a2106cbe7046a799f781013c9/docs/bugs/2026-11-13-task-kind-survey.md">task-kind survey</a>, section 36).</li>
 <li><strong>When one does not reproduce.</strong> The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. The Tester then runs
   again on the same source, once, and is told the command, how its replay ended
@@ -2807,7 +2820,7 @@ plan and review approval the harness gave a run must also be listed among that r
 and so must each budget pause the scenario's person acknowledged, as the resume that names it.
 In a components scenario each such gate names the task run it was given to, so an
 approval listed only in another component's run fails
-(<a href="https://github.com/charlieanna/autocode/blob/a45d3e60d966c3160ea9e052cd68984034e2d162/scenarios/README.md">scenarios/README.md</a>).</p>
+(<a href="https://github.com/charlieanna/autocode/blob/44f0848b80b10e8a2106cbe7046a799f781013c9/scenarios/README.md">scenarios/README.md</a>).</p>
 <h4 id="required-approver">Required approver<a class="headerlink" href="#required-approver" title="Permanent link">&para;</a></h4>
 <p>A team that wants only named people to approve can list their Git email addresses as
 <code>require-approver</code> in its <a href="../cli/#project-settings">project settings</a>:</p>
