@@ -69,20 +69,22 @@ def runs_existing_tests(command, framework, original_tests) -> bool:
     return bool(plan_command.test_files(command, original_tests))
 
 
-def usable(guards, framework, original_tests) -> list[dict]:
+def usable(guards, framework, original_tests, *, per_test: bool | None = None) -> list[dict]:
     """The ``guards`` the proof runs: none where the runner names its tests, and none that runs no test the
     original code has."""
-    if framework is not None and framework.per_test:
+    names_tests = (framework is not None and framework.per_test) if per_test is None else per_test
+    if names_tests:
         return []
     return [guard for guard in guards if runs_existing_tests(guard["command"], framework, original_tests)]
 
 
-def problem(guards, framework, original_tests) -> str | None:
+def problem(guards, framework, original_tests, *, per_test: bool | None = None) -> str | None:
     """Why the plan's command guards could never be proven, for the Planner, or None."""
     if not guards:
         return None
     named = ", ".join(guard["id"] for guard in guards)
-    if framework is not None and framework.per_test:
+    names_tests = (framework is not None and framework.per_test) if per_test is None else per_test
+    if names_tests:
         return (
             f"Criteria {named} guard with a command, but this project's {framework.name} suite names each test "
             "it runs: guard existing behavior with the existing test that shows it, by its name "

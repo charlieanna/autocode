@@ -19,9 +19,14 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
+try:
+    from . import autocode_project_kinds as project_kinds
+except ImportError:
+    import autocode_project_kinds as project_kinds
+
 SNAPSHOT_MULTIPLIER = 3
 _INTERNAL = {".git", ".autocode", ".autocode-ui", ".scenario-runs"}
-_SKIP_DIRS = {"__pycache__"}
+_SKIP_DIRS = set(project_kinds.BYTECODE_DIRS)
 
 
 def conversation_only(state: RunState):
@@ -107,7 +112,10 @@ def workspace_bytes(workspace):
                             path = Path(entry.path)
                             if path not in other_worktrees:
                                 pending.append(path)
-                        elif entry.is_file(follow_symlinks=False) and Path(entry.name).suffix != ".pyc":
+                        elif (
+                            entry.is_file(follow_symlinks=False)
+                            and Path(entry.name).suffix not in project_kinds.BYTECODE_SUFFIXES
+                        ):
                             total += entry.stat(follow_symlinks=False).st_size
                     except OSError:
                         continue

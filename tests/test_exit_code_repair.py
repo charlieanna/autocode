@@ -171,7 +171,11 @@ class MinitestTests(Proving):
         proof = self.prove(contract(criterion), {"lib/pager.rb": FIXED})
         self.assertEqual(verify.PASS, proof["verdict"], proof)
         self.assertEqual((framework.suite, "detected:minitest"), tuple(proof["commands"].values())[:2])
-        self.assertTrue(self.shown(proof), proof["notes"])
+        self.assertIn(
+            "Existing tests that fail on the original code pass with the change: "
+            "test/pager_test.rb::PagerTest::test_partial_last_page",
+            proof["notes"],
+        )
 
 
 class ShellTests(Proving):

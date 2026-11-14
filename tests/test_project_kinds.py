@@ -97,9 +97,9 @@ class RunnerTests(unittest.TestCase):
         self.assertNotIn("minitest", plan_test_suite.RUNNER_KIND)
 
     def test_per_test_results_come_from_the_runners_the_table_names(self):
-        for name in ("pytest", "unittest", "go", "node", "vitest", "jest", "rspec", "cargo"):
+        for name in ("pytest", "unittest", "go", "node", "vitest", "jest", "mocha", "rspec", "minitest", "cargo"):
             self.assertTrue(Framework(name, "suite").per_test, name)
-        for name in ("mocha", "make", "minitest", "npm"):
+        for name in ("make", "npm"):
             self.assertFalse(Framework(name, "suite").per_test, name)
 
     def test_a_targeted_run_is_given_only_its_runners_test_files(self):
@@ -122,7 +122,29 @@ class ProjectFilesTests(unittest.TestCase):
             {"package.json", "go.mod", "Cargo.toml", "pyproject.toml", "setup.py", "setup.cfg", "Gemfile"},
             set(package_scope.MANIFESTS),
         )
-        self.assertEqual({"Cargo.lock": "Cargo.toml"}, byproducts.LOCKFILES)
+        self.assertEqual(
+            {
+                "go.sum": "go.mod",
+                "Gemfile.lock": "Gemfile",
+                "uv.lock": "pyproject.toml",
+                "poetry.lock": "pyproject.toml",
+                "pdm.lock": "pyproject.toml",
+                "package-lock.json": "package.json",
+                "npm-shrinkwrap.json": "package.json",
+                "yarn.lock": "package.json",
+                "pnpm-lock.yaml": "package.json",
+                "bun.lock": "package.json",
+                "bun.lockb": "package.json",
+                "Cargo.lock": "Cargo.toml",
+            },
+            byproducts.LOCKFILES,
+        )
+        self.assertIn("__pycache__", kinds.CACHE_DIRS)
+        self.assertIn(".pytest_cache", kinds.CACHE_DIRS)
+        self.assertEqual({"__pycache__"}, kinds.BYTECODE_DIRS)
+        self.assertEqual((".pyc", ".pyo"), kinds.BYTECODE_SUFFIXES)
+        self.assertEqual(("go.mod", "go.sum"), kinds.TEST_PREREQUISITES["go"])
+        self.assertEqual(frozenset({"go.mod", "go.sum"}), kinds.ALL_TEST_PREREQUISITES)
         for language in kinds.LANGUAGES:
             for lockfile, manifest in language.lockfiles.items():
                 self.assertIn(manifest, language.manifests, lockfile)

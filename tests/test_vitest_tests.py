@@ -178,3 +178,16 @@ class EvidenceTests(unittest.TestCase):
         self.report["reason"] = "failed"
         self.assertIn("[vitest runtime error]", self.read(self.report)["collection_errors"])
         self.assertEqual([], self.read(self.report)["uncollected"])
+
+    def test_composite_npm_test_with_vitest_instruments_via_named_reporters(self):
+        import autocode_named_reporters as reporters
+
+        (self.root / "package.json").write_text(json.dumps({"scripts": {"test": "node build.js && vitest run"}}))
+        self.assertEqual("vitest.json", reporters.extension("npm test --silent", self.root, self.root))
+        self.assertTrue(reporters.reports("npm test --silent", self.root, self.root))
+        wrapped = reporters.instrument("npm test --silent", self.path, self.root, self.root)
+        self.assertTrue(wrapped.startswith("npm exec --silent --call "), wrapped)
+        self.assertIn("node build.js", wrapped)
+        self.assertIn("vitest run", wrapped)
+        self.assertIn("--reporter=", wrapped)
+        self.assertIsNotNone(reporters.reader(self.path, root=self.root))

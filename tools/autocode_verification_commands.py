@@ -7,6 +7,8 @@ try:
     from . import autocode_cargo_tests as cargo_tests
     from . import autocode_go_tests as go_tests
     from . import autocode_junit_tests as junit_tests
+    from . import autocode_minitest_tests as minitest_tests
+    from . import autocode_mocha_tests as mocha_tests
     from . import autocode_node_tests as node_tests
     from . import autocode_python_tests as python_tests
     from .autocode_test_framework import Framework
@@ -14,6 +16,8 @@ except ImportError:
     import autocode_cargo_tests as cargo_tests
     import autocode_go_tests as go_tests
     import autocode_junit_tests as junit_tests
+    import autocode_minitest_tests as minitest_tests
+    import autocode_mocha_tests as mocha_tests
     import autocode_node_tests as node_tests
     import autocode_python_tests as python_tests
     from autocode_test_framework import Framework
@@ -90,6 +94,10 @@ def command_framework(command, *, test_report=None):
         return Framework("go", command, invocation=invocation)
     if cargo_tests.command_words(command):
         return Framework("cargo", command)
+    if mocha_tests.command_words(command):
+        return Framework("mocha", command)
+    if minitest_tests.command_words(command):
+        return Framework("minitest", command)
     return None
 
 
@@ -106,7 +114,7 @@ def configured_targeted(settings, test_paths):
 
 # Runners that choose test files by their kind (a Python module, a Node script, a Go package, an RSpec
 # file). A suite of one of these that targets none of a change's tests cannot hold them (#2889).
-TARGETING = frozenset({"pytest", "unittest", "node", "go", "jest", "vitest", "mocha", "rspec"})
+TARGETING = frozenset({"pytest", "unittest", "node", "go", "jest", "vitest", "mocha", "rspec", "minitest"})
 
 
 def cannot_run(framework, test_paths) -> bool:

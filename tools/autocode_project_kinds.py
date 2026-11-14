@@ -56,6 +56,12 @@ class Language:
     # Lockfiles its toolchain writes on its own beside a manifest the first time it resolves the
     # project: the tool's by-product, not an edit by a stage (autocode_toolchain_byproducts).
     lockfiles: dict[str, str] = field(default_factory=dict)
+    # Tool cache directories generated at runtime (ignored by workspace inventory/snapshots).
+    cache_dirs: tuple[str, ...] = ()
+    # Compiled bytecode file suffixes generated at runtime.
+    bytecode_suffixes: tuple[str, ...] = ()
+    # Loading prerequisites beside a manifest that tests require and must be kept fixed (e.g. go.mod, go.sum).
+    test_prerequisites: tuple[str, ...] = ()
     # Directories its build tool creates on its own beside one of these manifests and fills with
     # build output (Maven's and Cargo's target/, Gradle's build/ and .gradle/, the build/ a CMake
     # project is configured into): the tool's by-product too (autocode_toolchain_byproducts).
@@ -89,6 +95,9 @@ LANGUAGES: tuple[Language, ...] = (
         runners=("pytest", "unittest"),
         per_test=("pytest", "unittest"),
         manifests=("pyproject.toml", "setup.py", "setup.cfg"),
+        lockfiles={"uv.lock": "pyproject.toml", "poetry.lock": "pyproject.toml", "pdm.lock": "pyproject.toml"},
+        cache_dirs=("__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"),
+        bytecode_suffixes=(".pyc", ".pyo"),
     ),
     Language(
         "go",
@@ -99,6 +108,8 @@ LANGUAGES: tuple[Language, ...] = (
         runners=("go",),
         per_test=("go",),
         manifests=("go.mod",),
+        lockfiles={"go.sum": "go.mod"},
+        test_prerequisites=("go.mod", "go.sum"),
     ),
     Language(
         "ruby",
@@ -107,8 +118,9 @@ LANGUAGES: tuple[Language, ...] = (
         collected=r".*_spec\.rb",
         shown="RSpec",
         runners=("rspec",),
-        per_test=("rspec",),
+        per_test=("rspec", "minitest"),
         manifests=("Gemfile",),
+        lockfiles={"Gemfile.lock": "Gemfile"},
     ),
     Language(
         "javascript",
@@ -118,8 +130,16 @@ LANGUAGES: tuple[Language, ...] = (
         collected=r".*\.(test|spec)\.[cm]?[jt]sx?",
         shown="JavaScript or TypeScript",
         runners=("node", "jest", "vitest", "mocha"),
-        per_test=("node", "vitest", "jest"),
+        per_test=("node", "vitest", "jest", "mocha"),
         manifests=("package.json",),
+        lockfiles={
+            "package-lock.json": "package.json",
+            "npm-shrinkwrap.json": "package.json",
+            "yarn.lock": "package.json",
+            "pnpm-lock.yaml": "package.json",
+            "bun.lock": "package.json",
+            "bun.lockb": "package.json",
+        },
     ),
     Language(
         "rust",
@@ -165,8 +185,17 @@ TEST_FILE = _whole(pattern for language in LANGUAGES for pattern in language.tes
 TEST_ROLE = _whole(pattern for language in LANGUAGES for pattern in (*language.test_names, *language.support_names))
 # The files that make a directory a project of its own.
 MANIFESTS = tuple(manifest for language in LANGUAGES for manifest in language.manifests)
-# A lockfile a toolchain writes on its own, and the manifest it resolves beside it.
+# Lockfiles a toolchain writes on its own, and the manifest it resolves beside it.
 LOCKFILES = {name: manifest for language in LANGUAGES for name, manifest in language.lockfiles.items()}
+# Cache directories and bytecode suffixes generated at runtime by language toolchains.
+CACHE_DIRS = frozenset(name for language in LANGUAGES for name in language.cache_dirs)
+BYTECODE_DIRS = frozenset(name for language in LANGUAGES for name in language.cache_dirs if not name.startswith("."))
+BYTECODE_SUFFIXES = tuple(dict.fromkeys(suffix for language in LANGUAGES for suffix in language.bytecode_suffixes))
+# Loading prerequisite files beside manifests that tests depend on.
+TEST_PREREQUISITES = {
+    language.name: language.test_prerequisites for language in LANGUAGES if language.test_prerequisites
+}
+ALL_TEST_PREREQUISITES = frozenset(name for language in LANGUAGES for name in language.test_prerequisites)
 # A directory a build tool creates on its own, and the manifests it is created beside.
 BUILD_DIRS = {
     name: tuple(dict.fromkeys(m for language in LANGUAGES for m in language.build_dirs.get(name, ())))

@@ -270,6 +270,24 @@ class CommandTests(unittest.TestCase):
         body = {"acceptance_criteria": [{"id": "AC1", "criterion": "c", "verification_method": "test: test_ac1_x"}]}
         self.assertIsNone(plan_test_suite.unnamed_cases(".", jest, [], body, lambda root: None))
 
+    def test_composite_npm_test_script_is_instrumented_and_opaque_wrapper_is_not(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "package.json").write_text(json.dumps({"scripts": {"test": "jest && eslint ."}}))
+            jest = Framework("jest", "npm test --silent")
+            self.assertEqual("jest.json", reporters.extension("npm test --silent", root, root))
+            self.assertTrue(reporters.reports("npm test --silent", root, root))
+            self.assertTrue(reporters.suite_reports(jest, root))
+            wrapped = reporters.instrument("npm test --silent", self.OUT, root, root)
+            self.assertTrue(wrapped.startswith("npm exec --silent --call "), wrapped)
+            self.assertIn("--json", wrapped)
+            self.assertIn("eslint .", wrapped)
+            # Without tree (NativeCheckExecution), composite script stays untouched.
+            self.assertIsNone(reporters.instrument("npm test --silent", self.OUT, None, root))
+            # Opaque react-scripts wrapper reports per_test False through suite_reports.
+            (root / "package.json").write_text(json.dumps({"scripts": {"test": "react-scripts test"}}))
+            self.assertFalse(reporters.suite_reports(jest, root))
+
 
 SRC = "'use strict';\n\nfunction pageCount(total, size) {\n  return Math.ceil(total / size);\n}\n\nmodule.exports = { pageCount };\n"
 # Rounds down: eleven items in pages of five is three pages, and this says two.

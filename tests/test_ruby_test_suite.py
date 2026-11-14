@@ -61,7 +61,7 @@ class DetectionTests(unittest.TestCase):
                 framework = detect(files)
                 self.assertEqual("minitest", framework.name)
                 self.assertTrue(framework.suite.startswith("ruby -Ilib -Itest -e "), framework.suite)
-                self.assertFalse(framework.per_test)  # judged by the suite's exit code, as cargo and make are
+                self.assertTrue(framework.per_test)
 
     def test_a_project_that_pins_its_gems_runs_the_suite_through_bundler(self):
         framework = detect({**SEED, "Gemfile": "source 'https://rubygems.org'\ngem 'minitest'\n"})
@@ -143,7 +143,7 @@ class ProofTests(unittest.TestCase):
         self.write({"lib/pager.rb": FIXED, "test/pager_test.rb": VACUOUS})
         result = self.verify()
         self.assertEqual("FAIL", result["verdict"], result)
-        self.assertIn("pass on the unfixed base code", " ".join(result["failures"]))
+        self.assertIn("unfixed base code and passes with the fix", " ".join(result["failures"]))
 
     def test_a_change_that_leaves_its_own_test_failing_is_refused(self):
         self.write(

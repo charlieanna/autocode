@@ -10,11 +10,13 @@ import re
 from pathlib import Path
 
 try:
+    from . import autocode_project_kinds as project_kinds
     from . import autocode_prompts as prompts
 except ImportError:
+    import autocode_project_kinds as project_kinds
     import autocode_prompts as prompts
 
-RUNNER_OWNED_PARTS = (".autocode", ".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache")
+RUNNER_OWNED_PARTS = (".autocode", ".git", *sorted(project_kinds.CACHE_DIRS))
 IGNORED = {".venv", "venv", "node_modules", ".next", "dist", "build", ".cache", *RUNNER_OWNED_PARTS}
 # Quoted paths may contain spaces. Bare tokens retain slash/colon prefixes so an
 # external path or URL cannot accidentally become a relative path by substring.
@@ -26,7 +28,7 @@ def _allowed_name(relative: Path) -> bool:
         not relative.is_absolute()
         and ".." not in relative.parts
         and not any(part in IGNORED for part in relative.parts)
-        and not relative.name.endswith((".pyc", ".png", ".jpg", ".lock"))
+        and not relative.name.endswith((*project_kinds.BYTECODE_SUFFIXES, ".png", ".jpg", ".lock"))
     )
 
 

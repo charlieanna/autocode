@@ -42,7 +42,14 @@ from __future__ import annotations
 
 import re
 import shlex
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+
+try:
+    from . import autocode_project_kinds as project_kinds
+    from . import autocode_rust_inline_tests as rust_inline_tests
+except ImportError:
+    import autocode_project_kinds as project_kinds
+    import autocode_rust_inline_tests as rust_inline_tests
 
 BUILD_FAILED = "::[build failed]"
 NO_RESULT = "::[no result]"
@@ -219,6 +226,15 @@ def definitions(text):
     return found, " ".join("".join(rest).split())
 
 
+def _is_mixed_rust_source(path: str) -> bool:
+    if not path.endswith(".rs") or project_kinds.is_test_file(path):
+        return False
+    parts = PurePosixPath(path).parts[:-1]
+    if set(parts) & project_kinds.TEST_DIRS:
+        return False
+    return not (parts and parts[0] in project_kinds.ROOT_TEST_DIRS)
+
+
 def changed_names(files):
     """``(path, function)`` for each function the change adds or edits in its Rust test files; ``(path, None)``
     when anything outside a function changed there (an attribute, a macro, a constant), so every test
@@ -226,6 +242,21 @@ def changed_names(files):
     None for a new file."""
     names = set()
     for path, before, after in files:
+        if _is_mixed_rust_source(path) and rust_inline_tests.test_modules((after or "").encode()):
+            after_inline = rust_inline_tests.inline_test_text((after or "").encode())
+            new, new_rest = definitions(after_inline)
+            if before is None or not rust_inline_tests.test_modules(before.encode()):
+                if new:
+                    names |= {(path, name) for name in new}
+                else:
+                    names.add((path, None))
+                continue
+            before_inline = rust_inline_tests.inline_test_text(before.encode())
+            old, old_rest = definitions(before_inline)
+            if old_rest != new_rest:
+                names.add((path, None))
+            names |= {(path, name) for name, sources in new.items() if old.get(name) != sources}
+            continue
         new, new_rest = definitions(after)
         if before is None:
             names.add((path, None))
