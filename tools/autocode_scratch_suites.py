@@ -87,20 +87,3 @@ def run_selected(root, tests, selected, execute, *, acceptance_preflight=False):
     if acceptance_preflight and (refused := wrapped_runner.execution_refusal(root, tests, selected)):
         return refused
     return merged(execute(framework, command, label) for framework, command, label in selected)
-
-
-def explicit(root, tests, framework, command, execute, complete_results, *, acceptance_preflight=False):
-    receipt = run_selected(
-        root, tests, [(framework, command, "scratch-command")], execute, acceptance_preflight=acceptance_preflight
-    )
-    if receipt.get("acceptance_refusal"):
-        return receipt
-    if receipt["exit_code"] == 0 and not receipt["timed_out"] and not complete_results(receipt):
-        return {**receipt, "error": "Test command reported zero tests or incomplete per-test results"}
-    if (
-        receipt["exit_code"] == 0
-        and not receipt["timed_out"]
-        and not (receipt["results"]["passed"] or receipt["results"]["failed"])
-    ):
-        return {**receipt, "error": "Test command reported only skipped tests"}
-    return receipt

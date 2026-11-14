@@ -43,7 +43,7 @@ with ChatTUI() as ui:
                 [sys.executable, "-c", script],
                 cwd=ROOT,
                 env=os.environ,
-                cols=100,
+                cols=99,  # below the width that shows the side panel on its own (#3070)
                 rows=30,
                 tmux=require_tmux(self),
             ) as screen:

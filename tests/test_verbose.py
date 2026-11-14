@@ -82,7 +82,7 @@ class VerboseTests(unittest.TestCase):
             report("progress", "native provider stream advanced")
         report("tool", "command started")
         lines = out.getvalue().splitlines()
-        self.assertEqual(["glm/gpt-x: tool: command started"], lines)
+        self.assertEqual(["planner/gpt-x: tool: command started"], lines)
 
     def test_progress_heartbeats_are_never_shown(self):
         verbose.enable()
@@ -91,7 +91,7 @@ class VerboseTests(unittest.TestCase):
         for _ in range(4):
             report("progress", "native provider stream advanced")
         report("tool", "command started")
-        self.assertEqual(["glm: tool: command started"], out.getvalue().splitlines())
+        self.assertEqual(["planner: tool: command started"], out.getvalue().splitlines())
 
     def test_repeated_tool_lines_still_print_after_one_second(self):
         verbose.enable()
@@ -100,7 +100,7 @@ class VerboseTests(unittest.TestCase):
         report = verbose.reporter("planner", None, stream=out, clock=lambda: next(ticks))
         report("tool", "tool finished")
         report("tool", "tool finished")
-        self.assertEqual(["glm: tool: tool finished", "glm: tool: tool finished"], out.getvalue().splitlines())
+        self.assertEqual(["planner: tool: tool finished", "planner: tool: tool finished"], out.getvalue().splitlines())
 
     def test_suppressed_repeats_of_other_lines_carry_their_count_to_the_next_line(self):
         verbose.enable()
@@ -112,7 +112,7 @@ class VerboseTests(unittest.TestCase):
         report("tool", "tool finished")
         report("tool", "command started")
         self.assertEqual(
-            ["glm: tool: tool finished", "glm: tool: command started (+2 similar)"],
+            ["planner: tool: tool finished", "planner: tool: command started (+2 similar)"],
             out.getvalue().splitlines(),
         )
 

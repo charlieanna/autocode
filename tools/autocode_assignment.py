@@ -105,7 +105,22 @@ def retained_changes(stages, record):
     return sorted(name for name in before.keys() | after.keys() if before.get(name) != after.get(name))
 
 
-def undo_created(paths, stages, record, workspace) -> str:
+def _restore_commit(workspace: Path, name: str, expected: str, head: str | None, checkpoints) -> str | None:
+    """First committed revision among ``head`` and saved ``code_checkpoints`` matching ``expected``."""
+    commits: list[str] = []
+    seen: set[str] = set()
+    candidates = [head, *(row.get("commit") for row in reversed(checkpoints or ()) if isinstance(row, dict))]
+    for commit in candidates:
+        if isinstance(commit, str) and commit and commit not in seen:
+            seen.add(commit)
+            commits.append(commit)
+    for commit in commits:
+        if stray.committed(workspace, commit, name) == expected:
+            return commit
+    return None
+
+
+def undo_created(paths, stages, record, workspace, *, checkpoints=()) -> str:
     """Remove or restore the out-of-scope files this assignment touched, then return the refusal naming what happened.
 
     A rejected attempt's out-of-scope edits stay in the tree, and the gate measures the whole assignment, so one
@@ -113,8 +128,9 @@ def undo_created(paths, stages, record, workspace) -> str:
     2026-09-30) stopped that way: the milestone-1 Builder also wrote README.md, which the plan gave to milestone 2.
     A file absent from the starting snapshot and unchanged since this attempt is deleted, as autocode_stray_writes
     does for read-only stages. A pre-existing file is restored from Git the same way when the snapshots prove it
-    safe: unchanged since this attempt, and its starting content exactly what was committed at the recorded head.
-    An edit of a file that already held uncommitted changes, or anything not provable, is kept for a person."""
+    safe: unchanged since this attempt, and its starting content matching either the recorded head or a saved
+    code_checkpoints commit from an earlier step of this run. An edit of a file that already held uncommitted
+    changes from outside the run, or anything not provable, is kept for a person."""
     start = _read(_ref(stages, starting_attempt(stages, record), "before_ref")) or {}
     before, head = start.get("files"), start.get("head")
     after = _snapshot(stages, record, "after_ref")
@@ -126,10 +142,10 @@ def undo_created(paths, stages, record, workspace) -> str:
         elif name not in before:
             target.unlink()
             removed.append(name)
-        elif head and before[name] == stray.committed(Path(workspace), head, name):
+        elif commit := _restore_commit(Path(workspace), name, before[name], head, checkpoints):
             try:
                 content = subprocess.run(
-                    ["git", "-C", str(workspace), "show", f"{head}:{name}"], capture_output=True, check=True
+                    ["git", "-C", str(workspace), "show", f"{commit}:{name}"], capture_output=True, check=True
                 ).stdout
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(content)

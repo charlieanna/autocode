@@ -45,6 +45,9 @@ task file. `location` returns `registry_version`, `storage_root`, `registry_path
 `exists`. `list` returns `registry_version`, `workspaces`, `runs`, and `diagnostics`.
 Run records contain stable canonical-path-derived `id`, `workspace_id`, `workspace`,
 `run_dir`, and `task_id` when the run-level checkpoint identity is available. Listings
+also include `project_workspace` on canonical rows (the owning project path when
+`workspace` is a task worktree under `<project>/.autocode/worktrees`, or `workspace` itself),
+so clients can group a project's chats together while acting on each run's `workspace`. Listings
 derive only a small current summary (`status`, `phase`, `next_stage`, `title`, `updated_at`) from
 a valid referenced checkpoint, under the run's `diagnostic` object. `title` is the first line of
 the run's task, at most 80 characters, or null; `updated_at` is when the checkpoint was last

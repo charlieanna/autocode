@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from ..autocode_run_state import RunState
 
 try:
+    from .. import autocode_acceptance_reference as acceptance_reference
     from .. import autocode_acceptance_tests_job as acceptance_tests_job
     from .. import autocode_counterexample as counterexample
     from .. import autocode_design_check_job as design_check_job
@@ -35,6 +36,7 @@ try:
     from .. import autocode_verification_plan as verification_plan
     from .. import autocode_verify as verify
 except ImportError:
+    import autocode_acceptance_reference as acceptance_reference
     import autocode_acceptance_tests_job as acceptance_tests_job
     import autocode_counterexample as counterexample
     import autocode_design_check_job as design_check_job
@@ -247,6 +249,16 @@ def apply_job(stage, state: RunState, value, record, workspace, *, run_dir=None)
                 timeout=verify.DEFAULT_TIMEOUT,
             ),
             evidence_dir=evidence_dir,
+            run_reference=lambda selected, tests: acceptance_reference.collect(
+                state,
+                workspace,
+                run_dir,
+                evidence_dir / "acceptance-reference",
+                selected,
+                tests,
+                command=command_policy.configured_targeted(state.get("settings"), tests)
+                or _planned_go_targeted(state, tests),
+            ),
             send_back=lambda body, changes: send_back_plan(state, body, changes, record),
         )
         return

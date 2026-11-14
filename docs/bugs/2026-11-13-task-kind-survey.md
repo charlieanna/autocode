@@ -402,6 +402,85 @@ Reviewer raising that concern.
 Not fixed: the Plan Reviewer's concern itself. The prompt note on command guards does not say which
 files a guard's command runs on the original code.
 
+## 16. A requested change that an existing test contradicts (fixed for Python, Node, Jest, RSpec and Vitest)
+
+"pageCount(0, 5) returns 0. An empty list should still show one page: make pageCount return 1 when total
+is 0. Update the tests to match." The project has a test that says an empty list has no pages. Four runs
+of the same request, $6.85:
+
+| Project | Result | Bundle manifest |
+| --- | --- | --- |
+| Python, unittest | complete after two failed proofs, 18 stages, 327 s, $2.48 | `608f9558ec693b0ffc558a2d6d03a330498e97e515c413ab0f647a0ba105f30d` |
+| Node, `node:test` run by `npm test` | stopped for the person, 15 stages, 317 s, $1.82 | `669680619a414015e458846fa6c661e876105648068d4e51275d8c600e69c139` |
+| Jest | asked the person to approve a hand-built plan revision, 276 s, $1.69 | `f877a77ab350ba103c03936191f7650633c06d0b56c76fca2d7288ac51bbc648` |
+| Shell | stopped for the person, 169 s, $0.86 | `0012058fe6377620fbc816a1ba9ec1aadd2005b576b8b304de215f7010b28027` |
+
+An approved plan may list the existing tests it replaces (`supersedes`, #2748), and the Planner did so in
+the Python and Node runs. Three things then went wrong.
+
+**The replaced test had to keep its old name.** In both runs the Builder wrote the new test and took the
+old one out. The proof failed twice with "Existing tests were removed" and "renamed or missing", the
+Completion Reviewer asked for rework, and an Investigator had the old name put back around the new
+assertion. The Python run ended with `test_empty_list_has_no_pages` asserting one page. Fixed, owner
+decision 2026-11-13: a test the approved plan lists as replaced may be renamed or removed. The proof no
+longer counts it among the tests that disappeared and records it in its notes
+(`autocode_superseded_tests.replaced`). A listed test that is still there and skipped is not gone, and a
+test the plan does not list may not go.
+
+**The check of the original tests had no results per test.** It runs the original tests against the
+change and accepts a failure only of the listed tests. In the Node run its command was the project's
+suite, `npm test --silent`, which it ran for its exit code alone: only a plain `python`, `node --test`,
+`go test` or `cargo test` command was run with the runner's reporter. It could not see that the one
+failing test was the listed one, and the run stopped for the person although the plan, the code and the
+tests were right. Fixed: a command whose reporter the proof owns (`npm test` in a `node:test` project,
+RSpec, Vitest) is run with it there too (`autocode_verify.scratch_run`), and a listed test is matched to
+a Vitest id (`FILE::group > title`) and an RSpec id (the example's full description).
+
+**Jest and shell report no test by name.** The plan cannot list a test to replace there, since only a
+`test:` criterion may. Jest is the next section; shell, Minitest, Mocha and `make test` projects are
+open.
+
+The same requests on the fixed tree, $2.12, no question and one plan approval each:
+
+| Project | Result | Bundle manifest |
+| --- | --- | --- |
+| Python | complete, 10 stages, 159 s, $1.29; the old test replaced by `test_ac1_empty_list_has_one_page` | `f2734cbca6be9bb92cae0f899b018ae8bf5ff5baa6268d90caf21de101fbd8f2` |
+| Node | complete, 8 stages, 147 s, $0.83; the old test renamed and given the new assertion | `e0d9f61456af3ba5cfc8bee63f505379732d8e2604ebb2697a696ba636df9fcf` |
+
+Both proofs passed first time with "Tests the approved plan replaces are no longer in the suite", and
+the check of the original tests accepted the one listed failure.
+
+## 17. A Jest suite reports no test by name (fixed)
+
+A Jest run gave the proof only an exit code, so a plan could not name a Jest test as proof, as a guard
+or as a test it replaces. The Jest run of section 16 therefore ended with the Resolver asking the person
+to approve a hand-built plan revision, and every earlier Jest run proved its criteria with whole commands.
+
+Jest ships a JSON report. The proof now adds `--json --outputFile` to a plain Jest command (`jest`,
+`npx --no-install jest`, `node node_modules/jest/bin/jest.js`, an `npm test` whose script is one) and
+reads it (`tools/autocode_jest_tests.py`): ids are `FILE::describe > title`, as Vitest's are. Nothing is
+installed. Checked against Jest 30.5.2's own report, including a file that does not load, tests that
+share a name, skipped and todo tests, and a run that fails outside every test.
+
+Two runs on the fixed tree, $1.63, each complete at its first proof with one plan approval and no question:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| The change of section 16 | complete, 8 stages, 161 s, $0.82 (before: a question after 276 s, $1.69); the plan listed `an empty list has no pages` as replaced, the proof named six tests by title | `28741c5118595607cc32a4c66f1ffe8f2c871b2554e9da9f65cc9ccf6a5936ad` |
+| Bug fix with a regression test | complete, 8 stages, 141 s, $0.80; two new tests named by title, two existing tests as guards | `2b047541cd0d95311cf66f8fb4193ee186ed84e8f081913d02a21f95ef1e268e` |
+
+Open:
+
+- A package script that runs more than Jest (`jest && eslint .`, `react-scripts test`) is left as written
+  and proves by its exit code, while the plan rules now take a Jest project's tests to be named. A new or
+  changed test is still proven by name, by the targeted `npx --no-install jest FILE`; a guard on an
+  existing test is not. Vitest has the same limit.
+- The proving tests are not repeated for stability in a Jest project: the repeat cannot yet select tests
+  by name there (`autocode_proof_stability.narrow`), so each ran once and the proof says so.
+- Jest run in the project folder itself also collects test copies under `.autocode/`; the proof runs in
+  clean trees, so it is not affected.
+- Mocha (its JSON reporter) and Minitest (verbose output) could be read the same way.
+
 ## Also seen, not yet run on real models
 
 - **A new repository with no commit is refused** with a Git command for the person to type

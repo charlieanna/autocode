@@ -315,7 +315,7 @@ class LocalComposeScenarioTests(SampleRun, unittest.TestCase):
             self.assertTrue(
                 any(command[-5:] == ["down", "-v", "--remove-orphans", "--rmi", "local"] for command in commands)
             )
-            prompts = list((evidence / "component-prompts").glob("*-terra-*.json"))
+            prompts = list((evidence / "component-prompts").glob("*-builder-*.json"))
             self.assertEqual(2, len(prompts))
             self.assertTrue(any("LINK_SERVICE_URL" in path.read_text() for path in prompts))
 

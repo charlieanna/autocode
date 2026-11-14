@@ -355,6 +355,8 @@ export interface RegistryAction {
 export interface RegistryRun {
   id: string;
   workspace: string;
+  /** The owning project when `workspace` is a `.autocode/worktrees/<lane>` checkout. */
+  projectWorkspace?: string | null;
   runDir: string;
   taskId: string | null;
   availability: string;
@@ -401,6 +403,7 @@ export function readRegistryList(raw: string): RegistryList {
       return [{
         id: record.id,
         workspace: record.workspace,
+        projectWorkspace: firstString(record.project_workspace, nested.project_workspace),
         runDir: record.run_dir,
         taskId: typeof record.task_id === "string" ? record.task_id : null,
         availability: String(record.availability ?? "unknown"),

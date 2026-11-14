@@ -58,7 +58,7 @@ def _test_name(test_id: str, file: str) -> str:
     test_id = _PARAMETERS.sub("", test_id)
     if "::" in test_id:
         rest = test_id.split("::", 1)[1]
-        return rest.split("/", 1)[0] if file.endswith(".go") else rest.rsplit("::", 1)[-1]
+        return rest.split("/", 1)[0] if file.endswith(".go") else superseded_tests.own_names(rest)[0]
     return test_id.rsplit(".", 1)[-1]
 
 

@@ -116,6 +116,13 @@ def route(state: RunState, record, *, investigation_enabled, rejected=()):
     if scope_reason:
         run_status.running(state, "EXECUTING", next_stage="review_completion", next_action=scope_reason)
         return True
+    assigned = [path for path in (task.get("affected_paths") or []) if isinstance(path, str) and path]
+    scope_note = (
+        f" Keep every edit within current_task.affected_paths ({', '.join(assigned)}); "
+        "even if a rejected reason names another file, add or update tests only inside those assigned paths."
+        if assigned
+        else ""
+    )
     run_status.running(
         state,
         "EXECUTING",
@@ -124,6 +131,7 @@ def route(state: RunState, record, *, investigation_enabled, rejected=()):
             reason + ". Add meaningful tests for these exact lines, or retain a precise reason "
             "for the independent Tester to check. Preserve the approved product scope and existing tests; "
             "do not install a coverage dependency or ask the person to resolve test machinery."
+            + scope_note
             + "".join(
                 f"\nTester rejected a reason for {row['path']}:{row['line']}: {row['reason']}"
                 for row in list(rejected)[:REJECTIONS_SHOWN]

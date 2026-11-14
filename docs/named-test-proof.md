@@ -8,6 +8,14 @@ the guards rest on tests the project already has: the proof runs the suite on th
 the candidate, and each guard's named test must pass on both. A `test:` criterion still needs
 a change, unless the person granted the test-only regression-proof exception.
 
+Before building, a new acceptance test can already pass on an unfinished candidate
+retained from an earlier attempt. The runner checks those exact observed tests on
+the original product code with today's test files and fixtures. A fresh original
+failure keeps the approved `test:` criterion; a fresh original pass proposes a
+`guard:` correction for plan review. Missing, skipped, incomplete or import-only
+results leave verification unresolved. This classification needs no report-only
+model repair, and never replaces the final regression or changed-code proof.
+
 A guard that names its test exactly (`guard: test_c4_adds`) may name a test the project
 already has in a file the change leaves alone, as a final check does for the
 criteria earlier milestones proved. The targeted run covers only the changed test files,
@@ -196,11 +204,24 @@ passes. Collection and hook failures are separated from application failures.
 The reporter uses Vitest's reporting lifecycle and v4 hook-result metadata;
 qualification currently covers Vitest 4.1.6.
 
-A test the project already has in `node:test` or Vitest is named by its title,
+Jest needs no reporter of its own: its built-in JSON report names every test. AutoCode
+adds `--json --outputFile` to a plain Jest command (`jest`, `npx --no-install jest`,
+`node node_modules/jest/bin/jest.js`, with or without an environment prefix) and to an
+`npm test` whose script is one, and reads the report: a test's id is its file, the
+titles of its `describe` blocks and its own title, `tests/pager.test.js::rounding >
+counts a partial last page`, as a Vitest id is. Tests that share a name (`test.each`
+without a placeholder) are one id, failed when any of them failed. A file that could
+not be loaded is a failed, uncollected entry, and a run that failed outside every test
+(a coverage threshold) is a failure with no test to blame. `npx jest` without
+`--no-install`, a command that watches, writes its own report or chooses tests from Git
+(`--watch`, `--json`, `-o`), and a script that runs more than Jest are left as written
+and prove by their exit code, as before (`tools/autocode_jest_tests.py`).
+
+A test the project already has in `node:test`, Vitest or Jest is named by its title,
 which is free text: for `test('counts a partial last page', ...)` a plan writes
 `guard: counts a partial last page`. AutoCode binds such a declaration to the test
 when a test the proof ran has exactly that title (the last part of its id; inside
-a Vitest suite, `suite > title` or `title` alone), quoted or followed by an
+a Vitest or Jest `describe` block, `suite > title` or `title` alone), quoted or followed by an
 annotation if the plan wrote one. A declaration that is no test's title is prose,
 and its criterion keeps the id convention (`test_ac2_...`). So a refactor or a bug
 fix in a project whose tests have ordinary titles guards its existing behavior
@@ -247,7 +268,7 @@ more to record `diff_coverage`: each changed product hunk, the hunks no proving
 test executed, and the changed files the report did not measure. That run cannot
 change the verdict, and nothing is installed into the project.
 
-Shell pipelines, custom reporters, ordinary npm/Jest/Mocha summaries and custom
+Shell pipelines, custom reporters, ordinary npm/Mocha summaries and custom
 assertion scripts do not currently provide named proof. A direct supported
 targeted command can accompany an existing package-script suite. A runner that
 reports only an exit code (`make test`, Ruby test files run one by
@@ -269,8 +290,8 @@ plan is drafted (`tools/autocode_command_guards.py`, owner decision 2026-11-13).
 
 A repair whose regression test the project already had changes no test. Where the runner
 names its tests, the tests that fail on the original code and pass with the change are
-the proof. A Jest or Mocha suite, Minitest files and a test script the approved plan
-names report only an exit code, so there the suite shows the repair as a whole: it
+the proof. A Mocha suite, Minitest files, a test script the approved plan names, and a
+Jest command AutoCode leaves as written report only an exit code, so there the suite shows the repair as a whole: it
 failed on the original code and passes with the change. That counts when the change is
 code alone and touches no test, and the suite's own files (its tests, manifests and
 runner configs) are the ones the original code had, or the original definition also

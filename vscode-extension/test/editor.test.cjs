@@ -16,6 +16,7 @@ const { RunController } = host.load('controller.js');
 const { RunPanel, panelHtml, stateFor } = host.load('panel.js');
 const { ChatView } = host.load('chat.js');
 const { RunItem, RunsProvider } = host.load('runsView.js');
+const { readRegistryList } = host.load('core/view.js');
 const { activate, pickWorkspace, NO_FOLDER, confirmSpend } = host.load('extension.js');
 const { ConnectionsPanel, connectionsHtml } = host.load('connections.js');
 const { StagesPanel, stagesHtml, runStages } = host.load('stages.js');
@@ -1124,6 +1125,45 @@ test('the Runs list puts the most recently active chats on top under Recent', as
     assert.deepEqual(alpha.map((row) => row.run.id), ['today', 'old']);
     assert.equal(alpha[0].id, 'today');
     assert.equal(alpha[0].description, '1h ago · AWAITING_GOAL_APPROVAL');
+  } finally {
+    now.mock.restore();
+    provider.dispose();
+  }
+});
+
+test('the Runs list groups task-worktree runs under their owning project', async () => {
+  const { runs } = readRegistryList(JSON.stringify({
+    runs: [
+      {
+        id: 'lane-run',
+        workspace: '/alpha/.autocode/worktrees/add-feature-0123456789',
+        project_workspace: '/alpha',
+        run_dir: '/alpha/.autocode/worktrees/add-feature-0123456789/.autocode/runs/20261113-lane',
+        availability: 'available',
+        diagnostic: { status: 'WAITING_FOR_USER', title: 'Implement incremental changes', updated_at: '2026-11-11T11:30:00Z' },
+      },
+      {
+        id: 'fallback-lane',
+        workspace: '/alpha/.autocode/worktrees/other-lane-9999',
+        run_dir: '/alpha/.autocode/worktrees/other-lane-9999/.autocode/runs/20261113-fallback',
+        availability: 'available',
+        diagnostic: { status: 'COMPLETE', title: 'Older worktree chat', updated_at: '2026-11-10T11:30:00Z' },
+      },
+    ],
+  }));
+  assert.equal(runs[0].projectWorkspace, '/alpha');
+  const provider = new RunsProvider({ list: async () => ({ runs, diagnostics: [] }) });
+  const now = mock.method(Date, 'now', () => Date.parse('2026-11-11T12:00:00Z'));
+  try {
+    await provider.refresh();
+    const [recent, ...projects] = provider.getChildren();
+    assert.deepEqual(projects.map((node) => node.label), ['alpha']);
+    assert.deepEqual(provider.getChildren(recent).map((row) => row.description), ['30m ago · alpha', '1d ago · alpha']);
+    const alphaRuns = provider.getChildren(projects[0]);
+    assert.deepEqual(alphaRuns.map((row) => row.run.id), ['lane-run', 'fallback-lane']);
+    // Opening a worktree run still targets its actual worktree workspace, not the parent project.
+    assert.equal(alphaRuns[0].command.arguments[0].workspace, '/alpha/.autocode/worktrees/add-feature-0123456789');
+    assert.equal(provider.getTreeItem(projects[0]).id, 'workspace:/alpha');
   } finally {
     now.mock.restore();
     provider.dispose();
@@ -4097,6 +4137,37 @@ test('a saved step shows what that step itself changed', async (t) => {
   assert.ok(!text.includes('differ from this checkpoint'), 'a step view is not a compare');
 });
 
+test('saved code changes render and compare inline during resolver_response pauses', async (t) => {
+  const view = checkpointView();
+  view.status = 'WAITING_FOR_USER';
+  view.needs = {
+    kind: 'answer',
+    resolver_scope: 'operational_exhaustion',
+    resolver_request_id: 'req-1',
+    resolver_token: 'tok-1',
+  };
+  view.chat.input = {
+    kind: 'resolver_response',
+    label: 'Send recovery reply',
+    next_command: 'autocode --resolver-request req-1 --resolver-token - --resolver-response provide_information --resolver-message MESSAGE',
+  };
+  const ui = await openChat(t, view);
+  const text = ui.document.body.textContent;
+  assert.ok(text.includes('Reply with what changed or how you want to proceed'), 'resolver card missing');
+  assert.ok(text.includes('Saved code changes'), 'checkpoint section hidden during resolver_response');
+  assert.ok(text.includes('Fixture code · PASS'));
+  const invoke = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({
+    version: 1, checkpoint_id: 'cp-1', since: 'checkpoint', changed_files: ['app.txt'],
+    patch: 'diff --git a/app.txt b/app.txt\n+saved', truncated: false,
+  }) }));
+  ui.document.querySelector('[data-checkpoint-action="compare"]').click();
+  await flush(); await flush();
+  assert.deepEqual(invoke.mock.calls[0].arguments[1],
+    ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--compare', 'cp-1']);
+  assert.ok(ui.document.querySelector('#app').textContent.includes('1 file(s) differ from this checkpoint'));
+  assert.ok(ui.document.querySelector('#app').textContent.includes('+saved'));
+});
+
 test('a raise confirmation names the open dialog in the chat while it pends', async (t) => {
   host.config.set('confirmPersonOnly', false);
   const ownController = new RunController(host.log);
@@ -6465,7 +6536,7 @@ test('test_ac2_cards_render_milestones_and_flow', async (t) => {
     const root = ui.document.body;
     const text = shownText(ui.document);
     const button = ui.document.querySelector('#take-action') || ui.take();
-    for (const expected of ['M1', 'Build the core', 'AC1', 'Step one', 'Step two']) {
+    for (const expected of ['M1', 'Build the core', 'AC1', 'AC1: Preserve user data', 'Step one', 'Step two']) {
       assert.ok(text.includes(expected), `${surface} missing ${expected}`);
     }
     const flowNode = [...root.querySelectorAll('*')].find((n) => n.children.length === 0 && n.textContent.includes('Step two'));
