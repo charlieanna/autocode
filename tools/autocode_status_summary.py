@@ -14,6 +14,11 @@ supervises the retained attempt: neither is presented as delivered or as progres
 
 from __future__ import annotations
 
+try:
+    from . import autocode_person_text as person_text
+except ImportError:
+    import autocode_person_text as person_text
+
 NEEDS_YOU = "needs_you"
 WORKING = "working"
 DONE = "done"
@@ -31,6 +36,15 @@ NOTHING_NEEDED = "nothing needed from you"  # the progress view's needs_you when
 def _sentence(text) -> str:
     text = str(text or "").strip()
     return text if not text or text.endswith((".", "?", "!")) else text + "."
+
+
+def _plain(text) -> str:
+    if not text:
+        return ""
+    if not person_text.machinery(text):
+        return str(text)
+    cleaned = person_text.plain(text)
+    return "" if cleaned == person_text.FALLBACK else str(cleaned)
 
 
 def project(view: dict, *, stale: bool = False, completion_current=None, next_action=None) -> dict:
@@ -52,7 +66,7 @@ def project(view: dict, *, stale: bool = False, completion_current=None, next_ac
         )
     elif stale:
         state = STOPPED
-        sentence = _sentence(next_action) or "The run stopped without saving a result."
+        sentence = _sentence(_plain(next_action)) or "The run stopped without saving a result."
         sentence = f"The run is not progressing: nothing supervises its retained attempt. {sentence}"
     elif view.get("done"):
         if completion_current is True:
@@ -65,7 +79,11 @@ def project(view: dict, *, stale: bool = False, completion_current=None, next_ac
             )
     elif kind not in NOT_A_PERSON or status == "AWAITING_GOAL_APPROVAL":
         state = NEEDS_YOU
-        reason = asked if asked and asked != NOTHING_NEEDED else need.get("reason") or view.get("pause_category_label")
+        reason = (
+            asked
+            if asked and asked != NOTHING_NEEDED
+            else _plain(need.get("reason")) or view.get("pause_category_label")
+        )
         sentence = _sentence(str(reason or status.replace("_", " ").lower()).capitalize())
     elif status == "RUNNING" and (view.get("controller") or {}).get("kind") == "ready" and command:
         # The controller exited on purpose after a saved answer, approval or follow-up: the run moves
@@ -77,7 +95,7 @@ def project(view: dict, *, stale: bool = False, completion_current=None, next_ac
         sentence = _sentence(progress.get("headline") or "Working")
     else:
         state = STOPPED
-        sentence = _sentence(view.get("stop_reason") or f"Stopped at {status or 'an unknown state'}")
+        sentence = _sentence(_plain(view.get("stop_reason")) or f"Stopped at {status or 'an unknown state'}")
     return {"state": state, "label": LABELS[state], "sentence": sentence, "next_command": command}
 
 

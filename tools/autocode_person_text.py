@@ -21,6 +21,8 @@ MACHINERY = re.compile(
 )
 # A sentence ends at ., ! or ? followed by whitespace and a capital letter or an opening parenthesis.
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z(])")
+# A parenthetical command hint inside an otherwise plain sentence ("... (change it with --max-idle-seconds N)").
+PARENTHETICAL = re.compile(r"\s*\([^()]*\)")
 # An option's trailing "with <command>" clause: "Allow more plan reviews with --planning-review-call-limit N".
 OPTION_CLAUSE = re.compile(r"\s+(?:with|using|via)\s+(?:autocode\s+\S+\s+)?--\S.*$")
 # Shown when every sentence of a request was operator advice, so the person still reads what is asked.
@@ -32,6 +34,10 @@ def machinery(text) -> bool:
     return bool(MACHINERY.search(str(text or "")))
 
 
+def _unbracket(line: str) -> str:
+    return PARENTHETICAL.sub(lambda group: "" if machinery(group.group(0)) else group.group(0), line)
+
+
 def plain(text):
     """``text`` without its sentences that tell a person what to type at a shell.
 
@@ -41,7 +47,8 @@ def plain(text):
         return text
     lines = []
     for line in str(text).split("\n"):
-        kept = [sentence for sentence in SENTENCE_END.split(line) if not machinery(sentence)]
+        unbracketed = _unbracket(line)
+        kept = [sentence for sentence in SENTENCE_END.split(unbracketed) if sentence and not machinery(sentence)]
         if kept or not line.strip():
             lines.append(" ".join(kept))
     shown = "\n".join(lines).strip()
