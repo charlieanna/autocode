@@ -165,6 +165,8 @@ export interface CodeCheckpoints {
   rows?: CodeCheckpointRow[];
   /** While a Builder step runs: the display-only diff of what it has changed so far (`checkpoint --working`). */
   working?: CheckpointAction | null;
+  /** Once a step is saved: the display-only diff of everything the run changed (`checkpoint --all`). */
+  all_changes?: CheckpointAction | null;
   continuation?: Record<string, unknown> | null;
   restores?: Record<string, unknown>[] | null;
 }

@@ -136,8 +136,8 @@ class JUnitReportRepairTests(unittest.TestCase):
         args = SimpleNamespace(test_report="junit:target/new.xml", resume_paused=True, **overrides)
         return configuration.configure_resume(state, state["settings"], args)
 
-    def test_a_report_change_is_allowed_at_either_reconciled_verification_checkpoint(self):
-        for stage in ("tester", "review_checkpoint"):
+    def test_a_report_change_is_allowed_before_fresh_verification(self):
+        for stage in ("tester", "review_checkpoint", "builder", "orchestrator", "write_acceptance_tests"):
             with self.subTest(stage=stage):
                 state = self.saved(next_stage=stage)
                 old_contract = copy.deepcopy(state["goal_contract"])
@@ -182,7 +182,7 @@ class JUnitReportRepairTests(unittest.TestCase):
                 self.assertEqual(before, state)
 
     def test_a_late_report_repair_cannot_reuse_an_accepted_proof(self):
-        for stage in ("builder", "review_completion", "resolve"):
+        for stage in ("review_completion", "resolve"):
             with self.subTest(stage=stage):
                 state = self.saved(next_stage=stage)
                 before = copy.deepcopy(state)

@@ -1694,10 +1694,12 @@ def _no_progress_outcome(incident, action, pointer, stage):
     recovery machinery, so the run records this finished, failed outcome with its reason and
     evidence (autocode_stop.end) and launches no further stages."""
     failure = str(incident.failure).rstrip(".")
-    try:
-        step = role_names.role_name(incident.operation)  # the role a person knows the stage by
-    except (KeyError, ValueError, AttributeError, TypeError):
-        step = str(incident.operation)
+    op_raw = str(incident.operation or "")
+    base_op = role_names.STAGE_ALIASES.get(role_names.roles.base_stage(op_raw), role_names.roles.base_stage(op_raw))
+    if role_names.roles.job_for_stage(base_op) is not None:
+        step = role_names.role_name(op_raw)  # the role a person knows the stage by
+    else:
+        step = op_raw
     return {
         "reason": (
             f"the {step} step kept failing for the same reason after AutoCode's own "
