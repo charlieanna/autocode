@@ -558,12 +558,19 @@ left out) are kept beside the log as `<stage>.claude.jsonl`.
   cited as `event:item_N`; capture receipts work too. A command whose exit code Claude Code did not
   report (moved to the background, interrupted, timed out, denied, or an unrecognized result) has
   exit code `null` and is never evidence: run it again in the foreground.
-- **Tools and permissions.** The same `--tools Bash,Read,Edit,Write,Glob,Grep` on every stage, no MCP
-  servers (`--strict-mcp-config`), no skills (`--disable-slash-commands`), project settings only
-  (`--setting-sources project`). Edit and Write are pre-approved unless the stage's sandbox is
-  read-only (planning stages); judging stages keep them, and the after-stage snapshot catches a
-  judge's source edit. `git commit`, `push`, `checkout`, `reset`, `stash`, `branch`, `rebase` and
-  `merge` are denied, and so are the `gh` commands that change GitHub (`autocode_publish_guard`).
+- **Tools and permissions.** The same `--tools Bash,Read,Edit,Write,Glob,Grep` on every stage, no
+  MCP servers (`--strict-mcp-config`), no skills (`--disable-slash-commands`), project settings only
+  (`--setting-sources project`). A stage that may write runs with `--permission-mode acceptEdits`:
+  Claude Code accepts Edit and Write inside the stage's own directory and refuses them anywhere
+  else, so a Builder working in its own worktree cannot edit the project beside it with those tools.
+  Neither is pre-approved, because a pre-approved tool edits any path. Before each Edit and Write,
+  Claude Code runs AutoCode's hook `providers/claude_edit_scope.py` (passed with `--settings`): for
+  a path outside the stage's directory it gives the model the reason and the stage's own file at the
+  same place, so the path is corrected in the stage instead of becoming a request for permission.
+  The hook grants nothing. A planning stage (read-only sandbox) has neither; judging stages keep
+  them, and the after-stage snapshot catches a judge's source edit. `git commit`, `push`,
+  `checkout`, `reset`, `stash`, `branch`, `rebase` and `merge` are denied, and so are the `gh`
+  commands that change GitHub (`autocode_publish_guard`).
 - **Login.** Before every stage of a joint-planning run, after `--accept-transport-change`, and in
   doctor, `claude auth status --json` runs in the agents' environment and must report a first-party
   Claude subscription login (`claude.ai` or `oauth_token`). An API key (`ANTHROPIC_API_KEY`,
@@ -582,14 +589,18 @@ left out) are kept beside the log as `<stage>.claude.jsonl`.
   Claude Code session (`CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_REMOTE_SESSION_ID`,
   `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_CODE_DEBUG`, `CLAUDE_CODE_DIAGNOSTICS_FILE`,
   `CLAUDE_CODE_TEE_SDK_STDOUT`, `CLAUDE_CODE_MESSAGING_SOCKET`, `CLAUDE_EFFORT`,
-  `CLAUDE_AUTO_BACKGROUND_TASKS`, `CLAUDE_CODE_ENTRYPOINT`), plus `DISABLE_AUTOUPDATER=1` and
-  `FORCE_PROMPT_CACHING_5M=1`. Each stage is a fresh session that finishes in minutes, so the
+  `CLAUDE_AUTO_BACKGROUND_TASKS`, `CLAUDE_CODE_ENTRYPOINT`), plus `DISABLE_AUTOUPDATER=1`,
+  `FORCE_PROMPT_CACHING_5M=1` and `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1`. With the last, every
+  command a stage runs starts in the stage's directory instead of where the previous command's `cd`
+  left it, so a check the stage cites (`cd packages/web && npm test`) runs from the repository root,
+  where the runner replays it. Each stage is a fresh session that finishes in minutes, so the
   5-minute prompt cache (writes at 1.25x the input price) replaces Claude Code's default 1-hour
   cache (2x); on two measured runs that cut 26% and 29% of model cost.
 - **Identity.** A saved run records the launch policy (hashed), the resolved `claude`, its version, a
   hash of `<workspace>/.claude/settings.json` and hashes of `ANTHROPIC_BASE_URL` and
   `CLAUDE_CONFIG_DIR`. A change pauses it with `PAUSED_TRANSPORT_CHANGED`; after a `claude` update,
-  `autocode resume --accept-transport-change` re-checks the login and continues.
+  or an AutoCode update that changes the launch policy (the tools it pre-approves, the environment it
+  sets, its edit hook), `autocode resume --accept-transport-change` re-checks the login and continues.
   `CLAUDE_CODE_MAX_OUTPUT_TOKENS` is not part of it.
 - **Cost.** Each stage's reported cost is that call's share of Claude Code's `total_cost_usd`
   (list price, not your subscription's spend). Claude reports a session's total, so a resumed call

@@ -14,8 +14,11 @@ accepted, kept as the ``structured_output`` item of the event log.
   honoured by ``autocode_provider_launch.prepare``); only a same-stage correction and the
   conformance resume phase pass ``--resume``.
 - Tools: the same ``--tools Bash,Read,Edit,Write,Glob,Grep`` on every stage, no MCP servers, no
-  skills, project settings only; Edit and Write are pre-approved unless the stage's sandbox is
-  read-only; git history commands are denied.
+  skills, project settings only; git history commands are denied. A stage that may write runs with
+  ``--permission-mode acceptEdits``, which accepts Edit and Write inside the stage's own directory and
+  refuses them anywhere else; neither is pre-approved, since a pre-approved tool edits any path. A
+  hook (``claude_edit_scope``) gives the model the reason for a refused path and names the stage's own
+  copy of the file, so the mistake is corrected in the stage and never becomes a question.
 - Login: the provider runs only on a Claude subscription login (``claude auth status --json`` in
   the agent's environment). An API key, Bedrock or Vertex never reaches Claude Code through AutoCode:
   not through the environment, not through the project's ``.claude/settings.json``, and a stage whose
@@ -49,6 +52,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from collections.abc import Callable, Mapping
@@ -56,9 +60,9 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from . import claude_stream, env_prep
+    from . import claude_edit_scope, claude_stream, env_prep
 except ImportError:  # Script-style execution from tools/.
-    from providers import claude_stream, env_prep
+    from providers import claude_edit_scope, claude_stream, env_prep
 
 
 CONFIGURED = True
@@ -85,7 +89,14 @@ DEFAULT_REASONING_EFFORTS = {role: "medium" for role in DEFAULT_MODELS}
 BUILDER_RETRY = {"strong_model": SONNET, "checker_model": OPUS}
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 TOOLS = "Bash,Read,Edit,Write,Glob,Grep"
-WRITE_ALLOWED = ("Read", "Grep", "Glob", "Bash", "Edit", "Write")
+# Edit and Write are not here. Pre-approved, they edit any path on the machine: a parallel Builder (Haiku)
+# edited the project by absolute path instead of its own worktree in two real runs, and each ended
+# PAUSED_ORCHESTRATOR_DRIFT. Left to --permission-mode acceptEdits they are accepted inside the stage's
+# directory and refused outside it, where the model sees the refusal and corrects itself in the same stage
+# (measured on Claude Code 2.1.325; what is accepted inside the directory is the same either way).
+# Claude Code's own refusal reads as a permission to ask for, and one Builder stopped to ask for it, so
+# EDIT_SCOPE runs before each Edit and Write and gives the reason and the stage's own copy of the file.
+WRITE_ALLOWED = ("Read", "Grep", "Glob", "Bash")
 READ_ALLOWED = ("Read", "Grep", "Glob", "Bash")
 READ_DISALLOWED = ("Edit", "Write", "NotebookEdit")
 DENY_GIT = (
@@ -129,7 +140,16 @@ REMOVED_ENV = (
 # FORCE_PROMPT_CACHING_5M: every stage is a fresh session that finishes within minutes, so Claude Code's
 # default 1-hour cache writes (2x input price) were almost never read again after five minutes; a 5-minute
 # write costs 1.25x. Measured on two saved runs: cache writes were 69% of cost, and this saves 26-29%.
-SET_ENV = {"DISABLE_AUTOUPDATER": "1", "FORCE_PROMPT_CACHING_5M": "1"}
+# CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR: every Bash command starts in the stage's directory. By default a
+# `cd` carries to the next command, so a Tester that had run `cd packages/api && ...` reported its next check
+# as `cd ../web && npm test`. The runner replays a cited check from the repository root, where that fails;
+# the report was refused, the run went back to a Builder with nothing to change, and it paused (a real run,
+# 2026-11-14). Measured on Claude Code 2.1.325.
+SET_ENV = {
+    "DISABLE_AUTOUPDATER": "1",
+    "FORCE_PROMPT_CACHING_5M": "1",
+    "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "1",
+}
 BILLING_KEYS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 # The CLAUDE_CODE_USE_* names that route requests to another provider or account (Claude Code 2.1.299);
 # the rest of that prefix (CCR_V2, NATIVE_FILE_SEARCH, POWERSHELL_TOOL, COWORK_PLUGINS) are features.
@@ -154,8 +174,10 @@ POLICY = {
     "deny_publish": DENY_PUBLISH,
     "removed_env": REMOVED_ENV,
     "set_env": SET_ENV,
+    "edit_scope": "claude-edit-scope-1",
 }
 STREAM = Path(__file__).with_name("claude_stream.py")
+EDIT_SCOPE = Path(__file__).with_name("claude_edit_scope.py")
 # The exact literal the shared recovery modules match (autocode_report_retry, autocode_format_correction,
 # autocode_stage_recovery): a stage that finished without a report gets the same-session format correction.
 FORMAT_REJECTION = "OpenCode final message is not a JSON report; inspect the saved raw events"
@@ -399,6 +421,13 @@ def check_subscription_routes(roles, workspace=None, *, env=None) -> dict:
     return login_check(workspace, env=env)
 
 
+def edit_scope_settings(workspace) -> str:
+    """The ``--settings`` value that runs ``claude_edit_scope`` before each Edit and Write of a stage."""
+    command = shlex.join([sys.executable, "-I", str(EDIT_SCOPE), str(Path(workspace).resolve())])
+    hook = {"matcher": claude_edit_scope.MATCHER, "hooks": [{"type": "command", "command": command}]}
+    return json.dumps({"hooks": {"PreToolUse": [hook]}}, separators=(",", ":"))
+
+
 def launch(
     role,
     workspace,
@@ -468,6 +497,7 @@ def launch(
         "acceptEdits" if writes else "default",
         "--append-system-prompt",
         prompts.get("fragments/provider-claude/system.md").strip(),
+        *(["--settings", edit_scope_settings(workspace)] if writes else []),
         *tool_flags,
     ]
     return argv, child, {"provider": NAME, "sandbox": sandbox, "report": str(report or "")}
