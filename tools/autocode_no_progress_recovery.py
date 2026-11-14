@@ -133,14 +133,17 @@ def _builder_row_unchanged(row: Mapping[str, Any]) -> bool:
     return not bool(row.get("changed_files"))
 
 
+def _contract_approved(state: RunState) -> bool:
+    try:
+        return bool(contracts.approved(state))
+    except (KeyError, TypeError, AttributeError, ValueError):
+        return False
+
+
 def default_builder_hold(state: RunState) -> dict[str, Any] | None:
     """Return structured details of a runner-default Builder no-progress hold, or None."""
     stage = state.get("next_stage")
-    if stage not in _BUILD_STAGES or not contracts.approved(state):
-        return None
-    contract = state.get("goal_contract") or {}
-    contract_hash = contract.get("hash")
-    if not isinstance(contract_hash, str) or not contract_hash:
+    if stage not in _BUILD_STAGES:
         return None
     settings = state.get("settings") or {}
     limits = settings.get("limits") or {}
@@ -149,7 +152,11 @@ def default_builder_hold(state: RunState) -> dict[str, Any] | None:
     if type(limit) is not int or limit < 1 or type(count) is not int or count < limit:
         return None
     origin = (settings.get("budget_origins") or {}).get("no_progress_batches")
-    if origin not in _DEFAULT_ORIGINS:
+    if origin not in _DEFAULT_ORIGINS or not _contract_approved(state):
+        return None
+    contract = state.get("goal_contract") or {}
+    contract_hash = contract.get("hash")
+    if not isinstance(contract_hash, str) or not contract_hash:
         return None
     stages = state.get("stages") or []
     trailing: list[tuple[int, dict[str, Any]]] = []

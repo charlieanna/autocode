@@ -438,6 +438,16 @@ class RepairedAcceptanceNoProgressUnitTests(unittest.TestCase):
         self.assertIn("pending_interruption:pending", no_progress_recovery.unsettled_reasons(with_proof, self.run_dir))
         self.assertFalse(no_progress_recovery.recover(runtime, copy.deepcopy(with_proof), self.run_dir, self.workspace))
 
+        for status in ("WAITING_FOR_USER", "PAUSED_NO_PROGRESS"):
+            with self.subTest(partial_contract_status=status):
+                partial = copy.deepcopy(self.state)
+                partial["status"] = status
+                partial["goal_contract"] = {"hash": "approved", "revision": 1}
+                self.assertIsNone(no_progress_recovery.default_builder_hold(partial))
+                self.assertIsNone(no_progress_recovery.pending_legacy(partial))
+                view = run_view.view(partial)
+                self.assertIn("recovery", view)
+
 
 class RepairedAcceptanceNoProgressCLITests(unittest.TestCase):
     setUp = test_subprocess.SubprocessFlow.setUp
