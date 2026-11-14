@@ -105,6 +105,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **The mutation check counts again in a monorepo package run**: since the check stops a mutant's run at its first failing test (#3495), a `--package` run's command, `cd PACKAGE && RUNNER`, was not read as that stopping runner, so every mutant a package's test caught was recorded as not run and each changed line there was left without evidence. A package bug fix on the scripted provider paused at the changed-code gate instead of completing (`tests.test_package_scope_cli`, three tests, red on master). The runner inside the package's command is now the one read.
 - **VS Code keeps and distinguishes unsent chats**: opening a run from History no longer removes an initial chat with a draft, switching or closing tabs does not copy a draft into another chat, and draft tabs show a short preview. Keyboard focus stays on a tab’s close button when status updates change its label.
 
 - **Saving a stage model no longer queries the backend a second time for its response**: the saved choices and model options now come from the catalogue that validated the change, so a later listing failure cannot turn an accepted save into an empty model list. Each new operation still checks availability and verifier independence afresh.
