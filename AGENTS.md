@@ -143,6 +143,17 @@ with `test_empty_list_has_no_pages` asserting one page, after two failed proofs.
 existing test must still stay and pass, and the original tests still run against the change,
 where only the listed ones may fail. Do not extend this to a test the plan does not list.
 
+**Code that cannot be loaded is repaired when its own tests pass, owner decision 2026-11-14.**
+A file with a syntax error or merge conflict markers lets no test run, so no test can "run and
+fail" on the original code. When the base suite itself names test modules it could not load, the
+change modifies and deletes no test file, the whole suite loads with the change, nothing newly
+fails and each of those modules has a passing test the project already had, the tests that could
+not run before are the fail-to-pass proof, among them tests in files the change adds
+(`autocode_first_suite.loaded`, `reloaded`). Before, such a repair failed its proof for want of a
+test that ran and failed, and the person was asked to set a regression command or to accept an
+unproven proof. Do not extend this to code that loads, or to a change that edits one of the
+project's test files.
+
 The changed-code evidence gate (#2474) combines authenticated diff coverage
 (`tools/autocode_diff_coverage.py`, #701), behavioral mutation observations and
 exact per-line reasons checked by the existing independent Tester. Raw coverage

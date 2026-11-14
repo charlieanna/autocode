@@ -1049,7 +1049,7 @@ handed out no validate task, so it shows the task completing, not the new check 
 Still open: the Investigator can only retry the stuck stage or pause. A fault it finds in an earlier
 stage's output, of any other kind, still ends in a question to the person.
 
-## 37. Four more kinds of task: two complete, two ask the person about the proof (open)
+## 37. Four more kinds of task: two complete, two ask the person about the proof (one fixed, one open)
 
 Real runs, Claude models (Sonnet 5.5 Requirements, Planner and Tester, Opus 5.5 reviewers, Haiku 4.5
 Builder), 2026-11-14, each with one plan approval.
@@ -1082,9 +1082,46 @@ then asked the person to "Set the saved regression command to `python3 -m pytest
 (which fails on base at collection and passes on the candidate) through the verification-command
 correction", which the proof would refuse for the same reason. The same proof passes when the original
 code's tests fail by assertion, even when every one of them fails ("Every test of the original code failed
-there and passes with the change; nothing passing was lost"). Open, pending the owner's decision on
-whether unchanged tests that could not load on the original code, and all pass with the change, show the
-repair.
+there and passes with the change; nothing passing was lost"). Fixed, with section 38: the owner decided on
+2026-11-14 that existing tests that now pass prove such a fix.
+
+## 38. Code that cannot be loaded, again, and four more kinds of task (fixed)
+
+Real runs, Claude models as in section 37, 2026-11-14, each with one plan approval. The runner was master
+with a first fix for section 37's conflict task, which counted the tests the original code could not load
+only for a change that touches no test file.
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| A bug fix in a project whose tests run with `python -m unittest discover -s tests` | `TASK_COMPLETE`, 8 stages, 125 s, $0.88 | `f84555fd4015ae13bfcf26ab43d4e4b29d9aebbe22303b9faabca224559182ae` |
+| A bug fix in a Cargo workspace of two crates: the wrong report line comes from a calculation in the other crate | `TASK_COMPLETE`, 8 stages, 143 s, $0.90 | `c18cb2c8301f12de98cc719b404346d3ed98d03b692f6319cf1500337a9c5750` |
+| A bug fix in a Go module's `internal/` package | `TASK_COMPLETE`, 10 stages (one plan revision), 195 s, $1.39 | `7b0c1d9cc2a29da96e4cf63f64e7eccf286b1c6254a72db05a4069732c73ad2c` |
+| A one-line fix in a 2,041-line Python file of 240 near-identical functions | `TASK_COMPLETE`, 8 stages, 152 s, $1.27 | `398052d5473adc681ab3c83073f36fb463daca992c64cb940246ce84705e1362` |
+| Section 37's merge conflict task | `WAITING_FOR_USER`, 17 stages, 409 s, $2.38. The fix is right and every test passes | `55561ef22be5cdec49f1cad898715b348d84e65b488b80671117d3a305753a77` |
+
+**The plan added a test, and a new test cannot run on code that does not load either.** This time the plan
+named the four existing tests and one new one, `test_ac5_negative_percentage`, in a new file
+`tests/test_amounts_combined.py`. The change was no longer code alone, so the first fix did not apply. The
+proof failed twice with "On the unfixed code the new tests only fail to import or collect
+(::tests.test_amounts_combined), so no test shows the bug. Write the regression test against behavior that
+exists before the fix", which no test can do: nothing that imports `amounts.py` runs before the fix. The
+four criteria that name the existing tests failed too ("has no test named test_a_plain_number that passes
+with the change and did not pass without it"), because only the new file was run on both sides. After the
+Resolver and the Investigator, the Builder copied the four tests into the new file and moved every import
+inside its test, so each test ran and failed on the original code. The third proof then had its
+fail-to-pass tests and was still unverified: "The base suite has collection errors; preservation is
+unproven: ::tests.test_amounts". The Resolver asked the person to "Decide how the regression gate should
+treat this base commit, which cannot be imported", with "Accept the limitation through an explicit scoped
+operator retry or a saved CLI revision" as an option.
+
+Fixed (`autocode_first_suite.loaded`, `reloaded`): when the base suite itself names test modules it could
+not load, the change modifies and deletes no test file, the whole suite loads with the change, nothing
+fails that did not already run and fail, and every one of those modules has a test the project already
+had that passes now, the
+tests that could not run on the original code are the fail-to-pass proof, the project's own and those in
+files the change adds, and the modules count as repaired. Both of this run's states now pass the proof:
+its first, with the one new test importing at the top of its file, and its last. A change that edits one of
+the project's test files, and any change to code that loads, is judged as before.
 
 ## Also seen, not yet run on real models
 

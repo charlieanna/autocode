@@ -2335,6 +2335,7 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
         seam_names=lambda receipt: _seam_names(workspace, base, changes, receipt, roles=run.roles),
         changed_tests=changed_tests.changed_filter(run, _git) if new_behavior else None,
         base_suite_passed=lambda: first_suite.passed_on(base_suite, base),
+        reloaded=lambda: first_suite.reloads(run, trees, run_suite),
     )
 
 
@@ -2348,19 +2349,12 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
     dependencies_from, independent_dependencies = run.dependencies_from, run.independent_dependencies
     generated_record, generated_unrecorded = run.generated_record, run.generated_unrecorded
     ignored_inputs, new_behavior, preserve = run.ignored_inputs, run.new_behavior, run.preserve
-    allow_no_test, test_root, guards = run.allow_no_test, run.test_root, run.guards
+    test_root, guards = run.test_root, run.guards
     existing_failures, fail, unverified, notes = run.existing_failures, run.fail, run.unverified, run.notes
     checks, proof, existing_guards = run.checks, run.proof, run.existing_guards
-    reuse = checks.get("regression_on_candidate") if commands["suite"] == commands["regression"] else None
-    on_candidate = reuse or run_suite(
-        framework, commands["suite"], trees["candidate"], run_dir, "suite-on-candidate", timeout=timeout
-    )
-    checks["suite_on_candidate"] = on_candidate
+    on_candidate = first_suite.suite_on_candidate(run, trees, run_suite)
     comparable = base_suite if base_suite and base_suite.get("command") == commands["suite"] else None
-    if existing_failures:
-        first_suite.existing_flip(
-            on_candidate, base_suite, existing_failures, proof, fail, unverified, notes, allow_no_test
-        )
+    first_suite.flip(run, on_candidate)
     if framework is not None and framework.name == "junit" and comparable:
         checks["suite_on_base"] = comparable["receipt"]
     # A positively identified document-only project (a root README.md,
@@ -2525,7 +2519,7 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
         empty_root=empty_root,
         kept_tests=proof.get("pass_to_pass") or (),
         untested=bool(base) and _untested_base(workspace, base),
-        repaired=first_suite.repaired_evidence(proof, existing_failures, comparable, checks, on_candidate),
+        repaired=first_suite.repaired_evidence(proof, existing_failures, comparable, checks, on_candidate, run),
         quarantined=suite_flakes.for_proof(run, trees, on_candidate, comparable, (make_tree, run_suite, remove_tree)),
         replaced=run.replaced,
     )
@@ -2718,7 +2712,9 @@ def verify(
     # A repair whose regression test the project already had (first_suite.existing_repair): the suite on
     # the candidate decides below whether the base's failing tests, or its failing exit code, pass now.
     existing_failures, existing_exit = (
-        first_suite.existing_repair(base_suite, commands["suite"], suite_repair and all(map(is_code_path, changes)))
+        first_suite.existing_repair(
+            base_suite, commands["suite"], suite_repair and all(map(is_code_path, changes)), tests
+        )
         if not runnable_tests and sources and not preserve
         else ([], False)
     )
