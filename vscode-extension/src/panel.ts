@@ -1030,6 +1030,7 @@ const tabScroll = Object.create(null);
 // The tab strip's keyboard state: the tab keys in order and the selected one.
 let tabKeys = [];
 let activeTabKey = '';
+const tabNumberAllocations = new Map();
 
 function el(tag, cls, text) {
   const node = document.createElement(tag);
@@ -2112,13 +2113,18 @@ function renderTabs(data) {
     return draft ? { ...tab, name: 'Draft: ' + (draft.length > 22 ? draft.slice(0, 21) + '…' : draft), title: 'Draft: ' + draft } : tab;
   });
   // Several requests can have the same visible prefix, including identical requests.
-  // Number those tabs by their stable key so a reorder or status refresh cannot swap them.
+  // Keep the assigned numbers when tabs reorder or another matching chat opens.
   const groups = new Map();
   rows.forEach((tab) => { const group = groups.get(tab.name) || []; group.push(tab.key); groups.set(tab.name, group); });
   const numbers = new Map();
-  groups.forEach((keys) => {
+  groups.forEach((keys, name) => {
     if (keys.length < 2) return;
-    keys.sort().forEach((key, index) => numbers.set(key, index + 1));
+    const assigned = tabNumberAllocations.get(name) || new Map();
+    keys.sort().forEach((key) => {
+      if (!assigned.has(key)) assigned.set(key, assigned.size + 1);
+      numbers.set(key, assigned.get(key));
+    });
+    tabNumberAllocations.set(name, assigned);
   });
   const focusedClose = document.activeElement && document.activeElement.classList.contains('close')
     ? document.activeElement.parentElement : null;

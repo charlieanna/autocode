@@ -13,7 +13,7 @@ import { isWorking, RunStarting, waitsForFolder, type StatusView } from "./core/
 import { transitionNotice, waitsForPerson } from "./notify";
 import { runTotal, sessionTotal, totalText } from "./core/meter";
 import { applyEngine, engineOf, ENGINES, launchTarget, readSettings, selectIsolatedController, type Engine, type Settings } from "./settings";
-import { invoke, invokeRead, tail, STAGES_TIMEOUT_MS } from "./core/cli";
+import { invoke, invokeRead, ReadDeadlineExceeded, tail, STAGES_TIMEOUT_MS } from "./core/cli";
 import { chatRoute, chatSource, fillChatSet, fillSet, readStages, runListCommand, runRoute, type StageView } from "./core/stages";
 import { StageListCache } from "./core/stage-cache";
 import { inFolder, newChatCall, pickStageModel } from "./stages";
@@ -151,6 +151,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
 
   /** Kept for the editor's restart, so a new chat shows its models before the CLI answers. */
   private readonly stageLists: StageListCache;
+  /** One bounded retry per shared list, after its timed-out reader has actually exited. */
+  private readonly stageRecovery = new Map<string, "waiting" | "retrying" | "exhausted">();
   private readonly stageListsChanged: { dispose(): void };
 
   constructor(private readonly controller: RunController, private readonly storage: vscode.Memento, private readonly actions: Actions,
@@ -503,7 +505,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
    * again in the background when stale; only a folder and backend never read waits for the CLI.
    * A failed background read keeps the list shown; the next one tries again.
    */
-  private async showSharedStages(tab: ChatTab, shared: NewChatList): Promise<void> {
+  private async showSharedStages(tab: ChatTab, shared: NewChatList, retryAfterCollection = true): Promise<void> {
     const cached = this.stageLists.peek(shared.key);
     tab.sharedStages = shared.key;
     tab.stagesKey = shared.key;
@@ -525,7 +527,26 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
         tab.stagesKey = shared.key;
       }
     } catch (error) {
-      if (!cached && tab.sharedStages === shared.key) tab.stagesError = messageOf(error);
+      if (!cached && tab.sharedStages === shared.key) {
+        const phase = this.stageRecovery.get(shared.key);
+        const retry = retryAfterCollection && error instanceof ReadDeadlineExceeded && (!phase || phase === "waiting");
+        const message = retry ? "Loading models is taking longer than expected. AutoCode will try again when this read finishes."
+          : error instanceof ReadDeadlineExceeded ? "Could not load the stage models. This chat can still use your saved choices."
+          : messageOf(error);
+        for (const row of this.tabs) if (!row.run && row.sharedStages === shared.key) row.stagesError = message;
+        if (retry && !phase) {
+          this.stageRecovery.set(shared.key, "waiting");
+          void error.collected.then(() => {
+            if (this.disposed) return;
+            const waiting = this.tabs.find((row) => !row.run && !row.starting && row.sharedStages === shared.key && !row.stages);
+            if (!waiting) { this.stageRecovery.delete(shared.key); return; }
+            this.stageRecovery.set(shared.key, "retrying");
+            void this.showSharedStages(waiting, shared, false).finally(() => {
+              if (this.stageRecovery.get(shared.key) === "retrying") this.stageRecovery.set(shared.key, "exhausted");
+            });
+          });
+        }
+      }
     } finally {
       if (!cached && tab.sharedStages === shared.key) tab.stagesBusy = false;
       this.post();
@@ -537,10 +558,12 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     if (!key) { if (this.active.sharedStages) void this.loadChatStages(this.active); return; }
     const view = this.stageLists.peek(key);
     if (!view) return;
+    this.stageRecovery.delete(key);
     let changed = false;
     for (const tab of this.tabs) {
       if (tab.run || tab.starting || tab.sharedStages !== key) continue;
       tab.stages = view;
+      tab.stagesError = "";
       changed = true;
     }
     if (changed) this.post();

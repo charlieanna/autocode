@@ -1218,6 +1218,12 @@ test('repeated History titles identify each run and keep its own open target', a
     assert.equal(refreshed[0].run.id, 'a');
     assert.equal(refreshed[0].label, rows[1].label);
     assert.equal(refreshed[1].label, rows[0].label);
+    listed.push({ ...listed[0], id: 'new', runDir: '/alpha/.autocode/runs/0-new', updatedAt: '2026-11-11T11:00:05Z' });
+    await provider.refresh();
+    const withNew = provider.getChildren(provider.getChildren()[0]);
+    assert.equal(withNew.find((row) => row.run.id === 'a').label, rows[1].label);
+    assert.equal(withNew.find((row) => row.run.id === 'b').label, rows[0].label);
+    assert.equal(new Set(withNew.filter((row) => row.run.id !== 'c').map((row) => row.label)).size, 3);
   } finally { provider.dispose(); }
 });
 
@@ -2193,6 +2199,67 @@ function chatStageView(argv) {
   ], chat: { next_command: [...base, ...others(null)],
     start_args: Object.entries(picks).flatMap(([id, [model, effort]]) => [`--${id}-model`, model, `--${id}-reasoning-effort`, effort]) } }) };
 }
+
+test('a timed-out new-chat model list retries once after its reader is collected', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  let release;
+  let collected = false;
+  const finished = new Promise((resolve) => { release = () => { collected = true; resolve(); }; });
+  const calls = [];
+  const ui = await openChat(t, null, false, { stages: (argv) => {
+    calls.push(argv);
+    if (!collected) throw new cli.ReadDeadlineExceeded(60000, finished);
+    return chatStageView(argv);
+  } });
+  ui.chat.show();
+  for (let i = 0; i < 20 && !/did not finish|taking longer/i.test(ui.document.querySelector('#chat-models').textContent); i++) await flush();
+  assert.match(ui.document.querySelector('#chat-models').textContent, /did not finish|taking longer/i, `calls=${calls.length}`);
+  const whileHeld = calls.length;
+  await flush(); await flush();
+  assert.equal(calls.length, whileHeld, 'no new reader starts while the old one is still held');
+  release(); await flush(); await flush(); await flush();
+  assert.equal(calls.length, whileHeld + 1, 'exactly one fresh read starts after collection');
+  assert.equal(ui.document.querySelectorAll('#chat-models .chat-model').length, 2,
+    'the model choices appear without the person reopening the chat');
+  assert.equal(ui.document.querySelector('#chat-models .chat-models-error'), null, 'the old timeout is cleared');
+  assert.deepEqual(calls.at(-1), ['stages', 'list', '--json', '--backend', 'claude']);
+});
+
+test('a collected model reader does not restart after the chat view is disposed', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  let release;
+  const finished = new Promise((resolve) => { release = resolve; });
+  const calls = [];
+  const ui = await openChat(t, null, false, { stages: (argv) => {
+    calls.push(argv);
+    throw new cli.ReadDeadlineExceeded(60000, finished);
+  } });
+  ui.chat.show();
+  for (let i = 0; i < 20 && !/did not finish|taking longer/i.test(ui.document.querySelector('#chat-models').textContent); i++) await flush();
+  const before = calls.length;
+  ui.chat.dispose();
+  release();
+  for (let i = 0; i < 10; i++) await flush();
+  assert.equal(calls.length, before, 'closing the view cannot start a new reader');
+});
+
+test('model-list recovery remains bounded when its fresh read also times out', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  let release;
+  const finished = new Promise((resolve) => { release = resolve; });
+  const calls = [];
+  const ui = await openChat(t, null, false, { stages: (argv) => {
+    calls.push(argv);
+    throw new cli.ReadDeadlineExceeded(60000, finished);
+  } });
+  ui.chat.show();
+  for (let i = 0; i < 20 && !/did not finish|taking longer/i.test(ui.document.querySelector('#chat-models').textContent); i++) await flush();
+  const before = calls.length;
+  release();
+  for (let i = 0; i < 20; i++) await flush();
+  assert.equal(calls.length, before + 1, 'one retry cannot turn into a read loop');
+  assert.match(ui.document.querySelector('#chat-models').textContent, /saved choices/i);
+});
 
 test('a new chat shows the stages it will run and changes one for itself alone before it starts', async (t) => {
   host.config.set('extraOptions', ['--engine', 'claude']);
@@ -5583,7 +5650,14 @@ test('similar open chats have distinct tabs and full request tooltips', async (t
   assert.notEqual(tabs[0].querySelector('.name').textContent, tabs[1].querySelector('.name').textContent);
   assert.equal(tabs[0].title.includes(firstTask), true);
   assert.equal(tabs[1].title.includes(secondTask), true);
-  tabs[0].click(); await flush();
+  const before = tabs.map((tab) => tab.querySelector('.name').textContent);
+  const third = { workspace: '/ws', runDir: '/ws/.autocode/runs/0-third' };
+  ui.chat.show(third); await flush(); await flush();
+  const after = [...ui.document.querySelectorAll('.chat-tab')];
+  assert.deepEqual(after.slice(0, 2).map((tab) => tab.querySelector('.name').textContent), before,
+    'opening another similar chat keeps the first two labels attached to their chats');
+  assert.equal(new Set(after.map((tab) => tab.querySelector('.name').textContent)).size, 3);
+  after[0].click(); await flush();
   assert.equal(ui.chat.run.runDir, run.runDir, 'the distinct label still opens its own chat');
   [...ui.document.querySelectorAll('.chat-tab')][1].click(); await flush();
   assert.equal(ui.chat.run.runDir, other.runDir);

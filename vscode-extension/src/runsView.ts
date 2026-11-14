@@ -71,6 +71,7 @@ export class RunsProvider implements vscode.TreeDataProvider<RunNode> {
   constructor(private readonly controller: RunController) {}
 
   private nodes: RunNode[] = [];
+  private readonly duplicateAllocations = new Map<string, Map<string, number>>();
   private loading = false;
   private showArchivedState = false;
 
@@ -89,7 +90,7 @@ export class RunsProvider implements vscode.TreeDataProvider<RunNode> {
     this.loading = true;
     try {
       const list = await this.controller.list(this.showArchivedState);
-      this.nodes = groupByWorkspace(list.runs);
+      this.nodes = groupByWorkspace(list.runs, Date.now(), this.duplicateAllocations);
     } catch (error) {
       this.nodes = [placeholder(error)];
     } finally {
@@ -116,7 +117,7 @@ export class RunsProvider implements vscode.TreeDataProvider<RunNode> {
  * Recent chats first, then each project's chats, newest first. Projects are ordered by
  * their newest chat, and fold away under a Recent section so the latest chats are on top.
  */
-function groupByWorkspace(runs: RegistryRun[], now = Date.now()): RunNode[] {
+function groupByWorkspace(runs: RegistryRun[], now = Date.now(), allocations = new Map<string, Map<string, number>>()): RunNode[] {
   const byWorkspace = new Map<string, RegistryRun[]>();
   for (const run of [...runs].sort(byLatest)) {
     const project = projectOf(run);
@@ -126,8 +127,8 @@ function groupByWorkspace(runs: RegistryRun[], now = Date.now()): RunNode[] {
   }
   const nodes: RunNode[] = [];
   // Compare the actual displayed labels, including titles truncated at the same point.
-  // Assign numbers by run path so a refresh with the same chats cannot swap their identities.
-  const duplicates = duplicateNumbers(runs);
+  // Keep assigned numbers when a new matching chat enters the list.
+  const duplicates = duplicateNumbers(runs, allocations);
   // Archived chats stay out of Recent; a visible Archived section lists them when asked for.
   const recent = recentRuns(runs.filter((run) => !run.archived));
   if (recent.length > 0) {
@@ -159,7 +160,7 @@ function groupByWorkspace(runs: RegistryRun[], now = Date.now()): RunNode[] {
   return nodes;
 }
 
-function duplicateNumbers(runs: RegistryRun[]): Map<string, number> {
+function duplicateNumbers(runs: RegistryRun[], allocations: Map<string, Map<string, number>>): Map<string, number> {
   const groups = new Map<string, RegistryRun[]>();
   for (const run of runs) {
     if (run.availability !== "available" || !run.title) continue;
@@ -169,10 +170,15 @@ function duplicateNumbers(runs: RegistryRun[]): Map<string, number> {
     groups.set(label, group);
   }
   const result = new Map<string, number>();
-  for (const group of groups.values()) {
+  for (const [label, group] of groups) {
     if (group.length < 2) continue;
+    const assigned = allocations.get(label) ?? new Map<string, number>();
     group.sort((a, b) => a.runDir < b.runDir ? -1 : a.runDir > b.runDir ? 1 : 0);
-    group.forEach((run, index) => result.set(run.runDir, index + 1));
+    for (const run of group) {
+      if (!assigned.has(run.runDir)) assigned.set(run.runDir, assigned.size + 1);
+      result.set(run.runDir, assigned.get(run.runDir)!);
+    }
+    allocations.set(label, assigned);
   }
   return result;
 }
