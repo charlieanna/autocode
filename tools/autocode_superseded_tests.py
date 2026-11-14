@@ -126,8 +126,18 @@ def _same_file(container: str, name: str) -> bool:
     return bool(container) and (container == name or name.endswith("/" + container))
 
 
+def own_names(rest: str) -> tuple[str, ...]:
+    """The names a test may have by itself in the part of a runner's id after its file: the last of
+    ``suite::title`` (pytest, node:test) and of ``group > title`` (Vitest, Jest), shortest first."""
+    last = rest.rsplit("::", 1)[-1]
+    return tuple(dict.fromkeys((last.rsplit(" > ", 1)[-1], last)))
+
+
 def matches(entry: dict, test_id: str) -> bool:
-    """Whether a runner's test id is the superseded test, or one of its parameter sets or Go subtests."""
+    """Whether a runner's test id is the superseded test, or one of its parameter sets or Go subtests.
+
+    An RSpec id is the file and the example's full description, its groups' descriptions and then its own
+    (autocode_rspec_tests), so the test's name is that description or its last words."""
     name, test = str(entry.get("file") or ""), str(entry.get("test") or "")
     if not name or not test:
         return False
@@ -139,13 +149,31 @@ def matches(entry: dict, test_id: str) -> bool:
             directory = str(PurePosixPath(name).parent)
             package_ok = directory in ("", ".") or container == directory or container.endswith("/" + directory)
             return package_ok and (rest == test or rest.startswith(test + "/"))
-        return _same_file(container, name) and rest.rsplit("::", 1)[-1] == test
+        return _same_file(container, name) and (
+            test in own_names(rest) or (name.endswith(".rb") and rest.endswith(" " + test))
+        )
     # unittest: package.module.Class.test_name
     module = name[:-3].replace("/", ".") if name.endswith(".py") else ""
     if not module or not test_id.endswith("." + test):
         return False
     owner = test_id[: -len(test) - 1]
     return owner.startswith(module + ".") or ("." + module + ".") in owner or owner == module
+
+
+def replaced(state: RunState):
+    """Whether a runner's test id is a test the approved plan replaces, as a function of the id; None when
+    the plan replaces none.
+
+    Such a test may be renamed or removed with the change (owner decision, 2026-11-13): the regression proof
+    does not count it among the tests that disappeared (autocode_verify_judgment.judge_suite). Every other
+    original test must still be there and pass, and the original tests still run against the change, where
+    only these may fail (``excused``).
+    """
+    try:
+        entries = approved(state)
+    except (KeyError, TypeError):
+        return None  # a contract that was never sealed approves nothing
+    return (lambda test_id: any(matches(entry, test_id) for entry in entries)) if entries else None
 
 
 def excused(row, entries, changed) -> list[str] | None:

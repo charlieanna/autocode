@@ -236,8 +236,12 @@ def judge_suite(
     untested=False,
     repaired=(),
     quarantined=(),
+    replaced=None,
 ):
     """Nothing that passed on base may fail, be skipped, be deselected or disappear (``kept_tests``: first_suite).
+
+    ``replaced``: whether a test id is a test the approved plan replaces (autocode_superseded_tests). Such a
+    test may be gone from the candidate's suite, renamed or removed; one that is there and skipped is not gone.
 
     ``repaired``: the base's failing tests that pass on the candidate (first_suite.repaired_evidence).
     ``quarantined``: tests the flaky-test recheck showed failing on base too (autocode_suite_flakes); they
@@ -378,6 +382,10 @@ def judge_suite(
             fail.append("Tests that pass on base fail on the candidate: " + ", ".join(new[:20]))
         if candidate["complete"] and base_results["complete"]:
             lost = sorted(set(base_results["passed"]) - set(candidate["passed"]) - set(new) - flaky)
+            gone = [test for test in lost if replaced and test not in candidate["skipped"] and replaced(test)]
+            if gone:
+                lost = [test for test in lost if test not in gone]
+                notes.append("Tests the approved plan replaces are no longer in the suite: " + ", ".join(gone[:20]))
             if lost:
                 fail.append(
                     "Tests that pass on base did not pass on the candidate (skipped, deselected, "

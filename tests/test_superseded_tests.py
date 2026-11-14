@@ -2,21 +2,27 @@
 
 import json
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 import autocode_approval_view as approval_view
 import autocode_contract_identity as contracts
 import autocode_pause_category as pause_category
 import autocode_protected_oracles as guard
+import autocode_regression as regression
 import autocode_run_records as run_records
+import autocode_superseded_correction as correction
 import autocode_superseded_tests as superseded
 import autocode_util as util
 import autocode_verify as verify
+
+from .test_verify import Project
 
 SHIPPING = "def shipping_fee(cents):\n    return 0 if cents > 5000 else 499\n"
 FIXED = "def shipping_fee(cents):\n    return 0 if cents >= 5000 else 499\n"
@@ -85,6 +91,25 @@ class Matching(unittest.TestCase):
         self.assertTrue(superseded.matches(node, "test/fee.test.js::shipping::fifty dollars pays the fee"))
         self.assertFalse(superseded.matches(node, "test/fee.test.js::fifty dollars ships free"))
 
+    def test_vitest_jest_and_rspec_ids(self):
+        # Vitest and Jest join a test's groups and its title with " > " (autocode_vitest_tests, autocode_jest_tests).
+        grouped = {"file": "test/fee.test.js", "test": "fifty dollars pays the fee"}
+        self.assertTrue(superseded.matches(grouped, "test/fee.test.js::shipping > fees > fifty dollars pays the fee"))
+        self.assertTrue(superseded.matches(grouped, "test/fee.test.js::fifty dollars pays the fee"))
+        self.assertFalse(superseded.matches(grouped, "test/fee.test.js::shipping > fifty dollars ships free"))
+        self.assertFalse(superseded.matches(grouped, "test/other.test.js::shipping > fifty dollars pays the fee"))
+        # An RSpec id is the example's full description: its groups' descriptions, then its own.
+        example = {"file": "spec/fee_spec.rb", "test": "charges the fee at fifty dollars"}
+        self.assertTrue(superseded.matches(example, "spec/fee_spec.rb::Shipping.fee charges the fee at fifty dollars"))
+        self.assertTrue(superseded.matches(example, "spec/fee_spec.rb::charges the fee at fifty dollars"))
+        self.assertFalse(superseded.matches(example, "spec/fee_spec.rb::Shipping.fee waives the fee at fifty dollars"))
+        self.assertFalse(
+            superseded.matches(example, "spec/fee_spec.rb::Shipping.fee overcharges the fee at fifty dollars")
+        )
+        self.assertFalse(
+            superseded.matches(grouped, "test/fee.test.js::it is not true that fifty dollars pays the fee")
+        )
+
 
 class Excused(unittest.TestCase):
     changed = ["tests/test_shipping.py"]
@@ -145,7 +170,8 @@ class Gate(unittest.TestCase):
             discover_command=lambda: command,
         )
 
-    def approve(self, supersedes, method="test: test_fifty_dollar_order_pays_standard_fee"):
+    def approve(self, supersedes, method="test: test_fifty_dollar_order_pays_standard_fee", state=None):
+        state = self.state if state is None else state
         row = {"id": "AC1", "criterion": "A $50 order ships free", "verification_method": method}
         if supersedes is not None:
             row["supersedes"] = supersedes
@@ -154,9 +180,9 @@ class Gate(unittest.TestCase):
         contract["hash"] = util.digest(contract)
         event = {"kind": "goal_approval", "actor": "user_cli", "token": contracts.token(contract)}
         contract.update(approval_status="approved", approval_event=event, origin="planner_draft")
-        self.state["goal_contract"] = contract
-        self.state["user_events"] = [event]
-        self.assertTrue(contracts.approved(self.state))
+        state["goal_contract"] = contract
+        state["user_events"] = [event]
+        self.assertTrue(contracts.approved(state))
         return contract
 
     def fix(self, test=UPDATED):
@@ -259,9 +285,184 @@ class Gate(unittest.TestCase):
         packet = guard.context(self.state["settings"], ["tests/"], self.state)
         self.assertEqual([ENTRY], packet["superseded_tests"])
         self.assertIn("superseded_tests", packet["instruction"])
-        # A live GLM Builder renamed the superseded test to the criterion's new test name (2026-11-06).
-        self.assertIn("Never rename, move or delete one", packet["instruction"])
+        # A listed test may be renamed or removed (owner decision, 2026-11-13); no other original test may.
+        self.assertIn("You may rename one to say what it now checks, or remove it", packet["instruction"])
+        self.assertIn("Rename, move or delete no other original test", packet["instruction"])
         self.assertNotIn("superseded_tests", guard.context(self.state["settings"], ["tests/"]))
+
+
+RENAMED = UPDATED.replace("test_fifty_dollar_order_pays_standard_fee", "test_fifty_dollar_order_ships_free")
+REMOVED = (
+    ORIGINAL.replace(
+        "    def test_fifty_dollar_order_pays_standard_fee(self):\n        self.assertEqual(shipping_fee(5000), 499)\n",
+        "",
+    )
+    + "    def test_fifty_dollar_order_ships_free(self):\n        self.assertEqual(shipping_fee(5000), 0)\n"
+)
+
+
+class Renamed(unittest.TestCase):
+    """A test the approved plan replaces may be renamed or removed with the change (owner decision, 2026-11-13).
+
+    "page_count(0, 5) should return 1. Update the tests to match" (Claude models, 2026-11-13), in a Python and
+    in a node:test project: the plan listed the test it replaced, the Builder wrote the new test and took the
+    old one out, and the proof failed twice with "Existing tests were removed" before an Investigator had the
+    old name put back, around an assertion of the new behavior: test_empty_list_has_no_pages asserting one page.
+    """
+
+    def prove(self, test, supersedes, code=FIXED):
+        project = Project({"shipping.py": SHIPPING, "tests/__init__.py": "", "tests/test_shipping.py": ORIGINAL})
+        self.addCleanup(project.close)
+        project.write({"shipping.py": code, "tests/test_shipping.py": test})
+        state = {"workspace": str(project.root), "base_commit": project.base, "settings": {"regression": {}}}
+        state["user_events"] = []
+        Gate.approve(self, supersedes, method="test: test_fifty_dollar_order_ships_free", state=state)
+        with mock.patch.object(verify.diff_coverage, "collect", return_value=None):
+            return regression.prove(state, project.root, project.evidence / "proof")
+
+    def test_the_replaced_test_may_take_the_name_of_what_it_now_checks(self):
+        proof = self.prove(RENAMED, [ENTRY])
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertIn(
+            "Tests the approved plan replaces are no longer in the suite: "
+            "tests.test_shipping.Shipping.test_fifty_dollar_order_pays_standard_fee",
+            proof["notes"],
+        )
+        self.assertEqual(["tests.test_shipping.Shipping.test_fifty_dollar_order_ships_free"], proof["fail_to_pass"])
+
+    def test_the_replaced_test_may_be_removed_for_the_new_test_beside_it(self):
+        self.assertEqual(verify.PASS, self.prove(REMOVED, [ENTRY])["verdict"])
+
+    def test_a_test_the_plan_does_not_list_may_not_go(self):
+        proof = self.prove(RENAMED, None)
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertIn(
+            "Existing tests were removed: tests/test_shipping.py::test_fifty_dollar_order_pays_standard_fee",
+            proof["failures"],
+        )
+        self.assertIn("renamed or missing): tests.test_shipping.Shipping.test_fifty", " ".join(proof["failures"]))
+        # Nor may another test go because one is listed.
+        other = RENAMED.replace(
+            "    def test_small_order_pays_fee(self):\n        self.assertEqual(shipping_fee(1000), 499)\n", ""
+        )
+        proof = self.prove(other, [ENTRY])
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertEqual(
+            ["Existing tests were removed: tests/test_shipping.py::test_small_order_pays_fee"], proof["failures"][:1]
+        )
+
+    def test_a_plan_that_was_never_sealed_replaces_nothing(self):
+        unsealed = {
+            "body": {"acceptance_criteria": [{"id": "AC1", "supersedes": [ENTRY]}]},
+            "approval_status": "approved",
+        }
+        self.assertIsNone(superseded.replaced({"goal_contract": unsealed}))
+        self.assertIsNone(superseded.replaced({}))
+
+    def test_a_replaced_test_that_is_skipped_is_not_gone(self):
+        skipped = (
+            UPDATED.replace(
+                "    def test_fifty_dollar_order_pays_standard_fee(self):\n",
+                "    @unittest.skip('later')\n    def test_fifty_dollar_order_pays_standard_fee(self):\n",
+            )
+            + "    def test_fifty_dollar_order_ships_free(self):\n        self.assertEqual(shipping_fee(5000), 0)\n"
+        )
+        proof = self.prove(skipped, [ENTRY])
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertIn("renamed or missing): tests.test_shipping.Shipping.test_fifty", " ".join(proof["failures"]))
+
+
+JS_FEE = "exports.shippingFee = (cents) => (cents > 5000 ? 0 : 499);\n"
+JS_FIXED = JS_FEE.replace("cents > 5000", "cents >= 5000")
+JS_ORIGINAL = (
+    "const test = require('node:test');\nconst assert = require('node:assert/strict');\n"
+    "const { shippingFee } = require('../src/shipping.js');\n\n"
+    "test('a fifty dollar order pays the fee', () => {\n  assert.equal(shippingFee(5000), 499);\n});\n\n"
+    "test('a small order pays the fee', () => {\n  assert.equal(shippingFee(1000), 499);\n});\n"
+)
+JS_UPDATED = JS_ORIGINAL.replace("shippingFee(5000), 499", "shippingFee(5000), 0")
+JS_ENTRY = {"file": "tests/shipping.test.js", "test": "a fifty dollar order pays the fee"}
+
+
+@unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "the project's suite is npm test")
+class NpmGate(unittest.TestCase):
+    """The same gate where the original suite is ``npm test``, as a Node project's detected suite is.
+
+    "pageCount(0, 5) should return 1. Update the tests to match" in a node:test project (Claude models,
+    2026-11-13): the approved plan listed the test it replaced, the Builder changed that test in place, and
+    the gate still refused the Tester's PASS. It ran ``npm test --silent`` for its exit code alone, so it
+    could not see that the one failing original test was the listed one, and the run stopped for the person.
+    """
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.project = Path(temp.name).resolve() / "project"
+        files = {
+            "package.json": '{"name": "shipping", "private": true, "scripts": {"test": "node --test tests/*.test.js"}}\n',
+            "src/shipping.js": JS_FEE,
+            "tests/shipping.test.js": JS_ORIGINAL,
+        }
+        for name, text in files.items():
+            (self.project / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.project / name).write_text(text)
+        git = ["git", "-C", str(self.project)]
+        subprocess.run(["git", "init", "-q", str(self.project)], check=True)
+        subprocess.run([*git, "add", "."], check=True)
+        subprocess.run([*git, "-c", "user.name=F", "-c", "user.email=f@example.test", "commit", "-qm", "o"], check=True)
+        self.run_dir = self.project / ".autocode/runs/superseded"
+        self.state = {"settings": {}, "workspace": str(self.project), "user_events": []}
+        suite = verify.detect_framework(self.project).suite
+        self.assertEqual("npm test --silent", suite)
+        guard.reconcile(
+            self.state,
+            self.state["settings"],
+            SimpleNamespace(run_dir=None),
+            self.project,
+            self.run_dir,
+            is_test_path=verify.is_test_path,
+            discover_command=lambda: suite,
+        )
+
+    approve = Gate.approve
+
+    def replay(self, code=JS_FIXED, test=JS_UPDATED):
+        (self.project / "src/shipping.js").write_text(code)
+        (self.project / "tests/shipping.test.js").write_text(test)
+        return guard.replay(self.state, self.project, self.run_dir / "replays", verify.scratch_run, timeout=60)
+
+    def test_the_listed_test_is_the_one_failure_the_gate_accepts(self):
+        self.approve([JS_ENTRY], method="test: a fifty dollar order pays the fee")
+        result = self.replay()
+        self.assertEqual("PASS", result["verdict"])
+        self.assertEqual(
+            ["tests/shipping.test.js::a fifty dollar order pays the fee"], result["superseded"]["excused_failures"]
+        )
+        self.assertEqual(2, result["candidate"]["results"]["total"])
+
+    def test_a_failing_test_the_plan_does_not_list_is_named_and_refused(self):
+        self.approve([JS_ENTRY], method="test: a fifty dollar order pays the fee")
+        with self.assertRaisesRegex(ValueError, "Failing original tests: .*a small order pays the fee"):
+            self.replay(
+                JS_FIXED.replace(": 499", ": 500"),
+                JS_UPDATED.replace("shippingFee(1000), 499", "shippingFee(1000), 500"),
+            )
+
+    def test_without_the_entry_the_gate_refuses_and_the_runner_drafts_the_plan_that_lists_it(self):
+        self.approve(None, method="test: a fifty dollar order pays the fee")
+        with self.assertRaisesRegex(
+            ValueError, "Failing original tests: .*a fifty dollar order pays the fee"
+        ) as caught:
+            self.replay()
+        found = correction.proposal(self.state, caught.exception.receipt, self.project)
+        self.assertEqual([{"criterion": "AC1", **JS_ENTRY}], found["tests"])
+
+    def test_a_grouped_title_is_the_test_the_draft_lists(self):
+        # Vitest and Jest ids: the groups, then the title.
+        entry = correction._entry(
+            "tests/shipping.test.js::fees > a fifty dollar order pays the fee", [JS_ENTRY["file"]]
+        )
+        self.assertEqual(JS_ENTRY, entry)
 
 
 class Display(unittest.TestCase):

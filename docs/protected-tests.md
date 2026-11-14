@@ -66,10 +66,17 @@ the person:
 - The criterion's named test must still pass the [regression proof](named-test-proof.md):
   it fails on the original code and passes with the change.
 - The original suite still runs as above. Its failure is accepted only when the
-  runner reported complete per-test results (unittest, pytest, Go, `node:test` or
-  Vitest), nothing failed to collect, and every failing test is a listed one in a
-  file the change edited. Any other failing original test, a crash, a timeout or
-  a runner without per-test results keeps the gate closed, as before.
+  runner reported complete per-test results (unittest, pytest, Go, `node:test`,
+  Vitest or RSpec, also when the suite is the project's `npm test`), nothing
+  failed to collect, and every failing test is a listed one in a file the change
+  edited. Any other failing original test, a crash, a timeout or a runner without
+  per-test results keeps the gate closed, as before.
+- A listed test may change with the code: the Builder gives it the new assertion,
+  renames it to say what it now checks, or removes it when the criterion's new
+  test covers it (owner decision, 2026-11-13). The regression proof does not count
+  a listed test among the tests that disappeared, and says so in its notes. A
+  listed test that is still there and skipped is not gone, and every test the plan
+  does not list must stay and pass, as before.
 - The replay receipt records the accepted failures under `superseded`.
   Completion checks them again against the plan in force, so a later plan that
   drops the entry cannot reuse the receipt.

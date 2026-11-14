@@ -99,6 +99,17 @@ def complete_results(receipt):
     )
 
 
+def shows_nothing(receipt) -> str | None:
+    """Why a recognized runner's passing run establishes nothing, or None: it named no test, or ran none."""
+    if receipt["exit_code"] != 0 or receipt["timed_out"]:
+        return None
+    if not complete_results(receipt):
+        return "Test command reported zero tests or incomplete per-test results"
+    if not (receipt["results"]["passed"] or receipt["results"]["failed"]):
+        return "Test command reported only skipped tests"
+    return None
+
+
 def intact(receipt, *, root=None):
     """Output must still be the original complete capture, never a model claim."""
     try:
