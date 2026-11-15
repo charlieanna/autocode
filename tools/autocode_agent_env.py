@@ -32,7 +32,7 @@ PASS_VARIABLE = "AUTOCODE_PASS_ENV"
 # Runner-only daemon toggles: an agent or test subprocess inheriting AUTOCODE_SOURCE_HOST=1
 # can spawn a 30-minute snapshot host inside the stage's ProcessTree, keeping process_fallback
 # active after tools exit and killing the client's warm host on stage cleanup.
-RUNNER_ONLY_ENV_VARS = frozenset({"AUTOCODE_SOURCE_HOST"})
+RUNNER_ONLY_ENV_VARS = frozenset({"AUTOCODE_SOURCE_HOST", "AUTOCODE_CAPTURE_FAMILY"})
 # A whole underscore-separated word of the name, e.g. SSH_AUTH_SOCK or OPENAI_API_KEY.
 SECRET_WORDS = {"KEY", "AUTH", "PAT", "PRIVATE", "COOKIE"}
 # The end of a word, e.g. GH_TOKEN, AZURE_CLIENT_SECRET, GOOGLE_APPLICATION_CREDENTIALS, MYAPIKEY.

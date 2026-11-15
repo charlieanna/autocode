@@ -105,8 +105,17 @@ class PreflightReuseTests(unittest.TestCase):
             for argument in ("--version", "models", "auth"):
                 with self.subTest(preflight=argument):
                     before = self.calls()
-                    first_env = {**self.env, "CODEX_TOOL_CALL_ID": "call-one", "KILO_CONFIG": "same-profile"}
-                    second_env = {**first_env, "CODEX_TOOL_CALL_ID": "call-two"}
+                    first_env = {
+                        **self.env,
+                        "CODEX_TOOL_CALL_ID": "call-one",
+                        "AUTOCODE_CAPTURE_FAMILY": "capture-one",
+                        "KILO_CONFIG": "same-profile",
+                    }
+                    second_env = {
+                        **first_env,
+                        "CODEX_TOOL_CALL_ID": "call-two",
+                        "AUTOCODE_CAPTURE_FAMILY": "capture-two",
+                    }
                     with env_prep.reuse_checks(self.run_dir):
                         first = self.check(argument, first_env)
                     with env_prep.reuse_checks(self.run_dir):

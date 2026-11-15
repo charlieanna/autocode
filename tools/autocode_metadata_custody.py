@@ -1,8 +1,9 @@
 """Retain uncertain Linux metadata ownership across independent Core invocations.
 
-One private user store holds admission until the command's own reaper records a
-clean terminal result. Process death, elapsed time and missing sampled PIDs never
-release it. A different kernel boot can retire the old record, preserving it.
+One private user store holds admission until the command's reaper or an enrolled
+ancestor proves its family collected. Only the command's own receipt authorizes
+its result. Process death, elapsed time and missing sampled PIDs never release
+custody. A different kernel boot can retire the old record, preserving it.
 """
 
 from __future__ import annotations
@@ -15,14 +16,16 @@ import stat
 import sys
 import threading
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from contextvars import ContextVar
 from pathlib import Path
 
 try:
+    from . import autocode_capture_family as family
     from . import autocode_util as util
     from .autocode_process import ProcessError
 except ImportError:
+    import autocode_capture_family as family
     import autocode_util as util
     from autocode_process import ProcessError
 
@@ -175,11 +178,25 @@ def _clean(root, pending):
     started, expired, code = row["started"], row["expired"], row.get("returncode")
     if (started and type(code) is not int) or (not started and code is not None):
         return False
+    if "setup_failed" in row:
+        return row["setup_failed"] is True and not started and not expired and "start_errno" not in row
     if "start_errno" in row:
         return type(row["start_errno"]) is int and row["start_errno"] > 0 and not started and not expired
     # A trusted reaper can certify no children were launched after owner
     # cancellation. That releases custody, not command-result authority.
     return True
+
+
+def _settled(root, pending, boot):
+    """A fresh caller may recover custody without recovering a command result."""
+    try:
+        if _clean(root, pending):
+            return True
+    except (OSError, ValueError, TypeError, KeyError, ProcessError):
+        # A killed inner helper may leave no primary packet. Only the enrolled
+        # ancestor's kernel family receipt can replace that custody evidence.
+        pass
+    return family.backup_clean(root, pending["nonce"], boot)
 
 
 def _matches(pending, group_nonce, members, boot=None):
@@ -202,7 +219,10 @@ def _reconcile(root, boot, mutate, expected_group=None, expected_members=None):
         "previous-boot"
         if pending["boot_id"] != boot
         else "collected"
-        if all(_clean(root, member) for member in pending["attempts"])
+        if all(
+            _settled(root, member, pending["boot_id"]) if expected_group is None else _clean(root, member)
+            for member in pending["attempts"]
+        )
         else None
     )
     if reason is None:
@@ -218,7 +238,7 @@ def _reconcile(root, boot, mutate, expected_group=None, expected_members=None):
 def _checked_reconcile(root, boot, mutate, expected_group=None, expected_members=None):
     try:
         _reconcile(root, boot, mutate, expected_group, expected_members)
-    except (OSError, ValueError, TypeError, KeyError):
+    except (OSError, ValueError, TypeError, KeyError, family.FamilyError):
         raise ProcessError(BLOCKED) from None
 
 
@@ -255,6 +275,7 @@ class Group:
         self.nonce = uuid.uuid4().hex
         self.mutex = threading.Lock()
         self.members = []
+        self.prepared = set()
         self.failed = self.closed = False
 
     def remaining_timeout(self):
@@ -264,19 +285,35 @@ class Group:
         if self.failed or self.closed:
             raise ProcessError(BLOCKED)
 
-    def arm(self, scope):
+    def prepare(self, scope):
         with self.mutex:
             self.available()
-            if scope.result is not None:
+            if scope.preparation_complete and scope.nonce in self.prepared:
+                return
+            if scope.result is not None or scope.nonce is not None:
                 raise ProcessError(BLOCKED)
-            if len(self.members) >= 256:
+            if len(self.members) + len(self.prepared) >= 256:
                 raise ProcessError(BLOCKED)
             scope.nonce = uuid.uuid4().hex
+            self.prepared.add(scope.nonce)
             scope.result_path = self.root / ("result-" + scope.nonce + ".json")
             scope.result = _open(scope.result_path, os.O_CREAT | os.O_EXCL | os.O_RDWR)
             scope.result.flush()
             os.fsync(scope.result.fileno())
+            # Enrollment must be acknowledged before durable pending custody:
+            # cancellation before enrollment must leave no launched member or
+            # unrecoverable global hold.
+            scope.backup = family.register_backup(self.root, scope.nonce, scope.effective_deadline(), boot_id=self.boot)
+            scope.preparation_complete = True
+
+    def arm(self, scope):
+        self.prepare(scope)
+        with self.mutex:
+            self.available()
+            if scope.nonce not in self.prepared:
+                raise ProcessError(BLOCKED)
             member = {"nonce": scope.nonce, "result_file": scope.result_path.name}
+            self.prepared.remove(scope.nonce)
             self.members.append(member)
             util.atomic_json(
                 self.root / "pending.json",
@@ -289,16 +326,43 @@ class Group:
                 },
             )
 
+    def _abort_prepared(self, scope):
+        self.prepared.discard(scope.nonce)
+        scope.preparation_complete = False
+        if scope.backup is not None:
+            # Before pending commit and GO, no target can have been launched.
+            # This rolls back an unused enrollment, not uncertain custody.
+            with suppress(OSError, ValueError, TypeError, family.FamilyError):
+                scope.backup.release()
+            scope.backup = None
+        if scope.result is not None:
+            with suppress(OSError):
+                scope.result.close()
+
+    def abort_prepared(self, scope):
+        with self.mutex:
+            if any(member["nonce"] == scope.nonce for member in self.members):
+                raise ProcessError(BLOCKED)
+            self._abort_prepared(scope)
+
     def finish(self, scope):
         with self.mutex:
             try:
+                armed = any(member["nonce"] == scope.nonce for member in self.members)
+                if not armed:
+                    self._abort_prepared(scope)
                 pending = _pending(self.root)
                 if not _matches(pending, self.nonce, self.members, self.boot):
                     raise ProcessError(BLOCKED)
-                if scope.result is not None and not _clean(
-                    self.root, {"nonce": scope.nonce, "result_file": scope.result_path.name}
-                ):
+                # Enrollment can be interrupted before any pending member or
+                # child exists. Its empty allocation must not mask cancellation.
+                if armed and not _clean(self.root, {"nonce": scope.nonce, "result_file": scope.result_path.name}):
                     raise ProcessError(BLOCKED)
+                if armed and scope.backup is not None:
+                    # A valid primary packet already proves collection.
+                    # Unregistration only avoids an unnecessary backup.
+                    with suppress(OSError, ValueError, TypeError, family.FamilyError):
+                        scope.backup.release()
                 if self.failed:
                     raise ProcessError(BLOCKED)
             except (OSError, ValueError, TypeError, KeyError, ProcessError):
@@ -311,6 +375,8 @@ class Admission:
         self.group = owner
         self.root, self.deadline, self.boot = owner.root, deadline, owner.boot
         self.result = self.result_path = self.nonce = None
+        self.backup = None
+        self.preparation_complete = False
 
     def effective_deadline(self):
         deadline = self.deadline
@@ -322,14 +388,27 @@ class Admission:
         deadline = self.effective_deadline()
         return None if deadline is None else max(0, deadline - util.monotonic())
 
-    def arm(self):
-        """Durably record this one native attempt before its helper can launch."""
+    def prepare(self):
+        """Allocate and enroll before helper startup, without pending custody."""
         try:
-            self.group.arm(self)
-        except (OSError, ValueError, TypeError):
+            self.group.prepare(self)
+        except (OSError, ValueError, TypeError, family.FamilyError):
             self.group.failed = True
             raise ProcessError(BLOCKED) from None
         return self.result, self.nonce
+
+    def arm(self):
+        """Commit custody after helper READY and before GO can start a target."""
+        try:
+            self.group.arm(self)
+        except (OSError, ValueError, TypeError, family.FamilyError):
+            self.group.failed = True
+            raise ProcessError(BLOCKED) from None
+        return self.result, self.nonce
+
+    def abort_prepared(self):
+        """Roll back only preparation for which pending/GO was never committed."""
+        self.group.abort_prepared(self)
 
 
 class _Portable:
@@ -341,8 +420,14 @@ class _Portable:
     def remaining_timeout(self):
         return self.timeout
 
+    def prepare(self):
+        return None, None
+
     def arm(self):
         return None, None
+
+    def abort_prepared(self):
+        pass
 
 
 def current():
@@ -460,7 +545,7 @@ def status(env=None):
             return BUSY
         _reconcile(root, _boot_id(), mutate=False)
         return None
-    except (OSError, ValueError, TypeError, KeyError, ProcessError):
+    except (OSError, ValueError, TypeError, KeyError, ProcessError, family.FamilyError):
         return BLOCKED
     finally:
         if handle is not None:

@@ -62,6 +62,7 @@ class CapturedContractTests(unittest.TestCase):
         def launch(words, **options):
             self.assertNotIn("PRIVATE account", words)
             request = json.loads(os.pread(options["pass_fds"][0], reaper.MAX_PACKET, 0))
+            os.write(request["ready"], json.dumps({"schema": 1, "nonce": request["nonce"], "ready": True}).encode())
             packet = {
                 "schema": 1,
                 "nonce": request["nonce"],
@@ -95,6 +96,7 @@ for fd in (0,1,2): os.close(fd)
 def launch(words, **options):
     assert all(fd > 2 for fd in options['pass_fds'])
     request=json.loads(os.pread(options['pass_fds'][0],65536,0))
+    os.write(request['ready'],json.dumps(dict(schema=1,nonce=request['nonce'],ready=True)).encode())
     os.write(options['pass_fds'][1],json.dumps(dict(schema=1,nonce=request['nonce'],clean=True,
         started=True,returncode=0,expired=False)).encode())
     return Mock(returncode=0)
@@ -161,6 +163,9 @@ with captured._temporary('w+t') as output, captured._temporary('w+t') as errors:
 
                 def launch(words, **options):
                     request = json.loads(os.pread(options["pass_fds"][0], reaper.MAX_PACKET, 0))
+                    os.write(
+                        request["ready"], json.dumps({"schema": 1, "nonce": request["nonce"], "ready": True}).encode()
+                    )
                     if response is not None:
                         packet = {"schema": 1, "nonce": request["nonce"], **response}
                         os.write(options["pass_fds"][1], json.dumps(packet).encode())

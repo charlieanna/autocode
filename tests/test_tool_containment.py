@@ -1092,8 +1092,8 @@ class KernelReceiptTests(unittest.TestCase):
                 patch.object(containment.sys, "platform", "darwin"),
                 patch.object(containment.shutil, "which", return_value="/owned/opencode"),
                 patch.object(
-                    containment.subprocess,
-                    "run",
+                    containment.captured,
+                    "run_metadata",
                     side_effect=[
                         SimpleNamespace(returncode=0, stdout=containment.SUPPORTED_VERSION, stderr=""),
                         SimpleNamespace(returncode=1, stdout="", stderr=diagnostic),
@@ -1380,10 +1380,14 @@ class KernelReceiptTests(unittest.TestCase):
         self.assertEqual([False] * len(sentinels), [path.exists() for path in sentinels])
 
     def test_private_read_probe_refuses_any_sign_that_the_bash_read_run_state(self):
-        real_run = containment.captured.run_metadata  # The configured backend checks use owned capture.
+        # This fixture shell runs on the actual host while configure emulates
+        # Darwin policy. Its process supervisor must use the actual kernel.
+        real_run = containment.captured.run
+        native_platform = sys.platform
 
         def uncontained(params, sentinels):
-            ran = real_run(["/bin/sh", "-c", params["command"]], capture_output=True, text=True, timeout=10)
+            with patch.object(containment.sys, "platform", native_platform):
+                ran = real_run(["/bin/sh", "-c", params["command"]], capture_output=True, text=True, timeout=10)
             return ran.returncode, ran.stdout + ran.stderr
 
         def rewritten(index):

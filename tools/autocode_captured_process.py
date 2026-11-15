@@ -2,6 +2,7 @@
 
 import json
 import os
+import select
 import subprocess
 import sys
 import tempfile
@@ -12,16 +13,18 @@ from contextlib import ExitStack
 from pathlib import Path
 
 try:
+    from . import autocode_capture_family as family
     from . import autocode_grader_process as supervisor
     from . import autocode_metadata_custody as custody
     from .autocode_process import ProcessError, interruption_handler, preflight
 except ImportError:
+    import autocode_capture_family as family
     import autocode_grader_process as supervisor
     import autocode_metadata_custody as custody
     from autocode_process import ProcessError, interruption_handler, preflight
 
 
-HELPER_RESERVE = 8.0
+HELPER_RESERVE = family.CLEANUP_ALLOWANCE
 
 
 def _above_stdio(descriptor):
@@ -107,6 +110,35 @@ def _sampled(command, timeout, env, cwd, output, errors, stdin):
     return code, expired
 
 
+def _await_ready(reader, nonce, deadline):
+    deadline = time.monotonic() + HELPER_RESERVE if deadline is None else deadline
+    packet = bytearray()
+    while True:
+        remaining = None if deadline is None else deadline - time.monotonic()
+        if remaining is not None and remaining <= 0:
+            return None
+        if not select.select([reader], [], [], 0.05 if remaining is None else min(0.05, remaining))[0]:
+            continue
+        chunk = os.read(reader.fileno(), 4097 - len(packet))
+        if not chunk:
+            if not packet:
+                return False
+            try:
+                ready = json.loads(packet)
+            except (ValueError, UnicodeError):
+                raise ProcessError("Capture helper returned invalid preparation evidence") from None
+            if (
+                ready != {"schema": 1, "nonce": nonce, "ready": True}
+                or type(ready.get("schema")) is not int
+                or ready.get("ready") is not True
+            ):
+                raise ProcessError("Capture helper returned invalid preparation evidence")
+            return True
+        packet.extend(chunk)
+        if len(packet) > 4096:
+            raise ProcessError("Capture helper preparation evidence exceeds its bound")
+
+
 def _linux(command, timeout, env, cwd, output, errors, stdin):
     """One private subreaper owns exactly one invocation, even off the main thread."""
     scope = custody.current()
@@ -119,6 +151,10 @@ def _linux(command, timeout, env, cwd, output, errors, stdin):
         os.fsdecode(command) if isinstance(command, (str, bytes, os.PathLike)) else [os.fsdecode(w) for w in command]
     )
     with ExitStack() as stack:
+        try:
+            ancestry = family.Launch()
+        except (OSError, ValueError, family.FamilyError):
+            raise ProcessError("Cannot establish capture ancestry") from None
         request = stack.enter_context(_temporary("w+b"))
         result = scope.result if scope is not None else stack.enter_context(_temporary("w+b"))
         if result is None or nonce is None:
@@ -126,7 +162,22 @@ def _linux(command, timeout, env, cwd, output, errors, stdin):
         reader, writer = _private_pipe()
         owner_read = stack.enter_context(os.fdopen(reader, "rb", buffering=0))
         owner_write = stack.enter_context(os.fdopen(writer, "wb", buffering=0))
-        request.write(json.dumps({"command": words, "deadline": deadline, "nonce": nonce}).encode("utf-8"))
+        reader, writer = _private_pipe()
+        ready_read = stack.enter_context(os.fdopen(reader, "rb", buffering=0))
+        ready_write = stack.enter_context(os.fdopen(writer, "wb", buffering=0))
+        request.write(
+            json.dumps(
+                {
+                    "command": words,
+                    "deadline": deadline,
+                    "nonce": nonce,
+                    "family": ancestry.packet(),
+                    "cwd": None if cwd is None else os.fsdecode(cwd),
+                    "env": None if env is None else dict(env),
+                    "ready": ready_write.fileno(),
+                }
+            ).encode("utf-8")
+        )
         request.seek(0)
         helper = subprocess.Popen(
             [
@@ -137,18 +188,27 @@ def _linux(command, timeout, env, cwd, output, errors, stdin):
                 str(result.fileno()),
                 str(owner_read.fileno()),
             ],
-            cwd=cwd,
-            env=env,
             stdin=stdin,
             stdout=output,
             stderr=errors,
             start_new_session=True,
             close_fds=True,
-            pass_fds=(request.fileno(), result.fileno(), owner_read.fileno()),
+            pass_fds=(request.fileno(), result.fileno(), owner_read.fileno(), ready_write.fileno()),
         )
-        owner_read.close()
+        ready_write.close()
         interrupted = None
+        ready = False
         try:
+            ready = _await_ready(ready_read, nonce, deadline)
+            if ready:
+                if scope is not None:
+                    scope.arm()
+                owner_write.write(b"G")
+            else:
+                owner_write.close()
+                until = time.monotonic() + HELPER_RESERVE
+                parent_deadline = until if parent_deadline is None else min(parent_deadline, until)
+            owner_read.close()
             # Reserve the final second for emergency helper collection; no
             # exceptional wait receives a fresh extension of this bound.
             remaining = None if parent_deadline is None else max(0, parent_deadline - time.monotonic() - 1)
@@ -173,10 +233,6 @@ def _linux(command, timeout, env, cwd, output, errors, stdin):
             raise ProcessError("Capture helper returned no valid cleanup result") from None
         if response.get("clean") is not True or helper.returncode != 0:
             raise ProcessError("Capture helper could not verify command cleanup") from None
-        if interrupted is not None:
-            if isinstance(interrupted, subprocess.TimeoutExpired):
-                raise ProcessError("Capture helper exceeded its cleanup allowance") from None
-            raise interrupted
         started, code, expired = response.get("started"), response.get("returncode"), response.get("expired")
         start_errno = response.get("start_errno")
         if (
@@ -184,12 +240,27 @@ def _linux(command, timeout, env, cwd, output, errors, stdin):
             or type(expired) is not bool
             or (started and type(code) is not int)
             or (not started and code is not None)
+            or (started and ready is not True)
             or ("start_errno" in response and (type(start_errno) is not int or start_errno <= 0 or started or expired))
+            or (
+                "setup_failed" in response
+                and (response["setup_failed"] is not True or started or expired or "start_errno" in response)
+            )
             or "error" in response
         ):
             raise ProcessError("Capture helper returned an invalid command result")
+        if interrupted is not None:
+            if isinstance(interrupted, subprocess.TimeoutExpired):
+                raise ProcessError("Capture helper exceeded its cleanup allowance") from None
+            raise interrupted
         if start_errno is not None:
             raise OSError(start_errno, os.strerror(start_errno), words[0] if isinstance(words, list) else words)
+        if response.get("setup_failed"):
+            raise ProcessError("Capture helper could not establish command supervision")
+        if ready is None:
+            if deadline is None:
+                raise ProcessError("Capture helper preparation exceeded its allowance")
+            return code, True
         if not started and not expired:
             raise ProcessError("Captured command was cancelled before launch")
         return code, expired
@@ -207,7 +278,7 @@ def run(command, *, timeout=None, env=None, cwd=None, capture_output=True, text=
         raise ValueError("Captured commands require capture_output=True and text=True")
     preflight()
     if scope := custody.current():
-        scope.arm()
+        scope.prepare()
     with ExitStack() as stack:
         if threading.current_thread() is threading.main_thread():
             stack.enter_context(interruption_handler())

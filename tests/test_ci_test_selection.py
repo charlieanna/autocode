@@ -41,17 +41,21 @@ class AccessTransportConsumerTests(unittest.TestCase):
     def test_capture_helper_keeps_process_and_public_consumers_when_slow(self):
         consumers = {
             "tests.test_captured_process",
+            "tests.test_capture_family",
             "tests.test_connection_processes",
             "tests.test_local_run",
             "tests.test_metadata_custody",
             "tests.test_metadata_preflight",
             "tests.test_metadata_recovery",
+            "tests.test_metadata_parent_recovery",
+            "tests.test_metadata_startup",
             "tests.test_process_without_psutil",
             "tests.test_taskrun",
             "tests.test_tool_containment_parallel",
         }
         for path in (
             "tools/autocode_capture_reaper.py",
+            "tools/autocode_capture_family.py",
             "tools/autocode_captured_process.py",
             "tools/autocode_metadata_custody.py",
         ):
@@ -59,6 +63,14 @@ class AccessTransportConsumerTests(unittest.TestCase):
                 selected = run_suite.select_tests([path], {name: "" for name in (*consumers, "tests.test_unrelated")})
                 kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
                 self.assertEqual(consumers, set(kept))
+
+    def test_native_metadata_fixture_keeps_both_recovery_consumers_when_slow(self):
+        consumers = {"tests.test_metadata_recovery", "tests.test_metadata_parent_recovery"}
+        selected = run_suite.select_tests(
+            ["tests/metadata_capture_fixture.py"], {name: "" for name in (*consumers, "tests.test_unrelated")}
+        )
+        kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
+        self.assertEqual(consumers, set(kept))
 
     def test_model_listing_failure_keeps_public_cli_and_policy_consumers_when_slow(self):
         consumers = {"tests.test_model_listing_failure", "tests.test_model_listing_failure_cli"}

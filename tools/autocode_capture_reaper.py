@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ctypes
 import errno
+import importlib.util
 import json
 import os
 import select
@@ -17,6 +18,13 @@ import subprocess
 import sys
 import time
 from contextlib import suppress
+from pathlib import Path
+
+_spec = importlib.util.spec_from_file_location(
+    "autocode_capture_family", Path(__file__).with_name("autocode_capture_family.py")
+)
+family = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(family)
 
 CLEANUP_SECONDS = 4.0
 TERM_SECONDS = 2.0
@@ -78,9 +86,13 @@ def signal_children(signum, deadline):
             os.kill(pid, signum)
 
 
-def cleanup(root, code):
+def cleanup(root, code, ancestry=None):
     started = time.monotonic()
+    if ancestry is not None:
+        ancestry.cleanup_deadline = started + CLEANUP_SECONDS
     while True:
+        if ancestry is not None:
+            ancestry.service()
         code, absent = drain(root, code)
         if absent:
             if code is None:
@@ -97,7 +109,7 @@ def cancelled(fd, timeout=0):
     return bool(select.select([fd], [], [], timeout)[0]) and os.read(fd, 1) == b""
 
 
-def execute(packet, owner):
+def _execute(packet, owner, ancestry):
     stopped = []
 
     def stop(signum, _frame):
@@ -105,23 +117,50 @@ def execute(packet, owner):
 
     for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(signum, stop)
-    establish()
     deadline = packet["deadline"]
-    if stopped or cancelled(owner):
-        return {"started": False, "returncode": None, "expired": False}
-    if deadline is not None and time.monotonic() >= deadline:
-        return {"started": False, "returncode": None, "expired": True}
+    with os.fdopen(packet["ready"], "wb") as stream:
+        stream.write(json.dumps({"schema": 1, "nonce": packet["nonce"], "ready": True}).encode())
+        stream.flush()
+    while True:
+        if stopped:
+            if not drain(None, None)[1]:
+                raise RuntimeError("Capture preparation left children")
+            return {"started": False, "returncode": None, "expired": False}
+        if deadline is not None and time.monotonic() >= deadline:
+            if not drain(None, None)[1]:
+                raise RuntimeError("Capture preparation left children")
+            return {"started": False, "returncode": None, "expired": True}
+        if select.select([owner], [], [], POLL_SECONDS)[0]:
+            go = os.read(owner, 1)
+            if go == b"G":
+                break
+            if not drain(None, None)[1]:
+                raise RuntimeError("Capture preparation left children")
+            return {"started": False, "returncode": None, "expired": False}
+    if stopped or (deadline is not None and time.monotonic() >= deadline):
+        if not drain(None, None)[1]:
+            raise RuntimeError("Capture preparation left children")
+        return {"started": False, "returncode": None, "expired": not stopped}
     try:
-        child = subprocess.Popen(packet["command"], start_new_session=True, close_fds=True)
+        environment = ancestry.target_environment(packet.get("env"))
+        options = {"env": environment} if environment is not None else {}
+        child = subprocess.Popen(
+            packet["command"], cwd=packet.get("cwd"), start_new_session=True, close_fds=True, **options
+        )
     except OSError as error:
         # Popen collects its failed exec child. Only this prelaunch failure may
         # retain ordinary exec errno semantics; cleanup errors stay uncertain.
         if not drain(None, None)[1]:
             raise RuntimeError("Failed capture exec left children") from error
         return {"started": False, "returncode": None, "expired": False, "start_errno": error.errno}
+    except (ValueError, TypeError):
+        if not drain(None, None)[1]:
+            raise RuntimeError("Invalid capture command left children") from None
+        return {"started": False, "returncode": None, "expired": False, "setup_failed": True}
     code, expired = None, False
     try:
         while True:
+            ancestry.service()
             code, absent = drain(child.pid, code)
             if code is not None:
                 break
@@ -137,9 +176,24 @@ def execute(packet, owner):
             if cancelled_now:
                 break
     finally:
-        code = cleanup(child.pid, code)
+        code = cleanup(child.pid, code, ancestry)
         child.returncode = code  # No Popen poll/wait may compete with drain().
+        ancestry.complete()
     return {"started": True, "returncode": code, "expired": expired}
+
+
+def execute(packet, owner):
+    establish()
+    try:
+        ancestry = family.Server(packet.get("family"))
+    except (OSError, family.FamilyError):
+        if not drain(None, None)[1]:
+            raise RuntimeError("Capture setup left unknown children") from None
+        return {"started": False, "returncode": None, "expired": False, "setup_failed": True}
+    try:
+        return _execute(packet, owner, ancestry)
+    finally:
+        ancestry.close()
 
 
 def main():

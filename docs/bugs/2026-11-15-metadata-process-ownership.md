@@ -54,9 +54,33 @@ sampled process absence cannot release it. Connections displays that block
 without offering another check or sign-in action. A changed kernel boot may
 retire an old record while retaining it as failure evidence.
 
-This prevents another launch after lost cleanup authority. It does not claim
-automatic recovery of an unknown surviving family after the reaper itself was
-killed. The macOS runner retains its documented sampled cleanup limitation.
+A further native control on source `32a30e9c` found the corresponding recovery
+gap. Killing a metadata helper inside the terminal client's real History reader
+left the next public check blocked, even after its enclosing capture had
+collected every process. Both one and two enclosing captures failed at that
+same assertion; the original check still reported failure, an unrelated sentinel
+survived, and collection needed no fallback signals. The baseline result receipt
+is `29e67a5ce0ec40d1a0a0faf3595495e79be23434cdad198591de7d3c60982e14`.
+
+Captures now enroll a separate family-only backup with each enclosing reaper,
+using private Unix endpoints and authenticated kernel ancestry. A surviving
+ancestor writes that backup only after collecting its root status and reaching
+`ECHILD`. A fresh Core may use it to recover admission; the failed command still
+requires its own result and cannot become a success. Private capture identifiers
+do not change preflight cache keys and are withheld from model subprocesses.
+
+Startup has a separate ownership boundary: preparation creates no pending
+target. The helper establishes adoption and its endpoint, acknowledges readiness,
+and waits. Core then commits pending custody before allowing the target to start.
+Target cwd and environment setup happen inside that owner. Missing directories,
+capture-file failures and helper startup refusals therefore cannot create a
+pending target without a cleanup owner.
+
+Without a surviving owner's valid receipt, an unknown family remains blocked;
+elapsed time and sampled process absence grant no recovery authority. The macOS
+runner retains its documented sampled cleanup limitation. Native qualification
+of the new enclosing-owner and startup behavior is recorded separately from the
+earlier checks below.
 
 The original VS Code status-read deadline fix has separate actual-editor
 evidence. Forty subsequent reads did not reproduce the rare 65–72 second

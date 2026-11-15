@@ -89,6 +89,7 @@ class MetadataCustodyTests(unittest.TestCase):
         def launch(words, **options):
             request = json.loads(os.pread(options["pass_fds"][0], 65536, 0))
             deadlines.append(request["deadline"])
+            os.write(request["ready"], json.dumps({"schema": 1, "nonce": request["nonce"], "ready": True}).encode())
             os.write(options["pass_fds"][1], json.dumps(self.response(request["nonce"])).encode())
             os.fsync(options["pass_fds"][1])
             return Mock(returncode=0)
@@ -131,6 +132,235 @@ class MetadataCustodyTests(unittest.TestCase):
         self.assertTrue(stream.closed)
         self.assertIsNone(custody.status())
 
+    def test_ancestor_enrollment_precedes_pending_and_uses_the_effective_deadline(self):
+        clock = [0.0]
+        registration = Mock()
+        observed = []
+
+        def enroll(root, nonce, deadline, *, boot_id):
+            scope = custody.current()
+            self.assertEqual((self.root().resolve(), scope.nonce, 3, BOOT), (root, nonce, deadline, boot_id))
+            self.assertEqual([], scope.group.members)
+            self.assertFalse((root / "pending.json").exists())
+            self.assertEqual(b"", scope.result_path.read_bytes())
+            observed.append(nonce)
+            return registration
+
+        with (
+            patch.object(custody.util, "monotonic", side_effect=lambda: clock[0]),
+            patch.object(custody.family, "register_backup", side_effect=enroll),
+        ):
+            with custody.group(timeout=10):
+                clock[0] = 1
+                with custody.admission({"HOME": "/different/command/home"}, timeout=2) as scope:
+                    scope.arm()
+                    pending = json.loads((self.root() / "pending.json").read_text())
+                    self.publish(scope)
+                    self.assertEqual(observed, [member["nonce"] for member in pending["attempts"]])
+        registration.release.assert_called_once_with()
+
+    def test_preparation_enrolls_once_without_pending_until_helper_ready_commit(self):
+        registration = Mock()
+        with patch.object(custody.family, "register_backup", return_value=registration) as enroll:
+            with custody.admission(timeout=1) as scope:
+                prepared = scope.prepare()
+                self.assertEqual(prepared, scope.prepare())
+                self.assertEqual([], scope.group.members)
+                self.assertFalse((scope.root / "pending.json").exists())
+                enroll.assert_called_once()
+                self.assertEqual(prepared, scope.arm())
+                self.assertEqual(1, len(scope.group.members))
+                self.assertTrue((scope.root / "pending.json").exists())
+                self.publish(scope)
+        registration.release.assert_called_once_with()
+
+    def test_failure_before_helper_ready_preserves_error_and_rolls_back_preparation(self):
+        original = FileNotFoundError(errno.ENOENT, "private helper did not start")
+        registration = Mock()
+        with patch.object(custody.family, "register_backup", return_value=registration):
+            with self.assertRaises(FileNotFoundError) as caught:
+                with custody.admission(timeout=1) as scope:
+                    scope.prepare()
+                    raise original
+        self.assertIs(original, caught.exception)
+        registration.release.assert_called_once_with()
+        self.assertTrue(scope.result.closed)
+        self.assertEqual(set(), scope.group.prepared)
+        self.assertFalse((scope.root / "pending.json").exists())
+        self.assertIsNone(custody.status())
+
+    def test_explicit_preparation_abort_never_discards_committed_custody(self):
+        registration = Mock()
+        with patch.object(custody.family, "register_backup", return_value=registration):
+            with custody.admission(timeout=1) as scope:
+                scope.prepare()
+                scope.arm()
+                before = (scope.root / "pending.json").read_bytes()
+                with self.assertRaises(custody.ProcessError):
+                    scope.abort_prepared()
+                self.assertEqual(before, (scope.root / "pending.json").read_bytes())
+                registration.release.assert_not_called()
+                self.publish(scope)
+        registration.release.assert_called_once_with()
+
+    def test_failed_ancestor_enrollment_never_publishes_pending_custody(self):
+        for index, error in enumerate(
+            (
+                custody.family.FamilyError("PRIVATE ancestor unavailable"),
+                OSError("PRIVATE denied"),
+                ValueError("bad ACK"),
+            )
+        ):
+            with (
+                self.subTest(error=type(error).__name__),
+                patch.dict(os.environ, {"HOME": str(self.home / str(index))}),
+                patch.object(custody.family, "register_backup", side_effect=error),
+                self.assertRaisesRegex(custody.ProcessError, custody.BLOCKED),
+            ):
+                with custody.admission(timeout=1) as scope:
+                    scope.arm()
+            self.assertEqual([], scope.group.members)
+            self.assertFalse((scope.root / "pending.json").exists())
+            self.assertTrue(scope.result.closed)
+            with patch.dict(os.environ, {"HOME": str(self.home / str(index))}):
+                self.assertIsNone(custody.status())
+                with custody.admission(timeout=1):
+                    pass
+
+    def test_primary_receipt_releases_backup_even_when_unregistration_is_unavailable(self):
+        registration = Mock()
+        registration.release.side_effect = custody.family.FamilyError("PRIVATE ancestor stopped")
+        with patch.object(custody.family, "register_backup", return_value=registration):
+            with custody.admission(timeout=1) as scope:
+                scope.arm()
+                self.publish(scope, returncode=7)
+        registration.release.assert_called_once_with()
+        self.assertFalse((self.root() / "pending.json").exists())
+        self.assertIsNone(custody.status())
+
+    def test_authenticated_empty_setup_failure_preserves_machinery_error_without_a_hold(self):
+        original = custody.ProcessError("Capture helper setup failed")
+        registration = Mock()
+        with patch.object(custody.family, "register_backup", return_value=registration):
+            with self.assertRaises(custody.ProcessError) as caught:
+                with custody.admission(timeout=1) as scope:
+                    scope.arm()
+                    self.publish(scope, started=False, returncode=None, expired=False, setup_failed=True)
+                    raise original
+        self.assertIs(original, caught.exception)
+        registration.release.assert_called_once_with()
+        self.assertFalse((scope.root / "pending.json").exists())
+        self.assertIsNone(custody.status())
+
+    def test_cancelled_ancestor_enrollment_preserves_original_interrupt_without_pending(self):
+        original = KeyboardInterrupt("original enrollment cancellation")
+        with (
+            patch.object(custody.family, "register_backup", side_effect=original),
+            patch.object(custody, "_clean", side_effect=AssertionError("Unarmed attempt has no child result")),
+            self.assertRaises(KeyboardInterrupt) as caught,
+        ):
+            with custody.admission(timeout=1) as scope:
+                scope.arm()
+        self.assertIs(original, caught.exception)
+        self.assertEqual([], scope.group.members)
+        self.assertFalse((self.root() / "pending.json").exists())
+        self.assertTrue(scope.result.closed)
+        self.assertIsNone(custody.status())
+
+    def test_active_scope_never_substitutes_ancestor_custody_for_its_primary_result(self):
+        registration = Mock()
+        with (
+            patch.object(custody.family, "register_backup", return_value=registration),
+            patch.object(custody.family, "backup_clean", return_value=True) as ancestor,
+        ):
+            with self.assertRaises(custody.ProcessError):
+                with custody.admission(timeout=1) as scope:
+                    scope.arm()
+            ancestor.assert_not_called()
+            registration.release.assert_not_called()
+            self.assertEqual(b"", scope.result_path.read_bytes())
+            self.assertTrue((self.root() / "pending.json").exists())
+            self.assertIsNone(custody.status(), "a fresh observation may recover ownership only")
+            ancestor.assert_called_once_with(self.root().resolve(), scope.nonce, BOOT)
+
+    def test_fresh_ancestor_settlement_preserves_missing_primary_result_and_read_only_status(self):
+        scope = self.leave_pending()
+        original = (self.root() / "pending.json").read_bytes()
+        scope.result_path.write_bytes(b"{interrupted primary packet")
+        before = {path.name: path.read_bytes() for path in self.root().iterdir()}
+        with patch.object(custody.family, "backup_clean", return_value=True) as ancestor:
+            self.assertIsNone(custody.status())
+            self.assertEqual(before, {path.name: path.read_bytes() for path in self.root().iterdir()})
+            ancestor.assert_called_once_with(self.root().resolve(), scope.nonce, BOOT)
+            with custody.admission(timeout=1):
+                pass
+        self.assertFalse((self.root() / "pending.json").exists())
+        self.assertEqual(original, (self.root() / ("collected-" + scope.group.nonce + ".json")).read_bytes())
+        self.assertEqual(b"{interrupted primary packet", scope.result_path.read_bytes())
+
+    def test_valid_outer_ancestor_releases_custody_despite_incomplete_inner_backup(self):
+        scope = self.leave_pending()
+        inner_nonce, outer_nonce = "a" * 32, "b" * 32
+        inner = scope.root / f"family-result-{scope.nonce}-{inner_nonce}.json"
+        outer = scope.root / f"family-result-{scope.nonce}-{outer_nonce}.json"
+        outer.write_text(
+            json.dumps(
+                {
+                    "schema": 1,
+                    "family_clean": True,
+                    "attempt_nonce": scope.nonce,
+                    "ancestor_nonce": outer_nonce,
+                    "boot_id": BOOT,
+                }
+            )
+        )
+        outer.chmod(0o600)
+        for incomplete in (b"", b"{interrupted ancestor packet", b'{"schema":1,"family_clean":false}'):
+            inner.write_bytes(incomplete)
+            inner.chmod(0o600)
+            before = {path.name: path.read_bytes() for path in scope.root.iterdir()}
+            with self.subTest(incomplete=incomplete), patch.object(Path, "glob", return_value=iter((inner, outer))):
+                self.assertIsNone(custody.status())
+            self.assertEqual(before, {path.name: path.read_bytes() for path in scope.root.iterdir()})
+        with custody.admission(timeout=1):
+            pass
+        self.assertFalse((scope.root / "pending.json").exists())
+        self.assertEqual(b"", scope.result_path.read_bytes(), "family evidence cannot fabricate the command result")
+
+    def test_ancestor_settlement_does_not_release_an_uncertain_sibling(self):
+        with self.assertRaises(custody.ProcessError):
+            with custody.group(timeout=2):
+                with custody.admission(timeout=1) as first:
+                    first.arm()
+                    self.publish(first)
+                with custody.admission(timeout=1) as second:
+                    second.arm()
+        before = (self.root() / "pending.json").read_bytes()
+        with patch.object(
+            custody.family, "backup_clean", side_effect=lambda _root, nonce, _boot: nonce == first.nonce
+        ) as ancestor:
+            self.assertEqual(custody.BLOCKED, custody.status())
+            ancestor.assert_called_once_with(self.root().resolve(), second.nonce, BOOT)
+            with self.assertRaises(custody.ProcessError):
+                self.enter_once()
+        self.assertEqual(before, (self.root() / "pending.json").read_bytes())
+        with patch.object(
+            custody.family, "backup_clean", side_effect=lambda _root, nonce, _boot: nonce == second.nonce
+        ):
+            with custody.admission(timeout=1):
+                pass
+        self.assertFalse((self.root() / "pending.json").exists())
+
+    def test_ancestor_receipt_inspection_failure_stays_blocked_and_sanitized(self):
+        scope = self.leave_pending()
+        before = (self.root() / "pending.json").read_bytes()
+        with patch.object(custody.family, "backup_clean", side_effect=custody.family.FamilyError("PRIVATE failure")):
+            self.assertEqual(custody.BLOCKED, custody.status())
+            with self.assertRaisesRegex(custody.ProcessError, custody.BLOCKED):
+                self.enter_once()
+        self.assertEqual(before, (self.root() / "pending.json").read_bytes())
+        self.assertEqual(b"", scope.result_path.read_bytes())
+
     def test_unconfirmed_result_blocks_new_context_despite_elapsed_time_and_child_home_change(self):
         scope = self.leave_pending()
         before = (self.root() / "pending.json").read_bytes()
@@ -158,6 +388,13 @@ class MetadataCustodyTests(unittest.TestCase):
             {"error": "cleanup failed"},
             {"started": False, "returncode": None, "expired": True, "start_errno": errno.ENOENT},
             {"started": False, "returncode": None, "expired": False, "start_errno": True},
+            {"started": False, "returncode": None, "setup_failed": False},
+            {"started": False, "returncode": None, "setup_failed": None},
+            {"started": False, "returncode": None, "setup_failed": 1},
+            {"setup_failed": True},
+            {"started": False, "returncode": None, "expired": True, "setup_failed": True},
+            {"started": False, "returncode": None, "start_errno": errno.ENOENT, "setup_failed": True},
+            {"started": False, "returncode": None, "error": "setup failed", "setup_failed": True},
         ]
         for index, changes in enumerate(invalid):
             with self.subTest(changes=changes), patch.dict(os.environ, {"HOME": str(self.home / str(index))}):
@@ -457,6 +694,16 @@ class MetadataCustodyTests(unittest.TestCase):
         self.assertIsNone(scope.result)
         self.assertEqual(256, len(owner.members))
 
+    def test_uncommitted_preparations_reserve_the_same_member_resource_bound(self):
+        owner = custody.Group(self.root(), None, BOOT)
+        owner.prepared = {format(index, "032x") for index in range(256)}
+        scope = custody.Admission(owner, None)
+        with patch.object(custody, "_open", side_effect=AssertionError("member allocated")):
+            with self.assertRaises(custody.ProcessError):
+                scope.prepare()
+        self.assertIsNone(scope.result)
+        self.assertEqual(256, len(owner.prepared))
+
     def test_old_single_member_record_uses_the_same_strict_completion_rule(self):
         scope = self.leave_pending()
         row = {
@@ -478,7 +725,9 @@ class MetadataCustodyTests(unittest.TestCase):
     def test_portable_host_adds_no_store_or_active_custody(self):
         with patch.object(custody.sys, "platform", "darwin"):
             with custody.admission(timeout=7) as scope:
+                self.assertEqual((None, None), scope.prepare())
                 self.assertEqual((None, None), scope.arm())
+                scope.abort_prepared()
                 self.assertEqual(7, scope.remaining_timeout())
                 self.assertIsNone(custody.current())
             self.assertIsNone(custody.status())

@@ -91,6 +91,10 @@ SCENARIO_SELECTION_INPUTS = {
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tests/test_changed_code_evidence_cli.py", ("tests.test_mutation_continuation_cli",)),
+    (
+        "tests/metadata_capture_fixture.py",
+        ("tests.test_metadata_recovery", "tests.test_metadata_parent_recovery"),
+    ),
     *(
         (path, ("tests.test_storage_errors", "tests.test_verification_preparation_failure"))
         for path in ("scenarios/harness/driver.py", "docs/schemas/status-view.schema.json")
@@ -560,16 +564,20 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         (
             "tools/autocode_capture_reaper.py",
+            "tools/autocode_capture_family.py",
             "tools/autocode_captured_process.py",
             "tools/autocode_metadata_custody.py",
         ),
         (
             "tests.test_captured_process",
+            "tests.test_capture_family",
             "tests.test_connection_processes",
             "tests.test_local_run",
             "tests.test_metadata_custody",
             "tests.test_metadata_preflight",
             "tests.test_metadata_recovery",
+            "tests.test_metadata_parent_recovery",
+            "tests.test_metadata_startup",
             "tests.test_process_without_psutil",
             "tests.test_taskrun",
             "tests.test_tool_containment_parallel",

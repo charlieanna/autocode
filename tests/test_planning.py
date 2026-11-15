@@ -267,6 +267,12 @@ class PlanningTests(unittest.TestCase):
         no_cli = patch("subprocess.run", side_effect=AssertionError("Pure planning tests must not invoke a CLI"))
         no_cli.start()
         self.addCleanup(no_cli.stop)
+        no_metadata = patch(
+            "autocode_captured_process.run_metadata",
+            side_effect=AssertionError("Pure planning tests must not invoke a metadata CLI"),
+        )
+        no_metadata.start()
+        self.addCleanup(no_metadata.stop)
 
     def test_planner_dependencies_are_validated_and_rendered(self):
         draft = body()
