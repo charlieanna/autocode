@@ -8,6 +8,22 @@ import run_suite
 
 
 class AccessTransportConsumerTests(unittest.TestCase):
+    def test_mutation_checkpoint_keeps_its_public_cli_consumer_when_slow(self):
+        consumer = "tests.test_mutation_continuation_cli"
+        for path in (
+            "tools/autocode_mutation_checkpoint.py",
+            "tools/autocode_mutation_check.py",
+            "tools/autocode_changed_code_continuation.py",
+            "tools/autocode_changed_code_proof.py",
+            "tools/autocode_completion_result.py",
+            "tools/autocode_regression.py",
+            "tests/test_changed_code_evidence_cli.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual({consumer}, set(kept))
+
     def test_approval_identity_keeps_indirect_cancellation_and_recovery_consumers_when_slow(self):
         consumers = {
             "tests.test_native_abandon_constructor",

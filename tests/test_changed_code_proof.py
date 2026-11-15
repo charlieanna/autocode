@@ -100,6 +100,38 @@ class ChangedCodeProofTests(unittest.TestCase):
             }
         )
 
+    def test_unavailable_refresh_blocks_completion_even_with_otherwise_accepted_line_reasons(self):
+        self.assertEqual("PASS", proof_policy.reviewed(self.proof, [self.exception])["status"])
+        for failure in ({"reason": "reference timed out", "command_outputs": []}, {}, None, "invalid"):
+            with self.subTest(failure=failure):
+                proof = copy.deepcopy(self.proof)
+                proof["changed_code_inputs"]["mutation_refresh_failure"] = failure
+                assessed = proof_policy.reviewed(proof, [self.exception])
+                self.assertEqual("UNVERIFIED", assessed["status"])
+                self.assertIn("Mutation refresh", assessed["reason"])
+
+    def test_failed_reference_outputs_are_part_of_the_authenticated_command_inventory(self):
+        receipt = self.receipt("failed-reference", 1)
+        self.result["changed_code_receipts"].append(receipt)
+        self.result["changed_code_inputs"]["command_outputs"] = [
+            row["output"] for row in self.result["changed_code_receipts"]
+        ]
+        self.result["changed_code_inputs"]["mutation_refresh_failure"] = {
+            "reason": "reference unavailable",
+            "command_outputs": [receipt["output"]],
+        }
+
+        def pinned():
+            self.path.write_text(json.dumps(self.result))
+            return {**copy.deepcopy(self.result), "path": str(self.path), "receipt_sha256": file_hash(self.path)}
+
+        self.assertTrue(proof_policy.intact(pinned(), self.result))
+        self.result["changed_code_inputs"]["mutation_refresh_failure"]["command_outputs"] = ["missing-capture.log"]
+        self.assertFalse(proof_policy.intact(pinned(), self.result))
+        for failure in (None, [], {"command_outputs": [None]}, {"command_outputs": {}}):
+            self.result["changed_code_inputs"]["mutation_refresh_failure"] = failure
+            self.assertFalse(proof_policy.intact(pinned(), self.result))
+
     def test_tester_can_cite_a_current_killed_mutant_capture(self):
         killed = self.receipt("adjacent-mutant", 1)
         output = killed["output"]

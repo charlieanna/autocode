@@ -19,8 +19,8 @@ def before_review(state: RunState, stage, workspace, run_dir):
     The changed HEAD receives fresh runner proof and ordinary independent review.
     Plans without executable regression cases retain the final completion gate.
 
-    True when the stage must not launch: its proof refused only guards the change itself alters, so the plan
-    went back to plan review with them corrected (autocode_superseded_correction.relabel_guards).
+    True when the stage must wait for another progressing local verification step,
+    or its proof sent changed guards back to plan review.
     """
     try:
         from . import autocode_git_delivery as delivery
@@ -34,7 +34,8 @@ def before_review(state: RunState, stage, workspace, run_dir):
         import autocode_source_scope as source_scope
         import autocode_superseded_correction as replanned
         from autocode_util import Paused
-    regression.before_review(state, stage, workspace, run_dir)
+    if regression.before_review(state, stage, workspace, run_dir) is True:
+        return True
     if stage not in ("tester", "review_checkpoint", "review_completion"):
         return False
     if replanned.relabel_guards(state, stage, lambda: source_scope.snapshot(workspace, state)["revision"]):
