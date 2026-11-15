@@ -29,6 +29,11 @@ import time
 from pathlib import Path
 from typing import Any
 
+try:
+    from . import autocode_capture_family as capture_family
+except ImportError:
+    import autocode_capture_family as capture_family
+
 SETTING = "AUTOCODE_SOURCE_HOST"
 IDLE_SECONDS = 30 * 60
 CONNECT_SECONDS = 0.5
@@ -61,8 +66,15 @@ def _util():
     return _UTIL
 
 
+def _capture_owned(env=None) -> bool:
+    # A retained host is outside this invocation's kernel-owned family. Keep
+    # execution local; the capture owner still authenticates any advertised key.
+    return capture_family.ENVIRONMENT_KEY in (os.environ if env is None else env)
+
+
 def enabled(env=None) -> bool:
-    return os.name != "nt" and (os.environ if env is None else env).get(SETTING) == "1"
+    environment = os.environ if env is None else env
+    return os.name != "nt" and environment.get(SETTING) == "1" and not _capture_owned(environment)
 
 
 def install() -> None:
@@ -309,7 +321,7 @@ def exit_if_served(argv: list[str] | None = None) -> None:
 
 def snapshot(workspace, nested):
     """The host's snapshot of ``workspace``, or None when this process should take its own."""
-    if _in_request() or _state["failed"]:
+    if _in_request() or _state["failed"] or _capture_owned():
         return None
     path = socket_path()
     try:
