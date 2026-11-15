@@ -313,6 +313,26 @@ class RequirementsAcceptanceWiringTests(Workspace):
             autopilot.apply_planning(self.state, "requirements_gather", value, {"output": "report.json"})
         accepted.assert_not_called()
 
+    def test_citation_verifier_stays_in_the_leaf_layer_below_source_log_and_report_repair(self):
+        import autocode_report_repair_queue as report_repair_queue
+        import autocode_util as util
+
+        from tests.test_architecture import import_graph, reachable
+
+        self.assertIs(util.ExecutionEvidenceRequired, report_repair_queue.ExecutionEvidenceRequired)
+        self.assertEqual(
+            {
+                "autocode_code_citations",
+                "autocode_project_kinds",
+                "autocode_prompts",
+                "autocode_run_state",
+                "autocode_util",
+                "autocode_workspace_inventory",
+            },
+            reachable(import_graph(), ["autocode_code_citations"]),
+            "lower-layer modules (assumption ledger, requirements review) import code_citations without a cycle",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

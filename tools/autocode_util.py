@@ -352,6 +352,14 @@ class Paused(RuntimeError):
         self.status = status
 
 
+class ExecutionEvidenceRequired(ValueError):
+    """A claimed report needs an execution or file read that report-only repair cannot supply.
+
+    Repair may edit prose and reuse evidence an attempt already produced; it may not rerun
+    a command, read a new file or change an exit code, so the caller's stage runs again (#1852).
+    """
+
+
 def boundary_pause(error) -> bool:
     """A pause after a report was accepted, not a rejected output.
 

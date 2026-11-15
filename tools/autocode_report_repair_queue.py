@@ -38,13 +38,7 @@ class ReportRepairQueued(Exception):
     """A finished request needs report-only repair, never implementation replay."""
 
 
-class ExecutionEvidenceRequired(ValueError):
-    """A claimed passing report needs an execution the report-only repair cannot supply.
-
-    Repair may edit prose and reuse evidence a command already produced; it may not rerun
-    a command or change an exit code. A PASS report that cites a nonzero check therefore
-    goes to a fresh stage attempt, never to the bounded repair loop (#1852).
-    """
+ExecutionEvidenceRequired = util.ExecutionEvidenceRequired
 
 
 def require_executed_passes(value, *, passing_claim: bool):
