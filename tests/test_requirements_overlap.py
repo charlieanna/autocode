@@ -106,25 +106,47 @@ class CliFixture(unittest.TestCase):
     def build_project(self):
         return without_maintenance(materialize(self.scenario.seed, self.root / "project"))
 
-    def chat(self, brief: str, answers: str, *extra) -> subprocess.CompletedProcess:
-        result = subprocess.run(
-            [
-                *taskrun.AUTOCODE,
-                "--workspace",
-                str(self.project),
-                brief,
-                *self.flags,
-                *extra,
-                "--in-place",
-                "--chat",
-            ],
-            input=answers,
-            capture_output=True,
-            text=True,
-            timeout=240,
-            cwd=self.root,
-            env={**os.environ, **self.environment},
-        )
+    def chat(self, brief: str, answers: str, *extra, after_calls=None) -> subprocess.CompletedProcess:
+        """Run the chat with ``answers`` on its input.
+
+        ``after_calls`` holds the answers back until the provider has logged that many Requirements
+        calls, as a person answers after reading. A case whose answer discards the background call
+        and then counts it names the asking call and that call (2): answers piped at launch are read
+        the moment the question is asked, and on a busy host that is before the background call is
+        dispatched, so the pass is cancelled before it launches and no such call is logged.
+        """
+        command = [
+            *taskrun.AUTOCODE,
+            "--workspace",
+            str(self.project),
+            brief,
+            *self.flags,
+            *extra,
+            "--in-place",
+            "--chat",
+        ]
+        options = {"text": True, "cwd": self.root, "env": {**os.environ, **self.environment}}
+        if after_calls is None:
+            result = subprocess.run(command, input=answers, capture_output=True, timeout=240, **options)
+        else:
+            process = subprocess.Popen(
+                command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **options
+            )
+            try:
+                deadline = time.monotonic() + 120  # watchdog, not a speed assertion
+                while (
+                    len(self.requirements_calls()) < after_calls
+                    and process.poll() is None
+                    and time.monotonic() < deadline
+                ):
+                    time.sleep(0.05)
+                self.assertEqual(after_calls, len(self.requirements_calls()), self.calls())
+                stdout, stderr = process.communicate(answers, timeout=240)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.communicate(timeout=10)
+            result = subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
         self.assertIn(result.returncode, (0, 2), result.stdout + result.stderr)
         return result
 
@@ -184,7 +206,7 @@ class QuestionsPauseChatTests(CliFixture):
         )
 
     def test_ac2_differing_answer_runs_ordinary_pass(self):
-        self.chat(MEDIUM_BRIEF, fixture.DIFFERENT_ANSWER + "\n")
+        self.chat(MEDIUM_BRIEF, fixture.DIFFERENT_ANSWER + "\n", after_calls=2)
         calls = self.requirements_calls()
         self.assertEqual(3, len(calls), calls)
         background, ordinary = calls[-2], calls[-1]
@@ -229,7 +251,7 @@ class QuestionsPauseChatTests(CliFixture):
         ):
             with self.subTest(typed=typed):
                 self.setUp()
-                self.chat(self.scenario.brief, typed + "\n")
+                self.chat(self.scenario.brief, typed + "\n", after_calls=2)
                 calls = self.requirements_calls()
                 self.assertEqual(2 if keeps else 3, len(calls), calls)
                 background = calls[1]
@@ -457,7 +479,7 @@ class TwoQuestionsChatTests(CliFixture):
         for second in (fixture.SECOND_QUESTION["proposed_default"], "JSON"):
             with self.subTest(second_answer=second):
                 self.setUp()
-                self.chat(self.scenario.brief, fixture.QUESTION_DEFAULT + "\n" + second + "\n")
+                self.chat(self.scenario.brief, fixture.QUESTION_DEFAULT + "\n" + second + "\n", after_calls=2)
                 calls = self.requirements_calls()
                 self.assertEqual(2 if second == fixture.SECOND_QUESTION["proposed_default"] else 3, len(calls), calls)
                 background = calls[1]
@@ -685,6 +707,7 @@ class BusinessQuestionsChatTests(CliFixture):
                     "--no-requirements-triage",
                     "--new-run-dir",
                     str(self.run_dir.absolute()),
+                    after_calls=2,
                 )
                 asked = self.asked(fixture.QUESTION_ID)
                 self.assertEqual(fixture.QUESTION_TEXT, asked.get("question"))
