@@ -147,6 +147,52 @@ def dispatch_guard(state: RunState, stage, workspace):
     raise util.Paused(held["status"], held["reason"])
 
 
+def reconsiderable(state: RunState, record, workspace):
+    """An unlaunched, source-bound no-change incident, never a failed check."""
+    pending = state.get("stuck_investigation") or {}
+    held = state.get("builder_failure_hold") or {}
+    if pending:
+        if (
+            pending.get("mode") != "builder_failure"
+            or pending.get("in_force")
+            or state.get("next_stage") != "investigate_stuck"
+            or any(
+                (row.get("original_stage") or row.get("stage")) == "investigate_stuck"
+                and row.get("started_at", "") >= pending.get("requested_at", "")
+                for row in state.get("stages") or []
+            )
+        ):
+            return None
+        request = pending
+    elif held and not held.get("classification_retry") and state.get("next_stage") == "builder":
+        request = {**held, "failure_evidence": {"binding": held["binding"], "record": record}}
+    else:
+        return None
+    if (
+        request.get("status") != "PAUSED_BUILDER_CLASSIFICATION"
+        or not request.get("reason", "").startswith(
+            "Builder completed an implementation attempt without source changes"
+        )
+        or not record.get("output")
+        or Path(request["failure_evidence"]["binding"]["output"]).resolve() != Path(record["output"]).resolve()
+    ):
+        return None
+    guard(state, request, workspace)
+    return request
+
+
+def retire_reconsidered(state: RunState, request):
+    """Keep the obsolete incident in history; no classification call was spent."""
+    if state.get("stuck_investigation") == request:
+        state.pop("stuck_investigation")
+        for row in state.get("stuck_investigations") or []:
+            if row.get("identity") == request.get("identity"):
+                row.update(outcome="candidate_retained", finished_at=util.now())
+        state["phase"] = request.get("phase") or "BUILDING"
+    else:
+        state.pop("builder_failure_hold", None)
+
+
 # Stops saved as a classification's failure before #1949, when a run-wide limit or a changed
 # provider transport found at the stage boundary abandoned the request before its Investigator
 # launched. Since #1949 such a stop keeps the request queued under its own pause, so only older
@@ -192,6 +238,7 @@ def classified(state: RunState):
         for row in state.get("stuck_investigations") or []
         if row.get("trigger") == "builder_failure"
         and row.get("milestone_key") == milestone
+        and row.get("outcome") != "candidate_retained"
         and not _boundary_stop(state, row)
     ]
 

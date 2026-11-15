@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -158,6 +159,32 @@ class KiloStartChecksTests(unittest.TestCase):
         # The run's warm-up asked it first; its cut-off answer was not kept, so each discovery asked again.
         self.assertEqual(["--version", "auth list", "models"] + ["models --verbose"] * 3, sorted(calls))
 
+    def test_incomplete_listing_returns_empty_levels_and_metadata(self):
+        partial = (
+            'zai-coding-plan/glm-5.3\n{"family": "glm", "capabilities": {"toolcall": true}, "variants": {"high": {}}}\n'
+            'openai/gpt-6-sol\n{"variants": {"low": {},'
+        )
+        seen_timeouts = []
+
+        def answer(cmd, *a, **kw):
+            if cmd[1:] == ["auth", "list"]:
+                return response(KILO_AUTH_LISTING)
+            if cmd[1:] == ["models"]:
+                return response(KILO_MODELS)
+            seen_timeouts.append(kw["timeout"])
+            return response(partial)
+
+        provider = command.load("kilocode")
+        with mock.patch.object(discovery.env_prep, "preflight_run", side_effect=answer):
+            levels, metadata = discovery._listing(provider, Path("/tmp/w"), None)
+            found = discovery.discover(provider, Path("/tmp/w"))
+        self.assertEqual({}, levels)
+        self.assertEqual({}, metadata)
+        self.assertEqual([60, 60], seen_timeouts)
+        glm = next(row for row in found["candidates"] if row["model"] == "zai-coding-plan/glm-5.3")
+        self.assertIsNone(glm["levels"])
+        self.assertIsNone(glm["metadata"])
+
 
 CUT_KILO = """#!/bin/sh
 echo "$*" >> "{bin}/calls"
@@ -288,8 +315,38 @@ class OpenCodeDiscoveryTests(unittest.TestCase):
 
     def test_an_unreadable_login_list_stops_discovery(self):
         with mock.patch.object(discovery.opencode, "auth_logins", return_value=None):
-            with self.assertRaisesRegex(RuntimeError, "Cannot read OpenCode's logins"):
-                discovery.discover(discovery.opencode)
+            with mock.patch.object(discovery.opencode, "available_models") as models:
+                with mock.patch.object(discovery.env_prep, "preflight_run") as preflight:
+                    with self.assertRaisesRegex(RuntimeError, "Cannot read OpenCode's logins"):
+                        discovery.discover(discovery.opencode)
+        models.assert_not_called()
+        preflight.assert_not_called()
+
+    def test_opencode_runs_models_and_verbose_listing_concurrently(self):
+        models_started = threading.Event()
+        verbose_started = threading.Event()
+        both_concurrent = []
+
+        def fake_models(*_args, **_kwargs):
+            models_started.set()
+            both_concurrent.append(("models", verbose_started.wait(timeout=2)))
+            return {"zai-coding-plan/glm-5.3"}
+
+        def fake_preflight(cmd, *_args, **_kwargs):
+            if cmd == ["opencode", "models", "--verbose"]:
+                verbose_started.set()
+                both_concurrent.append(("verbose", models_started.wait(timeout=2)))
+                return response('zai-coding-plan/glm-5.3\n{"variants": {"high": {}}}\n')
+            return response()
+
+        with (
+            mock.patch.object(discovery.opencode, "auth_logins", return_value=[("Z.AI Coding Plan", "api")]),
+            mock.patch.object(discovery.opencode, "available_models", side_effect=fake_models),
+            mock.patch.object(discovery.env_prep, "preflight_run", side_effect=fake_preflight),
+        ):
+            found = discovery.discover(discovery.opencode)
+        self.assertEqual({"models": True, "verbose": True}, dict(both_concurrent))
+        self.assertEqual(["high"], found["candidates"][0]["levels"])
 
 
 class VariantOmissionTests(unittest.TestCase):

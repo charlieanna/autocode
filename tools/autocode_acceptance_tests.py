@@ -42,6 +42,7 @@ except ImportError:
 
 STAGE = "write_acceptance_tests"
 KEY: Final = "acceptance_tests"
+CANDIDATE_FAIL_FIRST: Final = "passes candidate; fails original reference"
 SETTING_BLIND: Final = "blind_tests"
 BUILD_STAGES = ("builder", "orchestrator")
 

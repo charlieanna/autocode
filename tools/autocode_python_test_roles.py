@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import posixpath
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import PurePosixPath
@@ -22,7 +23,7 @@ except ImportError:
     import autocode_python_packaging as packaging
     import autocode_python_tests as python_tests
 
-VERSION = 6
+VERSION = 7
 PRODUCT, TEST, AMBIGUOUS = "product", "test", "ambiguous"
 TEST_DIRS = project_kinds.TEST_DIRS
 ROOT_TEST_DIRS = project_kinds.ROOT_TEST_DIRS
@@ -75,6 +76,100 @@ def _declares(source):
     )
 
 
+_TYPING_MODULES = frozenset({"typing", "typing_extensions"})
+_TYPE_PARAM_NODES = tuple(
+    cls for name in ("TypeVar", "ParamSpec", "TypeVarTuple") if (cls := getattr(ast, name, None)) is not None
+)
+_NAMED_BINDERS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, *_TYPE_PARAM_NODES)
+
+
+def _bound_names(tree):
+    """Count every static binding or rebinding of each identifier in ``tree``."""
+    counts = Counter()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            counts[node.id] += 1
+        elif isinstance(node, _NAMED_BINDERS):
+            counts[node.name] += 1
+        elif isinstance(node, ast.arg):
+            counts[node.arg] += 1
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            counts[node.name] += 1
+        elif isinstance(node, (ast.Global, ast.Nonlocal)):
+            counts.update(node.names)
+        elif isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name:
+            counts[node.name] += 1
+        elif isinstance(node, ast.MatchMapping) and node.rest:
+            counts[node.rest] += 1
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                counts[alias.asname or alias.name.split(".")[0]] += 1
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name != "*":
+                    counts[alias.asname or alias.name] += 1
+        elif (
+            isinstance(node, ast.Attribute)
+            and node.attr == "TYPE_CHECKING"
+            and isinstance(node.value, ast.Name)
+            and isinstance(node.ctx, (ast.Store, ast.Del))
+        ):
+            # Rebinding ``typing.TYPE_CHECKING = True`` invalidates trusting that module name.
+            counts[node.value.id] += 1
+    return counts
+
+
+def _type_checking_guards(tree):
+    """Module-top-level unshadowed bindings for ``TYPE_CHECKING`` and ``typing`` modules."""
+    candidate_names, candidate_modules = set(), set()
+    for statement in tree.body:
+        if isinstance(statement, ast.Import):
+            for alias in statement.names:
+                if alias.name in _TYPING_MODULES:
+                    candidate_modules.add(alias.asname or alias.name)
+        elif isinstance(statement, ast.ImportFrom) and statement.level == 0 and statement.module in _TYPING_MODULES:
+            for alias in statement.names:
+                if alias.name == "TYPE_CHECKING":
+                    candidate_names.add(alias.asname or alias.name)
+    if not candidate_names and not candidate_modules:
+        return set(), set()
+    counts = _bound_names(tree)
+    return (
+        {name for name in candidate_names if counts[name] == 1},
+        {name for name in candidate_modules if counts[name] == 1},
+    )
+
+
+def _is_type_checking_test(node, type_checking_names, typing_modules):
+    """True when ``node`` statically evaluates to ``typing.TYPE_CHECKING`` (always ``False`` at runtime)."""
+    if isinstance(node, ast.Name):
+        return node.id in type_checking_names
+    if isinstance(node, ast.Attribute):
+        return node.attr == "TYPE_CHECKING" and isinstance(node.value, ast.Name) and node.value.id in typing_modules
+    if isinstance(node, ast.BoolOp):
+        if isinstance(node.op, ast.And):
+            return any(_is_type_checking_test(value, type_checking_names, typing_modules) for value in node.values)
+        if isinstance(node.op, ast.Or):
+            return all(_is_type_checking_test(value, type_checking_names, typing_modules) for value in node.values)
+    return False
+
+
+def _runtime_nodes(tree, type_checking_names, typing_modules):
+    """Yield AST nodes outside unshadowed ``if TYPE_CHECKING:`` bodies while walking tests and ``orelse``."""
+    if not type_checking_names and not typing_modules:
+        yield from ast.walk(tree)
+        return
+    stack = [tree]
+    while stack:
+        node = stack.pop()
+        yield node
+        if isinstance(node, ast.If) and _is_type_checking_test(node.test, type_checking_names, typing_modules):
+            stack.append(node.test)
+            stack.extend(reversed(node.orelse))
+        else:
+            stack.extend(reversed(list(ast.iter_child_nodes(node))))
+
+
 def _imports(path, source):
     """Literal ordinary imports only; computed imports do not prove exclusion."""
     try:
@@ -83,7 +178,8 @@ def _imports(path, source):
         return set(), True
     modules, uncertain = set(), False
     parent = list(PurePosixPath(path).parent.parts)
-    for node in ast.walk(tree):
+    type_checking_names, typing_modules = _type_checking_guards(tree)
+    for node in _runtime_nodes(tree, type_checking_names, typing_modules):
         if isinstance(node, ast.Import):
             modules.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):

@@ -1144,5 +1144,62 @@ class StagesCommandTests(unittest.TestCase):
         self.assertIn(f"{workspace / '.autocode' / 'config.toml'}: single-model cannot be combined", bad_err)
 
 
+class StagesReuseTests(unittest.TestCase):
+    """`autocode stages list` reuses kept preflight checks only when the workspace has `.autocode/`."""
+
+    def test_cli_list_reuses_kept_checks_only_when_autocode_dir_exists(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            xdg = root / "xdg"
+            xdg.mkdir()
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            calls = fake_bin / "calls"
+            kilo = fake_bin / "kilo"
+            kilo.write_text(
+                "#!/bin/sh\n"
+                f'echo "$*" >> "{calls}"\n'
+                'case "$*" in\n'
+                '  "auth list") printf "%s\\n" "●  Z.AI Coding Plan api" "●  OpenAI oauth" ;;\n'
+                '  "models") printf "%s\\n" "zai-coding-plan/glm-5.3" "openai/gpt-6-sol" ;;\n'
+                '  "--version") echo "7.8.12" ;;\n'
+                '  "models --verbose") printf "%s\\n" '
+                '"zai-coding-plan/glm-5.3" \'{"family":"glm","capabilities":{"toolcall":true},"variants":{"low":{},"high":{},"max":{}}}\' '
+                '"openai/gpt-6-sol" \'{"family":"gpt","capabilities":{"toolcall":true},"variants":{"medium":{},"high":{}}}\' ;;\n'
+                "  *) exit 1 ;;\n"
+                "esac\n"
+            )
+            kilo.chmod(0o755)
+            uninit = root / "uninit"
+            uninit.mkdir()
+            project = root / "project"
+            (project / ".autocode").mkdir(parents=True)
+            path = f"{fake_bin}{os.pathsep}/usr/bin{os.pathsep}/bin"
+            with mock.patch.dict(os.environ, {"PATH": path, "XDG_CONFIG_HOME": str(xdg)}):
+                for _ in range(2):
+                    out = io.StringIO()
+                    with contextlib.redirect_stdout(out):
+                        code = stages_cli.cli(["list", "--backend", "kilocode", "--workspace", str(uninit), "--json"])
+                    self.assertEqual(0, code)
+                    self.assertEqual("kilocode", json.loads(out.getvalue())["backend"])
+                self.assertFalse((uninit / ".autocode").exists())
+                self.assertEqual(6, len(calls.read_text().splitlines()))
+
+                calls.unlink()
+                for _ in range(2):
+                    out = io.StringIO()
+                    with contextlib.redirect_stdout(out):
+                        code = stages_cli.cli(["list", "--backend", "kilocode", "--workspace", str(project), "--json"])
+                    self.assertEqual(0, code)
+                    payload = json.loads(out.getvalue())
+                    self.assertEqual("kilocode", payload["backend"])
+                self.assertTrue((project / ".autocode" / "preflight-reuse").is_dir())
+                self.assertFalse((project / ".autocode" / "runs").exists())
+                self.assertEqual(
+                    ["--version", "auth list", "models", "models --verbose"],
+                    sorted(calls.read_text().splitlines()),
+                )
+
+
 if __name__ == "__main__":
     unittest.main()

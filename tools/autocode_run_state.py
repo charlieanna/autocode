@@ -663,6 +663,8 @@ class RunState(TypedDict, total=False):
     resolver: Any
     resolver_human_proposal: Any  # a Resolver proposal awaiting a human; goals writes, dependency pops
     resolver_human_request: Any
+    # Autopilot records fresh-review handoffs, including accepted_test_writer provenance;
+    # preservation_candidate consumes each writer/source once, recovery_history shows the decision.
     retained_candidate_handoffs: Any
     review: Any  # an earlier runtime's Code Reviewer saved outcome, report digest and source_revision; status inspects freshness
     session_rotations: Any

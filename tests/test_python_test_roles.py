@@ -700,7 +700,7 @@ class RoleProofFreshnessTests(unittest.TestCase):
             mock.patch.object(regression.changed_code, "ready", return_value=True),
         ):
             self.assertFalse(regression.complete(state, "current"))
-            for previous_policy in (1, 2, 3, 4, 5):
+            for previous_policy in (1, 2, 3, 4, 5, 6):
                 proof["execution_context"] = {"test_role_policy": previous_policy}
                 self.assertFalse(regression.complete(state, "current"))
             proof["execution_context"] = {"test_role_policy": role_policy.VERSION}
@@ -798,3 +798,199 @@ class CorrectionProjectionTests(unittest.TestCase):
         self.assertIn(event["reason"], markdown)
         self.assertIn("/owned/original.json", markdown)
         self.assertLess(len(json.dumps(report["regression_proof"]["role_correction"])), 2500)
+
+
+class TypeCheckingImportTests(unittest.TestCase):
+    CASE = PinnedRolePolicyTests.CASE
+
+    def test_type_checking_imports_are_excluded_from_runtime_imports_and_reach(self):
+        cases = (
+            (
+                "pkg/mod.py",
+                "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import foo\n",
+                {"typing", "typing.TYPE_CHECKING"},
+            ),
+            (
+                "pkg/mod.py",
+                "from typing import TYPE_CHECKING as TC\nif TC:\n    import foo\n",
+                {"typing", "typing.TYPE_CHECKING"},
+            ),
+            (
+                "pkg/mod.py",
+                "from typing_extensions import TYPE_CHECKING\nif TYPE_CHECKING:\n    import foo\n",
+                {"typing_extensions", "typing_extensions.TYPE_CHECKING"},
+            ),
+            (
+                "pkg/mod.py",
+                "from typing_extensions import TYPE_CHECKING as TC\nif TC:\n    import foo\n",
+                {"typing_extensions", "typing_extensions.TYPE_CHECKING"},
+            ),
+            ("pkg/mod.py", "import typing\nif typing.TYPE_CHECKING:\n    from . import bar\n", {"typing"}),
+            ("pkg/mod.py", "import typing as t\nif t.TYPE_CHECKING:\n    from . import bar\n", {"typing"}),
+            (
+                "pkg/mod.py",
+                "import typing_extensions\nif typing_extensions.TYPE_CHECKING:\n    from . import bar\n",
+                {"typing_extensions"},
+            ),
+            (
+                "pkg/mod.py",
+                "import typing_extensions as te\nif te.TYPE_CHECKING:\n    from . import bar\n",
+                {"typing_extensions"},
+            ),
+            (
+                "pkg/mod.py",
+                "from typing import TYPE_CHECKING\nif TYPE_CHECKING and flag:\n    import foo\n",
+                {"typing", "typing.TYPE_CHECKING"},
+            ),
+            (
+                "pkg/mod.py",
+                "import typing, typing_extensions\nif typing.TYPE_CHECKING or typing_extensions.TYPE_CHECKING:\n    import foo\n",
+                {"typing", "typing_extensions"},
+            ),
+        )
+        for path, source, expected in cases:
+            with self.subTest(source=source):
+                modules, uncertain = role_policy._imports(path, source)
+                self.assertEqual(expected, modules)
+                self.assertFalse(uncertain)
+
+        roles = role_policy.build(
+            {
+                "pkg/__init__.py": "",
+                "pkg/service.py": "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from . import helper_tests\n",
+                "pkg/helper_tests.py": self.CASE,
+            },
+            lambda p: {
+                "pkg/__init__.py": "",
+                "pkg/service.py": "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from . import helper_tests\n",
+                "pkg/helper_tests.py": self.CASE,
+            }[p],
+            verify.is_test_path,
+        )
+        self.assertEqual(role_policy.TEST, roles.role("pkg/helper_tests.py"))
+        self.assertTrue(roles.protected("pkg/helper_tests.py"))
+
+    def test_if_type_checking_still_walks_test_expression_and_else_branches(self):
+        source = (
+            "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n"
+            "    import type_only\n"
+            "else:\n"
+            "    import runtime_else\n"
+        )
+        self.assertEqual(
+            ({"typing", "typing.TYPE_CHECKING", "runtime_else"}, False), role_policy._imports("a.py", source)
+        )
+
+        elif_source = (
+            "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n"
+            "    import type_only\n"
+            "elif runtime_flag:\n"
+            "    import runtime_elif\n"
+            "else:\n"
+            "    import runtime_else\n"
+        )
+        self.assertEqual(
+            ({"typing", "typing.TYPE_CHECKING", "runtime_elif", "runtime_else"}, False),
+            role_policy._imports("a.py", elif_source),
+        )
+
+        inner_elif = (
+            "from typing import TYPE_CHECKING\n"
+            "if runtime_flag:\n"
+            "    import runtime_if\n"
+            "elif TYPE_CHECKING:\n"
+            "    import type_only\n"
+            "else:\n"
+            "    import runtime_else\n"
+        )
+        self.assertEqual(
+            ({"typing", "typing.TYPE_CHECKING", "runtime_if", "runtime_else"}, False),
+            role_policy._imports("a.py", inner_elif),
+        )
+
+        test_expr_dynamic = (
+            "from typing import TYPE_CHECKING\n"
+            "import importlib\n"
+            "if TYPE_CHECKING and importlib.import_module(selected):\n"
+            "    import type_only\n"
+        )
+        modules, uncertain = role_policy._imports("a.py", test_expr_dynamic)
+        self.assertEqual({"typing", "typing.TYPE_CHECKING", "importlib"}, modules)
+        self.assertTrue(uncertain)
+
+        for kept_source in (
+            "from typing import TYPE_CHECKING\nif not TYPE_CHECKING:\n    import runtime_kept\n",
+            "from typing import TYPE_CHECKING\nif TYPE_CHECKING or runtime_flag:\n    import runtime_kept\n",
+        ):
+            with self.subTest(kept_source=kept_source):
+                modules, uncertain = role_policy._imports("a.py", kept_source)
+                self.assertIn("runtime_kept", modules)
+                self.assertFalse(uncertain)
+
+    def test_shadowed_or_rebound_type_checking_keeps_body_conservatively(self):
+        cases = (
+            "from typing import TYPE_CHECKING\nTYPE_CHECKING = True\nif TYPE_CHECKING:\n    import kept\n",
+            "from typing import TYPE_CHECKING\nTYPE_CHECKING = False\nif TYPE_CHECKING:\n    import kept\n",
+            "from typing import TYPE_CHECKING\nTYPE_CHECKING: bool = True\nif TYPE_CHECKING:\n    import kept\n",
+            "from typing import TYPE_CHECKING\nif (TYPE_CHECKING := True):\n    import kept\n",
+            "from typing import TYPE_CHECKING\ndef TYPE_CHECKING(): pass\nif TYPE_CHECKING:\n    import kept\n",
+            "from typing import TYPE_CHECKING\nasync def TYPE_CHECKING(): pass\nif TYPE_CHECKING:\n    import kept\n",
+            "from typing import TYPE_CHECKING\nclass TYPE_CHECKING: pass\nif TYPE_CHECKING:\n    import kept\n",
+            "from typing import TYPE_CHECKING\ndef f(TYPE_CHECKING):\n    if TYPE_CHECKING:\n        import kept\n",
+            "from typing import TYPE_CHECKING\nf = lambda TYPE_CHECKING: TYPE_CHECKING\nif TYPE_CHECKING:\n    import kept\n",
+            "from typing import TYPE_CHECKING\ntry:\n    pass\nexcept Exception as TYPE_CHECKING:\n    pass\nif TYPE_CHECKING:\n    import kept\n",
+            "from typing import TYPE_CHECKING\ndef f():\n    global TYPE_CHECKING\nif TYPE_CHECKING:\n    import kept\n",
+            "from typing import TYPE_CHECKING\ndef outer(TYPE_CHECKING):\n    def inner():\n        nonlocal TYPE_CHECKING\n    if TYPE_CHECKING:\n        import kept\n",
+            "from typing import TYPE_CHECKING\nmatch value:\n    case TYPE_CHECKING:\n        pass\nif TYPE_CHECKING:\n    import kept\n",
+            "from typing import TYPE_CHECKING\nmatch value:\n    case [*TYPE_CHECKING]:\n        pass\nif TYPE_CHECKING:\n    import kept\n",
+            "from typing import TYPE_CHECKING\nmatch value:\n    case {**TYPE_CHECKING}:\n        pass\nif TYPE_CHECKING:\n    import kept\n",
+            "from typing import TYPE_CHECKING\nimport other as TYPE_CHECKING\nif TYPE_CHECKING:\n    import kept\n",
+            "from typing import TYPE_CHECKING\nfrom other import TYPE_CHECKING\nif TYPE_CHECKING:\n    import kept\n",
+            "from typing import TYPE_CHECKING\nfrom .typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import kept\n",
+            "from typing import TYPE_CHECKING\nfrom typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import kept\n",
+            "if flag:\n    from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import kept\n",
+            "def f():\n    from typing import TYPE_CHECKING\n    if TYPE_CHECKING:\n        import kept\n",
+            "import typing as t\nt = object()\nif t.TYPE_CHECKING:\n    import kept\n",
+            "import typing as t\ndef f(t):\n    if t.TYPE_CHECKING:\n        import kept\n",
+            "import typing as t\nimport other as t\nif t.TYPE_CHECKING:\n    import kept\n",
+            "import typing\ntyping.TYPE_CHECKING = True\nif typing.TYPE_CHECKING:\n    import kept\n",
+            "import typing\nimport typing.sub\nif typing.TYPE_CHECKING:\n    import kept\n",
+            "from typing import TYPE_CHECKING as t\nimport typing as t\nif t:\n    import kept\n",
+        )
+        if sys.version_info >= (3, 12):
+            cases += (
+                "from typing import TYPE_CHECKING\ntype TYPE_CHECKING = int\nif TYPE_CHECKING:\n    import kept\n",
+            )
+        for source in cases:
+            with self.subTest(source=source):
+                modules, _ = role_policy._imports("pkg/mod.py", source)
+                self.assertIn("kept", modules)
+
+        shadowed = {
+            "pkg/__init__.py": "",
+            "pkg/service.py": "from typing import TYPE_CHECKING\nTYPE_CHECKING = True\nif TYPE_CHECKING:\n    from . import helper_tests\n",
+            "pkg/helper_tests.py": self.CASE,
+        }
+        roles = role_policy.build(shadowed, shadowed.__getitem__, verify.is_test_path)
+        self.assertEqual(role_policy.AMBIGUOUS, roles.role("pkg/helper_tests.py"))
+
+    def test_dynamic_imports_outside_type_checking_remain_uncertain(self):
+        for source in (
+            "from typing import TYPE_CHECKING\nimport importlib\nif TYPE_CHECKING:\n    import type_only\nimportlib.import_module(name)\n",
+            "from typing import TYPE_CHECKING\nimport importlib\nif TYPE_CHECKING:\n    import type_only\nelse:\n    importlib.import_module(name)\n",
+            "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import type_only\n__import__(name)\n",
+            "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import type_only\nelse:\n    from .. import too_far\n",
+        ):
+            with self.subTest(source=source):
+                modules, uncertain = role_policy._imports("pkg/mod.py", source)
+                self.assertNotIn("type_only", modules)
+                self.assertTrue(uncertain)
+
+        type_only_dynamic = (
+            "from typing import TYPE_CHECKING\nimport importlib\nif TYPE_CHECKING:\n    importlib.import_module(name)\n"
+        )
+        modules, uncertain = role_policy._imports("pkg/mod.py", type_only_dynamic)
+        self.assertEqual({"importlib", "typing", "typing.TYPE_CHECKING"}, modules)
+        self.assertFalse(uncertain)

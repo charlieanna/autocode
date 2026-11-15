@@ -422,8 +422,19 @@ class RecoveryHistoryTests(unittest.TestCase):
     def test_the_status_view_carries_it_and_the_schema_declares_it(self):
         import autocode_run_view as run_view
 
-        shown = run_view.view(state(status="RUNNING", phase="EXECUTING"))
-        self.assertEqual(history.project(state()), shown["recoveries"])
+        current = state(
+            status="RUNNING",
+            phase="EXECUTING",
+            retained_candidate_handoffs=[
+                {
+                    "at": "2026-11-02T05:46:00+00:00",
+                    "accepted_test_writer": "writer.json",
+                    "reconsidered": True,
+                }
+            ],
+        )
+        shown = run_view.view(current)
+        self.assertEqual(history.project(current), shown["recoveries"])
         schema = json.loads((ROOT / "docs/schemas/status-view.schema.json").read_text())
         view = schema["properties"]["view"]
         self.assertIn("recoveries", view["required"])

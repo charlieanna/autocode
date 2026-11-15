@@ -39,9 +39,12 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import locale
 import os
 import shutil
 import subprocess
+import sys
+import tempfile
 import threading
 import time
 from collections.abc import Mapping
@@ -74,6 +77,7 @@ _reuse: Path | None = None
 _timed_out: set[str] = set()  # kept-check keys whose warm-up attempt overran its bound, in this run
 _done_in_run: set = set()  # the steps once_in_run has run, in this run
 _once_lock = threading.Lock()
+_STDLIB_RUN = subprocess.run
 
 
 class KeptCheck(subprocess.CompletedProcess):
@@ -119,6 +123,51 @@ def resolve_executable(name: str, env: Mapping[str, str], *, cwd=None, allow_def
     return shutil.which(name, path=path or os.curdir)
 
 
+def _read_captured(handle, text_mode: bool, encoding: str | None, errors: str | None, *, lossy: bool = False):
+    handle.seek(0)
+    raw = handle.read()
+    if not text_mode:
+        return raw
+    codec = encoding or ("utf-8" if sys.flags.utf8_mode else locale.getencoding())
+    err_mode = errors or "strict"
+    try:
+        decoded = raw.decode(codec, err_mode)
+    except UnicodeDecodeError:
+        if not lossy or errors is not None:
+            raise
+        decoded = raw.decode(codec, "replace")
+    return decoded.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _run_captured(command, env: Mapping[str, str], kwargs: dict):
+    # POSIX pipes truncate around ~81 KB when Bun/Node CLIs set O_NONBLOCK on fd 1 (#3078);
+    # file-backed stdio avoids pipe backpressure while leaving patched subprocess.run untouched.
+    run_kwargs = dict(kwargs)
+    run_kwargs.pop("capture_output", None)
+    encoding = run_kwargs.get("encoding")
+    errors = run_kwargs.get("errors")
+    text_mode = bool(run_kwargs.get("text") or run_kwargs.get("universal_newlines") or encoding or errors)
+    with tempfile.TemporaryFile() as out_file, tempfile.TemporaryFile() as err_file:
+        run_kwargs["stdout"] = out_file
+        run_kwargs["stderr"] = err_file
+        try:
+            completed = _STDLIB_RUN(command, env=dict(env), **run_kwargs)
+        except subprocess.TimeoutExpired as error:
+            error.stdout = _read_captured(out_file, text_mode, encoding, errors, lossy=True)
+            error.stderr = _read_captured(err_file, text_mode, encoding, errors, lossy=True)
+            raise
+        except subprocess.CalledProcessError as error:
+            error.output = _read_captured(out_file, text_mode, encoding, errors)
+            error.stderr = _read_captured(err_file, text_mode, encoding, errors)
+            raise
+        return subprocess.CompletedProcess(
+            completed.args,
+            completed.returncode,
+            _read_captured(out_file, text_mode, encoding, errors),
+            _read_captured(err_file, text_mode, encoding, errors),
+        )
+
+
 def preflight_run(
     command, env: Mapping[str, str], *, require_executable=False, complete=None, fresh=False, warming=False, **kwargs
 ):
@@ -138,7 +187,15 @@ def preflight_run(
     if kept is not None:
         return kept
     try:
-        result = subprocess.run(command, env=dict(env), **kwargs)
+        if (
+            kwargs.get("capture_output")
+            and "stdout" not in kwargs
+            and "stderr" not in kwargs
+            and subprocess.run is _STDLIB_RUN
+        ):
+            result = _run_captured(command, env, kwargs)
+        else:
+            result = subprocess.run(command, env=dict(env), **kwargs)
     except subprocess.TimeoutExpired:
         if warming and key:
             # A warm-up that overran its bound was the check's first attempt (preflight_listing).
@@ -202,6 +259,20 @@ def once_in_run(token, step) -> bool:
         _done_in_run.add(token)
         step()
         return True
+
+
+@contextlib.contextmanager
+def reuse_workspace_checks(workspace=".", run_dir=None):
+    """Reuse kept preflight checks for read-only workspace/run CLIs without creating ``.autocode``."""
+    if run_dir:
+        with reuse_checks(run_dir):
+            yield
+        return
+    if _reuse is None and workspace is not None and (Path(workspace) / ".autocode").is_dir():
+        with reuse_checks(Path(workspace) / ".autocode" / "runs" / "_cli"):
+            yield
+        return
+    yield
 
 
 def reuse_folder(run_dir) -> Path:
@@ -301,8 +372,11 @@ def _keep(key, result) -> None:
         return
     with contextlib.suppress(OSError):
         _reuse.mkdir(mode=0o700, exist_ok=True)
-        temporary = _reuse / f".{key}.{os.getpid()}"
-        temporary.write_text(json.dumps({"at": time.time(), "stdout": result.stdout, "stderr": result.stderr}))
+        temporary = _reuse / f".{key}.{os.getpid()}.{threading.get_ident()}"
+        temporary.write_text(
+            json.dumps({"at": time.time(), "stdout": result.stdout, "stderr": result.stderr}),
+            encoding="utf-8",
+        )
         temporary.chmod(0o600)
         os.replace(temporary, _reuse / f"{key}.json")
 

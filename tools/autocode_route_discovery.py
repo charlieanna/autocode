@@ -137,7 +137,6 @@ def _from_opencode(workspace, env, inventory=None):
         routes.extend({"models": prefix, "name": name, "billing": billing} for prefix in prefixes.split())
     # The free tier needs no login, so it is a route every listing serves.
     routes.append({"models": OPENCODE_FREE_PREFIX, "name": OPENCODE_FREE_ACCOUNT, "billing": "pay per token"})
-    models = _models(opencode, workspace, env, inventory)
     accounts = {}
     for route in routes:
         account = accounts.setdefault(
@@ -151,9 +150,14 @@ def _from_opencode(workspace, env, inventory=None):
         )
         if route["models"] not in account["prefixes"]:
             account["prefixes"].append(route["models"])
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        models_future = pool.submit(_models, opencode, workspace, env, inventory)
+        listing_future = pool.submit(_listing, opencode, workspace, env)
+        models = models_future.result()
+        levels, metadata = listing_future.result()
     return {
         "tool": "opencode",
-        "candidates": _candidates(models, "opencode", routes, *_listing(opencode, workspace, env)),
+        "candidates": _candidates(models, "opencode", routes, levels, metadata),
         "accounts": [accounts[name] for name in sorted(accounts)],
     }
 
@@ -196,10 +200,12 @@ def _listing(provider, workspace, env, checked=None):
         return {}, {}
     try:
         # A listing cut off before its end is not kept for the next check to trust (#3078).
-        listing = _run([*command, "--verbose"], name, workspace, env, 30, checked, complete=route_levels.complete)
+        listing = _run([*command, "--verbose"], name, workspace, env, 60, checked, complete=route_levels.complete)
     except RuntimeError:
         # Older tools may lack verbose metadata. Qualification evidence remains
         # the fallback; an unreadable optional listing never invents new levels.
+        return {}, {}
+    if not route_levels.complete(listing):
         return {}, {}
     return route_levels.parse(listing), route_levels.metadata(listing)
 
