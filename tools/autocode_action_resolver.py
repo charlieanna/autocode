@@ -31,6 +31,7 @@ try:
     from . import autocode_operational_information as operational_information
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_limits as recovery_limits
+    from . import autocode_requirements_overlap_input as overlap_input
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_recommendation as recommendation
     from . import autocode_role_transport as role_transport
@@ -47,6 +48,7 @@ except ImportError:
     import autocode_operational_information as operational_information
     import autocode_quota_route as quota_route
     import autocode_recovery_limits as recovery_limits
+    import autocode_requirements_overlap_input as overlap_input
     import autocode_resolver_human as resolver_human
     import autocode_resolver_recommendation as recommendation
     import autocode_role_transport as role_transport
@@ -166,7 +168,7 @@ def chat(runner, state: RunState, run_dir, published, *, persist=None, native=No
     print("AutoResolver: " + published["request"]["decision_needed"])
     print("No retry, approval, permission or budget increase is implied by a response.")
     try:
-        reply = input("Corrective information, or /pause: ").strip()
+        reply = overlap_input.read("Corrective information, or /pause: ").strip()
         if not reply:
             return False
         candidate = copy.deepcopy(state)

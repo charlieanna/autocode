@@ -415,6 +415,48 @@ def direct_state_json_writers() -> set[str]:
     return writers
 
 
+# The run's questions read the person's answers one byte at a time (autocode_requirements_overlap_input,
+# #3233), so a background Requirements call can be noticed while the person types. Python's own input()
+# reads ahead on anything that is not a terminal: asked beside that reader on piped answers, it takes the
+# lines the next question is waiting for, and that question sees the end of input. The model-replacement
+# prompt did (tests.test_opencode, red on master 2026-11-15), and the Resolver's prompt would have. Every
+# prompt of a run reads through overlap_input.read; a module is listed here only when its prompts never
+# share a process with a run's questions. A new prompt in a run goes through the reader, not onto this list.
+BUILTIN_INPUT_READERS = {
+    "autocode_requirements_overlap_input": "the shared reader itself",
+    "autocode_chat_client": "the terminal chat client, a process of its own that starts each run as a subprocess",
+    "autocode_direct_config": "the connections setup command",
+    "autocode_setup": "the setup command",
+    "autocode_stages_cli": "the stages command, and setup's offer of it",
+    "model_catalogue": "choose()'s default for a caller outside a run; autocode_run_setup passes the shared reader",
+}
+
+
+def _builtin_input_lines(source: str) -> list[int]:
+    """Lines that read with the builtin ``input``: a call, or the name handed on as a value.
+
+    A parameter named ``input`` (subprocess's keyword, passed along) is not the builtin."""
+    lines = []
+
+    def visit(node, shadowed):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            arguments = node.args
+            for default in [*arguments.defaults, *arguments.kw_defaults]:
+                if default is not None:
+                    visit(default, shadowed)  # a default is evaluated where the function is defined
+            names = {item.arg for item in [*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs]}
+            for child in node.body if isinstance(node.body, list) else [node.body]:
+                visit(child, shadowed or "input" in names)
+            return
+        if isinstance(node, ast.Name) and node.id == "input" and isinstance(node.ctx, ast.Load) and not shadowed:
+            lines.append(node.lineno)
+        for child in ast.iter_child_nodes(node):
+            visit(child, shadowed)
+
+    visit(ast.parse(source), False)
+    return sorted(lines)
+
+
 class ArchitectureTests(unittest.TestCase):
     def test_source_inventory_includes_nested_runtime_and_excludes_fixtures(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -487,6 +529,33 @@ class ArchitectureTests(unittest.TestCase):
             'util.atomic_json(directory / "state.json.bak", state)\n'
         )
         self.assertEqual([1], _atomic_state_json_lines(source))
+
+    def test_a_runs_prompts_read_through_the_shared_reader(self):
+        readers = {
+            name for name, path in source_modules().items() if _builtin_input_lines(path.read_text(encoding="utf-8"))
+        }
+        self.assertEqual(
+            set(),
+            readers - set(BUILTIN_INPUT_READERS),
+            "these modules call the builtin input(); a prompt in a run reads through "
+            "autocode_requirements_overlap_input.read, or piped answers are lost to read-ahead",
+        )
+
+    def test_a_module_that_stopped_calling_input_leaves_the_list(self):
+        self.assertEqual(
+            set(),
+            {name for name in BUILTIN_INPUT_READERS if not _builtin_input_lines(source_modules()[name].read_text())},
+        )
+
+    def test_the_input_scan_sees_calls_and_defaults_but_not_a_parameter_of_that_name(self):
+        source = (
+            "def ask(prompt, read=input):\n"
+            "    return read(prompt)\n"
+            "def run(cmd, input=None):\n"
+            "    return subprocess.run(cmd, input=input)\n"
+            "reply = input('> ')\n"
+        )
+        self.assertEqual([1, 5], _builtin_input_lines(source))
 
     def test_largest_modules_do_not_grow(self):
         for name, limit in MAX_LINES.items():
