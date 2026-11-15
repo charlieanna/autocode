@@ -562,6 +562,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         (
             "tests.test_captured_process",
             "tests.test_connection_processes",
+            "tests.test_local_run",
             "tests.test_process_without_psutil",
             "tests.test_taskrun",
         ),
