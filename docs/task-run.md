@@ -1807,6 +1807,12 @@ the structured action from a fresh status read, never parse the displayed prose
 or replace an expired action's token with one from a newer view. The same rule
 applies to separate numeric offers, model retry offers and chat recovery replies.
 
+An authenticated operational-exhaustion request whose runner receipt identifies
+an internal recovery failure is reported as blocked in the conversation. It keeps
+the saved attempts and the existing operator `needs` and `next_command`, but the
+chat offers no machinery question or recovery reply. This does not apply to a
+saved spending or time bound, a connection stop, or a model-route question.
+
 A stopped, source-bound job may separately offer `needs.job_time_controls`. Each
 row describes one finite integer and a complete save-only `command`, bound to
 `needs.job_retry_token` through `AUTOCODE_JOB_RETRY_TOKEN`. A total-time row is
@@ -2891,6 +2897,14 @@ repair evidence, and `unavailable` without a valid source digest. Recorded does
 not assert that the current filesystem was rehashed. `active` additionally
 requires a running report-only attempt for the original stage. No field grants
 approval, retry, proof reuse or completion authority.
+
+When the runtime changes, a pending repair with its original handoff binding and
+complete artifact pins can be revalidated before another report-only or Resolver
+call. The current loader and full result-application gates run against the saved
+report and the original execution evidence; the archived bytes and provider
+usage remain intact. A failed revalidation is recorded once for that runtime.
+Older checkpoints without a handoff binding remain on the existing repair path:
+the current handoff cannot authenticate what the original provider saw.
 
 ### Failed workflow jobs
 

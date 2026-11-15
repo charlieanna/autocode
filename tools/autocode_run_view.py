@@ -62,6 +62,7 @@ try:
     from . import autocode_liveness as liveness_policy
     from . import autocode_member_stop as member_stop
     from . import autocode_no_progress_recovery as no_progress_recovery
+    from . import autocode_operational_hold as operational_hold
     from . import autocode_operational_information as operational_information
     from . import autocode_output_policy as output_policy
     from . import autocode_package_scope as package_scope
@@ -129,6 +130,7 @@ except ImportError:
     import autocode_liveness as liveness_policy
     import autocode_member_stop as member_stop
     import autocode_no_progress_recovery as no_progress_recovery
+    import autocode_operational_hold as operational_hold
     import autocode_operational_information as operational_information
     import autocode_output_policy as output_policy
     import autocode_package_scope as package_scope
@@ -340,7 +342,7 @@ def view(
             needs=need,
             held_cause=pause_authority.answered_cause(state),
             ready=(controller or {}).get("kind") == "ready",
-            internal_failure=(operational_block.presentation(state)),
+            internal_failure=(operational_hold.presentation(state) or operational_block.presentation(state)),
         ),
         "current_task": {key: task.get(key) for key in ("id", "objective", "milestone_id")} if task else None,
         # The kind of job named for the request (autocode_workflows.WORKFLOWS);

@@ -54,6 +54,7 @@ try:
     from . import autocode_progressive_state as progressive_state
     from . import autocode_recovery_dispatch as recovery_dispatch
     from . import autocode_regression as regression
+    from . import autocode_report_revalidation as report_revalidation
     from . import autocode_requirements_handoff as requirements_handoff
     from . import autocode_requirements_triage as requirements_triage
     from . import autocode_resolver_human as human
@@ -108,6 +109,7 @@ except ImportError:
     import autocode_progressive_state as progressive_state
     import autocode_recovery_dispatch as recovery_dispatch
     import autocode_regression as regression
+    import autocode_report_revalidation as report_revalidation
     import autocode_requirements_handoff as requirements_handoff
     import autocode_requirements_triage as requirements_triage
     import autocode_resolver_human as human
@@ -288,6 +290,11 @@ def admit_validation(runtime, state: RunState, stage, workspace, run_dir):
     raise LoopExit(2)
 
 
+def revalidate_resolver(runtime, state: RunState, stage, workspace, run_dir):
+    """Use the exact saved report before launching an unstarted repair diagnosis."""
+    return stage == "resolve_repair" and report_revalidation.revalidate_resolver(runtime, state, run_dir, workspace)
+
+
 def dispatch_unit(runtime, state: RunState, stage, workspace, run_dir):
     """Call one unit using the runner's durable provider/recovery services."""
     progressive_state.guard_dispatch(state, stage)
@@ -305,6 +312,8 @@ def dispatch_unit(runtime, state: RunState, stage, workspace, run_dir):
         launch_inputs.guard(state, workspace, run_dir)
     except ValueError as error:
         raise runtime.support.Paused("PAUSED_STALE_VALIDATION", str(error)) from error
+    if revalidate_resolver(runtime, state, stage, workspace, run_dir):
+        return SKIP
     if stage == "orchestrator":
         return recovery_dispatch.dispatch_orchestrator(runtime, unit, state, workspace, run_dir, SKIP)
     if stage == acceptance_tests.STAGE:

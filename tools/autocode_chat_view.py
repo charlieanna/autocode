@@ -269,8 +269,10 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
 
     need = public.get("needs") or {}
     status = public.get("status")
+    blocked = (public.get("recovery") or {}).get("category") == "blocked"
     resolver_reply = (
         status == "WAITING_FOR_USER"
+        and not blocked
         and need.get("kind") == "answer"
         and need.get("resolver_scope") in ("blocker", "operational_exhaustion")
         and need.get("resolver_request_id")
@@ -283,7 +285,7 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
     text = requirements_chat.streaming_reply(state, run_dir)
     if text:
         messages.append({"id": "requirements-live", "role": "assistant", "text": text, "streaming": True})
-    elif need.get("kind") == "answer" and not resolver_reply and requirements_chat.enabled(state):
+    elif need.get("kind") == "answer" and not resolver_reply and not blocked and requirements_chat.enabled(state):
         questions = need.get("questions", [])
         routing = (
             scope_question.question(state)
@@ -380,6 +382,8 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
             "Send plan feedback" if blocker_hold else "Explain what should change",
             "--feedback",
         )
+    if blocked:
+        action = None
     context_token = context(state, public)
     message_input = None
     if (

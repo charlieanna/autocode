@@ -23,12 +23,14 @@ if TYPE_CHECKING:
 try:
     from . import autocode_check_refs as check_refs
     from . import autocode_receipt_repair_context as receipt_repair_context
+    from . import autocode_report_revalidation_binding as revalidation_binding
     from . import autocode_stray_writes as stray_writes
     from . import autocode_util as util
     from . import autocode_verification_plan as verification_plan
 except ImportError:
     import autocode_check_refs as check_refs
     import autocode_receipt_repair_context as receipt_repair_context
+    import autocode_report_revalidation_binding as revalidation_binding
     import autocode_stray_writes as stray_writes
     import autocode_util as util
     import autocode_verification_plan as verification_plan
@@ -156,6 +158,10 @@ def queue(state: RunState, record, error, *, completed: Callable[[], bool]) -> b
         if record.get(key) and Path(record[key]).is_file():
             pending["pins"].setdefault(record[key], util.file_hash(record[key]))
     pending["error"] = str(error)
+    # A later runtime may validate the exact saved report differently. Bind this
+    # rejection to the implementation that actually rejected it, not model text.
+    pending["validation_runtime"] = util.runtime_source_digest()
+    pending["revalidation_context"] = revalidation_binding.context(state, pending["original"]["stage"])
     receipt_repair_context.retain(pending, error)
     return pending["attempts"] < effective_repair_limit(state, pending)
 

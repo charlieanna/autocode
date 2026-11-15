@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import autocode_resolve_repair_job as resolve_repair_job
 import autocode_stage_recovery as stage_recovery
 import autocode_stuck_job as stuck_job
 from autocode_taskrun import TaskRun, TaskRunError
@@ -25,6 +26,230 @@ runner, support = base.runner, base.s
 
 class RepairTests(unittest.TestCase):
     setUp = base.RetrofitTest.setUp
+
+    def test_runtime_change_revalidates_pinned_rejected_report_without_a_new_provider_call(self):
+        pending = self.queue(report='{"summary":"saved"}')
+        pending["validation_runtime"] = "earlier runtime"
+        pending["attempts"] = 2  # A repaired validator can settle even an exhausted repair queue.
+        original = copy.deepcopy(pending["original"])
+        original_bytes = Path(original["output"]).read_bytes()
+        used = self.state.get("active_seconds")
+
+        def apply(state, stage, value, record, workspace, run):
+            self.assertEqual(original["events"], record["events"])
+            self.assertEqual({"summary": "saved"}, value)
+            state["stages"].append(record)
+            state["history"].append(record)
+            state["next_stage"] = "tester"
+
+        with (
+            patch.object(runner, "load_stage_report", return_value={"summary": "saved"}) as load,
+            patch.object(runner, "apply_result", side_effect=apply),
+            patch.object(runner, "run_role") as launch,
+        ):
+            runner.execute_report_repair(self.state, self.run, self.root)
+        launch.assert_not_called()
+        load.assert_called_once()
+        self.assertEqual(used, self.state.get("active_seconds"))
+        self.assertEqual(original_bytes, Path(original["output"]).read_bytes())
+        self.assertNotIn("pending_report_repair", self.state)
+        self.assertEqual("tester", self.state["next_stage"])
+        self.assertTrue(self.state["stages"][-1]["report_revalidated"])
+        self.assertEqual("revalidated", self.state["report_repair_history"][-1]["result"])
+
+    def test_revalidation_refuses_changed_pins_or_source_without_loading_the_report(self):
+        pending = self.queue(report='{"summary":"saved"}')
+        pending["validation_runtime"] = "earlier runtime"
+        original = pending["original"]
+        for key in ("output", "events", "schema", "before_ref", "after_ref"):
+            with self.subTest(changed=key):
+                path = Path(original[key])
+                saved = path.read_bytes()
+                path.write_bytes(saved + b" ")
+                with patch.object(runner, "load_stage_report") as load:
+                    self.assertFalse(runner.report_revalidation.revalidate(runner, self.state, self.run, self.root))
+                load.assert_not_called()
+                path.write_bytes(saved)
+        changed = self.root / "later-source.txt"
+        changed.write_text("changed")
+        with patch.object(runner, "load_stage_report") as load:
+            self.assertFalse(runner.report_revalidation.revalidate(runner, self.state, self.run, self.root))
+        load.assert_not_called()
+
+    def test_still_invalid_report_stays_archived_and_is_not_rechecked_until_runtime_changes(self):
+        pending = self.queue(report='{"summary":"saved"}')
+        pending["validation_runtime"] = "earlier runtime"
+        before = Path(pending["original"]["output"]).read_bytes()
+        attempts = pending["attempts"]
+        with patch.object(runner, "load_stage_report", side_effect=ValueError("still invalid")) as load:
+            self.assertFalse(runner.report_revalidation.revalidate(runner, self.state, self.run, self.root))
+            self.assertFalse(runner.report_revalidation.revalidate(runner, self.state, self.run, self.root))
+        load.assert_called_once()
+        self.assertEqual(before, Path(pending["original"]["output"]).read_bytes())
+        self.assertEqual(attempts, pending["attempts"])
+        self.assertEqual("still invalid", pending["revalidations"][-1]["reason"])
+        self.assertEqual("rejected", pending["revalidations"][-1]["result"])
+
+    def test_revalidation_of_a_repaired_report_uses_the_original_events(self):
+        pending = self.queue(report='{"summary":"original"}')
+        pending["attempts"] = 1
+        with self.assertRaises(runner.ReportRepairQueued):
+            self.reject_repair(5, ValueError("old validation"), report='{"summary":"repaired"}')
+        pending["validation_runtime"] = "earlier runtime"
+        original = pending["original"]
+        repair = pending["latest_rejected"]
+        original_events = original["events"]
+
+        def apply(state, stage, value, record, workspace, run):
+            self.assertEqual(original_events, record["events"])
+            state["stages"].append(record)
+            state["history"].append(record)
+            state["next_stage"] = "tester"
+
+        with (
+            patch.object(runner, "load_stage_report", return_value={"summary": "repaired"}) as load,
+            patch.object(runner, "apply_result", side_effect=apply),
+        ):
+            self.assertTrue(runner.report_revalidation.revalidate(runner, self.state, self.run, self.root))
+        self.assertEqual(original_events, load.call_args.args[2]["events"])
+        self.assertEqual(repair["events"], self.state["stages"][-1]["events"])
+        self.assertEqual(2, len(self.state["stages"]), "a rejected repair is not counted as another paid call")
+
+    def test_revalidation_runs_the_real_schema_loader_and_rejects_failed_application(self):
+        pending = self.queue(report='{"summary":"saved"}')
+        pending["validation_runtime"] = "earlier runtime"
+        with patch.object(runner, "apply_result", side_effect=ValueError("application gate refused")) as apply:
+            self.assertFalse(runner.report_revalidation.revalidate(runner, self.state, self.run, self.root))
+        apply.assert_called_once()
+        self.assertEqual("application gate refused", pending["revalidations"][-1]["reason"])
+        self.assertTrue(self.state["stages"][-1]["rejected"])
+        self.assertNotIn("report_repair_history", self.state)
+
+    def test_revalidation_never_commits_if_evidence_changes_during_application(self):
+        pending = self.queue(report='{"summary":"saved"}')
+        pending["validation_runtime"] = "earlier runtime"
+        events = Path(pending["original"]["events"])
+        expected_hash = pending["pins"][str(events)]
+
+        def apply(state, stage, value, record, workspace, run):
+            state["stages"].append(record)
+            state["history"].append(record)
+            state["next_stage"] = "tester"
+            events.write_text(events.read_text() + "\n")
+
+        with patch.object(runner, "apply_result", side_effect=apply), self.assertRaises(support.Paused) as stopped:
+            runner.report_revalidation.revalidate(runner, self.state, self.run, self.root)
+        self.assertEqual("PAUSED_STALE_VALIDATION", stopped.exception.status)
+        self.assertIn("pending_report_repair", self.state)
+        self.assertEqual(expected_hash, pending["pins"][str(events)])
+        self.assertTrue(self.state["stages"][-1]["rejected"])
+
+    def test_revalidation_skips_the_runtime_that_already_rejected_the_report(self):
+        self.queue(report='{"summary":"saved"}')
+        with patch.object(runner, "load_stage_report") as load:
+            self.assertFalse(runner.report_revalidation.revalidate(runner, self.state, self.run, self.root))
+        load.assert_not_called()
+
+    def test_revalidation_does_not_misclassify_a_commit_failure_as_a_bad_report(self):
+        pending = self.queue(report='{"summary":"saved"}')
+        pending["validation_runtime"] = "earlier runtime"
+
+        def apply(state, stage, value, record, workspace, run):
+            state["stages"].append(record)
+            state["history"].append(record)
+
+        with (
+            patch.object(runner, "apply_result", side_effect=apply),
+            patch.object(runner, "commit_boundary_candidate", side_effect=ValueError("commit refused")),
+            self.assertRaisesRegex(ValueError, "commit refused"),
+        ):
+            runner.report_revalidation.revalidate(runner, self.state, self.run, self.root)
+        self.assertEqual("earlier runtime", pending["validation_runtime"])
+        self.assertNotIn("revalidations", pending)
+        self.assertTrue(self.state["stages"][-1]["rejected"])
+
+    def test_revalidation_requires_the_original_handoff_and_does_not_invent_legacy_bindings(self):
+        pending = self.queue(report='{"summary":"saved"}')
+        pending["validation_runtime"] = "earlier runtime"
+        initial = copy.deepcopy(self.state)
+        for field, replacement in (
+            ("task", "A different request"),
+            ("answers", {"Q1": {"answer": "changed"}}),
+            ("settings", {"limits": {"max_seconds": 99}}),
+            ("requirements_handoff", {"report": {"summary": "new"}}),
+        ):
+            with self.subTest(changed=field):
+                changed = copy.deepcopy(initial)
+                changed[field] = replacement
+                with patch.object(runner, "load_stage_report") as load:
+                    self.assertFalse(runner.report_revalidation.revalidate(runner, changed, self.run, self.root))
+                load.assert_not_called()
+        legacy = copy.deepcopy(initial)
+        legacy["pending_report_repair"].pop("revalidation_context")
+        with patch.object(runner, "load_stage_report") as load:
+            self.assertFalse(runner.report_revalidation.revalidate(runner, legacy, self.run, self.root))
+        load.assert_not_called()
+
+    def test_revalidation_recovers_an_unlaunched_resolver_handoff_without_a_model_call(self):
+        self.state["version"] = 3
+        pending = self.queue(report='{"summary":"saved"}')
+        pending["validation_runtime"] = "earlier runtime"
+        self.assertTrue(resolve_repair_job.queue_from_pending(self.state, self.run, force=True))
+        support.atomic_json(self.run / "state.json", self.state)
+
+        def apply(state, stage, value, record, workspace, run):
+            saved = support.read(self.run / "state.json")
+            self.assertIn("resolve_repair_request", saved, "the real owner stays durable until acceptance commits")
+            self.assertNotIn("pending_report_repair", saved)
+            state["stages"].append(record)
+            state["history"].append(record)
+            state["next_stage"] = "tester"
+
+        @contextlib.contextmanager
+        def checkpoint(owner, run_dir, stage, summary, persist, **kwargs):
+            persist(run_dir / "state.json", owner)  # A supervised validation command publishes its real owner.
+            yield
+
+        with (
+            patch.object(runner, "load_stage_report", return_value={"summary": "saved"}),
+            patch.object(runner, "apply_result", side_effect=apply),
+            patch.object(runner, "run_role") as launch,
+            patch.object(runner.result_application.runner_check, "track", side_effect=checkpoint),
+        ):
+            self.assertTrue(runner.report_revalidation.revalidate_resolver(runner, self.state, self.run, self.root))
+        launch.assert_not_called()
+        self.assertEqual("tester", self.state["next_stage"])
+        self.assertNotIn("resolve_repair_request", self.state)
+        self.assertNotIn("pending_report_repair", self.state)
+        self.assertEqual("revalidated", self.state["report_repair_history"][-1]["result"])
+        self.assertEqual("report_revalidated_before_dispatch", self.state["resolve_repair_history"][-1]["kind"])
+
+    def test_resolver_handoff_stays_owned_when_revalidation_still_fails(self):
+        self.state["version"] = 3
+        pending = self.queue(report='{"summary":"saved"}')
+        pending["validation_runtime"] = "earlier runtime"
+        self.assertTrue(resolve_repair_job.queue_from_pending(self.state, self.run, force=True))
+        request = self.state["resolve_repair_request"]
+        with patch.object(runner, "load_stage_report", side_effect=ValueError("still invalid")) as load:
+            self.assertFalse(runner.report_revalidation.revalidate_resolver(runner, self.state, self.run, self.root))
+            self.assertFalse(runner.report_revalidation.revalidate_resolver(runner, self.state, self.run, self.root))
+        load.assert_called_once()
+        self.assertEqual("resolve_repair", self.state["next_stage"])
+        self.assertIs(request, self.state["resolve_repair_request"])
+        self.assertNotIn("pending_report_repair", self.state)
+        self.assertEqual("still invalid", request["pending_report_repair"]["revalidations"][-1]["reason"])
+        saved = support.read(self.run / "state.json")
+        self.assertEqual(request, saved["resolve_repair_request"])
+
+    def test_revalidation_does_not_replace_a_started_resolver_attempt(self):
+        self.state["version"] = 3
+        pending = self.queue(report='{"summary":"saved"}')
+        pending["validation_runtime"] = "earlier runtime"
+        self.assertTrue(resolve_repair_job.queue_from_pending(self.state, self.run, force=True))
+        self.state["active_stage"] = {"stage": "resolve_repair"}
+        with patch.object(runner, "load_stage_report") as load:
+            self.assertFalse(runner.report_revalidation.revalidate_resolver(runner, self.state, self.run, self.root))
+        load.assert_not_called()
 
     def test_ac13_guidance_distinguishes_receipts_event_ids_placeholders(self):
         from providers import opencode
