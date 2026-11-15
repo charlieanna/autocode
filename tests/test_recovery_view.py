@@ -789,6 +789,13 @@ class StoppedRunProjectionTests(unittest.TestCase):
                 self.assertEqual(card["retained"], public["explanation"]["what_it_means"])
                 self.assertIn("Nothing continues this run", public["explanation"]["what_the_command_does"])
                 self.assertNotIn("--resume-paused", public["explanation"]["explanation"])
+                self.assertEqual(
+                    " ".join(
+                        public["explanation"][key]
+                        for key in ("what_happened", "what_it_means", "what_the_command_does")
+                    ),
+                    public["explanation"]["explanation"],
+                )
 
     def test_user_stop_never_promises_a_saved_success_for_an_unverified_attempt(self):
         attempts = (
