@@ -50,6 +50,14 @@ class ReportEditsTests(unittest.TestCase):
                 forged = edits.expand(patch, record)
                 with self.assertRaises(ValueError):
                     runner.support.verify_checks(forged["checks"], receipt.workspace, receipt.events)
+                patch["repair_report"]["edits"][-1] = {
+                    "op": "add",
+                    "path": ["checks", 1],
+                    "value_json": json.dumps({**check, "command": "invented command"}),
+                }
+                forged = edits.expand(patch, record)
+                with self.assertRaises(ValueError):
+                    runner.support.verify_checks(forged["checks"], receipt.workspace, receipt.events)
                 self.assertEqual(original, json.loads(self.source.read_text()))
 
     def setUp(self):
@@ -470,6 +478,39 @@ class ReportEditsTests(unittest.TestCase):
             edits.apply({"rows": ["extra"]}, [{"op": "remove", "path": ["rows", 0], "value_json": "null"}]),
         )
 
+    def test_missing_array_entries_append_without_shifting_original_paths(self):
+        original = {"requirements": [{"id": "R1"}, {"id": "R2"}], "checks": ["one"]}
+        operations = [
+            {"op": "add", "path": ["requirements", 2], "value_json": '{"id":"R3"}'},
+            {"op": "add", "path": ["requirements", 3], "value_json": '{"id":"R4"}'},
+            {"op": "replace", "path": ["requirements", 1, "id"], "value_json": '"fixed"'},
+            {"op": "remove", "path": ["requirements", 0], "value_json": "null"},
+            {"op": "add", "path": ["checks", 1], "value_json": '"two"'},
+        ]
+        for ordered in itertools.permutations(operations):
+            self.assertEqual(
+                {"requirements": [{"id": "fixed"}, {"id": "R3"}, {"id": "R4"}], "checks": ["one", "two"]},
+                edits.apply(original, ordered),
+            )
+        self.assertEqual({"requirements": [{"id": "R1"}, {"id": "R2"}], "checks": ["one"]}, original)
+        for index in (0, 1, 3, 99):
+            with self.subTest(index=index), self.assertRaises(ValueError):
+                edits.apply(original, [{"op": "add", "path": ["requirements", index], "value_json": "null"}])
+
+    def test_appended_report_entry_still_passes_the_full_schema(self):
+        patch = copy.deepcopy(self.patch)
+        patch["repair_report"]["edits"].append(
+            {"op": "add", "path": ["proposed_assumptions", 1], "value_json": '{"text":"New"}'}
+        )
+        Path(self.record["output"]).write_text(json.dumps(patch))
+        with self.assertRaises(ValueError):
+            runner.load_stage_report(self.record)
+        patch["repair_report"]["edits"][-1]["value_json"] = '{"text":"New","category":"behavior"}'
+        Path(self.record["output"]).write_text(json.dumps(patch))
+        fixed = runner.load_stage_report(self.record)
+        self.assertEqual("New", fixed["proposed_assumptions"][1]["text"])
+        self.assertEqual(self.base, json.loads(self.source.read_text()))
+
     def test_one_bounded_removal_preserves_a_large_review_and_its_checks(self):
         decisions = [
             {"gap_id": f"L{i}", "reason": "Independently checked exact source and test. " * 5} for i in range(319)
@@ -505,6 +546,7 @@ class ReportEditsTests(unittest.TestCase):
         instruction = edits.instruction("tester", self.descriptor)
         self.assertIn("original array indices", instruction)
         self.assertIn("remove the item instead of rewriting the array", instruction)
+        self.assertIn("add at the original length and consecutive indices", instruction)
 
     def test_saved_legacy_patch_schema_and_raw_values_still_expand(self):
         legacy_schema = json.loads(self.offered.read_text())

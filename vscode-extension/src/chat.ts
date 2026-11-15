@@ -18,7 +18,7 @@ import { chatRoute, chatSource, fillChatSet, fillSet, readStages, runListCommand
 import { StageListCache } from "./core/stage-cache";
 import { inFolder, newChatCall, pickStageModel } from "./stages";
 import { chosenPlacement, lacksPlaceList, LEGACY_PLACEMENT, NoPlaceList, readWorktrees, type PlaceChoice, type WorktreeList } from "./core/worktrees";
-import { confirmRaise, numericActionLabel, numericConfirmation, numericRecoveryEffect, panelHtml, planningSpendConfirmation, stateFor } from "./panel";
+import { confirmJobTime, confirmRaise, numericActionLabel, numericConfirmation, numericRecoveryEffect, panelHtml, planningSpendConfirmation, stateFor } from "./panel";
 
 // While a reply is being written the view is read this often, so each new extract
 // shows at once. A reply that has not changed for STREAM_QUIET_POLLS reads (a model
@@ -46,6 +46,7 @@ interface ChatMessage {
   answers?: Record<string, string>;
   /** A number typed into the bound's separately named raise (#2044). */
   value?: string;
+  key?: string;
   /** Where a new chat works: a place id from its worktree list, and a branch for `branch`. */
   place?: string;
   branch?: string;
@@ -788,7 +789,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       return;
     }
     if (message.type === "new") { if (!this.active.starting) this.show(); return; }
-    if (message.type !== "send" && message.type !== "take" && message.type !== "raise") return;
+    if (message.type !== "send" && message.type !== "take" && message.type !== "raise" && message.type !== "job-time") return;
     const tab = this.active;
     if (message.type === "send" && typeof message.text === "string" && message.text.trim()
       && message.runKey === tab.key && tab.run && !tab.starting && tab.status?.chat?.input?.kind === "message") {
@@ -832,6 +833,16 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
           if (await confirmRaise(stateFor(view, run, this.controller), message.decisionContext, value,
             (title) => { tab.confirming = title; this.post(); })) {
             await this.controller.raise(view, run, value);
+          }
+        } finally {
+          tab.confirming = "";
+          this.post();
+        }
+      } else if (message.type === "job-time") {
+        try {
+          if (await confirmJobTime(stateFor(view, run, this.controller), message.key ?? "", message.value ?? "", message.decisionContext,
+            (title) => { tab.confirming = title; this.post(); })) {
+            await this.controller.setJobTime(view, run, message.key ?? "", message.value ?? "");
           }
         } finally {
           tab.confirming = "";

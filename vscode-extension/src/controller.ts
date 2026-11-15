@@ -10,7 +10,7 @@
 
 import * as vscode from "vscode";
 import { realpath } from "node:fs/promises";
-import { invoke, invokeRead, readStatus, stream, tail, STATUS_TIMEOUT_MS, type CliResult } from "./core/cli";
+import { invoke, invokeRead, readStatus, stream, tail, ReadDeadlineExceeded, STATUS_TIMEOUT_MS, type CliResult } from "./core/cli";
 import { LEGACY_PLACEMENT, placementArgs } from "./core/worktrees";
 import { freshRunDir } from "./core/run-dir";
 import {
@@ -22,6 +22,7 @@ import {
   findUnsupplied,
   integerValue,
   isAdvancing,
+  jobTimeOffers,
   openDecisions,
   parseNamedCommand,
   ClientGap,
@@ -195,7 +196,10 @@ export class RunController {
       // exists (docs/task-run.md). Then the start's own output is the error, not a refused status read.
       try {
         await this.status(started);
-      } catch {
+      } catch (error) {
+        // A timed-out reader is still in flight. It has not established that
+        // the run is missing; keep its allocated tab and let polling recover.
+        if (error instanceof ReadDeadlineExceeded) return started;
         throw new Error(`AutoCode stopped before it saved the run:\n${tail(result)}`);
       }
     }
@@ -303,6 +307,31 @@ export class RunController {
     const own = effective(view, run);
     const offer = boundOffer(view, own);
     if (!offer) throw new ClientGap("AutoCode offers no limit to raise for this pause");
+    const argv = [...offer.named.argv];
+    argv[offer.input.arg_index] = integerValue(text, offer.input);
+    const args = [...argv, "--workspace", own.workspace, "--run-dir", own.runDir];
+    this.log.appendLine(`$ autocode ${args.map(redact).join(" ")}`);
+    const result = await this.mutating([run, own], () =>
+      stream(this.settings, args, offer.named.env, (chunk) => this.log.append(chunk)));
+    this.log.appendLine(`[autocode exited ${result.code}]`);
+    if (result.rejected) throw new Error(`AutoCode rejected the command:\n${tail(result)}`);
+    if (result.code !== 0 && result.code !== 2) throw new Error(tail(result));
+    return result;
+  }
+
+  jobTimeControls(view: StatusView, run: RunRef): IntegerCommandInput[] {
+    try {
+      return jobTimeOffers(view, effective(view, run)).map(({ input: { command: _command, ...input } }) => input);
+    } catch (error) {
+      if (error instanceof ClientGap) return [];
+      throw error;
+    }
+  }
+
+  async setJobTime(view: StatusView, run: RunRef, id: string, text: string): Promise<CliResult> {
+    const own = effective(view, run);
+    const offer = jobTimeOffers(view, own).find((row) => row.input.id === id);
+    if (!offer) throw new ClientGap("AutoCode no longer offers that time control");
     const argv = [...offer.named.argv];
     argv[offer.input.arg_index] = integerValue(text, offer.input);
     const args = [...argv, "--workspace", own.workspace, "--run-dir", own.runDir];

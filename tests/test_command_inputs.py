@@ -3,13 +3,17 @@
 import copy
 import shlex
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import autocode_args
+import autocode_client_actions as actions
 import autocode_command_inputs as inputs
 import autocode_configure
 import autocode_recovery_view as recovery
 import autocode_run_view as run_view
+
+from scenarios.harness import conformance
 
 
 def checkpoint(**changes):
@@ -32,6 +36,42 @@ class CommandInputTests(unittest.TestCase):
             automatic_timeout_recoveries=[{"stage": "review_plan"}],
             recovery_grants=[],
         )
+
+    def test_boundary_pause_offers_stage_time_and_resume_bound_to_current_pause(self):
+        state = checkpoint(status="PAUSED_INTERVENTION", next_stage="tester")
+        state["settings"]["limits"]["stage_timeout_seconds"] = 600
+        view = run_view.view(state)
+        offer = view["needs"]["command_inputs"][0]
+        self.assertEqual(("max_stage_seconds", 600, 601), (offer["id"], offer["current"], offer["minimum"]))
+        self.assertIn("--resume-paused --max-stage-seconds N --expected-recovery-token -", offer["command"])
+        row, named = actions.bound_offer(view, Path("/tmp/project"), Path("/tmp/run"))
+        self.assertEqual("max_stage_seconds", row["id"])
+        self.assertEqual(["--resume-paused", "--max-stage-seconds", "N", "--expected-recovery-token", "-"], named.argv)
+        driver = object.__new__(conformance.ConformanceDriver)
+        driver.project, driver.run_dir = Path("/tmp/project"), Path("/tmp/run")
+        argv, env, _ = driver.bound_command(view, {"max_stage_seconds": "1200"})
+        self.assertEqual(["--resume-paused", "--max-stage-seconds", "1200", "--expected-recovery-token", "-"], argv)
+        self.assertEqual(named.env, env)
+        stale = copy.deepcopy(view)
+        stale["recovery"]["token"] = "old"
+        with self.assertRaises(actions.ClientGap):
+            actions.bound_offer(stale, Path("/tmp/project"), Path("/tmp/run"))
+        changed = copy.deepcopy(view)
+        changed["needs"]["command_inputs"][0]["used"] = 599
+        with self.assertRaises(actions.ClientGap):
+            actions.bound_offer(changed, Path("/tmp/project"), Path("/tmp/run"))
+        for busy in ("active_stage", "active_runner_check", "pending_report_repair", "uncertain_artifacts"):
+            blocked = copy.deepcopy(state)
+            blocked[busy] = {"attempt": "one"}
+            self.assertIsNone(inputs.project(blocked, {"kind": "resume", "action": "--resume-paused"}, None))
+        for deadline in (None, 0, -1, True):
+            invalid = copy.deepcopy(state)
+            invalid["settings"]["limits"]["stage_timeout_seconds"] = deadline
+            self.assertIsNone(inputs.project(invalid, {"kind": "resume", "action": "--resume-paused"}, None))
+        held = copy.deepcopy(state)
+        held["pause_intent"] = {"held_pause": {"status": "PAUSED_TIME_LIMIT"}}
+        row = inputs.project(held, {"kind": "resume", "action": "--resume-paused"}, None)
+        self.assertFalse(row and row[0]["id"] == "max_stage_seconds", "an older hold keeps its own authority")
 
     def test_additional_recovery_input_replenishes_only_counted_slots(self):
         state = self.grant_checkpoint()

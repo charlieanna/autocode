@@ -149,6 +149,7 @@ _PERSON_INT = frozenset(
         "--no-progress-limit",
         "--max-planning-calls",
         "--max-seconds",
+        "--max-stage-seconds",
         "--max-idle-seconds",
         "--max-cost-usd",
         "--max-iterations",

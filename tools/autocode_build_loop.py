@@ -368,6 +368,8 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             launch_inputs.guard(current, workspace, run_dir)
         except ValueError as error:
             raise support.Paused("PAUSED_STALE_VALIDATION", str(error)) from error
+        if autopilot.revalidate_resolver(runner, current, stage, workspace, run_dir):
+            return runner.orchestrator.SKIP
         if stage == "orchestrator":
             record_resume(runner, args, current, state_path)  # every check that could hold the pause passed
             return recovery_dispatch.dispatch_orchestrator(

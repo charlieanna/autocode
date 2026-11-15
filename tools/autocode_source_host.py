@@ -666,6 +666,11 @@ def serve(path: Path, *, cli_runner=None, warmup=None, idle_seconds: float = IDL
 
 
 if __name__ == "__main__":
+    # The script is also imported by the CLI it hosts. Both names must share
+    # the same thread-local request guard, or a hosted snapshot calls back
+    # into this server while its request lock is held.
+    module_name = f"{__package__}.autocode_source_host" if __package__ else "autocode_source_host"
+    sys.modules.setdefault(module_name, sys.modules[__name__])
     try:
         from . import autocode_entry as _entry
     except ImportError:

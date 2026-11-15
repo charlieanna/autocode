@@ -57,6 +57,7 @@ MAX_SAFE_INTEGER = 9007199254740991
 # tools/autocode_client_actions.INTEGER_INPUTS by tests/test_pause_inputs_contract.py.
 INTEGER_INPUTS = {
     "--max-seconds": ("max_seconds", "Total active time (seconds)", "elapsed", True),
+    "--max-stage-seconds": ("max_stage_seconds", "Time per step (seconds)", "used", False),
     "--max-cost-usd": ("max_cost_usd", "Cost cap (whole USD)", "used", True),
     "--max-iterations": ("max_iterations", "Total iterations", "used", False),
     "--max-milestone-seconds": ("max_milestone_seconds", "Milestone active time (seconds)", "used", True),
@@ -98,7 +99,7 @@ def check_input(view, row, words, env):
             bounded
             and _count(used, fractional=fractional)
             and _count(current, fractional=whole_current)
-            and maximum == MAX_SAFE_INTEGER
+            and maximum == (2147483647 if flag == "--max-stage-seconds" else MAX_SAFE_INTEGER)
             and minimum == math.floor(max(current, used)) + 1
         )
     prefix = ["--resume-paused"] if row.get("arg_index") == 2 else []
@@ -109,6 +110,7 @@ def check_input(view, row, words, env):
         or row.get("kind") != "integer"
         or row.get("placeholder") != "N"
         or row.get("arg_index") not in ((1, 2) if flag == "--planning-review-call-limit" else (2,))
+        or (flag == "--max-stage-seconds" and current != used)
         or not _count(current, fractional=whole_current)
         or (current == 0 and flag != "--max-iterations")
         or need.get("new_run_required")
@@ -334,6 +336,51 @@ class ConformanceDriver(Driver):
             raise ConformanceGap("The chosen total is outside the advertised integer bounds")
         words[row["arg_index"]] = str(int(value))
         return words, env, "needs.command_inputs.command"
+
+    def job_time_command(self, view: dict, identity: str, value: str) -> tuple[list[str], dict, str]:
+        """Fill one save-only, job-token-bound time offer with the person's number."""
+        need = view.get("needs") or {}
+        rows = need.get("job_time_controls")
+        token = need.get("job_retry_token")
+        gap = "Unsupported or stale failed-job time control from AutoCode"
+        if need.get("kind") != "retry_job" or not isinstance(token, str) or not token or not isinstance(rows, list):
+            raise ConformanceGap(gap)
+        matches = [row for row in rows if isinstance(row, dict) and row.get("id") == identity]
+        if len(rows) > 2 or len(matches) != 1 or identity not in ("max_seconds", "max_stage_seconds"):
+            raise ConformanceGap(gap)
+        row = matches[0]
+        stage = identity == "max_stage_seconds"
+        flag = "--max-stage-seconds" if stage else "--max-seconds"
+        maximum = 2147483647 if stage else MAX_SAFE_INTEGER
+        label = "Time per step (seconds)" if stage else "Total active time (seconds)"
+        current, used = row.get("current"), row.get("used")
+        if (
+            row.get("kind") != "integer"
+            or row.get("flag") != flag
+            or row.get("placeholder") != "N"
+            or row.get("arg_index") != 1
+            or row.get("label") != label
+            or row.get("maximum") != maximum
+            or type(current) is not int
+            or not 0 < current < maximum
+            or not _count(used, fractional=True)
+            or (stage and used != current)
+            or type(row.get("minimum")) is not int
+            or row["minimum"] != int(max(current, used)) + 1
+            or row["minimum"] > maximum
+            or not isinstance(row.get("command"), str)
+        ):
+            raise ConformanceGap(gap)
+        words, env, _ = self.named_command({**view, "next_command": row["command"]})
+        if words != [flag, "N", "--job-retry-token", "-"] or env != {"AUTOCODE_JOB_RETRY_TOKEN": token}:
+            raise ConformanceGap(gap)
+        if not isinstance(value, str) or not re.fullmatch(r"[0-9]+", value) or len(value.lstrip("0")) > 16:
+            raise ConformanceGap("A whole number is required for the saved time limit")
+        number = int(value)
+        if not row["minimum"] <= number <= maximum:
+            raise ConformanceGap("The chosen total is outside the advertised integer bounds")
+        words[1] = str(number)
+        return words, env, "needs.job_time_controls.command"
 
     def message_command(self, view: dict, text: str, *, request_id=None) -> tuple[list[str], dict, str]:
         """A person's feedback/follow-up through the optional chat input offer (#884)."""

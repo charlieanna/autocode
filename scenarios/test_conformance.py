@@ -51,6 +51,32 @@ class ClientDecisionTests(unittest.TestCase):
     def named(self, text, kind="approve_plan"):
         return self.client.named_command(view(kind, text))
 
+    def test_failed_job_time_command_is_bound_and_save_only(self):
+        row = {
+            "id": "max_stage_seconds",
+            "kind": "integer",
+            "flag": "--max-stage-seconds",
+            "placeholder": "N",
+            "arg_index": 1,
+            "label": "Time per step (seconds)",
+            "current": 900,
+            "used": 900,
+            "minimum": 901,
+            "maximum": 2147483647,
+            "command": "AUTOCODE_JOB_RETRY_TOKEN=jr:current autocode --max-stage-seconds N --job-retry-token -",
+        }
+        public = view("retry_job", job_retry_token="jr:current", job_time_controls=[row])
+        words, env, source = self.client.job_time_command(public, "max_stage_seconds", "1800")
+        self.assertEqual(["--max-stage-seconds", "1800", "--job-retry-token", "-"], words)
+        self.assertEqual({"AUTOCODE_JOB_RETRY_TOKEN": "jr:current"}, env)
+        self.assertEqual("needs.job_time_controls.command", source)
+        for value in ("900", "1.5", "2147483648", ""):
+            with self.subTest(value=value), self.assertRaises(ConformanceGap):
+                self.client.job_time_command(public, "max_stage_seconds", value)
+        row["command"] = row["command"].replace("jr:current", "jr:stale")
+        with self.assertRaises(ConformanceGap):
+            self.client.job_time_command(public, "max_stage_seconds", "1800")
+
     def time_offer(self):
         public = view(
             "resume",

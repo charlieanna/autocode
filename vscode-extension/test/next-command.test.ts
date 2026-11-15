@@ -11,6 +11,7 @@ import {
   commandInputs,
   findUnsupplied,
   isAdvancing,
+  jobTimeOffers,
   leavesForPerson,
   openDecisions,
   parseNamedCommand,
@@ -22,6 +23,24 @@ import type { ChangesetSummary, StatusView } from "../src/core/view";
 const RUN = "/ws/.autocode/runs/20261015-run";
 const WS = "/ws";
 const own = { runDir: RUN, workspace: WS };
+
+test("failed-job time offers bind only the current token and never retry", () => {
+  const row = { id: "max_stage_seconds", kind: "integer" as const, flag: "--max-stage-seconds", placeholder: "N" as const,
+    arg_index: 1 as const, label: "Time per step (seconds)", current: 900, used: 900, minimum: 901, maximum: 2147483647,
+    command: `AUTOCODE_JOB_RETRY_TOKEN=jr:current autocode --run-dir ${RUN} --workspace ${WS} --max-stage-seconds N --job-retry-token -` };
+  const view: StatusView = { status: "PAUSED_JOB_FAILURE", done: false,
+    needs: { kind: "retry_job", job_retry_token: "jr:current", job_time_controls: [row] } };
+  assert.deepEqual(jobTimeOffers(view, own)[0]?.named.argv, ["--max-stage-seconds", "N", "--job-retry-token", "-"]);
+  for (const change of [
+    { command: row.command.replace("jr:current", "jr:stale") },
+    { command: row.command + " --resume-paused" },
+    { minimum: 900 }, { maximum: Number.MAX_SAFE_INTEGER }, { flag: "--max-seconds" },
+  ]) {
+    const bad = structuredClone(view);
+    Object.assign(bad.needs!.job_time_controls![0]!, change);
+    assert.throws(() => jobTimeOffers(bad, own), ClientGap);
+  }
+});
 
 function timeOffer(): StatusView {
   return {
@@ -155,6 +174,26 @@ test("a bound held behind a plain resume names its raise separately, bound to th
   const elsewhere = structuredClone(view);
   elsewhere.needs!.command_inputs![0]!.command = view.needs!.command_inputs![0]!.command!.replace(RUN, "/other/run");
   assert.throws(() => boundOffer(elsewhere, own), ClientGap);
+});
+
+test("a boundary pause can increase the per-step limit and resume only with its current token", () => {
+  const view = costOffer(true);
+  view.status = "PAUSED_INTERVENTION";
+  view.needs!.command_inputs![0] = {
+    id: "max_stage_seconds", kind: "integer", flag: "--max-stage-seconds", placeholder: "N",
+    arg_index: 2, label: "Time per step (seconds)", current: 600, used: 600, minimum: 601,
+    maximum: 2147483647,
+    command: `AUTOCODE_EXPECTED_RECOVERY_TOKEN=current autocode --workspace ${WS} --run-dir ${RUN} --resume-paused --max-stage-seconds N --expected-recovery-token -`,
+  };
+  const offer = boundOffer(view, own)!;
+  assert.deepEqual(applyDecisions(offer.named.argv, { max_stage_seconds: "1200" }, [offer.input]),
+    ["--resume-paused", "--max-stage-seconds", "1200", "--expected-recovery-token", "-"]);
+  const stale = structuredClone(view);
+  stale.recovery!.token = "other";
+  assert.throws(() => boundOffer(stale, own), ClientGap);
+  const changed = structuredClone(view);
+  changed.needs!.command_inputs![0]!.used = 599;
+  assert.throws(() => boundOffer(changed, own), ClientGap);
 });
 
 test("splitCommandLine keeps quoted words whole", () => {

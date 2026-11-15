@@ -16,6 +16,7 @@ try:
     from . import autocode_failures as failures
     from . import autocode_internal_failure_view as operational_block
     from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_operational_hold as operational_hold
     from . import autocode_review_result as review_result
     from . import autocode_source_scope as source_scope
     from . import autocode_status_summary as status_summary
@@ -30,6 +31,7 @@ except ImportError:
     import autocode_failures as failures
     import autocode_internal_failure_view as operational_block
     import autocode_launch_inputs as launch_inputs
+    import autocode_operational_hold as operational_hold
     import autocode_review_result as review_result
     import autocode_source_scope as source_scope
     import autocode_status_summary as status_summary
@@ -140,7 +142,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
             needs=runner.run_view.needs(state),
             held_cause=pause_authority.answered_cause(state),
             ready=(owner or {}).get("kind") == "ready",
-            internal_failure=(operational_block.presentation(state)),
+            internal_failure=(operational_hold.presentation(state) or operational_block.presentation(state)),
         )
         print(text["what_happened"])
         print()
@@ -362,7 +364,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         stage=stage_name,
         following=following_name,
         controller_running=(owner or {}).get("kind") == "running",
-        internal_failure=(operational_block.presentation(state)),
+        internal_failure=(operational_hold.presentation(state) or operational_block.presentation(state)),
     )
     # A finished run whose verification no longer covers the current checkout names
     # a re-verification action: resume re-checks completion against the source on disk.

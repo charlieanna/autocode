@@ -143,6 +143,7 @@ const PLACEHOLDERS = new Map<string, "answer" | "model" | "effort">([["ANSWER", 
  */
 const INTEGER_INPUTS: Record<string, [string, string, "used" | "elapsed", boolean]> = {
   "--max-seconds": ["max_seconds", "Total active time (seconds)", "elapsed", true],
+  "--max-stage-seconds": ["max_stage_seconds", "Time per step (seconds)", "used", false],
   "--max-cost-usd": ["max_cost_usd", "Cost cap (whole USD)", "used", true],
   "--max-iterations": ["max_iterations", "Total iterations", "used", false],
   "--max-milestone-seconds": ["max_milestone_seconds", "Milestone active time (seconds)", "used", true],
@@ -171,13 +172,15 @@ export function checkInput(view: StatusView, input: IntegerCommandInput | undefi
     && input.minimum >= 1 && input.minimum <= input.maximum;
   const limits = input.flag === "--grant-recovery"
     ? bounded && Number.isSafeInteger(used) && (used as number) >= 1 && input.minimum === 1 && input.maximum === used
-    : bounded && count(used, fractional) && count(current, wholeCurrent) && input.maximum === Number.MAX_SAFE_INTEGER
+    : bounded && count(used, fractional) && count(current, wholeCurrent)
+      && input.maximum === (input.flag === "--max-stage-seconds" ? 2147483647 : Number.MAX_SAFE_INTEGER)
       && input.minimum === Math.floor(Math.max(current, used)) + 1;
   const prefix = input.arg_index === 2 ? ["--resume-paused"] : [];
   const indexes = input.flag === "--planning-review-call-limit" ? [1, 2] : [2];
   const token = view.recovery?.token;
   if (!limits || input.id !== id || input.label !== label || input.kind !== "integer" || input.placeholder !== "N"
     || !indexes.includes(input.arg_index) || !count(current, wholeCurrent)
+    || (input.flag === "--max-stage-seconds" && current !== used)
     || (current === 0 && input.flag !== "--max-iterations")
     || view.needs?.new_run_required || view.needs?.edit_required
     || typeof token !== "string" || !token
@@ -216,6 +219,36 @@ export function boundOffer(
   }
   const named = parseNamedCommand(input.command, own);
   return { input: checkInput(view, input, named), named };
+}
+
+/** Independent save-only time changes named for the exact stopped job. */
+export function jobTimeOffers(
+  view: StatusView, own: { runDir: string; workspace: string },
+): { input: IntegerCommandInput; named: NamedCommand }[] {
+  const rows = view.needs?.job_time_controls;
+  if (rows === undefined) return [];
+  const gap = () => new ClientGap("Unsupported or stale failed-job time control from AutoCode");
+  const token = view.needs?.job_retry_token;
+  if (!Array.isArray(rows) || rows.length > 2 || view.needs?.kind !== "retry_job" || !token) throw gap();
+  const seen = new Set<string>();
+  return rows.map((input) => {
+    const stage = input?.id === "max_stage_seconds";
+    const total = input?.id === "max_seconds";
+    const flag = stage ? "--max-stage-seconds" : "--max-seconds";
+    const maximum = stage ? 2147483647 : Number.MAX_SAFE_INTEGER;
+    const label = stage ? "Time per step (seconds)" : "Total active time (seconds)";
+    if ((!stage && !total) || seen.has(input.id) || input.kind !== "integer" || input.flag !== flag
+      || input.placeholder !== "N" || input.arg_index !== 1 || input.label !== label || input.maximum !== maximum
+      || !count(input.current, false) || input.current === 0 || !count(input.used, true)
+      || (stage && input.used !== input.current) || !Number.isSafeInteger(input.minimum)
+      || input.minimum !== Math.floor(Math.max(input.current, input.used!)) + 1 || input.minimum > maximum
+      || typeof input.command !== "string") throw gap();
+    seen.add(input.id);
+    const named = parseNamedCommand(input.command, own);
+    if (Object.keys(named.env).length !== 1 || named.env.AUTOCODE_JOB_RETRY_TOKEN !== token
+      || JSON.stringify(named.argv) !== JSON.stringify([flag, "N", "--job-retry-token", "-"])) throw gap();
+    return { input, named };
+  });
 }
 
 /** Digits supplied by the person, within the advertised finite integer bounds. */

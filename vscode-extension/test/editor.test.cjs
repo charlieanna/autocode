@@ -56,6 +56,44 @@ function recoveryGrantView(token = 'recovery:current') {
     next_command: `AUTOCODE_EXPECTED_RECOVERY_TOKEN=${token} autocode --run-dir ${run.runDir} --workspace ${run.workspace} --resume-paused --grant-recovery N --expected-recovery-token -` };
 }
 
+function failedJobTimeView(token = 'jr:current') {
+  const command = (flag) => `AUTOCODE_JOB_RETRY_TOKEN=${token} autocode --run-dir ${run.runDir} --workspace ${run.workspace} ${flag} N --job-retry-token -`;
+  return { status: 'PAUSED_JOB_FAILURE', done: false,
+    needs: { kind: 'retry_job', job_retry_token: token, job_time_controls: [
+      { id: 'max_seconds', kind: 'integer', flag: '--max-seconds', placeholder: 'N', arg_index: 1,
+        label: 'Total active time (seconds)', current: 5000, used: 1000, minimum: 5001, maximum: Number.MAX_SAFE_INTEGER, command: command('--max-seconds') },
+      { id: 'max_stage_seconds', kind: 'integer', flag: '--max-stage-seconds', placeholder: 'N', arg_index: 1,
+        label: 'Time per step (seconds)', current: 900, used: 900, minimum: 901, maximum: 2147483647, command: command('--max-stage-seconds') },
+    ] },
+    next_command: `AUTOCODE_JOB_RETRY_TOKEN=${token} autocode --run-dir ${run.runDir} --workspace ${run.workspace} --resume-paused --retry-failed-stage --job-retry-token -` };
+}
+
+for (const surface of ['chat', 'Run details']) {
+  test(`failed-job limits in ${surface} save only the selected fresh named action`, async (t) => {
+    const ownController = new RunController(host.log);
+    const view = failedJobTimeView();
+    const ui = surface === 'chat' ? await openChat(t, view, run, { controller: ownController }) : await openPanel(t, view, undefined, ownController);
+    const field = ui.document.querySelector('[data-question="job-time:max_stage_seconds"]');
+    const button = ui.document.querySelector('#job-time-max_stage_seconds');
+    assert.ok(ui.document.querySelector('[data-question="job-time:max_seconds"]'));
+    assert.equal(field.value, '');
+    assert.equal(button.disabled, true);
+    field.value = '1800'; field.dispatchEvent(new ui.window.Event('input'));
+    assert.equal(button.disabled, false);
+    const launch = t.mock.method(cli, 'stream', async () => ok);
+    const confirm = t.mock.method(host.vscode.window, 'showWarningMessage', async () => 'Save limit');
+    button.click(); await flush();
+    assert.equal(launch.mock.callCount(), 1);
+    const [, args, env] = launch.mock.calls[0].arguments;
+    assert.deepEqual(args, ['--max-stage-seconds', '1800', '--job-retry-token', '-', '--workspace', run.workspace, '--run-dir', run.runDir]);
+    assert.deepEqual(env, { AUTOCODE_JOB_RETRY_TOKEN: 'jr:current' });
+    assert.ok(confirm.mock.calls[0].arguments[1].detail.includes('separate action'));
+    ui.setView(failedJobTimeView('jr:new'));
+    button.click(); await flush();
+    assert.equal(launch.mock.callCount(), 1, 'a stale control cannot save against a newer job');
+  });
+}
+
 for (const surface of ['chat', 'Run details']) {
   test(`finite recovery grant in ${surface} is blank, bounded and explicitly confirmed`, async (t) => {
     host.config.set('confirmPersonOnly', false);
@@ -206,6 +244,28 @@ function heldCostView(token = 'cost:current', operational = false) {
 }
 
 for (const surface of ['chat', 'Run details']) {
+  test(`a boundary pause in ${surface} can raise the per-step limit and resume`, async (t) => {
+    const ownController = new RunController(host.log);
+    const view = heldCostView('pause:current');
+    view.status = 'PAUSED_INTERVENTION';
+    view.needs.command_inputs[0] = {
+      id: 'max_stage_seconds', kind: 'integer', flag: '--max-stage-seconds', placeholder: 'N', arg_index: 2,
+      label: 'Time per step (seconds)', current: 600, used: 600, minimum: 601, maximum: 2147483647,
+      command: `AUTOCODE_EXPECTED_RECOVERY_TOKEN=pause:current autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused --max-stage-seconds N --expected-recovery-token -`,
+    };
+    const ui = surface === 'chat' ? await openChat(t, view, run, { controller: ownController }) : await openPanel(t, view, undefined, ownController);
+    const field = ui.document.querySelector('[data-question="raise:max_stage_seconds"]');
+    assert.ok(field);
+    assert.ok(ui.document.body.textContent.includes('Saved time per step: 600 seconds'));
+    field.value = '1200'; field.dispatchEvent(new ui.window.Event('input'));
+    const launch = t.mock.method(cli, 'stream', async () => ok);
+    const confirm = t.mock.method(host.vscode.window, 'showWarningMessage', async (_title, _opts, button) => button);
+    ui.document.querySelector('#raise-bound').click(); await flush();
+    assert.ok(confirm.mock.calls[0].arguments[1].detail.includes('later step'));
+    const [, args, env] = launch.mock.calls[0].arguments;
+    assert.deepEqual(args, ['--resume-paused', '--max-stage-seconds', '1200', '--expected-recovery-token', '-', '--workspace', run.workspace, '--run-dir', run.runDir]);
+    assert.deepEqual(env, { AUTOCODE_EXPECTED_RECOVERY_TOKEN: 'pause:current' });
+  });
   for (const operational of [false, true]) {
     test(`a limit held ${operational ? 'by an AutoResolver request' : 'behind a plain resume'} in ${surface} takes a typed raise through its named command`, async (t) => {
       host.config.set('confirmPersonOnly', false);
@@ -801,6 +861,19 @@ test('a start that exits 2 at a saved pause returns the run', async (t) => {
   const status = t.mock.method(controller, 'status', async () => chatView());
   const created = await controller.start(folder, 'hi');
   assert.deepEqual(status.mock.calls[0].arguments[0], created);
+});
+
+test('a timed-out status read after a paused start keeps the allocated run', async (t) => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'vscode-start-status-pending-'));
+  t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
+  t.mock.method(cli, 'stream', async () => ({ ...ok, code: 2 }));
+  t.mock.method(controller, 'status', async () => { throw new cli.ReadDeadlineExceeded(30_000, Promise.resolve()); });
+  let allocated;
+  const result = await controller.start(folder, 'hi', (run) => { allocated = run; });
+  assert.deepEqual(result, allocated, 'a pending read cannot prove the run was not saved');
 });
 
 test('tree actions use the clicked run with no active run and with another run active', async (t) => {

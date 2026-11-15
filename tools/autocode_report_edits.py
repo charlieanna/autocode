@@ -27,9 +27,10 @@ RULE = (
     "BOUNDED REPORT EDITS. When the output schema offers repair_report, prefer that form for a small correction: "
     "return only repair_report with the exact rejected_report.sha256 and up to 32 edits. Each edit has op, path "
     'and value_json, a JSON-encoded string (use the literal string "null" for remove). Paths are nonempty '
-    "arrays of object keys or existing array indices. "
-    "Use add only for an absent object field; remove only an existing field/item; replace only an existing "
-    "field/item. Every path uses original array indices, before any removals; array insertion and overlapping "
+    "arrays of object keys or array indices. "
+    "Use add for an absent object field or array append; remove only an existing field/item; replace only an existing "
+    "field/item. To add missing array items, use add at the original length and consecutive indices thereafter. "
+    "Every path uses original array indices, before any removals; insertion before existing items, gaps and overlapping "
     "paths are forbidden. For an extra array item, remove the item instead of rewriting the array. "
     "The runner applies edits to the complete "
     "pinned rejected_report.content and then runs every ordinary schema, provenance, protected-contract and "
@@ -230,10 +231,11 @@ def _patch_validation_schema(patch_schema):
 
 
 def apply(base, edits, schema=None):
-    """Apply disjoint edits against original indices, removing array items last."""
+    """Apply disjoint edits against original indices; append and then remove array items last."""
     result = copy.deepcopy(base)
     seen = []
     removals = {}
+    additions = {}
     for edit in edits:
         path, op = edit["path"], edit["op"]
         undecoded = None
@@ -275,6 +277,8 @@ def apply(base, edits, schema=None):
                 parent[key] = copy.deepcopy(value)
             else:
                 raise ValueError("Unknown report edit operation")
+        elif isinstance(parent, list) and type(key) is int and key >= len(parent) and op == "add":
+            additions.setdefault(id(parent), (parent, {}))[1][key] = copy.deepcopy(value)
         elif isinstance(parent, list) and type(key) is int and 0 <= key < len(parent) and op in ("replace", "remove"):
             if op == "replace":
                 parent[key] = copy.deepcopy(value)
@@ -285,7 +289,12 @@ def apply(base, edits, schema=None):
                 # Overlap checks above forbid edits inside a removed item.
                 removals.setdefault(id(parent), (parent, []))[1].append(key)
         else:
-            raise ValueError("Report edit target is invalid; array insertion is forbidden")
+            raise ValueError("Report edit target is invalid; insertion before existing array items is forbidden")
+    for parent, items in additions.values():
+        indices = sorted(items)
+        if indices != list(range(len(parent), len(parent) + len(indices))):
+            raise ValueError("Report array additions must use consecutive indices starting at the original length")
+        parent.extend(items[index] for index in indices)
     for parent, indices in removals.values():
         for index in sorted(indices, reverse=True):
             del parent[index]

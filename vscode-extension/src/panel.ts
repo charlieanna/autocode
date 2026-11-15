@@ -107,6 +107,7 @@ export interface PanelState {
   changeset?: ChangesetState | null;
   /** The raise the view names apart from next_command for the bound holding the run (#2044), or null. */
   boundRaise: IntegerCommandInput | null;
+  jobTimeControls: IntegerCommandInput[];
   /** The struggling warning and the run's cost line, from the view's own records. */
   meter?: MeterState;
   /** A finished run's closing card, or null while it runs. */
@@ -325,6 +326,24 @@ export class RunPanel {
     }
   }
 
+  private async setJobTime(id: string, value: string, decisionContext: string | undefined): Promise<void> {
+    if (this.taking) return;
+    this.taking = true;
+    try {
+      const view = await this.controller.status(this.run);
+      const state = stateFor(view, this.run, this.controller, true);
+      if (!(await confirmJobTime(state, id, value, decisionContext))) return;
+      this.post(state);
+      await this.controller.setJobTime(view, this.run, id, value);
+    } catch (error) {
+      void vscode.window.showErrorMessage(`AutoCode: ${messageOf(error)}`);
+    } finally {
+      this.taking = false;
+      await this.update();
+      try { await this.onAction?.(); } catch { /* Ignored */ }
+    }
+  }
+
   private post(state: PanelState): void {
     this.panel.title = titleOf(this.run, state);
     void this.panel.webview.postMessage({ type: "state", state });
@@ -356,6 +375,10 @@ export class RunPanel {
     }
     if (message.type === "raise") {
       await this.raise(message.value ?? "", message.decisionContext);
+      return;
+    }
+    if (message.type === "job-time") {
+      await this.setJobTime(message.key ?? "", message.value ?? "", message.decisionContext);
       return;
     }
     if (message.type !== "take") return;
@@ -445,6 +468,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     }
   }
   const boundRaise = view.done || stopped ? null : controller.boundRaise(view, run);
+  const jobTimeControls = view.done ? [] : controller.jobTimeControls(view, run);
   const requirements = progress?.requirements;
   const working = taking || isWorking(view);
   return {
@@ -513,6 +537,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
       decisions,
       view.next_command ?? "",
       boundRaise,
+      jobTimeControls,
     ]),
     gap,
     actionLabel,
@@ -538,6 +563,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     token: approvalToken(view),
     canApprove: need?.kind !== "approve_plan" || plan !== null,
     boundRaise,
+    jobTimeControls,
     meter: meterOf(view),
     finish: finishSummary(view),
     header: runHeader(view),
@@ -676,8 +702,22 @@ export async function confirmRaise(state: PanelState, decisionContext: string | 
   return (await vscode.window.showWarningMessage(title, { modal: true, detail: boundEffect(input) }, buttonLabel)) === buttonLabel;
 }
 
+export async function confirmJobTime(state: PanelState, id: string, value: string, decisionContext: string | undefined,
+  onDialog?: (title: string) => void): Promise<boolean> {
+  const input = state.jobTimeControls.find((row) => row.id === id);
+  if (!input || decisionContext !== state.decisionContext) throw new ClientGap("The requested action changed; review it before continuing");
+  const seconds = integerValue(value, input);
+  const title = `Set ${input.label.toLowerCase()} to ${seconds}?`;
+  onDialog?.(title);
+  const detail = input.id === "max_stage_seconds"
+    ? "This saves the per-step limit for later steps too. Retrying the stopped step is a separate action."
+    : "This saves the total active-time limit only. Retrying the stopped step is a separate action.";
+  return (await vscode.window.showWarningMessage(title, { modal: true, detail }, "Save limit")) === "Save limit";
+}
+
 /** What raising a bound changes, and what it leaves alone. */
 export function boundEffect(input: IntegerCommandInput): string {
+  if (input.id === "max_stage_seconds") return "This changes the time limit for each later step and resumes the run. Saved work and model choices are kept.";
   if (input.id === "grant_recovery") {
     return "This replenishes spent recovery slots under the existing fixed allowance. Recovery history is retained; excess is not banked. Other saved limits and model routes stay the same. It does not approve a plan.";
   }
@@ -733,6 +773,7 @@ function emptyState(run: RunRef): PanelState {
     workingDiff: null,
     plan: null,
     boundRaise: null,
+    jobTimeControls: [],
     token: null,
     canApprove: true,
   } satisfies Omit<PanelState, "gap">;
@@ -1499,7 +1540,7 @@ function render(state) {
     state.actionLabel, state.actionEffect, state.stopped, state.unreadable, state.confirming,
     state.chat && [state.chat.phase, state.chat.notice, state.chat.progress, state.chat.activity, state.chat.log, state.chat.now, state.chat.review, state.chat.input && state.chat.input.kind],
     state.chat && (state.chat.messages || []).filter((row) => String(row.id || '').startsWith('requirements-question-')),
-    state.workingDiff, state.boundRaise, state.done, state.finish,
+    state.workingDiff, state.boundRaise, state.jobTimeControls, state.done, state.finish,
     state.meter && state.meter.struggling, state.allChanges,
   ] : state;
   const serialized = JSON.stringify(chatSlice);
@@ -1520,6 +1561,7 @@ function render(state) {
 
   if (chatMode && state.stopped) {
     renderStopped(state.stopped);
+    renderJobTimeControls(app, state);
     return;
   }
 
@@ -1589,6 +1631,7 @@ function render(state) {
     } else if (state.pause) {
       cardContent.appendChild(el('div', 'notice', 'I couldn’t finish this step. Open Run details to see what needs attention.'));
     }
+    renderJobTimeControls(cardContent, state);
 
     if (state.criteria.length) {
       cardContent.appendChild(el('h2', null, 'Criteria to accept'));
@@ -1774,6 +1817,7 @@ function render(state) {
     app.appendChild(el('div', 'line', state.needsYou || state.needSummary || state.needKind || '—'));
     if (state.needReason) app.appendChild(el('div', 'why', state.needReason));
   }
+  renderJobTimeControls(app, state);
 
   if (state.chat && state.chat.input && state.chat.input.kind === 'resolver_response' && !state.stopped) {
     app.appendChild(el('div', 'notice', 'The conversation can accept a recovery reply. Sending information does not authorize a retry.'));
@@ -1927,11 +1971,45 @@ function enterTakes(event) {
   if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
   const target = event.target;
   if (!target || target.tagName !== 'INPUT') return;
-  const button = String(target.dataset.question || '').indexOf('raise:') === 0
-    ? document.getElementById('raise-bound') : document.getElementById('take-action');
+  const question = String(target.dataset.question || '');
+  const button = question.indexOf('raise:') === 0 ? document.getElementById('raise-bound')
+    : question.indexOf('job-time:') === 0 ? document.getElementById('job-time-' + question.slice(9))
+    : document.getElementById('take-action');
   if (!button || button.disabled) return;
   event.preventDefault();
   button.click();
+}
+
+function renderJobTimeControls(container, state) {
+  (state.jobTimeControls || []).forEach((input) => {
+    const name = 'job-time:' + input.id;
+    const box = el('div', 'decision');
+    box.appendChild(el('div', 'q', input.label));
+    box.appendChild(el('div', 'why', 'Saved: ' + input.current + ' seconds. Enter at least ' + input.minimum + ' seconds. Saving does not retry.'));
+    const field = document.createElement('input');
+    field.type = 'text'; field.inputMode = 'numeric'; field.pattern = '[0-9]*';
+    field.setAttribute('aria-label', input.label);
+    field.dataset.question = name;
+    if (answers[name]) field.value = answers[name];
+    const hint = el('div', 'range-hint');
+    const button = el('button', null, (state.taking || state.working) ? 'Working…' : 'Save limit');
+    button.id = 'job-time-' + input.id;
+    const save = () => {
+      answers[name] = field.value;
+      hint.textContent = integerHint(field.value, input);
+      const number = /^[0-9]+$/.test(field.value) ? Number(field.value) : NaN;
+      button.disabled = state.taking || state.working || Boolean(state.unreadable)
+        || !Number.isSafeInteger(number) || number < input.minimum || number > input.maximum;
+    };
+    field.addEventListener('input', save);
+    field.addEventListener('change', save);
+    field.addEventListener('keydown', enterTakes);
+    button.addEventListener('click', () => vscode.postMessage({ type: 'job-time', key: input.id,
+      value: answers[name] || '', runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
+    box.appendChild(field); box.appendChild(hint); box.appendChild(button);
+    container.appendChild(box);
+    save();
+  });
 }
 
 function updateActionButton() {
@@ -2003,6 +2081,8 @@ function formatBoundMetric(value) {
 function numericHelp(input) {
   const used = formatBoundMetric(input.used);
   const elapsed = formatBoundMetric(input.elapsed);
+  if (input.id === 'max_stage_seconds') return 'Saved time per step: ' + input.current
+    + ' seconds. Enter at least ' + input.minimum + ' seconds; this also applies to later steps.';
   if (input.id === 'grant_recovery') return 'Automatic recovery allowance: ' + input.current
     + '. Counted recoveries used: ' + used + '. Enter 1 to ' + input.maximum
     + ' additional recoveries. A grant replenishes spent slots; history is kept.';

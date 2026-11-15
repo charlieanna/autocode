@@ -67,7 +67,7 @@ try:
     from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events  # noqa: F401 - compatibility API
     from . import autocode_run_status as run_status, autocode_report_repair_queue as report_repair_queue, autocode_rejection_route as rejection_route, autocode_review_effort as review_effort, autocode_route_fit as route_fit, autocode_report_identity as report_identity
     from . import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot  # noqa: F401 - compatibility API
-    from . import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result, autocode_detached_output as detached_output  # noqa: F401 - compatibility API
+    from . import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result, autocode_report_revalidation as report_revalidation, autocode_detached_output as detached_output  # noqa: F401 - compatibility API
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy, autocode_approval_provenance as approval_provenance  # noqa: F401 - compatibility API
 except ImportError:
     import autocode_classification_recovery as classification_recovery  # noqa: F401 - compatibility API
@@ -124,6 +124,7 @@ except ImportError:
     import autocode_supervision_recovery as supervision_recovery
     import autocode_result_application as result_application
     import autocode_repaired_result as repaired_result
+    import autocode_report_revalidation as report_revalidation
     import autocode_detached_output as detached_output  # noqa: F401 - compatibility API
     import autocode_process as processes
     import autocode_registry as registry  # noqa: F401 - compatibility API supplied to invocation helpers
@@ -971,12 +972,8 @@ def _execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
     runtime = native_invocation.runner_view(sys.modules[__name__], native) if native else sys.modules[__name__]
     pending = state["pending_report_repair"]
     original = pending["original"]
-    if state.get("next_stage") != original.get("stage"):
-        raise support.Paused(
-            "PAUSED_STALE_REPORT_ROUTE", "Saved report repair belongs to a different stage; reconcile before retrying"
-        )
-    if pending["attempts"] >= report_repair_queue.effective_repair_limit(state, pending):
-        raise support.Paused("PAUSED_REPORT_REPAIR_LIMIT", "Bounded report-only repair attempts exhausted")
+    if not report_revalidation.prepare_repair(runtime, state, run_dir, workspace):
+        return
     if pending["attempts"] and not pending.get("latest_rejected"):
         # Old checkpoints kept the latest error but only the first report pointer.
         # Reassociate from the owning stage's ordered history, never by filename.

@@ -58,9 +58,11 @@ try:
     from . import autocode_finding_rescope as finding_rescope
     from . import autocode_goals as goals
     from . import autocode_implementation_discrepancy as implementation_discrepancy
+    from . import autocode_job_time_view as job_time_view
     from . import autocode_liveness as liveness_policy
     from . import autocode_member_stop as member_stop
     from . import autocode_no_progress_recovery as no_progress_recovery
+    from . import autocode_operational_hold as operational_hold
     from . import autocode_operational_information as operational_information
     from . import autocode_output_policy as output_policy
     from . import autocode_package_scope as package_scope
@@ -124,9 +126,11 @@ except ImportError:
     import autocode_finding_rescope as finding_rescope
     import autocode_goals as goals
     import autocode_implementation_discrepancy as implementation_discrepancy
+    import autocode_job_time_view as job_time_view
     import autocode_liveness as liveness_policy
     import autocode_member_stop as member_stop
     import autocode_no_progress_recovery as no_progress_recovery
+    import autocode_operational_hold as operational_hold
     import autocode_operational_information as operational_information
     import autocode_output_policy as output_policy
     import autocode_package_scope as package_scope
@@ -338,7 +342,7 @@ def view(
             needs=need,
             held_cause=pause_authority.answered_cause(state),
             ready=(controller or {}).get("kind") == "ready",
-            internal_failure=(operational_block.presentation(state)),
+            internal_failure=(operational_hold.presentation(state) or operational_block.presentation(state)),
         ),
         "current_task": {key: task.get(key) for key in ("id", "objective", "milestone_id")} if task else None,
         # The kind of job named for the request (autocode_workflows.WORKFLOWS);
@@ -1052,6 +1056,15 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
         inputs = [{**inputs[0], "command": named_raise}] if named_raise and token else None
     if inputs and need is not None:
         need = {**need, "command_inputs": inputs}
+    job_times = (
+        job_time_view.offers(
+            state, need, run_dir=run_dir or state.get("run_dir"), workspace=workspace or state.get("workspace")
+        )
+        if not terminal
+        else []
+    )
+    if job_times and need is not None:  # offers() is empty without a need
+        need = {**need, "job_time_controls": job_times}
     ready_boundary = (
         (need or {}).get("kind") == "continue"
         and state.get("active_stage") is None

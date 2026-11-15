@@ -1807,6 +1807,28 @@ the structured action from a fresh status read, never parse the displayed prose
 or replace an expired action's token with one from a newer view. The same rule
 applies to separate numeric offers, model retry offers and chat recovery replies.
 
+An authenticated operational-exhaustion request whose runner receipt identifies
+an internal recovery failure is reported as blocked in the conversation. It keeps
+the saved attempts and the existing operator `needs` and `next_command`, but the
+chat offers no machinery question or recovery reply. This does not apply to a
+saved spending or time bound, a connection stop, or a model-route question.
+
+A stopped, source-bound job may separately offer `needs.job_time_controls`. Each
+row describes one finite integer and a complete save-only `command`, bound to
+`needs.job_retry_token` through `AUTOCODE_JOB_RETRY_TOKEN`. A total-time row is
+offered when a finite total is saved; a per-step row is offered only for the
+matching hard stage timeout. The minimum exceeds the saved total and active time,
+or the saved per-step deadline, respectively. Saving changes no model route and
+does not authorize a retry. The job issues a new token, so a client must read a
+fresh view before offering or taking any subsequent action. The VS Code sidebar
+and Run Details accept an explicit number for each row and confirm the save.
+
+At an idle intervention boundary, `needs.command_inputs` can also name a
+separate, pause-token-bound increase to the per-step time limit. This action
+resumes the run as well as saving the limit for later steps; its confirmation
+states both effects. It is not offered while a stage, runner check, report
+repair or uncertain artifact is active.
+
 `needs.command_inputs` describes the one number a pause leaves to a person, so a
 client can ask for it instead of handing the command off (#2044). Every bound a
 budget pause names is described, with the same row shape:
@@ -2881,6 +2903,17 @@ repair evidence, and `unavailable` without a valid source digest. Recorded does
 not assert that the current filesystem was rehashed. `active` additionally
 requires a running report-only attempt for the original stage. No field grants
 approval, retry, proof reuse or completion authority.
+
+When the runtime changes, a pending repair with its original handoff binding and
+complete artifact pins can be revalidated before another report-only or Resolver
+call. The current loader and full result-application gates run against the saved
+report and the original execution evidence; the archived bytes and provider
+usage remain intact. A failed revalidation is recorded once for that runtime.
+Older checkpoints without a handoff binding remain on the existing repair path:
+the current handoff cannot authenticate what the original provider saw.
+Bounded report edits can append missing array entries at consecutive indices
+starting at the original array length. They cannot insert before existing
+entries or skip an index, and all ordinary report and evidence checks still run.
 
 ### Failed workflow jobs
 
