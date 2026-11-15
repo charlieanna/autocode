@@ -1300,6 +1300,52 @@ time.sleep(30)
             self.assertEqual((0, False), self.signal_during_cleanup(signal.SIGHUP, joined))
         self.assertEqual([0], joined)
 
+    def test_interruption_handler_installs_nothing_off_the_main_thread(self):
+        # The controller's background Requirements call (#3233) runs the stage-launch path on its
+        # own thread; interruption ownership stays with the main thread's scopes, so a worker
+        # thread entering the handler changes no signal disposition at all.
+        installed = []
+        failures = []
+
+        def worker():
+            try:
+                with processes.interruption_handler():
+                    pass
+            except BaseException as error:  # surfaced by the assertions below
+                failures.append(error)
+
+        with patch.object(processes.signal, "signal", lambda *args: installed.append(args)):
+            thread = threading.Thread(target=worker)
+            thread.start()
+            thread.join(timeout=10)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual([], failures)
+        self.assertEqual([], installed, "signal handlers are installed only on the main thread")
+
+    def test_stage_wait_defers_interrupts_only_on_the_main_thread(self):
+        # The same guard on wait_for_stage's deferred-interrupt bookkeeping: a non-main-thread
+        # stage wait (the #3233 background call) installs no handlers and still returns.
+        child = subprocess.Popen([sys.executable, "-c", "raise SystemExit(0)"], start_new_session=True)
+        self.addCleanup(child.wait)
+        installed = []
+        results = []
+        failures = []
+
+        def wait():
+            try:
+                results.append(processes.wait_for_stage(child, 5, lambda rows: None))
+            except BaseException as error:  # surfaced by the assertions below
+                failures.append(error)
+
+        with patch.object(processes.signal, "signal", lambda *args: installed.append(args)):
+            thread = threading.Thread(target=wait)
+            thread.start()
+            thread.join(timeout=30)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual([], failures)
+        self.assertEqual([], installed, "the deferred-interrupt handlers belong to the main thread only")
+        self.assertEqual([(0, False)], results)
+
 
 class ProcessCleanupReapTests(unittest.TestCase):
     def reap_failure(self, *, phase, reused=False, deny_kill=False):

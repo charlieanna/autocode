@@ -270,6 +270,8 @@ KEYS: frozenset[str] = frozenset(
         "requirements_body",
         "requirements_handoff",
         "requirements_history",
+        "requirements_overlap",
+        "requirements_overlap_history",
         "requirements_triage",
         "resolution_history",
         "resolution_request",
@@ -635,6 +637,16 @@ class RunState(TypedDict, total=False):
     # questions, at}; the planning unit's prepare and the CLI's effort launch read it to run only
     # the first requirements_gather dispatch as triage.
     requirements_triage: Any
+    # The chat reading-time overlap (#3233 part 1): chat_checkpoint writes the current background
+    # full-Requirements pass {at, status running|adopting|kept|discarded, reason, questions,
+    # assumed_answers_digest, attempt_nonce, speculative, record_output}; requirements_handoff._accept reads the
+    # adopting record to bind the kept report's assumed answers, and resume/lifecycle handling
+    # treats a persisted running record as discarded. The settled attempt's own stage row carries
+    # the final {speculative, outcome, reason} annotation beside its observed usage.
+    requirements_overlap: dict
+    # Earlier overlap records, appended by chat_checkpoint before replacing requirements_overlap;
+    # read as spend evidence for the passes a run started.
+    requirements_overlap_history: list[dict]
     resolution_history: Any
     resolver: Any
     resolver_human_proposal: Any  # a Resolver proposal awaiting a human; goals writes, dependency pops

@@ -564,6 +564,15 @@ def accounting(state: RunState):
                 "exit_code": record.get("exit_code"),
                 "report_only": bool(record.get("report_only")),
                 "planning": bool(record.get("planning")),
+                # The chat reading-time overlap (#3233 part 1): a background Requirements pass's
+                # attempt, named speculative with the keep/discard decision that settled it and its
+                # reason, beside the tokens and cost it observed. A pass that never launched has no
+                # attempt row here, so nothing else is ever marked.
+                **(
+                    {"speculative": True, "outcome": record["outcome"], "reason": record["reason"]}
+                    if record.get("speculative") is True
+                    else {}
+                ),
                 "tokens": tokens,
                 "requests": requests,
                 "tool_activity": tool_activity.projection(native.get("tool_activity"), active=is_active),

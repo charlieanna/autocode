@@ -31,6 +31,7 @@ try:
     from . import autocode_requirements_answer as requirements_answer
     from . import autocode_requirements_chat as requirements_chat
     from . import autocode_requirements_observations as requirements_observations
+    from . import autocode_requirements_overlap as requirements_overlap
     from . import autocode_requirements_review as requirements_review
     from . import autocode_requirements_triage as requirements_triage
     from . import autocode_run_status as run_status
@@ -46,6 +47,7 @@ except ImportError:
     import autocode_requirements_answer as requirements_answer
     import autocode_requirements_chat as requirements_chat
     import autocode_requirements_observations as requirements_observations
+    import autocode_requirements_overlap as requirements_overlap
     import autocode_requirements_review as requirements_review
     import autocode_requirements_triage as requirements_triage
     import autocode_run_status as run_status
@@ -76,8 +78,27 @@ def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue
         requirements_observations.seal(state, record, accepted["report"])
 
 
+def _bind_assumed_answers(state: RunState, value: dict, record: dict) -> None:
+    """Bind a kept background Requirements report to the answers it assumed (#3233 part 1).
+
+    A report the controller adopts from the chat reading-time overlap carries the digest of the
+    question ids and answer values its call assumed (the offered defaults), stamped from the run's
+    overlap record when the provider's own report cannot carry it. A report whose recorded digest
+    differs from the digest of the answers the person actually gave is refused, whatever else
+    validates: it was computed under different answers.
+    """
+    bound = value.get("assumed_answers_digest")
+    if bound is None:
+        adoption = state.get("requirements_overlap") or {}
+        if adoption.get("status") == "adopting" and adoption.get("record_output") == record.get("output"):
+            bound = value["assumed_answers_digest"] = adoption.get("assumed_answers_digest")
+    if bound is not None and bound != requirements_overlap.answers_digest(state.get("answers") or {}):
+        raise ValueError("A background Requirements report binds answers that differ from the person's actual answers")
+
+
 def _accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue) -> None:
     """Install ``value`` as the requirements handoff; ``queue`` is resolver_human.queue for the spec-first stop."""
+    _bind_assumed_answers(state, value, record)
     if requirements_review.enabled(state) and (not_yet_a_goal(value) or no_goal_first_answer(state, value)):
         value["open_questions"] = [outcome_question(state)]
     questions = value["open_questions"]

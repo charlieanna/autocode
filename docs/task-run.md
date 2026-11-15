@@ -890,6 +890,64 @@ pending batch; saved actions, active or unknown delivery, and unattempted inputs
 cannot be replaced. Refresh the correction with a new request ID and the current
 question/token. A stale supplied token is refused before a request is sealed.
 
+## The Requirements reading-time overlap
+
+A chat run paused on Requirements' blocking questions asked the model nothing
+while the person read: the full Requirements pass started only after the answer
+arrived. Now the controller starts one full pass at the pause, assuming each
+question's offered default, and keeps its report when the answers turn out to
+match. This is one bounded call owned by the existing controller inside
+`chat_checkpoint`, never a second controller or a cross-run layer.
+
+**Eligibility.** It runs for a live ordinary terminal chat paused on the
+Requirements handoff's own unresolved blocking or open questions, where every
+question offers a nonempty proposed default. That covers a triage handoff's
+questions, a `--spec-first` handoff's open questions and the default flow's
+business questions, and a small brief (`workflows.brief_size == "small"`) too.
+Everywhere else today's flow runs with no background call: a question with no
+default to assume (keep or discard cannot be judged exactly without the answer),
+a pause that is not the handoff's own questions (the spec-first review
+confirmation, a scope decision, a Resolver question), a run under an approved
+goal contract, a native visual run, or a run with no live chat process —
+`--no-chat`, durable and resumed-later runs.
+
+**Caps.** The background call counts against the run's existing caps, so it does
+not start when it could exceed one: a finite cost cap disables it, because the
+accounting exposes estimates rather than an enforceable maximum for one call, and
+a finite active-time cap admits it only when the enforced stage deadline plus its
+bounded termination allowance fits what remains. A pass refused this way is
+recorded with its reason.
+
+**Keep or discard.** Every typed answer equal to its offered default keeps the
+background report and no second pass runs; any difference discards it and the
+ordinary full pass runs with the real answers. The comparison is literal, at the
+chat input boundary, before whitespace stripping or offered-choice
+canonicalization, and `/default` selects the default exactly. A kept report binds
+a digest of the question ids and answer values it assumed, and the Requirements
+handoff refuses a report whose digest differs from what the person actually
+answered, so the handoff always reflects the real answers. A refused adoption
+re-annotates the attempt it had marked kept, and charges it once.
+
+**Spend.** A discarded background call still spent what it spent. Its stage
+attempt carries `{"speculative": true, "outcome": "kept" | "discarded",
+"reason": …}`, and the status view shows those three beside the tokens and cost
+that attempt observed (`usage.accounting.attempts`), so a discarded pass appears
+in the run's evidence instead of vanishing. Usage the attempt's events cannot
+establish stays an explicit recorded uncertainty; no spend is invented. See
+[Status view](#status-view).
+
+**Stopping and resume.** A Stop or a boundary pause taken while the person reads
+cancels the background call through the verified process-identity boundary — a
+reused PID is never signalled — adopts no report, and accounts its observed spend
+once. A run that crashes or resumes with a pass that never finished discards it:
+its report is never adopted or replayed, the attempt is authenticated against its
+recorded process identity before anything is signalled, and a repeated resume is
+a no-op.
+
+Nothing about the pause changes for the person: the same questions, options and
+proposed defaults are shown, and no new CLI flag, confirmation or question is
+offered.
+
 ## Controller ownership and recovery
 
 `status()["controller"]` reports the current invocation's birth-bound owner,
