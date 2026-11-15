@@ -933,32 +933,42 @@ class RetrofitTest(unittest.TestCase):
     def test_abandon_resolver_report_repair_preserves_planning_route(self):
         before = self.valid_completion()
         self.state["settings"]["joint_planning"] = True
-        base = self.run / "iterations/005/resolve-repair-report-repair-01"
-        base.parent.mkdir(parents=True)
-        s.atomic_json(base.with_suffix(".before.json"), before)
-        base.with_suffix(".jsonl").write_text('{"type":"thread.started","thread_id":"repair"}\n')
-        self.state["active_stage"] = {
-            "role": "resolver",
-            "stage": "resolve_repair_report_repair",
-            "original_stage": "resolve_repair",
-            "report_only": True,
-            "iteration": 5,
-            "duration_seconds": 1,
-            "exit_code": -15,
-            "processes": [],
-            "output": str(base.with_suffix(".json")),
-            "events": str(base.with_suffix(".jsonl")),
-            "before_ref": str(base.with_suffix(".before.json")),
-        }
-        request = {"stage": "revise_plan", "kind": "report_repair", "in_force": False}
-        self.state["resolve_repair_request"] = copy.deepcopy(request)
-        self.state["pending_report_repair"] = {"original": {"stage": "resolve_repair"}}
-        runner.abandon_stage(self.state, self.run, self.root, "005/resolve-repair-report-repair-01")
-        self.assertEqual("PAUSED_STAGE_ABANDONED", self.state["status"])
-        self.assertEqual("resolve_repair", self.state["next_stage"])
-        self.assertIn("Resolver", self.state["stop_reason"])
-        self.assertEqual(request, self.state["resolve_repair_request"])
-        self.assertTrue(self.state["stages"][-1]["abandoned"])
+        original_state = copy.deepcopy(self.state)
+        for index, (stage, kind, expected) in enumerate(
+            (
+                ("revise_plan", "report_repair", "resolve_repair"),
+                ("draft_plan", "stall", "resolve_repair"),
+                ("review_plan", "stall", "resolve_repair"),
+                ("builder", "report_repair", "review_completion"),
+            )
+        ):
+            with self.subTest(stage=stage, kind=kind):
+                self.state = copy.deepcopy(original_state)
+                base = self.run / f"iterations/005/resolve-repair-report-repair-{index:02d}"
+                base.parent.mkdir(parents=True, exist_ok=True)
+                s.atomic_json(base.with_suffix(".before.json"), before)
+                base.with_suffix(".jsonl").write_text('{"type":"thread.started","thread_id":"repair"}\n')
+                self.state["active_stage"] = {
+                    "role": "resolver",
+                    "stage": "resolve_repair_report_repair",
+                    "original_stage": "resolve_repair",
+                    "report_only": True,
+                    "iteration": 5,
+                    "duration_seconds": 1,
+                    "exit_code": -15,
+                    "processes": [],
+                    "output": str(base.with_suffix(".json")),
+                    "events": str(base.with_suffix(".jsonl")),
+                    "before_ref": str(base.with_suffix(".before.json")),
+                }
+                request = {"stage": stage, "kind": kind, "in_force": False}
+                self.state["resolve_repair_request"] = copy.deepcopy(request)
+                self.state["pending_report_repair"] = {"original": {"stage": "resolve_repair"}}
+                runner.abandon_stage(self.state, self.run, self.root, f"005/{base.name}")
+                self.assertEqual("PAUSED_STAGE_ABANDONED", self.state["status"])
+                self.assertEqual(expected, self.state["next_stage"])
+                self.assertEqual(request, self.state["resolve_repair_request"])
+                self.assertTrue(self.state["stages"][-1]["abandoned"])
 
     def test_abandon_completion_report_repair_requires_fresh_validation(self):
         before = self.valid_completion()

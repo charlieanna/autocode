@@ -228,11 +228,7 @@ def abandon_stage(state: RunState, run_dir, workspace, selected, *, launch=None,
     # to the owning workflow stage, never to the unowned *_report_repair name.
     retry_stage = record.get("original_stage") or record["stage"].removesuffix("_report_repair")
     repair_request = state.get("resolve_repair_request") or {}
-    planning_repair = (
-        retry_stage == "resolve_repair"
-        and repair_request.get("kind") == "report_repair"
-        and planning.is_planning(state, repair_request.get("stage"))
-    )
+    planning_repair = retry_stage == "resolve_repair" and planning.is_planning(state, repair_request.get("stage"))
     # Abandonment invalidated validation; a completion retry must obtain it again.
     # Builder and Validator abandonment re-dispatches the same role to inspect
     # partial work and retry. Only completion (review_completion) routes to a fresh
