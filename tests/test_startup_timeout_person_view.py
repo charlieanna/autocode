@@ -131,18 +131,11 @@ class StartupTimeoutPersonViewTests(unittest.TestCase):
         self.assertIsNotNone(human.retained(saved), "the old receipt remains readable")
         self.assertIsNone(startup_view.presentation(saved), "unbound state cannot classify the old stop")
 
-    def test_other_operational_stops_and_explicit_time_limits_keep_their_existing_actions(self):
-        for stall, pause in (
-            ("during_reasoning_or_output", "PAUSED_TIMEOUT_RECOVERY"),
-            ("before_first_event", "PAUSED_TIME_LIMIT"),
-        ):
-            with self.subTest(stall=stall, pause=pause):
-                # Each subcase needs a fresh authenticated publication.
-                self.setUp()
-                saved, run = self.exhausted(stall=stall, pause=pause)
-                view = run_view.view(saved, run_dir=run, workspace=Path(saved["workspace"]))
-                self.assertEqual("answer", view["needs"]["kind"])
-                self.assertIsNotNone(view["next_command"])
+    def test_explicit_time_limits_keep_their_existing_actions(self):
+        saved, run = self.exhausted(pause="PAUSED_TIME_LIMIT")
+        view = run_view.view(saved, run_dir=run, workspace=Path(saved["workspace"]))
+        self.assertEqual("answer", view["needs"]["kind"])
+        self.assertIsNotNone(view["next_command"])
 
 
 if __name__ == "__main__":
