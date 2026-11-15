@@ -510,6 +510,105 @@ class ResolverTests(unittest.TestCase):
                 )
         self.assertEqual("continue", r.resolve(request(contract=snapshot({**body(), **optional})))[0].action)
 
+    def test_every_nested_goal_schema_field_keeps_the_contract_resolvable(self):
+        # Shared-cause guard (#3603): nested item schemas in PLANNING_BODY_SCHEMA must never drift from _validate_body.
+        import autocode_goals as goals
+
+        schema = goals.PLANNING_BODY_SCHEMA["properties"]
+        full = body()
+        full["accepted_assumptions"] = [
+            {
+                "text": "Output uses existing helper",
+                "basis": "agent_proposed",
+                "answer_id": "",
+                "category": "technical",
+                "convention_ref": "src/sort.js:12",
+            }
+        ]
+        full["delegated_decisions"] = [
+            {
+                "text": "Empty input returns []",
+                "basis": "delegated",
+                "answer_id": "Q1",
+                "category": "behavior",
+                "convention_ref": "",
+            }
+        ]
+        question = {
+            "id": "Q2",
+            "question": "Which tie-break order?",
+            "why": "Unstated order",
+            "options": ["Asc", "Desc"],
+            "proposed_default": "",
+            "kind": "decision",
+            "category": "behavior",
+            "delegable": False,
+            "convention_ref": "",
+        }
+        full["acceptance_criteria"] = [
+            {
+                "id": "AC1",
+                "criterion": "Criterion",
+                "verification_method": "Test",
+                "human_review": False,
+                "sources": [{"source_id": "task", "quote": "Criterion"}],
+                "current_behavior": "Unsorted",
+                "supersedes": [{"file": "tests/old.py", "test": "test_old"}],
+            }
+        ]
+        full["milestones"] = [
+            {
+                "id": "M1",
+                "objective": "Objective",
+                "acceptance_criteria": ["AC1"],
+                "depends_on": [],
+                "affected_paths": ["a.py"],
+            }
+        ]
+        full["initial_task"] = {
+            "objective": "Build",
+            "affected_paths": ["a.py"],
+            "kind": "implement",
+            "milestone_id": "M1",
+            "requirements": ["Req"],
+            "acceptance_criteria": ["AC1"],
+            "validation_plan": ["Test"],
+        }
+        for key in ("accepted_assumptions", "delegated_decisions", "acceptance_criteria", "milestones"):
+            self.assertEqual(set(schema[key]["items"]["properties"]), set(full[key][0]), key)
+        self.assertEqual(set(schema["open_blocking_questions"]["items"]["properties"]), set(question))
+        self.assertEqual(set(schema["initial_task"]["properties"]), set(full["initial_task"]))
+        self.assertEqual("continue", r.resolve(request(contract=snapshot(full)))[0].action)
+        with_question = {**copy.deepcopy(full), "open_blocking_questions": [question]}
+        self.assertTrue(r._validate_body(with_question))
+        self.assertEqual("unapproved contract", r.resolve(request(contract=snapshot(with_question)))[1].rationale)
+
+        tampered = copy.deepcopy(full)
+        tampered["accepted_assumptions"][0]["convention_ref"] = "src/other.js:1"
+        self.assertEqual(
+            "protected contract change",
+            r.resolve(
+                request(contract=snapshot(full), proposed_resolution=r.Proposal("replan", {"body": tampered}, "x"))
+            )[0].rationale,
+        )
+
+        for mutate in (
+            lambda b: b["accepted_assumptions"][0].update(category="invented"),
+            lambda b: b["accepted_assumptions"][0].update(convention_ref=7),
+            lambda b: b["accepted_assumptions"][0].update(extra="nope"),
+            lambda b: b["open_blocking_questions"].append({**question, "kind": "invented"}),
+            lambda b: b["open_blocking_questions"].append({**question, "category": "invented"}),
+            lambda b: b["open_blocking_questions"].append({**question, "delegable": "yes"}),
+            lambda b: b["open_blocking_questions"].append({**question, "convention_ref": None}),
+            lambda b: b["open_blocking_questions"].append({**question, "extra": "nope"}),
+        ):
+            bad = copy.deepcopy(full)
+            mutate(bad)
+            decision, receipt = r.resolve(request(contract=snapshot(bad)))
+            self.assertEqual(
+                ("escalate", "invalid contract or declarative input"), (decision.action, receipt.rationale)
+            )
+
     def test_approved_git_delivery_and_no_delivery_remain_resolvable(self):
         for delivery in (None, {"kind": "atomic_commit", "message": "Deliver verified changes"}):
             with self.subTest(delivery=delivery):
