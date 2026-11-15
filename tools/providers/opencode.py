@@ -104,7 +104,8 @@ def transport_version(settings):
 SUPPORTS_REPORT_RECOVERY = True
 
 DEFAULT_MODELS = {
-    # Planning path (Z.ai): Requirements medium → Planner high.
+    # Planning path (Z.ai): Requirements low → Planner high. GLM-5.3 offers low, high and max; low
+    # answers a waiting person fastest (owner decision 2026-11-15, Requirements comparison).
     "requirements": "zai-coding-plan/glm-5.3",
     "planner": "zai-coding-plan/glm-5.3",
     # Independent Plan Reviewer must not be the Planner's model (or family).
@@ -126,7 +127,7 @@ DEFAULT_MODELS = {
 # Ladder entry points (docs/models.md) — start medium where the ladder says so,
 # escalate to higher reasoning inside the stage when evidence shows struggle.
 DEFAULT_REASONING_EFFORTS = {
-    "requirements": "medium",
+    "requirements": "low",
     "planner": "high",
     "plan_reviewer": "high",
     "builder": "medium",

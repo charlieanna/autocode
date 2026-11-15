@@ -14,9 +14,9 @@
       {
         "model": "zai-coding-plan/glm-5.3",
         "routes": ["zai-coding-plan/glm-5.3", "zhipuai-coding-plan/glm-5.3", "kilo/z-ai/glm-5.3"],
-        "effort": "medium",
+        "effort": "low",
         "provenance": "qualified",
-        "evidence": "Today's default Requirements route (tools/providers/opencode.py DEFAULT_MODELS) and the Requirements route of the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py). Live 2026-10-25 (bugfix-trivial on glm-mimo-kilo, run 20261025-192705-pager-page-count-11-5-returns-2-but-eleven-items-74a4bb2b) reached TASK_COMPLETE on this route."
+        "evidence": "Owner decision 2026-11-15: GLM-5.3 at low is the default Requirements route. GLM-5.3 offers low, high and max, so the earlier medium named a level the route does not have. A 2026-11-15 comparison on nine Requirements requests from vague to direct (one run each, through Kilo) matched the expected behavior on 6 of 9 at low, averaging 70 s per reply and an estimated $0.06 at API rates; high matched 7 of 9 but averaged 132 s. Today's default Requirements route (tools/providers/opencode.py DEFAULT_MODELS) and the Requirements route of the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py). Live 2026-10-25 (bugfix-trivial on glm-mimo-kilo, run 20261025-192705-pager-page-count-11-5-returns-2-but-eleven-items-74a4bb2b) reached TASK_COMPLETE on this route."
       }
     ],
     "planner": [
