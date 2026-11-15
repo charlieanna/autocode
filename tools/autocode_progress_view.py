@@ -12,8 +12,8 @@ and one checked before the latest build says so.
 
 Pure: the caller passes what needs controller services (the accepted milestone
 IDs, the criteria with a valid review receipt, the stage's screen name, the
-view's `needs`, and whether the recorded workers are gone). Imports nothing
-from AutoCode at runtime.
+view's `needs`, and whether the recorded workers are gone). The lower attempt
+ledger distinguishes an open record from a settled one; it grants no liveness or result authority.
 """
 
 from __future__ import annotations
@@ -22,6 +22,11 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
+
+try:
+    from . import autocode_attempt_ledger as attempt_ledger
+except ImportError:
+    import autocode_attempt_ledger as attempt_ledger
 
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
 # What each `needs.kind` asks of a person, and the headline while it waits.
@@ -43,7 +48,7 @@ NOT_APPLIED = "Stored during an open correction; not applied to the current cand
 # reading that says the same before writing it as history (#2608).
 STOP_CLAIM = "stopped without saving a report"
 # The stage in which the Tester writes the approved tests before the Builder starts
-# (autocode_acceptance_tests_job.STAGE; kept literal so this module imports nothing from AutoCode).
+# (autocode_acceptance_tests_job.STAGE; kept literal to avoid importing a workflow job).
 # "Tester working" there read as a Tester checking finished work while no task was done yet.
 TESTS_FIRST_STAGE = "write_acceptance_tests"
 
@@ -98,7 +103,9 @@ def progress(
     earlier = _earlier_request(state, contract)
     if earlier:
         body = {}
-    tasks = _tasks(state, body, set(accepted or ()), done, running=not stopped and not finished)
+    active = _mapping(state.get("active_stage"))
+    open_record = attempt_ledger.running_stage(state)
+    tasks = _tasks(state, body, set(accepted or ()), done, running=bool(open_record) and not stopped and not finished)
     requirements = _requirements(state, contract if not earlier else {}, body, set(reviewed or ()), legacy=not earlier)
     if earlier:
         tasks["label"] = "no task list yet for this request"
@@ -120,13 +127,17 @@ def progress(
         # The plan is saved but its approval token is not yet (needs.kind "continue"); a
         # --chat run is asking at its prompt, and otherwise the next launch shows it.
         headline, asked = "Waiting for you", "plan approval needed"
-    elif stage and state.get("active_stage") and finished:
+    elif stage and active and finished:
         # The attempt saved its report. Name the job that comes next when the run
         # already knows it, so a finished Builder does not keep the headline while
         # the Tester is already queued (#1711).
         headline = f"{stage} finished · Next: {following}" if following else f"{stage} finished"
-    elif stage and state.get("active_stage"):
-        writing_first = _mapping(state.get("active_stage")).get("stage") == TESTS_FIRST_STAGE
+    elif stage and active and not open_record:
+        # A failed or interrupted attempt can remain here awaiting reconciliation.
+        # Its recorded end is not a saved successful report or confirmed cleanup.
+        headline = f"{stage} attempt ended"
+    elif stage and open_record:
+        writing_first = open_record.get("stage") == TESTS_FIRST_STAGE
         headline = f"{stage} writing tests first" if writing_first else f"{stage} working"
     elif (check := _mapping(state.get("active_runner_check"))).get("summary"):
         # Between two stages the runner checks the saved work itself (the Tester's tests, the

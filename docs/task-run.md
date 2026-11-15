@@ -2226,7 +2226,9 @@ its wording may change, so programs read the fields beside it:
   `<job> working` (`Tester writing tests first` while the Tester writes the approved
   tests before the Builder starts), `<job> finished` (its report is saved but not applied yet),
   `<job> finished · Next: <job>` when the run already knows the job after that
-  finished one (#1711), `Next: <job>`, `<job> stopped without saving a report` (the
+  finished one (#1711), `<job> attempt ended` (an ended or accounted attempt
+  still held for reconciliation, without asserting a successful report or confirmed cleanup),
+  `Next: <job>`, `<job> stopped without saving a report` (the
   recorded workers are
   gone; see the top-level `stale` and `next_action`; a stopped runner check is named
   `Runner check (...)`), or the status in words when no stage is known. Job names
@@ -2536,6 +2538,12 @@ of its own (`tools/autocode_stage_pipeline.py`). It is always present. Each row 
 
 `ran` says the job launched, never that its work was accepted. The record grants nothing; the VS
 Code chat shows it as the strip at the top of a chat.
+
+A finished or accounted attempt retained in the active slot is a job that `ran`,
+not one that is `working`. Its failure, interruption or rejected answer remains in
+the public usage attempts. A queued job is not labeled `next` while that retained
+attempt still awaits reconciliation. This display distinction grants no result,
+cleanup, retry, route or completion authority.
 
 `proxied_requirements` lists the requirements the current plan proves only on a stand-in
 (#2068): the user-visible result is rendered by code outside this checkout, so the plan's
@@ -3196,6 +3204,10 @@ marked `unavailable` against the run's other routes, `reset` and `file` null, an
 --stage-model ROLE MODEL EFFORT`, filled the same way; it prints a sentence rather than the view, so
 a client reads the list again afterwards. A refused change exits 2 with the reason on stderr and
 saves nothing.
+
+A retained settled attempt still refuses model changes until reconciliation.
+Its reason says the previous attempt still needs recovery instead of claiming a stage is working;
+the end of an attempt record does not release any model-change guard.
 
 At a pause the person requested while the approved plan is being built, the status view's
 `implementation_discrepancy` lets them say where the code departs from that plan without revising it
