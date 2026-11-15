@@ -1481,7 +1481,8 @@ tests put back.
 Still open: the Tester's acceptance-test job still judges its files by path alone; a Python project below
 the root whose root suite is another language's; a project the change itself adds (its manifest is not in
 the original tree); changed original tests in two projects at once, which no one command runs; and the
-root's `unittest discover`, bound as the original-test command although it runs no test there.
+root's `unittest discover`, bound as the original-test command although it runs no test there
+(section 47 fixes what that cost a bug fix in `api/`).
 
 ## 46. A Rust crate that does not build: the person is asked to set a test command (fixed)
 
@@ -1535,6 +1536,49 @@ project already had run and pass with the change: tests/amounts.rs::a_negative_n
 
 Still open: a repair of Rust tests that do not compile is a change of tests alone ("Only test files
 changed; a fix must change product code"), as before; and `make test` and CMake with CTest (section 33).
+
+## 47. A bug fix in the Python half of two projects: the run stops at the check of the original tests (fixed)
+
+The repository of section 45 again: `api/` (Python, `api/pyproject.toml`, `api/orders.py`, tests in
+`api/tests/test_orders.py` that say `from orders import ...` and run with `cd api && python3 -m unittest
+discover -s tests`) beside `web/` (Node), and no manifest at the root. This time the bug is in `api/`: "The
+orders API says eleven orders at five a page are 2 pages. Eleven orders need three pages. Fix page_count and
+add a regression test."
+
+**On master** the fix and its tests were right, the proof passed at its first attempt, and the run ended
+`PAUSED_INVALID_OUTPUT` (9 stages, 203 s, $1.42; bundle manifest
+`5b0efc5f36fbb199a4d077e3bcd3b6f1476db4877b9aa967100e41c06791b94e`): "Completed tester output was rejected
+(Protected tests changed and the original gate did not pass on this implementation. Repair the
+implementation; a modified assertion is not proof. Failing original tests:
+unittest.loader._FailedTest.test_orders ...) ... ModuleNotFoundError: No module named 'orders'". The
+Investigator's own finding: "The tester's work is correct."
+
+The proof ran the tests where they are written to run: a root with no manifest is no project of its own, so
+the proof gives the changed tests to the project around them (`autocode_package_scope.for_tests`; suite
+`cd api && python3 -m unittest discover -v -s tests`). The gate of the original tests runs the command the run
+bound when it started, the root's `python3 -m unittest discover -v`, narrowed to the changed test modules:
+`python3 -m unittest -v api/tests/test_orders.py`, from the root, where `orders` cannot be imported. It failed
+the same way on the change and with the original tests put back. Section 45 fixed this gate for another
+language's tests in such a project; Python tests have the mirror problem, since the bound runner can run
+them, only not from there.
+
+Fix (`autocode_protected_project_suite.python_command`): where the root holds no manifest and the changed
+test modules are all in one project below it, the gate runs them inside that project with the bound runner:
+`cd api && python3 -m unittest -v tests/test_orders.py`. What stays as it was: a root that is a project of
+its own; tests in two projects, or in a directory with no manifest; a fixture among the repository's own
+tests; a command the person typed (`--test-command`, or a correction of the original tests' command), which
+the proof runs where it was typed too; and a runner that names something by where it runs (an environment
+set before it, an interpreter named by a relative path, a pytest option that names a path). A weakened
+original assertion still fails: the original test is put back and run inside the project.
+
+**With the fix** the same task is `TASK_COMPLETE` with one plan approval and no question (8 stages, 132 s,
+$0.92; manifest `289097101dab8a22c6b2865a3d2edc8a83d9f9b03aa48cbdbe78f5f41bf08877`): the gate's receipt
+is `PASS` with `replayed_command: "cd api && /usr/local/bin/python3 -m unittest -v tests/test_orders.py"`
+and exit code 0 on the change and with the original tests put back.
+
+Still open: a directory of code and tests with no manifest below such a root (`api/` with only `orders.py`
+and `tests/`): the proof itself fails there (checked without a model); and a
+Python project below a root that is another language's project.
 
 ## Also seen, not yet run on real models
 

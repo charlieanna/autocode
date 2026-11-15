@@ -286,7 +286,7 @@ def context(settings, affected_paths=(), state: RunState | None = None, *, curre
     return result | {"instruction": instruction}
 
 
-def replay_command(command, changed, workspace):
+def replay_command(command, changed, workspace, *, detected=True):
     """The bound original-suite command narrowed to the changed test modules, or ``command`` unchanged.
 
     The pair exists to prove that a changed protected test did not weaken an original assertion:
@@ -301,7 +301,9 @@ def replay_command(command, changed, workspace):
     The bound command is the suite of the repository's root. Where that is a Python suite, or there
     is none, and the changed tests are another language's in a project below the root (``web/test/``
     beside ``api/``), it cannot run them: they run with that project's own suite
-    (autocode_protected_project_suite), as in the regression proof.
+    (autocode_protected_project_suite), as in the regression proof. Python tests in a project below a
+    root that is no project of its own run inside that project, with the bound runner, when the
+    command is one AutoCode ``detected``: a command the person typed runs where they typed it.
     """
     invocation = python_tests.parse(command) if command else None
     names = sorted(changed)
@@ -316,7 +318,8 @@ def replay_command(command, changed, workspace):
         return project_suite.command(names, workspace) or command
     if invocation is None or not all(python_tests.TEST_MODULE.match(PurePosixPath(name).name) for name in names):
         return command
-    return invocation.targeted(names) or command
+    nested = project_suite.python_command(invocation, command, names, workspace) if detected else None
+    return nested or invocation.targeted(names) or command
 
 
 def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=None):
@@ -352,7 +355,7 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
         return result
     directory = Path(out) / "protected-tests" / uuid.uuid4().hex
     original = record["command"] or _plan_suite(state, record)
-    command = replay_command(original, changed, workspace)
+    command = replay_command(original, changed, workspace, detected=project_suite.detected(state))
     if not command:
         result.update(
             verdict="NOT_VERIFIED", error="No original suite command was available; explicit user revision required"
