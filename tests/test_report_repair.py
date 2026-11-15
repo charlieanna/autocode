@@ -76,6 +76,51 @@ class RepairTests(unittest.TestCase):
             self.assertFalse(runner.report_revalidation.revalidate(runner, self.state, self.run, self.root))
         load.assert_not_called()
 
+    def test_revalidation_refuses_unowned_or_incomplete_attempts(self):
+        pending = self.queue(report='{"summary":"saved"}')
+        pending["validation_runtime"] = "earlier runtime"
+        initial = copy.deepcopy(self.state)
+        cases = {
+            "active provider": lambda state, item: state.update(active_stage={"stage": "builder"}),
+            "uncertain artifacts": lambda state, item: state.update(uncertain_artifacts={"job": "unknown"}),
+            "wrong stage": lambda state, item: state.update(next_stage="tester"),
+            "missing source": lambda state, item: item["original"].pop("source_revision"),
+            "invalid pins": lambda state, item: item.update(pins="not a pin map"),
+            "not rejected": lambda state, item: item["original"].update(rejected=False),
+            "failed process": lambda state, item: item["original"].update(exit_code=1),
+            "timed out": lambda state, item: item["original"].update(timed_out=True),
+            "interrupted": lambda state, item: item["original"].update(interrupted=True),
+            "truncated": lambda state, item: item["original"].update(truncated_output=True),
+            "other repair stage": lambda state, item: item.update(
+                latest_rejected={**item["original"], "report_only": True, "original_stage": "tester"}
+            ),
+        }
+        for name, change in cases.items():
+            with self.subTest(case=name):
+                state = copy.deepcopy(initial)
+                change(state, state["pending_report_repair"])
+                with patch.object(runner, "load_stage_report") as load:
+                    self.assertFalse(runner.report_revalidation.revalidate(runner, state, self.run, self.root))
+                load.assert_not_called()
+
+    def test_revalidation_refuses_a_report_that_changes_during_its_copy(self):
+        pending = self.queue(report='{"summary":"saved"}')
+        pending["validation_runtime"] = "earlier runtime"
+        original = Path(pending["original"]["output"])
+        before = original.read_bytes()
+        copyfile = shutil.copyfile
+
+        def altered_copy(source, destination):
+            copyfile(source, destination)
+            Path(destination).write_text('{"summary":"changed"}')
+
+        with patch.object(runner.report_revalidation.shutil, "copyfile", side_effect=altered_copy):
+            with self.assertRaises(support.Paused) as stopped:
+                runner.report_revalidation.revalidate(runner, self.state, self.run, self.root)
+        self.assertEqual("PAUSED_STALE_VALIDATION", stopped.exception.status)
+        self.assertEqual(before, original.read_bytes())
+        self.assertFalse(list(self.run.glob("revalidated-report-*")))
+
     def test_still_invalid_report_stays_archived_and_is_not_rechecked_until_runtime_changes(self):
         pending = self.queue(report='{"summary":"saved"}')
         pending["validation_runtime"] = "earlier runtime"

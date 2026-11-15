@@ -149,6 +149,17 @@ class StageLimitPolicyTests(unittest.TestCase):
                 [], job_time_view.offers(state, {**need, **change}, run_dir="/run", workspace="/workspace")
             )
 
+    def test_invalid_total_time_or_usage_never_produces_a_time_control(self):
+        state = self.state()
+        need = run_view.needs(state)
+        for limit, used in ((True, 0), (-1, 0), (9007199254740991, 0), (6000, -1), (6000, float("nan"))):
+            with self.subTest(limit=limit, used=used):
+                changed = copy.deepcopy(state)
+                changed["settings"]["limits"]["max_seconds"] = limit
+                changed["active_seconds"] = used
+                controls = job_time_view.offers(changed, need, run_dir="/run", workspace="/workspace")
+                self.assertNotIn("max_seconds", [row["id"] for row in controls])
+
     def change(self, state, seconds):
         expected = copy.deepcopy(state["settings"])
         expected["limits"]["stage_timeout_seconds"] = seconds
