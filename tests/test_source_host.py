@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -206,6 +207,44 @@ class WarmCliHostTests(unittest.TestCase):
             },
         )
         return workspace, run_dir
+
+    def test_script_entry_shares_the_request_context_with_runtime_imports(self):
+        # The background host is launched as a script. Its handler and the
+        # runtime's normal import must see the same thread-local request guard.
+        script = """
+import runpy, sys, types
+sys.path.insert(0, sys.argv[1])
+entry = types.ModuleType('autocode_entry')
+def call():
+    import autocode_source_host as runtime_host
+    return 0 if runtime_host._in_request() else 3
+entry.run_in_host = call
+entry._autocode_module = lambda: None
+sys.modules['autocode_entry'] = entry
+sys.argv = [sys.argv[2], sys.argv[3]]
+runpy.run_path(sys.argv[0], run_name='__main__')
+"""
+        path = self.tmpdir / "host.sock"
+        proc = subprocess.Popen(
+            [sys.executable, "-c", script, str(TOOLS), str(TOOLS / "autocode_source_host.py"), str(path)],
+            cwd=self.workspace,
+            env=self._env(warm=True),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        self._tracked_procs.append(proc)
+        deadline = time.monotonic() + 15
+        while not path.exists() and proc.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(path.exists(), "script host did not start")
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            conn.settimeout(10)
+            conn.connect(str(path))
+            request = {"kind": "cli", "argv": ["--version"], "cwd": str(self.workspace), "env": self._env(warm=True)}
+            conn.sendall(json.dumps(request).encode() + b"\n")
+            with conn.makefile("rb") as response:
+                answer = json.loads(response.readline())
+        self.assertEqual(0, answer["exit_code"], "the runtime saw a different request context")
 
     def _env(self, *, warm: bool, extra: dict[str, str] | None = None) -> dict[str, str]:
         env = {

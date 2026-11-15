@@ -124,12 +124,21 @@ class OperationalInformationCLITests(unittest.TestCase):
 
         return edit
 
-    def test_chat_offer_submits_information_without_granting_retry_and_rejects_changed_replay(self):
+    def test_operator_information_does_not_grant_retry_and_rejects_changed_replay(self):
         view = self.issue_checkpoint()
-        self.assertEqual("resolver_response", view["chat"]["input"]["kind"])
-        client = object.__new__(ConformanceDriver)
-        client.project, client.run_dir = self.project, self.run
-        words, env, _ = client.message_command(view, "The operator inspected the blocked run")
+        self.assertEqual("blocked", view["recovery"]["category"])
+        self.assertIsNone(view["chat"]["input"], "internal recovery is not a person-facing question")
+        words = [
+            "--resolver-request",
+            view["needs"]["resolver_request_id"],
+            "--resolver-token",
+            view["needs"]["resolver_token"],
+            "--resolver-response",
+            "provide_information",
+            "--resolver-message",
+            "The operator inspected the blocked run",
+        ]
+        env = {}
         code, launched, output = self.invoke(*words, env=env)
         self.assertEqual((0, False), (code, launched), output)
         held = self.status()
