@@ -19,8 +19,8 @@ Within a run (``reuse_checks``), a preflight that succeeded is answered again fo
 ``REUSE_SECONDS``. A chat message relaunches the controller, and the same
 `kilo --version`, `kilo models` and `kilo auth list` cost 6.4 s of a 28 s
 follow-up turn on 2026-10-20. Reuse is keyed by the exact command, working
-directory, the environment, the executable's resolved file identity and the
-tool's own login and settings files, so a new tool install, a changed setting, a
+directory, the environment, the effective output-decoding policy, the executable's
+resolved file identity and the tool's own login and settings files, so a new tool install, a changed setting, a
 new login or another folder runs the check again; a failed check is never kept.
 A caller that can tell a whole answer from a cut-off one passes ``complete``: an
 answer it cannot read to the end is not a successful check, so it is neither kept
@@ -39,11 +39,9 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
-import locale
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -51,8 +49,10 @@ from collections.abc import Mapping
 from pathlib import Path
 
 try:
+    from .. import autocode_output_decoding as output_decoding
     from ..autocode_invocation_environment import without_call_markers
 except ImportError:
+    import autocode_output_decoding as output_decoding
     from autocode_invocation_environment import without_call_markers
 
 REUSE_SECONDS = 3600  # owner decision 2026-10-20: an hour
@@ -74,7 +74,7 @@ SESSION_VARIABLES = frozenset(
     }
 )
 _reuse: Path | None = None
-_timed_out: set[str] = set()  # kept-check keys whose warm-up attempt overran its bound, in this run
+_timed_out: set[str] = set()  # execution keys whose warm-up attempt overran its bound, in this run
 _done_in_run: set = set()  # the steps once_in_run has run, in this run
 _once_lock = threading.Lock()
 _STDLIB_RUN = subprocess.run
@@ -123,48 +123,42 @@ def resolve_executable(name: str, env: Mapping[str, str], *, cwd=None, allow_def
     return shutil.which(name, path=path or os.curdir)
 
 
-def _read_captured(handle, text_mode: bool, encoding: str | None, errors: str | None, *, lossy: bool = False):
+def _decoding(kwargs) -> output_decoding.Decoding | None:
+    output_decoding.validate_text_aliases(kwargs.get("text"), kwargs.get("universal_newlines"))
+    if kwargs.get("text") or kwargs.get("universal_newlines") or kwargs.get("encoding") or kwargs.get("errors"):
+        return output_decoding.resolve(kwargs.get("encoding"), kwargs.get("errors"))
+    return None
+
+
+def _read_captured(handle, decoding: output_decoding.Decoding | None, *, lossy: bool = False):
     handle.seek(0)
     raw = handle.read()
-    if not text_mode:
-        return raw
-    codec = encoding or ("utf-8" if sys.flags.utf8_mode else locale.getencoding())
-    err_mode = errors or "strict"
-    try:
-        decoded = raw.decode(codec, err_mode)
-    except UnicodeDecodeError:
-        if not lossy or errors is not None:
-            raise
-        decoded = raw.decode(codec, "replace")
-    return decoded.replace("\r\n", "\n").replace("\r", "\n")
+    return raw if decoding is None else decoding.decode(raw, lossy=lossy)
 
 
-def _run_captured(command, env: Mapping[str, str], kwargs: dict):
+def _run_captured(command, env: Mapping[str, str], kwargs: dict, decoding: output_decoding.Decoding | None):
     # POSIX pipes truncate around ~81 KB when Bun/Node CLIs set O_NONBLOCK on fd 1 (#3078);
     # file-backed stdio avoids pipe backpressure while leaving patched subprocess.run untouched.
     run_kwargs = dict(kwargs)
     run_kwargs.pop("capture_output", None)
-    encoding = run_kwargs.get("encoding")
-    errors = run_kwargs.get("errors")
-    text_mode = bool(run_kwargs.get("text") or run_kwargs.get("universal_newlines") or encoding or errors)
     with tempfile.TemporaryFile() as out_file, tempfile.TemporaryFile() as err_file:
         run_kwargs["stdout"] = out_file
         run_kwargs["stderr"] = err_file
         try:
             completed = _STDLIB_RUN(command, env=dict(env), **run_kwargs)
         except subprocess.TimeoutExpired as error:
-            error.stdout = _read_captured(out_file, text_mode, encoding, errors, lossy=True)
-            error.stderr = _read_captured(err_file, text_mode, encoding, errors, lossy=True)
+            error.stdout = _read_captured(out_file, decoding, lossy=True)
+            error.stderr = _read_captured(err_file, decoding, lossy=True)
             raise
         except subprocess.CalledProcessError as error:
-            error.output = _read_captured(out_file, text_mode, encoding, errors)
-            error.stderr = _read_captured(err_file, text_mode, encoding, errors)
+            error.output = _read_captured(out_file, decoding)
+            error.stderr = _read_captured(err_file, decoding)
             raise
         return subprocess.CompletedProcess(
             completed.args,
             completed.returncode,
-            _read_captured(out_file, text_mode, encoding, errors),
-            _read_captured(err_file, text_mode, encoding, errors),
+            _read_captured(out_file, decoding),
+            _read_captured(err_file, decoding),
         )
 
 
@@ -182,7 +176,9 @@ def preflight_run(
     """
     if require_executable and not resolve_executable(command[0], env, cwd=kwargs.get("cwd")):
         raise FileNotFoundError(f"{command[0]!r} cannot be found in the explicit environment")
-    key = _reuse_key(command, env, kwargs)
+    decoding = _decoding(kwargs)
+    execution_key = _execution_key(command, env, kwargs)
+    key = _reuse_key(execution_key, decoding)
     kept = None if fresh else _recall(key, command, complete)
     if kept is not None:
         return kept
@@ -193,13 +189,13 @@ def preflight_run(
             and "stderr" not in kwargs
             and subprocess.run is _STDLIB_RUN
         ):
-            result = _run_captured(command, env, kwargs)
+            result = _run_captured(command, env, kwargs, decoding)
         else:
             result = subprocess.run(command, env=dict(env), **kwargs)
     except subprocess.TimeoutExpired:
-        if warming and key:
+        if warming and execution_key:
             # A warm-up that overran its bound was the check's first attempt (preflight_listing).
-            _timed_out.add(key)
+            _timed_out.add(execution_key)
         raise
     if key and result.returncode == 0 and (complete is None or complete(result.stdout)):
         _keep(key, result)
@@ -216,14 +212,19 @@ def preflight_listing(command, env: Mapping[str, str], *, timeout, **kwargs):
     Only a timeout is retried: a nonzero exit or an OS error is the answer. The caller passes only a
     listing command, never one that runs a model; the final ``TimeoutExpired`` names the last bound.
     """
-    key = _reuse_key(command, env, kwargs)
-    if key is None or key not in _timed_out:
+    decoding = _decoding(kwargs)
+    if decoding is not None:
+        # One listing keeps its parent's policy through warm-up accounting and
+        # both existing attempts, even if the process locale changes meanwhile.
+        kwargs = {**kwargs, "encoding": decoding.encoding}
+    execution_key = _execution_key(command, env, kwargs)
+    if execution_key is None or execution_key not in _timed_out:
         try:
             return preflight_run(command, env, timeout=timeout, **kwargs)
         except subprocess.TimeoutExpired:
             pass
     # The first attempt overran its bound here or in the warm-up (CommandProvider.warm_checks).
-    _timed_out.discard(key)
+    _timed_out.discard(execution_key)
     return preflight_run(command, env, timeout=timeout * LISTING_RETRY_FACTOR, **kwargs)
 
 
@@ -328,7 +329,7 @@ def _tool_files(executable: str, env: Mapping[str, str], cwd=None) -> list:
     return found
 
 
-def _reuse_key(command, env: Mapping[str, str], kwargs) -> str | None:
+def _execution_key(command, env: Mapping[str, str], kwargs) -> str | None:
     if _reuse is None or not kwargs.get("capture_output") or not kwargs.get("text") or "input" in kwargs:
         return None
     executable = resolve_executable(command[0], env, cwd=kwargs.get("cwd"))
@@ -352,6 +353,15 @@ def _reuse_key(command, env: Mapping[str, str], kwargs) -> str | None:
         _tool_files(command[0], env, kwargs.get("cwd")),
     ]
     return hashlib.sha256(json.dumps(identity, default=str).encode()).hexdigest()
+
+
+def _reuse_key(execution_key: str | None, decoding: output_decoding.Decoding | None) -> str | None:
+    if execution_key is None or decoding is None:
+        return None
+    # A completed timeout counts the execution regardless of its output decoder;
+    # only a reusable decoded answer additionally depends on the output policy.
+    identity = [execution_key, decoding.identity()]
+    return hashlib.sha256(json.dumps(identity).encode()).hexdigest()
 
 
 def _recall(key, command, complete=None):
