@@ -23,9 +23,10 @@ FORKS = {
 }
 # Facts the repository settles (show's --sorted, envfile.errors.fail) and AutoCode's own machinery.
 NOISE = re.compile(
-    r"--sort|\bflag\b|option name|spell|naming|error (message|format|helper|style|output)|\bstderr\b|fail\(\)|"
-    r"errors\.py|exit code 2|test (command|runner|framework|file|suite)|unittest|pytest|regression|proof|"
-    r"\bguard\b|run the tests|which tests|readme (format|section|style)|standard library|dependenc",
+    r"--sort|\bflag\b|\boption name\b|\bspell(ing)?\b|\bnaming\b|\berror (message|format|helper|style|output)\b|"
+    r"\bstderr\b|\bfail\(\)|errors\.py|\bexit code 2\b|\btest (command|runner|framework|file|suite)\b|"
+    r"\bunittest\b|\bpytest\b|\bregression\b|\bproof\b|\bguard\b|\brun the tests\b|\bwhich tests\b|"
+    r"\breadme (format|section|style)\b|\bstandard library\b|\bdependenc",
     re.I,
 )
 # Stages that come after Requirements: a fork first raised there was not cleared before planning.
