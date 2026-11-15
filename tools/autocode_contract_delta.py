@@ -6,6 +6,8 @@ the revision guard still compares every protected field against the previous bod
 
 from __future__ import annotations
 
+import re
+
 
 def own_assumption(before: dict, after: dict, item: str) -> bool:
     """An assumption the Planner proposed itself is engineering detail, not the person's text.
@@ -66,4 +68,34 @@ def engineering_delta(
         return item in after and before.get(item) != after[item]
     milestones = {row["id"]: row for row in before.get("milestones", [])}
     proposed = {row["id"]: row for row in after.get("milestones", [])}
-    return item in milestones and item in proposed and milestones[item] != proposed[item]
+    if item in milestones and item in proposed and milestones[item] != proposed[item]:
+        return True
+    return names_unprotected_addition(item, before, after, protected)
+
+
+def _names(item: str, identity: str) -> bool:
+    return bool(re.search(r"(?<![\w-])" + re.escape(identity) + r"(?![\w-])", item))
+
+
+def names_unprotected_addition(item: str, before: dict, after: dict, protected: set) -> bool:
+    """Whether a declared rewording names a criterion the revision added or a milestone it changed.
+
+    The Planner declares such a change in its own words: ``AC9``, ``M1.acceptance_criteria``, ``milestone M1's
+    acceptance_criteria (AC4, AC9)``. The labels above recognize a few spellings; any other was taken for a
+    protected item that "needs a saved user answer", and a live run (2026-11-15) asked the person to authorize
+    listing a new suite criterion under M1. What the row names is read from the two bodies instead: an ID that
+    is new, or a milestone that differs. Such a row grants nothing, because the guard still compares every
+    protected criterion, list and boundary itself; a row that quotes protected text stays the guard's to judge.
+    """
+    old = {row["id"]: row for row in before.get("acceptance_criteria", [])}
+    added = [row["id"] for row in after.get("acceptance_criteria", []) if row.get("id") not in old]
+    milestones = {row.get("id"): row for row in before.get("milestones", []) if isinstance(row, dict)}
+    changed = [
+        row["id"]
+        for row in after.get("milestones", [])
+        if isinstance(row, dict) and row.get("id") and milestones.get(row["id"]) != row
+    ]
+    quoted = {text for text in protected if text not in old} | {str(row.get("criterion") or "") for row in old.values()}
+    if any(text and text in item for text in quoted):
+        return False
+    return any(_names(item, identity) for identity in (*added, *changed) if isinstance(identity, str) and identity)
