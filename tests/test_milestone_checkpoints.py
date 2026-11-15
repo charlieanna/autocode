@@ -1062,8 +1062,8 @@ class PendingReplanThroughTheCLI(unittest.TestCase):
         self.stall()
         prompts, answer = self.provider({"review_completion": [self.revalidation("CONTINUE") for _ in range(3)]})
         self.assertEqual(2, self.invoke("--no-chat", role=answer))
-        # As live: three refused reviews, then the Investigator before the pause (stopped here by the fixture).
-        self.assertEqual(["review_completion"] * 3 + ["investigate_stuck"], [stage for stage, _ in prompts])
+        # As live: three refused reviews, then the Resolver repair stage before the pause (stopped here by the fixture).
+        self.assertEqual(["review_completion"] * 3 + ["resolve_repair"], [stage for stage, _ in prompts])
         for _, prompt in prompts[:3]:
             self.assert_states_the_gate(prompt)
         # The gate is unchanged: a CONTINUE is never accepted while the replan is required.
@@ -1132,8 +1132,8 @@ class PendingReplanThroughTheCLI(unittest.TestCase):
         self.assertNotIn("MILESTONE REPLAN REQUIRED", instruction)
         self.assertNotIn(replan.GENERAL_VALIDATE_RULE, instruction)  # only the qualified rule remains
         # What the prompt says is what the gate does: the review's task pauses the run at once, before any
-        # Resolver or writer (the Investigator then diagnoses the pause; the fixture stops it).
-        self.assertEqual(["review_completion", "investigate_stuck"], [stage for stage, _ in prompts])
+        # Resolver rework or writer (the Resolver repair stage then triages the pause; the fixture stops it).
+        self.assertEqual(["review_completion", "resolve_repair"], [stage for stage, _ in prompts])
         self.assertEqual("PAUSED_MILESTONE_STALLED", self.paused_by())
         current = self.checkpoint()
         self.assertEqual((True, 1), (current["needs_replan"], current["replans"]))
@@ -1243,7 +1243,7 @@ class PendingReplanThroughTheCLI(unittest.TestCase):
                     self.assertEqual("WAITING_FOR_USER", self.status()["status"])
                 else:
                     self.assertEqual(
-                        ["review_completion", "resolve", "investigate_stuck"], [stage for stage, _ in prompts]
+                        ["review_completion", "resolve", "resolve_repair"], [stage for stage, _ in prompts]
                     )
                     self.assertEqual("PAUSED_MILESTONE_STALLED", self.paused_by())
 
@@ -1261,7 +1261,7 @@ class PendingReplanThroughTheCLI(unittest.TestCase):
         self.assertIn("A next task is on this batch when next_task.milestone_id is M1 or M2", instruction)
         self.assertIn("a next task on M1 or M2 with any status, REWORK or CONTINUE", instruction)
         self.assertNotIn("on batch:", instruction)
-        self.assertEqual(["review_completion", "investigate_stuck"], [stage for stage, _ in prompts])
+        self.assertEqual(["review_completion", "resolve_repair"], [stage for stage, _ in prompts])
         self.assertEqual("PAUSED_MILESTONE_STALLED", self.paused_by())
 
     def test_unbounded_replans_prompt_does_not_also_promise_a_single_replan(self):

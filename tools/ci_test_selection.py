@@ -544,6 +544,16 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/prompts/fragments/package-scope/", ("tests.test_package_writes",)),
     ("tools/autocode_report_check.py", ("tests.test_report_check",)),
     ("docs/efficiency-targets.json", ("tests.test_usage_outcome_report",)),
+    *(
+        (path, ("tests.test_stage_access",))
+        for path in (
+            "tools/autocode_design_check_job.py",
+            "tools/autocode_stuck_job.py",
+            "tools/autocode_resolve_repair_job.py",
+            "tools/autocode_design_intake.py",
+            "tools/autocode_acceptance_tests_job.py",
+        )
+    ),
 )
 
 # A CLI consumer is selected even if marked slow: otherwise the import-only gap
@@ -1353,6 +1363,10 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         ("tools/autocode_entry.py", "tools/autocode_source_host.py", "tools/autocode_serve_cli.py"),
         (*CORE_CONSUMERS, "tests.test_source_host", "tests.test_dev_server"),
+    ),
+    (
+        ("tools/autocode_resolve_repair_job.py", "tools/autocode_stuck_job.py"),
+        ("tests.test_failure_retry", "tests.test_milestone_checkpoints"),
     ),
 )
 

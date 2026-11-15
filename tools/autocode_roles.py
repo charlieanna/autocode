@@ -120,6 +120,7 @@ ROUTE_JOB = {
 # 2026-11-11). These name the work that sets each apart; the Stage models list uses the same names.
 ROUTE_SCREEN = {
     "task_planner": f"{SCREEN['resolver']} and per-task {SCREEN['planner']}",
+    "repair_resolver": f"{SCREEN['resolver']} (repair)",
     "acceptance_tester": f"{SCREEN['tester']} (acceptance tests)",
 }
 

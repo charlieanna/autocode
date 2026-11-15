@@ -1355,6 +1355,28 @@ class DynamicDependenciesTests(unittest.TestCase):
                 self.assertIn(consumer, kept)
                 self.assertNotIn("tests.test_unrelated", kept)
 
+    def test_workflow_jobs_and_stall_interception_keep_access_and_pause_consumers(self):
+        for path in (
+            "tools/autocode_design_check_job.py",
+            "tools/autocode_stuck_job.py",
+            "tools/autocode_resolve_repair_job.py",
+            "tools/autocode_design_intake.py",
+            "tools/autocode_acceptance_tests_job.py",
+        ):
+            with self.subTest(job_path=path):
+                selected = run_suite.select_tests([path], {"tests.test_stage_access": "", "tests.test_unrelated": ""})
+                self.assertIn("tests.test_stage_access", selected)
+                self.assertNotIn("tests.test_unrelated", selected)
+        pause_consumers = ("tests.test_failure_retry", "tests.test_milestone_checkpoints")
+        for path in ("tools/autocode_resolve_repair_job.py", "tools/autocode_stuck_job.py"):
+            with self.subTest(stall_path=path):
+                selected = run_suite.select_tests(
+                    [path], {**{name: "" for name in pause_consumers}, "tests.test_unrelated": ""}
+                )
+                kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in pause_consumers})
+                self.assertEqual(set(pause_consumers), set(kept))
+                self.assertNotIn("tests.test_unrelated", kept)
+
 
 class PromptExitSelectionTests(unittest.TestCase):
     def test_tui_changes_keep_the_real_prompt_exit_regression(self):
