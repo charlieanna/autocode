@@ -55,7 +55,8 @@ def holds_chat_open(question) -> bool:
 
 def enabled(state: RunState):
     return bool(
-        (state.get("settings") or {}).get("spec_first") and (not state.get("goal_contract") or plan_chat.pending(state))
+        (state.get("settings") or {}).get("spec_first")
+        and (not requirements_review.current_turn_has_contract(state) or plan_chat.pending(state))
     )
 
 
@@ -115,15 +116,28 @@ def start_after_approval(state: RunState):
     again; ``requirements_approved`` tells workflows._start that this one already was.
     """
     # Every turn of a chat begins at Requirements (#1860), so a follow-up's approval starts its job too.
-    if not enabled(state) or "workflow" not in state or state.get("pending_questions"):
+    # The default flow asks the same question when the person has assumptions to confirm (#3603).
+    handoff = requirements_review.current_turn_handoff(state)
+    if not handoff or "workflow" not in state or state.get("pending_questions"):
         return False
-    if state.get("next_stage") != requirements_review.NEXT or not state.get("requirements_handoff"):
+    if state.get("next_stage") != requirements_review.NEXT:
         return False
-    answer = (state.get("answers") or {}).get(requirements_review.review_question(state)["id"]) or {}
+    review_id = requirements_review.review_question(state)["id"]
+    if not (
+        enabled(state)
+        or (
+            not requirements_review.current_turn_has_contract(state)
+            and (
+                requirements_review.confirmed_by_review(state, review_id)
+                or requirements_review.awaits_confirmation(state)
+            )
+        )
+    ):
+        return False
+    answer = (state.get("answers") or {}).get(review_id) or {}
     if str(answer.get("text", "")).strip().lower() != requirements_review.APPROVE:
         return False
     kind = state["workflow"].get("kind")
-    handoff = state["requirements_handoff"]
     if kind is None:
         # Requirements named the job the person just approved (#1846), or none, which plans as a build.
         state["workflow"]["requirements_approved"] = True
@@ -167,8 +181,9 @@ def answer_now(state: RunState, record: dict) -> bool:
 def start_named_job(state: RunState, record: dict) -> bool:
     """Start the job Requirements named once no question stands in front of it (#1860).
 
-    A plain CLI run has no confirmation stop, and neither has a follow-up turn whose earlier plan
-    still stands; a chat's first handoff waits for the person's approval instead
+    A plain CLI run with nothing for the person to answer or confirm has no confirmation stop, and
+    neither has a turn whose own plan already stands (requirements_review.current_turn_has_contract);
+    a chat's handoff, or one with assumptions to confirm, waits for the person's approval instead
     (start_after_approval). A report that names no job plans as a build. A job already known
     (pinned with --workflow) keeps the stage the handoff chose."""
     if (state.get("workflow") or {}).get("kind") is not None or "workflow" not in state:
@@ -197,7 +212,7 @@ def without_classification(text: str) -> str:
 
 
 def reply(state: RunState):
-    report = (state.get("requirements_handoff") or {}).get("report") or {}
+    report = requirements_review.current_turn_handoff(state).get("report") or {}
     text = report.get("assistant_reply")
     return without_classification(text.strip()) if isinstance(text, str) else ""
 

@@ -256,6 +256,18 @@ class RequirementsHandoffTests(unittest.TestCase):
             with self.subTest(change=change, saved=saved), self.assertRaisesRegex(ValueError, "needs an outcome"):
                 self.accept({**copy.deepcopy(value), **change}, {}, task=task, **saved)
 
+        # A follow-up turn retains Turn 1's contract until Turn 2 drafts its own; its initial clarification waits (#3603).
+        follow_up_state, follow_up_queued = self.accept(
+            copy.deepcopy(value),
+            {},
+            task=task,
+            goal_contract={"revision": 1, "hash": "turn1", "body": {}},
+            turns=[{"event_id": "fb-2", "say": task}],
+            user_events=[{"id": "fb-2", "kind": "brief_feedback", "contract_token": "r1:turn1"}],
+        )
+        self.assertEqual([[question]], [row["questions"] for row in follow_up_queued])
+        self.assertEqual("", follow_up_state["requirements_handoff"]["report"]["intended_outcome"])
+
     def test_without_an_open_question_a_handoff_still_needs_behaviors_and_acceptance_tests(self):
         for value in (
             report(intended_outcome="Add export", open_questions=[]),

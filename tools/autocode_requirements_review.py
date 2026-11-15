@@ -1,11 +1,25 @@
 """Spec-first runs (#1200): the user confirms what Requirements understood before any plan exists.
 
 Opt-in per new run (``--spec-first``, saved as ``settings.spec_first``). On the default flow a
-complete handoff goes straight to draft_plan, and a run with no open question never shows
-the user its requirements until goal approval. With the setting, every accepted handoff stops the
+complete handoff with no open question and no unconfirmed assumption goes straight to draft_plan.
+With the setting, every accepted handoff stops the
 run with one runner-written question beside the handoff's own open questions: answer ``plan`` to
 start planning, or say what to change and Requirements runs again with that answer in its
 saved_answers. The question id carries the handoff's digest, so a new handoff asks again.
+
+On every flow (#3603) a handoff's unanswered open questions stop the run before any plan, and the
+answers send Requirements back with them (``after_answers``); before, the default flow passed a
+complete handoff's questions to the Planner, which drafted a plan before the person could answer.
+A handoff whose assumptions the person has not confirmed (``autocode_assumption_ledger.unconfirmed``:
+a user-visible behavior Requirements chose, or a convention it did not read in the workspace) stops
+the default flow at the same single review question, which lists every assumption and why it was
+made. Approving it records which assumptions the person confirmed (``confirmed_assumption_ids``);
+an unattended ``--skip-requirements`` run records them as delegated by that choice instead of
+stopping. A run whose questions and assumptions are all settled stops nowhere.
+
+Readiness is read per turn (``current_turn_has_contract``): a follow-up keeps the finished turn's
+goal contract, and its own Requirements questions and confirmation still stop it until its own
+plan exists.
 The question says what approving starts for the job Requirements named (``job``, #1846): a plan for
 a build, an investigation for a bug, the review or the design work for those. A discussion Requirements
 answers itself is never asked to be approved (autocode_requirements_chat.answer_now).
@@ -30,12 +44,15 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 import argparse
+import re
 from pathlib import Path
 
 try:
+    from . import autocode_contract_identity as identity
     from . import autocode_scope_question as scope_question
     from . import autocode_util as util
 except ImportError:
+    import autocode_contract_identity as identity
     import autocode_scope_question as scope_question
     import autocode_util as util
 
@@ -50,6 +67,153 @@ SHOWN = 8
 
 def enabled(state: RunState) -> bool:
     return bool((state.get("settings") or {}).get(SETTING))
+
+
+def current_turn_has_contract(state: RunState) -> bool:
+    """Whether the current turn's own plan exists: a goal contract installed during this turn.
+
+    A finished run keeps its goal contract when a follow-up (autocode_follow_up.accept) opens the next
+    turn, so ``goal_contract`` alone says only that some earlier turn was planned. The follow-up's own
+    receipt (the turn's ``event_id`` in ``user_events``) names the contract that stood when the person
+    said it. Until the Planner installs a different one, the turn is still gathering its requirements
+    and stops for its own questions and confirmation like a first request. A first request, and a turn
+    saved before turns carried that receipt, have only the contract they planned themselves.
+    """
+    contract = state.get("goal_contract")
+    if not contract:
+        return False
+    turns = state.get("turns") or []
+    event_id = turns[-1].get("event_id") if turns and isinstance(turns[-1], dict) else None
+    if not event_id:
+        return True
+    receipt = next(
+        (row for row in state.get("user_events") or [] if isinstance(row, dict) and row.get("id") == event_id), None
+    )
+    if receipt is None or "contract_token" not in receipt:
+        return True
+    try:
+        return identity.token(contract) != receipt["contract_token"]
+    except (KeyError, TypeError):
+        return True
+
+
+# Who confirmed an assumption: the person approving the review question, or the person's own choice
+# at the start of an unattended run (autocode_skip_requirements.DELEGATED) to take every default.
+CONFIRMED_BY_REVIEW = "requirements_review"
+CONFIRMED_BY_SKIP = "skip_requirements"
+
+
+def current_turn_handoff(state: RunState) -> dict:
+    """The current turn's accepted Requirements handoff, or {} before this turn has one.
+
+    A follow-up turn keeps the previous turn's handoff in ``requirements_handoff`` until its own
+    ``requirements_gather`` runs, so ``check_requirement_handoff`` can compare against it;
+    ``previous.requirements_output`` names that earlier output path. Once this turn accepts a
+    handoff, the earlier one moves to ``requirements_history``."""
+    handoff = state.get("requirements_handoff")
+    if not isinstance(handoff, dict):
+        return {}
+    turns = state.get("turns") or []
+    prior_output = (
+        (turns[-1].get("previous") or {}).get("requirements_output") if turns and isinstance(turns[-1], dict) else None
+    )
+    if (
+        prior_output
+        and handoff.get("output") == prior_output
+        and not any(
+            isinstance(row, dict) and row.get("output") == prior_output
+            for row in state.get("requirements_history") or []
+        )
+    ):
+        return {}
+    return handoff
+
+
+def _structured_assumptions(report: dict) -> list[dict]:
+    return [row for row in report.get("proposed_assumptions") or [] if isinstance(row, dict) and row.get("id")]
+
+
+def confirmed_assumption_ids(state: RunState) -> frozenset[str]:
+    """The current handoff's assumption ids the person confirmed, each bound to the exact text confirmed.
+
+    Each confirmation is saved on the handoff it confirmed (``confirmed_assumptions``) and stays with
+    it in ``requirements_history``, so an assumption Requirements repeats word for word after a
+    correction is not asked again, and one it rewords is."""
+    confirmed = set()
+    for handoff in [*(state.get("requirements_history") or []), current_turn_handoff(state)]:
+        record = handoff.get("confirmed_assumptions") if isinstance(handoff, dict) else None
+        for row in (record or {}).get("assumptions") or []:
+            if isinstance(row, dict):
+                confirmed.add((row.get("id"), row.get("text")))
+    return frozenset(
+        row["id"] for row in _structured_assumptions(_report(state)) if (row["id"], row.get("text")) in confirmed
+    )
+
+
+def confirm_assumptions(state: RunState, *, source: str, question_id: str | None = None) -> None:
+    """Record every assumption of the current handoff as confirmed by ``source``."""
+    handoff = current_turn_handoff(state)
+    if not handoff:
+        return
+    rows = [
+        {"id": row.get("id"), "text": row.get("text")} if isinstance(row, dict) else {"id": None, "text": str(row)}
+        for row in _report(state).get("proposed_assumptions") or []
+    ]
+    if not rows:
+        return
+    handoff["confirmed_assumptions"] = {
+        "source": source,
+        **({"question_id": question_id} if question_id else {}),
+        "assumptions": rows,
+    }
+
+
+def confirmed_by_review(state: RunState, question_id: str) -> bool:
+    """Whether the current handoff's assumptions were confirmed by approving ``question_id``."""
+    record = current_turn_handoff(state).get("confirmed_assumptions") or {}
+    return record.get("source") == CONFIRMED_BY_REVIEW and record.get("question_id") == question_id
+
+
+def _load_assumption_ledger():
+    try:
+        from . import autocode_assumption_ledger as ledger
+    except ImportError:
+        try:
+            import autocode_assumption_ledger as ledger
+        except ImportError:
+            return None
+    return ledger
+
+
+def unconfirmed_assumptions(state: RunState) -> list[dict]:
+    """The current handoff's assumptions that still need the person (autocode_assumption_ledger)."""
+    rows = _report(state).get("proposed_assumptions") or []
+    ledger = _load_assumption_ledger()
+    if not rows or ledger is None:
+        return []
+    return ledger.unconfirmed(
+        rows,
+        confirmed_ids=confirmed_assumption_ids(state),
+        verify=ledger.verifier(state, STAGE),
+        cites_person=ledger.cites_person(state),
+    )
+
+
+def delegate_assumptions(state: RunState) -> None:
+    """An unattended run (``--skip-requirements``) records its assumptions as delegated, never stops on them.
+
+    The person chose at the start to take every default (autocode_skip_requirements), so the
+    assumptions are recorded as confirmed by that choice, under its own source, where a reviewer sees
+    them; a run with nobody watching does not wait for a confirmation nobody will give."""
+    if (state.get("settings") or {}).get(CONFIRMED_BY_SKIP) and unconfirmed_assumptions(state):
+        confirm_assumptions(state, source=CONFIRMED_BY_SKIP)
+
+
+def awaits_confirmation(state: RunState) -> bool:
+    """Whether the current handoff stops for the person to confirm its assumptions."""
+    if (current_turn_handoff(state).get("confirmed_assumptions") or {}).get("source") == CONFIRMED_BY_SKIP:
+        return False
+    return bool(unconfirmed_assumptions(state))
 
 
 def add_argument(parser) -> None:
@@ -75,7 +239,7 @@ def resume_refused(saved_settings: dict, requested) -> bool:
 
 
 def _report(state: RunState) -> dict:
-    return (state.get("requirements_handoff") or {}).get("report") or {}
+    return current_turn_handoff(state).get("report") or {}
 
 
 # The jobs that build nothing (autocode_workflows.WORKFLOWS), named here so this module imports only util.
@@ -121,6 +285,60 @@ def questions_only(report: dict) -> bool:
     )
 
 
+def handoff_complete(state: RunState, report: dict | None = None) -> bool:
+    """Whether ``report`` already names the outcome and, for a build or fix, its behaviors and acceptance tests."""
+    target = _report(state) if report is None else report
+    if not str(target.get("intended_outcome") or "").strip():
+        return False
+    if builds_code(job(state, target)):
+        return bool(target.get("required_behaviors") and target.get("acceptance_tests"))
+    return True
+
+
+# A question that asks only whether the whole summary or understanding is right (#3304): AutoCode's own
+# review question confirms the understanding once, so asking it again in open_questions would ask twice.
+_SUMMARY_CONFIRMATION_OPTIONS = frozenset({"yes", "no", "y", "n", "correct", "confirm", "plan"})
+_SUMMARY_CONFIRMATION = re.compile(
+    r"^\s*(?:does|is)\s+(?:this|that)"
+    r"(?:\s+(?:summary|understanding|scope|spec|specification|interpretation))?\s+"
+    r"(?:right|correct|accurate|good|ok|okay|"
+    r"what\s+you\s+(?:want|wanted|had\s+in\s+mind|expected)|"
+    r"look\s+(?:right|correct|accurate|good|ok|okay)|"
+    r"match\s+(?:what\s+you\s+(?:want|wanted|had\s+in\s+mind|expected)|your\s+(?:intent|expectations)))"
+    r"\s*\??\s*$",
+    re.IGNORECASE,
+)
+
+
+def is_summary_confirmation(question) -> bool:
+    """Whether ``question`` asks only to confirm the whole summary, offering no product fork (#3304)."""
+    if not isinstance(question, dict):
+        return False
+    options = {str(option).strip().casefold() for option in question.get("options") or [] if str(option).strip()}
+    if not options <= _SUMMARY_CONFIRMATION_OPTIONS:
+        return False
+    return bool(_SUMMARY_CONFIRMATION.match(str(question.get("question") or "")))
+
+
+def without_summary_confirmations(state: RunState, report: dict) -> tuple[list[dict], list[str]]:
+    """``report``'s open questions without redundant whole-summary confirmations once the handoff is complete.
+
+    While Requirements is still clarifying (no outcome, behaviors or acceptance tests yet) or when a
+    question backs a proposed reframe, every question stays. On a complete handoff, a bare "Is this
+    right?" duplicates AutoCode's single review confirmation (#3304)."""
+    rows = list(report.get("open_questions") or [])
+    if not rows or not handoff_complete(state, report):
+        return rows, []
+    reframes = {row.get("question_id") for row in report.get("proposed_reframes") or [] if isinstance(row, dict)}
+    kept, dropped = [], []
+    for row in rows:
+        if isinstance(row, dict) and row.get("id") not in reframes and is_summary_confirmation(row):
+            dropped.append(str(row.get("id") or ""))
+        else:
+            kept.append(row)
+    return kept, dropped
+
+
 def _row(row, *, literal: bool) -> str:
     """One list item on one line. An example is data, so a line break inside it stays visible as
     ``\\n`` ("a name file '  Ana \\n'"); in prose it is only wrapping and becomes a space. A raw break
@@ -131,21 +349,30 @@ def _row(row, *, literal: bool) -> str:
     return " ".join(text.split())
 
 
-def _lines(title: str, rows, *, literal: bool = False) -> list[str]:
+def _lines(title: str, rows, *, literal: bool = False, limit: int | None = SHOWN) -> list[str]:
     rows = [_row(row, literal=literal) for row in rows or [] if str(row).strip()]
     if not rows:
         return []
-    more = [f"  … and {len(rows) - SHOWN} more"] if len(rows) > SHOWN else []
+    shown = rows if limit is None else rows[:limit]
+    more = [f"  … and {len(rows) - len(shown)} more"] if len(rows) > len(shown) else []
     # A blank line before each section keeps a Markdown client from folding the title into the list above.
-    return ["", f"{title}:", *(f"  - {row}" for row in rows[:SHOWN]), *more]
+    return ["", f"{title}:", *(f"  - {row}" for row in shown), *more]
+
+
+def _assumption(row) -> str:
+    """An assumption and why Requirements made it: the person confirms the reason as well as the choice."""
+    if not isinstance(row, dict):
+        return str(row)
+    text = " ".join(str(row.get("text") or "").split())
+    rationale = " ".join(str(row.get("rationale") or "").split())
+    return f"{text} (why: {rationale})" if text and rationale else text
 
 
 def review_question(state: RunState) -> dict:
     """The runner's question for the current handoff: what Requirements understood, and 'plan' to go on."""
     report = _report(state)
-    assumptions = [
-        row.get("text", row) if isinstance(row, dict) else row for row in report.get("proposed_assumptions") or []
-    ]
+    # Every assumption is shown, never cut to SHOWN: approving confirms each one (confirm_assumptions).
+    assumptions = [_assumption(row) for row in report.get("proposed_assumptions") or []]
     # ignored_statements also carries procedural source text and headings, not
     # only excluded work. Its treatment is explained by the saved summary.
     statements = report.get("ignored_statements") or []
@@ -161,7 +388,7 @@ def review_question(state: RunState) -> dict:
             *_lines("Constraints", report.get("constraints")),
             *_lines("Other source statements", statements),
             *(["", f"Notes: {notes}"] if notes else []),
-            *_lines("Assumptions", assumptions),
+            *_lines("Assumptions", assumptions, limit=None),
             "",
             CONFIRMATION.get(
                 kind or "", "Approve this understanding to prepare a reviewed plan, or tell me what to change."
@@ -173,9 +400,15 @@ def review_question(state: RunState) -> dict:
         # unchanged still asks again under a new id (an answered id cannot be answered twice).
         "id": PREFIX + util.digest({"report": report, "round": len(state.get("requirements_history") or [])})[:16],
         "question": text,
-        "why": "Spec-first run: nothing "
-        + ("is planned" if builds_code(job(state)) else "starts")
-        + " until you confirm what Requirements understood.",
+        "why": (
+            "Spec-first run: nothing "
+            + ("is planned" if builds_code(job(state)) else "starts")
+            + " until you confirm what Requirements understood."
+            if enabled(state)
+            else "Requirements made assumptions you have not confirmed: nothing "
+            + ("is planned" if builds_code(job(state)) else "starts")
+            + " until you confirm them or say what to change."
+        ),
         # Free text, not a label: a correction is an answer too (options would only accept their labels).
         "options": [],
         "proposed_default": APPROVE,
@@ -186,11 +419,17 @@ def review_question(state: RunState) -> dict:
 
 
 def questions(state: RunState) -> list[dict]:
-    """The handoff's unanswered open questions, then (spec-first) the review question; [] when nothing waits."""
+    """The handoff's unanswered open questions, then the review question (spec-first, or assumptions the
+    person has not confirmed); [] when nothing waits."""
+    handoff = current_turn_handoff(state)
+    report = handoff.get("report") or {}
     answered = state.get("answers") or {}
-    unresolved = [row for row in _report(state).get("open_questions") or [] if row.get("id") not in answered]
-    if not state.get("goal_contract") and unresolved and (enabled(state) or questions_only(_report(state))):
-        # Clarify the requested outcome before choosing where its work belongs.
+    planned = current_turn_has_contract(state)
+    open_questions, _ = without_summary_confirmations(state, report)
+    unresolved = [row for row in open_questions if row.get("id") not in answered]
+    if not planned and unresolved:
+        # On every flow: no plan is drafted while Requirements still has a question for the person
+        # (#3603). Clarify the requested outcome before choosing where its work belongs.
         # This answers no scope question and leaves all discovered parts intact.
         return unresolved
     try:
@@ -200,9 +439,9 @@ def questions(state: RunState) -> list[dict]:
         import autocode_catalog_context as source_catalog
         import autocode_coordination_context as coordination
     if (
-        state.get("requirements_handoff")
-        and not state.get("goal_contract")
-        and enabled(state)
+        handoff
+        and not planned
+        and (enabled(state) or awaits_confirmation(state))
         and job(state) == "bugfix"
         and not coordination.joint_planning(state)
         and not coordination.context(state)
@@ -220,23 +459,21 @@ def questions(state: RunState) -> list[dict]:
     scope = scope_question.question(state)
     if scope:
         return [scope]
-    if not state.get("requirements_handoff") or state.get("goal_contract"):
+    if not handoff or planned:
         return []
     if coordination.joint_planning(state) or (
         job(state) == "bugfix" and (coordination.context(state) or source_catalog.context(state))
     ):
         # The complete repository and joint plans carry clear requirements
-        # into the single approval. Business questions still need answers.
-        return unresolved
-    if not enabled(state):
-        # The default flow stops only while Requirements is still clarifying. A complete handoff with open
-        # questions goes to the Planner, whose draft carries them (autocode_planning_clarification).
-        return unresolved if questions_only(_report(state)) else []
+        # into the single approval. Business questions were answered above.
+        return []
     review = review_question(state)
     if review["id"] in answered:
         return []
-    # Establish the requested outcome before offering to plan anything.
-    return unresolved or [review]
+    if enabled(state) or awaits_confirmation(state):
+        # One confirmation of the whole understanding, listing every assumption; never a second one.
+        return [review]
+    return []
 
 
 def wait(state: RunState, record: dict, queue) -> None:
@@ -273,21 +510,36 @@ def recover_scope(state: RunState, queue) -> None:
     wait(state, record, queue)
 
 
+def answered_since_handoff(state: RunState) -> list[str]:
+    """The current handoff's open questions the person answered after Requirements wrote it.
+
+    A handoff records the answers it was written with (``answers_seen``, autocode_requirements_handoff),
+    so a question Requirements repeats after its answer does not send Requirements back again."""
+    handoff = current_turn_handoff(state)
+    seen = set(handoff.get("answers_seen") or [])
+    answered = state.get("answers") or {}
+    open_questions, _ = without_summary_confirmations(state, handoff.get("report") or {})
+    return [row.get("id") for row in open_questions if row.get("id") in answered and row.get("id") not in seen]
+
+
 def after_answers(state: RunState, *, queue=None) -> None:
-    """A review answer other than 'plan', or the answers to a questions-only handoff, are new requirements
-    input: Requirements runs again, not the Planner."""
-    if state.get("goal_contract") or state.get("pending_questions") or not state.get("requirements_handoff"):
+    """A review answer other than 'plan', or answers to the handoff's own open questions, are new requirements
+    input: Requirements runs again with them, not the Planner, on every flow (#3603). Approving the review
+    records the assumptions it listed as confirmed by the person."""
+    handoff = current_turn_handoff(state)
+    if current_turn_has_contract(state) or state.get("pending_questions") or not handoff:
         return
-    if enabled(state):
-        answer = (state.get("answers") or {}).get(review_question(state)["id"])
-        needs_refresh = (answer and answer.get("text", "").strip().lower() != APPROVE) or (
-            not answer and bool(_report(state).get("open_questions"))
-        )
+    review = review_question(state)
+    answer = (state.get("answers") or {}).get(review["id"])
+    if answer and answer.get("text", "").strip().lower() == APPROVE and not answer.get("delegated"):
+        confirm_assumptions(state, source=CONFIRMED_BY_REVIEW, question_id=review["id"])
+    if answer:
+        needs_refresh = answer.get("text", "").strip().lower() != APPROVE
     else:
-        needs_refresh = questions_only(_report(state))
+        needs_refresh = bool(answered_since_handoff(state))
     if needs_refresh and state.get("next_stage") == NEXT:
         state.update({"next_stage": STAGE, "phase": "DISCOVERING"})
     elif queue is not None and state.get("next_stage") == NEXT and questions(state):
         # Confirmation establishes intent; it cannot settle an independent
         # repository assignment or business question before the Planner.
-        wait(state, state["requirements_handoff"], queue)
+        wait(state, handoff, queue)

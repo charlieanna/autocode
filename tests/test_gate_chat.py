@@ -244,6 +244,48 @@ class GateChatTests(unittest.TestCase):
         state["user_events"].append({"kind": "accounting_receipt", "actor": "core"})
         self.assertEqual("confirm", self.chat.offer(state)["decision"]["intent"])
 
+    def test_follow_up_turn_retaining_earlier_contract_exposes_and_interprets_requirements_gate(self):
+        state = requirements()
+        turn1_handoff = {**copy.deepcopy(state["requirements_handoff"]), "output": "iter/001/req-01.json"}
+        state.update(
+            goal_contract={"revision": 1, "hash": "turn1", "body": {}},
+            requirements_handoff=turn1_handoff,
+            turns=[
+                {
+                    "event_id": "fb-turn2",
+                    "say": "Also support CSV output",
+                    "previous": {"requirements_output": "iter/001/req-01.json"},
+                }
+            ],
+            user_events=[{"id": "fb-turn2", "kind": "brief_feedback", "contract_token": "r1:turn1"}],
+        )
+        # Turn 1's unarchived handoff never masquerades as Turn 2's gate.
+        self.assertIsNone(self.chat.offer(state))
+
+        state["requirements_history"] = [turn1_handoff]
+        state["requirements_handoff"] = {
+            "output": "iter/002/req-01.json",
+            "report": {
+                "job": "build",
+                "intended_outcome": "JSON and CSV output",
+                "required_behaviors": ["Output JSON or CSV when requested"],
+                "acceptance_tests": ["CSV output parses"],
+                "open_questions": [],
+            },
+        }
+        state["pending_questions"] = [review.review_question(state)]
+        offered = self.chat.offer(state)
+        self.assertIsNotNone(offered)
+        self.assertEqual(("requirements", review.review_question(state)["id"]), (offered["kind"], offered["token"]))
+        goals.feedback(state, "yes coplete")
+        self.assertEqual("gate_message", state["user_events"][-1]["kind"])
+        self.assertEqual("requirements_gather", state["next_stage"])
+        self.chat.accept(state, self.response(state), {"output": None})
+        self.assertEqual("confirm", self.chat.offer(state)["decision"]["intent"])
+
+        state["goal_contract"] = {"revision": 2, "hash": "turn2", "body": {}}
+        self.assertIsNone(self.chat.offer(state))
+
 
 if __name__ == "__main__":
     unittest.main()

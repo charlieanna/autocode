@@ -927,6 +927,38 @@ class OverlapUnitTests(unittest.TestCase):
                 f"an ordinary pass's usage row names no speculative outcome: {name}",
             )
 
+    def test_follow_up_turn_retaining_earlier_contract_admits_current_handoff_questions_only(self):
+        import autocode_requirements_overlap as overlap
+
+        q_turn1 = self.question("Q_TURN1", "Old default")
+        q_turn2 = self.question("Q_TURN2", "Command line")
+        turn1_handoff = {"output": "iter/001/req-01.json", "report": self.report(open_questions=[q_turn1])}
+        state = self.state()
+        state.update(
+            goal_contract={"revision": 1, "hash": "turn1", "body": {}},
+            requirements_handoff=turn1_handoff,
+            turns=[
+                {
+                    "event_id": "fb-turn2",
+                    "say": "Also support CSV",
+                    "previous": {"requirements_output": "iter/001/req-01.json"},
+                }
+            ],
+            user_events=[{"id": "fb-turn2", "kind": "brief_feedback", "contract_token": "r1:turn1"}],
+        )
+        # Turn 1's unarchived handoff is not eligible on Turn 2.
+        self.assertFalse(overlap.eligible(state, [q_turn1])["eligible"])
+
+        state["requirements_history"] = [turn1_handoff]
+        state["requirements_handoff"] = {
+            "output": "iter/002/req-01.json",
+            "report": self.report(open_questions=[q_turn2]),
+        }
+        self.assertTrue(overlap.eligible(state, [q_turn2])["eligible"])
+
+        state["goal_contract"] = {"revision": 2, "hash": "turn2", "body": {}}
+        self.assertFalse(overlap.eligible(state, [q_turn2])["eligible"])
+
 
 class _FakeDispatch:
     """The injected ``run_role`` for the fast proving cases: one bounded, recorded Requirements call.
