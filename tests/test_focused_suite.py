@@ -338,6 +338,63 @@ class NearestTestsTests(unittest.TestCase):
             selected,
         )
 
+    def test_type_checking_imports_are_excluded_unless_else_or_shadowed_or_dynamic(self):
+        sources = {
+            "pkg/__init__.py": "",
+            "pkg/autocode_calc.py": "X = 1\n",
+            "pkg/unused.py": "U = 1\n",
+            "pkg/tc_bridge.py": "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from . import autocode_calc\n",
+            "tests/test_tc_direct.py": (
+                "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import pkg.autocode_calc\ndef test_x(): pass\n"
+            ),
+            "tests/test_tc_alias.py": (
+                "import typing as t\nif t.TYPE_CHECKING:\n    from pkg import autocode_calc\ndef test_x(): pass\n"
+            ),
+            "tests/test_tc_ext.py": (
+                "import typing_extensions as te\n"
+                "if te.TYPE_CHECKING:\n"
+                "    import pkg.autocode_calc\n"
+                "def test_x(): pass\n"
+            ),
+            "tests/test_tc_transitive.py": "from pkg import tc_bridge\ndef test_x(): pass\n",
+            "tests/test_tc_else.py": (
+                "from typing import TYPE_CHECKING\n"
+                "if TYPE_CHECKING:\n"
+                "    import pkg.unused\n"
+                "else:\n"
+                "    import pkg.autocode_calc\n"
+                "def test_x(): pass\n"
+            ),
+            "tests/test_tc_shadowed.py": (
+                "from typing import TYPE_CHECKING\n"
+                "TYPE_CHECKING = True\n"
+                "if TYPE_CHECKING:\n"
+                "    import pkg.autocode_calc\n"
+                "def test_x(): pass\n"
+            ),
+            "tests/test_tc_dynamic_outside.py": (
+                "from typing import TYPE_CHECKING\n"
+                "import importlib\n"
+                "if TYPE_CHECKING:\n"
+                "    import pkg.unused\n"
+                "importlib.import_module(selected)\n"
+                "def test_x(): pass\n"
+            ),
+        }
+        project = Project(sources)
+        self.addCleanup(project.close)
+        project.write({"pkg/autocode_calc.py": "X = 2\n"})
+        changes = {"pkg/autocode_calc.py": "modified"}
+        selected = focused_suite.nearest_tests(sources, changes, self.roles(project, changes), read=sources.__getitem__)
+        self.assertEqual(
+            [
+                "tests/test_tc_dynamic_outside.py",
+                "tests/test_tc_else.py",
+                "tests/test_tc_shadowed.py",
+            ],
+            selected,
+        )
+
     def test_changed_original_tests_and_tests_named_after_changed_products(self):
         project = Project(
             {
