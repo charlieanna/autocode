@@ -446,7 +446,10 @@ def run_role(
     saved_idle_origin = state["settings"].get("budget_origins", {}).get("idle_timeout_seconds")
     idle_limit, idle_origin = idle_policy.effective(idle_timeout, saved_idle_origin, model, stage=original_stage)
     first_event_limit, first_event_origin = idle_policy.first_event_limit(
-        idle_limit, saved_idle_origin, stage_timeout=stage_timeout
+        idle_limit,
+        saved_idle_origin,
+        stage_timeout=stage_timeout,
+        silent_start=idle_policy.silent_start(state.get("recovery_context"), stage),
     )
     tool_timeout = limits.get("tool_timeout_seconds", 1800)
     with phase_timing.measure(state, "source_launcher_preparation", stage=stage, attempt=attempt):

@@ -55,6 +55,9 @@ ITEM_TOOLS = frozenset(
     }
 )
 
+# ``stall_phase`` of an attempt that stopped without one provider event: it ran no tool and reported nothing.
+BEFORE_FIRST_EVENT = "before_first_event"
+
 INSTRUCTION = (
     "The executed_work packet lists the archived attempt's completed tool calls and their "
     "outputs, unverified: use it to see what was already run and focus this attempt instead "
@@ -293,7 +296,7 @@ def classify_stall(record: object, *, last_event_offset_seconds: object = None) 
                 "last_event_offset_seconds": clean_offset,
             }
         return {
-            "stall_phase": "before_first_event",
+            "stall_phase": BEFORE_FIRST_EVENT,
             "completed_tool_calls": 0,
             "last_event_offset_seconds": None,
         }

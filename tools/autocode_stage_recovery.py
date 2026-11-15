@@ -849,7 +849,19 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
         and record.get("timeout_kind", "stage") in ("stage", "person")
         and not record.get("report_only")
     )
-    if continues_builder and next_stage != "builder":
+    # A Builder stopped before its first provider event ran no tool and reported nothing, and this one
+    # changed no file: a recovery review has nothing to inspect, and the Builder it then re-issues starts
+    # under the same startup budget. On a busy host a MiMo Builder was stopped there and a GLM Completion
+    # Reviewer was launched to review an unchanged tree (2026-11-15). It is relaunched instead, and as the
+    # retry of a silent start it has no second startup budget (autocode_idle_policy.silent_start).
+    silent_builder = (
+        semantic_stage == "builder"
+        and record["stall_phase"] == stall_recovery.BEFORE_FIRST_EVENT
+        and record["changed_files"] == []
+        and not record.get("report_only")
+    )
+    relaunches_builder = continues_builder or silent_builder
+    if relaunches_builder and next_stage != "builder":
         # A Builder the stage wall stopped produced no report, so its implementation is unfinished
         # whether or not files changed. Routing it to the Completion Reviewer asks a reviewer to
         # certify work no Builder reported: across four wall-killed runs that cost 16.14 h of
@@ -863,7 +875,7 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
     # workflow's own verification stage instead — a final-audit-only run has no separate Validator, so
     # there its own audit stage re-produces the evidence. Asked only here: this route consults the
     # workflow approval, which no writer's timeout recovery has any reason to raise over.
-    if had_validation and not keep_evidence and next_stage == semantic_stage and not continues_builder:
+    if had_validation and not keep_evidence and next_stage == semantic_stage and not relaunches_builder:
         verification_stage = workflow.review_stage(state)
         if verification_stage in ("tester", "review_checkpoint"):
             next_stage = verification_stage
@@ -904,6 +916,12 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
             "The person stopped this request while it ran; it was archived after its workers stopped. "
             "Inspect the retained partial work and evidence before continuing; do not treat it as a completed "
             "report. Nothing timed out, so keep the plan and limits; preserve all acceptance checks."
+        )
+    elif silent_builder and not continues_builder:
+        recovery["instruction"] = (
+            "The previous request was stopped before its provider emitted any event: it ran no tool, changed "
+            "no file and reported nothing. Nothing was retained to inspect or repair. Carry out the assigned "
+            "task under the approved plan and saved execution limits."
         )
     elif retry_missing_tester_report:
         recovery["instruction"] = (

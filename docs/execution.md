@@ -1011,6 +1011,14 @@ do the Requirements, Planner and Plan Reviewer launches at 600 seconds: those st
 report and emit nothing before it, and live Planner calls for a large plan took 300 to 340 seconds.
 A MiMo Planner gets 900. A limit you set is used as given, the saved setting is never rewritten,
 and the stop text names the floor that applied.
+On the runner default a launch also has 90 seconds to emit its first event, so a transport that
+never answers is stopped early rather than at the full limit (`stall_phase` `before_first_event`).
+That budget cannot tell a wedged transport from a first answer that is slow to begin, so it applies
+once: the retry of a stage stopped there runs under the inactivity limit above alone. On a busy host,
+Plan Reviewer calls on MiMo with a 200 KB prompt took longer than 90 seconds to emit anything; three in
+a row were stopped at the budget, which spent the run's automatic recoveries and asked the person for
+more. A Builder stopped there that changed no file is run again as that retry: it ran no tool and
+reported nothing, so there is no partial work for a recovery review to inspect.
 A configured tool with no event protocol (`output = "report_file"`, such as GoCode's
 `codex exec` without `--json`) writes its progress as plain lines: each new, distinct line counts
 as activity there, never as tool or report evidence, and a repeated or blank line does not.

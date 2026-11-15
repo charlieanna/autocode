@@ -1317,6 +1317,120 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertEqual(0, attempt.get("completed_tool_calls"))
         self.assertIsNone(attempt.get("last_event_offset_seconds"))
 
+    def test_a_stage_retried_after_a_silent_start_is_not_stopped_at_the_startup_budget_again(self):
+        """A first answer that is only slow to begin reaches its report on the retry.
+
+        The Planner's first launch emits nothing and is stopped at the startup budget. Its automatic retry
+        emits its first event later than that budget too, as a large planning prompt on a busy host does,
+        and must run on under the stage's ordinary inactivity limit instead of being stopped again.
+        """
+        self.state.update(next_stage="draft_plan", phase="DISCOVERING")
+        self.state["settings"]["limits"].update(
+            stage_timeout_seconds=60, idle_timeout_seconds=10, tool_timeout_seconds=10
+        )
+        self.state["settings"]["budget_origins"] = {"idle_timeout_seconds": "runner_default"}
+        report = {"contract": test_goals.body(), "summary": "Drafted the greeting plan"}
+        script = f"""
+            import json, sys, time
+            from pathlib import Path
+            sys.stdin.read()
+            launched = Path(__file__).with_name('launched')
+            if not launched.exists():
+                launched.write_text('the first launch never answers')
+                time.sleep(30)
+            time.sleep(1)
+            print(json.dumps({{'type': 'thread.started', 'thread_id': 'offline-slow-start'}}), flush=True)
+            Path(sys.argv[sys.argv.index('-o') + 1]).write_text(json.dumps({report!r}))
+            print(json.dumps({{'type': 'turn.completed', 'usage': {{'input_tokens': 1, 'output_tokens': 1}}}}), flush=True)
+        """
+        schema = self.run / "fixture-draft.schema.json"
+        support.atomic_json(schema, goals.DISCOVERY_SCHEMA)
+
+        def planner():
+            return runner.run_role(
+                role="task_planner",
+                prompt="Draft the greeting plan",
+                sandbox="read-only",
+                workspace=self.root,
+                run_dir=self.run,
+                state=self.state,
+                schema=schema,
+                model="offline-fixture",
+                allow_write=False,
+                dry_run=False,
+            )
+
+        with (
+            patch.object(runner.idle_policy, "FIRST_EVENT_SECONDS", 0.3),
+            self.fake_provider(script),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            with self.assertRaises(support.Paused) as caught:
+                planner()
+            stopped = support.read(self.run / "state.json")["active_stage"]
+            self.assertIn("initial stream event", stopped["timeout_reason"])
+            self.assertTrue(
+                runner.automatically_recover_timed_out_stage(self.state, self.run, self.root, caught.exception)
+            )
+            self.assertEqual("draft_plan", self.state["next_stage"])
+            value, record = planner()
+        self.assertFalse(record["timed_out"])
+        self.assertGreaterEqual(record["duration_seconds"], 1)
+        self.assertEqual("Drafted the greeting plan", value["summary"])
+
+    def test_a_builder_stopped_before_its_first_event_is_relaunched_and_not_stopped_there_again(self):
+        """A Builder that never began has nothing for a recovery review: it is run again, and may begin slowly."""
+        self.start_task()
+        self.state["settings"]["limits"].update(
+            stage_timeout_seconds=60, idle_timeout_seconds=10, tool_timeout_seconds=10
+        )
+        self.state["settings"]["budget_origins"] = {"idle_timeout_seconds": "runner_default"}
+        report = {
+            **envelope(self.state),
+            "summary": "Greeting implemented on the second launch",
+            "changed_files": ["greet.py"],
+            "commands_run": [],
+            "results": ["Hello, fixture"],
+            "remaining_risks": [],
+            "evidence_refs": [],
+            "addressed_requirements": ["Greet a valid name"],
+            "untested_behavior": ["Invalid input"],
+            "recommended_checks": ["The Validator executes valid and invalid CLI cases"],
+        }
+        script = f"""
+            import json, sys, time
+            from pathlib import Path
+            sys.stdin.read()
+            launched = Path(__file__).with_name('launched')
+            if not launched.exists():
+                launched.write_text('the first launch never answers')
+                time.sleep(30)
+            time.sleep(1)
+            print(json.dumps({{'type': 'thread.started', 'thread_id': 'offline-slow-builder'}}), flush=True)
+            Path('greet.py').write_text("print('Hello, fixture')\\n")
+            Path(sys.argv[sys.argv.index('-o') + 1]).write_text(json.dumps({report!r}))
+            print(json.dumps({{'type': 'turn.completed', 'usage': {{'input_tokens': 1, 'output_tokens': 1}}}}), flush=True)
+        """
+        source = (self.root / "greet.py").read_bytes()
+        with (
+            patch.object(runner.idle_policy, "FIRST_EVENT_SECONDS", 0.3),
+            self.fake_provider(script),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            with self.assertRaises(support.Paused) as caught:
+                self.real_terra()
+            self.assertEqual("before_first_event", support.read(self.run / "state.json")["active_stage"]["stall_phase"])
+            self.assertTrue(
+                runner.automatically_recover_timed_out_stage(self.state, self.run, self.root, caught.exception)
+            )
+            self.assertEqual(source, (self.root / "greet.py").read_bytes())
+            self.assertEqual("builder", self.state["next_stage"])
+            value, record = self.real_terra()
+        self.assertFalse(record["timed_out"])
+        self.assertGreaterEqual(record["duration_seconds"], 1)
+        self.assertEqual("Greeting implemented on the second launch", value["summary"])
+        self.assertEqual("print('Hello, fixture')\n", (self.root / "greet.py").read_text())
+
 
 if __name__ == "__main__":
     unittest.main()
