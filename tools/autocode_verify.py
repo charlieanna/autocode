@@ -2165,7 +2165,7 @@ def _run_suite_base_definition(
     }
     try:
         definition_inputs.check_parents(overlay, definition)
-        if not found.changed:
+        if not found.changed and not set(listing) & set(reviewed):
             return {"run": None, "boundary": ""}
         with definition_inputs.isolated_folder(workspace) as holder:
             tree = make_tree(
@@ -2676,7 +2676,7 @@ def verify(
     if roles is None or not role_inventory.matches(roles, workspace, changes):
         roles = role_inventory.from_git(workspace, base, is_test_path, changes=changes)
     tests, sources, ambiguous = roles.partition(changes)
-    runnable_tests, sources = changed_tests.inline_tests(workspace, base, tests, sources, changes)
+    runnable_tests, sources = changed_tests.proving(workspace, base, tests, sources, changes, test_side, is_code_path)
     if framework is not None:
         framework = copy.copy(framework)
         framework.test_roles = roles

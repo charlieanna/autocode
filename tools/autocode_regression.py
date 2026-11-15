@@ -71,6 +71,7 @@ try:
     from . import autocode_changed_code_proof as changed_code
     from . import autocode_changed_code_trigger as changed_code_trigger
     from . import autocode_command_guards as command_guards
+    from . import autocode_command_looks as command_looks
     from . import autocode_companion_suites as companion_suites
     from . import autocode_companion_tests as companion_tests
     from . import autocode_component_plan as component_plan
@@ -113,6 +114,7 @@ except ImportError:
     import autocode_changed_code_proof as changed_code
     import autocode_changed_code_trigger as changed_code_trigger
     import autocode_command_guards as command_guards
+    import autocode_command_looks as command_looks
     import autocode_companion_suites as companion_suites
     import autocode_companion_tests as companion_tests
     import autocode_component_plan as component_plan
@@ -393,47 +395,79 @@ def _plan_command(state: RunState, workspace, run_dir, base, *, all_due=False):
             ) as say:
                 observe = _observe(state, workspace, run_dir, base, original, changed, say)
                 plan_roles.settle(state, base, contract, **tests, guards=guards, tree=workspace, observe=observe)
+        # The change holds code and no file a rule calls a test: see whether a file of it is a test run
+        # by a command the plan says runs this project's tests (autocode_plan_command_roles.declared).
+        code = {
+            path: plan_roles.CHANGE if status == "added" else plan_roles.ORIGINAL
+            for path, status in sorted(changes.items(), key=lambda item: (item[1] != "added", item[0]))
+            if status != "deleted" and verify.is_code_path(path)
+        }
+        body = contract.get("body") if isinstance(contract, dict) else None
+        declared = plan_roles.declared(body, workspace)
+        if code and not changed and declared:
+            homes = {str(Path(path).parent) for path, where in code.items() if where == plan_roles.CHANGE}
+            beside = [
+                path
+                for path in sorted(entries)
+                if path not in changes and str(Path(path).parent) in homes and verify.is_code_path(path)
+            ]
+            with runner_check.track(
+                state,
+                run_dir,
+                STAGE,
+                "Seeing which of the changed files are tests the plan's command runs",
+                status.persist,
+            ) as say:
+                look = _look(state, workspace, run_dir, base, say)
+                plan_roles.find_tests(
+                    state,
+                    base,
+                    contract,
+                    commands=declared,
+                    files=code,
+                    beside=beside,
+                    tree=workspace,
+                    observe=lambda command, where: look(command, where, {}, {}),
+                    probe=lambda command, path, how, where: look(
+                        command,
+                        f"{how}-{where}",
+                        changes if where == plan_roles.CHANGE else {},
+                        {path: plan_roles.UNLOADABLE if how == plan_roles.UNLOADED else ""},
+                        strict=True,
+                    ),
+                )
+        elif plan_roles.has_tests(state):
+            # An earlier proof of this run took files for tests that this change no longer leaves to a look.
+            plan_roles.find_tests(
+                state, base, contract, commands=(), files={}, tree=workspace, observe=None, probe=None
+            )
+    seen = plan_roles.tests(state, base, contract)
+    tests = {
+        "original_tests": [*original, *(path for path, row in seen.items() if row["where"] == plan_roles.ORIGINAL)],
+        "changed_tests": [*changed, *(path for path in seen if changes.get(path, "deleted") != "deleted")],
+    }
     return plan_roles.adopted(state, base, contract, **tests)
+
+
+def _look(state: RunState, workspace, run_dir, base, say):
+    """``command_looks.looker`` for this run's proof: each run is bounded by the suite's own limit."""
+    limit = min(suite_timeout(state) or plan_roles.RUN_SECONDS, plan_roles.RUN_SECONDS)
+    return command_looks.looker(state, workspace, run_dir, base, say, limit=limit)
 
 
 def _observe(state: RunState, workspace, run_dir, base, original, changed, say):
     """``observe(command, where)`` for autocode_plan_command_roles.settle: one command on a tree of the
     original code, as it is, with the change's test files, or with its own test files made unloadable.
     The command's exit code, or None when the tree could not be made or the command did not finish."""
-    out = Path(run_dir).resolve() / "regression" / ("roles-" + uuid.uuid4().hex)
-    dependencies = state.get("project_workspace") or str(workspace)
-    limit = min(suite_timeout(state) or plan_roles.RUN_SECONDS, plan_roles.RUN_SECONDS)
-    runs: list[str] = []
+    look = _look(state, workspace, run_dir, base, say)
 
     def observe(command, where):
-        runs.append(where)
-        folder = out / f"{len(runs):02d}-{where}"
-        say("Running the plan's commands on the original code to see what they do", command=command, output=folder)
-        try:
-            tree = verify.make_tree(
-                workspace,
-                base,
-                Path(run_dir) / "scratch" / f"roles-{len(runs):02d}",
-                workspace,
-                changed if where == plan_roles.WITH_TESTS else {},
-                dependencies_from=dependencies,
-                ignored_inputs=launch_inputs.supply(state, workspace, run_dir),
-            )
-        except (OSError, ValueError):
-            return None
-        try:
-            if where == plan_roles.WITHOUT_TESTS:
-                for path in original:
-                    file = tree / path
-                    if file.is_file() and not file.is_symlink():
-                        file.write_text(plan_roles.UNLOADABLE)
-            receipt = verify.run_suite(None, command, tree, folder, where, timeout=limit)
-        except (OSError, ValueError):
-            return None
-        finally:
-            verify.remove_tree(workspace, tree)
-        finished = verify.command_receipt.completed(receipt) and not receipt.get("timed_out")
-        return receipt.get("exit_code") if finished else None
+        return look(
+            command,
+            where,
+            changed if where == plan_roles.WITH_TESTS else {},
+            dict.fromkeys(original, plan_roles.UNLOADABLE) if where == plan_roles.WITHOUT_TESTS else {},
+        )
 
     return observe
 
@@ -1502,7 +1536,9 @@ def _proving(
             test_side=test_side,
             **rooted(options),
         )
-        result = proving_run()
+        # Files of the change that a command of the plan showed to be tests, where no rule names them.
+        seen_tests = sorted(set(plan_roles.tests(state, base, state.get("goal_contract"))) & set(changes))
+        result = proving_run(tuple(seen_tests))
         if looking := listed_tests.wanted(result):
             # The proof failed in a way a file that lists the change's tests explains: see whether another
             # file of the change lists them, and prove again with it taken with the tests.
@@ -1520,7 +1556,7 @@ def _proving(
                 inputs,
             )
             if listed["files"]:
-                result = proving_run(tuple(listed["files"]))
+                result = proving_run((*seen_tests, *listed["files"]))
         path = out / "verification.json"
         proof = {key: result.get(key) for key in SUMMARY_KEYS}
         if inputs:
@@ -1601,7 +1637,11 @@ def _proving(
                 proof["verdict"], [], unseen, fail=verify.FAIL, unverified_verdict=verify.UNVERIFIED
             )
         if adopted:
-            chosen = [plan_command.note(adopted), *filter(None, [plan_roles.note(adopted)])]
+            contract = state.get("goal_contract")
+            chosen = [
+                plan_command.note(adopted),
+                *filter(None, [plan_roles.note(adopted), plan_roles.tests_note(state, base, contract)]),
+            ]
             proof["notes"] = [*(proof.get("notes") or []), *chosen]
             proof["review_reasons"] = [*(proof.get("review_reasons") or []), *chosen]
         elif framework is None and (tried := plan_roles.unsettled(state, base, state.get("goal_contract"), workspace)):
