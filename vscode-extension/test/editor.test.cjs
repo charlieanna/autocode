@@ -2497,8 +2497,8 @@ test('a started chat changes a stage\'s model from the chat box between stages, 
   const working = 'A stage is working. Pause the chat, or wait until it asks you something, to change its models.';
   await ui.poll({ ...initial, stage_models: { changeable: false, reason: working, next_command: list } });
   assert.equal(chip.disabled, true, 'only between stages');
-  assert.equal(ui.document.getElementById('models-name').textContent, 'Models · after this stage',
-    'a greyed-out chip says when it comes back, not only on hover');
+  assert.equal(ui.document.getElementById('models-name').textContent, 'Models',
+    'a current refusal does not promise when availability will change');
   assert.equal(chip.title, working, 'the core says why not');
   await ui.poll(initial);
   assert.equal(chip.disabled, false, 'between stages again');
@@ -2515,7 +2515,7 @@ test('a paused uncertain check does not say models change after a running stage'
   const ui = await openChat(t, paused);
   const chip = ui.document.getElementById('models-picker');
   assert.equal(chip.disabled, true);
-  assert.equal(ui.document.getElementById('models-name').textContent, 'Models · unavailable');
+  assert.equal(ui.document.getElementById('models-name').textContent, 'Models');
   assert.equal(chip.title, reason);
 });
 
@@ -7861,3 +7861,46 @@ for (const surface of ['chat', 'Run details']) {
     assert.equal(ui.window.getComputedStyle(historical).paddingLeft, '12px', 'recorded route history retains its indentation');
   });
 }
+
+
+for (const [context, status, done, working] of [
+  ['working', 'RUNNING', false, true],
+  ['paused', 'PAUSED_REPORT_ERROR', false, false],
+  ['blocked', 'PAUSED_PROCESS_CLEANUP', false, false],
+  ['stopped', 'PAUSED_INTERVENTION', false, false],
+  ['done', 'TASK_COMPLETE', true, false],
+  ['no-active-stage', 'WAITING_FOR_USER', false, false],
+  ['uncertain-check', 'PAUSED_VERIFICATION_UNCERTAIN', false, false],
+]) {
+  for (const reason of ['The last stage attempt still needs recovery. Its models cannot be changed yet.', null]) {
+    test(`model availability observation: ${context}, reason=${reason !== null}, never promises a later change`, async (t) => {
+      const list = ['stages', 'list', '--run-dir', run.runDir, '--json'];
+      const initial = { ...chatView(), status, done,
+        pipeline: context === 'no-active-stage' ? [] : [{ job: 'requirements', label: 'Requirements', state: working ? 'working' : 'ran' }],
+        stage_models: { changeable: false, reason, next_command: list } };
+      const launch = t.mock.method(cli, 'stream', async () => ok);
+      const ui = await openChat(t, initial);
+      const chip = ui.document.getElementById('models-picker');
+      assert.equal(chip.hidden, false, 'a valid Core list remains inspectable as an unavailable control');
+      assert.equal(chip.disabled, true, 'the current refusal remains authoritative');
+      assert.equal(ui.document.getElementById('models-name').textContent, 'Models', 'a present refusal cannot promise when availability will change');
+      assert.equal(chip.title, reason ?? "This chat's models cannot change now.", 'the original Core reason or existing fallback stays exact');
+      const before = ui.sent.length;
+      chip.click(); await flush();
+      assert.equal(ui.sent.length, before, 'the unavailable control sends no action or model-list request');
+      assert.equal(launch.mock.callCount(), 0);
+      await ui.poll({ ...initial, stage_models: null });
+      assert.equal(chip.hidden, true, 'absence of a Core offer remains absence of authority');
+    });
+  }
+}
+
+test('model availability observation: an invalid list stays hidden without a guessed model action', async (t) => {
+  const initial = { ...chatView(), stage_models: { changeable: false, reason: 'Unavailable.', next_command: ['--resume-paused'] } };
+  const ui = await openChat(t, initial);
+  const chip = ui.document.getElementById('models-picker');
+  assert.equal(chip.hidden, true);
+  const before = ui.sent.length;
+  chip.click(); await flush();
+  assert.equal(ui.sent.length, before);
+});
