@@ -680,6 +680,109 @@ class OutcomeReportAggregationTests(unittest.TestCase):
             self.assertEqual(2, payload["total_runs"])
             self.assertEqual(150.0, payload["by_provenance"]["live"]["stage_outcomes"]["total_seconds"])
 
+    def test_stage_prompt_splits_overages_and_claude_first_request_cache_share(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "project"
+            run_dir = project / ".autocode" / "runs" / "20261114-120000"
+            run_dir.mkdir(parents=True)
+            state = {
+                "status": "TASK_COMPLETE",
+                "workflow": {"kind": "build"},
+                "settings": {"engine": "claude", "evidence_provenance": {"kind": "live"}},
+                "planning": {"adaptive": {"size": "small"}},
+                "stages": [
+                    {
+                        "stage": "builder",
+                        "engine": "claude",
+                        "model": "claude-sonnet-4-6",
+                        "reasoning_effort": "medium",
+                        "prompt_bytes": 16000,
+                        "duration_seconds": 12.0,
+                        "started_at": "2026-11-14T12:00:05+00:00",
+                        "finished_at": "2026-11-14T12:00:17+00:00",
+                        "exit_code": 0,
+                        "context": {
+                            "instruction_bytes": 9000,
+                            "stable_handoff_bytes": 5000,
+                            "changing_handoff_bytes": 2000,
+                            "top_handoff_fields": [{"field": "requirements", "bytes": 4000}],
+                            "budgeted_fields": [],
+                        },
+                        "metrics": {
+                            "provider_tokens": {
+                                "input_tokens": 5000,
+                                "cached_input_tokens": 4500,
+                                "output_tokens": 200,
+                            },
+                            "first_request_tokens": {
+                                "input_tokens": 4000,
+                                "cached_input_tokens": 3000,
+                                "cache_write_tokens": 1000,
+                                "fresh_input_tokens": 0,
+                                "output_tokens": 100,
+                            },
+                        },
+                    },
+                    {
+                        "stage": "review_completion",
+                        "engine": "claude",
+                        "model": "claude-sonnet-4-6",
+                        "reasoning_effort": "high",
+                        "prompt_bytes": 20000,
+                        "duration_seconds": 15.0,
+                        "started_at": "2026-11-14T12:00:20+00:00",
+                        "finished_at": "2026-11-14T12:00:35+00:00",
+                        "exit_code": 0,
+                        "context": {
+                            "instruction_bytes": 8000,
+                            "stable_handoff_bytes": 4000,
+                            "changing_handoff_bytes": 8000,
+                            "top_handoff_fields": [{"field": "regression_proof", "bytes": 6000}],
+                            "budgeted_fields": ["regression_proof", "validation"],
+                        },
+                        "metrics": {
+                            "provider_tokens": {"input_tokens": 2000, "output_tokens": 100},
+                        },
+                    },
+                    {
+                        # Legacy stage record without split byte metrics must preserve None (never zero).
+                        "stage": "tester",
+                        "engine": "codex",
+                        "model": "gpt-5.4",
+                        "prompt_bytes": 5000,
+                        "duration_seconds": 8.0,
+                        "exit_code": 0,
+                        "metrics": {"provider_tokens": {"input_tokens": 500, "output_tokens": 50}},
+                    },
+                ],
+            }
+            usage.record(run_dir / "state.json", state)
+            ledger_rows = usage_report.read_ledger(project / ".autocode" / "usage.jsonl")
+            self.assertEqual(1, len(ledger_rows))
+            sp_entries = ledger_rows[0]["stage_prompts"]
+            self.assertEqual(9000, sp_entries[0]["instruction_bytes"])
+            self.assertEqual(5000, sp_entries[0]["stable_handoff_bytes"])
+            self.assertEqual(2000, sp_entries[0]["changing_handoff_bytes"])
+            self.assertEqual(3000, sp_entries[0]["first_request_cache_read_tokens"])
+            self.assertEqual(1000, sp_entries[0]["first_request_cache_write_tokens"])
+            self.assertEqual(["regression_proof", "validation"], sp_entries[1]["budgeted_fields"])
+            self.assertIsNone(sp_entries[2]["instruction_bytes"])
+            self.assertIsNone(sp_entries[2]["stable_handoff_bytes"])
+            self.assertIsNone(sp_entries[2]["changing_handoff_bytes"])
+            self.assertIsNone(sp_entries[2]["budgeted_fields"])
+
+            report = usage_report.build_report(project)
+            sp_summary = report["by_provenance"]["live"]["stage_prompts"]
+            self.assertEqual({"regression_proof": 1, "validation": 1}, sp_summary["field_budget_overages"])
+            by_job = {item["job"]: item for item in sp_summary["by_job"]}
+            self.assertAlmostEqual(0.75, by_job["Builder"]["first_request_cache_hit_share"], places=4)
+            self.assertEqual(5000.0, by_job["Builder"]["stable_handoff_bytes"]["median"])
+            self.assertEqual(0, by_job["Tester"]["instruction_bytes"]["count"])
+
+            text = usage_report.format_report(report)
+            self.assertIn("Stage prompts (1 runs):", text)
+            self.assertIn("Field budget overages: regression_proof=1, validation=1", text)
+
 
 class UsageReportCliEndToEndTests(unittest.TestCase):
     def test_real_cli_run_writes_outcomes_and_report_reads_only_ledger(self):

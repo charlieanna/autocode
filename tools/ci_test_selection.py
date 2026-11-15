@@ -290,6 +290,14 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tools/prompts/fragments/autoplanner/retained-review-observations.md",
         ("tests.test_planning_recovery_observations",),
     ),
+    (
+        "tools/autocode_prompt_layout.py",
+        ("tests.test_prompt_layout_and_budget", "tests.test_usage_outcome_report"),
+    ),
+    (
+        "tools/autocode_field_budget.py",
+        ("tests.test_prompt_layout_and_budget", "tests.test_usage_outcome_report"),
+    ),
     ("tools/prompts/fragments/check-replay/validator-note.md", ("tests.test_check_replay",)),
     (
         "tools/prompts/fragments/provider-opencode/review-output.md",
@@ -1409,6 +1417,8 @@ def dependencies(path: str) -> set[str]:
         selected.update((*CORE_CONSUMERS, *PUBLIC_FLOW_CONSUMERS))
     if path.startswith("tools/prompts/") or path in (
         "tools/autocode_prompts.py",
+        "tools/autocode_prompt_layout.py",
+        "tools/autocode_field_budget.py",
         "tests/prompt_rendering_fixtures.json",
     ):
         selected.update(PROMPT_CONSUMERS)

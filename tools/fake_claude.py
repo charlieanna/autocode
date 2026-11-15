@@ -82,8 +82,12 @@ home = Path(os.environ.get("AUTOCODE_FIXTURE_CLAUDE_HOME") or Path(__file__).wit
 home.mkdir(parents=True, exist_ok=True)
 model = ARGS[ARGS.index("--model") + 1]
 resumed = ARGS[ARGS.index("--resume") + 1] if "--resume" in ARGS else None
-prompt = sys.stdin.read()
-record(prompt_head=prompt[:120])
+sys_prompt = ARGS[ARGS.index("--append-system-prompt") + 1] if "--append-system-prompt" in ARGS else ""
+stdin_prompt = sys.stdin.read()
+stage_sys = sys_prompt.split("\n\n", 1)[1] if "\n\n" in sys_prompt else ""
+has_stable_sys = "\nSTABLE HANDOFF DATA\n" in sys_prompt
+prompt_head = (stage_sys or stdin_prompt)[:120]
+record(prompt_head=prompt_head, stdin_head=stdin_prompt[:120], has_stable_system_handoff=has_stable_sys)
 
 
 def emit(row):
@@ -144,7 +148,7 @@ if resumed is not None and not (home / f"{resumed}.json").is_file():
     sys.stderr.write(f"No conversation found with session ID: {resumed}\n")
     raise SystemExit(1)
 
-if prompt.startswith(CORRECTION):
+if stdin_prompt.startswith(CORRECTION):
     # The same-session format correction: Claude re-emits the report it already wrote.
     assert resumed, "a format correction resumes its stage's session"
     saved = session_state(resumed)
@@ -154,8 +158,21 @@ if prompt.startswith(CORRECTION):
     deliver(resumed, saved["report"], saved["calls"])
     raise SystemExit(0)
 
-assert "CLAUDE CODE OUTPUT CONTRACT" in prompt, "the stage prompt carries the provider's output contract"
-data = json.loads(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[1])
+if stage_sys:
+    assert "CLAUDE CODE OUTPUT CONTRACT" in sys_prompt and "CLAUDE CODE OUTPUT CONTRACT" not in stdin_prompt, (
+        "split Claude system prompt carries output contract out of stdin"
+    )
+else:
+    assert "CLAUDE CODE OUTPUT CONTRACT" in stdin_prompt, "the stage prompt carries the provider's output contract"
+stdin_data = json.loads(stdin_prompt.split("\nCURRENT HANDOFF DATA\n", 1)[1])
+stable_data = json.loads(sys_prompt.split("\nSTABLE HANDOFF DATA\n", 1)[1]) if has_stable_sys else {}
+data = {**stable_data, **stdin_data}
+merged_prefix = (
+    stage_sys.split("\nSTABLE HANDOFF DATA\n", 1)[0]
+    if stage_sys
+    else stdin_prompt.split("\nCURRENT HANDOFF DATA\n", 1)[0]
+)
+prompt = f"{merged_prefix}\nCURRENT HANDOFF DATA\n{json.dumps(data)}\n"
 stage = data.get("stage") or ""
 if os.environ.get("AUTOCODE_FIXTURE_CLAUDE_START_ERROR") == stage:
     sys.stderr.write("Error: --json-schema must be a JSON object\n")

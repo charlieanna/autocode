@@ -287,7 +287,7 @@ class InvestigatorTests(unittest.TestCase):
         for stage, given in (("requirements_gather", True), ("draft_plan", True), ("review_plan", False)):
             with self.subTest(stage=stage):
                 prompt, _ = autoplanner.context(later, stage, run_dir / "state.json")
-                packet = json.loads(next(line for line in prompt.splitlines() if line.startswith('{"task":')))
+                packet = json.loads(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[1])
                 self.assertEqual(given, "project_notes" in packet)
                 self.assertEqual(given, lifecycle.RULE in prompt)
                 if given:

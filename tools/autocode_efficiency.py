@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 import datetime as dt
+import hashlib
 import json
 import math
 import warnings
@@ -188,6 +189,39 @@ def observe_replay(state: RunState, replay, *, attempt_id):
                 started_at=schedule.get("started_at"),
                 finished_at=schedule.get("finished_at"),
             )
+
+
+def observe_prompt_budget(state: RunState, *, stage: str, metrics: dict | None) -> bool:
+    """Record prompt soft-budget overages or field-budget compactions as efficiency telemetry."""
+    info = _dict(metrics)
+    estimated = info.get("estimated_prompt_tokens")
+    soft_budget = info.get("soft_budget_tokens")
+    budgeted_fields = list(info.get("budgeted_fields") or [])
+    over_soft = isinstance(estimated, int) and isinstance(soft_budget, int) and estimated > soft_budget
+    if not over_soft and not budgeted_fields:
+        return False
+    provenance = {
+        "stage": stage,
+        "prompt_bytes": info.get("prompt_bytes"),
+        "instruction_bytes": info.get("instruction_bytes"),
+        "stable_handoff_bytes": info.get("stable_handoff_bytes"),
+        "changing_handoff_bytes": info.get("changing_handoff_bytes"),
+        "estimated_prompt_tokens": estimated,
+        "soft_budget_tokens": soft_budget,
+        "over_soft_budget": over_soft,
+        "budgeted_fields": budgeted_fields,
+        "top_handoff_fields": list(info.get("top_handoff_fields") or []),
+    }
+    attempt = len(state.get("stages") or ())
+    digest = hashlib.sha256(json.dumps(provenance, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    return record_observation(
+        state,
+        event_id=f"prompt-budget:{stage}:{attempt}:{digest[:12]}",
+        kind="suppressed",
+        category=_category({"stage": stage}),
+        reason="duplicate_no_new_information",
+        provenance=provenance,
+    )
 
 
 def _time(value):

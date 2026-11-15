@@ -28,6 +28,7 @@ try:
     from . import autocode_contract_identity as contract
     from . import autocode_cost as cost
     from . import autocode_dispatch as dispatch
+    from . import autocode_efficiency as efficiency
     from . import autocode_interventions as interventions
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_milestones as milestones
@@ -59,6 +60,7 @@ except ImportError:
     import autocode_contract_identity as contract
     import autocode_cost as cost
     import autocode_dispatch as dispatch
+    import autocode_efficiency as efficiency
     import autocode_interventions as interventions
     import autocode_launch_inputs as launch_inputs
     import autocode_milestones as milestones
@@ -387,9 +389,7 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         runner.rotate_if_needed(current, route_role, run_dir)
         prompt, metrics = request.prompt, request.metrics
         current["pending_context_metrics"] = metrics
-        # Soft budget: keep exact requirements; don't silently truncate them.
-        if metrics["estimated_prompt_tokens"] > metrics["soft_budget_tokens"]:
-            print("Context soft budget exceeded; preserving complete requirements", flush=True)
+        efficiency.observe_prompt_budget(current, stage=stage, metrics=metrics)
         runner.write_json(state_path, current)
         if current.get("status") != "RUNNING":
             # Saving adjudicated a queued resolver request (published or deferred it): launch nothing.
