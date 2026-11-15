@@ -100,9 +100,22 @@ running (`tests/pages.rs`, or `src/lib.rs` for unit tests) and the harness's nam
   `fn exact_multiple`, and `guard: tests::exact_multiple` the one in `mod tests`. A lone word
   (`guard: manual`) is still prose. Every other runner keeps the rule above: only a `test_*` or
   Go `Test*` name binds, and anything else falls back to the criterion id.
-- The changed test files are the files under `tests/` (and other test paths). A test added to a
-  `#[cfg(test)]` module inside a source file is part of the source: the proof cannot run it
-  against the original code, so plans put a new Rust test in a file under `tests/`.
+- The changed test files are the files under `tests/` (and other test paths), and the code files
+  whose tests changed. Some tests are written inside a code file: a Python doctest in a docstring,
+  a Rust example in a doc comment, a `#[cfg(test)]` module, and the examples of a doctest document
+  (`.txt`, `.rst`, `.md`). Each language's own syntax says which lines those are
+  (`autocode_test_parts.parts`). The proof puts the change's edits to those lines on the original
+  code, and nothing else: it refuses to when the original program would differ, read without its
+  docstrings, doc comments and test modules, so a fix cannot ride along. An example of a function
+  the change adds goes into doctest's own `__test__` table, so it fails on the original code as a
+  new test of a new function does. A docstring example is the change's test only when no test file
+  changed, since a project with test files may not run its doctests; a Rust doc example is one
+  always, since `cargo test` runs them. A command that names a file holding such tests
+  (`python -m doctest textutil.py`) runs existing tests, so it can guard a change; the plan check,
+  the guard and the proof's choice of command read that from `autocode_test_parts.named_holding`.
+  Open: a Rust doc example on a function the change adds
+  cannot be put on the original code, and an edit that mixes test lines and code on one line is not
+  split, so such a proof finds no test rather than passing.
 
 A literal Go check with an explicit empty selector (`go test -run '^$' ./...`)
 may validate compilation in a plan. Its exit must be zero, but it supplies no

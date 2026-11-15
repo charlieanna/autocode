@@ -99,6 +99,7 @@ try:
     from . import autocode_status as status
     from . import autocode_test_cases as test_cases
     from . import autocode_test_homes as test_homes
+    from . import autocode_test_parts as test_parts
     from . import autocode_test_role_inventory as role_inventory
     from . import autocode_unloadable_tests as unloadable_tests
     from . import autocode_util as util
@@ -142,6 +143,7 @@ except ImportError:
     import autocode_status as status
     import autocode_test_cases as test_cases
     import autocode_test_homes as test_homes
+    import autocode_test_parts as test_parts
     import autocode_test_role_inventory as role_inventory
     import autocode_unloadable_tests as unloadable_tests
     import autocode_util as util
@@ -385,6 +387,10 @@ def _plan_command(state: RunState, workspace, run_dir, base, *, all_due=False):
     is_test = role_inventory.test_rule(entries)
     original = [path for path in entries if is_test(path)]
     changed = {path: status for path, status in changes.items() if status != "deleted" and is_test(path)}
+    # Files that hold tests inside them (a doctest, a doc example) are tests of a command that names them.
+    holders = [path for path in entries if not is_test(path)]
+    original += test_parts.original_named(workspace, base, plan_roles.candidates(contract, workspace), holders)
+    changed.update({path: changes[path] for path in test_parts.changed_holding(workspace, base, changes)})
     tests = {"original_tests": original, "changed_tests": list(changed)}
     try:
         from . import autocode_replay_checks as recorded_checks
@@ -1482,8 +1488,12 @@ def _proving(
         # A guard's command the plan's rules do not know may have been seen to run the project's tests.
         per_test = reporters.suite_reports(proving, workspace)
         guards_seen = plan_roles.runs_tests(state, state.get("goal_contract"))
+        # A guard that names a file of examples (``python -m doctest textutil.py``) runs existing tests.
+        guarded_tests = original_tests + test_parts.original_named(
+            workspace, base, [guard["command"] for guard in guards_due], [p for p in entries if p not in original_tests]
+        )
         guard_commands = command_guards.usable(
-            guards_due, proving, original_tests, per_test=per_test, observed=guards_seen
+            guards_due, proving, guarded_tests, per_test=per_test, observed=guards_seen
         )
         if (
             guard_commands
@@ -1635,7 +1645,7 @@ def _proving(
             suite_timeout(state),
         )
         if unseen := command_guards.unproven(
-            guards_due, proving, original_tests, per_test=per_test, observed=guards_seen
+            guards_due, proving, guarded_tests, per_test=per_test, observed=guards_seen
         ):
             proof["unverified"] = [*(proof.get("unverified") or []), *unseen]
             proof["verdict"] = companion_suites.verdict(

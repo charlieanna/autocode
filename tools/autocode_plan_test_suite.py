@@ -31,9 +31,9 @@ try:
     from . import autocode_package_scope as package_scope
     from . import autocode_plan_command_roles as plan_roles
     from . import autocode_project_kinds as project_kinds
-    from . import autocode_rust_inline_tests as rust_inline_tests
     from . import autocode_test_cases as test_cases
     from . import autocode_test_homes as test_homes
+    from . import autocode_test_parts as test_parts
     from . import autocode_verify as verify
 except ImportError:
     import autocode_command_guards as command_guards
@@ -43,9 +43,9 @@ except ImportError:
     import autocode_package_scope as package_scope
     import autocode_plan_command_roles as plan_roles
     import autocode_project_kinds as project_kinds
-    import autocode_rust_inline_tests as rust_inline_tests
     import autocode_test_cases as test_cases
     import autocode_test_homes as test_homes
+    import autocode_test_parts as test_parts
     import autocode_verify as verify
 
 if TYPE_CHECKING:
@@ -291,12 +291,17 @@ def _guard_problem(state: RunState, workspace, body, framework) -> str | None:
     Where no rule names a test of this project, a guard's command is usable when it is seen to run one
     (``seen_to_run_tests``): the plan says it is the test command, and the look checks that."""
     guards = command_guards.plan_guards(body)
+    paths, files = _test_paths(workspace), _workspace_files(workspace)
+    # A guard that names a file of examples (``python -m doctest textutil.py``) runs existing tests.
+    paths += test_parts.named_holding(
+        [guard["command"] for guard in guards], [path for path in files if path not in paths], _reader(workspace)
+    )
     judge = lambda observed=(): command_guards.problem(  # noqa: E731
         guards,
         framework,
-        _test_paths(workspace),
+        paths,
         per_test=reporters.suite_reports(framework, workspace),
-        is_test=project_kinds.test_rule(_workspace_files(workspace)),
+        is_test=project_kinds.test_rule(files),
         observed=observed,
     )
     unusable = judge()
@@ -321,6 +326,14 @@ def _workspace_files(workspace) -> list[str]:
     return [name for name in listed.stdout.split("\0") if name] if listed.returncode == 0 else []
 
 
+def _reader(workspace):
+    """Read a workspace file's bytes, or None where it is not a plain file."""
+    root = Path(workspace)
+    return lambda path: (
+        (root / path).read_bytes() if (root / path).is_file() and not (root / path).is_symlink() else None
+    )
+
+
 def _test_paths(workspace) -> list[str]:
     """The workspace's test paths, tracked or not."""
     files = _workspace_files(workspace)
@@ -328,15 +341,16 @@ def _test_paths(workspace) -> list[str]:
 
 
 def _existing_tests(workspace) -> bool:
-    """Whether the workspace already holds test code (a test path or inline Rust tests), tracked or not."""
+    """Whether the workspace already holds test code, tracked or not: a test path, or tests written inside
+    a code file (a doctest, a Rust doc example or test module; autocode_test_parts)."""
     files = _workspace_files(workspace)
     if any(verify.is_code_path(name) for name in filter(project_kinds.test_rule(files), files)):
         return True
     root = Path(workspace)
     for name in files:
-        if name.endswith(".rs"):
+        if name.endswith(test_parts.SUFFIXES):
             path = root / name
-            if path.is_file() and not path.is_symlink() and rust_inline_tests.test_modules(path.read_bytes()):
+            if path.is_file() and not path.is_symlink() and test_parts.holds_tests(name, path.read_bytes()):
                 return True
     return False
 

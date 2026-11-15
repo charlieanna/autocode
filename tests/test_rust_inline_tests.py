@@ -298,7 +298,7 @@ class ProofIntegrationTests(unittest.TestCase):
                 regression.check_cases(proof, cases)
                 self.assertEqual(verify.PASS, proof["verdict"], proof)
                 self.assertEqual(["src/lib.rs::tests::test_partial_last_page"], proof["fail_to_pass"])
-                self.assertIn("rust_inline_tests", proof["test_prerequisites"])
+                self.assertIn("test_parts", proof["test_prerequisites"])
 
                 # 2. Inline-test-only edit in bugfix mode: caught by product-change gate!
                 project.write({"src/lib.rs": TEST_ONLY_LIB})
