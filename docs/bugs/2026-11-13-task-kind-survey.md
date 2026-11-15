@@ -1577,8 +1577,60 @@ is `PASS` with `replayed_command: "cd api && /usr/local/bin/python3 -m unittest 
 and exit code 0 on the change and with the original tests put back.
 
 Still open: a directory of code and tests with no manifest below such a root (`api/` with only `orders.py`
-and `tests/`): the proof itself fails there (checked without a model); and a
-Python project below a root that is another language's project.
+and `tests/`): the proof itself fails there (checked without a model; section 48 fixes it where the directory
+declares its dependencies); and a Python project below a root that is another language's project.
+
+## 48. A backend with only `requirements.txt`: the project's test file is edited to get past the proof, and the person is still asked (fixed)
+
+A repository of `backend/` (`backend/requirements.txt`, `backend/orders.py`, plain pytest tests in
+`backend/tests/test_orders.py` that say `from orders import ...`; the README says `cd backend && python3 -m
+pytest`) beside `frontend/` (Node), with no manifest at the root and none in `backend/`. The request is the
+bug fix of section 47.
+
+**On master** the run ended `WAITING_FOR_USER` after 17 stages (410 s, $2.54; bundle manifest
+`8deeefe47d17606b29e7c3a06f5e98897b9384f135dbac787c13f0fb1d1132b0`). The fix and its tests were right at the
+first attempt. The proof ran the root's suite, `python3 -m pytest ...` from the root, where `orders` cannot be
+imported, and failed twice: "The regression command ran no passing tests", "On the unfixed code the new tests
+only fail to import or collect (::backend.tests.test_orders), so no test shows the bug". The Builder was sent
+back and changed the project to suit the proof: it added `sys.path.insert(0, str(Path(__file__).resolve()
+.parent.parent))` to the project's own test file. The third proof was then `UNVERIFIED` ("The base suite has
+collection errors; preservation is unproven"), and the Resolver asked: "Correct the saved verification
+commands so they run from backend/. Suite: sh -c 'cd backend && python3 -m pytest -q -p no:cacheprovider
+--continue-on-collection-errors'. Regression: sh -c 'cd backend && python3 -m pytest -q -p no:cacheprovider
+tests/test_orders.py'. Then regenerate the regression proof on the unchanged source."
+
+With `backend/pyproject.toml` the same project is proven from inside `backend/` (section 47): a directory was
+a project only by a manifest (`pyproject.toml`, `setup.py`, `setup.cfg`), and many Python projects have none,
+only a list of what they need. Without a model, the same proof failure with unittest (tests in `tests/`, with
+and without `__init__.py`, and beside the code) and with plain pytest; pytest with `pythonpath` set, a
+`conftest.py` in `backend/` or `tests/__init__.py` passes from the root.
+
+Fix (`autocode_package_scope.projects_around`, used by `enclosing` and by
+`autocode_companion_suites.project_of`): where no directory around the changed tests has a manifest, the
+innermost one that holds a `requirements.txt` or a `Pipfile` is the project whose suite proves them, run from
+inside it. It applies only where the tests could not be meant to run from the root:
+
+- not when the root itself holds a `requirements.txt`, a `Pipfile`, a `conftest.py`, a `pytest.ini` or a
+  `tox.ini`;
+- not for a directory that is a Python package (`__init__.py`), or that its code or tests import by its own
+  name (`from backend.orders import total`): its tests reach it from the directory above;
+- not for one of the repository's test directories (`tests/requirements.txt` lists what the tests need);
+- a directory with a manifest comes first, as before.
+
+No gate changes: a new test must still fail on the original code and pass with the change, with the same
+command on both. The gate of the original tests follows (section 47): it runs them inside the same project.
+
+**With the fix** the same task is `TASK_COMPLETE` with one plan approval and no question (8 stages, 158 s,
+$0.87; manifest `9dde3730bb1babcd10b28508e86a4fab68bf3da6c6c7854b078602535033eedf`): the proof passed at its
+first attempt with suite `cd backend && python3 -m pytest -q -p no:cacheprovider
+--continue-on-collection-errors`, the gate of the original tests passed with `cd backend && ...
+tests/test_orders.py`, and the project's test file got the new tests and nothing else.
+
+Still open: a directory of code and tests that declares nothing (`api/` with only `orders.py` and `tests/`);
+and, seen while checking this one without a model, a Python tool folder inside another language's project
+(`package.json` at the root, `scripts/pyproject.toml`): its fix is proven with its own suite, but the gate of
+the original tests runs the root's `npm test`, which runs none of them, so a weakened original assertion
+there is not caught by that gate.
 
 ## Also seen, not yet run on real models
 

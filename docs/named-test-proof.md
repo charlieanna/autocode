@@ -759,6 +759,14 @@ below the root, and a Python file anywhere, are left to the role inventory above
 `test/` directory below the root from the Python packages around it. The proof, the original tests a run keeps and the plan check ask the rule of
 the tree they read (`test_rule`); a reader with only a path sees the repository's own top.
 
+A Python project often has no manifest, only `requirements.txt` or a `Pipfile`. Where no directory
+around the changed tests has a manifest, the innermost one that declares its dependencies that way
+is the project whose suite proves them, run from inside it (`cd backend && python3 -m unittest -v
+tests/test_pager.py`; `autocode_package_scope.projects_around`), unless the tests may be meant to
+run from the root: the root declares dependencies or holds pytest's or tox's configuration, the
+directory is a package or is imported by its own name, or it is one of the repository's test
+directories. See [the workflow](workflow.md) for the whole rule.
+
 The original-test gate runs the command the run bound when it started, the suite of the
 repository's root. Where that is a Python suite, or the root has none, and the changed original
 tests are another language's files in one project below the root, the gate runs them with that
