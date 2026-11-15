@@ -68,6 +68,7 @@ SUBCOMMANDS = {
     "review": "autocode_review_cli",
     "report-check": "autocode_report_check",
     "serve": "autocode_serve_cli",
+    "usage": "autocode_usage_report",
     "completion": "autocode_shell_completion",
 }
 # A few existing entry points consume sys.argv rather than an argv parameter.
