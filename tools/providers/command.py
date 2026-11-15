@@ -114,6 +114,7 @@ class CommandProvider:
         version = None
         version_command, version_options = self._version_check(workspace, env)
         if version_command:
+            self.warm_checks(workspace, env=env)
             try:
                 result = env_prep.preflight_run(version_command, effective, **version_options)
             except subprocess.TimeoutExpired as error:
@@ -165,14 +166,15 @@ class CommandProvider:
 
     def warm_checks(self, workspace=None, *, env=None) -> int:
         """Ask this tool's model-free checks at the same time, so the checks that follow, one after another,
-        are answered from the kept answers (env_prep). Each Kilo start costs 5-9 s on macOS, and its
-        version, login and model checks ran in turn: 17 s of a 77 s "hi" on 2026-11-15.
+        are answered from the kept answers (env_prep). Each Kilo start costs 5-9 s on macOS, and a run with
+        saved stage choices asked its version, login and model checks in turn: 17 s of a 77 s "hi" on
+        2026-11-15. (Route discovery, when it runs, already reads three of them together.)
 
-        Decides nothing: an answer is kept only as env_prep keeps any check's (a whole, successful one),
-        a failure or timeout is dropped here, and each check still runs and judges its own answer. Does
-        nothing while checks are not being kept, since it would only run them twice. Returns how many ran."""
-        if not env_prep.reusing():
-            return 0
+        The first of those checks a run asks calls this, once per run (env_prep.once_in_run), so an
+        invocation that asks none (a held run's resume) starts no tool. Decides nothing: an answer is kept
+        only as env_prep keeps any check's (a whole, successful one), a failure is dropped here, a timeout
+        counts as a listing's first attempt (preflight_listing), and each check still judges its own
+        answer. Does nothing while checks are not being kept. Returns how many checks it asked."""
         calls = [(command, options) for command, options in self._warm_calls(workspace, env) if command]
         if len(calls) < 2:
             return 0
@@ -181,11 +183,13 @@ class CommandProvider:
         def ask(call):
             command, options = call
             with contextlib.suppress(Exception):
-                env_prep.preflight_run(command, effective, **options)
+                env_prep.preflight_run(command, effective, warming=True, **options)
 
-        with ThreadPoolExecutor(max_workers=len(calls)) as pool:
-            list(pool.map(ask, calls))
-        return len(calls)
+        def warm():
+            with ThreadPoolExecutor(max_workers=len(calls)) as pool:
+                list(pool.map(ask, calls))
+
+        return len(calls) if env_prep.once_in_run(("warm", self.NAME, str(workspace), env is None), warm) else 0
 
     def transport_drift(self, current, checkpoint):
         # The same config bytes read from another checkout are the same transport (#2773).
@@ -251,6 +255,7 @@ class CommandProvider:
         if not selected:
             return None
         self.check_forbidden_environment(env)
+        self.warm_checks(workspace, env=env)
         auth_command, auth_options = self._auth_check(workspace, env)
         timeout_seconds = auth_options["timeout"]
         try:
@@ -457,6 +462,7 @@ class CommandProvider:
         command, options = self._models_check(workspace, env)
         if not command:
             return None
+        self.warm_checks(workspace, env=env)
         try:
             # Asked once more when it overruns its bound under load (#3313).
             result = env_prep.preflight_listing(command, self._preflight_environment(env), **options)

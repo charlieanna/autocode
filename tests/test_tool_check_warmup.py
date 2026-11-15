@@ -9,10 +9,8 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 from unittest import mock
 
-import autocode_run_setup as run_setup
 from providers import env_prep, kilocode, kilocode_policy
 
 # With TOGETHER set, each call waits (up to 10 s) until that many calls have started, then records
@@ -93,17 +91,15 @@ class WarmupTests(unittest.TestCase):
                 self.provider.check_models({"tester": {"model": "openai/gpt-5.6-sol"}}, self.workspace)
         self.assertEqual(2, self.calls().count("models"), "a failure is never kept or decided by the warm-up")
 
-    def test_the_runner_warms_its_tool_unless_the_run_is_on_codex(self):
-        warm = mock.Mock()
-        runner = SimpleNamespace(opencode=SimpleNamespace(warm_checks=warm))
-        run_setup.warm_tool_checks(runner, SimpleNamespace(engine=None), {}, self.workspace)
-        warm.assert_called_once_with(self.workspace)
-        run_setup.warm_tool_checks(runner, SimpleNamespace(engine="codex"), {}, self.workspace)
-        run_setup.warm_tool_checks(
-            runner, SimpleNamespace(engine=None), {"settings": {"engine": "codex"}}, self.workspace
-        )
-        run_setup.warm_tool_checks(SimpleNamespace(opencode=object()), SimpleNamespace(engine=None), {}, self.workspace)
-        self.assertEqual(1, warm.call_count)
+    def test_the_first_check_a_run_asks_warms_the_rest_once(self):
+        os.environ["TOGETHER"] = "4"
+        with env_prep.reuse_checks(self.run_dir):
+            self.provider.local_settings(self.workspace)
+            self.assertEqual(4, len(self.calls()), "the version check asked all four at once")
+            self.setup_checks()
+            self.assertEqual(0, self.provider.warm_checks(self.workspace), "once per run")
+        self.assertEqual(4, len(self.calls()))
+        self.assertEqual(["together"] * 4, Path(f"{self.log}.met").read_text().split())
 
 
 class PolicyReuseTests(WarmupTests):
@@ -113,7 +109,7 @@ class PolicyReuseTests(WarmupTests):
     test_the_checks_run_at_once_and_the_setup_after_them_starts_no_tool = None
     test_outside_a_run_nothing_is_warmed = None
     test_a_failed_warm_check_is_asked_again_by_the_check_itself = None
-    test_the_runner_warms_its_tool_unless_the_run_is_on_codex = None
+    test_the_first_check_a_run_asks_warms_the_rest_once = None
 
     def policy(self):
         child = dict(os.environ)
@@ -155,3 +151,28 @@ class PolicyReuseTests(WarmupTests):
             with env_prep.reuse_checks(self.run_dir), self.assertRaises(ValueError):
                 self.policy()
         self.assertEqual(2, self.debug_calls().count("debug config"))
+
+
+class WarmTimeoutTests(unittest.TestCase):
+    """A warm-up that overran its bound was the listing's first attempt; the listing asks once more."""
+
+    def test_the_listing_takes_only_its_second_attempt_after_a_warm_timeout(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        run_dir = Path(temp.name) / "run"
+        bounds = []
+
+        def run(command, **kwargs):
+            bounds.append(kwargs["timeout"])
+            if len(bounds) == 1:
+                raise env_prep.subprocess.TimeoutExpired(command, kwargs["timeout"])
+            return env_prep.subprocess.CompletedProcess(command, 0, "listed\n", "")
+
+        environment = {"PATH": "/usr/bin:/bin"}
+        options = {"cwd": temp.name, "capture_output": True, "text": True}
+        with env_prep.reuse_checks(run_dir), mock.patch.object(env_prep.subprocess, "run", side_effect=run):
+            with self.assertRaises(env_prep.subprocess.TimeoutExpired):
+                env_prep.preflight_run(["sh", "-c", "true"], environment, warming=True, timeout=30, **options)
+            result = env_prep.preflight_listing(["sh", "-c", "true"], environment, timeout=30, **options)
+        self.assertEqual("listed\n", result.stdout)
+        self.assertEqual([30, 60], bounds, "the bounds the listing names, once each")
