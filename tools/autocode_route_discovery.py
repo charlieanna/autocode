@@ -89,6 +89,11 @@ def _from_command_provider(provider, workspace, env, inventory=None):
     # reported. The reads use the provider's own check environment, so its launch checks that follow
     # are answered from the run's saved checks instead of running the same command again.
     checked = _checked_environment(provider, env)
+    # In a run the tool's own warm-up asks these reads and its version check together, once, so the reads
+    # below and the launch checks after them are its kept answers (CommandProvider.warm_checks).
+    warm = getattr(provider, "warm_checks", None)
+    if callable(warm):
+        warm(workspace, env=env)
     with ThreadPoolExecutor(max_workers=3) as pool:
         login = pool.submit(_run, table["command"], table["name"], workspace, env, table["timeout_seconds"], checked)
         roster = pool.submit(_models, provider, workspace, env, inventory)

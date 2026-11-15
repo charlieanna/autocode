@@ -42,6 +42,7 @@ import json
 import os
 import shutil
 import subprocess
+import threading
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -70,6 +71,9 @@ SESSION_VARIABLES = frozenset(
     }
 )
 _reuse: Path | None = None
+_timed_out: set[str] = set()  # kept-check keys whose warm-up attempt overran its bound, in this run
+_done_in_run: set = set()  # the steps once_in_run has run, in this run
+_once_lock = threading.Lock()
 
 
 class KeptCheck(subprocess.CompletedProcess):
@@ -115,7 +119,9 @@ def resolve_executable(name: str, env: Mapping[str, str], *, cwd=None, allow_def
     return shutil.which(name, path=path or os.curdir)
 
 
-def preflight_run(command, env: Mapping[str, str], *, require_executable=False, complete=None, fresh=False, **kwargs):
+def preflight_run(
+    command, env: Mapping[str, str], *, require_executable=False, complete=None, fresh=False, warming=False, **kwargs
+):
     """Run a preflight subprocess (version, roster, auth summary) with the explicit environment.
 
     Explicit-environment callers require executable admission before spawn;
@@ -131,7 +137,13 @@ def preflight_run(command, env: Mapping[str, str], *, require_executable=False, 
     kept = None if fresh else _recall(key, command, complete)
     if kept is not None:
         return kept
-    result = subprocess.run(command, env=dict(env), **kwargs)
+    try:
+        result = subprocess.run(command, env=dict(env), **kwargs)
+    except subprocess.TimeoutExpired:
+        if warming and key:
+            # A warm-up that overran its bound was the check's first attempt (preflight_listing).
+            _timed_out.add(key)
+        raise
     if key and result.returncode == 0 and (complete is None or complete(result.stdout)):
         _keep(key, result)
     return result
@@ -147,10 +159,14 @@ def preflight_listing(command, env: Mapping[str, str], *, timeout, **kwargs):
     Only a timeout is retried: a nonzero exit or an OS error is the answer. The caller passes only a
     listing command, never one that runs a model; the final ``TimeoutExpired`` names the last bound.
     """
-    try:
-        return preflight_run(command, env, timeout=timeout, **kwargs)
-    except subprocess.TimeoutExpired:
-        pass
+    key = _reuse_key(command, env, kwargs)
+    if key is None or key not in _timed_out:
+        try:
+            return preflight_run(command, env, timeout=timeout, **kwargs)
+        except subprocess.TimeoutExpired:
+            pass
+    # The first attempt overran its bound here or in the warm-up (CommandProvider.warm_checks).
+    _timed_out.discard(key)
     return preflight_run(command, env, timeout=timeout * LISTING_RETRY_FACTOR, **kwargs)
 
 
@@ -168,6 +184,24 @@ def reuse_checks(run_dir):
         yield
     finally:
         _reuse = previous
+        _timed_out.clear()
+        _done_in_run.clear()
+
+
+def once_in_run(token, step) -> bool:
+    """Run ``step()`` the first time ``token`` is named while checks are kept (``reuse_checks``).
+
+    Every caller waits while that first step runs, so checks asked from several threads at once (route
+    discovery reads three together) find its kept answers instead of starting the same commands beside
+    it. Returns whether this call ran the step."""
+    if _reuse is None:
+        return False
+    with _once_lock:
+        if token in _done_in_run:
+            return False
+        _done_in_run.add(token)
+        step()
+        return True
 
 
 def reuse_folder(run_dir) -> Path:
@@ -179,16 +213,40 @@ def reuse_folder(run_dir) -> Path:
     return run_dir / REUSE_FOLDER
 
 
-def _tool_files(executable: str, env: Mapping[str, str]) -> list:
-    """The tool's own login and settings files (its XDG data ``auth.json`` and config JSON files), by identity."""
+# The settings an OpenCode-family tool reads that can change a listing or an agent's permissions: JSON
+# settings files, and the agent and mode definitions in their folders. Lock files and installed plugins are
+# left out, since the tool may rewrite them as it starts. The project's own copies, in the folder the tool
+# runs in, count as well as the tool's config folder.
+SETTINGS_SUFFIXES = (".json", ".jsonc")
+DEFINITION_FOLDERS = ("agent", "agents", "mode", "modes")
+PROJECT_SETTINGS = (".kilo", ".kilocode", ".opencode")
+PROJECT_FILES = ("kilo.json", "kilo.jsonc", "opencode.json", "opencode.jsonc")
+SETTINGS_FILE_LIMIT = 200
+
+
+def _settings_in(folder: Path) -> list[Path]:
+    """A settings folder's JSON files and every agent or mode definition below it, bounded."""
+    found: list[Path] = []
+    with contextlib.suppress(OSError):
+        found = sorted(path for path in folder.iterdir() if path.suffix in SETTINGS_SUFFIXES and path.is_file())
+    for name in DEFINITION_FOLDERS:
+        with contextlib.suppress(OSError):
+            found.extend(sorted(path for path in (folder / name).rglob("*") if path.is_file()))
+    return found[:SETTINGS_FILE_LIMIT]
+
+
+def _tool_files(executable: str, env: Mapping[str, str], cwd=None) -> list:
+    """The tool's own login and settings files, by identity: its XDG data ``auth.json``, its config folder's
+    settings, and the project settings in the folder it runs in."""
     name = Path(executable).name
     home = env.get("HOME") or os.path.expanduser("~")
     data = Path(env.get("XDG_DATA_HOME") or Path(home, ".local", "share")) / name
     config = Path(env.get("XDG_CONFIG_HOME") or Path(home, ".config")) / name
-    try:
-        settings = sorted(path for path in config.iterdir() if path.suffix in (".json", ".jsonc"))
-    except OSError:
-        settings = []
+    settings = _settings_in(config)
+    if cwd is not None:
+        settings.extend(Path(cwd, entry) for entry in PROJECT_FILES)
+        for entry in PROJECT_SETTINGS:
+            settings.extend(_settings_in(Path(cwd, entry)))
     found = []
     for path in [data / "auth.json", *settings]:
         try:
@@ -220,7 +278,7 @@ def _reuse_key(command, env: Mapping[str, str], kwargs) -> str | None:
         real,
         info.st_mtime_ns,
         info.st_size,
-        _tool_files(command[0], env),
+        _tool_files(command[0], env, kwargs.get("cwd")),
     ]
     return hashlib.sha256(json.dumps(identity, default=str).encode()).hexdigest()
 

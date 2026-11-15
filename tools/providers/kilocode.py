@@ -247,9 +247,17 @@ class KiloProvider(command.CommandProvider):
                 f"{advice}; no model request was launched"
             )
 
+    def _variant_check(self, workspace, env):
+        options = {"cwd": workspace, "timeout": kilocode_probe.FIRST_ATTEMPT_SECONDS, "complete": route_levels.complete}
+        return [self._config["command"][0], "models", "--verbose"], self._check_options(env, options)
+
+    def _warm_calls(self, workspace, env):
+        return [*super()._warm_calls(workspace, env), self._variant_check(workspace, env)]
+
     def _variant_listing(self, workspace, env, *, fresh=False):
         """The whole ``models --verbose`` listing, answered from a kept check unless ``fresh``."""
-        words = [self._config["command"][0], "models", "--verbose"]
+        words, options = self._variant_check(workspace, env)
+        options.pop("timeout")
         try:
             # The whole verbose listing, not just this model's provider: route discovery reads the same
             # listing at the start of a task, so within a run this is answered from that check. A listing
@@ -257,15 +265,7 @@ class KiloProvider(command.CommandProvider):
             result = kilocode_probe.probe(
                 words,
                 lambda seconds: command.env_prep.preflight_run(
-                    words,
-                    self._preflight_environment(env),
-                    cwd=workspace,
-                    require_executable=env is not None,
-                    complete=route_levels.complete,
-                    fresh=fresh,
-                    capture_output=True,
-                    text=True,
-                    timeout=seconds,
+                    words, self._preflight_environment(env), fresh=fresh, timeout=seconds, **options
                 ),
                 complete=route_levels.complete,
             )
