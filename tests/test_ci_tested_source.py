@@ -30,6 +30,12 @@ class SourceContextTests(unittest.TestCase):
     def context(self, revision=TESTED, parents=(ACTUAL, HEAD), clean=True):
         return source.SourceContext(HEAD, EVENT, revision, parents, clean)
 
+    def informational(self, function, *args, **kwargs):
+        try:
+            return function(*args, **kwargs)
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            self.fail(f"Unusable evidence must remain an informational refusal: {type(error).__name__}")
+
     def test_only_the_actual_ordered_source_pair_resolves(self):
         for revision, parents, clean, expected in (
             (TESTED, (ACTUAL, HEAD), True, ACTUAL),
@@ -150,6 +156,141 @@ class SourceContextTests(unittest.TestCase):
                     )
                 self.assertIn(attribute_failure.SOURCE_UNRESOLVED, shown.getvalue())
                 probe.assert_not_called()
+
+    def test_missing_revision_requires_an_explicit_unavailable_observation(self):
+        for parents, clean, error in (
+            ((ACTUAL,), False, source.UNAVAILABLE),
+            ((), True, source.UNAVAILABLE),
+            ((), False, None),
+        ):
+            with self.subTest(parents=parents, clean=clean, error=error):
+                with self.assertRaisesRegex(ValueError, "missing tested revision"):
+                    source.SourceContext(HEAD, EVENT, None, parents, clean, error)
+        unavailable = source.SourceContext(HEAD, EVENT, None, (), False, source.UNAVAILABLE)
+        self.assertIsNone(unavailable.resolution()[0])
+
+    def test_source_parent_inventory_must_be_a_bounded_list(self):
+        path = self.root / "source.json"
+        original = self.context().as_dict()
+        for parents in (None, ACTUAL, {"parent": ACTUAL}, [ACTUAL] * 65):
+            with self.subTest(parents=parents):
+                path.write_text(json.dumps({**original, "parents": parents}))
+                with self.assertRaisesRegex(ValueError, "invalid source parents"):
+                    source.SourceContext.load(path, expected_head=HEAD, event_base=EVENT)
+
+    def test_capture_rejects_oversized_or_failed_tracked_source_observation(self):
+        valid_row = TESTED + " " + ACTUAL + " " + HEAD + "\n"
+        cases = (
+            [subprocess.CompletedProcess([], 0, stdout="private-token-fixture" * 500)],
+            [subprocess.CompletedProcess([], 0, stdout=valid_row), subprocess.CompletedProcess([], 2)],
+            [subprocess.CompletedProcess([], 0, stdout=valid_row), subprocess.CompletedProcess([], -15)],
+        )
+        for answers in cases:
+            with self.subTest(answers=answers), patch.object(source.subprocess, "run", side_effect=answers) as command:
+                record = self.informational(source.capture, HEAD, EVENT, repo=self.root)
+                self.assertIsNone(record.tested_revision)
+                self.assertFalse(record.tracked_clean)
+                self.assertEqual((), record.parents)
+                self.assertEqual(source.UNAVAILABLE, record.error)
+                self.assertIsNone(record.resolution()[0])
+                self.assertNotIn("private-token-fixture", json.dumps(record.as_dict()))
+                self.assertEqual(len(answers), command.call_count)
+
+    def test_capture_cli_errors_are_informational_and_do_not_expose_private_details(self):
+        path = self.root / "private-output-token"
+        path.mkdir()
+        for capture_error in (None, ValueError("private-capture-token")):
+            with (
+                self.subTest(capture_error=capture_error),
+                patch.object(source, "capture", return_value=self.context(), side_effect=capture_error) as capture,
+                contextlib.redirect_stdout(io.StringIO()) as shown,
+                contextlib.redirect_stderr(io.StringIO()) as errors,
+            ):
+                self.assertEqual(
+                    0,
+                    self.informational(
+                        source.main, ["--expected-head", HEAD, "--event-base", EVENT, "--out", str(path)]
+                    ),
+                )
+                capture.assert_called_once_with(HEAD, EVENT)
+                self.assertEqual("", shown.getvalue())
+                self.assertEqual(
+                    "Tested-source capture is unavailable; failure attribution will remain unresolved.\n",
+                    errors.getvalue(),
+                )
+                self.assertNotIn("private-output-token", errors.getvalue())
+                self.assertNotIn("private-capture-token", errors.getvalue())
+                self.assertTrue(path.is_dir())
+
+    def test_base_checkout_errors_keep_unfinished_head_and_base_uncertainty_separate(self):
+        context = self.root / "source.json"
+        context.write_text(json.dumps(self.context().as_dict()))
+        failed, output = self.root / "failed.json", self.root / "result.json"
+        failed.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "failures": [
+                        {
+                            "module": "tests.test_observed",
+                            "timed_out": False,
+                            "failures": [
+                                {"test": "Observed.test_value", "kind": "failure", "signature": "observed-signature"}
+                            ],
+                        },
+                        {"module": "tests.test_unfinished", "timed_out": True, "failures": [{"test": "partial"}]},
+                    ],
+                }
+            )
+        )
+        for failed_call in (0, 1):
+            for error in (
+                OSError("private-checkout-token"),
+                subprocess.CalledProcessError(1, ["git"], stderr=b"private-checkout-token"),
+            ):
+                answers = [subprocess.CompletedProcess([], 0)] * failed_call + [error]
+                with (
+                    self.subTest(failed_call=failed_call, error=error),
+                    patch.object(source, "capture", return_value=self.context()),
+                    patch.object(attribute_failure.subprocess, "run", side_effect=answers) as command,
+                    patch.object(
+                        attribute_failure, "classify", side_effect=AssertionError("no base test after Git failure")
+                    ) as classify,
+                    contextlib.chdir(self.root),
+                    contextlib.redirect_stdout(io.StringIO()) as shown,
+                ):
+                    self.assertEqual(
+                        0,
+                        self.informational(
+                            attribute_failure.main,
+                            [
+                                "--base",
+                                EVENT,
+                                "--expected-head",
+                                HEAD,
+                                "--tested-source",
+                                str(context),
+                                "--failed",
+                                str(failed),
+                                "--json",
+                                str(output),
+                            ],
+                        ),
+                    )
+                    result = json.loads(output.read_text())
+                    self.assertEqual("resolved", result["status"])
+                    self.assertEqual(ACTUAL, result["source"]["comparison_base"])
+                    self.assertEqual(
+                        {
+                            "tests.test_observed": attribute_failure.INCOMPLETE,
+                            "tests.test_unfinished": attribute_failure.HEAD_INCOMPLETE,
+                        },
+                        result["modules"],
+                    )
+                    self.assertEqual(failed_call + 1, command.call_count)
+                    self.assertNotIn("private-checkout-token", shown.getvalue())
+                    self.assertNotIn("pre-existing", shown.getvalue())
+                    classify.assert_not_called()
 
 
 class TestedMergeGitTests(unittest.TestCase):
