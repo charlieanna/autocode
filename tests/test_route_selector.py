@@ -275,15 +275,15 @@ class SelectionTests(unittest.TestCase):
     def test_the_tables_level_is_used_unless_discovery_reports_the_model_lacks_it(self):
         advertised = [dict(c, levels=["low", "medium", "high"]) for c in coding_plans()]
         routes = selector.select(ALL_ROLES, advertised)["routes"]
-        self.assertEqual("medium", routes["requirements"]["reasoning_effort"])
+        self.assertEqual("low", routes["requirements"]["reasoning_effort"])
         self.assertEqual("high", routes["plan_reviewer"]["reasoning_effort"])
         # Discovery could not read any level list: the table's level stands, because
         # it is the level AutoCode's qualifying runs used on that model.
         silent = coding_plans()
         routes = selector.select(ALL_ROLES, silent)["routes"]
-        self.assertEqual("medium", routes["requirements"]["reasoning_effort"])
+        self.assertEqual("low", routes["requirements"]["reasoning_effort"])
         # Discovery reports the model lacks the table's level: the model's own default.
-        partial = [dict(c, levels=["low"]) for c in coding_plans()]
+        partial = [dict(c, levels=["high"]) for c in coding_plans()]
         routes = selector.select(ALL_ROLES, partial)["routes"]
         self.assertIsNone(routes["requirements"]["reasoning_effort"])
 

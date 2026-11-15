@@ -14,9 +14,26 @@
       {
         "model": "zai-coding-plan/glm-5.3",
         "routes": ["zai-coding-plan/glm-5.3", "zhipuai-coding-plan/glm-5.3", "kilo/z-ai/glm-5.3"],
-        "effort": "medium",
+        "effort": "low",
+        "preference": 0,
         "provenance": "qualified",
-        "evidence": "Today's default Requirements route (tools/providers/opencode.py DEFAULT_MODELS) and the Requirements route of the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py). Live 2026-10-25 (bugfix-trivial on glm-mimo-kilo, run 20261025-192705-pager-page-count-11-5-returns-2-but-eleven-items-74a4bb2b) reached TASK_COMPLETE on this route."
+        "evidence": "Owner decision 2026-11-15: GLM-5.3 at low is the default Requirements route. GLM-5.3 offers low, high and max, so the earlier medium named a level the route does not have. A 2026-11-15 comparison on nine Requirements requests from vague to direct (one run each, through Kilo) matched the expected behavior on 6 of 9 at low, averaging 70 s per reply and an estimated $0.06 at API rates; high matched 7 of 9 but averaged 132 s. Today's default Requirements route (tools/providers/opencode.py DEFAULT_MODELS) and the Requirements route of the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py). Live 2026-10-25 (bugfix-trivial on glm-mimo-kilo, run 20261025-192705-pager-page-count-11-5-returns-2-but-eleven-items-74a4bb2b) reached TASK_COMPLETE on this route."
+      },
+      {
+        "model": "anthropic/claude-opus-5-5",
+        "routes": ["anthropic/claude-opus-5-5", "kilo/anthropic/claude-opus-5-5"],
+        "effort": "medium",
+        "preference": 1,
+        "provenance": "provisional",
+        "evidence": "Owner decision 2026-11-15: the first fallback when GLM-5.3 is not available or its quota ran out. 2026-11-15 Requirements comparison: nine requests from vague to direct, one run each, graded against expectations fixed before the runs: matched 8 of 9 through Kilo at medium (51 s and $0.29 per reply on an API key), the best of the settings tried; high matched 6 of 9 because it added blocking confirmations. Provisional until an AutoCode run on this route reaches TASK_COMPLETE."
+      },
+      {
+        "model": "openai/gpt-6.1-sol",
+        "routes": ["openai/gpt-6.1-sol", "kilo/openai/gpt-6.1-sol", "gpt-6.1-sol"],
+        "effort": "medium",
+        "preference": 2,
+        "provenance": "provisional",
+        "evidence": "Owner decision 2026-11-15: the second fallback, for a ChatGPT login without GLM-5.3 or Claude. 2026-11-15 Requirements comparison: nine requests from vague to direct, one run each, graded against expectations fixed before the runs: matched 6 of 9 through Codex at medium (37 s per reply), with plainer questions and a blocking confirmation on clear requests; high matched 5 of 9. Provisional until an AutoCode run on this route reaches TASK_COMPLETE."
       }
     ],
     "planner": [

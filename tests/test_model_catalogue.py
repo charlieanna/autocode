@@ -60,7 +60,7 @@ class SuggestTest(unittest.TestCase):
         self.assertEqual("openai/gpt-6-sol", roles["validator"]["model"])
         self.assertEqual("openai/gpt-6-sol", roles["completion"]["model"])
         self.assertEqual("zai-coding-plan/glm-5.3", roles["requirements"]["model"])
-        self.assertEqual("medium", roles["requirements"]["effort"])
+        self.assertEqual("low", roles["requirements"]["effort"])
 
     def test_verifier_never_equals_producer(self):
         roles = mc.suggest(mc.usable(CATALOGUE))
