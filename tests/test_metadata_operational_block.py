@@ -175,14 +175,20 @@ class MetadataOperationalBlockTests(unittest.TestCase):
             "custody_binding", result["operational_block"], "the result carries a bound reference, not authority"
         )
 
-    def parent_denial(self, *, tamper=False):
+    def parent_denial(self, *, tamper=False, admission=False):
         parent = self.state("orchestrator")
         child_dir = self.run / "worker"
         child_dir.mkdir()
         child_workspace = self.workspace / "member"
         child_workspace.mkdir()
         task = {"id": "member-task", "source_revision": "assigned-source", "milestone_id": "M1"}
-        row = {"run_dir": str(child_dir), "workspace": str(child_workspace), "task": task, "milestone_id": "M1"}
+        row = {
+            "run_dir": str(child_dir),
+            "workspace": str(child_workspace),
+            "task": task,
+            "milestone_id": "M1",
+            "status": "INTERRUPTED",
+        }
         batch = {
             "id": "batch",
             "contract_hash": "approved",
@@ -225,6 +231,12 @@ class MetadataOperationalBlockTests(unittest.TestCase):
             saved = json.loads((child_dir / "state.json").read_text())
             saved["stages"] = [None] if tamper == "accounting" else [{"accounted": True}]
             (child_dir / "state.json").write_text(json.dumps(saved))
+        elif tamper == "missing_envelope":
+            (child_dir / "result.json").unlink()
+        elif tamper == "stale_envelope":
+            (child_dir / "result.json").write_text(json.dumps({"status": "BUILT", "report": "unaccepted.json"}))
+        elif tamper == "malformed_envelope":
+            (child_dir / "result.json").write_text("{not-json")
         source = self.workspace / "source.txt"
         source.write_text("retained parent source")
         sibling = self.run / "finished-sibling"
@@ -241,11 +253,24 @@ class MetadataOperationalBlockTests(unittest.TestCase):
             ]
         }
         (sibling / "state.json").write_text(json.dumps(sibling_state))
-        batch["workers"].append({"run_dir": str(sibling), "milestone_id": "M2"})
+        batch["workers"].append(
+            {
+                "run_dir": str(sibling),
+                "workspace": str(self.workspace),
+                "milestone_id": "M2",
+                "status": "BUILT",
+                "task": {"id": "finished-task"},
+            }
+        )
 
         with (
             patch.object(dispatch.autocode_status, "persist"),
             patch.object(dispatch, "worker_alive", return_value=False),
+            patch.object(dispatch.processes, "process_table"),
+            patch.object(dispatch.s, "assert_no_legacy_process"),
+            patch.object(
+                dispatch.lifeline, "prepare", side_effect=AssertionError("Unexpected recovery admission")
+            ) as prepare,
             patch.object(dispatch, "git", return_value=b""),
             patch.object(
                 dispatch.source_scope,
@@ -254,7 +279,16 @@ class MetadataOperationalBlockTests(unittest.TestCase):
                 side_effect=OSError("fixture source is unavailable") if tamper == "source" else None,
             ),
         ):
-            self.boundary(parent, execute=lambda *args: dispatch.collect(parent, self.workspace, self.run, batch))
+            try:
+                self.boundary(
+                    parent,
+                    execute=(lambda *args: dispatch.run_workers(parent, self.run, batch))
+                    if admission
+                    else (lambda *args: dispatch.collect(parent, self.workspace, self.run, batch)),
+                )
+            except AssertionError:
+                self.fail("The persisted worker denial must be observed before recovery Core preparation")
+            prepare.assert_not_called()
         self.assertEqual("retained parent source", source.read_text())
         self.assertEqual(20, parent["active_seconds"])
         self.assertNotIn("implementation", parent)
@@ -287,6 +321,28 @@ class MetadataOperationalBlockTests(unittest.TestCase):
 
     def test_incomplete_claimed_worker_accounting_is_never_assumed_zero(self):
         parent = self.parent_denial(tamper="accounting_missing")
+        self.assert_blocked(parent, "PAUSED_ORCHESTRATOR_WORKER")
+
+    def test_missing_worker_envelope_cannot_erase_the_persisted_denial(self):
+        parent = self.parent_denial(tamper="missing_envelope")
+        self.assert_blocked(parent, "PAUSED_ORCHESTRATOR_WORKER")
+        evidence = dispatch.operational_block.receipt(parent, dispatch.operational_block.WORKER_EVIDENCE)
+        self.assertNotIn("custody_binding", evidence["receipt"]["evidence"])
+
+    def test_stale_built_envelope_cannot_accept_progress_beside_a_persisted_denial(self):
+        parent = self.parent_denial(tamper="stale_envelope")
+        self.assert_blocked(parent, "PAUSED_ORCHESTRATOR_WORKER")
+
+    def test_malformed_worker_envelope_cannot_erase_the_persisted_denial(self):
+        parent = self.parent_denial(tamper="malformed_envelope")
+        self.assert_blocked(parent, "PAUSED_ORCHESTRATOR_WORKER")
+
+    def test_missing_worker_envelope_blocks_recovery_before_any_launch(self):
+        parent = self.parent_denial(tamper="missing_envelope", admission=True)
+        self.assert_blocked(parent, "PAUSED_ORCHESTRATOR_WORKER")
+
+    def test_stale_built_envelope_blocks_recovery_before_any_launch(self):
+        parent = self.parent_denial(tamper="stale_envelope", admission=True)
         self.assert_blocked(parent, "PAUSED_ORCHESTRATOR_WORKER")
 
 

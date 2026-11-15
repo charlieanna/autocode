@@ -462,6 +462,9 @@ def run_workers(state: RunState, run_dir, batch):
         if worker_alive(row):
             raise still_running(row)
         s.assert_no_legacy_process(Path(row["run_dir"]), Path(row["workspace"]))
+    if unrelayed := _unrelayed_worker(batch):
+        account_workers(state, run_dir, batch)
+        raise operational_block.worker_refusal(batch, unrelayed)
     try:
         with processes.interruption_handler():
             for row in batch["workers"]:
@@ -576,11 +579,29 @@ def run_workers(state: RunState, run_dir, batch):
 
 
 def worker_block_claim(row):
+    """Observe a denial without authenticating a worker's result or binding.
+
+    The worker commits state before its envelope. A missing, unreadable or old
+    envelope must not erase that current denial, but only the normal envelope
+    validation may relay custody authority to the parent.
+    """
     try:
         result = s.read(Path(row["run_dir"]) / "result.json")
     except (OSError, ValueError, TypeError):
-        return False
-    return isinstance(result, dict) and result.get("operational_block") is not None
+        result = None
+    if isinstance(result, dict) and result.get("operational_block") is not None:
+        return "envelope"
+    try:
+        child = s.read(Path(row["run_dir"]) / "state.json")
+    except (OSError, ValueError, TypeError):
+        return None
+    if isinstance(child, dict) and operational_block.receipt(child, operational_block.METADATA) is not None:
+        return "child"
+    return None
+
+
+def _unrelayed_worker(batch):
+    return next((row for row in batch["workers"] if worker_block_claim(row) == "child"), None)
 
 
 def account_workers(state: RunState, run_dir, batch):
@@ -672,6 +693,8 @@ def retire_deferred(batch, workspace):
 
 def collect(state: RunState, workspace, run_dir, batch):
     account_workers(state, run_dir, batch)
+    if unrelayed := _unrelayed_worker(batch):
+        raise operational_block.worker_refusal(batch, unrelayed)
     patches = []
     changed: set = set()
     deferred = []
