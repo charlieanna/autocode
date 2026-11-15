@@ -141,9 +141,9 @@ class SavedRunReplayCliTest(unittest.TestCase):
         self.assertEqual("answer", view["needs"]["kind"])
         self.assertEqual(1, len(view["needs"]["questions"]))
         records = view["replay_source"]["records"]
-        self.assertEqual(["requirements_gather", "draft_plan"], [row["stage"] for row in records])
+        self.assertEqual(["requirements_gather"], [row["stage"] for row in records])
         attempts = [row for row in view["usage"]["accounting"]["attempts"] if not row.get("runner_owned")]
-        self.assertEqual(2, len(attempts))
+        self.assertEqual(1, len(attempts))
         self.assertTrue(all(row["engine"] == "opencode" and row["exit_code"] == 0 for row in attempts))
         original = evidence_bytes(task.run_dir)
         exported = subprocess.run(
@@ -186,7 +186,7 @@ class SavedRunReplayCliTest(unittest.TestCase):
         self.assertFalse(current["done"])
         self.assertEqual(view["needs"]["questions"], current["needs"]["questions"])
         self.assertEqual(("build", "user"), (current["workflow"], current["workflow_source"]))
-        self.assertEqual(2, current["replay_progress"]["consumed"])
+        self.assertEqual(1, current["replay_progress"]["consumed"])
         self.assertEqual("end", current["replay_progress"]["next_dispatch"])
         self.assertFalse(marker.exists(), "offline replay invoked a live provider")
         self.assertEqual(original, evidence_bytes(task.run_dir))

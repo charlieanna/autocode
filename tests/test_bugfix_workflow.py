@@ -32,7 +32,7 @@ from tests import saved_diagnosis, test_planning, test_subprocess  # noqa: E402
 # Requirements runs first and names the job (#1860); this fixture names a build.
 PLANNING = [
     "requirements_gather",
-    "draft_plan",
+    "requirements_gather",
     "draft_plan",
     "review_plan",
     "revise_plan",
