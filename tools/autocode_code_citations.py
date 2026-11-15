@@ -35,8 +35,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_util as util
     from . import autocode_workspace_inventory as workspace_inventory
 except ImportError:
+    import autocode_util as util
     import autocode_workspace_inventory as workspace_inventory
 
 # Planning stages whose reads stage=None accepts: the default flow and the v2 flow.
@@ -127,11 +129,7 @@ def _require_read(state: RunState, stage, field, cited):
     if not read:
         # A report-only repair has no tools: with nothing read, no repair can supply a citation,
         # so the stage runs again with its tools instead of spending the bounded repair loop.
-        try:
-            from .autocode_report_repair_queue import ExecutionEvidenceRequired
-        except ImportError:
-            from autocode_report_repair_queue import ExecutionEvidenceRequired
-        raise ExecutionEvidenceRequired(
+        raise util.ExecutionEvidenceRequired(
             f"{field} cites source this stage never read ({', '.join(unread)}), and it read no file: "
             "read the files you cite with a file-read tool or command before citing them"
         )
