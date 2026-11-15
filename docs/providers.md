@@ -16,7 +16,7 @@ local listing and without launching anything:
 
 ```text
 Routes for a new run, from kilocode's local listing:
-  Requirements: zai-coding-plan/glm-5.3 at medium (Z.AI Coding Plan subscription; qualified for Requirements)
+  Requirements: zai-coding-plan/glm-5.3 at low (Z.AI Coding Plan subscription; qualified for Requirements)
   Planner: openai/gpt-6-sol at high (OpenAI subscription; qualified for Planner)
   Builder: openai/gpt-6-sol at medium (OpenAI subscription; qualified for Builder)
 ```
