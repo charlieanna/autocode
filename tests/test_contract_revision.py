@@ -248,7 +248,15 @@ class DraftVerificationRevisionTests(unittest.TestCase):
         state, after, _ = self.revision_report()
         before = state["goal_contract"]["body"]
         base = {"change": "reworded", "basis": "agent_proposed", "answer_id": ""}
-        for item in ("milestones[M2].objective", "milestones[M1].missing", "constraints[0]", "initial_task."):
+        for item in (
+            "milestones[M2].objective",
+            "milestones[M1].missing",
+            "milestones[M1.objective",
+            "milestones[].objective",
+            "initial_task[bogus].objective",
+            "constraints[0]",
+            "initial_task.",
+        ):
             with self.subTest(item=item):
                 self.assertFalse(
                     delta.engineering_delta({**base, "item": item}, before, after, set(), revision.PROTECTED_LISTS)
