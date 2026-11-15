@@ -56,6 +56,7 @@ try:
     from . import autocode_implementation_discrepancy as implementation_discrepancy
     from . import autocode_liveness as liveness_policy
     from . import autocode_member_stop as member_stop
+    from . import autocode_model_listing_failure as model_listing_failure
     from . import autocode_no_progress_recovery as no_progress_recovery
     from . import autocode_operational_information as operational_information
     from . import autocode_output_policy as output_policy
@@ -84,17 +85,18 @@ try:
     from . import autocode_risk_disclosure as risk_disclosure
     from . import autocode_role_transport as role_transport
     from . import autocode_route_ladder as route_ladder
-    from . import autocode_run_failure_view as run_failure_view
     from . import autocode_run_stage_models as run_stage_models
     from . import autocode_stage_decisions as stage_decisions
     from . import autocode_stage_pipeline as stage_pipeline
     from . import autocode_stage_policy as stage_policy
+    from . import autocode_startup_timeout_view as startup_timeout_view
     from . import autocode_stop_explanations as stop_explanations
     from . import autocode_task_input as task_input
     from . import autocode_tool_containment as tool_containment
     from . import autocode_trace_coverage as trace_coverage
     from . import autocode_transport_recovery as transport_recovery
     from . import autocode_validation_exhaustion_recovery as validation_recovery
+    from . import autocode_verification_failure as verification_failure
     from . import autocode_verification_view as verification_view
     from . import autocode_workflows as workflows
     from . import autocode_worktree_choice as worktree_choice
@@ -123,6 +125,7 @@ except ImportError:
     import autocode_implementation_discrepancy as implementation_discrepancy
     import autocode_liveness as liveness_policy
     import autocode_member_stop as member_stop
+    import autocode_model_listing_failure as model_listing_failure
     import autocode_no_progress_recovery as no_progress_recovery
     import autocode_operational_information as operational_information
     import autocode_output_policy as output_policy
@@ -151,12 +154,12 @@ except ImportError:
     import autocode_risk_disclosure as risk_disclosure
     import autocode_role_transport as role_transport
     import autocode_route_ladder as route_ladder
-    import autocode_run_failure_view as run_failure_view
     import autocode_run_metrics
     import autocode_run_stage_models as run_stage_models
     import autocode_stage_decisions as stage_decisions
     import autocode_stage_pipeline as stage_pipeline
     import autocode_stage_policy as stage_policy
+    import autocode_startup_timeout_view as startup_timeout_view
     import autocode_stop_explanations as stop_explanations
     import autocode_task_input as task_input
     import autocode_tool_containment as tool_containment
@@ -164,6 +167,7 @@ except ImportError:
     import autocode_transport_recovery as transport_recovery
     import autocode_usage
     import autocode_validation_exhaustion_recovery as validation_recovery
+    import autocode_verification_failure as verification_failure
     import autocode_verification_view as verification_view
     import autocode_workflows as workflows
     import autocode_worktree_choice as worktree_choice
@@ -245,7 +249,11 @@ def view(
         import autocode_checkpoint_reconciliation as reconciliation
     reconcile = (
         None
-        if run_failure_view.presentation(state)
+        if (
+            verification_failure.presentation(state)
+            or model_listing_failure.presentation(state)
+            or startup_timeout_view.presentation(state)
+        )
         else reconciliation.offer(state, liveness, controller=controller, stop_pending=stop_pending)
     )
     if reconcile is not None:
@@ -336,7 +344,11 @@ def view(
             needs=need,
             held_cause=pause_authority.answered_cause(state),
             ready=(controller or {}).get("kind") == "ready",
-            internal_failure=run_failure_view.presentation(state),
+            internal_failure=(
+                verification_failure.presentation(state)
+                or model_listing_failure.presentation(state)
+                or startup_timeout_view.presentation(state)
+            ),
         ),
         "current_task": {key: task.get(key) for key in ("id", "objective", "milestone_id")} if task else None,
         # The kind of job named for the request (autocode_workflows.WORKFLOWS);
@@ -994,7 +1006,11 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
         from . import autocode_changeset_barrier as changeset_barrier
     except ImportError:
         import autocode_changeset_barrier as changeset_barrier
-    if run_failure_view.presentation(state):
+    if (
+        verification_failure.presentation(state)
+        or model_listing_failure.presentation(state)
+        or startup_timeout_view.presentation(state)
+    ):
         return {"needs": None, "pause_category": "autocode", "pause_category_label": "AutoCode", "next_command": None}
     if changeset_barrier.held_approval(state):
         held_need = {
@@ -1162,7 +1178,11 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                                                      --abandon-stage ATTEMPT as deterministic recovery
     """
     status = state.get("status", "")
-    if status in COMPLETE or run_failure_view.presentation(state):
+    if status in COMPLETE or (
+        verification_failure.presentation(state)
+        or model_listing_failure.presentation(state)
+        or startup_timeout_view.presentation(state)
+    ):
         return None
     if retired := workflows.retired_stage(state):
         # Saved at a stage this runtime no longer runs (owner decision 2026-11-10): nothing resumes it.
