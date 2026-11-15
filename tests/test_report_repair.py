@@ -190,6 +190,25 @@ class RepairTests(unittest.TestCase):
             self.assertFalse(runner.report_revalidation.revalidate(runner, legacy, self.run, self.root))
         load.assert_not_called()
 
+    def test_later_repair_rejection_cannot_rebind_the_original_handoff(self):
+        pending = self.queue(report='{"summary":"original"}')
+        original_context = pending["revalidation_context"]
+        self.state["task"] = "A different user request"
+        with self.assertRaises(runner.ReportRepairQueued):
+            self.reject_repair(5, ValueError("still invalid"), report='{"summary":"repaired"}')
+        self.assertEqual(original_context, pending["revalidation_context"])
+        pending["validation_runtime"] = "earlier runtime"
+        with patch.object(runner, "load_stage_report") as load:
+            self.assertFalse(runner.report_revalidation.revalidate(runner, self.state, self.run, self.root))
+        load.assert_not_called()
+
+    def test_later_repair_cannot_fabricate_a_legacy_handoff_binding(self):
+        pending = self.queue(report='{"summary":"original"}')
+        pending.pop("revalidation_context")
+        with self.assertRaises(runner.ReportRepairQueued):
+            self.reject_repair(5, ValueError("still invalid"), report='{"summary":"repaired"}')
+        self.assertNotIn("revalidation_context", pending)
+
     def test_revalidation_recovers_an_unlaunched_resolver_handoff_without_a_model_call(self):
         self.state["version"] = 3
         pending = self.queue(report='{"summary":"saved"}')

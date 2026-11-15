@@ -145,6 +145,9 @@ def queue(state: RunState, record, error, *, completed: Callable[[], bool]) -> b
             "original_error": str(error),
             "attempts": 0,
             "contract_hash": (state.get("goal_contract") or {}).get("hash"),
+            # The original report is bound once, when it is first rejected.
+            # A later repair must not silently bind it to changed user input.
+            "revalidation_context": revalidation_binding.context(state, record["stage"]),
             "pins": {
                 record[key]: util.file_hash(record[key])
                 for key in ("events", "before_ref", "after_ref", "schema")
@@ -161,7 +164,6 @@ def queue(state: RunState, record, error, *, completed: Callable[[], bool]) -> b
     # A later runtime may validate the exact saved report differently. Bind this
     # rejection to the implementation that actually rejected it, not model text.
     pending["validation_runtime"] = util.runtime_source_digest()
-    pending["revalidation_context"] = revalidation_binding.context(state, pending["original"]["stage"])
     receipt_repair_context.retain(pending, error)
     return pending["attempts"] < effective_repair_limit(state, pending)
 
