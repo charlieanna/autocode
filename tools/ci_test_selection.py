@@ -442,7 +442,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tools/autocode-schemas/evidence-report.schema.json",
         ("tests.test_evidence_report",),
     ),
-    ("scenarios/harness/conformance.py", ("tests.test_planning_allowance_cli",)),
+    (
+        "scenarios/harness/conformance.py",
+        ("tests.test_planning_allowance_cli", "tests.test_conformance_actionless"),
+    ),
     (
         "scenarios/harness/fake_codex.py",
         (

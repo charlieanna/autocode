@@ -8,6 +8,14 @@ import run_suite
 
 
 class AccessTransportConsumerTests(unittest.TestCase):
+    def test_conformance_harness_keeps_actionless_and_existing_allowance_contracts(self):
+        consumers = {"tests.test_conformance_actionless", "tests.test_planning_allowance_cli"}
+        selected = run_suite.select_tests(
+            ["scenarios/harness/conformance.py"], {**dict.fromkeys(consumers, ""), "tests.test_unrelated": ""}
+        )
+        kept, _ = run_suite.drop_slow(selected, dict.fromkeys(consumers, "30s"))
+        self.assertEqual(consumers, set(kept))
+
     def test_tested_source_capture_keeps_both_source_and_public_attribution_consumers_when_slow(self):
         consumers = {
             "tests.test_ci_tested_source",
