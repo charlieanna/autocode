@@ -2,7 +2,9 @@
 
 An active slot is prepared before provider exec. Only its recorded finish or
 completed accounting makes it a settled attempt; PID, status and role do not.
-History mirrors are not another source of attempts.
+History mirrors are not another source of attempts. One artifact can have
+several observations, including conflicting snapshots or a runner audit record.
+Grouping identifies a call; it never chooses which observation is true.
 """
 
 from __future__ import annotations
@@ -78,33 +80,51 @@ def _canonical(identity, aliases):
     return field + separator + path
 
 
-def finished_records(state):
-    """Saved attempts and a settled retained attempt, once by recorded identity."""
+def observations(state, *, include_running=False):
+    """(canonical identity, raw observation), preserving conflicting evidence."""
     stages = state.get("stages")
     records = [row for row in stages if isinstance(row, dict)] if isinstance(stages, list) else []
     retained = state.get("active_stage")
     if (
         isinstance(retained, dict)
         and retained
-        and not running_stage(state)
+        and (include_running or not running_stage(state))
         and not any(row is retained for row in records)
     ):
         records.append(retained)
     namespace = run_identity(state.get("run_dir") or state.get("task_id")) or ""
     aliases = _archive_aliases(records, namespace)
-    selected, positions = [], {}
-    for index, record in enumerate(records):
-        identity = attempt_identity(record, namespace=namespace, index=index)
-        key = _canonical(identity, aliases)
-        if key not in positions:
-            positions[key] = len(selected)
-            selected.append(record)
-        elif key != identity:
-            continue
-        else:
-            # Prefer the kept artifact over its explicitly recorded old path.
-            position = positions[key]
-            previous = attempt_identity(selected[position], namespace=namespace, index=position)
-            if previous != key:
-                selected[position] = record
-    return selected
+    return [
+        (_canonical(attempt_identity(record, namespace=namespace, index=index), aliases), record)
+        for index, record in enumerate(records)
+    ]
+
+
+def groups(state):
+    """All settled observations per identity; no metric or provenance is erased."""
+    grouped = {}
+    for identity, record in observations(state):
+        grouped.setdefault(identity, []).append(record)
+    return grouped.values()
+
+
+def finished_records(state):
+    """Legacy saved-observation projection, plus an otherwise unrepresented retained attempt.
+
+    Saved rows and raw artifact identity retain the legacy known-spend contract.
+    Archive equivalence belongs to observations(), not this subtotal projection.
+    Nullable all-attempt accounting reads all observations before resolving
+    copies or conflicts, rather than treating this projection as a billing ledger.
+    """
+    stages = state.get("stages")
+    records = [item for item in stages if isinstance(item, dict)] if isinstance(stages, list) else []
+    retained = state.get("active_stage")
+    if isinstance(retained, dict) and retained and not running_stage(state):
+        namespace = run_identity(state.get("run_dir") or state.get("task_id")) or ""
+        identity = attempt_identity(retained, namespace=namespace, index=len(records))
+        if not any(
+            record is retained or attempt_identity(record, namespace=namespace, index=index) == identity
+            for index, record in enumerate(records)
+        ):
+            records.append(retained)
+    return records

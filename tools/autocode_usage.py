@@ -38,6 +38,7 @@ from copy import deepcopy
 from pathlib import Path
 
 try:
+    from . import autocode_attempt_ledger as attempt_ledger
     from . import autocode_prices as prices
     from . import autocode_request_usage as request_usage
     from . import autocode_roles as roles
@@ -46,8 +47,10 @@ try:
     from . import autocode_usage_outcomes as usage_outcomes
     from . import autocode_usage_report as usage_report
     from . import autocode_util as util
-    from .autocode_attempt_ledger import attempt_identity, finished_records, run_identity, running_stage
+    from .autocode_attempt_ledger import attempt_identity as attempt_identity
+    from .autocode_attempt_ledger import finished_records, run_identity, running_stage
 except ImportError:
+    import autocode_attempt_ledger as attempt_ledger
     import autocode_prices as prices
     import autocode_request_usage as request_usage
     import autocode_roles as roles
@@ -56,7 +59,8 @@ except ImportError:
     import autocode_usage_outcomes as usage_outcomes
     import autocode_usage_report as usage_report
     import autocode_util as util
-    from autocode_attempt_ledger import attempt_identity, finished_records, run_identity, running_stage
+    from autocode_attempt_ledger import attempt_identity as attempt_identity
+    from autocode_attempt_ledger import finished_records, run_identity, running_stage
 
 # Historical comparison rates, USD per 1M inclusive input/output tokens.
 # These are not verified current provider prices or subscription charges.
@@ -386,13 +390,10 @@ def accounting(state: RunState):
     refreshed for live/partial usage; unreadable logs remain a coverage warning.
     Cross-run callers use combine_accounting with public status attempts.
     """
-    records = finished_records(state)
     active = running_stage(state)
-    if active:
-        records = [*records, active]
     namespace = run_identity(state.get("run_dir") or state.get("task_id")) or ""
     attempts = []
-    for index, record in enumerate(records):
+    for identity, record in attempt_ledger.observations(state, include_running=True):
         runner = record.get("runner_owned") is True and record.get("engine") == "runner"
         metrics = _dict(record.get("metrics"))
         context = _dict(metrics.get("request_context"))
@@ -463,7 +464,7 @@ def accounting(state: RunState):
             local_id = f"{record['iteration']:03d}/{Path(record['output']).stem}"
         attempts.append(
             {
-                "identity": attempt_identity(record, namespace=namespace, index=index),
+                "identity": identity,
                 "attempt_id": local_id,
                 "run_id": namespace or None,
                 "worker_attempt": record.get("worker_attempt"),
@@ -541,7 +542,7 @@ def accounting(state: RunState):
                 "unfinished_requests": native.get("unfinished_requests"),
                 "usage_basis": "runner" if runner else "native_requests" if requests else "stage_counters",
                 "unobserved_usage_possible": bool(is_active or issues),
-                "identity_complete": ":unidentified:" not in attempt_identity(record, namespace=namespace, index=index),
+                "identity_complete": ":unidentified:" not in identity,
             }
         )
     result = combine_accounting(attempts)

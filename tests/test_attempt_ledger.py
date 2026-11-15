@@ -8,7 +8,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import autocode_cost as cost
 import autocode_planning_calls as planning
+import autocode_request_usage as requests
 import autocode_run_view as run_view
 import autocode_usage as usage
 
@@ -108,14 +110,18 @@ class SettledAttemptTests(unittest.TestCase):
         state.pop("active_stage")
         self.assertEqual(1, planning.used(state))
 
-    def test_duplicate_saved_artifact_rows_are_not_two_calls_or_two_costs(self):
+    def test_duplicate_saved_artifact_rows_are_one_authoritative_call_and_charge(self):
         record = self.record(metrics={"provider_cost_usd": 0.25})
         state = self.state(stages=[record, copy.deepcopy(record)], history=[copy.deepcopy(record)])
         self.assertEqual(1, planning.used(state))
-        self.assertEqual(1, usage.summary(state)["stages"])
-        self.assertEqual(0.25, usage.summary(state)["cost_usd"]["reported"])
+        measured = usage.accounting(state)
+        self.assertEqual(1, measured["attempt_count"])
+        self.assertEqual(0.25, measured["cost"]["reported_usd"]["known"])
+        # The legacy presentation retains saved observations, not unique billing.
+        self.assertEqual(2, usage.summary(state)["stages"])
+        self.assertEqual(0.5, usage.summary(state)["cost_usd"]["reported"])
 
-    def test_explicit_archive_paths_deduplicate_and_use_the_kept_artifact(self):
+    def test_explicit_archive_paths_group_observations_without_selecting_one(self):
         original = self.record()
         archived_events = self.root / "archived" / self.events.name
         archived_events.parent.mkdir()
@@ -124,7 +130,7 @@ class SettledAttemptTests(unittest.TestCase):
         kept["archived_paths"] = {original[key]: kept[key] for key in ("events", "output")}
         state = self.state(stages=[original, kept], active_stage=copy.deepcopy(original))
         self.assertEqual(1, planning.used(state))
-        self.assertEqual([kept], usage.finished_records(state))
+        self.assertEqual([original, kept], usage.finished_records(state))
         self.assertEqual("events:" + str(archived_events.resolve()), usage.attempt_identity(kept))
         self.assertEqual(1, run_view.view(state)["usage"]["accounting"]["attempt_count"])
 
@@ -134,7 +140,7 @@ class SettledAttemptTests(unittest.TestCase):
             kept["archived_paths"] = {old["events"]: kept["events"]}
         state = self.state(stages=records)
         self.assertEqual(1, planning.used(state))
-        self.assertEqual([records[-1]], usage.finished_records(state))
+        self.assertEqual(records, usage.finished_records(state))
 
     def test_malformed_conflicting_and_cyclic_archive_maps_do_not_guess_equivalence(self):
         first, second = self.record(), self.record(events=str(self.root / "other.jsonl"))
@@ -235,3 +241,143 @@ class SettledAttemptTests(unittest.TestCase):
                 self.assertEqual(1, shown["usage"]["accounting"]["attempt_count"])
                 self.assertIsNone(shown["usage"]["accounting"]["provider_requests"]["value"])
                 self.assertEqual(before, state)
+
+    def native_record(self, engine="opencode", provider="fixture"):
+        row = self.record("draft_plan", engine=engine, provider=provider, model="fixture/model")
+        row.pop("events")  # The supplied native receipt is the observation; no log is reparsed.
+        row["metrics"] = {
+            "request_context": {
+                "accounting": requests.accounting(
+                    [
+                        {
+                            "type": "step_finish",
+                            "sessionID": "session",
+                            "part": {
+                                "id": "request",
+                                "cost": 0.3,
+                                "tokens": {"input": 10, "output": 4, "reasoning": 6, "cache": {"read": 20, "write": 3}},
+                            },
+                        }
+                    ]
+                )
+            }
+        }
+        return row
+
+    def test_conflicting_observations_survive_each_backend_order_and_storage_frontier(self):
+        for engine, provider in (
+            ("codex", None),
+            ("opencode", "opencode"),
+            ("opencode", "kilocode"),
+            ("opencode", "claude"),
+        ):
+            for field in ("tokens", "cost", "model", "request"):
+                first = self.native_record(engine, provider)
+                conflict = copy.deepcopy(first)
+                native = conflict["metrics"]["request_context"]["accounting"]["requests"][0]
+                if field == "tokens":
+                    native["tokens"]["input_tokens"] = 99
+                elif field == "cost":
+                    native["reported_cost_usd"] = 0.8
+                elif field == "model":
+                    conflict["model"] = "fixture/other"
+                else:
+                    native["identity"] = ["session", "other-request"]
+                for reverse in (False, True):
+                    rows = [conflict, first] if reverse else [first, conflict]
+                    for storage in ("saved", "retained"):
+                        with self.subTest(
+                            engine=engine, provider=provider, field=field, reverse=reverse, storage=storage
+                        ):
+                            state = (
+                                self.state(stages=copy.deepcopy(rows))
+                                if storage == "saved"
+                                else self.state(stages=[copy.deepcopy(rows[0])], active_stage=copy.deepcopy(rows[1]))
+                            )
+                            before = copy.deepcopy(state)
+                            measured = usage.accounting(state)
+                            self.assertEqual(1, planning.used(state))
+                            self.assertEqual(1, measured["attempt_count"])
+                            self.assertIsNone(measured["tokens"]["input_tokens"]["value"])
+                            self.assertTrue(any("Conflicting attempt" in issue for issue in measured["issues"]))
+                            self.assertEqual(before, state)
+
+    def test_runner_audit_and_provider_charge_survive_in_both_orders(self):
+        provider = self.native_record()
+        audit = copy.deepcopy(provider)
+        audit.update(stage="resolve_repair", role="resolver", runner_owned=True, engine="runner")
+        for rows in ([provider, audit], [audit, provider]):
+            with self.subTest(first=rows[0]["stage"]):
+                state = self.state(stages=copy.deepcopy(rows))
+                self.assertEqual(1, planning.used(state))
+                displayed = usage.stage_rows(state)
+                self.assertEqual(2, len(displayed))
+                self.assertEqual(0.0, next(row for row in displayed if row["basis"] == "runner")["cost_usd"])
+                self.assertEqual(0.3, next(row for row in displayed if row["basis"] == "reported")["cost_usd"])
+                # Retaining two observations never fabricates two physical calls.
+                measured = usage.accounting(state)
+                self.assertEqual(1, measured["attempt_count"])
+                self.assertIsNone(measured["tokens"]["input_tokens"]["value"])
+
+    def test_one_identity_counts_any_eligible_epoch_instead_of_selecting_a_timestamp(self):
+        earlier, later = self.native_record(), self.native_record()
+        later["started_at"] = "2026-11-15T16:04:37+00:00"
+        event = {"kind": "answer", "actor": "user_cli", "at": "2026-11-15T16:04:36+00:00"}
+        for rows in ([earlier, later], [later, earlier]):
+            with self.subTest(first=rows[0]["started_at"]):
+                self.assertEqual(1, planning.used(self.state(stages=rows, user_events=[event])))
+        later["started_at"] = "unreadable"
+        self.assertEqual(1, planning.used(self.state(stages=[earlier, later], user_events=[event])))
+
+    def test_archive_aliases_group_conflicts_without_erasing_them(self):
+        original, archived = self.native_record(), self.native_record()
+        archived["output"] = str(self.root / "archived" / "requirements.json")
+        archived["archived_paths"] = {original["output"]: archived["output"]}
+        archived["model"] = "fixture/different-provenance"
+        state = self.state(stages=[original], active_stage=archived)
+        measured = usage.accounting(state)
+        self.assertEqual(1, planning.used(state))
+        self.assertEqual(1, measured["attempt_count"])
+        self.assertIsNone(measured["tokens"]["input_tokens"]["value"])
+        self.assertTrue(any("Conflicting attempt" in issue for issue in measured["issues"]))
+
+    def test_legacy_spend_uses_raw_artifact_identity_across_archive_observations(self):
+        old = self.record(metrics={"provider_cost_usd": 0.6})
+        old.pop("events")
+        for same_artifact in (False, True):
+            for amount in (0.6, 0.9):
+                archived = copy.deepcopy(old)
+                archived["metrics"]["provider_cost_usd"] = amount
+                if not same_artifact:
+                    archived["output"] = str(self.root / "archive.json")
+                for alias in (None, "forward", "reverse"):
+                    archived.pop("archived_paths", None)
+                    if alias == "forward":
+                        archived["archived_paths"] = {old["output"]: archived["output"]}
+                    elif alias == "reverse":
+                        archived["archived_paths"] = {archived["output"]: old["output"]}
+                    for rows in ([old, archived], [archived, old]):
+                        for frontier in ("saved", "retained"):
+                            with self.subTest(
+                                same_artifact=same_artifact,
+                                amount=amount,
+                                alias=alias,
+                                first=rows[0]["output"],
+                                frontier=frontier,
+                            ):
+                                expected = rows[:1] if same_artifact and frontier == "retained" else rows
+                                state = (
+                                    self.state(stages=copy.deepcopy(rows))
+                                    if frontier == "saved"
+                                    else self.state(
+                                        stages=[copy.deepcopy(rows[0])], active_stage=copy.deepcopy(rows[1])
+                                    )
+                                )
+                                state["settings"]["limits"]["max_cost_usd"] = 1.0
+                                subtotal = sum(row["metrics"]["provider_cost_usd"] for row in expected)
+                                before = copy.deepcopy(state)
+                                self.assertEqual(expected, usage.finished_records(state))
+                                self.assertEqual(subtotal, cost.spend(state)["known_usd"])
+                                self.assertEqual(round(subtotal, 6), cost.view(state)["spent_usd"])
+                                self.assertEqual((subtotal, 1.0) if subtotal >= 1.0 else None, cost.exceeded(state))
+                                self.assertEqual(before, state)

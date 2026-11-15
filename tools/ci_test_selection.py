@@ -103,6 +103,8 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tests.test_cost",
             "tests.test_cost_breakdown",
             "tests.test_escalation_view",
+            "tests.test_efficiency",
+            "tests.test_resolve_repair",
         ),
     ),
     ("tests/test_changed_code_evidence_cli.py", ("tests.test_mutation_continuation_cli",)),

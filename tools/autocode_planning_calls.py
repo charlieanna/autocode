@@ -92,11 +92,13 @@ def used(state: RunState) -> int:
     """The planning model calls since the person's last new input."""
     since = _time(renewed_at(state))
     calls = 0
-    for row in attempts.finished_records(state):
-        if row.get("runner_owned") or row.get("dry_run"):
-            continue
-        if planning_stage(row.get("original_stage") or row.get("stage")) and _counts(
-            _time(row.get("started_at")), since
+    for group in attempts.groups(state):
+        if any(
+            not row.get("runner_owned")
+            and not row.get("dry_run")
+            and planning_stage(row.get("original_stage") or row.get("stage"))
+            and _counts(_time(row.get("started_at")), since)
+            for row in group
         ):
             calls += 1
     for entry in _records(state, "stuck_investigations"):
