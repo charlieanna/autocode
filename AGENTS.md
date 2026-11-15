@@ -71,6 +71,43 @@ failed check or an unfinished step, or to repeat the instruction to fix it.
   while a required check is failing, paused or unobserved. Existing limits,
   model choices, public interfaces and approval boundaries still apply.
 
+## Fix the shared cause, not each case
+
+**Owner decision, 2026-11-15:** a fix removes the cause a failure shares with its
+neighbours. It does not add a rule for the one case that was reproduced. Four pull
+requests in a row (#3569, #3575, #3576, #3578) each taught the regression proof one
+more repository layout in which a project's tests run from a directory below the
+root. Every next layout failed the same way, and the owner asked for one fix in
+their place: "fixes that fix AutoCode on a whole and not just tiny small temp fixes
+per small issue".
+
+- **Before writing a fix, ask what else fails for the same reason.** Vary the case
+  along the axes that should not matter: the language, the test runner, the
+  directory layout, where the manifest is, one project or several. Check a few
+  without a model. When they fail too, the defect is the mechanism they share, and
+  the fix belongs there.
+- **Prefer what AutoCode can observe to what it must guess.** A rule keyed on a file
+  name, a language or a layout covers the cases someone listed. Where the answer
+  can be found by running something and reading the result (does this test load
+  from this directory), find it that way, once, and record it in the run's
+  evidence. Keep a rule only where nothing can be observed.
+- **One answer, read from one place.** When the proof, a gate and the plan check
+  need the same fact, they read one recorded answer. A fix that teaches the same
+  case to each of them separately is three fixes that will come to disagree.
+- **A second fix of the same kind is the signal to stop.** When a fix resembles the
+  one before it (another layout, another runner, another spelling), do not open
+  it. Find the common cause, fix that, and remove the special cases it replaces,
+  keeping their tests as tests of the general mechanism.
+- **A narrow fix is right only when the cause is narrow**: one runner's output
+  format, a typo, a contract one tool defines. Say in the pull request why the
+  cause reaches no further and what was checked to know it.
+- The pull request names the shared cause, the cases checked beyond the reported
+  one and what is still open. Gates stay as strict as they were: a mechanism that
+  decides where or how a check runs never decides what passes.
+
+This does not widen verification: task-focused checks (Testing, below) still apply
+to the fix that results.
+
 ## What a person is asked
 
 **Owner decision, 2026-10-29:** a person using AutoCode is involved only in
