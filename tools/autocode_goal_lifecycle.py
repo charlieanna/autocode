@@ -763,6 +763,35 @@ def answer_lines(answers) -> list[str]:
     return lines
 
 
+def _render_no_contract(state: RunState) -> str:
+    public = human.current(state)
+    if roles.planning_flow(state) == "v2":
+        questions = public["questions"] if public else human.internal_questions(state)
+        lines = ["No contract yet; resume with Requirements."]
+        for question in questions:
+            if not public:
+                lines.append("  Unissued proposal (not an actionable question):")
+            lines += [f"  [{question['id']}] {question['question']}", f"    Why: {question['why']}"]
+        if public:
+            # The request is named so it can be answered; its token is read back from the run
+            # by `--resolver-token -`, so no printed line carries the value (#2958).
+            lines.append(f"Resolver request ID: {public['request_id']}")
+        return "\n".join(lines)
+    header = "No contract yet; resume to interview with the Requirements Gatherer."
+    if not public or not public.get("questions"):
+        return header
+    lines = [header]
+    for question in public["questions"]:
+        lines.append(f"Answer ID: {question['id']} - {question['question']}")
+        if question.get("why"):
+            lines.append(f"  Why: {question['why']}")
+        lines += [f"  Option: {option}" for option in question.get("options") or ()]
+        if question.get("proposed_default"):
+            lines.append(f"  Proposed default: {question['proposed_default']}")
+    lines.append(f"Resolver request ID: {public['request_id']}")
+    return "\n".join(lines)
+
+
 def render(state: RunState, run_dir=None, *, details=True):
     """The brief as a person reads it; ``run_dir``, when given, completes the approve command.
 
@@ -772,20 +801,7 @@ def render(state: RunState, run_dir=None, *, details=True):
         return screen
     contract = state.get("goal_contract")
     if not contract:
-        if roles.planning_flow(state) == "v2":
-            public = human.current(state)
-            questions = public["questions"] if public else human.internal_questions(state)
-            lines = ["No contract yet; resume with Requirements."]
-            for question in questions:
-                if not public:
-                    lines.append("  Unissued proposal (not an actionable question):")
-                lines += [f"  [{question['id']}] {question['question']}", f"    Why: {question['why']}"]
-            if public:
-                # The request is named so it can be answered; its token is read back from the run
-                # by `--resolver-token -`, so no printed line carries the value (#2958).
-                lines.append(f"Resolver request ID: {public['request_id']}")
-            return "\n".join(lines)
-        return "No contract yet; resume to interview with the Requirements Gatherer."
+        return _render_no_contract(state)
     body = contract["body"]
     public = human.current(state)
     asks_approval = bool(public and public["scope"] == "goal_approval")

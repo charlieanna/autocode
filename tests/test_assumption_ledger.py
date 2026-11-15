@@ -120,5 +120,60 @@ class BindingTests(unittest.TestCase):
         self.assertFalse(cites("feedback-1"))
 
 
+class RequirementsStopRenderTests(unittest.TestCase):
+    def test_no_contract_render_keeps_fallback_and_prints_published_requirements_questions(self):
+        import autocode_goal_lifecycle as lifecycle
+        import autocode_requirements_review as requirements_review
+
+        fallback = "No contract yet; resume to interview with the Requirements Gatherer."
+        self.assertEqual(fallback, lifecycle.render({"status": "WAITING_FOR_USER", "settings": {}}))
+
+        question = {
+            "id": "Q1",
+            "question": "Should the greeting be a CLI or web endpoint?",
+            "why": "The delivery surface decides argv vs HTTP.",
+            "options": ["CLI", "Web endpoint"],
+            "proposed_default": "CLI",
+            "kind": "decision",
+            "category": "behavior",
+            "delegable": True,
+            "convention_ref": "",
+        }
+        state = {
+            "version": 3,
+            "task_id": "task-1",
+            "task": "Build a greeting tool",
+            "status": "RUNNING",
+            "next_stage": "draft_plan",
+            "settings": {"joint_planning": True},
+            "answers": {},
+            "user_events": [],
+            "requirements_handoff": {
+                "report": {"open_questions": [question], "required_behaviors": [], "acceptance_tests": []},
+                "output": "req.json",
+            },
+        }
+        requirements_review.wait(state, {"output": "req.json"}, lifecycle.human.queue)
+        self.assertEqual(fallback, lifecycle.render(state), "unpublished proposals must not render as actionable")
+        lifecycle.human.evaluate(state)
+        public = lifecycle.human.current(state)
+        screen = lifecycle.render(state)
+        self.assertEqual(
+            "\n".join(
+                [
+                    fallback,
+                    "Answer ID: Q1 - Should the greeting be a CLI or web endpoint?",
+                    "  Why: The delivery surface decides argv vs HTTP.",
+                    "  Option: CLI",
+                    "  Option: Web endpoint",
+                    "  Proposed default: CLI",
+                    f"Resolver request ID: {public['request_id']}",
+                ]
+            ),
+            screen,
+        )
+        self.assertNotIn(public["request_token"], screen)
+
+
 if __name__ == "__main__":
     unittest.main()
