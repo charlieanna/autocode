@@ -9,10 +9,12 @@ Grouping identifies a call; it never chooses which observation is true.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 
-def running_stage(state):
+def running_stage(state: Mapping[str, Any]):
     """The in-flight record, excluding a stopped attempt kept for reconciliation."""
     record = state.get("active_stage")
     if not isinstance(record, dict):
@@ -80,7 +82,7 @@ def _canonical(identity, aliases):
     return field + separator + path
 
 
-def observations(state, *, include_running=False):
+def observations(state: Mapping[str, Any], *, include_running=False):
     """(canonical identity, raw observation), preserving conflicting evidence."""
     stages = state.get("stages")
     records = [row for row in stages if isinstance(row, dict)] if isinstance(stages, list) else []
@@ -100,15 +102,15 @@ def observations(state, *, include_running=False):
     ]
 
 
-def groups(state):
+def groups(state: Mapping[str, Any]):
     """All settled observations per identity; no metric or provenance is erased."""
-    grouped = {}
+    grouped: dict[Any, Any] = {}
     for identity, record in observations(state):
         grouped.setdefault(identity, []).append(record)
     return grouped.values()
 
 
-def finished_records(state):
+def finished_records(state: Mapping[str, Any]):
     """Legacy saved-observation projection, plus an otherwise unrepresented retained attempt.
 
     Saved rows and raw artifact identity retain the legacy known-spend contract.
