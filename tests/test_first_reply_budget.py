@@ -36,6 +36,7 @@ def _init_git_repo(root: Path) -> None:
 
 def _base_state(root: Path, run_dir: Path, *, limits=None) -> dict:
     return {
+        "version": 3,
         "task": "Make the app output clearer errors",
         "workspace": str(root),
         "run_dir": str(run_dir),
