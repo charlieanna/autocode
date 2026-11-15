@@ -430,8 +430,8 @@ class PlanningTests(unittest.TestCase):
 
     def test_requirements_model_inherits_planner_only_when_the_route_is_created(self):
         for engine, provider, default, default_effort in (
-            ("opencode", "opencode", "zai-coding-plan/glm-5.3", "medium"),
-            ("opencode", "kilocode", "zhipuai-coding-plan/glm-5.3", "high"),
+            ("opencode", "opencode", "zai-coding-plan/glm-5.3", "low"),
+            ("opencode", "kilocode", "zhipuai-coding-plan/glm-5.3", "low"),
             ("codex", "opencode", "gpt-5.6-sol", "medium"),
         ):
             prefix = "" if engine == "codex" else "openai/"
@@ -529,7 +529,7 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual("alibaba-token-plan/glm-5.3", settings["roles"]["requirements"]["model"])
         # Requirements retains its independent default effort; selecting a Planner
         # model does not combine the two reasoning routes.
-        self.assertEqual("medium", settings["roles"]["requirements"]["reasoning_effort"])
+        self.assertEqual("low", settings["roles"]["requirements"]["reasoning_effort"])
 
     def test_requirements_still_prefers_its_own_flag_over_the_glm_override(self):
         args = SimpleNamespace(

@@ -20,6 +20,9 @@ tester = { model = "openai/gpt-5.6-sol", effort = "high" }
 completion = { model = "openai/gpt-5.6-sol", effort = "medium" }
 # GLM-5.3 declares low/high/max; medium is not a native variant.
 planner = { model = "zhipuai-coding-plan/glm-5.3", effort = "high" }
+# Requirements answers a waiting person: GLM-5.3 at low, not a copy of the Planner's high
+# (owner decision 2026-11-15).
+requirements = { model = "zhipuai-coding-plan/glm-5.3", effort = "low" }
 plan_reviewer = { model = "openai/gpt-5.6-sol", effort = "high" }
 
 [auth]

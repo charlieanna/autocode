@@ -61,6 +61,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- **Requirements runs GLM-5.3 at low by default, with ranked fallbacks** (owner decision 2026-11-15): the OpenCode and Kilo defaults, the catalogue suggestion and the route qualification table now give Requirements GLM-5.3 at low. GLM-5.3 offers low, high and max, so the earlier medium named a level the route does not have, and Kilo gave Requirements a copy of the Planner's high. When GLM-5.3 is not connected or its quota runs out, automatic selection and quota recovery move Requirements to Claude Opus 5.5 at medium, then GPT-6.1 Sol at medium, without asking. A saved Stage models choice still wins. The order comes from a comparison on nine Requirements requests from vague to direct.
 - Incomplete changed-line mutation studies continue unattempted sites from authenticated evidence instead of returning the same partial proof at every review (#3524). Completed, failed and timed-out observations stay intact; additional bounded windows count against active time and do not repeat the passing functional proof or grant completion to unrun sites.
 
 - Mutation checks stop running a mutant's remaining tests after a selected test detects it (#3494). Every selected test still has to pass on unchanged code and on a surviving mutant; setup errors, incomplete captures and timeouts never count as a detected mutation. This keeps the existing time limit and checks every eligible site.

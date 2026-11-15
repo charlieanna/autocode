@@ -40,7 +40,7 @@ except ImportError:
 
 # Ladder entry points when both families are present (docs/models.md).
 PREFERRED = {
-    "requirements": ("zai-coding-plan/glm-5.3", "medium"),
+    "requirements": ("zai-coding-plan/glm-5.3", "low"),
     "planner": ("zai-coding-plan/glm-5.3", "high"),
     "reviewer": ("openai/gpt-6-sol", "high"),
     "builder": ("zai-coding-plan/glm-5.3", "medium"),
