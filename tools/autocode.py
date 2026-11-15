@@ -438,20 +438,9 @@ def run_role(
         model = route["model"]
     effort, effort_choice = review_effort.launch(state, original_stage, route_role, report_only, route)  # #1710
     effort = route_fit.launch(state["settings"], route_role, effort, original_stage, model=route.get("model"))  # #2057
-    limits = state["settings"].get("limits", {})
-    stage_timeout, budget_meta, progress_budget = role_launch.stage_deadline_and_progress(
-        state, original_stage, limits.get("stage_timeout_seconds"), report_only=report_only
+    stage_timeout, budget_meta, progress_budget, watch, saved_limits = role_launch.launch_limits(
+        state, model, original_stage, stage, report_only=report_only
     )
-    idle_timeout = limits.get("idle_timeout_seconds", 300)
-    saved_idle_origin = state["settings"].get("budget_origins", {}).get("idle_timeout_seconds")
-    idle_limit, idle_origin = idle_policy.effective(idle_timeout, saved_idle_origin, model, stage=original_stage)
-    first_event_limit, first_event_origin = idle_policy.first_event_limit(
-        idle_limit,
-        saved_idle_origin,
-        stage_timeout=stage_timeout,
-        silent_start=idle_policy.silent_start(state.get("recovery_context"), stage),
-    )
-    tool_timeout = limits.get("tool_timeout_seconds", 1800)
     with phase_timing.measure(state, "source_launcher_preparation", stage=stage, attempt=attempt):
         native_before = (
             source_scope.snapshot(workspace, state, base_snapshot=support.snapshot) if native is not None else None
@@ -597,8 +586,7 @@ def run_role(
         "runner_retries": 0,
         "headroom_enabled": state["settings"].get("headroom", {}).get("enabled", False),
         "stage_timeout_seconds": stage_timeout,
-        "idle_timeout_seconds": idle_timeout,
-        "tool_timeout_seconds": tool_timeout,
+        **saved_limits,
         "expected_session": session,
         "supports_sessions": supports_sessions,
         "withheld_env": agent_env.withheld(os.environ),
@@ -754,20 +742,16 @@ def run_role(
                 events,
                 stage=stage,
                 model=model,
-                idle_limit=idle_limit,
-                tool_timeout=tool_timeout,
                 stage_timeout=stage_timeout,
                 started=started,
                 state_path=run_dir / "state.json",
                 save=save,
                 clock=now,
                 reporter=verbose.reporter(autocode_status.role_name(stage, state), model),
-                idle_origin=idle_origin,
                 idle_hint=JOB_IDLE_LIMIT if stage in jobs.STAGES else CHANGE_IDLE_LIMIT,
                 progress=progress_budget,
                 plain_text=configured_tool and getattr(adapter, "OUTPUT", None) == "report_file",
-                first_event_limit=first_event_limit,
-                first_event_origin=first_event_origin,
+                **watch,
             )
 
             def checkpoint(owned):
@@ -781,7 +765,7 @@ def run_role(
                 checkpoint,
                 activity=activity,
                 activity_checkpoint=activity_checkpoint,
-                startup_grace=min(5, tool_timeout or 5, first_event_limit or 5),
+                startup_grace=min(5, watch["tool_timeout"] or 5, watch["first_event_limit"] or 5),
                 stop_requested=lambda: interventions.stop_now_requested(run_dir),
                 **({"on_root": on_root} if native is not None else {}),
             )

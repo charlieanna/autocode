@@ -77,6 +77,9 @@ TANGLED: frozenset[str] = frozenset()
 # autocode_verify.py -4, _preserve_suite -8.
 # 2026-11-14: which files are tests by their path (is_test_path) lives in autocode_project_kinds, beside the
 # languages' rows it reads: autocode_verify.py -8.
+# 2026-11-15: #3580 and #3577 together raised autocode.py to 1845 lines without raising its limit; each
+# passed alone. The limits one launch runs under (stage deadline, inactivity and tool limits, startup budget)
+# moved to autocode_role_launch.launch_limits: autocode.py 1829, run_role -16.
 MAX_LINES = {
     "autocode.py": 1830,
     "autocode_goals.py": 1404,
