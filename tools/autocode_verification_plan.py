@@ -267,7 +267,11 @@ def executable(text):
     return name in RUNNERS
 
 
-def commands(method):
+def commands(method, *, runs=None):
+    """The commands a verification method asks to be run. ``runs`` says which text is a command, in place of
+    ``executable``: a caller that only looks for a command to try (autocode_plan_command_roles) asks the
+    machine instead of the list of runners."""
+    runs = runs or executable
     text = str(method).strip()
     snippets = list(re.finditer(r"`([^`]+)`", text))
     if snippets:
@@ -279,14 +283,14 @@ def commands(method):
             )
             requested |= bool(result) and prefix.lower() in ("and", ",", ", and")
             command = snippet.group(1).strip()
-            if requested and executable(command):
+            if requested and runs(command):
                 result.append(command)
             previous = snippet.end()
         return expectations.assertion_commands(text, result)
     if text.lower().startswith("run "):
         text = text[4:].strip()
     bare = QUOTED.sub("", text)
-    return [text] if executable(text) and not any(p.search(bare) for p in (PROSE, SENTENCE, NOTE)) else []
+    return [text] if runs(text) and not any(p.search(bare) for p in (PROSE, SENTENCE, NOTE)) else []
 
 
 def approved_commands(state: RunState, *, progressive_context=None):

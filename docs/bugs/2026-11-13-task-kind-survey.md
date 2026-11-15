@@ -1767,6 +1767,96 @@ beside it loads under `discover -s tests` and not when named by its path, so it 
 not looked for again when a later change of the same run moves the code away from it; a test the approved
 plan replaces, in a change across two projects, is excused from the joined results of both runs.
 
+## 51. A test runner AutoCode does not know: the plan's own commands are run to find the one that runs the tests (fixed)
+
+Sections 1, 22, 29, 30 and 32 are one defect, fixed once for each runner (Minitest, `make check`, CMake,
+PHPUnit, `prove`), and section 44 fixed it again for the guards of Maven and Gradle. A project whose tests
+run with anything else ends the same way: the proof has no command ("No command to run the regression tests;
+pass --regression-command", "No project test command was found ... (pass --test-command)"), and the person
+is asked to type two flags.
+
+**The shared cause.** Which command runs a project's tests was decided by a list: a detector for each
+runner (`autocode_toolchain_suite.detect`), and, where none matched, a rule over the approved plan's
+commands that takes one only when it begins with a runner AutoCode knows and names a test file
+(`autocode_plan_proof_command.choose`). `sh run_tests.sh`, `./run_tests.sh`, `make tests`, `dotnet test`,
+`mix test` and `swift test` name none. The plan check refused the same commands as guards ("names no
+existing test file"), which the Planner could not settle. Nothing has to be listed: what a command does is
+seen by running it.
+
+**The fix** (`autocode_plan_command_roles`). Where no runner is detected and the rules choose nothing, the
+proof runs the commands of the approved plan on copies of the original code, in the plan's order, each at
+most three times:
+
+- on the original code, where it must pass;
+- on the original code with the change's test files, where a command that now fails runs those tests: it
+  is the suite and the regression command;
+- on the original code with its own test files made unloadable, where a command that now fails runs the
+  tests the project already has: it is the suite, and a guard may use it.
+
+What is found is kept for the run (`plan_command_roles` in its state and in the proof's receipt, with each
+exit code seen) and read by the proof, the guards, the check of the original tests and a replay, which runs
+nothing and takes the recorded answer. The rules are still asked first, so a plan they cover costs no run.
+A command is tried when its first word is a program on `PATH` or an executable file of the project
+(`cd DIR && ...` is read inside `DIR`); never `autocode` itself. At most six commands are tried, five
+minutes each.
+
+Finding the command proves nothing. The proof then runs it as before: the suite on the original code, on
+the original code with the new tests, and with the change, and a command that fails on the original code
+is given no role at all (it could be a script the change itself adds). A guard's command that was not seen
+to run an existing test now leaves the proof unverified, where before the plan was refused for its
+spelling. A guard that names a test file the project does not have is still refused at the plan, with the
+project's own kind of command as the example.
+
+**Cases checked beyond the reported ones**, without a model (the proof run through `autocode_regression.prove`
+on a bug fix with its test):
+
+| Project and the plan's command | On master | With the fix |
+| --- | --- | --- |
+| C, `./run_tests.sh` | unverified, no command | PASS |
+| C, `sh run_tests.sh` | unverified, no command | PASS |
+| C, `make tests` | unverified, no command | PASS |
+| C, `make -C . tests` | unverified, no command | PASS |
+| Perl, `perl run_tests.pl` over `tests/*.pl` | unverified, no command | PASS |
+| PHP, `php run_tests.php` over plain scripts | unverified, no command | PASS |
+| Java, `./check.sh` (`javac`, then `java`) | unverified, no command | PASS |
+| TypeScript, `bun test` | unverified, no command | PASS |
+| a shell project in `backend/`, `cd backend && ./run_tests.sh` | unverified, no command | PASS |
+| Ruby, `ruby run_checks.rb` over `checks/*_check.rb` | FAIL, "No regression test was added or changed" | the same |
+
+The last is not this defect: `checks/pager_check.rb` is not read as a test at all, which is a rule about
+what a test is (the open item of section 50), not about which command runs it.
+
+**Real runs** (Claude Code, `claude-tiers`), a paging bug in a C project whose README says "Run the tests
+with `./run_tests.sh`":
+
+| Task | On master | With the fix | Bundle manifests |
+| --- | --- | --- | --- |
+| Bug fix, tests run by `run_tests.sh` | `WAITING_FOR_USER`, 9 stages, 182 s, $1.21: "Set --test-command 'sh run_tests.sh' and --regression-command 'sh run_tests.sh'" | `TASK_COMPLETE`, 8 stages, 129 s, $0.82, no question; `sh run_tests.sh` exit 0 on the original code and 1 with the new test there; the check of the original tests ran it, exit 0 and 0 | `58cb0b270d414b6fb8e715c18567768f2abdec9063ffdde434477e8e87621b8d`, `0fd872badba7c8a0ab3a5ff145f9df53b9b767ea82eb49d72c15674f443c14d8` |
+| The same with a `Makefile` whose target is `tests` | `WAITING_FOR_USER`, 9 stages, 169 s, $1.04 | `TASK_COMPLETE`, 10 stages, 187 s, $1.29, no question; the plan's criteria were "run `make tests` fails on the original code (exit 2) and passes with the fix (exit 0)" and "guard: run `make tests`" | `bd91347b5251e8eb7e73e1df420c963236d884475551e306f7584426463a2613`, `b41d2f00a719c4ec8eb2f1c514e9fd87958d9e82ab8fb13b1f671518d19070c5` |
+| The same in TypeScript with `bun test` | `TASK_COMPLETE`, 8 stages, 156 s, $1.06: the plan happened to name the test file (`bun test tests/pager.test.ts`), which the rule covers | not run again | `03d773947fdc481594300145c38400d87e1f4bba8a3161a36a8a1131141c50b3` |
+| A refactor of the C project ("move the check into one helper; nothing they return may change") | not run | `TASK_COMPLETE`, 22 stages, 563 s, $4.20, no question; the guard `sh run_tests.sh` was seen to run the existing tests (exit 0 on the original code, 1 with its test files unloadable) | `868c98a75d5110f89c56249f03bd00896b2d822d4ce646facf594809d3242408` |
+
+The first bug fix was run again on the final commit: `TASK_COMPLETE`, 8 stages, 169 s, $0.94, the same roles
+and exit codes (`2ceb98f23724208580fbe9d66f8d3ec406920849887174958e072a1358ff9271`).
+
+The refactor finished, but not well, and for a reason that is not this one. Its plan also asked for a new
+test file of behavior the code already has (`tests/run_guard.sh`). A new test must fail on the original
+code, so the proof failed twice ("The regression tests also pass on the unfixed base code"), the work
+went back to the Builder, and the Builder got past the proof by adding `grep` checks of `pager.c`'s text to
+the new test. Checked without a model: where the runner names its tests (pytest, unittest) a plan whose
+criteria are all guards accepts a new test that passes before and after; where it reports only an exit
+code, a changed test file must fail on the original code, because nothing else there tells a refactor
+from a feature. That difference is the next shared cause to take.
+
+Costs: nothing where a runner is detected or the rules choose; otherwise up to three runs of the project's
+tests for each command tried, once a run (the results on the original code are kept).
+
+Still open: a command that only type-checks or lints, listed before the test command, fails when a new
+test does not compile and so can take the regression role (the suite still runs on all three trees, and
+the changed-line and mutation checks still need a test that notices a broken line); the plan check cannot
+run a command, so a wrong one is seen only at the proof; test files in a directory the rules do not call
+tests (`checks/`, above).
+
 ## Also seen, not yet run on real models
 
 - **Claude Code refuses to edit some directories inside the stage's own directory.** With Edit and

@@ -127,7 +127,8 @@ class KiloStartChecksTests(unittest.TestCase):
                     provider.validate_effort("zai-coding-plan/glm-5.3", "high", root)
             calls = (bin_dir / "calls").read_text().splitlines()
         self.assertEqual(["Z.AI Coding Plan"], [account["name"] for account in found["accounts"]])
-        self.assertEqual(["auth list", "models", "models --verbose"], sorted(calls))
+        # The run's warm-up asks the version check with them; the launch checks then start no tool.
+        self.assertEqual(["--version", "auth list", "models", "models --verbose"], sorted(calls))
 
     def test_a_cut_off_verbose_listing_is_not_kept_for_the_next_check(self):
         # #3078: an answer that ends inside a model's metadata is not a successful check, so the next
@@ -154,7 +155,8 @@ class KiloStartChecksTests(unittest.TestCase):
                         found = discovery.discover(provider, root)
             calls = (bin_dir / "calls").read_text().splitlines()
         self.assertEqual(["zai-coding-plan/glm-5.3"], [candidate["model"] for candidate in found["candidates"]])
-        self.assertEqual(["auth list", "models", "models --verbose", "models --verbose"], sorted(calls))
+        # The run's warm-up asked it first; its cut-off answer was not kept, so each discovery asked again.
+        self.assertEqual(["--version", "auth list", "models"] + ["models --verbose"] * 3, sorted(calls))
 
 
 CUT_KILO = """#!/bin/sh

@@ -19,6 +19,8 @@ GO_TEST = project_kinds.targets("go")
 JS_TEST = project_kinds.targets("jest")
 RSPEC_TEST = project_kinds.targets("rspec")
 MINITEST_TEST = re.compile(r"^(?:.*_test|test_.*)\.rb$")
+# What a glob or RSpec's comma-separated pattern would read as more than a file name.
+_GLOB = re.compile(r"[*?\[\]{},\s\\]")
 
 
 class Framework:
@@ -122,6 +124,23 @@ class Framework:
             requires = [arg for script in scripts for arg in ("-r", "./" + script.lstrip("./"))]
             return shlex.join([*prefix, "ruby", "-Ilib", "-Itest", *requires, "-e", ""])
         return None
+
+    def without(self, left_out, remaining):
+        """The suite without the test files ``left_out``; ``remaining`` are the project's other test files.
+
+        RSpec and pytest have an option for it, which keeps the suite's own discovery and a short command
+        however large the suite is. Every other runner is given the remaining files by name, as
+        ``targeted`` gives it any files. None when the runner cannot be given files, as for ``targeted``.
+        """
+        files, names = sorted(left_out), [PurePosixPath(p).name for p in left_out]
+        specs = self.name == "rspec" and all(map(RSPEC_TEST.match, names)) and not any(map(_GLOB.search, files))
+        if files and specs:
+            # RSpec reads the pattern as a comma-separated list of globs, relative to where it runs.
+            return f"{self.runner} --exclude-pattern {shlex.quote(','.join(files))}"
+        modules = self.name == "pytest" and not self.invocation and all(map(PYTHON_TEST_MODULE.match, names))
+        if files and modules and " -m pytest " in f"{self.suite} ":
+            return self.suite + "".join(f" --ignore={shlex.quote(p)}" for p in files)
+        return self.targeted(remaining)
 
     def to_dict(self):
         shown = {"name": self.name, "suite": self.suite, "python": self.python, "note": self.note}

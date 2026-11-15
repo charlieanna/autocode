@@ -97,6 +97,45 @@ class PreflightReuseTests(unittest.TestCase):
             self.check(env={**self.env, "TERM_SESSION_ID": "w1t0p0", "SHLVL": "2", "OLDPWD": "/b"})
         self.assertEqual(1, self.calls())
 
+    def test_controller_call_markers_do_not_repeat_successful_preflights(self):
+        with mock.patch.object(env_prep.subprocess, "run", wraps=env_prep.subprocess.run) as spawn:
+            for argument in ("--version", "models", "auth"):
+                with self.subTest(preflight=argument):
+                    before = self.calls()
+                    first_env = {**self.env, "CODEX_TOOL_CALL_ID": "call-one", "KILO_CONFIG": "same-profile"}
+                    second_env = {**first_env, "CODEX_TOOL_CALL_ID": "call-two"}
+                    with env_prep.reuse_checks(self.run_dir):
+                        first = self.check(argument, first_env)
+                    with env_prep.reuse_checks(self.run_dir):
+                        second = self.check(argument, second_env)
+                    self.assertEqual("call-two", second_env["CODEX_TOOL_CALL_ID"], "Keep the caller's mapping")
+                    self.assertEqual(first.stdout, second.stdout)
+                    self.assertEqual(before + 1, self.calls(), "A new controller call asks the same question")
+                    self.assertEqual(first_env, spawn.call_args.kwargs["env"], "Preserve the actual tool environment")
+
+    def test_call_marker_reuse_preserves_profile_changes_and_explicit_fresh_reads(self):
+        first_env = {**self.env, "CODEX_TOOL_CALL_ID": "call-one", "CODEX_HOME": "first-profile"}
+        changed_env = {**first_env, "CODEX_TOOL_CALL_ID": "call-two", "CODEX_HOME": "second-profile"}
+        with env_prep.reuse_checks(self.run_dir):
+            self.check(env=first_env)
+            self.check(env=changed_env)
+            self.assertEqual(2, self.calls(), "A real profile change must invalidate the answer")
+            self.check(env=changed_env)
+            self.assertEqual(2, self.calls())
+            env_prep.preflight_run(
+                ["tool", "--version"],
+                changed_env,
+                cwd=self.root,
+                capture_output=True,
+                text=True,
+                timeout=15,
+                fresh=True,
+            )
+            self.assertEqual(3, self.calls(), "Explicit fresh checks still execute")
+        with env_prep.reuse_checks(self.run_dir):
+            self.check(env={**changed_env, "CODEX_TOOL_CALL_ID": "call-three"})
+        self.assertEqual(3, self.calls(), "Only the invocation marker changed")
+
     def test_a_new_login_or_a_changed_setting_runs_the_check_again(self):
         home = self.root / "home"
         login = home / ".local" / "share" / "tool" / "auth.json"

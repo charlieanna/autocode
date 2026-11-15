@@ -19,6 +19,7 @@ import autocode_planning_advice as recovery_binding
 import autocode_recovery_accounting as recovery_accounting
 import autocode_recovery_history as recovery_history
 import autocode_recovery_limits as runner_limits
+import autocode_resolve_repair_job as resolve_repair
 import autocode_run_status as run_status
 import autocode_stuck_job as stuck
 import autocode_util as util
@@ -62,6 +63,21 @@ def state_for(workspace=None, next_stage="builder", status="RUNNING", **extra):
     }
     state.update(extra)
     return state
+
+
+def resolve_hold():
+    """A Resolver repair report that holds: no valid repair, the underlying pause stands."""
+    return {
+        "diagnosis": "",
+        "action": "hold",
+        "repaired_report_json": "",
+        "guidance": "",
+        "next_objective": "",
+        "affected_paths": [],
+        "user_question": "",
+        "user_options": [],
+        "evidence_refs": [],
+    }
 
 
 def report(recommendation="retry", **overrides):
@@ -1103,6 +1119,8 @@ class DriveTests(unittest.TestCase):
         def apply(current, stage, outcome):
             if stage == stuck.STAGE and outcome != "paused":
                 return stuck.apply(current, outcome, {}, state["workspace"])
+            if stage == resolve_repair.STAGE:
+                return resolve_repair.apply(None, current, outcome, {}, state["workspace"], None)
             if stage != stuck.STAGE:
                 current.update(next_stage=None, status="TASK_COMPLETE")
 
@@ -1176,8 +1194,13 @@ class DriveTests(unittest.TestCase):
             with self.subTest(stage=stage, status=status):
                 state = state_for(next_stage=stage)
                 self.addCleanup(shutil.rmtree, state["workspace"])
+                script = {stage: ["!" + status, "!" + status], stuck.STAGE: [report()]}
+                if status in resolve_repair.AFTER_INVESTIGATOR:
+                    # After the Investigator's one grant, the Resolver sees the stall once; holding it
+                    # restores the pause with the Investigator's diagnosis.
+                    script[resolve_repair.STAGE] = [resolve_hold()]
                 with self.assertRaises(Paused) as caught:
-                    self.run_loop(state, {stage: ["!" + status, "!" + status], stuck.STAGE: [report()]})
+                    self.run_loop(state, script)
                 self.assertEqual(status, caught.exception.status)
                 self.assertIn("Investigator (retried): The Planner cites", str(caught.exception))
                 self.assertEqual(1, len(state["stuck_investigations"]), "the same problem has no second grant")

@@ -86,6 +86,7 @@ try:
     from . import autocode_package_scope as package_scope
     from . import autocode_package_writes as package_writes
     from . import autocode_pending_tests as pending_tests
+    from . import autocode_plan_command_roles as plan_roles
     from . import autocode_plan_proof_command as plan_command
     from . import autocode_python_test_roles as role_policy
     from . import autocode_recovery_review as recovery_review
@@ -97,7 +98,9 @@ try:
     from . import autocode_test_cases as test_cases
     from . import autocode_test_homes as test_homes
     from . import autocode_test_role_inventory as role_inventory
+    from . import autocode_unloadable_tests as unloadable_tests
     from . import autocode_util as util
+    from . import autocode_verification_preparation as preparation
     from . import autocode_verification_schedule as schedule
     from . import autocode_verify as verify
     from . import autocode_wrapped_runner as wrapped_runner
@@ -124,6 +127,7 @@ except ImportError:
     import autocode_package_scope as package_scope
     import autocode_package_writes as package_writes
     import autocode_pending_tests as pending_tests
+    import autocode_plan_command_roles as plan_roles
     import autocode_plan_proof_command as plan_command
     import autocode_python_test_roles as role_policy
     import autocode_recovery_review as recovery_review
@@ -135,7 +139,9 @@ except ImportError:
     import autocode_test_cases as test_cases
     import autocode_test_homes as test_homes
     import autocode_test_role_inventory as role_inventory
+    import autocode_unloadable_tests as unloadable_tests
     import autocode_util as util
+    import autocode_verification_preparation as preparation
     import autocode_verification_schedule as schedule
     import autocode_verify as verify
     import autocode_wrapped_runner as wrapped_runner
@@ -170,6 +176,7 @@ SUMMARY_KEYS = (
     "changed_code_evidence",
     "changed_code_receipts",
     "test_homes",
+    "plan_command_roles",
 )
 
 
@@ -355,17 +362,77 @@ def _with_plan_command(options, adopted):
     }
 
 
-def _plan_command(state: RunState, workspace, base):
-    """The approved plan's test command and its roles (autocode_plan_proof_command.choose), or None."""
-    commands = plan_command.approved_commands(state.get("goal_contract"))
-    if not commands:
+def _plan_command(state: RunState, workspace, run_dir, base, *, all_due=False):
+    """The approved plan's test command and its roles, or None: by the rules where they answer
+    (autocode_plan_proof_command.choose), and otherwise by running the plan's commands on the original code
+    and reading what they do (autocode_plan_command_roles). A replay runs nothing and takes the recorded
+    proof's answer."""
+    contract = state.get("goal_contract")
+    if not plan_roles.candidates(contract, workspace):
         return None
     changes = verify.changed_files(workspace, base, source_paths=source_scope.paths(state))
     entries = role_inventory.entries(workspace, base)
     is_test = role_inventory.test_rule(entries)
     original = [path for path in entries if is_test(path)]
-    changed = [path for path, status in changes.items() if status != "deleted" and is_test(path)]
-    return plan_command.choose(commands, original_tests=original, changed_tests=changed)
+    changed = {path: status for path, status in changes.items() if status != "deleted" and is_test(path)}
+    tests = {"original_tests": original, "changed_tests": list(changed)}
+    try:
+        from . import autocode_replay_checks as recorded_checks
+    except ImportError:
+        import autocode_replay_checks as recorded_checks
+    if recorded_checks.simulated(state.get("settings")):
+        plan_roles.restore(state, recorded_checks.kept(state, "plan_command_roles"), base, contract)
+    elif not reviewed_patch(state, workspace) and not operator_patch.pinned(state):
+        guards = [guard["command"] for guard in command_guards.due(state, all_due=all_due)]
+        if plan_roles.wanted(state, base, contract, **tests, guards=guards):
+            with runner_check.track(
+                state, run_dir, STAGE, "Finding which of the plan's commands runs the project's tests", status.persist
+            ) as say:
+                observe = _observe(state, workspace, run_dir, base, original, changed, say)
+                plan_roles.settle(state, base, contract, **tests, guards=guards, tree=workspace, observe=observe)
+    return plan_roles.adopted(state, base, contract, **tests)
+
+
+def _observe(state: RunState, workspace, run_dir, base, original, changed, say):
+    """``observe(command, where)`` for autocode_plan_command_roles.settle: one command on a tree of the
+    original code, as it is, with the change's test files, or with its own test files made unloadable.
+    The command's exit code, or None when the tree could not be made or the command did not finish."""
+    out = Path(run_dir).resolve() / "regression" / ("roles-" + uuid.uuid4().hex)
+    dependencies = state.get("project_workspace") or str(workspace)
+    limit = min(suite_timeout(state) or plan_roles.RUN_SECONDS, plan_roles.RUN_SECONDS)
+    runs: list[str] = []
+
+    def observe(command, where):
+        runs.append(where)
+        folder = out / f"{len(runs):02d}-{where}"
+        say("Running the plan's commands on the original code to see what they do", command=command, output=folder)
+        try:
+            tree = verify.make_tree(
+                workspace,
+                base,
+                Path(run_dir) / "scratch" / f"roles-{len(runs):02d}",
+                workspace,
+                changed if where == plan_roles.WITH_TESTS else {},
+                dependencies_from=dependencies,
+                ignored_inputs=launch_inputs.supply(state, workspace, run_dir),
+            )
+        except (OSError, ValueError):
+            return None
+        try:
+            if where == plan_roles.WITHOUT_TESTS:
+                for path in original:
+                    file = tree / path
+                    if file.is_file() and not file.is_symlink():
+                        file.write_text(plan_roles.UNLOADABLE)
+            receipt = verify.run_suite(None, command, tree, folder, where, timeout=limit)
+        except (OSError, ValueError):
+            return None
+        finally:
+            verify.remove_tree(workspace, tree)
+        finished = verify.command_receipt.completed(receipt) and not receipt.get("timed_out")
+        return receipt.get("exit_code") if finished else None
+
+    return observe
 
 
 def suite_timeout(state: RunState):
@@ -452,6 +519,34 @@ def _probe(state: RunState, workspace, run_dir, say):
     return probe
 
 
+def _on_the_change(state: RunState, workspace, run_dir, framework, command, label):
+    """One command of ``framework``'s suite on a scratch copy of the changed code, with the run's
+    dependencies and ignored inputs, under the suite's time limit or five minutes, read as that suite's
+    own results (a scratch run reads a command it does not recognize by its exit code alone). None when
+    the copy cannot be made."""
+
+    def scratch(workspace, folder, *, command, timeout, dependencies_from=None, ignored_inputs=None):
+        parameters = preparation.scratch_parameters(
+            None, None, None, (), dependencies_from, None, False, ignored_inputs
+        )
+        tree = verify.prepare_scratch_tree(workspace, folder, **parameters)
+        try:
+            # A command naming the workspace's absolute path runs against the copy, never the workspace.
+            for root in dict.fromkeys((str(Path(workspace).resolve()), str(workspace))):
+                command = command.replace(root, str(tree))
+            return verify.run_suite(framework, command, tree, folder, label, timeout=timeout)
+        finally:
+            verify.remove_tree(workspace, tree)
+
+    run, _identity = launch_inputs.runners(state, workspace, run_dir, scratch)
+    out = Path(run_dir).resolve() / "regression" / (label + "-" + uuid.uuid4().hex)
+    limit = min(suite_timeout(state) or test_homes.PROBE_SECONDS, test_homes.PROBE_SECONDS)
+    try:
+        return run(workspace, out, command=command, timeout=limit)
+    except ValueError:
+        return None
+
+
 def _settled_key(binding) -> str:
     """The key of a detected baseline's timeout: the command, the original code and the time limit.
 
@@ -499,14 +594,24 @@ def _baseline(
     if framework is not None and framework.name == "junit":
         binding["runtime"]["reuse_supported"] = False
         binding["runtime"]["cache_policy"] = "fresh_junit_runtime_execution"
-    if cached.get("binding") == binding and binding["runtime"].get("reuse_supported"):
+    # The whole suite's result is kept beside the suite that replaced it (_without_unloadable), so a later
+    # proof of the run reads both instead of running the original code's suite twice more.
+    for record, replaced in ((cached, False), (cached.get("whole") or {}, True)):
+        if record.get("binding") != binding or not binding["runtime"].get("reuse_supported"):
+            continue
         try:
-            result = util.read(cached["path"])
+            result = util.read(record["path"])
             if (
-                util.file_hash(cached["path"]) == cached.get("sha256")
-                and schedule.intact(result["receipt"], root=Path(cached["path"]).parent)
+                util.file_hash(record["path"]) == record.get("sha256")
+                and schedule.intact(result["receipt"], root=Path(record["path"]).parent)
                 and not result["receipt"].get("timed_out")
-                and (not result["receipt"].get("results_expected") or schedule.complete_results(result["receipt"]))
+                and (
+                    not result["receipt"].get("results_expected")
+                    or schedule.complete_results(result["receipt"])
+                    # A whole suite with files it could not load is never completed evidence. Kept beside
+                    # the suite that replaced it, it decides only which files the next proof leaves out.
+                    or (replaced and unloadable_tests.unloaded(result))
+                )
             ):
                 return result
         except (OSError, ValueError, TypeError, KeyError):
@@ -553,8 +658,10 @@ def _baseline(
     util.atomic_json(path, result)
     if focused_suite.timed_out(result):
         timeouts[_settled_key(binding)] = {"path": str(path), "sha256": util.file_hash(path)}
+    whole = cached.get("whole") or {}
     state["regression_baseline"] = {
         **({"settled_timeouts": timeouts} if timeouts else {}),
+        **({"whole": whole} if whole and whole.get("command") != suite else {}),
         "base": base,
         "command": suite,
         "path": str(path),
@@ -564,6 +671,76 @@ def _baseline(
         "sha256": util.file_hash(path),
     }
     return result
+
+
+def _kept_baseline(state: RunState, command):
+    """The saved record of ``command``'s result on the original code: the current baseline, or the whole
+    suite's kept beside the suite that replaced it. None when neither is that command's."""
+    record = state.get("regression_baseline") or {}
+    for found in (record, record.get("whole") or {}):
+        if found.get("command") == command:
+            return {key: value for key, value in found.items() if key not in ("whole", "settled_timeouts")}
+    return None
+
+
+def _without_unloadable(
+    state: RunState,
+    workspace,
+    run_dir,
+    base,
+    framework,
+    whole,
+    tests,
+    changes,
+    dependencies,
+    base_patch,
+    progress,
+    inputs,
+):
+    """The suite without the test files the original code cannot load (autocode_unloadable_tests): the
+    evidence of the choice, the framework that runs it and its result on the original code. None when the
+    whole suite stays the proof's suite.
+
+    The whole suite on the original code names the files. They are run once on the changed code: one that
+    loads there is the change's own repair, and nothing is left out. The suite without them then runs on
+    the original code, and is used only when it loads completely there and passes every test the whole
+    suite passed. Otherwise the whole suite's result is the baseline again, judged as before.
+    """
+    choice = unloadable_tests.choose(framework, whole, tests, changes)
+    if not choice:
+        return None
+    kept = _kept_baseline(state, whole["command"])
+    progress(
+        "Checking that the test files the original code cannot load do not load with the change either",
+        command=choice["probe"],
+    )
+    if not unloadable_tests.still(
+        _on_the_change(state, workspace, run_dir, framework, choice["probe"], "left-out"), choice
+    ):
+        return None
+    without = focused_suite.framework_for(framework, choice["command"])
+    result = _baseline(
+        state,
+        workspace,
+        run_dir,
+        base,
+        without,
+        choice["command"],
+        dependencies,
+        base_patch,
+        progress,
+        inputs,
+        settled_timeout=True,
+    )
+    if focused_suite.usable(result) and unloadable_tests.keeps(whole, result, choice):
+        if kept is not None:
+            state["regression_baseline"] = {**(state.get("regression_baseline") or {}), "whole": kept}
+        return unloadable_tests.record(choice, whole), without, result
+    if kept is not None:
+        # Keep what the narrower suite's own time limit settled, so it is not timed again.
+        settled = (state.get("regression_baseline") or {}).get("settled_timeouts")
+        state["regression_baseline"] = {**kept, **({"settled_timeouts": settled} if settled else {})}
+    return None
 
 
 def prove(state: RunState, workspace, run_dir, *, all_due=False):
@@ -616,7 +793,7 @@ def _prove_once(state, workspace, run_dir, current, *, all_due=False):
     if framework is None and base and not command and not options.get("regression_command"):
         # No runner AutoCode knows and nothing typed: the approved plan's own test command, never a
         # question to the person about flags (autocode_plan_proof_command).
-        adopted = _plan_command(state, workspace, base)
+        adopted = _plan_command(state, workspace, run_dir, base, all_due=all_due)
         options = _with_plan_command(options, adopted)
         command = options.get("test_command")
     unscoped = "package" not in detection and "test_root" not in detection
@@ -1136,8 +1313,33 @@ def _proving(
             else None
         )
         proving, fallback = framework, None
-        if focus and focused_suite.unusable(base_suite):
-            whole, whole_record = base_suite, state.get("regression_baseline")
+        entries = role_inventory.entries(workspace, base)
+        original_tests = list(filter(role_inventory.test_rule(entries), entries))
+        # Test files the original code cannot load are left out, when the change does not touch them and
+        # they do not load with it either: found by running, recorded, never asked of a person.
+        left_out = (
+            _without_unloadable(
+                state,
+                workspace,
+                run_dir,
+                base,
+                framework,
+                base_suite,
+                original_tests,
+                changes,
+                dependencies["dependencies_from"],
+                base_patch,
+                progress,
+                inputs,
+            )
+            if suite and not options.get("test_command")
+            else None
+        )
+        if left_out:
+            fallback, proving, base_suite = left_out
+            suite = fallback["command"]
+        elif focus and focused_suite.unusable(base_suite):
+            whole, whole_record = base_suite, _kept_baseline(state, suite)
             focused = focused_suite.framework_for(framework, focus["command"])
             focused_base = _baseline(
                 state,
@@ -1176,13 +1378,12 @@ def _proving(
         due = cases(state, all_due=all_due)
         # Guards that are commands, where the runner names no test (autocode_command_guards). With no named
         # case and no changed test file, the change is coverage of what those commands already show.
-        entries = role_inventory.entries(workspace, base)
-        original_tests = list(filter(role_inventory.test_rule(entries), entries))
+        guards_due = command_guards.due(state, all_due=all_due)
+        # A guard's command the plan's rules do not know may have been seen to run the project's tests.
+        per_test = reporters.suite_reports(proving, workspace)
+        guards_seen = plan_roles.runs_tests(state, state.get("goal_contract"))
         guard_commands = command_guards.usable(
-            command_guards.due(state, all_due=all_due),
-            proving,
-            original_tests,
-            per_test=reporters.suite_reports(proving, workspace),
+            guards_due, proving, original_tests, per_test=per_test, observed=guards_seen
         )
         if (
             guard_commands
@@ -1305,14 +1506,25 @@ def _proving(
             inputs,
             suite_timeout(state),
         )
+        if unseen := command_guards.unproven(
+            guards_due, proving, original_tests, per_test=per_test, observed=guards_seen
+        ):
+            proof["unverified"] = [*(proof.get("unverified") or []), *unseen]
+            proof["verdict"] = companion_suites.verdict(
+                proof["verdict"], [], unseen, fail=verify.FAIL, unverified_verdict=verify.UNVERIFIED
+            )
         if adopted:
-            chosen = plan_command.note(adopted)
-            proof["notes"] = [*(proof.get("notes") or []), chosen]
-            proof["review_reasons"] = [*(proof.get("review_reasons") or []), chosen]
+            chosen = [plan_command.note(adopted), *filter(None, [plan_roles.note(adopted)])]
+            proof["notes"] = [*(proof.get("notes") or []), *chosen]
+            proof["review_reasons"] = [*(proof.get("review_reasons") or []), *chosen]
+        elif framework is None and (tried := plan_roles.unsettled(state, base, state.get("goal_contract"), workspace)):
+            # No runner and no command of the plan that runs the project's tests: say what was seen.
+            proof["notes"] = [*(proof.get("notes") or []), tried]
         if fallback:
             proof["suite_fallback"] = fallback
             proof["notes"] = [*(proof.get("notes") or []), fallback["reason"]]
-            proof["review_reasons"] = [*(proof.get("review_reasons") or []), focused_suite.review_reason(fallback)]
+            chose = unloadable_tests if fallback["decision"] == unloadable_tests.DECISION else focused_suite
+            proof["review_reasons"] = [*(proof.get("review_reasons") or []), chose.review_reason(fallback)]
         if (coverage or (test_only and not result.get("source_files"))) and any(
             case.get("kind") != "preserve" for case in due
         ):
@@ -1434,6 +1646,9 @@ def _proving(
         proved_at=util.now(),
         duration_seconds=round(time.monotonic() - started, 1),
     )
+    if found := plan_roles.kept(state):
+        # Which of the plan's commands was found to run the project's tests, for a replay of this run.
+        proof["plan_command_roles"] = found
     if homes := test_homes.moved(state):
         # Where the changed tests were found to run, kept with the commands it explains: a replay of this
         # run cannot look for itself (autocode_replay_checks.test_homes).

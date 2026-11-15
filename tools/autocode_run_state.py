@@ -226,6 +226,7 @@ KEYS: frozenset[str] = frozenset(
         "permission_reuses",
         "phase",
         "plan",
+        "plan_command_roles",
         "plan_source",
         "planned_check_reworks",
         "planning",
@@ -602,6 +603,12 @@ class RunState(TypedDict, total=False):
     permission_reuse_context: Any
     permission_reuses: Any
     plan: Any
+    # Which of the approved plan's commands runs the project's tests, in a project with no runner AutoCode
+    # reads: {version, base, contract, suite, regression, runs_tests, found, seen}. Written only in
+    # autocode_plan_command_roles: by settle, from the regression proof, and by restore, which takes a
+    # recorded proof's answer in a replay. Read there (adopted, runs_tests, suite, kept, unsettled), for
+    # the proof's commands, its guards and its receipt, and for the gate of the original tests.
+    plan_command_roles: dict
     plan_source: Any
     planning: Any
     planning_artifact_history: Any

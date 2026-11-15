@@ -222,7 +222,9 @@ class NamedCasesTests(unittest.TestCase):
 
     def test_test_code_no_runner_reads_is_judged_as_an_exit_code_runner(self):
         shell = {"pager.sh": "page_count() { echo 1; }\n", "tests/test_pager.sh": ". ./pager.sh\n"}
-        with self.assertRaisesRegex(ValueError, r"this project's tests run with no runner AutoCode reads, which"):
+        with self.assertRaisesRegex(
+            ValueError, r"this project's tests run with no runner AutoCode reads, so it could.*run `\./run_tests\.sh`"
+        ):
             lifecycle.validate_body(self.state(shell), named("test: test_partial", "tests/test_pager.sh"), ready=True)
 
     def test_the_same_criterion_as_the_command_that_runs_its_test_file_is_accepted(self):

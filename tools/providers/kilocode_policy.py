@@ -8,12 +8,12 @@ report recovery has no tools. Unknown tools stay denied.
 import json
 import re
 import shutil
-import subprocess
+import subprocess  # noqa: F401 - the debug checks run it through env_prep; tests patch it here
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import kilocode_probe
+from . import env_prep, kilocode_probe
 
 try:
     from .. import autocode_publish_guard as publish_guard
@@ -55,6 +55,14 @@ def intersect(rules, tools):
     return result
 
 
+def _policy_answer(stdout) -> bool:
+    """Whether a debug command's answer is a whole JSON object, the only answer worth keeping."""
+    try:
+        return isinstance(json.loads(stdout), dict)
+    except (TypeError, ValueError):
+        return False
+
+
 def effective_agent(argv, child, workspace, *, cache=None):
     """Resolve this local launch's actual agent; an optional cache lasts one readiness call only."""
     # A remote server or inherited session could apply different tool grants.
@@ -80,10 +88,19 @@ def effective_agent(argv, child, workspace, *, cache=None):
 
     def debug(*args):
         words = [executable, "debug", *args]
+        # Asked through the kept checks (env_prep), keyed by the executable, the environment (which carries
+        # any KILO_CONFIG_CONTENT), the folder and Kilo's settings and agent definitions there and in its
+        # config folder: a changed default or permission is asked again, an unchanged one costs no Kilo start.
         result = kilocode_probe.probe(
             words,
-            lambda seconds: subprocess.run(
-                words, cwd=workspace, env=child, capture_output=True, text=True, timeout=seconds
+            lambda seconds: env_prep.preflight_run(
+                words,
+                child,
+                complete=_policy_answer,
+                cwd=workspace,
+                capture_output=True,
+                text=True,
+                timeout=seconds,
             ),
             observe=observe,
         )
@@ -97,10 +114,9 @@ def effective_agent(argv, child, workspace, *, cache=None):
     if selected is not None:
         original = debug("agent", selected)
     else:
-        # Each debug command is a Kilo start paid before every stage, and `probe` bounds the whole set of
-        # attempts rather than each one. The usual default agent's policy is read alongside the config; it
-        # is used only when the config names that agent, and both are read fresh for this launch, so a
-        # changed default or permission still counts.
+        # Each debug command is a Kilo start, and `probe` bounds the whole set of attempts rather than each
+        # one. The usual default agent's policy is read alongside the config; it is used only when the config
+        # names that agent. Both are kept answers only while nothing they depend on changed (above).
         with ThreadPoolExecutor(max_workers=2) as pool:
             usual = pool.submit(debug, "agent", "code")
             selected = debug("config").get("default_agent") or "code"

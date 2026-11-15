@@ -96,6 +96,7 @@ try:
     from . import autocode_verify_judgment as judgment
     from . import autocode_verify_result as verify_result
     from . import autocode_vitest_tests as vitest_tests
+    from .autocode_invocation_environment import without_call_markers
     from .autocode_suite_health import suite_health
     from .autocode_test_framework import Framework
     from .autocode_verification_commands import _go_test, command_framework, select_commands, unheld
@@ -145,6 +146,7 @@ except ImportError:
     import autocode_verify_judgment as judgment
     import autocode_verify_result as verify_result
     import autocode_vitest_tests as vitest_tests
+    from autocode_invocation_environment import without_call_markers
     from autocode_suite_health import suite_health
     from autocode_test_framework import Framework
     from autocode_verification_commands import _go_test, command_framework, select_commands, unheld
@@ -695,12 +697,10 @@ def test_environment(tree, env=None):
     of the user's checkout (a ``.pth`` file in a linked venv) cannot shadow the
     code being tested, mapped package names included (#2988). A parent checkout
     whose regular ``tests`` package would capture this tree's ``tests/``
-    directory is left off the path. Credential-like variables are withheld: the
-    tests are model-written code (autocode_agent_env).
+    directory is left off the path. Credentials and launcher call markers are withheld.
     """
     environment = dict(agent_env.scrubbed(os.environ if env is None else env), PYTHONDONTWRITEBYTECODE="1", CI="1")
-    # Omit the controller's per-call marker from both test execution and receipt identity (#3549).
-    environment.pop("CODEX_TOOL_CALL_ID", None)
+    environment = without_call_markers(environment)
     roots = [str(Path(tree) / "src")] if (Path(tree) / "src").is_dir() else []
     roots.append(str(tree))
     roots.extend(test_env.scratch_import_roots(tree))

@@ -124,9 +124,22 @@ def unnamed_cases(workspace, framework, tests, body, detect_in) -> str | None:
         workspace, tests, detect_in, runs=lambda found: reporters.suite_reports(found, workspace)
     ):
         return None
-    runner = f"the {framework.name} suite `{framework.suite}`" if framework is not None else "no runner AutoCode reads"
+    if framework is None:
+        # No list knows this project's runner: the plan gives the project's own test command, and the proof
+        # runs it on the original code to see that it runs the tests (autocode_plan_command_roles).
+        return (
+            f"Criteria {', '.join(named)} name a test after test: or guard:, but this project's tests run with no "
+            "runner AutoCode reads, so it could never match a test to these criteria. Write each of them without "
+            "test: or guard:, as the command this project runs its tests with (the one its README, build file or "
+            'CI uses) and what it shows, such as "run `./run_tests.sh`: it fails on the original code and passes '
+            "with the fix\", and name the test file in its milestone's affected_paths. For behavior that already "
+            'works and must keep working, write "guard: run `./run_tests.sh`" with that same command. The '
+            "regression proof runs the command on the original code, there with the change's tests, and with the "
+            "change, and judges its exit code"
+        )
     return (
-        f"Criteria {', '.join(named)} name a test after test: or guard:, but this project's tests run with {runner}, "
+        f"Criteria {', '.join(named)} name a test after test: or guard:, but this project's tests run with the "
+        f"{framework.name} suite `{framework.suite}`, "
         "which reports only whether the whole run passed, never which test passed, so the runner could never match "
         "a test to these criteria. Write each of them without test: or guard:, as the command that runs its test "
         'file and what it shows, such as "`ruby test/pager_test.rb` fails on the original code and passes with '
@@ -235,6 +248,7 @@ def check(state: RunState, body, *, origin=None) -> None:
         framework,
         _test_paths(workspace),
         per_test=reporters.suite_reports(framework, workspace),
+        is_test=project_kinds.test_rule(_workspace_files(workspace)),
     ):
         raise ValueError(unusable)
     builds = (state.get("workflow") or {}).get("kind") in (None, "build", "bugfix")

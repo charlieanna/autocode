@@ -289,8 +289,12 @@ and the Planner writes the criterion as the command that runs its test file
 instead. Behavior that must keep working is guarded there by the command that runs
 the existing tests, ``guard: run `ruby test/pager_test.rb` `` (or the detected suite,
 ``guard: run `make test` ``): the proof runs that command on the original code and with
-the change, and both must pass. The command must run tests the original code has,
-which is checked when the plan is drafted: it names an existing test file, it is the
+the change, and both must pass. The command must run tests the original code has.
+Where no runner is detected, a guard gives the project's own test command
+(``guard: run `./run_tests.sh` ``) and the proof sees whether it runs the project's
+tests by running it; only a command that names a test file the project does not
+have is refused when the plan is drafted. Elsewhere it is checked when the plan is
+drafted: it names an existing test file, it is the
 detected suite, or, where the build tool selects tests by class, it selects existing
 test classes (``guard: run `mvn -B -q test -Dtest=PagerTest,ReportTest` ``, or
 `--tests PagerTest` with Gradle), a module that has some (`mvn -q -pl core test`,
@@ -317,7 +321,10 @@ change's tests alone. The tests that could not run on the original code and pass
 then the proof, listed as not run on the original code, and the modules count as repaired,
 so the base's collection errors leave nothing unproven. A change may add test files of its
 own: their tests cannot run on such code either, so they count in the same way
-(`tools/autocode_first_suite.py`, `loaded` and `reloaded`). A change that edits one of the
+(`tools/autocode_first_suite.py`, `loaded` and `reloaded`). A test file that cannot be loaded
+and that the change neither touches nor repairs proves nothing either way: the proof leaves
+it out, names it and compares every other test
+([workflow](workflow.md), `tools/autocode_unloadable_tests.py`). A change that edits one of the
 project's test files is judged as before, and so is any change to code that loads: a bug
 fix's new test must run and fail
 on the original code. `cargo test` builds every target before it runs a test, and names the
@@ -346,7 +353,23 @@ and a change that also edits another kind of file is judged as before
 (`tools/autocode_first_suite.py`, `exit_flip`). When AutoCode detects no runner and nothing was typed, the regression
 proof runs the approved plan's own test command and judges its exit code
 (`tools/autocode_plan_proof_command.py`), recording that choice in the proof's
-notes and review reasons; it never asks the person to pass `--test-command`. Do
+notes and review reasons; it never asks the person to pass `--test-command`.
+Which of the plan's commands that is, it finds by running them
+(`tools/autocode_plan_command_roles.py`). A command that names a test file is taken
+by its words, as before. Any other command the plan asks to be run and this machine
+can run (its first word is a program on the `PATH`, or a file of the project that
+may be executed, such as `./run_tests.sh`) is run on the original code: one that
+passes there and fails there once the change's test files are added runs those
+tests, so it is the suite and the regression command; one that passes there and
+fails there when the project's own test files are made unloadable runs the tests
+the project already has, so it is the suite and a guard may use it. `dotnet test`,
+`mix test`, `swift test`, `make tests` and a test script name no test file and need
+no runner of their own in AutoCode. At most six commands are tried, in the plan's
+order, each for at most five minutes; what a command does on the original code is
+kept for the run (`plan_command_roles` in its state and in the proof's receipt),
+and the gate of the original tests runs them with the command found. Finding a
+command's role proves nothing about the change: the proof still runs it on the
+original code, there with the change's tests, and with the change. Do
 not downgrade an approved named criterion to prose to make a run finish. A
 draft whose test files the proof's suite would never run, such as RSpec specs in
 a repository whose root suite is Node, is refused when it is drafted unless one
