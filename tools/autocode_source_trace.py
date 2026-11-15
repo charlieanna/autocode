@@ -259,14 +259,83 @@ def _citing(criteria, sentence, source_id, *, spans=False):
     ]
 
 
+# What the number and negation checks read: these fields of the criteria that cite the sentence, and these of the contract.
+_READ_FIELDS = ("criterion", "verification_method")
+_READ_SECTIONS = ("required_behaviors", "constraints", "technical_approach")
+# Where a source's words are quoted or sealed. A value there is the source's own, not the plan's.
+_QUOTED = ("sources", "source_trace", "brief_acceptance")
+
+
 def _corpus(body, citing):
     """Where an obligation may survive: the citing criteria, and the contract's
-    restated behaviors, constraints and approach."""
-    parts = [str(row.get("criterion", "")) + " " + str(row.get("verification_method", "")) for row in citing]
-    parts += [
-        str(text) for key in ("required_behaviors", "constraints", "technical_approach") for text in body.get(key) or []
-    ]
+    restated behaviors, constraints and approach.
+
+    A criterion's ``current_behavior`` is not searched: it says what happens today and is never part of
+    the agreed outcome (autocode_current_behavior). Nor is a criterion that does not cite the sentence, or
+    the contract's other prose. The literal check below does accept a literal in any field of the citing
+    rows, so the two can disagree about one value; ``_elsewhere`` names where a value the checks could not
+    find does sit, so a planner that kept it is not told only that it is missing."""
+    parts = [" ".join(str(row.get(field, "")) for field in _READ_FIELDS) for row in citing]
+    parts += [str(text) for key in _READ_SECTIONS for text in body.get(key) or []]
     return " ".join(" ".join(part.split()) for part in parts)
+
+
+def _strings(value):
+    """Every string in a value, leaving out the places that quote the source."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            if key not in _QUOTED:
+                yield from _strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _strings(item)
+
+
+def _unread(body, citing, anywhere):
+    """The plan's own text that the number and negation checks do not read, as (place, text) pairs:
+    the other fields of the citing criteria and, with ``anywhere``, the rest of the contract."""
+    cited = {id(row) for row in citing}
+    places = []
+    for row in body.get("acceptance_criteria") or []:
+        if not isinstance(row, dict) or not (anywhere or id(row) in cited):
+            continue
+        for field, value in row.items():
+            if field in _QUOTED or (id(row) in cited and field in _READ_FIELDS):
+                continue
+            places += [(f"{row.get('id') or 'a criterion'} {field}", text) for text in _strings(value)]
+    for key, value in body.items() if anywhere else ():
+        if key != "acceptance_criteria" and key not in _READ_SECTIONS and key not in _QUOTED:
+            places += [(str(key), text) for text in _strings(value)]
+    return places
+
+
+def _elsewhere(body, citing, kept, *, anywhere=True):
+    """A clause for a refusal whose lost values the plan does state, in a place the check does not read.
+
+    A live planner answered "changed a number the source states: 203" by writing the source's
+    `...global_practice_plan.rb:203` into the criterion's current_behavior, as its Investigator advised. The
+    literal check accepted that and the number check refused it again, 696 seconds later, with the same
+    words, and once more after that (2026-11-15). The same refusal repeats for a value written into a
+    criterion that does not cite the sentence, or into the contract's other prose, so the places are read
+    from the plan itself, not listed here. ``kept`` is the test of a text for each lost value. A number is
+    looked for ``anywhere`` in the contract. A negation is only a word, so it is looked for in the citing
+    criteria alone, where it can be the sentence's own. The clause reports; it excuses nothing."""
+    unread = [(place, " ".join(text.split())) for place, text in _unread(body, citing, anywhere)]
+    found = []
+    for value, test in kept:
+        places = list(dict.fromkeys(place for place, text in unread if test(text)))
+        if places:
+            found.append(f"{value} is in the plan only in {', '.join(places[:3])}")
+    if not found:
+        return ""
+    return (
+        "; "
+        + "; ".join(found)
+        + ", which this check does not read: it reads the criterion and verification_method of the criteria that "
+        "cite the sentence, and the contract's required_behaviors, constraints and technical_approach"
+    )
 
 
 def _bound_literals(body, citing):
@@ -349,10 +418,13 @@ def _survival_errors(body, records, waivers):
                 if not _number_in(number, corpus) and not (number in cents and _number_in(cents[number], corpus))
             ]
             if lost:
+                where = _elsewhere(
+                    body, citing, [(number, lambda text, n=number: _number_in(n, text)) for number in lost]
+                )
                 errors.append(
                     f"Criteria citing {record['id']} changed a number the source states: "
                     + ", ".join(lost)
-                    + " (state each as the source writes it in the criterion text, beside any other spelling)"
+                    + f" (state each as the source writes it in the criterion text, beside any other spelling{where})"
                 )
             bound = set(_bound_literals(body, citing)) | _inactive_literals(body, records, record["id"])
             # The quotes themselves are not survival: a citation names the
@@ -375,9 +447,12 @@ def _survival_errors(body, records, waivers):
                 record["id"] == waiver["source_id"] and _covered(sentence, [waiver["quote"]]) for waiver in waivers
             )
             if _NEGATION.search(sentence) and not _NEGATION.search(corpus) and not waived:
+                where = _elsewhere(
+                    body, citing, [("a negation", lambda text: _NEGATION.search(text) is not None)], anywhere=False
+                )
                 errors.append(
                     f"Criteria citing {record['id']} dropped the source's negation "
-                    f"({sentence[:80]!r}); only the Plan Reviewer's pinned waiver allows that"
+                    f"({sentence[:80]!r}); only the Plan Reviewer's pinned waiver allows that{where}"
                 )
     return errors
 
