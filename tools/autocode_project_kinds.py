@@ -253,8 +253,29 @@ def is_test_file(path) -> bool:
     return bool(TEST_FILE.match(name) or name == str(path) and ROOT_TEST_FILE.match(name))
 
 
-def is_test_path(path: str) -> bool:
-    """True for a file that belongs to the test suite rather than the product, by its path alone."""
+# The manifests of every language but Python, whose tests autocode_python_test_roles reads from the tree.
+_PROJECT_MANIFESTS = frozenset(
+    manifest for language in LANGUAGES if language.name != "python" for manifest in language.manifests
+)
+
+
+def project_roots(paths) -> frozenset[str]:
+    """The directories below the repository root that are projects of their own: each holds a manifest
+    (``web/package.json``, ``services/api/go.mod``). A Python project is not counted: what its ``test/``
+    directory holds is read from the Python packages around it (autocode_python_test_roles)."""
+    found = (PurePosixPath(path) for path in paths)
+    return frozenset(str(path.parent) for path in found if path.name in _PROJECT_MANIFESTS and len(path.parts) > 1)
+
+
+def is_test_path(path: str, roots=frozenset()) -> bool:
+    """True for a file that belongs to the test suite rather than the product, by its path.
+
+    ``roots`` are the projects inside the repository (``project_roots``). What holds tests at the top of
+    the repository (a ``test/`` directory, a ``test.js`` beside ``index.js``) holds them at the top of
+    each of those too: ``web/test/pager.js`` beside ``web/package.json``. Without ``roots`` only the
+    repository's own top counts, and ``lib/test/`` stays product code. A Python file is never a test
+    by this: autocode_python_test_roles reads a ``test/`` directory below the root from the packages
+    around it."""
     parts = PurePosixPath(path).parts
     if not parts:
         return False
@@ -263,7 +284,21 @@ def is_test_path(path: str) -> bool:
         return True
     if path.startswith("src/test/") or "/src/test/" in path:
         return True  # Maven and Gradle layouts
-    return bool(TEST_ROLE.match(parts[-1]) or not directories and ROOT_TEST_FILE.match(parts[-1]))
+    if TEST_ROLE.match(parts[-1]) or not directories and ROOT_TEST_FILE.match(parts[-1]):
+        return True
+    if not roots or parts[-1].endswith((".py", ".pyi")):
+        return False
+    tops = [depth for depth in range(1, len(parts)) if "/".join(parts[:depth]) in roots]
+    return any(
+        parts[top] in ROOT_TEST_DIRS if top < len(directories) else bool(ROOT_TEST_FILE.match(parts[top]))
+        for top in tops
+    )
+
+
+def test_rule(paths):
+    """``is_test_path`` for one tree: with the projects ``paths`` hold below the root (``project_roots``)."""
+    roots = project_roots(paths)
+    return (lambda path: is_test_path(path, roots)) if roots else is_test_path
 
 
 def targets(runner: str) -> re.Pattern:

@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import posixpath
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
@@ -21,7 +22,7 @@ except ImportError:
     import autocode_python_packaging as packaging
     import autocode_python_tests as python_tests
 
-VERSION = 5
+VERSION = 6
 PRODUCT, TEST, AMBIGUOUS = "product", "test", "ambiguous"
 TEST_DIRS = project_kinds.TEST_DIRS
 ROOT_TEST_DIRS = project_kinds.ROOT_TEST_DIRS
@@ -153,6 +154,10 @@ class Roles:
     eligible_test_links: frozenset[str]
     candidate_links: dict[str, str | None]
 
+    # The caller's test-path rule with the original tree's own projects (``_rooted``): which paths the
+    # inventory took for tests before it read them. Path-only readers of one tree ask this, never the bare rule.
+    test_path: Callable[[str], bool] = project_kinds.is_test_path
+
     def role(self, path):
         return self.roles.get(path, AMBIGUOUS)
 
@@ -264,6 +269,14 @@ def _classify(paths, read, hint, ownership, links, *, original_tests=None):
     return result, runtime
 
 
+def _rooted(hint, paths):
+    """``hint``, with the tests of the projects the original tree holds below its root (``web/test/``
+    beside ``web/package.json``): autocode_project_kinds.is_test_path with the tree's own project roots.
+    A manifest the change adds names no such project."""
+    rule = project_kinds.test_rule(paths)
+    return hint if rule is project_kinds.is_test_path else lambda path: hint(path) or rule(path)
+
+
 def build(paths, read, hint, *, candidates=None, links=None, candidate_links=None):
     """Freeze original roles before overlaying only added/changed test definitions.
 
@@ -273,6 +286,7 @@ def build(paths, read, hint, *, candidates=None, links=None, candidate_links=Non
     """
     paths = frozenset(paths)
     links = links or {}
+    hint = _rooted(hint, paths)
     manifest = read("pyproject.toml") if "pyproject.toml" in paths else None
     ownership = (
         packaging.Ownership(reason="executable or legacy setup configuration is not interpreted")
@@ -328,6 +342,7 @@ def build(paths, read, hint, *, candidates=None, links=None, candidate_links=Non
         original_test_links,
         eligible,
         dict(candidate_links or {}),
+        hint,
     )
 
 

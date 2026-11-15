@@ -141,9 +141,9 @@ def _planned(body) -> list[str]:
     return sorted({plain for path in paths if (plain := _plain(path))})
 
 
-def _in_tests(path) -> bool:
+def _in_tests(path, is_test) -> bool:
     """A test file, or a directory that holds tests (``tests/``), which a plan may name instead."""
-    return verify.is_test_path(path) or verify.is_test_path(path.rstrip("/") + "/_")
+    return is_test(path) or is_test(path.rstrip("/") + "/_")
 
 
 def untested_code(workspace, body) -> str | None:
@@ -165,8 +165,9 @@ def untested_code(workspace, body) -> str | None:
     if _existing_tests(workspace):
         return None
     paths = _planned(body)
-    code = [path for path in paths if verify.is_code_path(path) and not _in_tests(path)]
-    if not code or any(_in_tests(path) for path in paths):
+    is_test = project_kinds.test_rule(_workspace_files(workspace))
+    code = [path for path in paths if verify.is_code_path(path) and not _in_tests(path, is_test)]
+    if not code or any(_in_tests(path, is_test) for path in paths):
         return None
     if test_cases.plan_cases(body) or command_guards.plan_guards(body):
         return None
@@ -191,13 +192,14 @@ def _workspace_files(workspace) -> list[str]:
 
 def _test_paths(workspace) -> list[str]:
     """The workspace's test paths, tracked or not."""
-    return [name for name in _workspace_files(workspace) if verify.is_test_path(name)]
+    files = _workspace_files(workspace)
+    return list(filter(project_kinds.test_rule(files), files))
 
 
 def _existing_tests(workspace) -> bool:
     """Whether the workspace already holds test code (a test path or inline Rust tests), tracked or not."""
     files = _workspace_files(workspace)
-    if any(verify.is_code_path(name) for name in files if verify.is_test_path(name)):
+    if any(verify.is_code_path(name) for name in filter(project_kinds.test_rule(files), files)):
         return True
     root = Path(workspace)
     for name in files:

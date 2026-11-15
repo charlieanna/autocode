@@ -358,8 +358,10 @@ def _plan_command(state: RunState, workspace, base):
     if not commands:
         return None
     changes = verify.changed_files(workspace, base, source_paths=source_scope.paths(state))
-    original = [path for path in role_inventory.entries(workspace, base) if verify.is_test_path(path)]
-    changed = [path for path, status in changes.items() if status != "deleted" and verify.is_test_path(path)]
+    entries = role_inventory.entries(workspace, base)
+    is_test = role_inventory.test_rule(entries)
+    original = [path for path in entries if is_test(path)]
+    changed = [path for path, status in changes.items() if status != "deleted" and is_test(path)]
     return plan_command.choose(commands, original_tests=original, changed_tests=changed)
 
 
@@ -616,9 +618,7 @@ def _prove_once(state, workspace, run_dir, current, *, all_due=False):
         # Every original file, changed or not: one whose role cannot be proven stays protected, as in the
         # protected-test inventory (autocode_verify), instead of stopping the proof as a changed one does.
         original_tests = [
-            path
-            for path in role_inventory.entries(workspace, base)
-            if verify.is_test_path(path) and roles.protected(path)
+            path for path in role_inventory.entries(workspace, base) if roles.test_path(path) and roles.protected(path)
         ]
         companions, companion_notes = companion_suites.find(
             workspace,
@@ -1139,7 +1139,8 @@ def _proving(
         due = cases(state, all_due=all_due)
         # Guards that are commands, where the runner names no test (autocode_command_guards). With no named
         # case and no changed test file, the change is coverage of what those commands already show.
-        original_tests = [path for path in role_inventory.entries(workspace, base) if verify.is_test_path(path)]
+        entries = role_inventory.entries(workspace, base)
+        original_tests = list(filter(role_inventory.test_rule(entries), entries))
         guard_commands = command_guards.usable(
             command_guards.due(state, all_due=all_due),
             proving,

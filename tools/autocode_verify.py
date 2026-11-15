@@ -259,7 +259,7 @@ def _document_only_base(workspace, base, *, dependencies_from=None, independent=
 
 def _untested_base(workspace, base) -> bool:
     paths = project_inventory.regular_paths(_git(workspace, "ls-tree", "-r", "-l", "-z", base), executable=True)
-    return paths is not None and not any(is_test_path(path) for path in paths)
+    return paths is not None and not any(map(project_kinds.test_rule(paths), paths))
 
 
 def _package_scripts(text) -> dict:
@@ -1232,7 +1232,7 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, c
     """
     with _effective_base(workspace, base, base_patch) as (entries, read, patched):
         roles = roles or role_inventory.from_entries(workspace, entries, read, is_test_path)
-        is_test = lambda path: is_test_path(path) and roles.protected(path)
+        is_test = lambda path: roles.test_path(path) and roles.protected(path)
         if junit:
             return junit_proof.definition(workspace, suite_command, entries, read, patched, changes, is_test=is_test)
         tracked = set(entries)

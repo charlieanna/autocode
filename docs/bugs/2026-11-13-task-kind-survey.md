@@ -1419,6 +1419,70 @@ Real runs with the fix, each `TASK_COMPLETE` with one plan approval and no quest
 No real run has yet drafted one of these guards after its fix, so the accepted path is shown by the tests
 and the whole proofs above, not by a real run.
 
+## 45. Two projects side by side: the person is asked to correct the test commands (fixed)
+
+A repository of `api/` (Python, `api/pyproject.toml`, tests in `api/tests/`) beside `web/` (Node,
+`web/package.json`, code in `web/src/`, tests in `web/test/pager.js` and `web/test/heading.js`, run with
+`cd web && npm test`). The request is a bug fix in `web/` with a regression test.
+
+**On master** the fix and its tests were right and the run ended `WAITING_FOR_USER` (12 stages, 233 s,
+$1.55; bundle manifest `fb2b02c25f01b8aed8c5b85216d6f9bddbdfc859ebf390fe6c94d95465423363`). Both proofs
+failed with "No regression test was added or changed, so the bug is not shown to be reproduced" and "The
+project suite exited 5 on the candidate with no failing test reported" (the suite was the root's
+`python3 -m unittest discover -v`, which finds no test there), and the Resolver asked the person: "Correct
+the saved regression verification commands to: suite command `cd web && npm test`; regression command `cd web
+&& node --test --test-name-pattern=test_ac test/`. Then let the runner regenerate the proof." An earlier run
+of the same task ended the same way (12 stages, 264 s, $1.71; manifest
+`b186e359bd117bb9b67dfc88d97b2a5ae1a05ab84321381ff78d86b7c02caa98`; its seed's `test` script was
+`node --test test/`, which this Node does not run, and which that run never reached).
+
+Two causes, one behind the other.
+
+**1. A project's own `test/` directory was a test directory only at the top of the repository.** `test/`,
+`spec/` and a single `test.js` hold tests at the root (section 43), and deeper they may be product code
+(`lib/test/`, `django/test/`). So `web/test/pager.js` was product code: no changed test, and nothing for
+the proof to look for the project around (`autocode_package_scope.enclosing` starts from the changed tests).
+Without a model, the same failure with `--package web`, and for `web/test.js` beside `web/index.js`.
+
+Fix: a directory that holds a manifest of a language other than Python in the original code
+(`web/package.json`, `services/api/go.mod`, `gems/money/Gemfile`) is a project, and what holds tests at the top of the repository holds them at the top
+of each project (`autocode_project_kinds.project_roots`, `is_test_path(path, roots)`, `test_rule`). The
+projects are read from the original tree, so a manifest the change adds makes no code a test, and a `test/`
+directory with no manifest beside it stays product code. A Python project below the root, and a Python file
+anywhere, are left to `autocode_python_test_roles`, which already reads a `test/` directory below the root
+from the Python packages around it (`docutils/test/`): nothing changes for them. The role inventory carries the rule (`Roles.test_path`), and the
+proof, the original tests a run keeps, the plan check and the changed-code trigger ask it of the tree they
+read. The role policy version is raised.
+
+**2. The original-test gate ran the root's suite, which cannot run another project's tests.** With cause 1
+fixed alone, a real run's proof passed at its first attempt with `web/`'s own suite, and the run then
+stopped at `PAUSED_INVALID_OUTPUT` (11 stages, 243 s, $1.78; manifest
+`5a12052121c8b17eadcf3094c0690cc124e7ff33d533e88e851428649092cd81`): "Completed tester output was rejected
+(Protected tests changed and the original gate did not pass on this implementation ...)". A run binds one
+command for its original tests when it starts, the root's detected suite, and the gate runs it on the change
+and again with the original tests put back. Here it ran `python3 -m unittest discover -v` twice, which exits
+5 with no test found. The files of `web/test/` are original tests now, which they were not, so the gate
+applied to them for the first time; with tests named `web/src/pager.test.js` it would have failed on master.
+
+Fix (`autocode_protected_project_suite`): where the bound command is a Python suite, or there is none, and
+every changed original test is another language's file in one project below the root, the gate runs those
+files with that project's own suite, found as the proof finds it: `cd web && node --test test/heading.js
+test/pager.js`. Everything else is as it was: a non-Python root suite keeps running what it ran (it may run
+its packages' tests), changes in two projects keep the bound suite, and a project inside the repository's
+own test directories (`tests/fixtures/app/`) is a fixture, not a project. A weakened original assertion
+still fails: the original test is put back and run with the project's suite.
+
+**With both**, the same task is `TASK_COMPLETE` with one plan approval and no question (10 stages, 205 s,
+$1.40; manifest `3351909477eaf445198396be5489800fb2208cf12bdd6830361ee03c9bca8f75`): the proof passed at
+its first attempt (`cd web && npm test --silent`, and `cd web && node --test test/heading.js test/pager.js`
+for the new tests), and the gate passed with the same targeted command on the change and with the original
+tests put back.
+
+Still open: the Tester's acceptance-test job still judges its files by path alone; a Python project below
+the root whose root suite is another language's; a project the change itself adds (its manifest is not in
+the original tree); changed original tests in two projects at once, which no one command runs; and the
+root's `unittest discover`, bound as the original-test command although it runs no test there.
+
 ## Also seen, not yet run on real models
 
 - **Claude Code refuses to edit some directories inside the stage's own directory.** With Edit and

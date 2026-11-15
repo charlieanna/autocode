@@ -37,6 +37,7 @@ try:
     from . import autocode_plan_proof_command as plan_command
     from . import autocode_protected_commands as commands
     from . import autocode_protected_paths as paths
+    from . import autocode_protected_project_suite as project_suite
     from . import autocode_protected_store as store
     from . import autocode_python_test_roles as test_roles
     from . import autocode_python_tests as python_tests
@@ -51,6 +52,7 @@ except ImportError:
     import autocode_plan_proof_command as plan_command
     import autocode_protected_commands as commands
     import autocode_protected_paths as paths
+    import autocode_protected_project_suite as project_suite
     import autocode_protected_store as store
     import autocode_python_test_roles as test_roles
     import autocode_python_tests as python_tests
@@ -102,7 +104,9 @@ def inventory(workspace, is_test_path, *, package=None):
     snapshot = util.snapshot(workspace)["files"]
     roles = role_inventory.from_workspace(workspace, is_test_path, snapshot=snapshot)
     names = [
-        name for name, value in snapshot.items() if is_test_path(name) and value != "deleted" and roles.protected(name)
+        name
+        for name, value in snapshot.items()
+        if roles.test_path(name) and value != "deleted" and roles.protected(name)
     ]
     if package:
         names = [name for name in names if package_scope.contains(package, name)]
@@ -293,18 +297,25 @@ def replay_command(command, changed, workspace):
     through the same ``Invocation.targeted`` the regression proof uses. The whole suite still runs
     when that cannot be shown safe: a changed file that is not a test module (a conftest, a helper,
     a data file), a deleted or replaced test, or a command that is not one Python test runner.
+
+    The bound command is the suite of the repository's root. Where that is a Python suite, or there
+    is none, and the changed tests are another language's in a project below the root (``web/test/``
+    beside ``api/``), it cannot run them: they run with that project's own suite
+    (autocode_protected_project_suite), as in the regression proof.
     """
-    invocation = python_tests.parse(command)
+    invocation = python_tests.parse(command) if command else None
     names = sorted(changed)
-    if invocation is None or not names:
+    if not names or command and invocation is None:
         return command
     for name in names:
-        if not python_tests.TEST_MODULE.match(PurePosixPath(name).name):
-            return command
         try:
             path_in(workspace, name)  # a deleted test, or one replaced by a link, keeps the whole suite
         except (OSError, ValueError):
             return command
+    if not any(name.endswith((".py", ".pyi")) for name in names):
+        return project_suite.command(names, workspace) or command
+    if invocation is None or not all(python_tests.TEST_MODULE.match(PurePosixPath(name).name) for name in names):
+        return command
     return invocation.targeted(names) or command
 
 
@@ -341,16 +352,16 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
         return result
     directory = Path(out) / "protected-tests" / uuid.uuid4().hex
     original = record["command"] or _plan_suite(state, record)
-    if not original:
+    command = replay_command(original, changed, workspace)
+    if not command:
         result.update(
             verdict="NOT_VERIFIED", error="No original suite command was available; explicit user revision required"
         )
     else:
-        if not record["command"]:
+        if original and not record["command"]:
             # Nothing was typed or detected at launch, before the plan existed (autocode_plan_proof_command).
             result["plan_command"] = original
         replaced = superseded_tests.approved(state)
-        command = replay_command(original, changed, workspace)
         if command != original:
             result["replayed_command"] = command
         policy = {
