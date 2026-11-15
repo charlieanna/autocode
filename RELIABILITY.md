@@ -26,7 +26,7 @@ possibilities, not a committed feature backlog.
 
 ## Evidence required
 
-Use the existing Autocode CLI and browser flows to exercise planning, approval,
+Use the existing AutoCode CLI and VS Code extension to exercise planning, approval,
 implementation, failed verification and rework, feedback, interruption, resume,
 human review, and completion. Test isolated fixtures first so failure cases do not
 damage user projects. Keep fake-provider results separate from live-model results.
@@ -71,7 +71,7 @@ For each case record:
 - Remaining blockers, elapsed execution time, and reported usage where available.
 
 A case passes when its agreed criteria and complete user flow pass, required human
-reviews are satisfied, and the dashboard reflects the saved result. Missing evidence
+reviews are satisfied, and the VS Code client reflects the saved result. Missing evidence
 stays unverified. Claims of dependable project completion require these live trials;
 passing fixture tests alone does not establish model effectiveness.
 
