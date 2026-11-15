@@ -45,14 +45,14 @@
   },
   {
     "date": "2026-10-01",
-    "profile": "claude-tiers",
+    "profile": "glm53-openai",
     "master": "fba6e738",
     "mode": "live",
-    "runs": 2,
+    "runs": 3,
     "passed": 1,
     "false_completions": 1,
     "median_minutes": null,
-    "note": "Re-run of the two failed cases after budget/prompt fixes. Greenfield false completion through the requirements boundary. docs/bugs/2026-10-01-reliability-live-cases.md"
+    "note": "Re-run of the two failed cases after budget/prompt fixes: three runs. Bug fix completed. To-do stopped honestly once at Requirements (output token limit), then completed falsely through the requirements boundary. docs/bugs/2026-10-01-reliability-live-cases.md"
   },
   {
     "date": "2026-10-01",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -349,6 +350,24 @@ class ReliabilityTableTests(unittest.TestCase):
         self.assertNotIn("## Fake", excerpt)
         self.assertIn("glm53-openai", excerpt)
         self.assertIn("claude-tiers", excerpt)
+
+    def test_a_seeded_row_agrees_with_the_note_it_cites(self):
+        """A row's profile and commits are the ones its cited note records.
+
+        The 2026-10-01 re-run was saved as `claude-tiers`. Its note runs `glm53-openai` only: RELIABILITY.md
+        said "same profile" in a paragraph that followed the Claude sweep.
+        """
+        rows = reliability_table.load_rows(REPO / "docs" / "reliability-sweeps.json")
+        cited = [(row, note) for row in rows for note in re.findall(r"docs/bugs/[\w.-]+\.md", row["note"])]
+        self.assertGreaterEqual(len(cited), 4)
+        for row, note in cited:
+            with self.subTest(master=row["master"], note=note):
+                text = (REPO / note).read_text()
+                self.assertTrue(row["profile"] in text, f"{note} records no run on profile {row['profile']!r}")
+                commits = re.findall(r"\b[0-9a-f]{7,40}\b", row["master"])
+                self.assertTrue(commits, "a row names the master commit the sweep ran on")
+                for commit in commits:
+                    self.assertTrue(commit in text, f"{note} records no run on commit {commit}")
 
     def test_the_cli_writes_the_documented_table(self):
         repo = Path(__file__).resolve().parents[1]

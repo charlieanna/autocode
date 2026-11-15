@@ -95,8 +95,9 @@ stopped honestly because AutoResolver wrote a plan check with a note in parenthe
 replayed as a shell command. The runner now leaves such a line to the Validator as prose; no live
 re-run has confirmed it yet.
 
-Re-run of the two failed cases (2026-10-01, master fba6e738, same profile, 90/130-minute
-budgets; same note for details):
+Re-run of the two failed cases (2026-10-01, master fba6e738, profile `glm53-openai` as in the
+first run below, three runs, 90/130-minute budgets; details in
+docs/bugs/2026-10-01-reliability-live-cases.md):
 
 - Bug fix (bugfix-iso-weeks): **passed** — TASK_COMPLETE, oracle 5/5, one pass through the
   whole pipeline (investigate → plan → build → regression proof → validate → complete), no
@@ -110,7 +111,7 @@ budgets; same note for details):
   brief-to-criteria transcription is the one handoff with no independent check.
 
 After the fixes (prompt rules for criteria-vs-brief tracing and in-workspace scratch, the
-bug-fix budget, all in commit f001e317), the greenfield case **passed** on the same profile:
+bug-fix budget, all in commit f001e317), the greenfield case **passed** on `glm53-openai`:
 TASK_COMPLETE, oracle 10/10, no permission recoveries, criteria carrying the brief's
 literals. One passing sample does not prove the prompt rules caused it; the next sweep
 should watch the same boundaries. Standing tally after the fixes: all three cases pass end
