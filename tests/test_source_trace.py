@@ -988,6 +988,57 @@ class SealTests(unittest.TestCase):
         source_log.save_answer(self.state, question_id, event)
         self.state.setdefault("user_events", []).append(event)
 
+    def test_a_waiver_for_a_negation_the_runner_does_not_recognize_is_kept_and_excuses_nothing(self):
+        # A live Plan Reviewer waived this sentence of the issue and its whole answer was refused with
+        # "A negation waiver quotes a span with no negation": the word list has no "nothing".
+        task = "Nothing in the prepared plan says a goal was dropped. The plan must never hide a dropped goal."
+        self.state = make_state(task)
+        self.state["task_id"] = "task"
+        records = obligations.sources(self.state)
+        waiver = {
+            "source_id": "task:0",
+            "quote": "Nothing in the prepared plan says a goal was dropped.",
+            "reason": "The fix reverses this observed defect",
+        }
+        report = {"source_trace": {"out_of_scope": [], "negation_waivers": [waiver]}}
+        kept = body([criterion("C1", "The prepared plan reports each dropped goal and never hides one.", [task])])
+        sealed = trace.reviewed(self.state, kept, report["source_trace"], self.record(report), records)
+        self.assertEqual([waiver], sealed["source_trace"]["negation_waivers"])
+        trace.verify(self.state, sealed, records, ready=True)
+        # The waiver names the first sentence only: the second may still not lose its negation.
+        dropped = body([criterion("C1", "The prepared plan reports each dropped goal.", [task])])
+        with self.assertRaisesRegex(ValueError, "dropped the source's negation"):
+            trace.reviewed(self.state, dropped, report["source_trace"], self.record(report), records)
+
+    def test_a_reviewer_entry_that_repeats_an_earlier_one_merges_into_it(self):
+        # The same cause as the waiver above: an entry that changes no check must not refuse the answer.
+        kept_text = "Nothing in the prepared plan says a goal was dropped. The plan must never hide a dropped goal."
+        task = kept_text + " Do not build a web UI."
+        self.state = make_state(task)
+        self.state["task_id"] = "task"
+        records = obligations.sources(self.state)
+        waiver = {
+            "source_id": "task:0",
+            "quote": "Nothing in the prepared plan says a goal was dropped.",
+            "reason": "The fix reverses this observed defect",
+        }
+        excluded = {"source_id": "task:0", "quote": "Do not build a web UI.", "reason": "The UI is deferred"}
+        report = {
+            "source_trace": {
+                "out_of_scope": [excluded, {**excluded, "reason": "Said again"}],
+                "negation_waivers": [waiver, dict(waiver)],
+            }
+        }
+        kept = body([criterion("C1", "The prepared plan reports each dropped goal and never hides one.", [kept_text])])
+        sealed = trace.reviewed(self.state, kept, report["source_trace"], self.record(report), records)
+        self.assertEqual([excluded], sealed["source_trace"]["out_of_scope"])
+        self.assertEqual([waiver], sealed["source_trace"]["negation_waivers"])
+        trace.verify(self.state, sealed, records, ready=True)
+        # Merging excuses no more than one entry did: the sentence nobody excluded must still be cited.
+        report["source_trace"]["out_of_scope"] = []
+        with self.assertRaisesRegex(ValueError, "neither cited nor out of scope"):
+            trace.reviewed(self.state, kept, report["source_trace"], self.record(report), records)
+
     def test_a_requirements_review_go_ahead_is_not_an_obligation_to_quote(self):
         # #1630: a live GLM-5.3 draft cited every brief sentence but not the review's "plan" reply,
         # and the Plan Reviewer's seal refused it as untraced.

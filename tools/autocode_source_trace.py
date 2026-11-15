@@ -213,7 +213,18 @@ def _covered(sentence, quotes, *, spans=False):
     return False
 
 
-def _normalize_entries(value, label, records, *, negation=False):
+def _normalize_entries(value, label, records):
+    """The reviewer's out-of-scope records or negation waivers, each quoting its source verbatim with a reason.
+
+    A negation waiver is not refused for quoting a sentence that holds no negation this module recognizes
+    (``_NEGATION``). Only a sentence that matches ``_NEGATION`` can lose a negation (``_survival_errors``), so
+    such a waiver excuses nothing and is kept as the reviewer wrote it. A Plan Reviewer waived "Nothing in the
+    prepared plan says a goal was dropped." and its whole answer, 54 minutes of review, was refused for it
+    (2026-11-15).
+
+    An entry that repeats an earlier one's source and quote excuses nothing more, so it merges into the first
+    as a criterion's repeated citation does (``_without_repeats``), and the first entry's reason is kept.
+    """
     if not isinstance(value, list):
         raise ValueError(f"source_trace {label} must be an array")
     by_id = {row["id"]: row for row in records}
@@ -227,11 +238,9 @@ def _normalize_entries(value, label, records, *, negation=False):
             raise ValueError(f"source_trace {label} cites {entry.get('source_id')} without quoting it verbatim")
         if not str(entry.get("reason", "")).strip():
             raise ValueError(f"source_trace {label} entry for {entry['source_id']} needs a reason")
-        if negation and not _NEGATION.search(quote):
-            raise ValueError("A negation waiver quotes a span with no negation")
         key = (entry["source_id"], quote)
         if key in seen:
-            raise ValueError(f"source_trace {label} repeats {entry['source_id']}")
+            continue
         seen.add(key)
         normalized.append({"source_id": entry["source_id"], "quote": quote, "reason": str(entry["reason"]).strip()})
     return normalized
@@ -617,7 +626,7 @@ def verify(state: RunState, body, records, *, ready=False):
         raise ValueError("Invalid source-trace record")
     raw = _verify_review(wrapper)
     out_of_scope = _normalize_entries(raw.get("out_of_scope"), "out_of_scope", records)
-    waivers = _normalize_entries(raw.get("negation_waivers"), "negation_waivers", records, negation=True)
+    waivers = _normalize_entries(raw.get("negation_waivers"), "negation_waivers", records)
     normalized = {"out_of_scope": out_of_scope, "negation_waivers": waivers}
     if (
         util.digest(normalized) != wrapper["review"]["trace_sha256"]
@@ -647,7 +656,7 @@ def reviewed(state: RunState, body, trace, record, records):
     if output.is_symlink() or not output.is_file():
         raise ValueError("A source trace requires the actual Plan Reviewer report")
     out_of_scope = _normalize_entries(trace.get("out_of_scope"), "out_of_scope", records)
-    waivers = _normalize_entries(trace.get("negation_waivers"), "negation_waivers", records, negation=True)
+    waivers = _normalize_entries(trace.get("negation_waivers"), "negation_waivers", records)
     normalized = {"out_of_scope": out_of_scope, "negation_waivers": waivers}
     result = dict(body)
     result[KEY] = {
