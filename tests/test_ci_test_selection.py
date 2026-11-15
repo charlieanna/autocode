@@ -17,6 +17,22 @@ class AccessTransportConsumerTests(unittest.TestCase):
         kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
         self.assertEqual(consumers, set(kept))
 
+    def test_attempt_ledger_keeps_its_planning_and_usage_consumers_when_slow(self):
+        consumers = {
+            "tests.test_attempt_ledger",
+            "tests.test_planning_calls",
+            "tests.test_usage",
+            "tests.test_cost",
+            "tests.test_cost_breakdown",
+            "tests.test_escalation_view",
+        }
+        selected = run_suite.select_tests(
+            ["tools/autocode_attempt_ledger.py"],
+            {**{module: "" for module in consumers}, "tests.test_unrelated": ""},
+        )
+        kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+        self.assertEqual(consumers, set(kept))
+
     def test_mutation_checkpoint_keeps_its_public_cli_consumer_when_slow(self):
         consumer = "tests.test_mutation_continuation_cli"
         for path in (

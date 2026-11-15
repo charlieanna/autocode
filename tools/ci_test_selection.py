@@ -94,6 +94,17 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tools/autocode_acceptance_tests.py",
         ("tests.test_acceptance_archive_order", "tests.test_replay_transport", "tests.test_usage"),
     ),
+    (
+        "tools/autocode_attempt_ledger.py",
+        (
+            "tests.test_attempt_ledger",
+            "tests.test_planning_calls",
+            "tests.test_usage",
+            "tests.test_cost",
+            "tests.test_cost_breakdown",
+            "tests.test_escalation_view",
+        ),
+    ),
     ("tests/test_changed_code_evidence_cli.py", ("tests.test_mutation_continuation_cli",)),
     *(
         (path, ("tests.test_storage_errors", "tests.test_verification_preparation_failure"))
