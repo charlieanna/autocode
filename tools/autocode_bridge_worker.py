@@ -86,6 +86,11 @@ FORBIDDEN_OPTIONS = {
 }
 
 
+# On a bridge record: its run's start had begun and had not returned when the record was saved. A bridge
+# that finds it was stopped during that start (autocode_bridge_cli.Bridge.recover_start).
+LAUNCHING = "launching"
+
+
 def provider_options(words: list[str]) -> list[str]:
     """Launch options for a bridge-started run, refusing every human or run action."""
     for word in words:
@@ -151,12 +156,6 @@ def start_issue_run(
         "pr_url": None,
     }
     issue_tool.save(project, record)  # before the launch, so a failed start leaves a trace
-    try:
-        starter = launch or (_launch_owned if owned else _launch_durable)
-        run, receipt = starter(worktree, run_dir, issue_tool.brief(ref, issue), options)
-    except (TaskRunError, RuntimeError, OSError) as error:
-        raise BridgeError(f"the {'owned' if owned else 'durable'} launch was refused: {error}") from error
-    issue_tool.save(project, record)
     bridge_record = {
         "owner": ref.owner,
         "repo": ref.repo,
@@ -166,15 +165,31 @@ def start_issue_run(
         "project": str(project),
         "worktree": str(worktree),
         "branch": branch,
-        "run_dir": str(run.run_dir or run_dir),
+        "run_dir": str(run_dir),
         "options": options,
-        "receipt": receipt,
-        "ready": bool(receipt.get("ready")),
+        "receipt": {},
+        "ready": False,
         "owned": bool(owned),
         "gate": {"key": "starting"},
         "delivered": False,
         "pr_url": None,
+        LAUNCHING: True,
     }
+    # The bridge's own record is saved before the launch as well. In the no-systemd mode the launch
+    # returns only at the run's first stop, minutes later: a bridge stopped meanwhile left a run it never
+    # adopted, refused the issue at every later poll and did not count it against the limit (2026-11-14).
+    store.save(bridge_record)
+    try:
+        starter = launch or (_launch_owned if owned else _launch_durable)
+        run, receipt = starter(worktree, run_dir, issue_tool.brief(ref, issue), options)
+    except (TaskRunError, RuntimeError, OSError) as error:
+        message = f"the {'owned' if owned else 'durable'} launch was refused: {error}"
+        del bridge_record[LAUNCHING]
+        store.save({**bridge_record, "failed": message[:500], "gate": {"key": "failed"}})
+        raise BridgeError(message) from error
+    issue_tool.save(project, record)
+    del bridge_record[LAUNCHING]
+    bridge_record.update(run_dir=str(run.run_dir or run_dir), receipt=receipt, ready=bool(receipt.get("ready")))
     store.save(bridge_record)  # the provisioning persists, restart or not
     return bridge_record
 

@@ -221,13 +221,7 @@ class Bridge:
                 owned=self.config.owned,
             )
         except (worker.BridgeError, TaskRunError, OSError) as error:
-            record["failed"] = f"{error}"[:500]
-            record["gate"] = {"key": "failed"}
-            store.save(record)
-            self.post(
-                number,
-                f"**AutoCode could not start this run**: {record['failed']}\n\nThe bridge keeps this issue off the queue; remove its record to retry.",
-            )
+            self.refuse(record, error)
             return
         record.update(started)
         record["gate"] = {"key": "starting"}
@@ -235,10 +229,24 @@ class Bridge:
         if issue_now is not None:
             record["initial_comment_id"] = self.channel.floor(record, issue_now)
         store.save(record)
+        self.announce(record)
+
+    def refuse(self, record: dict, reason) -> None:
+        """Record a start that did not happen and say so on the issue; the bridge never retries it."""
+        record.pop(worker.LAUNCHING, None)
+        record["failed"] = f"{reason}"[:500]
+        record["gate"] = {"key": "failed"}
+        store.save(record)
+        self.post(
+            record["number"],
+            f"**AutoCode could not start this run**: {record['failed']}\n\nThe bridge keeps this issue off the queue; remove its record to retry.",
+        )
+
+    def announce(self, record: dict) -> None:
         # A run in the no-systemd mode lives with this process, so the notice must not call it durable.
         hosted = "a run that works while the bridge is running" if record.get("owned") else "a durable run"
         posted = self.post(
-            number,
+            record["number"],
             f"**AutoCode took this issue** and started {hosted}.\n\n"
             f"- run: `{Path(record['run_dir']).name}` on branch `{record['branch']}`\n"
             f"- I will ask here when the run needs you: questions, the plan for approval, or a pause.\n"
@@ -247,6 +255,24 @@ class Bridge:
         if posted:
             record.update(store.seen_comments(record, [posted]))
             store.save(record)
+
+    def recover_start(self, record: dict) -> bool:
+        """Adopt the run of a start an earlier bridge did not live to record; False when it saved none.
+
+        In the no-systemd mode a start returns only at the run's first stop, so a bridge stopped meanwhile
+        leaves a provisioned issue and, nearly always, a saved run. That run is this bridge's: it is
+        announced and tended like any other, and it holds its slot. Where no run was saved the start is
+        reported as one that did not happen. It is never started a second time.
+        """
+        try:
+            self.adopt(record).status()
+        except (worker.BridgeError, TaskRunError, OSError, ValueError) as error:
+            self.refuse(record, f"the bridge stopped while this run was starting, and no run was saved ({error})")
+            return False
+        del record[worker.LAUNCHING]
+        store.save(record)
+        self.announce(record)
+        return True
 
     # ---------------------------------------------------------------- one record
 
@@ -259,6 +285,8 @@ class Bridge:
                 return
             record["initial_comment_id"] = self.channel.floor(record, issue_now)
             store.save(record)
+        if record.get(worker.LAUNCHING) and not self.recover_start(record):
+            return
         run = self.adopt(record)
         if not record.get("ready") and record.get("receipt"):
             try:

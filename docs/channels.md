@@ -143,3 +143,12 @@ A refused start (durable execution unavailable, a missing engine, a leftover
 branch) is posted to the issue and recorded with its reason; the bridge does
 not retry it automatically. Remove the record to let it try again. Under a
 limit, a refused start's slot goes to the next queued issue in the same poll.
+
+A bridge that is stopped while a run is starting takes that run up again. Its
+record is saved before the launch, with the gate `starting`, so the next poll
+finds it: when the run was saved, the bridge says it took the issue, relays what
+the run needs and counts it against the limit; when no run was saved, it reports
+a start that did not happen, as above. It never starts the issue a second time.
+This matters most in the no-systemd mode, where a start returns only at the
+run's first stop. The stage that was interrupted pauses as on any restart, and
+continues on a `resume` reply.
