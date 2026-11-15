@@ -375,7 +375,8 @@ def launch_limits(state: RunState, model, original_stage: str, stage: str, *, re
         idle_limit,
         saved_origin,
         stage_timeout=stage_timeout,
-        silent_start=idle_policy.silent_start(state.get("recovery_context"), stage),
+        silent_start=idle_policy.silent_start(state.get("recovery_context"), stage)
+        or bool(report_only and (state.get("pending_report_repair") or {}).get("silent_start_retried")),
     )
     tool_timeout = limits.get("tool_timeout_seconds", 1800)
     watch = {
