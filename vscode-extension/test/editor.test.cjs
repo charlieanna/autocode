@@ -2401,9 +2401,10 @@ test('a started chat changes a stage\'s model from the chat box between stages, 
   const initial = { ...chatView(), routes, stage_models: { changeable: true, reason: null, next_command: list } };
   const calls = [];
   const sets = [];
+  const setTimeouts = [];
   // One stand-in for the CLI, set before the chat opens: the run's list and its `--stage-model` change.
-  t.mock.method(cli, 'invoke', async (settings, argv) => {
-    if (argv.includes('--stage-model')) { sets.push({ argv, cwd: settings.cwd }); return { ...ok, stdout: 'saved\n' }; }
+  t.mock.method(cli, 'invoke', async (settings, argv, env, timeout) => {
+    if (argv.includes('--stage-model')) { setTimeouts.push(timeout); sets.push({ argv, cwd: settings.cwd }); return { ...ok, stdout: 'saved\n' }; }
     calls.push({ argv, cwd: settings.cwd });
     return argv[0] === 'stages' ? runStageView() : { ...ok, stdout: JSON.stringify({ version: 1, stages: [] }) };
   });
@@ -2418,6 +2419,7 @@ test('a started chat changes a stage\'s model from the chat box between stages, 
   assert.deepEqual(offered[1].labels, ['gpt-5.6-terra · high', 'gpt-5.6-terra · low', 'gpt-6-sol · low', 'gpt-6-sol · high']);
   assert.equal(offered[1].items[0].description, 'current');
   assert.deepEqual(sets, [{ argv: ['--run-dir', run.runDir, '--workspace', run.workspace, '--stage-model', 'builder', 'gpt-6-sol', 'low'], cwd: run.workspace }]);
+  assert.deepEqual(setTimeouts, [180000], 'saving a run model has time for backend discovery');
   assert.ok(host.notices.some((notice) => /Builder on gpt-6-sol at low from its next stage/.test(notice.message)));
   const working = 'A stage is working. Pause the chat, or wait until it asks you something, to change its models.';
   await ui.poll({ ...initial, stage_models: { changeable: false, reason: working, next_command: list } });
@@ -2465,6 +2467,90 @@ test('a started chat\'s Models chip says it is reading the chat\'s models, and c
   waiting.shift()(); await flush(); await flush(); await flush(); await flush();
   assert.equal(ui.document.getElementById('models-name').textContent, 'Models', 'a cancelled pick gives the chip back');
   assert.equal(chip.disabled, false);
+});
+
+test('a started chat retries its model picker once after a slow reader exits', async (t) => {
+  const list = ['stages', 'list', '--run-dir', run.runDir, '--json'];
+  const initial = { ...chatView(), stage_models: { changeable: true, reason: null, next_command: list } };
+  let release;
+  const collected = new Promise((resolve) => { release = resolve; });
+  const calls = [];
+  t.mock.method(cli, 'invoke', async (settings, argv, env, timeout) => {
+    if (!argv.includes('--run-dir')) return { ...ok, stdout: JSON.stringify({ version: 1, stages: [] }) };
+    calls.push({ argv, timeout });
+    if (calls.length === 1) throw new cli.ReadDeadlineExceeded(60000, collected);
+    return runStageView();
+  });
+  const ui = await openChat(t, initial, run);
+  const picker = pickInOrder(t, []);
+  ui.document.getElementById('models-picker').click();
+  for (let i = 0; i < 10; i++) await flush();
+  assert.equal(calls.length, 1, 'the expired reader is still being collected');
+  assert.match(ui.document.getElementById('models-name').textContent, /waiting|reading/i);
+  release();
+  for (let i = 0; i < 15; i++) await flush();
+  assert.deepEqual(calls.map((call) => call.timeout), [60000, 180000]);
+  assert.deepEqual(calls.map((call) => call.argv), [list, list]);
+  assert.equal(picker.offered.length, 1, 'the picker opens without a second click');
+  assert.equal(ui.document.getElementById('models-picker').disabled, false);
+});
+
+test('a started chat stops retrying when the second model read also times out', async (t) => {
+  const list = ['stages', 'list', '--run-dir', run.runDir, '--json'];
+  const initial = { ...chatView(), stage_models: { changeable: true, reason: null, next_command: list } };
+  let release;
+  const collected = new Promise((resolve) => { release = resolve; });
+  const timeouts = [];
+  t.mock.method(cli, 'invoke', async (settings, argv, env, timeout) => {
+    if (!argv.includes('--run-dir')) return { ...ok, stdout: JSON.stringify({ version: 1, stages: [] }) };
+    timeouts.push(timeout);
+    throw new cli.ReadDeadlineExceeded(timeout, collected);
+  });
+  const ui = await openChat(t, initial, run);
+  ui.document.getElementById('models-picker').click();
+  for (let i = 0; i < 10; i++) await flush();
+  release();
+  for (let i = 0; i < 15; i++) await flush();
+  assert.deepEqual(timeouts, [60000, 180000], 'no unbounded reader loop');
+  assert.match(ui.document.body.textContent, /saved choices remain in effect/i);
+  assert.equal(ui.document.getElementById('models-picker').disabled, false);
+});
+
+test('a model change timeout tells the person to check the saved choice without repeating it', async (t) => {
+  const list = ['stages', 'list', '--run-dir', run.runDir, '--json'];
+  const initial = { ...chatView(), stage_models: { changeable: true, reason: null, next_command: list } };
+  let writes = 0;
+  t.mock.method(cli, 'invoke', async (settings, argv) => {
+    if (argv.includes('--stage-model')) { writes++; throw new cli.ActionDeadlineExceeded(180000, '/private/cli', argv); }
+    return argv.includes('--run-dir') ? runStageView() : { ...ok, stdout: JSON.stringify({ version: 1, stages: [] }) };
+  });
+  const ui = await openChat(t, initial, run);
+  pickInOrder(t, ['Builder', 'gpt-6-sol · low']);
+  ui.document.getElementById('models-picker').click();
+  for (let i = 0; i < 15; i++) await flush();
+  assert.equal(writes, 1, 'a timed-out write is never repeated automatically');
+  const error = ui.document.getElementById('chat-error').textContent;
+  assert.match(error, /check this chat.s models/i);
+  assert.doesNotMatch(error, /private\/cli|--stage-model/i);
+});
+
+test('a started chat does not retry a collected model read after it closes', async (t) => {
+  const list = ['stages', 'list', '--run-dir', run.runDir, '--json'];
+  const initial = { ...chatView(), stage_models: { changeable: true, reason: null, next_command: list } };
+  let release;
+  const collected = new Promise((resolve) => { release = resolve; });
+  let calls = 0;
+  t.mock.method(cli, 'invoke', async (settings, argv) => {
+    if (!argv.includes('--run-dir')) return { ...ok, stdout: JSON.stringify({ version: 1, stages: [] }) };
+    calls++;
+    throw new cli.ReadDeadlineExceeded(60000, collected);
+  });
+  const ui = await openChat(t, initial, run);
+  ui.document.getElementById('models-picker').click();
+  for (let i = 0; i < 10; i++) await flush();
+  ui.chat.dispose(); release();
+  for (let i = 0; i < 10; i++) await flush();
+  assert.equal(calls, 1, 'a disposed view cannot start a reader');
 });
 
 /** `autocode worktrees list --json`: a new branch by default, two existing branches (one taken), and the folder with its warning. */

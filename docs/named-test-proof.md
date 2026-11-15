@@ -320,7 +320,15 @@ own: their tests cannot run on such code either, so they count in the same way
 (`tools/autocode_first_suite.py`, `loaded` and `reloaded`). A change that edits one of the
 project's test files is judged as before, and so is any change to code that loads: a bug
 fix's new test must run and fail
-on the original code. A Mocha suite, Minitest files, PHPUnit, Perl's `prove`, Maven, Gradle, a test script the approved plan names, and a
+on the original code. `cargo test` builds every target before it runs a test, and names the
+target that did not build (`amounts (lib)`), not a test file, while its test names name no
+crate. So in a Cargo project every test of the run is one that could not run, those of a
+workspace's other crates among them, and one the project already had must pass now. Rust
+keeps tests beside the code, where removing one is no edit of a test file, and on code that
+did not build none ran to be missed: the repair must leave each `#[cfg(test)]` module of
+the files it edits or deletes as it was. It may add a module, as it may add a test file,
+and a file with a test item outside such a module is not shown to keep its tests
+(`autocode_rust_inline_tests.tests_kept`). A Mocha suite, Minitest files, PHPUnit, Perl's `prove`, Maven, Gradle, a test script the approved plan names, and a
 Jest command AutoCode leaves as written report only an exit code, so there the suite shows the repair as a whole: it
 failed on the original code and passes with the change. That counts when the change is
 code alone and touches no test, and the suite's own files (its tests, manifests and
@@ -751,11 +759,28 @@ below the root, and a Python file anywhere, are left to the role inventory above
 `test/` directory below the root from the Python packages around it. The proof, the original tests a run keeps and the plan check ask the rule of
 the tree they read (`test_rule`); a reader with only a path sees the repository's own top.
 
+A Python project often has no manifest, only `requirements.txt` or a `Pipfile`. Where no directory
+around the changed tests has a manifest, the innermost one that declares its dependencies that way
+is the project whose suite proves them, run from inside it (`cd backend && python3 -m unittest -v
+tests/test_pager.py`; `autocode_package_scope.projects_around`), unless the tests may be meant to
+run from the root: the root declares dependencies or holds pytest's or tox's configuration, the
+directory is a package or is imported by its own name, or it is one of the repository's test
+directories. See [the workflow](workflow.md) for the whole rule.
+
 The original-test gate runs the command the run bound when it started, the suite of the
 repository's root. Where that is a Python suite, or the root has none, and the changed original
 tests are another language's files in one project below the root, the gate runs them with that
 project's own suite, as the proof does (`cd web && node --test test/pager.js`;
 `autocode_protected_project_suite`).
+Python tests have the mirror problem: the bound Python runner can run them, but from the root, where
+`python3 -m unittest -v api/tests/test_orders.py` cannot import `orders` from `api/`. Where the root
+is no project of its own (it holds no manifest) and the changed test modules are all in one project
+below it, the gate runs them inside that project with the bound runner
+(`cd api && python3 -m unittest -v tests/test_orders.py`), where the proof runs them
+(`autocode_package_scope.for_tests`). A command the person typed (`--test-command`, or a correction
+of the original tests' command) runs where they typed it, and so does a runner that names something
+by where it runs: an environment set before it, an interpreter named by a relative path, a pytest
+option that names a path (`--rootdir`, `-c`, `--ignore`).
 An original internal test link also retains a declared oracle outside test roots
 when packaging, runtime imports and dynamic uncertainty do not give it a conflicting
 role. A candidate-added link cannot promote an original product or unknown endpoint.

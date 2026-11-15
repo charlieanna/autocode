@@ -35,7 +35,7 @@ Two earlier diagnostic probes crashed during imports before producing status;
 they are retained as failed probes and supply no latency or fix evidence. The
 successful probe removed import instrumentation until after the plain import.
 No production crash cause is inferred from those diagnostic failures. The
-original 45–73 second CPU delay has not been isolated to one Core function;
+original 45–73 second read delay has not been isolated to one Core function;
 the reader-overlap defect and the repeated work above are independently proven.
 
 Deterministic regressions fail on the base for reader replacement, late-output
@@ -54,5 +54,37 @@ callbacks, repeated accounting and terminal-width sampling. Candidate checks:
 - CLI surface: 14 passed, including byte-identical standard help at several
   widths and without a terminal.
 
-Actual VS Code verification is still pending in this revision; these results
-alone do not qualify the editor host. No model or paid provider was launched.
+Actual VS Code verification subsequently passed on the frozen candidate
+`4f14a6f51bd569da6ef776805448baa210e27c09`, with extension bundle SHA-256
+`811913bd2a370439d1a1220b103ae48a2b4d6f4817e804f110415e0a3eca370b`.
+In the Extension Development Host, a deliberately held public status read
+crossed the unchanged 30-second deadline. The error appeared and Resume and
+Show changes became disabled. Clicking Refresh launched no replacement while
+the same reader and transport remained alive. After release, both exited zero;
+only then did a new public read start and restore the visible actions. The
+observer's final receipt, `ROOT_ACTUAL_VSCODE_FINAL.json`, has SHA-256
+`914097a26c7577d821e586b1f3e6f5d9c14f99ef9aab51429e066559e1c7030e`.
+Its private Linux namespace was collected and exited zero. No saved-run action,
+model or paid provider was launched.
+
+[PR #3554](https://github.com/charlieanna/autocode/pull/3554) merged with all
+eight changed production files and all 54 extension inputs matching that
+candidate. Its required Ubuntu check reported 883 tests across 51 modules,
+including four host-specific skips, with no failures. This binds the scoped
+editor result to the relevant merged files; it does not qualify every change
+in the later merge tree or establish complete live-provider delivery.
+
+Intermittent latency remains unresolved. Later unheld status and registry reads
+in the same observer took 65.043 and 72.040 seconds from recorded Core start to
+wrapper completion. The status payload's observation timestamp came 58.689
+seconds after recorded Core start, before final JSON output, so output transport
+alone does not explain the delay. There was no process CPU or phase trace for
+those reads. All 51 native reads exited zero; two later host transports ended
+with SIGPIPE and remain failures with an unestablished cause. The critical held
+and fresh transports both exited zero.
+
+A bounded follow-up profile of five public reads took 4.35–6.38 seconds and did
+not reproduce the outliers. Its hot output used native files rather than the
+original live host journal and pipes, so it is normal-path evidence, not proof
+that the latency disappeared. The reader lifecycle fix, parser fix and usage
+fix must not be presented as having eliminated every slow read.

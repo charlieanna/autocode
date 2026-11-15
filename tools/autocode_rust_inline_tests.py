@@ -481,6 +481,42 @@ def splice_bytes(base_data: bytes, candidate_data: bytes) -> tuple[bytes, list[d
     return spliced, details
 
 
+# ``#[test]``, ``#[tokio::test]`` and a ``#[cfg(...)]`` that names ``test``: an item the tests decide.
+_TEST_ATTRIBUTE = re.compile(rb"#\s*\[\s*(?:cfg(?:_attr)?\s*\([^\]]*\btest\b|(?:\w+\s*::\s*)*test\b)")
+
+
+def tests_kept(before: bytes, after: bytes) -> bool:
+    """Whether ``after`` holds the tests ``before`` wrote beside its code: each inline ``#[cfg(test)]``
+    module, text for text, and no test item outside a module on either side. ``after`` may add a module.
+
+    A file the scanner cannot read (conflict markers that unbalance its braces) shows its test attributes
+    outside a module, so it is not shown to keep its tests.
+    """
+
+    def modules(data):
+        return [(span.name, span.depth, data[span.start : span.end].strip()) for span in _scan_modules(data)]
+
+    now = modules(after)
+    if not all(module in now for module in modules(before)):
+        return False
+    return not any(_TEST_ATTRIBUTE.search(product_bytes(data)) for data in (before, after))
+
+
+def kept(workspace, base, changes) -> bool:
+    """Whether every Rust file the change edits or deletes keeps the tests written beside its code
+    (``tests_kept``). ``changes`` maps each changed path to its status; a file the change adds had none."""
+    root = Path(workspace)
+    for path, status in changes.items():
+        if not path.endswith(".rs") or status == "added":
+            continue
+        shown = subprocess.run(["git", "-C", str(root), "show", f"{base}:{path}"], capture_output=True)
+        file = root / path
+        after = file.read_bytes() if status != "deleted" and file.is_file() and not file.is_symlink() else b""
+        if shown.returncode != 0 or not tests_kept(shown.stdout, after):
+            return False
+    return True
+
+
 def partition_tests(workspace, base, tests, sources, changes) -> tuple[list[str], list[str]]:
     """Promote modified/added ``.rs`` source files with changed inline tests to ``runnable_tests``.
 

@@ -38,16 +38,22 @@ from copy import deepcopy
 from pathlib import Path
 
 try:
+    from . import autocode_prices as prices
     from . import autocode_request_usage as request_usage
     from . import autocode_roles as roles
     from . import autocode_route_evidence as route_evidence
     from . import autocode_tool_activity as tool_activity
+    from . import autocode_usage_outcomes as usage_outcomes
+    from . import autocode_usage_report as usage_report
     from . import autocode_util as util
 except ImportError:
+    import autocode_prices as prices
     import autocode_request_usage as request_usage
     import autocode_roles as roles
     import autocode_route_evidence as route_evidence
     import autocode_tool_activity as tool_activity
+    import autocode_usage_outcomes as usage_outcomes
+    import autocode_usage_report as usage_report
     import autocode_util as util
 
 # Historical comparison rates, USD per 1M inclusive input/output tokens.
@@ -790,7 +796,16 @@ def record(path, state: RunState):
         ):
             return
         totals = summary(state)
-        signature = json.dumps([state.get("status"), totals], sort_keys=True)
+        extra = usage_outcomes.ledger_fields(
+            state,
+            records=finished_records(state),
+            priced_rows=stage_rows(state, estimator=prices.estimate),
+            has_running_stage=bool(running_stage(state)),
+            has_pending_workers=bool(pending_workers(state)),
+            model_of=_model,
+            run_dir=run_dir,
+        )
+        signature = json.dumps([state.get("status"), totals, extra], sort_keys=True)
         if _written.get(str(run_dir)) == signature:
             return
         row = {
@@ -799,6 +814,7 @@ def record(path, state: RunState):
             "workflow": (state.get("workflow") or {}).get("kind"),
             "updated_at": dt.datetime.now(dt.UTC).isoformat(),
             **totals,
+            **extra,
         }
         _upsert(run_dir.parent.parent / LEDGER, row)
         _written[str(run_dir)] = signature
@@ -836,12 +852,7 @@ def report(project):
 
 
 def main(argv=None):
-    args = list(sys.argv[1:] if argv is None else argv)
-    as_json = "--json" in args
-    paths = [arg for arg in args if arg != "--json"]
-    project = Path(paths[0] if paths else ".")
-    print(json.dumps(_read(project / ".autocode" / LEDGER), indent=2) if as_json else report(project))
-    return 0
+    return usage_report.cli(argv)
 
 
 if __name__ == "__main__":

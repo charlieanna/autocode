@@ -13,7 +13,7 @@ import { isWorking, RunStarting, waitsForFolder, type StatusView } from "./core/
 import { transitionNotice, waitsForPerson } from "./notify";
 import { runTotal, sessionTotal, totalText } from "./core/meter";
 import { applyEngine, engineOf, ENGINES, launchTarget, readSettings, selectIsolatedController, type Engine, type Settings } from "./settings";
-import { invoke, invokeRead, ReadDeadlineExceeded, tail, STAGES_TIMEOUT_MS } from "./core/cli";
+import { invoke, invokeRead, ActionDeadlineExceeded, ReadDeadlineExceeded, tail, STAGES_TIMEOUT_MS } from "./core/cli";
 import { chatRoute, chatSource, fillChatSet, fillSet, readStages, runListCommand, runRoute, type StageView } from "./core/stages";
 import { StageListCache } from "./core/stage-cache";
 import { inFolder, newChatCall, pickStageModel } from "./stages";
@@ -419,7 +419,20 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     tab.modelsBusy = "Reading models…";
     this.post();
     try {
-      const listed = await invokeRead(settings, list, {}, STAGES_TIMEOUT_MS);
+      let listed;
+      try {
+        listed = await invokeRead(settings, list, {}, STAGES_TIMEOUT_MS);
+      } catch (error) {
+        if (!(error instanceof ReadDeadlineExceeded)) throw error;
+        tab.modelsBusy = "Waiting for models…";
+        this.post();
+        await error.collected;
+        if (this.disposed || !this.tabs.includes(tab) || this.active !== tab || tab.run !== run) return;
+        tab.modelsBusy = "Reading models…";
+        this.post();
+        listed = await invokeRead(settings, list, {}, 3 * STAGES_TIMEOUT_MS);
+      }
+      if (this.disposed || !this.tabs.includes(tab) || this.active !== tab || tab.run !== run) return;
       if (listed.code !== 0) throw new Error(tail(listed));
       const view = readStages(listed.stdout);
       if (!view.changeable) throw new Error(view.reason ?? "This chat's models cannot change now.");
@@ -429,11 +442,15 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       if (!pick || tab.run !== run) return;
       tab.modelsBusy = "Changing…";
       this.post();
-      const result = await invoke(settings, fillSet(pick.stage, pick.model, pick.effort), {}, STAGES_TIMEOUT_MS);
+      const result = await invoke(settings, fillSet(pick.stage, pick.model, pick.effort), {}, 3 * STAGES_TIMEOUT_MS);
       if (result.code !== 0) throw new Error(tail(result));
       void vscode.window.showInformationMessage(`This chat runs the ${pick.stage.label} on ${pick.model} at ${pick.effort} from its next stage.`);
     } catch (error) {
-      tab.error = messageOf(error);
+      tab.error = error instanceof ReadDeadlineExceeded
+        ? "Could not load this chat's models. Its saved choices remain in effect."
+        : error instanceof ActionDeadlineExceeded
+        ? "Saving the model choice took too long. Check this chat's models before trying again."
+        : messageOf(error);
     } finally {
       // A cancelled pick returns early: the chip still comes back.
       tab.modelsBusy = undefined;

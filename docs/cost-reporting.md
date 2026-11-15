@@ -15,8 +15,19 @@ switched on and no model is called.
 - **Project ledger.** `PROJECT/.autocode/usage.jsonl` has one row per run, rewritten at every
   checkpoint save, so it is right during a task and after it pauses, completes or is killed. It
   is under `.autocode/`, which Git ignores.
-- **Report.** `python3 tools/autocode_usage.py [PROJECT]` prints one line per run and a total;
-  `--json` prints the rows.
+- **Outcome and latency fields.** Alongside stage time and cost, each ledger row records
+  additive summary metrics (`schema: 2`): stage outcomes split into `accepted`, `rejected` (when
+  an attempt's output or decision was rejected), and `report_repair`; rejection classes and
+  routes (`stage_wall`, `provider_timeout`, `not_a_report`, `schema`, `contract_rule`,
+  `evidence_not_authenticated`, `other`); first-interaction latency with `human_wait` separated;
+  stage prompt byte size and first-request cache counts; and run outcome/plan size without
+  recording prompt text, model output, raw rejection prose, or credentials.
+- **Cross-run report.** `autocode usage report [--workspace PATH] [--since DATE] [--all] [--json]`
+  (or `autocode usage list` for raw rows, and backward-compatible
+  `python3 tools/autocode_usage.py [PROJECT] [--json]`) aggregates only `usage.jsonl` ledgers —
+  never `state.json` — keeping `live` and `fake` evidence separate and comparing against
+  [efficiency-targets.json](efficiency-targets.json). Legacy rows without new fields are counted
+  under `not_recorded`.
 
 Cost has three bases, always kept apart: **reported** is the provider's own `cost_usd` (the built-in
 claude provider writes each call's share of Claude Code's cumulative session cost; a provider that

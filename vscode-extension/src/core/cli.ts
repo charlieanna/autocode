@@ -37,6 +37,14 @@ export function invoke(options: CliOptions, args: string[], env: Record<string, 
   return stream(options, args, env, undefined, EXIT_GRACE_MS, timeoutMs);
 }
 
+/** A mutating CLI action exceeded its deadline and was stopped; its result is unknown. */
+export class ActionDeadlineExceeded extends Error {
+  constructor(timeoutMs: number, file: string, args: string[]) {
+    super(`autocode timed out after ${timeoutMs}ms: ${file} ${args.join(" ")}`);
+    this.name = "ActionDeadlineExceeded";
+  }
+}
+
 /** A read's UI deadline passed; its configured CLI has not yet been collected. */
 export class ReadDeadlineExceeded extends Error {
   constructor(timeoutMs: number, readonly collected: Promise<void>, pending = true) {
@@ -163,7 +171,7 @@ function execute(
           reject(read.error);
         } else {
           child.kill("SIGKILL");
-          reject(new Error(`autocode timed out after ${timeoutMs}ms: ${file} ${argv.join(" ")}`));
+          reject(new ActionDeadlineExceeded(timeoutMs, file, argv));
         }
       }, timeoutMs);
     }

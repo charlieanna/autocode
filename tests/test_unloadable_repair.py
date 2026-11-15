@@ -240,6 +240,123 @@ class GoPackageTests(unittest.TestCase):
         self.assertFalse(result["fail_to_pass"])
 
 
+CARGO_TOML = '[package]\nname = "amounts"\nversion = "0.1.0"\nedition = "2021"\n'
+RS_RESOLVED = "pub fn double(n: i32) -> i32 { n * 2 }\npub fn triple(n: i32) -> i32 { n * 3 }\n"
+RS_CONFLICT = (
+    "<<<<<<< HEAD\npub fn double(n: i32) -> i32 { n * 2 }\n=======\n"
+    "pub fn triple(n: i32) -> i32 { n * 3 }\n>>>>>>> feature\n"
+)
+RS_TESTS = (
+    "use amounts::{double, triple};\n\n#[test]\nfn doubles() { assert_eq!(double(2), 4); }\n\n"
+    "#[test]\nfn triples() { assert_eq!(triple(2), 6); }\n"
+)
+RS_NEW = "use amounts::{double, triple};\n\n#[test]\nfn both() { assert_eq!(double(triple(1)), 6); }\n"
+RS_BESIDE = (
+    "\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n"
+    "    #[test]\n    fn doubles_beside() { assert_eq!(double(3), 6); }\n}\n"
+)
+RS_BESIDE_MORE = RS_BESIDE.replace(
+    "}\n}\n", "}\n\n    #[test]\n    fn triples_beside() { assert_eq!(triple(3), 9); }\n}\n"
+)
+RS_BESIDE_CONFLICT = (
+    "\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n<<<<<<< HEAD\n"
+    "    #[test]\n    fn doubles_beside() { assert_eq!(double(3), 6); }\n=======\n"
+    "    #[test]\n    fn triples_beside() { assert_eq!(triple(3), 9); }\n>>>>>>> feature\n}\n"
+)
+RS_NAMES = ["tests/amounts.rs::doubles", "tests/amounts.rs::triples"]
+RS_WORKSPACE = {
+    "Cargo.toml": '[workspace]\nmembers = ["core", "app"]\nresolver = "2"\n',
+    "core/Cargo.toml": CARGO_TOML.replace("amounts", "core"),
+    "core/src/lib.rs": RS_CONFLICT,
+    "app/Cargo.toml": CARGO_TOML.replace("amounts", "app"),
+    "app/src/lib.rs": "pub fn one() -> i32 { 1 }\n",
+    "app/tests/one.rs": "#[test]\nfn one() { assert_eq!(app::one(), 1); }\n",
+}
+
+
+@unittest.skipUnless(shutil.which("cargo"), "Cargo is required for native suite proof")
+class CargoTargetTests(unittest.TestCase):
+    """``cargo test`` builds every target before it runs a test, and names the target that did not build
+    (``amounts (lib)``), not a test file. A repair of a crate that did not build ("the build is broken,
+    fix it") failed its proof with "No regression test was added or changed", with every test passing."""
+
+    def proof(self, files, change):
+        project = Project({"Cargo.toml": CARGO_TOML, ".gitignore": "target/\n", **files})
+        self.addCleanup(project.close)
+        project.write(change)
+        return project.verify()
+
+    def test_a_crate_that_did_not_build_is_repaired_by_the_tests_it_already_had(self):
+        result = self.proof({"src/lib.rs": RS_CONFLICT, "tests/amounts.rs": RS_TESTS}, {"src/lib.rs": RS_RESOLVED})
+        self.assertEqual(verify.PASS, result["verdict"], result)
+        self.assertEqual(RS_NAMES, result["fail_to_pass"])
+
+    def test_the_tests_written_beside_its_code_show_the_repair_too(self):
+        result = self.proof({"src/lib.rs": RS_CONFLICT + RS_BESIDE}, {"src/lib.rs": RS_RESOLVED + RS_BESIDE})
+        self.assertEqual(verify.PASS, result["verdict"], result)
+        self.assertEqual(["src/lib.rs::tests::doubles_beside"], result["fail_to_pass"])
+
+    def test_a_resolution_that_leaves_one_of_those_tests_failing_shows_no_repair(self):
+        wrong = RS_RESOLVED.replace("n * 3", "n * 4")
+        result = self.proof({"src/lib.rs": RS_CONFLICT, "tests/amounts.rs": RS_TESTS}, {"src/lib.rs": wrong})
+        self.assertEqual(verify.FAIL, result["verdict"], result)
+        self.assertFalse(result["fail_to_pass"])
+
+    def test_a_new_test_in_a_new_file_or_beside_the_code_is_proved_with_them(self):
+        seed = {"src/lib.rs": RS_CONFLICT, "tests/amounts.rs": RS_TESTS}
+        for change, new in (
+            ({"src/lib.rs": RS_RESOLVED, "tests/both.rs": RS_NEW}, "tests/both.rs::both"),
+            ({"src/lib.rs": RS_RESOLVED + RS_BESIDE}, "src/lib.rs::tests::doubles_beside"),
+        ):
+            with self.subTest(new=new):
+                result = self.proof(seed, change)
+                self.assertEqual(verify.PASS, result["verdict"], result)
+                self.assertEqual(sorted([*RS_NAMES, new]), result["fail_to_pass"])
+
+    def test_a_crate_that_never_had_a_test_is_not_proved_by_the_changes_tests_alone(self):
+        for change in ({"src/lib.rs": RS_RESOLVED, "tests/both.rs": RS_NEW}, {"src/lib.rs": RS_RESOLVED + RS_BESIDE}):
+            with self.subTest(change=sorted(change)):
+                result = self.proof({"src/lib.rs": RS_CONFLICT}, change)
+                self.assertNotEqual(verify.PASS, result["verdict"], result)
+                self.assertFalse(result["fail_to_pass"])
+
+    def test_removing_or_editing_the_tests_beside_the_code_is_no_repair(self):
+        # None of them ran on the original code, so no later check would miss one: the repair must keep them.
+        tests = {"tests/amounts.rs": RS_TESTS}
+        for label, seed, change in (
+            ("removed with the repair", RS_CONFLICT + RS_BESIDE, {"src/lib.rs": RS_RESOLVED}),
+            ("the tests did not build, and are removed", RS_RESOLVED + RS_BESIDE_CONFLICT, {"src/lib.rs": RS_RESOLVED}),
+            ("edited with the repair", RS_CONFLICT + RS_BESIDE, {"src/lib.rs": RS_RESOLVED + RS_BESIDE_MORE}),
+            (
+                "removed, with a new test file",
+                RS_CONFLICT + RS_BESIDE,
+                {"src/lib.rs": RS_RESOLVED, "tests/both.rs": RS_NEW},
+            ),
+        ):
+            with self.subTest(label):
+                result = self.proof({"src/lib.rs": seed, **tests}, change)
+                self.assertNotEqual(verify.PASS, result["verdict"], result)
+                self.assertFalse(result["fail_to_pass"])
+
+    def test_a_change_that_edits_one_of_the_crates_test_files_is_not_this_repair(self):
+        edited = RS_TESTS.replace("triple(2), 6", "triple(2), 2 * 3")
+        result = self.proof(
+            {"src/lib.rs": RS_CONFLICT, "tests/amounts.rs": RS_TESTS},
+            {"src/lib.rs": RS_RESOLVED, "tests/amounts.rs": edited},
+        )
+        self.assertNotEqual(verify.PASS, result["verdict"], result)
+        self.assertFalse(result["fail_to_pass"])
+
+    def test_in_a_workspace_the_tests_that_could_not_run_are_every_crates(self):
+        # Cargo's test ids name no crate, and one crate that does not build stops the tests of all.
+        project = Project({".gitignore": "target/\n", **RS_WORKSPACE})
+        self.addCleanup(project.close)
+        project.write({"core/src/lib.rs": RS_RESOLVED})
+        result = project.verify()
+        self.assertEqual(verify.PASS, result["verdict"], result)
+        self.assertEqual(["tests/one.rs::one"], result["fail_to_pass"])
+
+
 class RuleTests(unittest.TestCase):
     """first_suite.unloaded and first_suite.loaded, over a suite's saved results."""
 
@@ -304,6 +421,26 @@ class RuleTests(unittest.TestCase):
                 base = self.results(failed=[module], collection_errors=[module])
                 self.assertEqual([test], first_suite.loaded(base, self.results(passed=[test]), [module]))
                 self.assertEqual([], first_suite.loaded(base, self.results(passed=[other]), [module]))
+
+    def test_a_cargo_target_that_did_not_build_stopped_every_test_of_the_run(self):
+        for module in (
+            "amounts (lib)::[build failed]",
+            "amounts (lib test)::[build failed]",
+            'my-crate (bin "tool")::[build failed]',
+            'amounts (test "pager")::[build failed]',
+            "amounts (build script)::[build failed]",
+        ):
+            with self.subTest(module=module):
+                base = self.results(failed=[module], collection_errors=[module])
+                passed = self.results(passed=["tests/pager.rs::one"])
+                self.assertEqual(["tests/pager.rs::one"], first_suite.loaded(base, passed, [module]))
+                # The project must still have had one of them.
+                self.assertEqual([], first_suite.loaded(base, passed, [module], ["tests/pager.rs::one"]))
+        # Not a Cargo target: a Go package or a file is known by its own tests alone.
+        for module in ("amounts::[build failed]", "test/a (lib).js::[collection]", "pkg (lib) more::[build failed]"):
+            with self.subTest(module=module):
+                base = self.results(failed=[module], collection_errors=[module])
+                self.assertEqual([], first_suite.loaded(base, self.results(passed=["tests/pager.rs::one"]), [module]))
 
 
 if __name__ == "__main__":

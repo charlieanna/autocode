@@ -1481,7 +1481,156 @@ tests put back.
 Still open: the Tester's acceptance-test job still judges its files by path alone; a Python project below
 the root whose root suite is another language's; a project the change itself adds (its manifest is not in
 the original tree); changed original tests in two projects at once, which no one command runs; and the
-root's `unittest discover`, bound as the original-test command although it runs no test there.
+root's `unittest discover`, bound as the original-test command although it runs no test there
+(section 47 fixes what that cost a bug fix in `api/`).
+
+## 46. A Rust crate that does not build: the person is asked to set a test command (fixed)
+
+Section 37's request in three more projects: "Someone committed `FILE` with merge conflict markers in it,
+so the crate does not build. Resolve it: keep both sides. The tests already cover both." Real runs, Claude
+models as in section 37, 2026-11-15, each with one plan approval.
+
+| Project | Runner | Result | Bundle manifest |
+| --- | --- | --- | --- |
+| Rust, a crate with `src/lib.rs` and four tests in `tests/amounts.rs` | master `5273f1c` | `WAITING_FOR_USER`, 10 stages, 173 s, $1.15. The fix is right and every test passes | `ba79d4040bd6fec7abd047dfdb58f3f3faf289c4ff2278fb60912c09cfa027ed` |
+| the same | this fix | `TASK_COMPLETE`, 8 stages, 124 s, $0.80 | `ebab11c9fcc5a7ec73d92d91bf7b784bed54ee495a82c2d177b23d8fcf8bbdcd` |
+| Java, Maven and JUnit 5 | this fix (nothing in it applies) | `TASK_COMPLETE`, 8 stages, 140 s, $0.74. The plan's criterion was "run `mvn -q -B test` ...; it fails on the original code with a compile error", and the proof rested on the suite's exit code (section 33) | `7f968540d1b29b6b5f1034701e614bbac21ee2dc3e67f7217644c77e4048617e` |
+| TypeScript, Vitest | this fix (nothing in it applies) | `TASK_COMPLETE`, 8 stages, 116 s, $0.75. The four existing tests, which could not load, are the proof (section 38) | `2f20fb58f8d0493a718512415a7acbd104f824970907a1b93a9376793ca471f9` |
+
+**Rust on master.** The plan changed `src/lib.rs` alone and named the four existing tests. Both proofs
+failed with "No regression test was added or changed, and no test that fails on the original code passes
+with the change, so the bug is not shown to be reproduced" and "The base suite has collection errors;
+preservation is unproven: amounts (lib test)::[build failed], amounts (lib)::[build failed]", and the
+Resolver asked the person: "Set the saved regression verification command through the operator command
+correction to `cargo test --test amounts`. It must fail on base (the build fails because of the conflict
+markers) and pass on the candidate ... Alternatively, accept that a build-break fix is proven by the suite
+on the candidate alone."
+
+Section 38's rule already covers code that cannot be loaded, and asks that each module the original code
+could not load has a test the project already had that passes now. It knows a module's tests by their
+names (`tests.test_amounts::...`, `example.com/pkg::TestOne`). `cargo test` names the target that did not
+build (`amounts (lib)`), not a test file, and its test names (`tests/amounts.rs::a_percentage`) name no
+crate, so no test was ever the target's own. Found without a model first: the same repair is proven in a
+Python, Go, Node or Minitest project.
+
+Fixed, in three parts.
+
+- **A Cargo target that did not build stopped every test of the run** (`autocode_first_suite._owns`):
+  `cargo test` builds every target before it runs a test. Every test that could not run on the original
+  code and passes now counts, and one of them must be a test the project already had. In a workspace
+  that includes the tests of the other crates, which could not run either.
+- **A new test beside the repair is told apart** (`_added_tests`): Cargo's targeted command is the whole
+  suite's, so the tests the change adds were not known and a repair with a new test file was refused with
+  "the new tests only fail to import or collect". The tests the change itself defines are now read from
+  its files, as they are for Go. A new `#[cfg(test)]` module in the repaired file counts the same way.
+- **The tests written beside the code must stay as they were** (`autocode_rust_inline_tests.tests_kept`):
+  Rust keeps tests inside the product file, where removing one is no edit of a test file, and on code that
+  did not build none of them ran, so no later check would miss one. Without this, a "repair" that deletes
+  a test module that does not compile, or the tests beside the code it repairs, was proven by the crate's
+  other tests. The repair must leave every `#[cfg(test)]` module of the files it edits or deletes text
+  for text, and a file with a test item outside such a module is not judged.
+
+The same task on the fix: the first proof is `PASS` with "No test changed, and the original code could not
+be loaded by its tests (amounts (lib test)::[build failed], amounts (lib)::[build failed]): the tests the
+project already had run and pass with the change: tests/amounts.rs::a_negative_number, ...".
+
+Still open: a repair of Rust tests that do not compile is a change of tests alone ("Only test files
+changed; a fix must change product code"), as before; and `make test` and CMake with CTest (section 33).
+
+## 47. A bug fix in the Python half of two projects: the run stops at the check of the original tests (fixed)
+
+The repository of section 45 again: `api/` (Python, `api/pyproject.toml`, `api/orders.py`, tests in
+`api/tests/test_orders.py` that say `from orders import ...` and run with `cd api && python3 -m unittest
+discover -s tests`) beside `web/` (Node), and no manifest at the root. This time the bug is in `api/`: "The
+orders API says eleven orders at five a page are 2 pages. Eleven orders need three pages. Fix page_count and
+add a regression test."
+
+**On master** the fix and its tests were right, the proof passed at its first attempt, and the run ended
+`PAUSED_INVALID_OUTPUT` (9 stages, 203 s, $1.42; bundle manifest
+`5b0efc5f36fbb199a4d077e3bcd3b6f1476db4877b9aa967100e41c06791b94e`): "Completed tester output was rejected
+(Protected tests changed and the original gate did not pass on this implementation. Repair the
+implementation; a modified assertion is not proof. Failing original tests:
+unittest.loader._FailedTest.test_orders ...) ... ModuleNotFoundError: No module named 'orders'". The
+Investigator's own finding: "The tester's work is correct."
+
+The proof ran the tests where they are written to run: a root with no manifest is no project of its own, so
+the proof gives the changed tests to the project around them (`autocode_package_scope.for_tests`; suite
+`cd api && python3 -m unittest discover -v -s tests`). The gate of the original tests runs the command the run
+bound when it started, the root's `python3 -m unittest discover -v`, narrowed to the changed test modules:
+`python3 -m unittest -v api/tests/test_orders.py`, from the root, where `orders` cannot be imported. It failed
+the same way on the change and with the original tests put back. Section 45 fixed this gate for another
+language's tests in such a project; Python tests have the mirror problem, since the bound runner can run
+them, only not from there.
+
+Fix (`autocode_protected_project_suite.python_command`): where the root holds no manifest and the changed
+test modules are all in one project below it, the gate runs them inside that project with the bound runner:
+`cd api && python3 -m unittest -v tests/test_orders.py`. What stays as it was: a root that is a project of
+its own; tests in two projects, or in a directory with no manifest; a fixture among the repository's own
+tests; a command the person typed (`--test-command`, or a correction of the original tests' command), which
+the proof runs where it was typed too; and a runner that names something by where it runs (an environment
+set before it, an interpreter named by a relative path, a pytest option that names a path). A weakened
+original assertion still fails: the original test is put back and run inside the project.
+
+**With the fix** the same task is `TASK_COMPLETE` with one plan approval and no question (8 stages, 132 s,
+$0.92; manifest `289097101dab8a22c6b2865a3d2edc8a83d9f9b03aa48cbdbe78f5f41bf08877`): the gate's receipt
+is `PASS` with `replayed_command: "cd api && /usr/local/bin/python3 -m unittest -v tests/test_orders.py"`
+and exit code 0 on the change and with the original tests put back.
+
+Still open: a directory of code and tests with no manifest below such a root (`api/` with only `orders.py`
+and `tests/`): the proof itself fails there (checked without a model; section 48 fixes it where the directory
+declares its dependencies); and a Python project below a root that is another language's project.
+
+## 48. A backend with only `requirements.txt`: the project's test file is edited to get past the proof, and the person is still asked (fixed)
+
+A repository of `backend/` (`backend/requirements.txt`, `backend/orders.py`, plain pytest tests in
+`backend/tests/test_orders.py` that say `from orders import ...`; the README says `cd backend && python3 -m
+pytest`) beside `frontend/` (Node), with no manifest at the root and none in `backend/`. The request is the
+bug fix of section 47.
+
+**On master** the run ended `WAITING_FOR_USER` after 17 stages (410 s, $2.54; bundle manifest
+`8deeefe47d17606b29e7c3a06f5e98897b9384f135dbac787c13f0fb1d1132b0`). The fix and its tests were right at the
+first attempt. The proof ran the root's suite, `python3 -m pytest ...` from the root, where `orders` cannot be
+imported, and failed twice: "The regression command ran no passing tests", "On the unfixed code the new tests
+only fail to import or collect (::backend.tests.test_orders), so no test shows the bug". The Builder was sent
+back and changed the project to suit the proof: it added `sys.path.insert(0, str(Path(__file__).resolve()
+.parent.parent))` to the project's own test file. The third proof was then `UNVERIFIED` ("The base suite has
+collection errors; preservation is unproven"), and the Resolver asked: "Correct the saved verification
+commands so they run from backend/. Suite: sh -c 'cd backend && python3 -m pytest -q -p no:cacheprovider
+--continue-on-collection-errors'. Regression: sh -c 'cd backend && python3 -m pytest -q -p no:cacheprovider
+tests/test_orders.py'. Then regenerate the regression proof on the unchanged source."
+
+With `backend/pyproject.toml` the same project is proven from inside `backend/` (section 47): a directory was
+a project only by a manifest (`pyproject.toml`, `setup.py`, `setup.cfg`), and many Python projects have none,
+only a list of what they need. Without a model, the same proof failure with unittest (tests in `tests/`, with
+and without `__init__.py`, and beside the code) and with plain pytest; pytest with `pythonpath` set, a
+`conftest.py` in `backend/` or `tests/__init__.py` passes from the root.
+
+Fix (`autocode_package_scope.projects_around`, used by `enclosing` and by
+`autocode_companion_suites.project_of`): where no directory around the changed tests has a manifest, the
+innermost one that holds a `requirements.txt` or a `Pipfile` is the project whose suite proves them, run from
+inside it. It applies only where the tests could not be meant to run from the root:
+
+- not when the root itself holds a `requirements.txt`, a `Pipfile`, a `conftest.py`, a `pytest.ini` or a
+  `tox.ini`;
+- not for a directory that is a Python package (`__init__.py`), or that its code or tests import by its own
+  name (`from backend.orders import total`): its tests reach it from the directory above;
+- not for one of the repository's test directories (`tests/requirements.txt` lists what the tests need);
+- a directory with a manifest comes first, as before.
+
+No gate changes: a new test must still fail on the original code and pass with the change, with the same
+command on both. The gate of the original tests follows (section 47): it runs them inside the same project.
+
+**With the fix** the same task is `TASK_COMPLETE` with one plan approval and no question (8 stages, 158 s,
+$0.87; manifest `9dde3730bb1babcd10b28508e86a4fab68bf3da6c6c7854b078602535033eedf`): the proof passed at its
+first attempt with suite `cd backend && python3 -m pytest -q -p no:cacheprovider
+--continue-on-collection-errors`, the gate of the original tests passed with `cd backend && ...
+tests/test_orders.py`, and the project's test file got the new tests and nothing else.
+
+Still open: a directory of code and tests that declares nothing (`api/` with only `orders.py` and `tests/`);
+and, seen while checking this one without a model, a Python tool folder inside another language's project
+(`package.json` at the root, `scripts/pyproject.toml`): its fix is proven with its own suite, but the gate of
+the original tests runs the root's `npm test`, which runs none of them, so a weakened original assertion
+there is not caught by that gate.
 
 ## Also seen, not yet run on real models
 

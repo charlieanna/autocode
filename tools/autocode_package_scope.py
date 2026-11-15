@@ -26,6 +26,7 @@ controller or the proof.
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import stat
 import subprocess
@@ -278,6 +279,66 @@ def detect(root, package, detect_in) -> PackageFramework | None:
 # Files that make a directory a project of its own, with a suite detection can find there.
 MANIFESTS = project_kinds.MANIFESTS
 
+# Files that declare a Python project's dependencies where it has no manifest: ``backend/requirements.txt``
+# beside ``frontend/package.json``.
+DEPENDENCY_FILES = ("requirements.txt", "Pipfile")
+# Files that make the root the place its Python tests run from, whatever lies below it.
+_ROOT_SUITE_FILES = (*DEPENDENCY_FILES, "conftest.py", "pytest.ini", "tox.ini")
+_SCANNED_FILES = 200  # of one directory, when looking for imports of it by name
+
+
+def _has(directory: Path, names) -> bool:
+    return any((directory / name).is_file() for name in names)
+
+
+def _imported_by_name(directory: Path) -> bool:
+    """Whether Python code in ``directory`` or in its ``tests/`` or ``test/`` imports the directory by its own
+    name (``from backend.orders import total``): it is then a package the tests reach from above it."""
+    wanted = re.compile(rb"^[ \t]*(?:from|import)[ \t]+" + re.escape(directory.name.encode()) + rb"(?![\w])", re.M)
+    for folder in (directory, directory / "tests", directory / "test"):
+        try:
+            names = sorted(name for name in os.listdir(folder) if name.endswith(".py"))[:_SCANNED_FILES]
+        except OSError:
+            continue
+        for name in names:
+            file = folder / name
+            try:
+                if file.is_file() and not file.is_symlink() and wanted.search(file.read_bytes()):
+                    return True
+            except OSError:
+                return True  # unreadable: not shown to be a project
+    return False
+
+
+def _declared_project(directory: Path, package: str) -> bool:
+    return (
+        _has(directory, DEPENDENCY_FILES)
+        and not (directory / "__init__.py").is_file()
+        and not project_kinds.is_test_path(package + "/_")
+        and not _imported_by_name(directory)
+    )
+
+
+def projects_around(root, directory) -> list[str]:
+    """The project directories below ``root`` around ``directory``, itself included, innermost first.
+
+    A directory with its own manifest is a project. Where no directory around this one has a manifest, a
+    directory that declares Python dependencies (``DEPENDENCY_FILES``) is a project too: a backend kept as
+    ``backend/requirements.txt``, code and ``tests/`` runs its tests from ``backend/``, and the root's suite
+    could not import what they test, so a bug fix there failed its proof (2026-11-15). Not when the root is
+    where Python tests run from (it declares dependencies itself, or holds pytest's configuration), not a
+    Python package or a directory its code imports by name, whose tests reach it from the directory above,
+    and not one of the repository's test directories (``tests/requirements.txt`` lists what the tests need).
+    """
+    directory = str(PurePosixPath(directory))
+    parts = PurePosixPath(directory).parts if directory not in ("", ".") else ()
+    around = ["/".join(parts[:end]) for end in range(len(parts), 0, -1)]
+    held = [(package, found) for package in around if (found := directory_in(root, package)) is not None]
+    projects = [package for package, found in held if _has(found, MANIFESTS)]
+    if projects or _has(Path(root), _ROOT_SUITE_FILES):
+        return projects
+    return [package for package, found in held if _declared_project(found, package)]
+
 
 def enclosing(root, tests, detect_in, *, runs=None) -> PackageFramework | None:
     """The suite of the innermost project directory below ``root`` that holds every one of ``tests``
@@ -287,18 +348,13 @@ def enclosing(root, tests, detect_in, *, runs=None) -> PackageFramework | None:
     A run of the whole repository detects one suite at its root. When that suite cannot run the
     tests (a Node package inside a Python repository, 2026-11-11), the tests belong to the project
     around them: this finds it the way ``--package`` would have named it, with the same commands
-    (``cd PACKAGE && RUNNER``). Only a directory with its own manifest counts, never the root.
+    (``cd PACKAGE && RUNNER``). Only a project directory counts (``projects_around``), never the root.
     """
     tests = [str(PurePosixPath(test)) for test in tests]
     if not tests:
         return None
     common = os.path.commonpath([str(PurePosixPath(test).parent) for test in tests])
-    parts = PurePosixPath(common).parts if common not in ("", ".") else ()
-    for end in range(len(parts), 0, -1):
-        package = "/".join(parts[:end])
-        directory = directory_in(root, package)
-        if directory is None or not any((directory / name).is_file() for name in MANIFESTS):
-            continue
+    for package in projects_around(root, common):
         found = detect(root, package, detect_in)
         if found is not None and (runs(found) if runs else found.targeted(tests)):
             return found
@@ -321,7 +377,7 @@ def for_tests(root, framework, tests, detect_in) -> PackageFramework | None:
 
 
 def _is_project(directory: Path) -> bool:
-    return any((directory / name).is_file() for name in MANIFESTS)
+    return _has(directory, MANIFESTS)
 
 
 def link_node_modules(tree, roots) -> None:
