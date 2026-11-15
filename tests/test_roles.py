@@ -79,7 +79,7 @@ class OneListOfNames(unittest.TestCase):
 
 class NamesFollowTheJobNotTheAi(unittest.TestCase):
     def test_configured_slot_labels_follow_the_canonical_jobs_and_planning_flow(self):
-        for role, expected in {
+        expected_labels = {
             "task_planner": "Resolver and per-task Planner",
             "planner": "Planner",
             "requirements": "Requirements",
@@ -88,10 +88,13 @@ class NamesFollowTheJobNotTheAi(unittest.TestCase):
             "tester": "Tester",
             "completion": "Completion Reviewer",
             "resolver": "Resolver",
+            "repair_resolver": "Resolver (repair)",
             "architect": "Design Reviewer",
             "stuck_investigator": "Investigator",
             "acceptance_tester": "Tester (acceptance tests)",
-        }.items():
+        }
+        self.assertEqual(set(roles.ROUTE_JOB), set(expected_labels))
+        for role, expected in expected_labels.items():
             self.assertEqual(expected, roles.route_name(role, {}))
         self.assertEqual("Planner", roles.route_name("planner", {"settings": {"planning_flow": "v2"}}))
         self.assertEqual("Future Role", roles.route_name("future_role", {}))
