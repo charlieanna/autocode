@@ -44,8 +44,8 @@ def _writer_progress(state: RunState, record, before, receipts, cases, owned):
     these exact cases pass on the candidate and accepted any required original
     reference failure. That observation still grants no review PASS.
     """
-    task = state["current_task"]
-    contract = state["goal_contract"]
+    task = state.get("current_task") or {}
+    contract = state.get("goal_contract") or {}
     revision = before["revision"]
     if (
         not task.get("source_revision")

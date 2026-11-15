@@ -71,7 +71,7 @@ def recover(state: RunState, workspace, *, bound_only=False, snapshot=util.snaps
     paths = evidence.get("retained_paths", []) if evidence.get("accepted_test_writer") else []
     state["changed_files"] = paths
     if paths:
-        state["implementation"]["changed_files"] = paths
+        cast(dict, state["implementation"])["changed_files"] = paths
     state["source_snapshot"] = record.get("after_ref")
     state["diff_ref"] = record.get("diff_ref")
     state["next_stage"] = review_stage(state)
