@@ -2,8 +2,10 @@
 
 The exact final source passed the canonical gate with **1260 selected tests,
 1247 passed, 13 skipped, zero failures and zero errors** in 1245.814 seconds.
-Both exclusion manifests are `{}`; the canonical runner reads
-`tools/suite_exclusions.json`. Planning-v2's former 21 methods plus its added
+The exclusion manifest is `{}`; the canonical runner reads
+`tests/suite_exclusions.json` (`tools/suite_exclusions.json` was removed when
+the duplicate test tree was consolidated into `tests/`). Planning-v2's former 21
+methods plus its added
 compatibility coverage are selected and passing, not excluded. The final run used
 the fresh installed wheel and retained browser/package evidence under
 `evidence-campaign-no-exclusions/` and `gate-campaign-no-exclusions.log`.
