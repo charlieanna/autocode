@@ -43,7 +43,7 @@ class FootprintValidationTests(unittest.TestCase):
             patch.object(containment, "sys", SimpleNamespace(platform="darwin")),
             patch.object(Path, "is_file", return_value=True),
             patch.object(Path, "mkdir") as mkdir,
-            patch.object(containment.subprocess, "run") as launch,
+            patch.object(containment.captured, "run_metadata") as launch,
         ):
             with self.assertRaisesRegex(ValueError, "Read-only stages"):
                 containment.prepare("/workspace", write_paths=["ui"])
@@ -79,7 +79,7 @@ class FootprintValidationTests(unittest.TestCase):
                     patch.object(containment, "sys", SimpleNamespace(platform="darwin")),
                     patch.object(Path, "is_file", autospec=True, side_effect=file_kind),
                     patch.object(Path, "mkdir") as mkdir,
-                    patch.object(containment.subprocess, "run") as launch,
+                    patch.object(containment.captured, "run_metadata") as launch,
                 ):
                     with self.assertRaisesRegex(ValueError, "shared regular-file inode"):
                         containment.prepare(root, allow_write=True, write_paths=declared)
@@ -134,7 +134,7 @@ class FootprintValidationTests(unittest.TestCase):
                 patch.object(containment, "sys", SimpleNamespace(platform="darwin")),
                 patch.object(Path, "is_file", return_value=True),
                 patch.object(
-                    containment.subprocess, "run", return_value=SimpleNamespace(returncode=0, stderr="")
+                    containment.captured, "run_metadata", return_value=SimpleNamespace(returncode=0, stderr="")
                 ) as probe,
             ):
                 boundary = containment.prepare(root, allow_write=True, environment={"PATH": "/controlled/no-provider"})
@@ -167,7 +167,9 @@ class FootprintValidationTests(unittest.TestCase):
             with (
                 patch.object(containment, "sys", SimpleNamespace(platform="darwin")),
                 patch.object(Path, "is_file", return_value=True),
-                patch.object(containment.subprocess, "run", return_value=SimpleNamespace(returncode=0, stderr="")),
+                patch.object(
+                    containment.captured, "run_metadata", return_value=SimpleNamespace(returncode=0, stderr="")
+                ),
             ):
                 boundary = containment.prepare(root, allow_write=True, write_paths=["approved.css"])
             control = Path(boundary["profile"]).parent
@@ -196,7 +198,7 @@ class FootprintValidationTests(unittest.TestCase):
             source.mkdir()
             with (
                 patch.object(containment, "sys", SimpleNamespace(platform="darwin")),
-                patch.object(containment.subprocess, "run") as launch,
+                patch.object(containment.captured, "run_metadata") as launch,
             ):
                 with self.assertRaisesRegex(RuntimeError, "footprint authority changed"):
                     containment.verify(boundary)
@@ -253,7 +255,9 @@ class FootprintValidationTests(unittest.TestCase):
                 patch.object(Path, "is_file", return_value=True),
                 patch.object(containment, "_writer_path_kinds", wraps=actual_kinds) as measured,
                 patch.object(containment, "_render_policy", side_effect=transient_render),
-                patch.object(containment.subprocess, "run", return_value=SimpleNamespace(returncode=0, stderr="")),
+                patch.object(
+                    containment.captured, "run_metadata", return_value=SimpleNamespace(returncode=0, stderr="")
+                ),
             ):
                 boundary = containment.prepare(root, allow_write=True, write_paths=["approved.css"])
                 self.assertEqual(1, measured.call_count)
@@ -266,7 +270,7 @@ class FootprintValidationTests(unittest.TestCase):
             self._controlled_writer_proof(boundary)
             with (
                 patch.object(containment, "sys", SimpleNamespace(platform="darwin")),
-                patch.object(containment.subprocess, "run") as launch,
+                patch.object(containment.captured, "run_metadata") as launch,
             ):
                 self.assertIs(boundary, containment.verify(boundary))
                 launch.assert_not_called()
@@ -279,7 +283,9 @@ class FootprintValidationTests(unittest.TestCase):
             with (
                 patch.object(containment, "sys", SimpleNamespace(platform="darwin")),
                 patch.object(Path, "is_file", return_value=True),
-                patch.object(containment.subprocess, "run", return_value=SimpleNamespace(returncode=0, stderr="")),
+                patch.object(
+                    containment.captured, "run_metadata", return_value=SimpleNamespace(returncode=0, stderr="")
+                ),
             ):
                 boundary = containment.prepare(root, allow_write=True, write_paths=["approved.css"])
             profile = Path(boundary["profile"])
@@ -292,7 +298,7 @@ class FootprintValidationTests(unittest.TestCase):
             self._controlled_writer_proof(boundary)
             with (
                 patch.object(containment, "sys", SimpleNamespace(platform="darwin")),
-                patch.object(containment.subprocess, "run") as launch,
+                patch.object(containment.captured, "run_metadata") as launch,
             ):
                 with self.assertRaisesRegex(RuntimeError, "footprint authority changed"):
                     containment.verify(boundary)
@@ -325,14 +331,16 @@ class FootprintValidationTests(unittest.TestCase):
             with (
                 patch.object(containment, "sys", SimpleNamespace(platform="darwin")),
                 patch.object(Path, "is_file", return_value=True),
-                patch.object(containment.subprocess, "run", return_value=SimpleNamespace(returncode=0, stderr="")),
+                patch.object(
+                    containment.captured, "run_metadata", return_value=SimpleNamespace(returncode=0, stderr="")
+                ),
             ):
                 boundary = containment.prepare(root, allow_write=True, write_paths=["approved.css"])
             self._controlled_writer_proof(boundary)
             boundary["writer_policy_inputs"]["protected_paths"].append(str(root / "new-protected.css"))
             with (
                 patch.object(containment, "sys", SimpleNamespace(platform="darwin")),
-                patch.object(containment.subprocess, "run") as launch,
+                patch.object(containment.captured, "run_metadata") as launch,
             ):
                 with self.assertRaisesRegex(RuntimeError, "footprint authority changed"):
                     containment.verify(boundary)
@@ -348,7 +356,9 @@ class FootprintValidationTests(unittest.TestCase):
             with (
                 patch.object(containment, "sys", SimpleNamespace(platform="darwin")),
                 patch.object(Path, "is_file", return_value=True),
-                patch.object(containment.subprocess, "run", return_value=SimpleNamespace(returncode=0, stderr="")),
+                patch.object(
+                    containment.captured, "run_metadata", return_value=SimpleNamespace(returncode=0, stderr="")
+                ),
             ):
                 boundary = containment.prepare(root, allow_write=True, write_paths=footprint)
             self._controlled_writer_proof(boundary)
@@ -358,7 +368,7 @@ class FootprintValidationTests(unittest.TestCase):
             profile_before = Path(restored["profile"]).read_bytes()
             with (
                 patch.object(containment, "sys", SimpleNamespace(platform="darwin")),
-                patch.object(containment.subprocess, "run") as launch,
+                patch.object(containment.captured, "run_metadata") as launch,
             ):
                 self.assertIs(restored, containment.verify(restored))
                 launch.assert_not_called()
@@ -429,7 +439,7 @@ class FootprintValidationTests(unittest.TestCase):
                     patch.object(Path, "is_file", autospec=True, side_effect=file_kind),
                     patch.object(containment.shutil, "which", return_value="/controlled/opencode"),
                     patch.object(toolchain, "discover", return_value={"read_roots": [], "probes": []}),
-                    patch.object(containment.subprocess, "run", side_effect=controlled_native),
+                    patch.object(containment.captured, "run_metadata", side_effect=controlled_native),
                 ):
                     with self.assertRaisesRegex(RuntimeError, "outside-source hardlink; footprint unsupported"):
                         containment.configure(
@@ -580,7 +590,7 @@ class WriterFootprintKernelTests(unittest.TestCase):
         outside_alias = self.root / "outside-existing-alias.css"
         os.link(self.source, outside_alias)
         existing = {path.name for path in self.metadata.iterdir()}
-        with patch.object(containment.subprocess, "run") as launch:
+        with patch.object(containment.captured, "run_metadata") as launch:
             for paths in (["ui/shared.css"], ["ui"]):
                 with self.subTest(paths=paths), self.assertRaisesRegex(ValueError, "shared regular-file inode"):
                     self.boundary(paths)

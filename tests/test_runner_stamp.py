@@ -120,6 +120,10 @@ class DoctorRunnerCheckTests(unittest.TestCase):
 
 def fake_runner():
     class FakeRunner:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
         def __call__(self, *args, **kwargs):
             return FakeRunner()
 

@@ -370,7 +370,10 @@ class IsolationTests(unittest.TestCase):
             pass
 
         for owner in (True, False, object(), Subclass.__new__(Subclass)):
-            with self.subTest(owner_type=type(owner).__name__), patch.object(containment.subprocess, "run") as run:
+            with (
+                self.subTest(owner_type=type(owner).__name__),
+                patch.object(containment.captured, "run_metadata") as run,
+            ):
                 with self.assertRaisesRegex(ValueError, "exact CODE owner"):
                     opencode.launch(
                         "builder",
@@ -466,7 +469,7 @@ class IsolationTests(unittest.TestCase):
         for paths in (None, [], ["../outside"], ["*.py"]):
             self.state["current_task"]["affected_paths"] = paths
             owner = self.owner()
-            with patch.object(opencode, "launch") as launch, patch.object(containment.subprocess, "run") as run:
+            with patch.object(opencode, "launch") as launch, patch.object(containment.captured, "run_metadata") as run:
                 with self.assertRaises(util.Paused):
                     provider_launch.prepare(
                         engine="opencode",
@@ -562,7 +565,7 @@ class IsolationTests(unittest.TestCase):
 
     def test_opted_in_planning_writer_refuses_before_native_setup(self):
         owner = self.owner()
-        with patch.object(containment.subprocess, "run") as run:
+        with patch.object(containment.captured, "run_metadata") as run:
             with self.assertRaisesRegex(ValueError, "planning must remain readonly"):
                 opencode.launch(
                     "builder",
@@ -616,7 +619,7 @@ class IsolationTests(unittest.TestCase):
             patch.object(containment, "prepare", return_value=boundary),
             patch.object(containment, "verify", side_effect=lambda value: value),
             patch.object(toolchain, "discover", return_value={"read_roots": [], "probes": []}),
-            patch.object(containment.subprocess, "run", side_effect=controlled_run),
+            patch.object(containment.captured, "run_metadata", side_effect=controlled_run),
         ):
             env, final = containment.configure(self.command, self.env, self.root, allow_write=False, request={})
         proof = json.loads(Path(final["conformance"]).read_text())
@@ -720,7 +723,7 @@ class IsolationTests(unittest.TestCase):
             patch.object(
                 toolchain, "discover", return_value={"read_roots": [], "probes": ["controlled-canonical-startup"]}
             ),
-            patch.object(containment.subprocess, "run", side_effect=controlled_run),
+            patch.object(containment.captured, "run_metadata", side_effect=controlled_run),
         ):
             env, final = containment.configure(
                 self.command,
