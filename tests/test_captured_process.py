@@ -129,8 +129,8 @@ with captured._temporary('w+t') as output, captured._temporary('w+t') as errors:
                 (["owned"], 12, {"PATH": "/owned"}, "/workspace", subprocess.DEVNULL),
                 (command, timeout, env, cwd, stdin),
             )
-            output.write("result\n")
-            errors.write("diagnostic\n")
+            os.write(output.fileno(), b"result\n")
+            os.write(errors.fileno(), b"diagnostic\n")
             return 7, False
 
         with (
@@ -158,10 +158,9 @@ with captured._temporary('w+t') as output, captured._temporary('w+t') as errors:
                     self.assertEqual((7, "result\n", "diagnostic\n"), (result.returncode, result.stdout, result.stderr))
 
     def test_unsupported_capture_shape_never_launches(self):
-        for options in ({"text": False}, {"capture_output": False}):
-            with patch.object(captured.subprocess, "Popen") as launch, self.assertRaises(ValueError):
-                captured.run(["owned"], **options)
-            launch.assert_not_called()
+        with patch.object(captured.subprocess, "Popen") as launch, self.assertRaises(ValueError):
+            captured.run(["owned"], capture_output=False)
+        launch.assert_not_called()
 
     @unittest.skipUnless(reaper is not None, "private reaper implementation")
     def test_missing_or_uncertain_terminal_packet_never_becomes_a_timeout(self):

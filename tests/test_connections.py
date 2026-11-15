@@ -24,7 +24,9 @@ class ConnectionTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        env = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(self.root)})
+        env = mock.patch.dict(
+            os.environ, {"XDG_CONFIG_HOME": str(self.root), "XDG_STATE_HOME": str(self.root / "state")}
+        )
         env.start()
         self.addCleanup(env.stop)
         self.config = command.user_config_path("company")

@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
 
@@ -269,7 +270,7 @@ class PreflightReuseTests(unittest.TestCase):
         self.assertEqual("err\n", failed.exception.stderr)
 
         with mock.patch.object(
-            env_prep.subprocess, "run", return_value=subprocess.CompletedProcess(["tool"], 0, "ok", "")
+            env_prep.captured, "run_metadata", return_value=subprocess.CompletedProcess(["tool"], 0, "ok", "")
         ) as mocked:
             result = env_prep.preflight_run(["tool"], self.env, capture_output=True, text=True, timeout=15)
         self.assertEqual("ok", result.stdout)
@@ -346,6 +347,91 @@ class PreflightReuseTests(unittest.TestCase):
             ["--version", "auth list", "models", "models --verbose"],
             sorted(calls_file.read_text().splitlines()),
         )
+
+
+class PreflightCaptureContractTests(unittest.TestCase):
+    @contextmanager
+    def captured_output(self, stdout, stderr=b"", *, code=0, expired=False):
+        def execute(command, timeout, env, cwd, output, diagnostics, stdin):
+            os.write(output.fileno(), stdout)
+            os.write(diagnostics.fileno(), stderr)
+            return code, expired
+
+        # Exercise preflight_run -> run_metadata -> the real file capture and
+        # decoding path. Only the process boundary is replaced; no child runs.
+        with (
+            mock.patch.object(env_prep.captured.custody.sys, "platform", "darwin"),
+            mock.patch.object(env_prep.captured, "preflight"),
+            mock.patch.object(env_prep.captured, "_sampled", side_effect=execute) as owned,
+            mock.patch.object(subprocess, "Popen", side_effect=AssertionError("No process in a codec contract test")),
+        ):
+            yield owned
+
+    def read(self, **options):
+        try:
+            return env_prep.preflight_run(["tool", "models"], {"PATH": "/fixture"}, capture_output=True, **options)
+        except TypeError as error:
+            self.fail(f"The owned capture must accept the requested subprocess output options: {error}")
+
+    def test_preflight_binary_default_preserves_bytes_and_direct_runner_text_default(self):
+        with self.captured_output(b"raw\r\n\xff", b"error\r") as owned:
+            try:
+                result = self.read(timeout=12)
+            except UnicodeDecodeError:
+                self.fail("The binary preflight default must not decode its output")
+        self.assertEqual((b"raw\r\n\xff", b"error\r"), (result.stdout, result.stderr))
+        self.assertEqual(1, owned.call_count)
+        with self.captured_output(b"default\r\n"):
+            direct = env_prep.captured.run(["tool"])
+        self.assertEqual("default\n", direct.stdout)
+
+    def test_text_aliases_encoding_and_errors_keep_universal_newlines(self):
+        for options, raw, expected in (
+            ({"text": True}, b"one\r\ntwo\rthree", "one\ntwo\nthree"),
+            ({"universal_newlines": True}, b"alias\r\n", "alias\n"),
+            ({"text": True, "universal_newlines": True}, b"both\r", "both\n"),
+            ({"encoding": "latin-1"}, b"\xff\r\n", "ÿ\n"),
+            ({"encoding": "utf-8", "errors": "replace"}, b"\xff\r", "�\n"),
+        ):
+            with self.subTest(options=options), self.captured_output(raw):
+                self.assertEqual(expected, self.read(**options).stdout)
+        with self.captured_output(b"\xff"), self.assertRaises(UnicodeDecodeError):
+            self.read(encoding="utf-8")
+
+    def test_timeout_decodes_partial_bytes_only_after_owned_cleanup(self):
+        with (
+            self.captured_output(b"part\r\n\xc3", b"err\r\n", expired=True),
+            self.assertRaises(subprocess.TimeoutExpired) as caught,
+        ):
+            self.read(encoding="utf-8", timeout=2)
+        self.assertEqual(
+            (2, "part\n�", "err\n"), (caught.exception.timeout, caught.exception.stdout, caught.exception.stderr)
+        )
+        with self.captured_output(b"\xc3", expired=True), self.assertRaises(UnicodeDecodeError):
+            self.read(encoding="utf-8", errors="strict", timeout=2)
+        with self.captured_output(b"\xff\r\n", expired=True), self.assertRaises(subprocess.TimeoutExpired) as caught:
+            self.read(timeout=2)
+        self.assertEqual(b"\xff\r\n", caught.exception.stdout)
+
+    def test_checked_failure_has_the_requested_output_type(self):
+        for options, expected in (({}, b"out\r\n"), ({"text": True}, "out\n")):
+            with (
+                self.subTest(options=options),
+                self.captured_output(b"out\r\n", b"err\r", code=3),
+                self.assertRaises(subprocess.CalledProcessError) as caught,
+            ):
+                self.read(check=True, **options)
+            self.assertEqual(3, caught.exception.returncode)
+            self.assertEqual(expected, caught.exception.output)
+            self.assertEqual(b"err\r" if not options else "err\n", caught.exception.stderr)
+
+    def test_conflicting_text_aliases_are_rejected_before_any_owned_attempt(self):
+        for text, universal in ((False, True), (True, False)):
+            with self.subTest(text=text, universal_newlines=universal):
+                with mock.patch.object(env_prep.captured, "run_metadata") as owned:
+                    with self.assertRaises(subprocess.SubprocessError):
+                        self.read(text=text, universal_newlines=universal)
+                    owned.assert_not_called()
 
 
 def _umask_bits():

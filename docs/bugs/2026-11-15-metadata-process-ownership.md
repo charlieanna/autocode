@@ -128,3 +128,24 @@ unrelated sentinel remained alive. After seventeen readers finished naturally
 and the editor host closed, the fixture collected its known workers. Native
 fallback signals remained zero and the exact container exited 0. Its final
 receipt is `b150881fec1c46fa274e1a60eec81503bb107e5249fb5aff0d544b263cd42c57`.
+
+An uncertain metadata family also needs the same treatment inside a task run.
+Core now preserves a typed, runner-owned denial through startup, stage failures
+and worker collection instead of treating it as invalid model output. One pure
+receipt reader supplies the status, recovery and chat views. The view explains
+the internal block, keeps saved work and offers no person-operated retry. A
+worker denial grants no result, progress or metadata recovery authority; the
+parent retains readable usage even when worker evidence cannot be authenticated.
+
+Only a later independently authorized Core advancement can revalidate the exact
+original family receipts. Status reads do not repair state or launch work. There
+is currently no automatic Core re-entry when a late ancestor receipt arrives,
+and an ordinary healthy-lock timeout is distinct from uncertain family cleanup.
+Those lifecycle limits remain open; the earlier Connections qualification does
+not qualify the new task-run projection.
+
+The integration with upstream stage-discovery changes retains one file-backed
+capture and decoder. Binary output, explicit codecs, universal newlines and
+partial timeout output use that owned runner; no raw subprocess fallback bypasses
+custody. OpenCode's parallel model and verbose listings share one admission with
+separate context copies and receipts, preserving their existing execution bounds.

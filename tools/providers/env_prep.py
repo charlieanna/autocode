@@ -42,7 +42,6 @@ import json
 import os
 import shutil
 import subprocess
-import tempfile
 import threading
 import time
 from collections.abc import Mapping
@@ -81,7 +80,6 @@ _reuse: Path | None = None
 _timed_out: set[str] = set()  # execution keys whose warm-up attempt overran its bound, in this run
 _done_in_run: set = set()  # the steps once_in_run has run, in this run
 _once_lock = threading.Lock()
-_STDLIB_RUN = subprocess.run
 
 
 class KeptCheck(subprocess.CompletedProcess):
@@ -134,38 +132,6 @@ def _decoding(kwargs) -> output_decoding.Decoding | None:
     return None
 
 
-def _read_captured(handle, decoding: output_decoding.Decoding | None, *, lossy: bool = False):
-    handle.seek(0)
-    raw = handle.read()
-    return raw if decoding is None else decoding.decode(raw, lossy=lossy)
-
-
-def _run_captured(command, env: Mapping[str, str], kwargs: dict, decoding: output_decoding.Decoding | None):
-    # POSIX pipes truncate around ~81 KB when Bun/Node CLIs set O_NONBLOCK on fd 1 (#3078);
-    # file-backed stdio avoids pipe backpressure while leaving patched subprocess.run untouched.
-    run_kwargs = dict(kwargs)
-    run_kwargs.pop("capture_output", None)
-    with tempfile.TemporaryFile() as out_file, tempfile.TemporaryFile() as err_file:
-        run_kwargs["stdout"] = out_file
-        run_kwargs["stderr"] = err_file
-        try:
-            completed = _STDLIB_RUN(command, env=dict(env), **run_kwargs)
-        except subprocess.TimeoutExpired as error:
-            error.stdout = _read_captured(out_file, decoding, lossy=True)
-            error.stderr = _read_captured(err_file, decoding, lossy=True)
-            raise
-        except subprocess.CalledProcessError as error:
-            error.output = _read_captured(out_file, decoding)
-            error.stderr = _read_captured(err_file, decoding)
-            raise
-        return subprocess.CompletedProcess(
-            completed.args,
-            completed.returncode,
-            _read_captured(out_file, decoding),
-            _read_captured(err_file, decoding),
-        )
-
-
 def preflight_run(
     command, env: Mapping[str, str], *, require_executable=False, complete=None, fresh=False, warming=False, **kwargs
 ):
@@ -179,6 +145,12 @@ def preflight_run(
     skips a kept answer (and keeps the new one as usual).
     """
     decoding = _decoding(kwargs)
+    # Keep the subprocess-style binary default and alias eligibility, while
+    # carrying this read's one codec snapshot to the shared owned decoder.
+    run_kwargs = {**kwargs, "text": decoding is not None}
+    run_kwargs.pop("universal_newlines", None)
+    if decoding is not None:
+        run_kwargs["encoding"] = decoding.encoding
     with captured.custody.admission(env=env, timeout=kwargs.get("timeout")):
         if require_executable and not resolve_executable(command[0], env, cwd=kwargs.get("cwd")):
             raise FileNotFoundError(f"{command[0]!r} cannot be found in the explicit environment")
@@ -188,7 +160,7 @@ def preflight_run(
         if kept is not None:
             return kept
         try:
-            result = captured.run_metadata(command, env=dict(env), **kwargs)
+            result = captured.run_metadata(command, env=dict(env), **run_kwargs)
         except subprocess.TimeoutExpired:
             if warming and execution_key:
                 # A warm-up that overran its bound was the check's first attempt (preflight_listing).

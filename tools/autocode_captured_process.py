@@ -1,6 +1,7 @@
 """Capture a CLI invocation only after its owned process tree has stopped."""
 
 import json
+import locale
 import os
 import select
 import subprocess
@@ -266,29 +267,56 @@ def _linux(command, timeout, env, cwd, output, errors, stdin):
         return code, expired
 
 
-def run(command, *, timeout=None, env=None, cwd=None, capture_output=True, text=True, check=False, stdin=None):
-    """Return a text CompletedProcess, or raise after verified timeout cleanup.
+def _read_captured(handle, text_mode, encoding, errors, *, lossy=False):
+    handle.seek(0)
+    raw = handle.read()
+    if not text_mode:
+        return raw
+    codec = encoding or ("utf-8" if sys.flags.utf8_mode else locale.getencoding())
+    try:
+        decoded = raw.decode(codec, errors or "strict")
+    except UnicodeDecodeError:
+        if not lossy or errors is not None:
+            raise
+        decoded = raw.decode(codec, "replace")
+    return decoded.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def run(
+    command,
+    *,
+    timeout=None,
+    env=None,
+    cwd=None,
+    capture_output=True,
+    text=True,
+    check=False,
+    stdin=None,
+    encoding=None,
+    errors=None,
+):
+    """Return captured bytes or text, or raise after verified timeout cleanup.
 
     Linux uses an invocation-local subreaper and collects its complete child
     family before publication. macOS retains sampled descendant cleanup, which
     cannot prove the absence of a helper that detached between observations.
     Private file streams cannot fill a pipe or be held open by a descendant.
     """
-    if capture_output is not True or text is not True:
-        raise ValueError("Captured commands require capture_output=True and text=True")
+    if capture_output is not True:
+        raise ValueError("Captured commands require capture_output=True")
     preflight()
     if scope := custody.current():
         scope.prepare()
     with ExitStack() as stack:
         if threading.current_thread() is threading.main_thread():
             stack.enter_context(interruption_handler())
-        output = stack.enter_context(_temporary("w+t"))
-        errors = stack.enter_context(_temporary("w+t"))
+        output = stack.enter_context(_temporary("w+b"))
+        diagnostics = stack.enter_context(_temporary("w+b"))
         execute = _linux if sys.platform == "linux" else _sampled
-        code, expired = execute(command, timeout, env, cwd, output, errors, stdin)
-        output.seek(0)
-        errors.seek(0)
-        stdout, stderr = output.read(), errors.read()
+        code, expired = execute(command, timeout, env, cwd, output, diagnostics, stdin)
+        text_mode = bool(text or encoding or errors)
+        stdout = _read_captured(output, text_mode, encoding, errors, lossy=expired)
+        stderr = _read_captured(diagnostics, text_mode, encoding, errors, lossy=expired)
         if expired:
             raise subprocess.TimeoutExpired(command, timeout, output=stdout, stderr=stderr)
         if check and code:

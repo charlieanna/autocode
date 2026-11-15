@@ -56,6 +56,7 @@ OPENCODE_ROUTES = {
 OPENCODE_FREE_PREFIX = "opencode/"
 OPENCODE_FREE_ACCOUNT = "OpenCode Zen"
 _ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+VERBOSE_LISTING_SECONDS = 60
 
 
 def discover(provider, workspace=None, *, env=None, inventory=None) -> dict:
@@ -97,7 +98,10 @@ def _from_command_provider(provider, workspace, env, inventory=None):
     warm = getattr(provider, "warm_checks", None)
     if callable(warm):
         warm(workspace, env=env)
-    allowance = max(table["timeout_seconds"], 30) * (1 + env_prep.LISTING_RETRY_FACTOR) + 2 * captured.HELPER_RESERVE
+    allowance = (
+        max(table["timeout_seconds"], 30, VERBOSE_LISTING_SECONDS) * (1 + env_prep.LISTING_RETRY_FACTOR)
+        + 2 * captured.HELPER_RESERVE
+    )
     with captured.custody.group(timeout=allowance), ThreadPoolExecutor(max_workers=3) as pool:
         login = pool.submit(
             copy_context().run, _run, table["command"], table["name"], workspace, env, table["timeout_seconds"], checked
@@ -175,9 +179,13 @@ def _from_opencode(workspace, env, inventory=None):
         )
         if route["models"] not in account["prefixes"]:
             account["prefixes"].append(route["models"])
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        models_future = pool.submit(_models, opencode, workspace, env, inventory)
-        listing_future = pool.submit(_listing, opencode, workspace, env)
+    allowance = max(
+        opencode.MODEL_LISTING_SECONDS + captured.HELPER_RESERVE,
+        VERBOSE_LISTING_SECONDS * (1 + env_prep.LISTING_RETRY_FACTOR) + 2 * captured.HELPER_RESERVE,
+    )
+    with captured.custody.group(timeout=allowance), ThreadPoolExecutor(max_workers=2) as pool:
+        models_future = pool.submit(copy_context().run, _models, opencode, workspace, env, inventory)
+        listing_future = pool.submit(copy_context().run, _listing, opencode, workspace, env)
         models = models_future.result()
         levels, metadata = listing_future.result()
     return {
@@ -225,7 +233,15 @@ def _listing(provider, workspace, env, checked=None):
         return {}, {}
     try:
         # A listing cut off before its end is not kept for the next check to trust (#3078).
-        listing = _run([*command, "--verbose"], name, workspace, env, 60, checked, complete=route_levels.complete)
+        listing = _run(
+            [*command, "--verbose"],
+            name,
+            workspace,
+            env,
+            VERBOSE_LISTING_SECONDS,
+            checked,
+            complete=route_levels.complete,
+        )
     except captured.ProcessError:
         raise
     except RuntimeError:

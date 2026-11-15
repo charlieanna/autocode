@@ -114,24 +114,27 @@ class RouteDiscoveryCustodyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             (root / "run").mkdir()
-            tool = root / "kilo"
+            tool = root / ("opencode" if facade == "opencode" else "kilo")
             tool.write_text("# Not executed: metadata boundary is replaced.\n")
             tool.chmod(0o700)
             environment = {"HOME": str(root), "XDG_STATE_HOME": str(root / "state"), "PATH": str(root)}
-            if facade == "kilo":
+            if facade == "opencode":
+                provider = discovery.opencode
+            elif facade == "kilo":
                 from providers import kilocode
 
                 provider = kilocode.load("kilocode")
             else:
                 self.assertEqual("command", facade)
                 provider = command.load("kilocode")
-            provider.NAME = provider._config["name"] = name
+            if facade != "opencode":
+                provider.NAME = provider._config["name"] = name
             warm_kinds = (
                 {tuple(words[1:]) for words, _options in provider._warm_calls(root, environment) if words}
                 if warming
                 else None
             )
-            together = threading.Barrier(len(warm_kinds) if warming else 3, timeout=1)
+            together = threading.Barrier(len(warm_kinds) if warming else (2 if facade == "opencode" else 3), timeout=1)
             records, lock = [], threading.Lock()
 
             def metadata(words, *, env, timeout, **kwargs):
@@ -140,10 +143,18 @@ class RouteDiscoveryCustodyTests(unittest.TestCase):
                     kind = tuple(words[1:])
                     with lock:
                         records.append(
-                            {"kind": kind, "group": scope.group.nonce, "nonce": nonce, "fd": stream.fileno()}
+                            {
+                                "kind": kind,
+                                "group": scope.group.nonce,
+                                "nonce": nonce,
+                                "fd": stream.fileno(),
+                                "timeout": timeout,
+                            }
                         )
                     try:
-                        if warming and kind not in warm_kinds:
+                        if facade == "opencode" and kind == ("auth", "list"):
+                            pass  # The existing login read precedes the parallel pair.
+                        elif warming and kind not in warm_kinds:
                             self.assertEqual(("models", "--verbose"), kind)
                         else:
                             together.wait()
@@ -182,7 +193,12 @@ class RouteDiscoveryCustodyTests(unittest.TestCase):
     def test_discovery_workers_share_admission_and_keep_distinct_receipts(self):
         for name in ("kilocode", "registered_connection"):
             with self.subTest(name=name), self.metadata_batch(name=name) as (provider, root, environment, records):
-                found = discovery.discover(provider, root, env=environment)
+                custody = discovery.captured.custody
+                with mock.patch.object(custody, "group", wraps=custody.group) as groups:
+                    found = discovery.discover(provider, root, env=environment)
+                self.assertEqual(
+                    196, groups.call_args_list[0].kwargs["timeout"], "retain both 60/120s verbose attempts and cleanup"
+                )
                 self.assertEqual(
                     {("auth", "list"), ("models",), ("models", "--verbose")}, {row["kind"] for row in records}
                 )
@@ -258,6 +274,78 @@ class RouteDiscoveryCustodyTests(unittest.TestCase):
             with self.assertRaises(custody.ProcessError):
                 discovery.discover(provider, root, env=environment)
             self.assertEqual(3, len(records), "fresh discovery must not bypass retained uncertainty")
+
+    def test_opencode_workers_share_admission_and_reuse_their_distinct_clean_answers(self):
+        from providers import env_prep
+
+        with self.metadata_batch(facade="opencode") as (provider, root, environment, records):
+            custody = discovery.captured.custody
+            with (
+                env_prep.reuse_checks(root / "run"),
+                mock.patch.object(custody, "group", wraps=custody.group) as groups,
+            ):
+                try:
+                    first = discovery.discover(provider, root, env=environment)
+                except (threading.BrokenBarrierError, discovery.captured.ProcessError) as error:
+                    self.fail(
+                        f"Healthy independent OpenCode reads must overlap under one admission: {type(error).__name__}"
+                    )
+                self.assertEqual(first, discovery.discover(provider, root, env=environment))
+            self.assertIn(
+                196,
+                [call.kwargs["timeout"] for call in groups.call_args_list],
+                "the group covers roster180 and verbose60/120 plus cleanup",
+            )
+            self.assertEqual("opencode", first["tool"])
+            self.assertEqual(3, len(records), "a second discovery must reuse all three answers")
+            parallel = [row for row in records if row["kind"] != ("auth", "list")]
+            self.assertEqual(
+                (2, 1, 2, 2),
+                (
+                    len(parallel),
+                    len({row["group"] for row in parallel}),
+                    len({row["nonce"] for row in parallel}),
+                    len({row["fd"] for row in parallel}),
+                ),
+            )
+            self.assertEqual(
+                {("models",): 180, ("models", "--verbose"): 60}, {row["kind"]: row["timeout"] for row in parallel}
+            )
+            store = root / "state/autocode/metadata"
+            self.assertFalse((store / "pending.json").exists())
+            self.assertEqual(
+                [1, 2], sorted(len(json.loads(path.read_text())["attempts"]) for path in store.glob("collected-*.json"))
+            )
+
+    def test_opencode_optional_listing_uncertainty_settles_sibling_and_blocks_cached_reads(self):
+        from providers import env_prep
+
+        custody = discovery.captured.custody
+        with self.metadata_batch(facade="opencode", uncertain=("models", "--verbose")) as (
+            provider,
+            root,
+            environment,
+            records,
+        ):
+            with env_prep.reuse_checks(root / "run"):
+                try:
+                    with self.assertRaises(custody.CustodyUncertain):
+                        discovery.discover(provider, root, env=environment)
+                except threading.BrokenBarrierError:
+                    self.fail("The healthy OpenCode sibling must run beside the uncertain member before settlement")
+                pending = json.loads((root / "state/autocode/metadata/pending.json").read_text())
+                self.assertEqual(2, len(pending["attempts"]))
+                self.assertEqual(
+                    1,
+                    sum(
+                        (root / "state/autocode/metadata" / row["result_file"]).stat().st_size > 0
+                        for row in pending["attempts"]
+                    ),
+                    "the already-dispatched roster must settle before publication",
+                )
+                with self.assertRaises(custody.CustodyUncertain):
+                    discovery.discover(provider, root, env=environment)
+                self.assertEqual(3, len(records), "even kept login/model answers cannot bypass uncertainty")
 
 
 class KiloStartChecksTests(unittest.TestCase):
