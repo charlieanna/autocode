@@ -21,6 +21,7 @@ try:
     from . import autocode as runner
     from . import autocode_assignment as assignment
     from . import autocode_process as processes
+    from . import autocode_prompt_layout as prompt_layout
     from . import autocode_quota_route as quota_route
     from . import autocode_stage_context as stage_context
     from . import autocode_supervision_cli as supervision_cli
@@ -31,6 +32,7 @@ except ImportError:
     import autocode as runner
     import autocode_assignment as assignment
     import autocode_process as processes
+    import autocode_prompt_layout as prompt_layout
     import autocode_quota_route as quota_route
     import autocode_stage_context as stage_context
     import autocode_supervision_cli as supervision_cli
@@ -173,7 +175,7 @@ def execute(state: RunState, directory, workspace, mode):
             "If the assignment needs shared changes or a permission decision, report a "
             "structured user_request. Keep all evidence under this run directory.\n"
         ) + prompt
-        state["pending_context_metrics"] = metrics
+        state["pending_context_metrics"] = prompt_layout.refresh_metrics(prompt, metrics)
         schema = runner.goals.role_schema(
             runner.read_json(runner.SCHEMA_DIR / "v2/terra-report.schema.json"), "builder"
         )

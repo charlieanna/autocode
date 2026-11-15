@@ -19,7 +19,7 @@ from __future__ import annotations
 import copy
 import json
 
-LIMIT = 16384
+LIMIT = 6144
 STAGES = ("review_completion", "review_checkpoint")
 PASS_TO_PASS = "regression_proof_pass_to_pass"
 REPLAY_PASSED = "check_replay_passed"

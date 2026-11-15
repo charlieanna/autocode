@@ -195,13 +195,45 @@ def _prompt_bytes(record: dict[str, Any], run_dir: Path | None) -> int | None:
         return None
 
 
+def _prompt_split_and_fields(record: dict[str, Any]) -> dict[str, Any]:
+    ctx = _dict(record.get("context"))
+    raw_top = ctx.get("top_handoff_fields")
+    top_fields = (
+        [
+            {"field": str(item["field"]), "bytes": _nonneg_int(item.get("bytes"))}
+            for item in raw_top
+            if isinstance(item, dict)
+            and isinstance(item.get("field"), str)
+            and _nonneg_int(item.get("bytes")) is not None
+        ][:3]
+        if isinstance(raw_top, list)
+        else None
+    )
+    raw_budgeted = ctx.get("budgeted_fields")
+    budgeted_fields = (
+        [str(field) for field in raw_budgeted if isinstance(field, str)] if isinstance(raw_budgeted, list) else None
+    )
+    return {
+        "instruction_bytes": _nonneg_int(ctx.get("instruction_bytes")),
+        "stable_handoff_bytes": _nonneg_int(ctx.get("stable_handoff_bytes")),
+        "changing_handoff_bytes": _nonneg_int(ctx.get("changing_handoff_bytes")),
+        "top_handoff_fields": top_fields,
+        "budgeted_fields": budgeted_fields,
+    }
+
+
 def _first_request_cache(record: dict[str, Any]) -> tuple[int | None, int | None]:
-    accounting = _dict(_dict(_dict(record.get("metrics")).get("request_context")).get("accounting"))
+    metrics = _dict(record.get("metrics"))
+    accounting = _dict(_dict(metrics.get("request_context")).get("accounting"))
     requests = accounting.get("requests")
-    if not isinstance(requests, list) or not requests or not isinstance(requests[0], dict):
-        return None, None
-    tokens = _dict(requests[0].get("tokens"))
-    return _nonneg_int(tokens.get("cached_input_tokens")), _nonneg_int(tokens.get("cache_write_tokens"))
+    if isinstance(requests, list) and requests and isinstance(requests[0], dict):
+        tokens = _dict(requests[0].get("tokens"))
+        read_tok = _nonneg_int(tokens.get("cached_input_tokens"))
+        write_tok = _nonneg_int(tokens.get("cache_write_tokens"))
+        if read_tok is not None or write_tok is not None:
+            return read_tok, write_tok
+    first = _dict(metrics.get("first_request_tokens"))
+    return _nonneg_int(first.get("cached_input_tokens")), _nonneg_int(first.get("cache_write_tokens"))
 
 
 def _empty_bucket() -> dict[str, Any]:
@@ -513,6 +545,7 @@ def ledger_fields(
                     "job": job,
                     "report_repair": is_repair,
                     "prompt_bytes": _prompt_bytes(record, run_dir),
+                    **_prompt_split_and_fields(record),
                     "first_request_cache_read_tokens": cache_read,
                     "first_request_cache_write_tokens": cache_write,
                     "route": route,

@@ -14,9 +14,11 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_execution_prompt as execution_prompt
+    from . import autocode_prompt_layout as prompt_layout
     from . import autocode_prompts as prompts
 except ImportError:
     import autocode_execution_prompt as execution_prompt
+    import autocode_prompt_layout as prompt_layout
     import autocode_prompts as prompts
 
 
@@ -60,6 +62,32 @@ except ImportError:
     import autocode_tool_handoff as tool_handoff
     import autocode_visual_evidence as visual
     from autocode_util import criteria_definition
+
+
+def _uses_baseline_comparator(state: RunState, *, legacy: bool) -> bool:
+    if legacy or state.get("regression_baseline") is not None:
+        return True
+    for value in (
+        state.get("task"),
+        state.get("acceptance_criteria"),
+        state.get("goal_contract"),
+        state.get("current_task"),
+    ):
+        if value is None:
+            continue
+        blob = value if isinstance(value, str) else json.dumps(value, default=str)
+        lowered = blob.lower()
+        if "vitest" in lowered or "baseline_exception" in lowered or "baseline_compare" in lowered:
+            return True
+    workspace = state.get("workspace")
+    if isinstance(workspace, str) and workspace:
+        pkg = Path(workspace) / "package.json"
+        try:
+            if pkg.is_file() and "vitest" in pkg.read_text(encoding="utf-8", errors="ignore").lower():
+                return True
+        except OSError:
+            pass
+    return False
 
 
 def context_packet(state: RunState, stage, state_path, *, response_schema=None):
@@ -261,12 +289,20 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
         from . import autocode_output_policy as output_policy
     except ImportError:
         import autocode_output_policy as output_policy
+    legacy = prompt_layout.is_legacy_layout(state)
+    use_baseline = _uses_baseline_comparator(state, legacy=legacy)
     base["output_transport"] = output_policy.context(state.get("settings") or {})
     base["capture_command"] = tool_handoff.capture_command(output_policy.mode(state.get("settings") or {}))
-    base["baseline_compare_command"] = shlex.join(
-        [sys.executable, str(Path(__file__).with_name("autocode.py")), "compare-baseline"]
-    )
-    instruction = support.STABLE.get(stage, "") + proof_note
+    if use_baseline:
+        base["baseline_compare_command"] = shlex.join(
+            [sys.executable, str(Path(__file__).with_name("autocode.py")), "compare-baseline"]
+        )
+    if legacy:
+        instruction = support.STABLE.get(stage, "") + proof_note
+    else:
+        instruction = support.STABLE.get(stage, "")
+        if proof_note:
+            base["regression_proof_note"] = proof_note
     if stage in ("requirements_gather", "requirements"):
         instruction += prompts.get("fragments/autoplanner/project-memory.md")
     if manifest_context:
@@ -374,7 +410,15 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
     if base.get("project_notes"):
         instruction += project_notes.RULE
     # No previous transcripts or history array is forwarded; exact goals are never truncated.
-    milestone_policy = support.MILESTONE_POLICY
+    contract_milestones = ((state.get("goal_contract") or {}).get("body") or {}).get("milestones")
+    single_trivial_milestone = (
+        not legacy
+        and not checkpoints.enabled(state)
+        and not workflow.enabled(state)
+        and isinstance(contract_milestones, list)
+        and len(contract_milestones) == 1
+    )
+    milestone_policy = "" if single_trivial_milestone else support.MILESTONE_POLICY
     if checkpoints.enabled(state):
         base["milestone_checkpoint"] = checkpoints.summary(state)
         base["milestone_checkpoint"]["current_evidence_ready"] = checkpoints.evidence_ready(state, current)
@@ -414,20 +458,26 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
     except ImportError:
         import autocode_context
     full_data_bytes = len(json.dumps(base, indent=2).encode())
-    base, externalized = autocode_context.compact(base, state_path)
-    prompt = (
-        instruction
-        + milestone_policy
-        + citation_rule
-        + support.COMMON
-        + support.BASELINE_POLICY
-        + "\nCURRENT HANDOFF DATA\n"
-        + json.dumps(base)
-    )
+    base, externalized, budgeted_fields = autocode_context.compact_with_metrics(base, state_path, stage=stage)
+    baseline_rule = support.BASELINE_POLICY if use_baseline else ""
+    if legacy:
+        prompt = (
+            instruction
+            + milestone_policy
+            + citation_rule
+            + support.COMMON
+            + baseline_rule
+            + "\nCURRENT HANDOFF DATA\n"
+            + json.dumps(base)
+        )
+    else:
+        static_prefix = instruction + milestone_policy + citation_rule + support.COMMON + baseline_rule
+        prompt = prompt_layout.build_stage_prompt(static_prefix, base, legacy=False)
     return prompt, {
-        "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4,
+        **prompt_layout.refresh_metrics(prompt),
         "estimate_method": prompts.get("fragments/stage-context/context-packet-09.md"),
         "soft_budget_tokens": state["settings"].get("context_soft_tokens", 10000),
         "externalized_fields": externalized,
+        "budgeted_fields": budgeted_fields,
         "handoff_bytes_saved": full_data_bytes - len(json.dumps(base).encode()),
     }

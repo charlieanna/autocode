@@ -315,8 +315,7 @@ def dispatch_unit(runtime, state: RunState, stage, workspace, run_dir):
     request = prepare_request(state, stage, state_path, runtime.SCHEMA_DIR)
     runtime.rotate_if_needed(state, request.route_role, run_dir)
     state["pending_context_metrics"] = request.metrics
-    if request.metrics["estimated_prompt_tokens"] > request.metrics["soft_budget_tokens"]:
-        print("Context soft budget exceeded; preserving complete requirements", flush=True)
+    efficiency.observe_prompt_budget(state, stage=stage, metrics=request.metrics)
     runtime.write_json(state_path, state)
     schema_path = run_dir / "schemas" / f"v3-{stage}.json"
     runtime.write_json(schema_path, runtime.support.model_output_schema(request.schema))

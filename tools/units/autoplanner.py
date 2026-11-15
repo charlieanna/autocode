@@ -42,6 +42,7 @@ try:
     from .. import autocode_brief_literals as brief_literals
     from .. import autocode_brief_obligations as brief_obligations
     from .. import autocode_compact_planning as compact_planning
+    from .. import autocode_context
     from .. import autocode_design_plan as design_plan
     from .. import autocode_draft_examples as examples
     from .. import autocode_draft_failure_correction as failure_correction
@@ -56,6 +57,7 @@ try:
     from .. import autocode_planning_review_usage as review_usage
     from .. import autocode_planning_scope as planning_scope
     from .. import autocode_progressive_state as progressive
+    from .. import autocode_prompt_layout as prompt_layout
     from .. import autocode_regression_reference as regression_reference
     from .. import autocode_requirement_cues as requirement_cues
     from .. import autocode_requirement_retention as requirement_retention
@@ -81,6 +83,7 @@ except ImportError:
     import autocode_brief_literals as brief_literals
     import autocode_brief_obligations as brief_obligations
     import autocode_compact_planning as compact_planning
+    import autocode_context
     import autocode_design_plan as design_plan
     import autocode_draft_examples as examples
     import autocode_draft_failure_correction as failure_correction
@@ -95,6 +98,7 @@ except ImportError:
     import autocode_planning_review_usage as review_usage
     import autocode_planning_scope as planning_scope
     import autocode_progressive_state as progressive
+    import autocode_prompt_layout as prompt_layout
     import autocode_regression_reference as regression_reference
     import autocode_requirement_cues as requirement_cues
     import autocode_requirement_retention as requirement_retention
@@ -1087,15 +1091,28 @@ def progressive_policy(stage, state: RunState | None = None):
     return instruction + PROGRESSIVE_POLICY
 
 
+def _draft_failure_correction_rule(stage: str, *, legacy: bool = False) -> str:
+    """Scope draft-failure correction guidance to only the active planning stage."""
+    full = prompts.get("fragments/autoplanner/draft-failure-correction.md")
+    if legacy:
+        return full
+    paragraphs = [line for line in full.splitlines() if line.strip()]
+    if len(paragraphs) != 4:
+        return full
+    if stage in ("review_plan", "plan_review"):
+        return "\n" + paragraphs[0] + "\n" + paragraphs[1] + "\n"
+    if stage in ("revise_plan", "plan_revise"):
+        return "\n" + paragraphs[2] + "\n"
+    if stage in ("finalize_plan", "plan_finalize"):
+        return "\n" + paragraphs[3] + "\n"
+    return full
+
+
 def repair_rules(stage, schema):
     """Repeat planning semantics only for fields allowed by the saved repair schema."""
     fields = schema.get("properties", {})
     if stage == "review_plan":
-        return (
-            prompts.get("fragments/autoplanner/draft-failure-correction.md")
-            if failure_correction.offered(schema)
-            else ""
-        )
+        return _draft_failure_correction_rule(stage) if failure_correction.offered(schema) else ""
     if stage not in (*TRACE_STAGES, "plan", "plan_revise", "plan_finalize") or "contract" not in fields:
         return ""
     if "retain_contract" in fields["contract"].get("properties", {}):
@@ -1103,16 +1120,12 @@ def repair_rules(stage, schema):
             "Use clarification_context.retained_contract as the current reference and "
             "clarification_context.retained_criteria for retained criterion identities.\n"
             + retention.final_rule(schema)
-            + (prompts.get("fragments/autoplanner/draft-failure-correction.md") if stage == "finalize_plan" else "")
+            + (_draft_failure_correction_rule(stage) if stage == "finalize_plan" else "")
             + report_policy.concern_rule(schema)
         )
     return (
         REVISION_CONFLICT_RULE
-        + (
-            prompts.get("fragments/autoplanner/draft-failure-correction.md")
-            if stage in ("revise_plan", "finalize_plan")
-            else ""
-        )
+        + (_draft_failure_correction_rule(stage) if stage in ("revise_plan", "finalize_plan") else "")
         + report_policy.concern_rule(schema)
         + (retention.revision_reference.rule(schema) if retention.revision_reference.offered(schema) else "")
         + (retention.delta_rule(schema) if retention.allows_delta(schema) else "")
@@ -1456,8 +1469,9 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
             + ("" if compact_final or stage in ("review_plan", "plan_review") else CONTRACT_FIELDS_RULE)
         )
     )
+    legacy = prompt_layout.is_legacy_layout(state)
     if stage in ("review_plan", "revise_plan", "finalize_plan"):
-        planning_policy += prompts.get("fragments/autoplanner/draft-failure-correction.md")
+        planning_policy += _draft_failure_correction_rule(stage, legacy=legacy)
     if stage != "requirements_gather":
         planning_policy += prompts.get("fragments/autoplanner/proof-reference-rule.md")
     progressive_rule = (
@@ -1577,31 +1591,66 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
         instruction = requirements_prompt.render(
             instruction, response_schema if response_schema is not None else _requirements_model_schema(state)
         )
-    prompt = (
-        (prompts.get("fragments/autoplanner/requirements-observation-reuse.md") if retained_requirements else "")
-        + (retention.FINAL_PROMPT if compact_final else instruction)
-        + progress_rule
-        + prompts.get("fragments/autoplanner/time-budget.md")
-        + (prompts.get("fragments/autoplanner/late-repository-scope.md") if stage in planning_scope.STAGES else "")
-        + audit_instruction
-        + memory_rule
-        + JOB_TYPE_POLICY
-        + design_rule
-        + recovery_instruction
-        + rejection_rule
-        + figma_instruction
-        + planning_policy
-        + clarification_policy
-        + progressive_rule
-        + citation_rule
-        + s.COMMON
-        + retain_rule
-        + prompts.get("fragments/autoplanner/context-03.md")
-        + json.dumps(packet, separators=(",", ":"))
-    )
+    full_packet_bytes = len(json.dumps(packet, indent=2).encode("utf-8"))
+    if state_path is not None and Path(state_path).parent.is_dir():
+        packet, externalized, budgeted_fields = autocode_context.compact_with_metrics(packet, state_path, stage=stage)
+    else:
+        externalized, budgeted_fields = [], []
+    context_tail = prompts.get("fragments/autoplanner/context-03.md")
+    if legacy:
+        prompt = (
+            (prompts.get("fragments/autoplanner/requirements-observation-reuse.md") if retained_requirements else "")
+            + (retention.FINAL_PROMPT if compact_final else instruction)
+            + progress_rule
+            + prompts.get("fragments/autoplanner/time-budget.md")
+            + (prompts.get("fragments/autoplanner/late-repository-scope.md") if stage in planning_scope.STAGES else "")
+            + audit_instruction
+            + memory_rule
+            + JOB_TYPE_POLICY
+            + design_rule
+            + recovery_instruction
+            + rejection_rule
+            + figma_instruction
+            + planning_policy
+            + clarification_policy
+            + progressive_rule
+            + citation_rule
+            + s.COMMON
+            + retain_rule
+            + context_tail
+            + json.dumps(packet, separators=(",", ":"))
+        )
+    else:
+        marker = "CURRENT HANDOFF DATA\n"
+        context_prefix = context_tail[: -len(marker)].rstrip("\n") if context_tail.endswith(marker) else context_tail
+        static_prefix = (
+            (retention.FINAL_PROMPT if compact_final else instruction)
+            + progress_rule
+            + prompts.get("fragments/autoplanner/time-budget.md")
+            + (prompts.get("fragments/autoplanner/late-repository-scope.md") if stage in planning_scope.STAGES else "")
+            + audit_instruction
+            + memory_rule
+            + JOB_TYPE_POLICY
+            + design_rule
+            + planning_policy
+            + clarification_policy
+            + progressive_rule
+            + (prompts.get("fragments/autoplanner/requirements-observation-reuse.md") if retained_requirements else "")
+            + recovery_instruction
+            + rejection_rule
+            + figma_instruction
+            + citation_rule
+            + s.COMMON
+            + retain_rule
+            + context_prefix
+        )
+        prompt = prompt_layout.build_stage_prompt(static_prefix, packet, legacy=False)
     return prompt, {
-        "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4,
+        **prompt_layout.refresh_metrics(prompt),
         "soft_budget_tokens": state["settings"].get("context_soft_tokens", 10000),
+        "externalized_fields": externalized,
+        "budgeted_fields": budgeted_fields,
+        "handoff_bytes_saved": full_packet_bytes - len(json.dumps(packet, separators=(",", ":")).encode("utf-8")),
     }
 
 
@@ -1697,7 +1746,7 @@ def prepare(state: RunState, stage, state_path, schema_dir):
             route_for(state, stage, role),
             prompt,
             {
-                "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4,
+                **prompt_layout.refresh_metrics(prompt),
                 "soft_budget_tokens": state["settings"].get("context_soft_tokens", 10000),
             },
             schema,
@@ -1721,7 +1770,7 @@ def prepare(state: RunState, stage, state_path, schema_dir):
             route_for(state, stage, role),
             prompt,
             {
-                "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4,
+                **prompt_layout.refresh_metrics(prompt),
                 "soft_budget_tokens": state["settings"].get("context_soft_tokens", 10000),
             },
             requirements_triage.request_schema(_requirements_model_schema(state)),
@@ -1741,7 +1790,7 @@ def prepare(state: RunState, stage, state_path, schema_dir):
         raise
     if not joint:
         prompt = BRIEF_ACCEPTANCE_CARRY_RULE + prompt
-        metrics = {**metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4}
+        metrics = prompt_layout.refresh_metrics(prompt, metrics)
     role = role_for(state, stage)
     if schema is None:
         schema = (

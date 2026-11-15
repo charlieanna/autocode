@@ -26,7 +26,7 @@ def proof_receipts(source, result, moved):
         or not receipts
         or not all(isinstance(row, dict) for row in receipts)
         or "receipt_details_instruction" in proof
-        or len(json.dumps(proof.get("changed_code_receipts"))) <= 65536
+        or len(json.dumps(proof.get("changed_code_receipts"))) <= 12288
     ):
         return
     receipts = copy.deepcopy(receipts)
@@ -51,14 +51,16 @@ def proof_receipts(source, result, moved):
     )
 
 
-def compact(base, state_path):
+def compact_with_metrics(base, state_path, *, stage=None):
     try:
+        from . import autocode_field_budget as field_budget
         from . import autocode_handoff_dedup as handoff
         from . import autocode_handoff_history as history
         from . import autocode_passing_detail as passing_detail
         from . import autocode_proof_detail as proof_detail
         from . import autocode_util as util
     except ImportError:
+        import autocode_field_budget as field_budget
         import autocode_handoff_dedup as handoff
         import autocode_handoff_history as history
         import autocode_passing_detail as passing_detail
@@ -71,6 +73,7 @@ def compact(base, state_path):
         proof_receipts(source, result, moved)
         proof_detail.move(source, result, moved)
         passing_detail.move(result, moved)
+        budgeted = field_budget.apply(result, moved, stage=stage)
         # Never remove requirements, human decisions or current findings. Saved answers and feedback are only
         # shortened for review stages once an approved contract reflects them (autocode_handoff_history).
         for key in (
@@ -105,13 +108,18 @@ def compact(base, state_path):
                 },
                 "instruction": ARTIFACT_INSTRUCTION,
             }
-        return result, moved
+        return result, moved, budgeted
 
-    result, moved = build(base, True)
-    if set(moved) <= set(HISTORY_FIELDS) and len(json.dumps(result)) >= len(json.dumps(base)):
+    result, moved, budgeted = build(base, True)
+    if not budgeted and set(moved) <= set(HISTORY_FIELDS) and len(json.dumps(result)) >= len(json.dumps(base)):
         # Settled-history shortening alone did not pay for the artifact index it
         # caused; produce the packet an uncondensed run would have. The archive
         # already written for the discarded attempt stays: it is content-addressed
         # and a saved run may still reference the identical record.
-        result, moved = build(base, False)
-    return result, list(moved)
+        result, moved, budgeted = build(base, False)
+    return result, list(moved), budgeted
+
+
+def compact(base, state_path):
+    result, moved, _budgeted = compact_with_metrics(base, state_path)
+    return result, moved

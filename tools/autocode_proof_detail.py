@@ -21,7 +21,7 @@ import copy
 import json
 from collections import Counter
 
-LIMIT = 65536
+LIMIT = 12288
 STAGES = ("tester", "review_completion", "review_checkpoint")
 FILES = "regression_proof_mutation_files"
 SURVIVORS = "regression_proof_mutation_survivors"

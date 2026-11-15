@@ -115,7 +115,12 @@ def failure_status(path, *, record=None):
     # A failed turn's accounting (its token counts, cost and cost state) is never its error:
     # they can contain 429 (a total, a clock, a session id).
     said = [
-        {key: value for key, value in e.items() if key not in ("usage", "cost_usd", "cost_state")} for e in failures
+        {
+            key: value
+            for key, value in e.items()
+            if key not in ("usage", "first_request_usage", "cost_usd", "cost_state")
+        }
+        for e in failures
     ]
     # A command-line tool can end with the failed request as plain text instead (#562).
     text = "\n".join([json.dumps(said), *provider_error_lines.trailing(path)]).lower()

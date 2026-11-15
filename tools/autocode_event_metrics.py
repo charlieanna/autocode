@@ -30,8 +30,13 @@ def summarize(rows, request_context, reported_cost):
         )
         if isinstance(session, str)
     }
+    first_request = next(
+        (r["first_request_usage"] for r in rows if isinstance(r.get("first_request_usage"), dict)),
+        None,
+    )
     return {
         "provider_tokens": usage,
+        "first_request_tokens": first_request,
         "request_context": request_context,
         "provider_tokens_partial": any(r.get("type") == "usage.partial" for r in rows),
         "provider_requests": None,
