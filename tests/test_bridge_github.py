@@ -69,15 +69,17 @@ class AdapterTests(unittest.TestCase):
         record = {"initial_comment_id": early}
         self.assertEqual(early, selected.floor(record, selected.issue(7)))
 
-    def test_posting_returns_the_comment_id_so_the_bridge_counts_its_own_words(self):
+    def test_a_comment_the_bridge_posted_is_never_a_reply_though_nothing_remembered_it(self):
         client = FakeClient({7: {"issue": {"number": 7, "state": "open"}, "comments": []}})
         selected = channel(client)
         identity = selected.post(7, "taken")
-        self.assertEqual([(7, "taken")], client.posted)
+        self.assertEqual([(7, f"taken\n\n{bridge_github.OWN_COMMENT}")], client.posted)
         self.assertIsInstance(identity, int)
-        self.assertEqual(
-            [], selected.new_comments({"initial_comment_id": 0, "comments_seen": [identity]}, selected.issue(7))
-        )
+        # GitHub lists it under the token's account, which is allowlisted here, above every floor on record.
+        client.issues[7]["comments"].append({"id": identity, "user": {"login": "dev"}, "body": client.posted[0][1]})
+        fresh = comment(client, 7, "dev", "approve")
+        found = selected.new_comments({"initial_comment_id": 0, "comments_seen": []}, selected.issue(7))
+        self.assertEqual([(fresh, "dev", "approve")], [(row.id, row.actor, row.text) for row in found])
 
 
 class PagedIssueTests(unittest.TestCase):

@@ -6,6 +6,13 @@ is on the configured allowlist and its comment id is newer than everything the
 bridge had consumed when it relayed the current gate, so a message written before
 a plan was posted can never approve it. Everything posted goes through the
 client, which redacts.
+
+The bridge often posts as an allowlisted account: one person's token both relays
+the gates and writes the replies. So every comment it posts carries ``OWN_COMMENT``,
+and a comment carrying it is never a reply, wherever it sits and whether or not
+the bridge remembered posting it. Position alone cannot tell the two apart: a
+notice posted outside a gate, or one whose id was never saved, would read as the
+person's words.
 """
 
 from __future__ import annotations
@@ -16,6 +23,10 @@ try:
     from . import autocode_github as github
 except ImportError:
     import autocode_github as github
+
+
+# The last line of every comment the bridge posts. GitHub does not render it.
+OWN_COMMENT = "<!-- autocode-bridge -->"
 
 
 @dataclass
@@ -62,9 +73,10 @@ class GitHubChannel:
         for comment in issue.get("comments_list") or []:
             identity = comment.get("id")
             author = (comment.get("user") or {}).get("login") or ""
-            if not isinstance(identity, int) or identity <= floor or not self.allowed(author):
+            body = str(comment.get("body") or "")
+            if not isinstance(identity, int) or identity <= floor or not self.allowed(author) or OWN_COMMENT in body:
                 continue
-            inbound.append(Inbound(identity, author, str(comment.get("body") or "")))
+            inbound.append(Inbound(identity, author, body))
         return sorted(inbound, key=lambda row: row.id)
 
     def floor(self, record: dict, issue: dict) -> int:
@@ -73,7 +85,9 @@ class GitHubChannel:
         return max([int(record.get("initial_comment_id") or 0)] + ids)
 
     def post(self, number: int, body: str) -> int | None:
-        """One comment on the issue; returns its id so the bridge can count it as seen."""
-        created = self.client.issue_comment(github.IssueRef(self.owner, self.repo, number), body)
+        """One comment on the issue, marked as the bridge's own; returns its id, which a gate takes as its floor."""
+        created = self.client.issue_comment(
+            github.IssueRef(self.owner, self.repo, number), f"{body.rstrip()}\n\n{OWN_COMMENT}"
+        )
         identity = created.get("id") if isinstance(created, dict) else None
         return identity if isinstance(identity, int) else None

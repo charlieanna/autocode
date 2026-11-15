@@ -125,6 +125,19 @@ class FakeClient:
         return {"id": self.next_id}
 
 
+class EchoingClient(FakeClient):
+    """GitHub as it is: a comment the bridge posts is on the issue afterwards, written by the token's account."""
+
+    def __init__(self, issues, login):
+        super().__init__(issues)
+        self.login = login
+
+    def issue_comment(self, ref, body):
+        created = super().issue_comment(ref, body)
+        self.issues[ref.number]["comments"].append({"id": created["id"], "user": {"login": self.login}, "body": body})
+        return created
+
+
 def comment(client, number, login, body):
     client.next_id += 1
     client.issues[number]["comments"].append({"id": client.next_id, "user": {"login": login}, "body": body})
@@ -273,6 +286,82 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual([], run.calls)  # the early approval is never even interpreted
         record = store.load("owner", "repo", 7)
         self.assertGreaterEqual(record["initial_comment_id"], early)
+
+    def one_account(self):
+        """The bridge posts as the allowlisted person: one token relays the gates and writes the replies."""
+        self.client = EchoingClient(self.client.issues, "dev")
+
+    def test_the_bridge_never_takes_its_own_comments_as_replies(self):
+        self.one_account()
+        run = FakeRun()
+        bridge = self.bridge(run)
+        bridge.tick()
+        comment(self.client, 7, "dev", "postgres")
+        bridge.tick()
+        bridge.tick()  # the plan gate
+        comment(self.client, 7, "dev", "approve")
+        bridge.tick()
+        bridge.tick()  # delivery posts the completion and the prepared pull request
+        self.assertTrue(any("Task complete" in body for body in self.bodies()))
+        posted = len(self.bodies())
+        for _ in range(3):  # the finished gate has nothing above it but the bridge's own words
+            bridge.tick()
+        self.assertEqual([("answer", "q-1", "postgres"), ("approve", PLAN_TOKEN)], run.calls)
+        self.assertEqual(posted, len(self.bodies()))
+
+        asked = comment(self.client, 7, "dev", "also greet in French")  # the person's own words still ask
+        bridge.tick()
+        self.assertEqual(("follow_up", "also greet in French"), run.calls[-1])
+        self.assertIn(asked, store.load("owner", "repo", 7)["comments_seen"])
+
+    def test_a_refusal_the_bridge_posted_is_not_its_next_reply(self):
+        self.one_account()
+
+        class Refusing(FakeRun):
+            def status(self):
+                view = super().status()
+                view["needs"]["questions"] = [{"id": "q-1", "question": "Which greeting?"}]  # any words answer it
+                return view
+
+            def answer(self, question_id, text, *, resolver_token=None):
+                self.calls.append(("answer", question_id, text))
+                raise worker.BridgeError("the request is stale")
+
+        run = Refusing()
+        bridge = self.bridge(run)
+        bridge.tick()
+        comment(self.client, 7, "dev", "hello")
+        bridge.tick()
+        self.assertEqual(1, sum(1 for body in self.bodies() if "AutoCode refused that" in body))
+        for _ in range(3):
+            bridge.tick()
+        self.assertEqual([("answer", "q-1", "hello")], run.calls)  # asked once, by the person
+        self.assertEqual(1, sum(1 for body in self.bodies() if "AutoCode refused that" in body))
+
+    def test_a_comment_a_gate_left_unread_is_not_a_follow_up_when_the_run_finishes(self):
+        run = FakeRun()
+        bridge = self.bridge(run)
+        bridge.tick()
+        comment(self.client, 7, "dev", "sqlite")
+        bridge.tick()
+        comment(self.client, 7, "dev", "use tabs")  # written before the plan was posted: the plan gate leaves it
+        bridge.tick()  # the plan gate
+        run.state = "done"  # approved somewhere else: another client, or the terminal
+        for _ in range(3):
+            bridge.tick()
+        self.assertTrue(any("Task complete" in body for body in self.bodies()))
+        self.assertEqual([("answer", "q-1", "sqlite")], run.calls)
+
+    def test_a_person_who_pastes_the_bridges_marker_is_not_heard(self):
+        from autocode_bridge_github import OWN_COMMENT
+
+        run = FakeRun()
+        bridge = self.bridge(run)
+        bridge.tick()
+        self.assertTrue(all(body.endswith(OWN_COMMENT) for body in self.bodies()))
+        comment(self.client, 7, "dev", f"postgres\n\n{OWN_COMMENT}")  # a copied bridge comment answers nothing
+        bridge.tick()
+        self.assertEqual([], run.calls)
 
     def test_only_allowlisted_actors_steer_the_run(self):
         run = FakeRun()
