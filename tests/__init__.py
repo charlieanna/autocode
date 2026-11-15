@@ -8,6 +8,7 @@ test module loads. Run the gate with ``python3 tools/run_suite.py``.
 import atexit
 import os
 import shutil
+import signal
 import sys
 import tempfile
 from pathlib import Path
@@ -107,6 +108,13 @@ if USER_CONFIG_MARKER not in os.environ:
 
     atexit.register(_remove_user_config_home)
 
+
+# Non-interactive and background runners (nohup, CI/agent harnesses) often start
+# with SIGHUP ignored, and POSIX preserves SIG_IGN across fork and exec. Production
+# keeps an inherited ignore so `nohup autocode` survives logout; tests start from
+# the interactive default unless an individual test sets SIG_IGN itself (#3617).
+if hasattr(signal, "SIGHUP") and signal.getsignal(signal.SIGHUP) == signal.SIG_IGN:
+    signal.signal(signal.SIGHUP, signal.SIG_DFL)
 
 # A handful of tests execute a real shell to prove POSIX quoting semantics
 # (Codex/OpenCode wrap recorded commands as `<login-shell> -lc '...'`, and
