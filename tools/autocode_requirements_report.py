@@ -9,6 +9,13 @@ strict schema; the report loader preserves the raw response and validates the
 canonical report.
 """
 
+from __future__ import annotations
+
+try:
+    from . import autocode_requirements_review as requirements_review
+except ImportError:
+    import autocode_requirements_review as requirements_review
+
 
 def backfill_assumption_text(report: dict) -> dict:
     """Populate a structured assumption's missing ``text`` from its non-empty ``rationale``."""
@@ -40,7 +47,7 @@ def normalize(value, state, schema, record):
     if (
         stage != "requirements_gather"
         or state is None
-        or state.get("goal_contract")
+        or requirements_review.current_turn_has_contract(state)
         or "acceptance_tests" in value
         or schema.get("properties", {}).get("acceptance_tests", {}).get("type") != "array"
         or value.get("required_behaviors") != []

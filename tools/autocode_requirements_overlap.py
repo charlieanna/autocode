@@ -60,11 +60,13 @@ try:
     from . import autocode_interventions as interventions
     from . import autocode_job_deadline as job_deadline
     from . import autocode_process as processes
+    from . import autocode_requirements_review as requirements_review
     from . import autocode_util as util
 except ImportError:
     import autocode_interventions as interventions
     import autocode_job_deadline as job_deadline
     import autocode_process as processes
+    import autocode_requirements_review as requirements_review
     import autocode_util as util
 
 #: The sidecar the background pass checkpoints its candidate state to, so the paused run's own
@@ -120,9 +122,9 @@ def eligible(state: RunState, questions) -> dict:
     rows = list(questions or [])
     if not rows:
         return {"eligible": False, "reason": "the pause asks nothing"}
-    if state.get("goal_contract"):
+    if requirements_review.current_turn_has_contract(state):
         return {"eligible": False, "reason": "an approved goal contract owns this run's requirements"}
-    report = (state.get("requirements_handoff") or {}).get("report") or {}
+    report = requirements_review.current_turn_handoff(state).get("report") or {}
     own = {row.get("id") for row in report.get("open_questions") or []}
     if not all(row.get("id") in own for row in rows):
         return {
