@@ -261,7 +261,7 @@ class CommandInputTests(unittest.TestCase):
                 self.assertIsNone(inputs.project(state, need, inputs.TOTAL_TIME_ACTION))
         terminal = run_view.view(checkpoint(applied_interventions=[{"kind": "stop"}]))
         self.assertIsNone(terminal["next_command"])
-        self.assertNotIn("command_inputs", terminal["needs"])
+        self.assertIsNone(terminal["needs"])
 
     def test_recovery_token_expires_when_consumed_time_or_other_settings_change(self):
         state = checkpoint()
