@@ -782,15 +782,18 @@ Those hashes live only in the memory of one AutoCode process (never in a file a 
 could rewrite), so every new process reads the whole workspace once: 2.5–3 s on a
 13.6k-file project, and a chat starts a new process for each turn, each saved message
 and each status refresh. With `AUTOCODE_SOURCE_HOST=1` in the environment of the
-AutoCode process, `--status` and every other command ask a long-lived per-user helper
-(`autocode_source_host`) for the snapshot instead. The helper runs the same snapshot
-function with its own in-memory hashes and answers over a private Unix socket in a
-`0700` folder under the temporary directory; the answer is identical, and nothing is
-written to disk. One helper serves one code version and one Git environment, and it
-exits after 30 idle minutes. A process that finds no helper starts one and takes its
-own snapshot that time; a helper that fails or answers slowly is not asked again by
-that process. On the 13.6k-file project a status refresh drops from 1.5–3 s to about
-0.45 s. The terminal chat and the VS Code extension set `AUTOCODE_SOURCE_HOST=1` for the AutoCode processes they start, unless their own environment already sets it (`AUTOCODE_SOURCE_HOST=0` turns it off): a waiting question rechecks the source on every status read, and on a 13.8k-file project under load one cold snapshot took 14–15 s, past the chat's status read timeout, against 1.75 s from a warm helper with the same revision. The extension's own 30 s bound was reached the same way on a 12.5k-file project, where a cold read took 13–27 s. Other commands keep it off by default (#1707).
+AutoCode process, read-only CLI polls (`--status`, `stages list --json`, `modes list --json`,
+`connections list --json`, `registry list --json`, `worktrees list --json`, `runs --json`)
+and workspace snapshots ask a long-lived per-user helper (`autocode_source_host`, also
+runnable in the foreground via `autocode serve`) over a private Unix socket in a `0700`
+folder under the temporary directory, avoiding both cold CLI module imports and full
+workspace re-hashing (#1707, #3618). The helper runs the same CLI and snapshot
+functions with its own in-memory hashes and per-call `cwd`/environment isolation; the
+answer is identical, and nothing is written to disk. One helper serves one code version
+(across `tools/` and `pyproject.toml`) and one Git/config environment, and it exits
+after 30 idle minutes (or `autocode serve --stop`). A process that finds no helper
+starts one and runs locally that time; a helper that fails or answers slowly is not
+asked again by that process. The terminal chat and the VS Code extension set `AUTOCODE_SOURCE_HOST=1` for the AutoCode processes they start, unless their own environment already sets it (`AUTOCODE_SOURCE_HOST=0` turns it off): a waiting question rechecks the source on every status read, and on a 13.8k-file project under load one cold snapshot took 14–15 s, past the chat's status read timeout, against 1.75 s from a warm helper with the same revision. The extension's own 30 s bound was reached the same way on a 12.5k-file project, where a cold read took 13–27 s. Other commands keep it off by default (#1707, #3618).
 
 Logical phases are `DISCOVERING`, `AWAITING_GOAL_APPROVAL`, `READY_TO_EXECUTE`,
 `EXECUTING`, `WAITING_FOR_USER`, `COMPLETE`, and `PAUSED_OR_BLOCKED`. While an initial

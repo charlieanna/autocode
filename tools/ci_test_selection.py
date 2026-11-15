@@ -1350,6 +1350,10 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ),
         ("tests.test_package_scope_cli",),
     ),
+    (
+        ("tools/autocode_entry.py", "tools/autocode_source_host.py", "tools/autocode_serve_cli.py"),
+        (*CORE_CONSUMERS, "tests.test_source_host", "tests.test_dev_server"),
+    ),
 )
 
 SUITE_PATHS = (

@@ -7,20 +7,10 @@ The Builder is the only designated writer; review roles are checked for source d
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+if __name__ == "__main__":
+    import importlib as _imp
 
-if TYPE_CHECKING:
-    from .autocode_run_state import RunState
-
-try:
-    from . import autocode_names as names
-    from . import autocode_planning_recovery_policy as planning_recovery_policy
-    from . import autocode_prompts as prompts
-except ImportError:
-    import autocode_names as names
-    import autocode_planning_recovery_policy as planning_recovery_policy
-    import autocode_prompts as prompts
-
+    _imp.import_module((f"{__package__}." if __package__ else "") + "autocode_source_host").exit_if_served()
 
 import copy
 import json
@@ -30,22 +20,31 @@ import sys
 import time
 from contextlib import ExitStack
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_action_resolver as action_resolver
     from . import autocode_controller_owner as controller_owner  # noqa: F401 - runner compatibility export
     from . import autocode_interaction_timing as interaction_timing
+    from . import autocode_names as names
     from . import autocode_phase_timing as phase_timing
+    from . import autocode_planning_recovery_policy as planning_recovery_policy
     from . import autocode_prompt_bound as prompt_bound
+    from . import autocode_prompts as prompts
     from . import autocode_route_advisory as route_advisory
     from .autocode_model_inventory import InvocationInventory
 except ImportError:
     import autocode_action_resolver as action_resolver
     import autocode_controller_owner as controller_owner  # noqa: F401 - runner compatibility export
     import autocode_interaction_timing as interaction_timing
+    import autocode_names as names
     import autocode_phase_timing as phase_timing
+    import autocode_planning_recovery_policy as planning_recovery_policy
     import autocode_prompt_bound as prompt_bound
+    import autocode_prompts as prompts
     import autocode_route_advisory as route_advisory
     from autocode_model_inventory import InvocationInventory  # noqa: F401 - compatibility API supplied to invocation helpers
 
