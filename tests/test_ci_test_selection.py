@@ -8,6 +8,19 @@ import run_suite
 
 
 class AccessTransportConsumerTests(unittest.TestCase):
+    def test_tested_source_capture_keeps_both_source_and_public_attribution_consumers_when_slow(self):
+        consumers = {
+            "tests.test_ci_tested_source",
+            "tests.test_attribute_failure",
+            "tests.test_attribute_failure_source",
+        }
+        selected = run_suite.select_tests(
+            ["tools/ci_tested_source.py"],
+            {**{module: "" for module in consumers}, "tests.test_unrelated": ""},
+        )
+        kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+        self.assertEqual(consumers, set(kept))
+
     def test_codex_settings_facade_keeps_its_owned_metadata_consumers_when_slow(self):
         consumers = {
             "tests.test_autocode_support",
