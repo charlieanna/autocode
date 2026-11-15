@@ -41,7 +41,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import attempts, plan_round_trip, profiles
+from . import attempts, person_answers, plan_round_trip, profiles
 from .processes import CallTimeout, SupervisionUnavailable, run_cli
 from .project import overlay_paths
 
@@ -159,10 +159,10 @@ def _question_answer(question: dict) -> str:
     )
 
 
-def questions_answerable(questions: list[dict], explicit_answers: dict) -> bool:
+def questions_answerable(questions: list[dict], explicit_answers: dict, person=()) -> bool:
     """Can the whole batch be answered without inventing a person's decision?"""
     for question in questions:
-        if question["id"] in explicit_answers:
+        if question["id"] in explicit_answers or person_answers.answer_for(person, question) is not None:
             continue
         try:
             _question_answer(question)
@@ -286,12 +286,17 @@ class Driver:
         acknowledge=(),
         fixture_root: Path | None = None,
         round_trip_plans: bool = False,
+        person=(),
     ):
         self.project, self.root, self.flags, self.autocode = project, root, list(flags), autocode
         # A catalog run exports each plan it approves and reads the file back first (harness.plan_round_trip).
         self.round_trip_plans = round_trip_plans
         # The person's own answers, by question id; served even where no default may be used.
         self.explicit_answers = dict(explicit_answers)
+        # The person's answers by topic ([person] answers, harness.person_answers), in fake and live runs;
+        # ``person_applied`` holds the entries already given as a correction to Requirements' confirmation.
+        self.person, self.person_applied = tuple(person), set()
+        self.last_next_stage = None
         self.resume_after_explicit = False
         # The person's own acknowledgement of a budget pause ([fake] acknowledge): pause status -> the flags
         # they type with --resume-paused. Each pause is acknowledged at most once per drive (``acknowledged``).
@@ -540,6 +545,7 @@ class Driver:
             view = self.view() if pending_view is None else pending_view
             pending_view = None
             need = view["needs"]
+            self.last_next_stage = view.get("next_stage")
             self.assert_needs_command_accepted(view)
             if view["done"] or need is None:
                 return view  # A no-action failed/blocked outcome is not completion.
@@ -557,7 +563,9 @@ class Driver:
                 continue
             if view["done"] or leaves_for_person(need) or say_at == f"needs:{need['kind']}":
                 return view
-            if need["kind"] == "answer" and not questions_answerable(need["questions"], self.explicit_answers):
+            if need["kind"] == "answer" and not questions_answerable(
+                need["questions"], self.explicit_answers, self.person
+            ):
                 return view
             if need["kind"] == "continue":
                 self.call("resume")
@@ -650,11 +658,41 @@ class Driver:
             answers = []
             for question in need["questions"]:
                 explicit = question["id"] in self.explicit_answers
-                answer = self.explicit_answers[question["id"]] if explicit else _question_answer(question)
-                if question["id"].startswith(REQUIREMENTS_REVIEW):
+                review = question["id"].startswith(REQUIREMENTS_REVIEW)
+                by_topic = None if explicit or review else person_answers.answer_for(self.person, question)
+                answer = (
+                    self.explicit_answers[question["id"]]
+                    if explicit
+                    else by_topic
+                    if by_topic is not None
+                    else _question_answer(question)
+                )
+                explicit = explicit or by_topic is not None
+                if review:
+                    applied, correction = person_answers.corrections_for(self.person, question, self.person_applied)
+                    self.person_applied.update(applied)
+                    if correction:
+                        # The person corrects what Requirements understood, once per [person] entry.
+                        answers.append(
+                            {
+                                "id": question["id"],
+                                "question": question.get("question"),
+                                "answer": correction,
+                                "source": "person",
+                                "explicit": True,
+                                "requirements_review": True,
+                            }
+                        )
+                        pairs.append(f"{question['id']}={correction}")
+                        continue
                     # A spec-first run's confirmation is a gate, like plan approval: not a question to count.
                     self.approvals.append(
-                        {"gate": "approve_requirements", "question_id": question["id"], "answer": answer}
+                        {
+                            "gate": "approve_requirements",
+                            "question_id": question["id"],
+                            "answer": answer,
+                            **({"question": question.get("question")} if self.person else {}),
+                        }
                     )
                     pairs.append(f"{question['id']}={answer}")
                     continue
@@ -666,6 +704,16 @@ class Driver:
                         "answer": answer,
                         "source": "person" if explicit else "proposed_default",
                         **({"explicit": True} if explicit else {}),
+                        # With a [person], what was offered and when, so an oracle can tell an override from a default.
+                        **(
+                            {
+                                "options": question.get("options"),
+                                "proposed_default": question.get("proposed_default"),
+                                "next_stage": self.last_next_stage,
+                            }
+                            if self.person
+                            else {}
+                        ),
                     }
                 )
                 pairs.append(f"{question['id']}={answer}")
