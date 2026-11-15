@@ -2322,7 +2322,7 @@
 
 
 <h1 id="workflow-planning-approval-and-handoffs">Workflow: planning, approval, and handoffs<a class="headerlink" href="#workflow-planning-approval-and-handoffs" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/4db36101b1d4dddc80c35d1b64bc390faceb662e/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/48a3bfaba9b082228527f7e33be643ff14c86a22/README.md">← Back to README</a></p>
 <p>This page covers the end-to-end conversation flow: how a rough idea becomes an
 approved plan, how that plan is implemented and reviewed, and what Autopilot
 coordinates along the way.</p>
@@ -3114,7 +3114,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   root, normally the package (<code>test_greet.TestGreet.test_x</code>), and a node:test file there that runs another test runner is still not named
   proof (#380). A feature that adds the first Go module in the package, on a
   base with no Go project, is not held to a base Go suite that cannot exist,
-  as at the root (<a href="https://github.com/charlieanna/autocode/blob/4db36101b1d4dddc80c35d1b64bc390faceb662e/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
+  as at the root (<a href="https://github.com/charlieanna/autocode/blob/48a3bfaba9b082228527f7e33be643ff14c86a22/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
 <li>Only the package's existing tests are retained as
   <a href="../protected-tests/">original test gates</a>, with the package suite as their
   command unless <code>--test-command</code> gives one, so a large repository does not bind
@@ -3192,7 +3192,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   also leaves a change outside the package <code>UNVERIFIED</code>, because the package
   suite never ran it.</p>
 <p>The <code>feature-monorepo-package</code> scenario
-(<a href="https://github.com/charlieanna/autocode/blob/4db36101b1d4dddc80c35d1b64bc390faceb662e/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
+(<a href="https://github.com/charlieanna/autocode/blob/48a3bfaba9b082228527f7e33be643ff14c86a22/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
 one package of a two-package repository with <code>--package</code> and the scripted
 model. Its reference completes; its broken variant, which also edits the other
 package, stops with each of those files named in the open <code>runner</code> finding.
@@ -3233,18 +3233,35 @@ directory's suite runs its tests even when the root's suite could also run them,
 so a project kept beside others (Docutils' <code>docutils/</code> beside old experiments in
 <code>sandbox/</code>) is not proven with a root suite that also collects its neighbours'
 tests (#2944).
-Many Python projects have no manifest, only a list of what they need. Where no
-directory around the tests has a manifest, the innermost one that holds a
-<code>requirements.txt</code> or a <code>Pipfile</code> is such a project: a backend kept as
-<code>backend/requirements.txt</code>, code and <code>tests/</code> beside <code>frontend/</code> runs its tests
-from <code>backend/</code> (<code>cd backend &amp;&amp; python3 -m pytest ...</code>), where they import its code.
-This applies only where the tests could not be meant to run from the root: not
-when the root itself holds a <code>requirements.txt</code>, a <code>Pipfile</code>, a <code>conftest.py</code>, a
-<code>pytest.ini</code> or a <code>tox.ini</code>; not for a directory that is a Python package (it
-holds an <code>__init__.py</code>) or that its code or tests import by its own name
-(<code>from backend.orders import total</code>); and not for one of the repository's test
-directories (<code>tests/requirements.txt</code> lists what the tests need).
-When no such directory runs them and the root suite's runner chooses tests by
+Those are rules about the layout, and they are only where the proof starts. Many
+projects have no manifest at all: a backend kept as <code>backend/requirements.txt</code>,
+code and <code>tests/</code> beside <code>frontend/</code>, a directory of code and tests that declares
+nothing, a Python directory inside a Node project. Their tests say
+<code>from pager import page_count</code> and load only from <code>backend/</code>. So the proof does
+not guess from file names: it runs the changed tests once, on the changed code,
+where the rules put them. A file that does not load there (the runner reports it
+could not be imported or collected, or no test ran), or that no suite there
+runs, is run from each directory around it, innermost first, and then from the
+root, with the suite detected there. The first place where it loads is where it
+runs (<code>cd backend &amp;&amp; python3 -m unittest -v tests/test_pager.py</code>), and the
+proof's notes say so: "The changed test backend/tests/test_pager.py does not
+load from the repository root (...); it loads from backend/ (...), so that is
+where it runs". A test that runs and fails has loaded, and stays. One of the
+repository's test directories is no place to run its own tests from. The look
+runs at most 12 commands of at most five minutes each, is kept for the run
+(<code>test_homes</code> in its state and in the proof's receipt) and is not repeated for a
+test it settled.</p>
+<p>Where a test runs decides nothing about what passes. Wherever it runs, it must
+still fail on the original code and pass with the change, under the same command
+on both, and the original tests are still put back and run. A test that loads
+nowhere stays where the rules put it and fails its proof as before.</p>
+<p>Every reader of where a test runs uses that one look. The check of the original
+tests runs a test that loads anywhere but the root with the command the proof used. A run of the Tester's
+own tests on a scratch copy looks the same way when they do not load. The plan
+check accepts a planned test when a directory around it has a suite of its kind,
+with or without a manifest. A replay, which runs nothing, takes the homes the
+recorded proof kept.</p>
+<p>When no directory runs them and the root suite's runner chooses tests by
 kind (pytest, unittest, Node, Go, Jest, Vitest, Mocha or RSpec) and runs none of
 the changed tests, the proof is unverified and names the tests and the suite that
 cannot run them; it never reports that they pass on the original code, which it
@@ -3262,10 +3279,11 @@ showed fail on the original code and pass with the change. The proof's own suite
 is the one that runs the remaining tests, or the first project's when the root's
 runs none of them. The checks keep each receipt as <code>companion_tests:DIR:CHECK</code>
 (<code>companion_tests:packages/web:regression_on_base</code>), and the proof's notes name
-the files and the suite. Where the root has no manifest, a project's changed test
-is also proven by that project's suite when the root's runner could name the file:
-a fix in <code>api/</code> and <code>worker/</code>, two Python projects whose tests import their own
-code, is proven with <code>cd api &amp;&amp; ...</code> and <code>cd worker &amp;&amp; ...</code>, not with the root's
+the files and the suite. A project's changed test is also proven by that
+project's suite when the root's runner could name the file but the file does not
+load from the root: a fix in <code>api/</code> and <code>worker/</code>, two Python projects whose
+tests import their own code, is proven with <code>cd api &amp;&amp; ...</code> and
+<code>cd worker &amp;&amp; ...</code>, each found by running the tests, not with the root's
 <code>python3 -m unittest</code>, from where neither project's code can be imported. A
 changed test in a directory where no suite runs its
 kind is named in a note and is not run. A run with <code>--package</code>, <code>--test-root</code>,
@@ -3536,7 +3554,7 @@ it is generated from the front matter so reviewers can read the plan.</p>
 holds it. A plan read back from the file has the same goal hash as the run's. The scenario runner
 (<code>scenarios/run.py</code>) checks this at every plan approval its catalog runs reach: it exports the plan
 and reads the file back with <code>--check</code> before it approves the plan
-(<a href="https://github.com/charlieanna/autocode/blob/4db36101b1d4dddc80c35d1b64bc390faceb662e/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
+(<a href="https://github.com/charlieanna/autocode/blob/48a3bfaba9b082228527f7e33be643ff14c86a22/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
 committing it approves nothing. Text that looks like a credential is masked before the file is
 written, with the same policy as <code>autocode bundle</code>; the export then says that the file's goal hash
 differs from the run's.</p>

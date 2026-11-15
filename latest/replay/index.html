@@ -1834,7 +1834,7 @@
 
 
 <h1 id="replay-a-saved-run">Replay a saved run<a class="headerlink" href="#replay-a-saved-run" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/4db36101b1d4dddc80c35d1b64bc390faceb662e/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/48a3bfaba9b082228527f7e33be643ff14c86a22/README.md">← Back to README</a></p>
 <p>Replay drives a fresh AutoCode task run with a saved brief, model routes and
 provider events. It makes no model calls. Normal replay runs the current
 verification checks again; a previous PASS cannot establish a current PASS.
@@ -1987,6 +1987,13 @@ findings and human reviews to match; an archived PASS cannot override a gap.
 Recorded regression checks also require an authenticated pristine Git baseline
 and proof for every required named case. Missing or unsupported baseline mappings
 cause refusal.</p>
+<p>A live proof finds where a changed test loads by running it, and its commands
+follow from that (<code>cd backend &amp;&amp; ...</code>; see <a href="../workflow/">the workflow</a>). A
+simulated proof runs nothing, so it takes those homes from the recorded proof's
+authenticated receipt (<code>test_homes</code>) and derives its commands from them. They
+are still compared with the recording's commands, and a difference is refused.
+A recording made while the two-project and <code>requirements.txt</code> rules existed
+(2026-11-15) kept no homes and replays only where those rules were not used.</p>
 <h2 id="public-task-run-interface">Public task-run interface<a class="headerlink" href="#public-task-run-interface" title="Permanent link">&para;</a></h2>
 <p>The CLI uses <a href="../task-run/"><code>TaskRun</code></a>, including its ordinary approval and
 answer methods. Status adds <code>replay_progress</code> with the recording digest, check
