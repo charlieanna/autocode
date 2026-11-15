@@ -659,6 +659,10 @@
     "bytes": 285,
     "sha256": "f8e66889ee55ffc1070474aa48a9c20b98d2c1c1cc54aec45c144aebc0263aab"
   },
+  "scratch/resolve_repair": {
+    "bytes": 292,
+    "sha256": "acf119e84aa51a47c09cf4e11891bc4d0ce7ccdefc14af5d05a518a0070736e9"
+  },
   "scratch/review_change": {
     "bytes": 291,
     "sha256": "f383c892676a50d73ce6244ceca5b93d57e053e8c5bb52d5c795869302382e54"
