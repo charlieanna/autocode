@@ -348,7 +348,7 @@ def _plan_size(state: RunState) -> str | None:
 def _outcome_state(run_status_val: str | None, state: RunState) -> tuple[str, str | None]:
     if run_status_val in _COMPLETED_STATUSES:
         return "completed", None
-    if run_status_val in _ABANDONED_STATUSES or state.get("abandoned") is True:
+    if run_status_val in _ABANDONED_STATUSES:
         return "abandoned", None
     if isinstance(run_status_val, str) and (
         run_status_val.startswith(("PAUSED_", "BLOCKED_"))
