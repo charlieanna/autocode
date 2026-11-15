@@ -70,7 +70,8 @@ def presentation(state: RunState, *, reconciliation_checked=False):
     pause = origin.get("pause_status")
     budget = origin.get("budget") or {}
     if (
-        not pause_authority.operational(pause)
+        not isinstance(pause, str)
+        or not pause_authority.operational(pause)
         or pause in PROTECTED_BOUNDS
         or budget.get("category") in ("explicit_user_cap", "protected_saved_limit")
     ):
