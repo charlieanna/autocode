@@ -69,6 +69,86 @@ class ContractIdentityTests(unittest.TestCase):
         )
         self.assertFalse(identity.approved(state))
 
+    def assert_classified(self, state, *, sealed=False, historical=None):
+        before = copy.deepcopy(state)
+        try:
+            observed = (
+                identity.sealed(state.get("goal_contract")),
+                identity.approved(state),
+                identity.historical_approval(state, state.get("goal_contract")),
+            )
+        except (KeyError, TypeError, AttributeError) as error:
+            self.fail(f"Approval classification interrupted recovery: {error!r}")
+        self.assertEqual((sealed, False, historical), observed)
+        self.assertEqual(before, state)
+
+    def rebind_fixture(self, state):
+        contract = state["goal_contract"]
+        contract["hash"] = util.digest({key: contract[key] for key in ("task_id", "revision", "body")})
+        contract["approval_event"]["token"] = identity.token(contract)
+
+    def test_absent_null_and_non_mapping_contracts_are_unapproved_in_every_reader(self):
+        self.assert_classified({})
+        for contract in (None, [], ["plan"], "plan", True, 4, {}):
+            for ledger in ([], self.fixture()["user_events"]):
+                with self.subTest(contract=contract, ledger=ledger):
+                    self.assert_classified({"goal_contract": contract, "user_events": ledger})
+
+    def test_identity_shape_is_required_even_with_a_matching_digest_and_event(self):
+        for key, values in (
+            ("task_id", (None, "", [], True, 1)),
+            ("revision", (None, "3", [], True)),
+            ("body", (None, [], "plan", True)),
+        ):
+            for value in values:
+                with self.subTest(key=key, value=value):
+                    state = self.fixture()
+                    state["goal_contract"][key] = value
+                    self.rebind_fixture(state)
+                    self.assert_classified(state)
+
+    def test_question_event_and_ledger_shapes_cannot_supply_approval(self):
+        for questions in (None, False, {}, "", [{"id": "Q1"}]):
+            with self.subTest(questions=questions):
+                state = self.fixture()
+                state["goal_contract"]["body"]["open_blocking_questions"] = questions
+                self.rebind_fixture(state)
+                self.assert_classified(state, sealed=True)
+        state = self.fixture()
+        del state["goal_contract"]["body"]["open_blocking_questions"]
+        self.rebind_fixture(state)
+        self.assert_classified(state, sealed=True)
+        for event in ([], ["approval"], "approved", True):
+            with self.subTest(event=event):
+                state = self.fixture()
+                state["goal_contract"]["approval_event"] = event
+                self.assert_classified(state, sealed=True)
+        for ledger in (None, {}, "events", [None, {}, [], True]):
+            with self.subTest(ledger=ledger):
+                state = self.fixture()
+                state["user_events"] = ledger
+                self.assert_classified(state, sealed=True)
+
+    def test_authentic_historical_event_stays_authoritative_without_current_approval_metadata(self):
+        state = self.fixture()
+        event = copy.deepcopy(state["user_events"][0])
+        state["goal_contract"]["approval_event"] = None
+        self.assert_classified(state, sealed=True, historical=event)
+        del state["goal_contract"]["approval_event"]
+        self.assert_classified(state, sealed=True, historical=event)
+
+    def test_unrelated_malformed_history_items_do_not_replace_an_authentic_event(self):
+        state = self.fixture()
+        event = copy.deepcopy(state["user_events"][0])
+        state["user_events"] = [None, "older event", {}, event, []]
+        before = copy.deepcopy(state)
+        try:
+            self.assertTrue(identity.approved(state))
+            self.assertEqual(event, identity.historical_approval(state, state["goal_contract"]))
+        except (KeyError, TypeError, AttributeError) as error:
+            self.fail(f"Unrelated history interrupted authenticated approval: {error!r}")
+        self.assertEqual(before, state)
+
     def test_shared_run_slug_preserves_name_and_length_rules(self):
         self.assertEqual("hello-world", util.slug("Hello, world!"))
         self.assertEqual("task", util.slug("!!!"))

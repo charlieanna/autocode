@@ -8,6 +8,20 @@ import run_suite
 
 
 class AccessTransportConsumerTests(unittest.TestCase):
+    def test_approval_identity_keeps_indirect_cancellation_and_recovery_consumers_when_slow(self):
+        consumers = {
+            "tests.test_native_abandon_constructor",
+            "tests.test_native_report_repair",
+            "tests.test_verification_repair_retirement",
+            "tests.test_changeset_barrier",
+        }
+        selected = run_suite.select_tests(
+            ["tools/autocode_contract_identity.py"],
+            {**{module: "" for module in consumers}, "tests.test_unrelated": ""},
+        )
+        kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+        self.assertEqual(consumers, set(kept))
+
     def test_model_listing_failure_keeps_public_cli_and_policy_consumers_when_slow(self):
         consumers = {"tests.test_model_listing_failure", "tests.test_model_listing_failure_cli"}
         for path in (
