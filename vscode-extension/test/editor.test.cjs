@@ -357,7 +357,7 @@ test('connections delegates login using only the core offer and no shell text', 
   assert.ok(calls.every((args) => args.join(' ') === 'connections list --json'), 'login is not captured as a noninteractive call');
 });
 
-test('the connections list and check reads are bounded like a status poll', async (t) => {
+test('connection lists and owned checks have their bounded metadata allowances', async (t) => {
   const calls = [];
   t.mock.method(cli, 'invoke', async (_settings, argv, _env, timeoutMs) => {
     calls.push([argv, timeoutMs]);
@@ -372,8 +372,8 @@ test('the connections list and check reads are bounded like a status poll', asyn
   panel.webview.receive({ type: 'action', provider: 'kilocode', action: 'check' });
   await flush();
   assert.ok(calls.some(([argv]) => argv[1] === 'check'), 'the check was read');
-  assert.ok(calls.every(([argv, ms]) => argv[0] === 'connections' && ms === 30000),
-    'a wedged connections read must fail and say so, not leave the panel dead: ' + JSON.stringify(calls));
+  assert.ok(calls.every(([argv, ms]) => argv[0] === 'connections' && ms === (argv[1] === 'check' ? 60000 : 30000)),
+    'lists stay at 30s while owned checks allow 60s without signalling Core: ' + JSON.stringify(calls));
 });
 
 test('connection switching restores Kilo routes and cannot reroute an existing chat', async (t) => {

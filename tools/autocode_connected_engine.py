@@ -35,9 +35,11 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_captured_process as captured
     from . import autocode_providers as providers
     from . import autocode_route_discovery as route_discovery
 except ImportError:
+    import autocode_captured_process as captured
     import autocode_providers as providers
     import autocode_route_discovery as route_discovery
 
@@ -51,8 +53,11 @@ ORDER = (
 EXECUTABLES = {"claude": "claude", "codex": "codex", "kilocode": "kilo"}
 
 
+CHECK_TIMEOUT = 45
+
+
 def _run(command, cwd=None):
-    return subprocess.run(command, capture_output=True, text=True, cwd=cwd, timeout=45)
+    return captured.run(command, cwd=cwd, timeout=CHECK_TIMEOUT)
 
 
 def explicit_choice(args) -> bool:
@@ -140,7 +145,7 @@ def _opencode_has_no_account(runner) -> bool:
     """
     try:
         result = runner(["opencode", "auth", "list"])
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired, captured.ProcessError):
         return False
     if result.returncode != 0:
         return False

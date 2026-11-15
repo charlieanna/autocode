@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import autocode_captured_process as captured
 import autocode_connected_engine as connected
 import autocode_direct_config
 import autocode_providers
@@ -131,6 +132,25 @@ class ExplicitChoiceTests(unittest.TestCase):
         (self.config / "autocode" / "config.toml").write_text('default_provider = "kilocode"\n')
         self.assertTrue(connected.explicit_choice(argparse.Namespace(engine=None, provider=None)))
         self.assertEqual("kilocode", autocode_providers.default_name())
+
+
+class OwnedConnectionCheckTests(unittest.TestCase):
+    def test_default_runner_owns_capture_and_preserves_workspace(self):
+        command = ["codex", "login", "status"]
+        expected = subprocess.CompletedProcess(command, 0, "signed in", "")
+        with (
+            patch.object(captured, "run", return_value=expected) as owned,
+            patch.object(subprocess, "run", return_value=expected) as raw,
+        ):
+            self.assertIs(expected, connected._run(command, cwd="owned workspace"))
+        owned.assert_called_once_with(command, cwd="owned workspace", timeout=45)
+        raw.assert_not_called()
+
+    def test_unconfirmed_opencode_cleanup_does_not_select_a_different_backend(self):
+        with patch.object(captured, "run", side_effect=captured.ProcessError("cleanup unknown")) as owned:
+            with patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "0 credentials", "")):
+                self.assertFalse(connected._opencode_has_no_account(connected._run))
+        owned.assert_called_once_with(["opencode", "auth", "list"], cwd=None, timeout=45)
 
 
 if __name__ == "__main__":

@@ -17,12 +17,14 @@ import subprocess
 import sys
 
 try:
+    from . import autocode_captured_process as captured
     from . import autocode_connected_engine as connected_engine
     from . import autocode_direct_config as direct
     from . import autocode_project_config as project_config
     from . import autocode_providers as providers
     from .providers import claude, command, env_prep
 except ImportError:
+    import autocode_captured_process as captured
     import autocode_connected_engine as connected_engine
     import autocode_direct_config as direct
     import autocode_project_config as project_config
@@ -124,8 +126,8 @@ def connection_view(name, *, check=False):
         if not check:
             return row
         try:
-            result = subprocess.run(status, capture_output=True, text=True, timeout=15, shell=False)
-        except (OSError, subprocess.TimeoutExpired):
+            result = captured.run(status, timeout=connected_engine.CHECK_TIMEOUT)
+        except (OSError, subprocess.TimeoutExpired, captured.ProcessError):
             row.update(
                 connection_status="check_failed",
                 detail="Connection check could not finish. Open the backend to diagnose it.",

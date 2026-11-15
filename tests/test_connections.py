@@ -13,6 +13,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import autocode_captured_process as captured
 import autocode_connections as connections
 import autocode_subcommands as subcommands
 from providers import command
@@ -60,7 +61,10 @@ class ConnectionTests(unittest.TestCase):
 
     def test_discovery_never_runs_provider_and_does_not_search_workspace(self):
         self.configure()
-        with mock.patch.object(connections.subprocess, "run", side_effect=AssertionError("discovery ran a backend")):
+        with (
+            mock.patch.object(connections.subprocess, "run", side_effect=AssertionError("discovery ran a backend")),
+            mock.patch.object(captured, "run", side_effect=AssertionError("discovery ran a backend")),
+        ):
             code, output = self.call("list", "--json")
         self.assertEqual(0, code)
         row = next(row for row in json.loads(output)["connections"] if row["id"] == "company")
@@ -180,7 +184,7 @@ class ConnectionTests(unittest.TestCase):
                 with (
                     self.subTest(code=code),
                     mock.patch.object(
-                        connections.subprocess,
+                        captured,
                         "run",
                         return_value=subprocess.CompletedProcess([], code, "Logged in using ChatGPT", ""),
                     ) as run,
@@ -197,9 +201,7 @@ class ConnectionTests(unittest.TestCase):
         ):
             with (
                 mock.patch.object(connections.shutil, "which", return_value="/kilo"),
-                mock.patch.object(
-                    connections.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, output, "")
-                ),
+                mock.patch.object(captured, "run", return_value=subprocess.CompletedProcess([], 0, output, "")),
             ):
                 row = connections.connection_view("kilocode", check=True)
             self.assertEqual(status, row["connection_status"])
@@ -238,7 +240,7 @@ class ConnectionTests(unittest.TestCase):
                 self.subTest(status=status),
                 mock.patch.object(connections.shutil, "which", return_value="/claude"),
                 mock.patch.object(
-                    connections.subprocess,
+                    captured,
                     "run",
                     return_value=subprocess.CompletedProcess([], 0, json.dumps(status), ""),
                 ),
@@ -252,9 +254,34 @@ class ConnectionTests(unittest.TestCase):
 
     def test_check_timeout_is_explicit_and_does_not_disclose_errors(self):
         self.configure()
-        with mock.patch.object(connections.subprocess, "run", side_effect=subprocess.TimeoutExpired("SECRET", 15)):
+        with mock.patch.object(captured, "run", side_effect=subprocess.TimeoutExpired("SECRET", 45)):
             _, output = self.call("check", "--provider", "company", "--json")
         self.assertEqual("check_failed", json.loads(output)["connection_status"])
+        self.assertNotIn("SECRET", output)
+
+    def test_check_uses_owned_capture_and_the_existing_engine_allowance(self):
+        self.configure()
+        expected = subprocess.CompletedProcess([], 1, "SECRET account", "SECRET token")
+        with (
+            mock.patch.object(captured, "run", return_value=expected) as owned,
+            mock.patch.object(subprocess, "run", return_value=expected) as raw,
+        ):
+            _, output = self.call("check", "--provider", "company", "--json")
+        self.assertEqual("sign_in_required", json.loads(output)["connection_status"])
+        owned.assert_called_once_with([sys.executable, str(self.helper), "0"], timeout=45)
+        raw.assert_not_called()
+        self.assertNotIn("SECRET", output)
+
+    def test_unconfirmed_cleanup_is_a_safe_operational_failure(self):
+        self.configure()
+        with (
+            mock.patch.object(captured, "run", side_effect=captured.ProcessError("SECRET cleanup error")),
+            mock.patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "")),
+        ):
+            _, output = self.call("check", "--provider", "company", "--json")
+        row = json.loads(output)
+        self.assertEqual("check_failed", row["connection_status"])
+        self.assertIn("could not finish", row["detail"])
         self.assertNotIn("SECRET", output)
 
     def test_invalid_connection_commands_are_rejected_without_launch(self):
