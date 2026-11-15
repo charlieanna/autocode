@@ -403,6 +403,69 @@ class BlindTestsCandidateExecutionTests(unittest.TestCase):
 class RunnerCollectionTests(unittest.TestCase):
     """#1567: a test the run wrote in a form the runner's command does not collect must be fixable."""
 
+    def test_reported_passing_guard_does_not_send_an_approved_plan_back(self):
+        import autocode_acceptance_tests_job as job
+
+        with tempfile.TemporaryDirectory() as root:
+            workspace = Path(root) / "workspace"
+            workspace.mkdir()
+            (workspace / "test_feature.py").write_text("def test_new(): pass\ndef test_guard(): pass\n")
+            state = approved({"NEW": "test: test_new", "KEEP": "guard: test_guard"})
+            acceptance.route(state)
+            report = {
+                "tests": [
+                    {"case_id": "NEW", "test_name": "test_new", "file": "test_feature.py"},
+                    {"case_id": "KEEP", "test_name": "test_guard", "file": "test_feature.py"},
+                ],
+                "cannot_write": [],
+                "already_passing": [{"case_id": "KEEP", "evidence": "The guard passes on the original code."}],
+            }
+            sent = []
+            record = {"output": str(Path(root) / "tester.json"), "changed_files": ["test_feature.py"]}
+            job.apply(
+                state,
+                report,
+                record,
+                workspace,
+                run_tests=lambda files: {"results": {"passed": ["test_guard"], "failed": ["test_new"]}},
+                evidence_dir=Path(root),
+                send_back=lambda body, changes: sent.append((body, changes)),
+            )
+            self.assertEqual([], sent)
+            self.assertEqual("builder", state["next_stage"])
+            self.assertTrue(acceptance.receipts(state))
+
+            # A new-behavior test that passes early must still send back,
+            # even when the same report also mentions a passing guard.
+            state = approved({"NEW": "test: test_new", "KEEP": "guard: test_guard"})
+            acceptance.route(state)
+            report["already_passing"].append({"case_id": "NEW", "evidence": "The new behavior already works."})
+            job.apply(
+                state,
+                report,
+                record,
+                workspace,
+                run_tests=lambda files: {"results": {"passed": ["test_guard", "test_new"], "failed": []}},
+                evidence_dir=Path(root),
+                send_back=lambda body, changes: sent.append((body, changes)),
+            )
+            self.assertEqual(["NEW"], [row["item"] for row in sent[0][1]])
+            self.assertFalse(acceptance.receipts(state))
+
+            # The model's claim cannot override a guard the runner saw fail.
+            state = approved({"NEW": "test: test_new", "KEEP": "guard: test_guard"})
+            acceptance.route(state)
+            job.apply(
+                state,
+                report,
+                record,
+                workspace,
+                run_tests=lambda files: {"results": {"passed": ["test_new"], "failed": ["test_guard"]}},
+                evidence_dir=Path(root),
+                send_back=lambda body, changes: self.fail("failed guard must not send back"),
+            )
+            self.assertFalse(acceptance.receipts(state))
+
     def test_execution_failures_require_execution_while_existing_result_metadata_is_repairable(self):
         import autocode_acceptance_tests_job as job
         from autocode_report_repair_queue import ExecutionEvidenceRequired

@@ -32,7 +32,7 @@ NEVER_SUMMARIZE: frozenset[str] = frozenset(
 FIELD_BUDGETS: dict[str, dict[str, Any]] = {
     "regression_proof": {
         "bytes": 12288,
-        "stages": frozenset({"review_completion", "review_checkpoint"}),
+        "stages": frozenset({"review_completion"}),
     },
     "validation": {
         "bytes": 12288,
@@ -82,6 +82,11 @@ def _filter_list_field(rows: Any) -> tuple[list[dict[str, Any]], int] | None:
 
 def _summarize_regression_proof(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict) or not value:
+        return None
+    if any(
+        marker in value
+        for marker in ("proof_detail_instruction", "receipt_details_instruction", "passing_detail_instruction")
+    ):
         return None
     bulky = {
         "mutation_check",
@@ -143,6 +148,9 @@ def _summarize_regression_proof(value: Any) -> dict[str, Any] | None:
 
 def _summarize_validation(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict) or not value:
+        return None
+    replay = value.get("check_replay")
+    if isinstance(replay, dict) and "passing_detail_instruction" in replay:
         return None
     bulky = {"checks", "criteria", "results", "tests", "passing_checks", "output", "details"}
     summary: dict[str, Any] = {k: copy.deepcopy(v) for k, v in value.items() if k not in bulky}

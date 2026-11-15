@@ -24,6 +24,15 @@ class AccessTransportConsumerTests(unittest.TestCase):
         kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
         self.assertEqual(consumers, set(kept))
 
+    def test_acceptance_ordering_keeps_its_public_projection_consumers_when_slow(self):
+        consumers = {"tests.test_acceptance_archive_order", "tests.test_replay_transport", "tests.test_usage"}
+        selected = run_suite.select_tests(
+            ["tools/autocode_acceptance_tests.py"],
+            {**{module: "" for module in consumers}, "tests.test_unrelated": ""},
+        )
+        kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+        self.assertEqual(consumers, set(kept))
+
     def test_mutation_checkpoint_keeps_its_public_cli_consumer_when_slow(self):
         consumer = "tests.test_mutation_continuation_cli"
         for path in (

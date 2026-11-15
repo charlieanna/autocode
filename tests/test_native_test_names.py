@@ -8,10 +8,12 @@ the three. The runner now refuses that draft before it is installed or approved.
 
 import copy
 import shutil
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
+import autocode_field_budget as field_budget
 import autocode_follow_up as follow_up
 import autocode_goal_lifecycle as lifecycle
 import autocode_native_test_names as native
@@ -21,6 +23,7 @@ import autocode_test_cases as test_cases
 import autocode_test_examples as test_examples
 import goal_fixtures
 
+from tests import context_fixtures
 from tests.test_verify import Project
 
 NAMES = ["TestFixedReturnsTwo", "TestFixedPreservesExisting", "TestFixedPreservesCrash"]
@@ -971,7 +974,7 @@ class PlannerPromptTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.go.close()
 
-    def prompt(self, stage, task=BRIEF):
+    def prompt(self, stage, task=BRIEF, *, state_path=None):
         state = {
             "version": 3,
             "task_id": "task-1",
@@ -982,7 +985,16 @@ class PlannerPromptTests(unittest.TestCase):
             "user_events": [],
             "acceptance_criteria": [],
         }
-        return planning.context(state, stage, Path("/run/state.json"))[0]
+        return planning.context(state, stage, state_path or context_fixtures.state_path(self))[0]
+
+    def test_review_prompt_can_store_compacted_handoff_in_its_run_directory(self):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch.dict(field_budget.FIELD_BUDGETS["contract_author_rules"], {"bytes": 1}),
+        ):
+            text = self.prompt("review_plan", state_path=Path(directory) / "state.json")
+            self.assertIn("NATIVE TEST NAMES:", text)
+            self.assertTrue(list((Path(directory) / "context").glob("*.json")))
 
     def test_planning_and_review_stages_name_the_requested_tests(self):
         for stage in ("draft_plan", "review_plan", "revise_plan", "finalize_plan"):

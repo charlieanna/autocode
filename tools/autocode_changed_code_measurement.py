@@ -312,16 +312,11 @@ def pinned(path, digest, root):
         or os.open not in os.supports_dir_fd
     ):
         raise ValueError("descriptor-anchored measurement reads are unavailable on this host")
-    root = Path(root)
-    if root != root.resolve() or root.is_symlink():
-        raise ValueError("measurement root is not physical and canonical")
-    target = Path(path)
-    if not target.is_absolute():
-        raise ValueError("measurement artifact path is not absolute")
-    relative = target.relative_to(root)
-    if not relative.parts or any(part in (".", "..") for part in relative.parts):
+    owned = command_receipt.owned_relative(path, root)
+    if owned is None:
         raise ValueError("measurement artifact path is not an ordinary owned path")
-    descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    canonical_root, relative = owned
+    descriptor = os.open(canonical_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         for part in relative.parts[:-1]:
             child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)

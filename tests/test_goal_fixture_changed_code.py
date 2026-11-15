@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import autocode_context as context
 import blackbox_build_provider as blackbox
 import goal_fixtures as fixture
 
@@ -77,6 +78,29 @@ class DefaultGreetingReasonsTests(unittest.TestCase):
                     Path(name).write_text("# missing or weakened\n")
                     self.assertEqual([], fixture.greeting_changed_code_reasons(data))
                     Path(name).write_text(original)
+
+            # Oversized obligations moved to context_artifact still yield quoted decisions unless tampered.
+            compact_rows = copy.deepcopy(rows)
+            compact_rows[0]["handle"] = "L1"
+            for idx, row in enumerate(compact_rows):
+                row["handle"] = f"L{idx + 1}"
+                row["source_line"] = source.splitlines()[idx].strip()
+                row["evidence"] = ["runner.log"] * 6000
+            compact_data = {
+                "stage": "tester",
+                "regression_proof": {"path": "proof.json", "changed_code_evidence": {"obligations": compact_rows}},
+            }
+            expected_compact = fixture.quote_changed_lines(
+                compact_data, fixture.greeting_changed_code_reasons(compact_data)
+            )
+            packet, moved = context.compact(compact_data, Path(folder) / "run/state.json")
+            self.assertIn("regression_proof_obligations", moved)
+            self.assertIn("gaps", packet["regression_proof"]["changed_code_evidence"]["obligations"][0])
+            self.assertEqual(
+                expected_compact, fixture.quote_changed_lines(packet, fixture.greeting_changed_code_reasons(packet))
+            )
+            packet["context_artifact"]["sha256"] = "0" * 64
+            self.assertEqual([], fixture.greeting_changed_code_reasons(packet))
 
 
 class ScriptedBuilderFilesReasonsTests(unittest.TestCase):
@@ -166,6 +190,57 @@ class ScriptedBuilderFilesReasonsTests(unittest.TestCase):
             change(changed, changed_files)
             with self.subTest(name):
                 self.assertEqual([], fixture.scripted_files_changed_code_reasons(changed, changed_files))
+
+    def test_compacted_obligations_and_mutants_recover_reasons_and_rejections_or_fail_closed(self):
+        oracle = "import unittest\nclass T(unittest.TestCase):\n    def test_x(self):\n        self.assertTrue(f())\n"
+        digest = hashlib.sha256(oracle.encode()).hexdigest()
+        compact_rows = [
+            {
+                "gap_id": f"changed-code:{line}" + "a" * 52,
+                "handle": f"L{line}",
+                "path": "shared/oracle.py",
+                "sha256": digest,
+                "line": line,
+                "source_line": oracle.splitlines()[line - 1].strip(),
+                "status": "reason_required",
+                "mutation_outcomes": [],
+                "evidence": ["runner.log"] * 6000,
+            }
+            for line in (3, 4)
+        ]
+        mutants = [{"line": 3, "evidence": ["runner.log"] * 6000}]
+        data = {
+            "stage": "tester",
+            "regression_proof": {
+                "path": "proof.json",
+                "verdict": "UNVERIFIED",
+                "changed_code_evidence": {"obligations": compact_rows},
+                "mutation_check": {
+                    "collected": True,
+                    "files": [{"path": "shared/oracle.py", "sha256": digest, "mutants": mutants}],
+                },
+            },
+        }
+        files = {"shared/oracle.py": oracle}
+        expected_reasons = fixture.quote_changed_lines(data, fixture.scripted_files_changed_code_reasons(data, files))
+        expected_rejections = fixture.quote_changed_lines(
+            data, fixture.scripted_files_changed_code_rejections(data, files)
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            packet, moved = context.compact(data, Path(folder) / "run/state.json")
+            self.assertIn("regression_proof_obligations", moved)
+            self.assertIn("regression_proof_mutation_files", moved)
+            self.assertEqual(
+                expected_reasons,
+                fixture.quote_changed_lines(packet, fixture.scripted_files_changed_code_reasons(packet, files)),
+            )
+            self.assertEqual(
+                expected_rejections,
+                fixture.quote_changed_lines(packet, fixture.scripted_files_changed_code_rejections(packet, files)),
+            )
+            packet["context_artifact"]["sha256"] = "0" * 64
+            self.assertEqual([], fixture.scripted_files_changed_code_reasons(packet, files))
+            self.assertEqual([], fixture.scripted_files_changed_code_rejections(packet, files))
 
 
 class ScriptedOracleReasonTests(unittest.TestCase):
@@ -286,6 +361,42 @@ class HelloFixtureReasonsTests(unittest.TestCase):
             self.assertEqual([], blackbox.scripted_changed_code_reasons({"payloads": {}}, data))
             data["regression_proof"]["changed_code_evidence"]["obligations"][0]["sha256"] = "0" * 64
             self.assertEqual([], blackbox.scripted_changed_code_reasons(spec, data))
+
+            # Compacted obligations moved to context_artifact recover full gap_ids and quoted lines.
+            compact_data = {
+                "stage": "tester",
+                "regression_proof": {
+                    "path": "proof.json",
+                    "changed_code_evidence": {
+                        "obligations": [
+                            {
+                                "gap_id": "changed-code:" + "b" * 64,
+                                "handle": "L1",
+                                "path": "main.py",
+                                "line": 1,
+                                "source_line": blackbox.HELLO_SOURCE.splitlines()[0],
+                                "sha256": hashlib.sha256(blackbox.HELLO_SOURCE.encode()).hexdigest(),
+                                "status": "reason_required",
+                                "mutation_outcomes": [],
+                                "evidence": ["runner.log"] * 6000,
+                            }
+                        ]
+                    },
+                },
+            }
+            expected = blackbox.quote_changed_lines(
+                compact_data, blackbox.scripted_changed_code_reasons(spec, compact_data)
+            )
+            self.assertEqual(blackbox.HELLO_SOURCE.splitlines()[0], expected[0]["source_line"])
+            packet, moved = context.compact(compact_data, Path(folder) / "run/state.json")
+            self.assertIn("regression_proof_obligations", moved)
+            self.assertEqual(
+                expected, blackbox.quote_changed_lines(packet, blackbox.scripted_changed_code_reasons(spec, packet))
+            )
+            packet["context_artifact"]["sha256"] = "0" * 64
+            self.assertEqual([], blackbox.scripted_changed_code_reasons(spec, packet))
+            packet.pop("context_artifact")
+            self.assertEqual([], blackbox.scripted_changed_code_reasons(spec, packet))
 
 
 if __name__ == "__main__":

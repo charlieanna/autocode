@@ -23,7 +23,6 @@ except ImportError:
 
 import contextlib
 import hashlib
-import os
 import subprocess
 import tempfile
 from copy import deepcopy
@@ -51,9 +50,7 @@ def _git_argv(workspace, *args):
 
 
 def git(workspace, *args, env=None, data=None):
-    proc = subprocess.run(
-        _git_argv(workspace, *args), input=data, capture_output=True, env={**os.environ, **(env or {})}
-    )
+    proc = subprocess.run(_git_argv(workspace, *args), input=data, capture_output=True, env=util.git_environment(env))
     if proc.returncode:
         raise ValueError(proc.stderr.decode(errors="replace").strip() or "Git checkpoint operation failed")
     return proc.stdout

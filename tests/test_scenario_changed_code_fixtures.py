@@ -1,5 +1,6 @@
 """Scripted fixture reviewers cannot waive unknown source or weak behavior tests."""
 
+import contextlib
 import copy
 import hashlib
 import json
@@ -13,6 +14,7 @@ from pathlib import Path
 import autocode_context as context
 
 from scenarios.harness import fake_changed_code as fixture
+from scenarios.harness import project_memory_provider as memory_fixture
 from tests import test_follow_up_acceptance_cli as follow_up
 
 REFERENCE = Path(__file__).resolve().parents[1] / "scenarios/catalog/feature-stock-refusals/reference"
@@ -1352,6 +1354,46 @@ class CompactFixtureReviewTests(unittest.TestCase):
         )
         packet["context_artifact"]["sha256"] = "0" * 64
         self.assertEqual([], fixture.progressive_judgments(packet, scenario / "reference", "S2", root=self.root))
+
+    def test_grouped_project_memory_gap_restores_exact_obligations_or_fails_closed(self):
+        reference = REFERENCE.parents[1] / "feature-timesheet-by-project/reference"
+        memory_root = self.root / "memory-project"
+        selected = memory_fixture.prepare_fixture(self.root / "memory-env", reference)
+        shutil.copytree(selected, memory_root)
+        target = memory_root / "timesheet/__main__.py"
+        line_text = target.read_text().splitlines()[9].strip()
+        digest = hashlib.sha256(target.read_bytes()).hexdigest()
+        producer = {"reference": str(selected), "fault": "project_memory", "paths": ["timesheet/__main__.py"]}
+        data = {
+            "stage": "tester",
+            "regression_proof": {
+                "path": "proof.json",
+                "changed_code_evidence": {
+                    "obligations": [
+                        {
+                            "gap_id": "current-project-memory-gap",
+                            "handle": "L10",
+                            "line": 10,
+                            "source_line": line_text,
+                            "path": "timesheet/__main__.py",
+                            "sha256": digest,
+                            "status": "reason_required",
+                            "mutation_outcomes": [],
+                            "evidence": ["runner.log"] * 6000,
+                        }
+                    ]
+                },
+            },
+        }
+        packet, moved = context.compact(data, self.root / "memory-run/state.json")
+        self.assertIn("regression_proof_obligations", moved)
+        self.assertIn("gaps", packet["regression_proof"]["changed_code_evidence"]["obligations"][0])
+        with contextlib.chdir(memory_root):
+            decisions = memory_fixture.fixture_judgments(packet, producer=producer)
+            self.assertEqual(["current-project-memory-gap"], [row["gap_id"] for row in decisions])
+            self.assertEqual([line_text], [row["source_line"] for row in decisions])
+            packet["context_artifact"]["sha256"] = "0" * 64
+            self.assertEqual([], memory_fixture.fixture_judgments(packet, producer=producer))
 
 
 if __name__ == "__main__":

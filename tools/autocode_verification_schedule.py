@@ -114,12 +114,8 @@ def intact(receipt, *, root=None):
     """Output must still be the original complete capture, never a model claim."""
     try:
         output = Path(receipt["output"])
-        if root is not None:
-            root = Path(root)
-            if not output.resolve().is_relative_to(root.resolve()):
-                return False
-            if any(parent.is_symlink() for parent in output.parents if parent != root and parent.is_relative_to(root)):
-                return False
+        if root is not None and command_receipt.owned_relative(output, root) is None:
+            return False
         return (
             command_receipt.completed(receipt, root=root)
             and not output.is_symlink()

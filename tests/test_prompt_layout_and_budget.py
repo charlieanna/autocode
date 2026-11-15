@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import autocode_context
 import autocode_efficiency as efficiency
@@ -396,6 +398,87 @@ class FieldBudgetTests(unittest.TestCase):
         }
         self.assertEqual([], field_budget.apply(tiny_savings, moved, stage="review_completion"))
         self.assertEqual({}, moved)
+
+    def test_field_budget_skips_review_checkpoint_and_already_projected_fields(self):
+        passing_rows = [{"name": f"pass_{i}", "passed": True, "detail": "x" * 250} for i in range(60)]
+        checkpoint_pkt = {
+            "stage": "review_checkpoint",
+            "regression_proof": {"verdict": "PASS", "checks": list(passing_rows)},
+        }
+        moved: dict = {}
+        self.assertEqual([], field_budget.apply(checkpoint_pkt, moved, stage="review_checkpoint"))
+        self.assertEqual({}, moved)
+
+        for marker in ("proof_detail_instruction", "receipt_details_instruction", "passing_detail_instruction"):
+            projected_pkt = {
+                "stage": "review_completion",
+                "regression_proof": {
+                    "verdict": "PASS",
+                    marker: "already projected",
+                    "checks": list(passing_rows),
+                },
+            }
+            projected_moved: dict = {}
+            self.assertEqual([], field_budget.apply(projected_pkt, projected_moved, stage="review_completion"))
+            self.assertEqual({}, projected_moved)
+
+        val_rows = [{"id": f"c_{i}", "status": "passed", "detail": "v" * 250} for i in range(60)]
+        projected_val = {
+            "stage": "review_completion",
+            "validation": {
+                "verdict": "PASS",
+                "checks": list(val_rows),
+                "check_replay": {"passing_detail_instruction": "already projected"},
+            },
+        }
+        val_moved: dict = {}
+        self.assertEqual([], field_budget.apply(projected_val, val_moved, stage="review_completion"))
+        self.assertEqual({}, val_moved)
+
+    def test_autoplanner_context_skips_unwritable_synthetic_state_dir_but_keeps_existing_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "workspace"
+            workspace.mkdir()
+            unwritable = Path(tmp) / "run"
+            unwritable.mkdir()
+            state_path = unwritable / "state.json"
+            state = {
+                "version": 3,
+                "task_id": "task-1",
+                "task": "Fix helper formatting bug",
+                "workspace": str(workspace),
+                "settings": {"joint_planning": True, "roles": {"plan_reviewer": {}}},
+                "answers": {},
+                "user_events": [],
+                "acceptance_criteria": [],
+            }
+            real_compact = autocode_context.compact_with_metrics
+            real_access = os.access
+            with (
+                mock.patch.object(
+                    autoplanner.os,
+                    "access",
+                    side_effect=lambda p, mode: False if Path(p) == unwritable else real_access(p, mode),
+                ),
+                mock.patch.object(autocode_context, "compact_with_metrics", wraps=real_compact) as compact_spy,
+            ):
+                prompt, metrics = autoplanner.context(state, "review_plan", state_path)
+            self.assertIn("Fix helper formatting bug", prompt)
+            compact_spy.assert_not_called()
+            self.assertEqual([], metrics["externalized_fields"])
+            self.assertEqual([], metrics["budgeted_fields"])
+
+            state_path.write_text("{}", encoding="utf-8")
+            with (
+                mock.patch.object(
+                    autoplanner.os,
+                    "access",
+                    side_effect=lambda p, mode: False if Path(p) == unwritable else real_access(p, mode),
+                ),
+                mock.patch.object(autocode_context, "compact_with_metrics", wraps=real_compact) as compact_spy,
+            ):
+                autoplanner.context(state, "review_plan", state_path)
+            compact_spy.assert_called_once()
 
 
 class ConditionalTrimmingAndEfficiencyTests(unittest.TestCase):

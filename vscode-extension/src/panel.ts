@@ -1530,6 +1530,7 @@ function render(state) {
     card.appendChild(cardContent);
     const strip = el('div', 'actions action-strip');
     strip.id = 'action-strip';
+    if (state.needKind === 'approve_plan') strip.classList.add('plan-approval');
 
     if (state.chat && state.chat.input && state.chat.input.kind === 'resolver_response') {
       cardContent.appendChild(el('div', 'notice', 'Reply with what changed or how you want to proceed. Recovery is reviewed before the run can continue.'));

@@ -78,6 +78,9 @@ export const chatStyles = /* css */ `
     gap: 8px; padding: 8px 16px; margin: 8px -16px -12px; background: var(--vscode-sideBar-background);
     border-top: 1px solid var(--vscode-panel-border); box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.08);
   }
+  /* An approval belongs after the plan: it must not float over older messages
+     while a reader is scrolled away from the new plan. */
+  .action-strip.plan-approval { position: static; }
   .action-strip .action-prompt { font-size: .75rem; font-weight: 600; color: var(--vscode-descriptionForeground); margin-right: auto; }
   .action-strip button { display: inline-flex; align-items: center; justify-content: center;
     padding: 5px 12px; font-size: .8rem; font-weight: 500; border-radius: 4px;

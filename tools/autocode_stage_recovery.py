@@ -227,6 +227,8 @@ def abandon_stage(state: RunState, run_dir, workspace, selected, *, launch=None,
     # Report repair is an internal transport stage. A fresh attempt must route
     # to the owning workflow stage, never to the unowned *_report_repair name.
     retry_stage = record.get("original_stage") or record["stage"].removesuffix("_report_repair")
+    repair_request = state.get("resolve_repair_request") or {}
+    planning_repair = retry_stage == "resolve_repair" and planning.is_planning(state, repair_request.get("stage"))
     # Abandonment invalidated validation; a completion retry must obtain it again.
     # Builder and Validator abandonment re-dispatches the same role to inspect
     # partial work and retry. Only completion (review_completion) routes to a fresh
@@ -235,13 +237,15 @@ def abandon_stage(state: RunState, run_dir, workspace, selected, *, launch=None,
         workflow.review_stage(state)
         if retry_stage == "review_completion"
         else retry_stage
-        if record["role"] == "task_planner" or record.get("planning")
+        if record["role"] == "task_planner" or record.get("planning") or planning_repair
         else retry_stage
         if record["role"] in ("builder", "tester")
         else "review_completion"
     )
     recovery_role = (
-        "Requirements"
+        roles.SCREEN["resolver"]
+        if planning_repair
+        else "Requirements"
         if planning.is_planning(state, next_stage)
         else "Tester"
         if next_stage == "tester"

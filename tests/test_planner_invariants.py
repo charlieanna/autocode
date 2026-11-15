@@ -11,6 +11,7 @@ import autocode_trace_coverage as trace_coverage
 import autopilot
 from goal_fixtures import body
 
+from . import context_fixtures
 from . import test_autocode as base
 
 goals = base.goals
@@ -280,7 +281,7 @@ class TraceTests(unittest.TestCase):
                     {"requirement_trace": [{"requirement_id": "R1", "disposition": "covered", "evidence": evidence}]},
                     draft,
                 )
-        prompt, _ = planning.context(current, "revise_plan", Path("/run/state.json"))
+        prompt, _ = planning.context(current, "revise_plan", context_fixtures.state_path(self))
         self.assertIn("AC1 verifies this", prompt)
         self.assertIn("copy required_behaviors", prompt)
         self.assertIn("Reviewer\nconcerns and agent proposals are not saved user authorization", prompt)

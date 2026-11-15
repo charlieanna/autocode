@@ -533,13 +533,73 @@ class ModuleTimeoutTests(unittest.TestCase):
         while True:
             try:
                 state = Path(f"/proc/{pid}/stat").read_text().rpartition(")")[2].split()[0]
-            except FileNotFoundError:
+            except (FileNotFoundError, ProcessLookupError):
                 return True
             if state == "Z":
                 return True
             if time.monotonic() >= deadline:
                 return False
             time.sleep(0.02)
+
+    def test_a_process_vanishing_during_cleanup_observation_is_ended(self):
+        live = "123 (child with ) parentheses) S 1 2 3"
+        for error_type in (FileNotFoundError, ProcessLookupError):
+            for before in ([], [live]):
+                with self.subTest(error=error_type.__name__, previously_live=bool(before)):
+                    with (
+                        mock.patch.object(
+                            Path, "read_text", side_effect=[*before, error_type("process exited")]
+                        ) as read,
+                        mock.patch.object(time, "monotonic", return_value=0),
+                        mock.patch.object(time, "sleep") as sleep,
+                        mock.patch.object(run_suite.subprocess, "Popen", side_effect=AssertionError("no process")),
+                    ):
+                        try:
+                            self.assertTrue(self.ended(123))
+                        except OSError as error:
+                            self.fail(f"A vanished process must count as ended: {type(error).__name__}")
+                    self.assertEqual(len(before) + 1, read.call_count)
+                    self.assertEqual([call(0.02)] if before else [], sleep.call_args_list)
+
+    def test_cleanup_observation_does_not_certify_unreadable_or_still_live_processes(self):
+        with (
+            mock.patch.object(Path, "read_text", return_value="123 (zombie child) Z 1 2 3"),
+            mock.patch.object(time, "monotonic", return_value=0),
+            mock.patch.object(time, "sleep") as sleep,
+            mock.patch.object(run_suite.subprocess, "Popen", side_effect=AssertionError("no process")),
+        ):
+            self.assertTrue(self.ended(123))
+        sleep.assert_not_called()
+        with (
+            mock.patch.object(Path, "read_text", return_value="123 (live child) R 1 2 3") as read,
+            mock.patch.object(time, "monotonic", side_effect=[100.0, 100.0, 110.0]),
+            mock.patch.object(time, "sleep") as sleep,
+            mock.patch.object(run_suite.subprocess, "Popen", side_effect=AssertionError("no process")),
+        ):
+            self.assertFalse(self.ended(123))
+        self.assertEqual(2, read.call_count)
+        sleep.assert_called_once_with(0.02)
+        for error in (PermissionError("inspection denied"), OSError("I/O failure")):
+            with self.subTest(error=type(error).__name__):
+                with (
+                    mock.patch.object(Path, "read_text", side_effect=error),
+                    mock.patch.object(time, "monotonic", return_value=0),
+                    mock.patch.object(time, "sleep") as sleep,
+                    mock.patch.object(run_suite.subprocess, "Popen", side_effect=AssertionError("no process")),
+                ):
+                    with self.assertRaises(type(error)) as raised:
+                        self.ended(123)
+                self.assertIs(error, raised.exception)
+                sleep.assert_not_called()
+        with (
+            mock.patch.object(Path, "read_text", return_value=""),
+            mock.patch.object(time, "monotonic", return_value=0),
+            mock.patch.object(time, "sleep") as sleep,
+            mock.patch.object(run_suite.subprocess, "Popen", side_effect=AssertionError("no process")),
+        ):
+            with self.assertRaises(IndexError):
+                self.ended(123)
+        sleep.assert_not_called()
 
     def test_a_timed_out_module_is_a_named_failure_in_its_row_and_the_summary(self):
         def run_module(module, _verbosity, timeout):

@@ -35,6 +35,35 @@ class OwnershipUncertain(util.Paused):
         super().__init__("PAUSED_VERIFICATION_UNCERTAIN", reason)
 
 
+def owned_relative(path, root) -> tuple[Path, Path] | None:
+    """Return ``(canonical_root, relative)`` when ``path`` sits physically inside ``root``.
+
+    Platform or caller ancestor aliases above ``root`` (such as macOS's ``/var`` -> ``/private/var``)
+    may differ in spelling between ``path`` and ``root``, provided ``root`` itself is an absolute
+    non-symlink directory and neither ``path`` nor any directory between ``path`` and ``root``
+    traverses a symlink or ``..`` segment.
+    """
+    target, boundary = Path(path), Path(root)
+    if (
+        not target.is_absolute()
+        or not boundary.is_absolute()
+        or ".." in (*target.parts, *boundary.parts)
+        or target.is_symlink()
+        or boundary.is_symlink()
+    ):
+        return None
+    canonical = boundary.resolve()
+    prefix = next(
+        (parent for parent in target.parents if not parent.is_symlink() and parent.resolve() == canonical),
+        None,
+    )
+    if prefix is None or any(
+        parent.is_symlink() for parent in target.parents if parent != prefix and parent.is_relative_to(prefix)
+    ):
+        return None
+    return canonical, target.relative_to(prefix)
+
+
 def load(metadata, *, root=None, pin=None):
     """Load one bounded, birth-bound receipt, optionally within a pinned root.
 

@@ -8,6 +8,7 @@ test module loads. Run the gate with ``python3 tools/run_suite.py``.
 import atexit
 import os
 import shutil
+import signal
 import sys
 import tempfile
 from pathlib import Path
@@ -70,14 +71,23 @@ if "AUTOCODE_PROJECT_INDEX_HOME" not in os.environ:
 # test starts may import this package too (a fixture provider does): it inherits
 # the marker and keeps the XDG_CONFIG_HOME that test chose for it.
 USER_CONFIG_MARKER = "AUTOCODE_TEST_USER_CONFIG_HOME"
-# Where git says the repository is, whatever directory a command names (see below).
+# Where git says the repository is (`git rev-parse --local-env-vars` minus GIT_CONFIG_COUNT),
+# whatever directory a command names (see below).
 GIT_REPOSITORY_VARIABLES = (
     "GIT_DIR",
     "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE",
     "GIT_INDEX_FILE",
     "GIT_COMMON_DIR",
     "GIT_OBJECT_DIRECTORY",
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_GRAFT_FILE",
+    "GIT_SHALLOW_FILE",
+    "GIT_PREFIX",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_CONFIG",
+    "GIT_CONFIG_PARAMETERS",
 )
 if USER_CONFIG_MARKER not in os.environ:
     _config_home = tempfile.mkdtemp(prefix="autocode-test-config-")
@@ -107,6 +117,13 @@ if USER_CONFIG_MARKER not in os.environ:
 
     atexit.register(_remove_user_config_home)
 
+
+# Non-interactive and background runners (nohup, CI/agent harnesses) often start
+# with SIGHUP ignored, and POSIX preserves SIG_IGN across fork and exec. Production
+# keeps an inherited ignore so `nohup autocode` survives logout; tests start from
+# the interactive default unless an individual test sets SIG_IGN itself (#3617).
+if hasattr(signal, "SIGHUP") and signal.getsignal(signal.SIGHUP) == signal.SIG_IGN:
+    signal.signal(signal.SIGHUP, signal.SIG_DFL)
 
 # A handful of tests execute a real shell to prove POSIX quoting semantics
 # (Codex/OpenCode wrap recorded commands as `<login-shell> -lc '...'`, and

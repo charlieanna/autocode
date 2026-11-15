@@ -40,6 +40,31 @@ CONNECT_SECONDS = 0.5
 ANSWER_SECONDS = 120.0
 # Environment that can change what `git ls-files`, `git rev-parse` and backend/config lookups report.
 GIT_ENV = ("HOME", "PATH", "XDG_CONFIG_HOME")
+# Same set as autocode_util.GIT_REPOSITORY_VARIABLES; duplicated here so autocode_entry's fast path stays stdlib-only.
+GIT_REPOSITORY_VARIABLES = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_COMMON_DIR",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_GRAFT_FILE",
+    "GIT_SHALLOW_FILE",
+    "GIT_PREFIX",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_CONFIG",
+    "GIT_CONFIG_PARAMETERS",
+)
+
+
+def drop_git_repository_variables(environ=None) -> list[str]:
+    """Remove inherited repository-location variables in place; return the names removed."""
+    target = os.environ if environ is None else environ
+    return [name for name in GIT_REPOSITORY_VARIABLES if target.pop(name, None) is not None]
+
+
 _CODE_SUFFIXES = (".py", ".json", ".toml", ".md")
 _CAP_SETPCAP = 1 << 8
 _CAP_MASK = (1 << 19) | (1 << 21)  # Linux CAP_SYS_PTRACE | CAP_SYS_ADMIN
@@ -278,6 +303,7 @@ def _needs_capability_reexec() -> bool:
 
 def cli_fast_path(argv: list[str] | tuple[str, ...] | None = None) -> int | None:
     """Serve an eligible read-only CLI query over the warm host socket, or return None to run cold."""
+    drop_git_repository_variables()
     args = sys.argv[1:] if argv is None else argv
     if _in_request() or not enabled() or _state["failed"] or not eligible_cli(args) or _needs_capability_reexec():
         return None
@@ -451,6 +477,7 @@ def _execute_cli(cli_runner, request: dict, safe_cwd: str) -> dict:
     try:
         os.environ.clear()
         os.environ.update({str(key): str(value) for key, value in env.items()})
+        drop_git_repository_variables()
         sys.argv = ["autocode", *[str(item) for item in argv]]
         sys.stdin = io.StringIO()
         sys.stdout = out
@@ -590,6 +617,7 @@ def _serve_lock(path: Path):
 
 def serve(path: Path, *, cli_runner=None, warmup=None, idle_seconds: float = IDLE_SECONDS) -> None:
     """Answer snapshots and read-only CLI queries on ``path`` until idle for ``idle_seconds`` or stopped."""
+    drop_git_repository_variables()
     path = Path(path)
     if not _ensure_private_parent(path):
         raise RuntimeError(f"Refusing to serve warm host through non-private directory {path.parent}")
