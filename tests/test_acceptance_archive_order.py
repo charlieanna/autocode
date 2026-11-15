@@ -138,3 +138,73 @@ class AcceptanceArchiveOrderTests(unittest.TestCase):
                     self.install((("a", self.old), ("z", self.new)))
                 self.assertEqual(self.old["files"], acceptance.protected(self.state))
                 self.state = state
+
+    def test_invalid_stage_inventories_leave_qualified_revision_fallback_intact(self):
+        self.install((("a", self.new), ("z", self.old)))
+        for stages in (None, "none", True, 1, {"output": "foreign.json"}, (), [None, "bad"], [False, {}]):
+            with self.subTest(stages=stages):
+                self.state["stages"] = stages
+                before = copy.deepcopy(self.state)
+                self.assertEqual(self.new["files"], acceptance.all_files(self.state))
+                self.assertEqual(self.new["files"], acceptance.protected(self.state))
+                self.assertEqual({"C1", "C2"}, acceptance.covered(self.state))
+                self.assertEqual("a-newer.json", acceptance.view(self.state)["output"])
+                self.assertEqual(before, self.state)
+
+    def test_only_dictionary_rows_with_string_outputs_supply_generation_order(self):
+        self.new["contract_hash"] = "h1"
+        for noise in (
+            None,
+            "bad",
+            False,
+            {},
+            {"output": None},
+            {"output": ""},
+            {"output": []},
+            {"output": {}},
+            {"output": ["bad"]},
+            {"output": {"bad": 1}},
+            {"output": 1},
+        ):
+            for rows in ((("a", self.new), ("z", self.old)), (("a", self.old), ("z", self.new))):
+                with self.subTest(noise=noise, newer_first=rows[0][1] is self.new):
+                    self.state["stages"] = [noise, {"output": "z-older.json"}, noise, {"output": "a-newer.json"}, noise]
+                    self.install(rows)
+                    before = copy.deepcopy(self.state)
+                    self.assertEqual("a-newer.json", acceptance.inherited(self.state)["C1"]["output"])
+                    self.assertEqual(self.new["files"], acceptance.protected(self.state))
+                    self.assertEqual("a-newer.json", acceptance.view(self.state)["output"])
+                    self.assertEqual(before, self.state)
+
+    def test_malformed_revision_hashes_do_not_break_an_empty_public_view(self):
+        for value in (["bad"], {"bad": 1}, True, 1, None, ""):
+            for location in ("history", "current"):
+                with self.subTest(value=value, location=location):
+                    record = {"hash": value, "revision": 99}
+                    state = {"status": "RUNNING", "stages": []}
+                    state["contract_history" if location == "history" else "goal_contract"] = (
+                        [record] if location == "history" else record
+                    )
+                    before = copy.deepcopy(state)
+                    self.assertIsNone(acceptance.view(state))
+                    self.assertEqual(before, state)
+
+    def test_non_string_hashes_cannot_supply_revision_precedence(self):
+        for value in (None, "", True, 1):
+            with self.subTest(value=value):
+                state = copy.deepcopy(self.state)
+                state["contract_history"].append({"hash": value, "revision": 99})
+                known = {"contract_hash": "h1"}
+                unknown = {"contract_hash": value}
+                self.assertEqual([unknown, known], acceptance._ordered_receipts(state, [known, unknown]))
+
+    def test_malformed_unqualified_receipt_outputs_supply_no_order_or_authority(self):
+        for value in (["bad"], {"bad": 1}, True, 1, None, ""):
+            with self.subTest(value=value):
+                state = copy.deepcopy(self.state)
+                state["acceptance_tests"] = {"receipts": {"foreign": {"contract_hash": "foreign", "output": value}}}
+                before = copy.deepcopy(state)
+                self.assertEqual({}, acceptance.inherited(state))
+                self.assertEqual({}, acceptance.protected(state))
+                self.assertIsNone(acceptance.view(state))
+                self.assertEqual(before, state)

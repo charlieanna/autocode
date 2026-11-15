@@ -116,6 +116,11 @@ def _intact(receipt: dict) -> bool:
         return False
 
 
+def _ordering_key(value):
+    """Only nonempty recorded strings supply ordering evidence, never receipt authority."""
+    return value if isinstance(value, str) and value else None
+
+
 def _ordered_receipts(state: RunState, rows) -> list[dict]:
     """Recorded generation order, never serialized batch hashes or case insertion order.
 
@@ -125,17 +130,24 @@ def _ordered_receipts(state: RunState, rows) -> list[dict]:
     """
     contract = state.get("goal_contract") or {}
     revisions = {
-        row.get("hash"): row["revision"]
+        key: row["revision"]
         for row in [*(state.get("contract_history") or []), contract]
-        if isinstance(row, dict) and type(row.get("revision")) is int
+        if isinstance(row, dict)
+        and type(row.get("revision")) is int
+        and (key := _ordering_key(row.get("hash"))) is not None
     }
-    stages = {row["output"]: index for index, row in enumerate(state.get("stages") or []) if row.get("output")}
+    records = state.get("stages")
+    stages = {
+        key: index
+        for index, row in enumerate(records if isinstance(records, list) else [])
+        if isinstance(row, dict) and (key := _ordering_key(row.get("output"))) is not None
+    }
     return sorted(
         rows,
         key=lambda row: (
             row.get("contract_hash") == contract.get("hash"),
-            revisions.get(row.get("contract_hash"), -1),
-            stages.get(row.get("output"), -1),
+            revisions.get(_ordering_key(row.get("contract_hash")), -1),
+            stages.get(_ordering_key(row.get("output")), -1),
         ),
     )
 

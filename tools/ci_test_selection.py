@@ -90,6 +90,10 @@ SCENARIO_SELECTION_INPUTS = {
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "tools/autocode_acceptance_tests.py",
+        ("tests.test_acceptance_archive_order", "tests.test_replay_transport", "tests.test_usage"),
+    ),
     ("tests/test_changed_code_evidence_cli.py", ("tests.test_mutation_continuation_cli",)),
     *(
         (path, ("tests.test_storage_errors", "tests.test_verification_preparation_failure"))
