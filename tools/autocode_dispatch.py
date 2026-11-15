@@ -171,7 +171,8 @@ def select(state: RunState):
 
 
 def git(workspace, *args, env=None, data=None):
-    result = subprocess.run(["git", "-C", str(workspace), *args], input=data, capture_output=True, env=env)
+    git_env = util.git_environment() if env is None else env
+    result = subprocess.run(["git", "-C", str(workspace), *args], input=data, capture_output=True, env=git_env)
     if result.returncode:
         diagnostic = result.stderr.decode(errors="replace").strip()
         raise s.Paused(
@@ -191,14 +192,15 @@ def snapshot_commit(workspace, directory, *, source_paths=()):
     if any(v.startswith(("submodule:", "uninitialized-submodule")) for v in files.values()):
         raise s.Paused("PAUSED_ORCHESTRATOR_GIT", "Parallel Builder snapshots do not yet support submodules")
     index = directory / ("index-" + uuid.uuid4().hex)
-    env = {
-        **os.environ,
-        "GIT_INDEX_FILE": str(index),
-        "GIT_AUTHOR_NAME": "Autocode",
-        "GIT_AUTHOR_EMAIL": "autocode@localhost",
-        "GIT_COMMITTER_NAME": "Autocode",
-        "GIT_COMMITTER_EMAIL": "autocode@localhost",
-    }
+    env = util.git_environment(
+        {
+            "GIT_INDEX_FILE": str(index),
+            "GIT_AUTHOR_NAME": "Autocode",
+            "GIT_AUTHOR_EMAIL": "autocode@localhost",
+            "GIT_COMMITTER_NAME": "Autocode",
+            "GIT_COMMITTER_EMAIL": "autocode@localhost",
+        }
+    )
     try:
         # Retain user-tracked files that ignore rules now exclude, including
         # newly staged files absent from HEAD, without force-adding anything.

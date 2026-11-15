@@ -293,6 +293,36 @@ class MeasurementTests(unittest.TestCase):
         with patch.object(measurement, "MAX_CAPTURE_BYTES", 1):
             self.assertFalse(measurement.known_capture(record, self.root))
 
+    def test_ancestor_symlink_root_reads_pinned_capture_without_admitting_symlink_root_or_child(self):
+        physical = self.root / "physical"
+        physical.mkdir()
+        alias_parent = self.root / "platform-alias"
+        alias_parent.symlink_to(physical, target_is_directory=True)
+        canonical_workspace = physical / "workspace"
+        canonical_workspace.mkdir()
+        alias_workspace = alias_parent / "workspace"
+        capture = canonical_workspace / "capture.log"
+        capture.write_bytes(b"pinned output\n")
+        digest = util.file_hash(capture)
+        for path in (capture, alias_workspace / "capture.log"):
+            for root in (canonical_workspace, alias_workspace):
+                with self.subTest(path=path, root=root):
+                    self.assertEqual(b"pinned output\n", measurement.pinned(str(path), digest, root))
+        symlink_root = self.root / "symlink-root"
+        symlink_root.symlink_to(canonical_workspace, target_is_directory=True)
+        for path in (capture, symlink_root / "capture.log"):
+            with self.subTest(symlink_root=path), self.assertRaises(ValueError):
+                measurement.pinned(str(path), digest, symlink_root)
+        real_sub = canonical_workspace / "real-sub"
+        real_sub.mkdir()
+        (real_sub / "capture.log").write_bytes(b"pinned output\n")
+        linked_sub = canonical_workspace / "linked-sub"
+        linked_sub.symlink_to(real_sub, target_is_directory=True)
+        for path in (linked_sub / "capture.log", alias_workspace / "linked-sub" / "capture.log"):
+            for root in (canonical_workspace, alias_workspace):
+                with self.subTest(child_link=path, root=root), self.assertRaises((OSError, ValueError)):
+                    measurement.pinned(str(path), digest, root)
+
     def test_missing_stale_redirected_failed_or_unowned_coverage_never_counts(self):
         for mutation in (
             lambda report, receipts: report.pop("report_sha256"),

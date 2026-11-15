@@ -169,6 +169,57 @@ class ScriptedBuilderFilesReasonsTests(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual([], fixture.scripted_files_changed_code_reasons(changed, changed_files))
 
+    def test_compacted_obligations_and_mutants_recover_reasons_and_rejections_or_fail_closed(self):
+        oracle = "import unittest\nclass T(unittest.TestCase):\n    def test_x(self):\n        self.assertTrue(f())\n"
+        digest = hashlib.sha256(oracle.encode()).hexdigest()
+        compact_rows = [
+            {
+                "gap_id": f"changed-code:{line}" + "a" * 52,
+                "handle": f"L{line}",
+                "path": "shared/oracle.py",
+                "sha256": digest,
+                "line": line,
+                "source_line": oracle.splitlines()[line - 1].strip(),
+                "status": "reason_required",
+                "mutation_outcomes": [],
+                "evidence": ["runner.log"] * 6000,
+            }
+            for line in (3, 4)
+        ]
+        mutants = [{"line": 3, "evidence": ["runner.log"] * 6000}]
+        data = {
+            "stage": "tester",
+            "regression_proof": {
+                "path": "proof.json",
+                "verdict": "UNVERIFIED",
+                "changed_code_evidence": {"obligations": compact_rows},
+                "mutation_check": {
+                    "collected": True,
+                    "files": [{"path": "shared/oracle.py", "sha256": digest, "mutants": mutants}],
+                },
+            },
+        }
+        files = {"shared/oracle.py": oracle}
+        expected_reasons = fixture.quote_changed_lines(data, fixture.scripted_files_changed_code_reasons(data, files))
+        expected_rejections = fixture.quote_changed_lines(
+            data, fixture.scripted_files_changed_code_rejections(data, files)
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            packet, moved = context.compact(data, Path(folder) / "run/state.json")
+            self.assertIn("regression_proof_obligations", moved)
+            self.assertIn("regression_proof_mutation_files", moved)
+            self.assertEqual(
+                expected_reasons,
+                fixture.quote_changed_lines(packet, fixture.scripted_files_changed_code_reasons(packet, files)),
+            )
+            self.assertEqual(
+                expected_rejections,
+                fixture.quote_changed_lines(packet, fixture.scripted_files_changed_code_rejections(packet, files)),
+            )
+            packet["context_artifact"]["sha256"] = "0" * 64
+            self.assertEqual([], fixture.scripted_files_changed_code_reasons(packet, files))
+            self.assertEqual([], fixture.scripted_files_changed_code_rejections(packet, files))
+
 
 class ScriptedOracleReasonTests(unittest.TestCase):
     def setUp(self):

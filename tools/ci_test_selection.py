@@ -90,6 +90,10 @@ SCENARIO_SELECTION_INPUTS = {
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "tools/autocode_acceptance_tests.py",
+        ("tests.test_acceptance_archive_order", "tests.test_replay_transport", "tests.test_usage"),
+    ),
     ("tests/test_changed_code_evidence_cli.py", ("tests.test_mutation_continuation_cli",)),
     *(
         (path, ("tests.test_storage_errors", "tests.test_verification_preparation_failure"))
@@ -241,7 +245,17 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     ("tools/autocode_trace_coverage.py", ("tests.test_conflict_generation_cli",)),
     ("tools/autocode_planning_report_policy.py", ("tests.test_conflict_generation_cli",)),
-    ("tools/units/autoplanner.py", ("tests.test_conflict_generation_cli",)),
+    ("tools/units/autoplanner.py", ("tests.test_conflict_generation_cli", "tests.test_prompt_layout_and_budget")),
+    (
+        "tools/autocode_proof_detail.py",
+        (
+            "tests.test_scenario_changed_code_fixtures",
+            "tests.test_adversarial_fixture_reasons",
+            "tests.test_goal_fixture_changed_code",
+            "tests.test_live_fixture_changed_code",
+            "tests.test_multicomponent_fake_reasons",
+        ),
+    ),
     ("tools/autocode_draft_failure_correction.py", ("tests.test_draft_failure_correction_cli",)),
     (
         "tools/autocode_report_repair_context.py",
@@ -1369,7 +1383,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (
         ("tools/autocode_entry.py", "tools/autocode_source_host.py", "tools/autocode_serve_cli.py"),
-        (*CORE_CONSUMERS, "tests.test_source_host", "tests.test_dev_server"),
+        (*CORE_CONSUMERS, "tests.test_source_host", "tests.test_dev_server", "tests.test_git_environment_isolation"),
     ),
     (
         ("tools/autocode_resolve_repair_job.py", "tools/autocode_stuck_job.py"),

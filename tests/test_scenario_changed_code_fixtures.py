@@ -1,5 +1,6 @@
 """Scripted fixture reviewers cannot waive unknown source or weak behavior tests."""
 
+import contextlib
 import copy
 import hashlib
 import json
@@ -13,6 +14,7 @@ from pathlib import Path
 import autocode_context as context
 
 from scenarios.harness import fake_changed_code as fixture
+from scenarios.harness import project_memory_provider as memory_fixture
 from tests import test_follow_up_acceptance_cli as follow_up
 
 REFERENCE = Path(__file__).resolve().parents[1] / "scenarios/catalog/feature-stock-refusals/reference"
@@ -1353,15 +1355,37 @@ class CompactFixtureReviewTests(unittest.TestCase):
         packet["context_artifact"]["sha256"] = "0" * 64
         self.assertEqual([], fixture.progressive_judgments(packet, scenario / "reference", "S2", root=self.root))
 
-    def test_checkpoint_field_budget_summary_restores_full_proof_and_fails_closed(self):
+    def test_review_stage_compaction_restores_full_proof_and_fails_closed(self):
+        # #3640: a proof already projected by autocode_proof_detail is not field-budgeted
+        # again, at the checkpoint or at completion; the pinned rows still restore it.
         expected = fixture.judgments(self.data, self.root)
-        checkpoint_data = {**copy.deepcopy(self.data), "stage": "review_checkpoint"}
-        checkpoint_data["regression_proof"]["files"] = [f"f{i}.py" for i in range(2000)]
-        packet, _, budgeted = context.compact_with_metrics(
-            checkpoint_data, self.root / "checkpoint/state.json", stage="review_checkpoint"
+        for stage in ("review_checkpoint", "review_completion"):
+            with self.subTest(stage=stage):
+                review_data = {**copy.deepcopy(self.data), "stage": stage}
+                review_data["regression_proof"]["files"] = [f"f{i}.py" for i in range(2000)]
+                packet, _, budgeted = context.compact_with_metrics(
+                    review_data, self.root / stage / "state.json", stage=stage
+                )
+                self.assertNotIn("regression_proof", budgeted)
+                self.assertIn("proof_detail_instruction", packet["regression_proof"])
+                self.assertEqual(expected, fixture.judgments(packet, self.root))
+        # A whole regression_proof archived by the field budget restores exactly.
+        whole = copy.deepcopy(self.data["regression_proof"])
+        whole_raw = json.dumps({"regression_proof": whole}).encode()
+        whole_path = self.root / "whole.json"
+        whole_path.write_bytes(whole_raw)
+        restored_whole = fixture._review_data(
+            {
+                "stage": "review_completion",
+                "regression_proof": {"details_artifact": {"field": "regression_proof"}},
+                "context_artifact": {
+                    "path": str(whole_path),
+                    "sha256": hashlib.sha256(whole_raw).hexdigest(),
+                    "fields": {"regression_proof": {"total": len(whole)}},
+                },
+            }
         )
-        self.assertIn("regression_proof", budgeted)
-        self.assertEqual(expected, fixture.judgments(packet, self.root))
+        self.assertEqual(whole, restored_whole["regression_proof"])
         self.assertIsNone(fixture._review_data([]))
         self.assertIsNone(
             fixture._review_data({"regression_proof": {"details_artifact": {"field": "regression_proof"}}})
@@ -1419,6 +1443,46 @@ class CompactFixtureReviewTests(unittest.TestCase):
             }
         )
         self.assertEqual([{"gap_id": "g"}], restored["regression_proof"]["changed_code_evidence"]["obligations"])
+
+    def test_grouped_project_memory_gap_restores_exact_obligations_or_fails_closed(self):
+        reference = REFERENCE.parents[1] / "feature-timesheet-by-project/reference"
+        memory_root = self.root / "memory-project"
+        selected = memory_fixture.prepare_fixture(self.root / "memory-env", reference)
+        shutil.copytree(selected, memory_root)
+        target = memory_root / "timesheet/__main__.py"
+        line_text = target.read_text().splitlines()[9].strip()
+        digest = hashlib.sha256(target.read_bytes()).hexdigest()
+        producer = {"reference": str(selected), "fault": "project_memory", "paths": ["timesheet/__main__.py"]}
+        data = {
+            "stage": "tester",
+            "regression_proof": {
+                "path": "proof.json",
+                "changed_code_evidence": {
+                    "obligations": [
+                        {
+                            "gap_id": "current-project-memory-gap",
+                            "handle": "L10",
+                            "line": 10,
+                            "source_line": line_text,
+                            "path": "timesheet/__main__.py",
+                            "sha256": digest,
+                            "status": "reason_required",
+                            "mutation_outcomes": [],
+                            "evidence": ["runner.log"] * 6000,
+                        }
+                    ]
+                },
+            },
+        }
+        packet, moved = context.compact(data, self.root / "memory-run/state.json")
+        self.assertIn("regression_proof_obligations", moved)
+        self.assertIn("gaps", packet["regression_proof"]["changed_code_evidence"]["obligations"][0])
+        with contextlib.chdir(memory_root):
+            decisions = memory_fixture.fixture_judgments(packet, producer=producer)
+            self.assertEqual(["current-project-memory-gap"], [row["gap_id"] for row in decisions])
+            self.assertEqual([line_text], [row["source_line"] for row in decisions])
+            packet["context_artifact"]["sha256"] = "0" * 64
+            self.assertEqual([], memory_fixture.fixture_judgments(packet, producer=producer))
 
 
 if __name__ == "__main__":

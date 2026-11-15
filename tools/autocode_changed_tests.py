@@ -23,6 +23,16 @@ def inline_tests(workspace, base, tests, sources, changes) -> tuple[list[str], l
     return rust_inline_tests.partition_tests(workspace, base, tests, sources, changes)
 
 
+def proving(workspace, base, tests, sources, changes, test_side, is_code) -> tuple[list[str], list[str]]:
+    """(the changed test files that must fail first, the product files): ``inline_tests``, and where no
+    rule names a changed test, the code files of ``test_side`` that were seen to be tests
+    (autocode_plan_command_roles.find_tests). Those stay product files too, as a Rust file with inline
+    tests does: their changed lines are still checked as code."""
+    runnable, sources = inline_tests(workspace, base, tests, sources, changes)
+    seen = [path for path in test_side if is_code(path) and changes.get(path, "deleted") != "deleted"]
+    return runnable or seen, sources
+
+
 def inline_tests_kept(workspace, base, changes) -> bool:
     """Whether every changed Rust file keeps the tests written beside its code, unchanged. Removing a test
     module is no edit of a test file, and on code that did not build none of its tests ran to be missed.

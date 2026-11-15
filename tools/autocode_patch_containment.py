@@ -18,6 +18,11 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+try:
+    from . import autocode_util as util
+except ImportError:
+    import autocode_util as util
+
 # Keep newlines separate: token boundaries must agree across line-anchored regions.
 TOKEN = re.compile(r"\w+|[^\S\r\n]+|\r\n|[^\w]")
 # SequenceMatcher without popular-token suppression can be quadratic. A large,
@@ -40,7 +45,7 @@ def applied_files(workspace, base, patch):
     The caller's index and worktree are untouched. ValueError means no usable patch.
     """
     with tempfile.TemporaryDirectory(prefix="autocode-base-patch-") as scratch:
-        env = {**os.environ, "GIT_INDEX_FILE": str(Path(scratch) / "index")}
+        env = util.git_environment({"GIT_INDEX_FILE": str(Path(scratch) / "index")})
 
         def git(*args, data=None):
             try:

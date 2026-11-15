@@ -15,6 +15,11 @@ import subprocess
 from copy import deepcopy
 from pathlib import Path, PurePosixPath
 
+try:
+    from . import autocode_util as util
+except ImportError:
+    import autocode_util as util
+
 MAX_FILES = 20
 MAX_FILE_BYTES = 128 * 1024
 MAX_DIFF_BYTES = 1024 * 1024
@@ -38,6 +43,7 @@ def _git(root, *args):
         capture_output=True,
         timeout=GIT_TIMEOUT,
         check=False,
+        env=util.git_environment(),
     )
     if result.returncode:
         raise ValueError("The run's base blob could not be read from this repository.")

@@ -20,6 +20,14 @@ Maven or Gradle command that runs existing test classes (``-Dtest=PagerTest``, `
 module's tests with ``-pl core``, or all of them; autocode_plan_proof_command), or it is the suite AutoCode
 detects. A project whose runner names its tests keeps naming them:
 a command guard there is refused when the plan is drafted and ignored by the proof.
+
+Where no rule names a test file of the project (its checks are in ``checks/``, run by ``ruby
+run_checks.rb``), the command is one seen to run a file of the project as a test is run: it passes on the
+original code, fails when the file cannot be loaded and passes when the file is empty, and it does not name
+the file (autocode_plan_command_roles.leaves, 2026-11-15). There the guard is also one of the two ways a
+plan says which command runs the project's tests (``declared`` there), so that a file of the change which
+that command runs the same way is taken for the change's test. Before, such a guard was refused when the
+plan was drafted.
 """
 
 from __future__ import annotations
@@ -115,13 +123,16 @@ def _names_a_missing_test(command, original_tests, is_test) -> bool:
     return any(is_test(word) and word not in original_tests for word in named)
 
 
-def problem(guards, framework, original_tests, *, per_test: bool | None = None, is_test=None) -> str | None:
+def problem(
+    guards, framework, original_tests, *, per_test: bool | None = None, is_test=None, observed=()
+) -> str | None:
     """Why the plan's command guards could never be proven, for the Planner, or None.
 
     With no runner detected, no rule knows what the project's test command looks like (``dotnet test``,
     ``mix test``, ``./run_tests.sh`` name no test file): such a guard is left to the proof, which runs it and
     sees whether it runs the project's tests (autocode_plan_command_roles). Only a command that names a test
-    file the original code does not have (``is_test`` says which words are test files) is refused there."""
+    file the original code does not have (``is_test`` says which words are test files) is refused there.
+    ``observed`` are the commands already seen to run a test of the original code."""
     if not guards:
         return None
     named = ", ".join(guard["id"] for guard in guards)
@@ -132,7 +143,9 @@ def problem(guards, framework, original_tests, *, per_test: bool | None = None, 
             "it runs: guard existing behavior with the existing test that shows it, by its name "
             '("guard: test_counts_a_partial_page", or a test\'s title where tests have titles)'
         )
-    unusable = [guard for guard in guards if not runs_existing_tests(guard["command"], framework, original_tests)]
+    unusable = [
+        guard for guard in guards if not runs_existing_tests(guard["command"], framework, original_tests, observed)
+    ]
     if framework is None and original_tests and is_test is not None:
         present = set(original_tests)
         unusable = [guard for guard in unusable if _names_a_missing_test(guard["command"], present, is_test)]

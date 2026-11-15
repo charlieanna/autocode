@@ -204,6 +204,46 @@ class EquivalentMutantReasonsTests(unittest.TestCase):
                 )
             )
 
+    def test_compacted_proof_restores_full_mutants_obligations_and_quotes_or_fails_closed(self):
+        line = line_of("connection.close()")
+        source_line = SOURCE.splitlines()[line - 1].strip()
+        spec, data = handoff(line)
+        proof = data["regression_proof"]
+        proof["mutation_check"]["files"][0]["mutants"].append(
+            {"line": 1, "outcome": "killed", "evidence": ["runner.log"] * 6000}
+        )
+        proof["changed_code_evidence"]["obligations"][0].update(
+            {
+                "gap_id": "changed-code:" + "a" * 64,
+                "handle": f"L{line}",
+                "source_line": source_line,
+                "evidence": ["runner.log"] * 6000,
+            }
+        )
+        data["stage"] = "tester"
+        expected = fixture.quote_changed_lines(data, fixture.changed_code_reasons(spec, data))
+        self.assertEqual(1, len(expected))
+        self.assertEqual(source_line, expected[0]["source_line"])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            packet, moved = context.compact(data, Path(tmp) / "run/state.json")
+            self.assertIn("regression_proof_mutation_files", moved)
+            self.assertIn("regression_proof_obligations", moved)
+            self.assertIsInstance(packet["regression_proof"]["mutation_check"]["files"][0]["mutants"], int)
+            self.assertIn("gaps", packet["regression_proof"]["changed_code_evidence"]["obligations"][0])
+
+            got = fixture.quote_changed_lines(packet, fixture.changed_code_reasons(spec, packet))
+            self.assertEqual(expected, got)
+
+            for tamper in (
+                lambda p: p["context_artifact"].update(sha256="0" * 64),
+                lambda p: p["context_artifact"]["fields"]["regression_proof_obligations"].update(total=99),
+                lambda p: p.pop("context_artifact"),
+            ):
+                bad = copy.deepcopy(packet)
+                tamper(bad)
+                self.assertEqual([], fixture.changed_code_reasons(spec, bad))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -16,12 +16,14 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_plan_command_roles as plan_roles
     from . import autocode_python_test_roles as role_policy
     from . import autocode_run_base as run_base
     from . import autocode_source_scope as source_scope
     from . import autocode_test_role_inventory as role_inventory
     from . import autocode_verify as verify
 except ImportError:
+    import autocode_plan_command_roles as plan_roles
     import autocode_python_test_roles as role_policy
     import autocode_run_base as run_base
     import autocode_source_scope as source_scope
@@ -105,5 +107,8 @@ def unmeasurable(state: RunState) -> str | None:
         return None
     files = [path for path in listed.split("\0") if path]
     if any(map(role_inventory.test_rule(files), files)):
+        return None
+    # Tests no path rule names, which the plan's guard command was seen to run: one answer, read here too.
+    if plan_roles.has_tests(state):
         return None
     return UNMEASURABLE

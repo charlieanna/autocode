@@ -39,6 +39,7 @@ except ImportError:
 
 def main(base, unit=None):
     """Restore the invocation's provider and output streams before returning to the caller."""
+    source_host.drop_git_repository_variables()
     capability_startup.prepare()
     launched_at = base.now()
     source_host.install()  # opt-in warm snapshots (#1707)
