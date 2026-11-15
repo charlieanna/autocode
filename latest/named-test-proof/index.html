@@ -2620,13 +2620,26 @@ Dedicated test roots and supported test declarations keep test authority. A test
 a <code>tests/</code>-style directory at any depth, or a <code>test/</code> or <code>spec/</code> directory at the repository
 root or directly under a directory that is not a Python package (a project kept one directory
 down, such as Docutils' <code>docutils/test/</code> beside its <code>docutils/docutils/</code> package); a <code>test/</code>
-inside a package (<code>django/test/</code>) may be a shipped subpackage and is not a root. Mixed or
+inside a package (<code>django/test/</code>) may be a shipped subpackage and is not a root. One test
+file beside the code it tests is a test in the same way: a <code>tests.py</code> at any depth (an
+application's tests, as Django's <code>startapp</code> writes them and unittest discovery collects them),
+and a <code>test.py</code> at the top of the repository. A <code>tests.py</code> the package's own code imports is product code whatever it declares
+(<code>jinja2/tests.py</code> holds the template language's tests as functions named <code>test_odd</code>), and
+a <code>test.py</code> inside a package is product code (a <code>test</code> command). Mixed or
 unresolved changed roles remain unverified without executing proof commands. Dynamic
 build configuration is not interpreted, and candidate packaging cannot relabel the
 original product. Original top-level assertions with a literal <code>import unittest</code>
 also declare an oracle; packaging or runtime import ownership still makes that mixed
 role ambiguous. Unknown unchanged oracle entries remain protected conservatively.
-Proofs from an earlier role policy require fresh execution before advancing.
+Proofs from an earlier role policy require fresh execution before advancing.</p>
+<p>In the other languages a file is a test by its name (<code>pager.test.js</code>, <code>pager_test.go</code>,
+<code>PagerTest.java</code>) or by its directory. A single test file at the top of the repository is one too,
+where the language's own tools do not say which files are tests: <code>test.js</code> (also <code>.mjs</code>, <code>.cjs</code>,
+<code>.ts</code>, and <code>tests.</code>), which <code>node --test</code> and Jest collect and many small packages run as
+<code>node test.js</code>; <code>test.c</code>, <code>test.cc</code> or <code>test.cpp</code>; and <code>test.sh</code>. A change to it is the change's
+regression test, proven by its named tests or, where the suite reports only an exit code, by the
+suite failing on the original code with the new test and passing with the change. Deeper in the
+tree such a file stays product code (<code>lib/commands/test.js</code>).
 An original internal test link also retains a declared oracle outside test roots
 when packaging, runtime imports and dynamic uncertainty do not give it a conflicting
 role. A candidate-added link cannot promote an original product or unknown endpoint.</p>
