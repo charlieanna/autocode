@@ -23,7 +23,10 @@ and the test paths.
 
 from __future__ import annotations
 
+import fnmatch
+import re
 import shlex
+from pathlib import PurePosixPath
 
 try:
     from . import autocode_test_cases as test_cases
@@ -54,14 +57,114 @@ def approved_commands(contract) -> list[str]:
     return list(dict.fromkeys(found))
 
 
+# Maven and Gradle name the tests a command runs by class and by module, never by file.
+_BUILD_TOOLS = ("mvn", "mvnw", "gradle", "gradlew")
+# The source files of the classes their selectors name.
+_CLASS_SUFFIXES = (".java", ".kt", ".scala", ".groovy")
+# Maven builds, and so tests, more modules than the ones it was given.
+_ALSO_MAKE = ("-am", "--also-make", "-amd", "--also-make-dependents")
+_SKIPS_TESTS = re.compile(r"-D(skipTests|maven\.test\.skip)(=true)?")
+_GRADLE_TEST = re.compile(r":?(?:([\w.-]+(?::[\w.-]+)*):)?(?:test|check)")
+# Where one command of a shell line ends, and a variable set for the command that follows it.
+_SEPARATORS = ("&&", "||", ";", "|", "&", "(", ")")
+_ASSIGNMENT = re.compile(r"[A-Za-z_]\w*=.*")
+
+
+def _build_command(command) -> list[str]:
+    """The words of the first Maven or Gradle command in ``command``, from the tool to the end of that
+    command, or []. The tool is the command itself (``cd shop && JAVA_HOME=/jdk ./mvnw test``), never a word
+    another command is given (``echo mvn test``)."""
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        words = list(lexer)
+    except ValueError:
+        return []
+    start = True
+    for index, word in enumerate(words):
+        if start and PurePosixPath(word).name in _BUILD_TOOLS:
+            rest = words[index:]
+            return rest[: next((n for n, later in enumerate(rest) if later in _SEPARATORS), len(rest))]
+        start = word in _SEPARATORS or start and bool(_ASSIGNMENT.fullmatch(word))
+    return []
+
+
+def _runs_tests(words) -> bool:
+    """Whether the Maven or Gradle command ``words`` runs tests: the ``test`` or ``verify`` phase, or a
+    ``test`` or ``check`` task, not skipped (``-DskipTests``) or left out (``-x test``)."""
+    if PurePosixPath(words[0]).name in ("mvn", "mvnw"):
+        return any(word in ("test", "verify") for word in words) and not any(map(_SKIPS_TESTS.fullmatch, words))
+    return any(
+        _GRADLE_TEST.fullmatch(word) and words[index - 1] not in ("-x", "--exclude-task")
+        for index, word in enumerate(words)
+        if index
+    )
+
+
+def _modules(words) -> set[str] | None:
+    """The module directories ``words`` select: Maven's ``-pl core,app`` (``--projects``) and a Gradle task
+    path, ``:core:test``. None when a selection names no directory: a module left out (``!core``) or named
+    by its artifact (``:core``), whose tests this cannot tell."""
+    listed: list[str] = []
+    for index, word in enumerate(words):
+        if word in ("-pl", "--projects"):
+            listed += words[index + 1].split(",") if index + 1 < len(words) else [""]
+        elif word.startswith("--projects="):
+            listed += word[len("--projects=") :].split(",")
+        elif (task := _GRADLE_TEST.fullmatch(word)) and task.group(1):
+            listed.append(task.group(1).replace(":", "/"))
+    if not all(re.fullmatch(r"[\w.-]+(/[\w.-]+)*/?", module) for module in listed):
+        return None
+    return {module.strip("/") for module in listed}
+
+
+def _selected(command, paths) -> set[str]:
+    """The ``paths`` that hold a test class a Maven or Gradle command in ``command`` runs.
+
+    They select tests by class and by module, not by file: ``-Dtest=PagerTest,ReportTest#heading`` and
+    ``--tests example.PagerTest.heading`` pick classes, where a class is the file of its simple name (the
+    part that begins with a capital letter, between its package and its method) and a ``*`` or ``?`` is the
+    tool's own wildcard; ``-pl core`` and ``:core:test`` pick the test classes of a module,
+    the files under its ``src/test/``. With both, the classes are those of the modules, and of any module
+    when Maven also builds the ones they depend on (``-am``). With neither, the command runs every test
+    class (``mvn -q test``, whatever its other options).
+    """
+    words = _build_command(command)
+    if not words or not _runs_tests(words):
+        return set()
+    selectors = []
+    for index, word in enumerate(words):
+        if word.startswith("-Dtest="):
+            selectors += word[len("-Dtest=") :].split(",")
+        elif word.startswith("--tests="):
+            selectors.append(word[len("--tests=") :])
+        elif word == "--tests":
+            if index + 1 == len(words):
+                return set()  # a selector with nothing to select
+            selectors.append(words[index + 1])
+    modules = _modules(words)
+    if modules is None:
+        return set()
+    classes = {path for path in paths if PurePosixPath(path).suffix in _CLASS_SUFFIXES}
+    if modules and not (selectors and any(word in _ALSO_MAKE for word in words)):
+        classes = {path for path in classes if any(path.startswith(f"{module}/src/test/") for module in modules)}
+    if not selectors:
+        return classes
+    # A selector that begins with ! leaves a class out, so it names none.
+    picked = [selector.split("#")[0] for selector in selectors if not selector.startswith("!")]
+    parts = {part for selector in picked for part in re.split(r"[./$]", selector) if re.match(r"[A-Z*?]", part)}
+    return {path for path in classes if any(fnmatch.fnmatchcase(PurePosixPath(path).stem, part) for part in parts)}
+
+
 def _named(command, paths) -> set[str]:
-    """The ``paths`` a shell word of ``command`` names, as a path or ./path."""
+    """The ``paths`` ``command`` names: a shell word that is the path or ./path, or a test class a Maven or
+    Gradle command runs."""
     try:
         words = shlex.split(command, comments=True)
     except ValueError:
         words = command.split()
     named = {word[2:] if word.startswith("./") else word for word in words}
-    return {path for path in paths if path in named}
+    return {path for path in paths if path in named} | _selected(command, paths)
 
 
 def test_files(command, original_tests) -> set[str]:

@@ -290,7 +290,12 @@ instead. Behavior that must keep working is guarded there by the command that ru
 the existing tests, ``guard: run `ruby test/pager_test.rb` `` (or the detected suite,
 ``guard: run `make test` ``): the proof runs that command on the original code and with
 the change, and both must pass. The command must run tests the original code has,
-which is checked when the plan is drafted. When every criterion the proof is given
+which is checked when the plan is drafted: it names an existing test file, it is the
+detected suite, or, where the build tool selects tests by class, it selects existing
+test classes (``guard: run `mvn -B -q test -Dtest=PagerTest,ReportTest` ``, or
+`--tests PagerTest` with Gradle), a module that has some (`mvn -q -pl core test`,
+`gradle :core:test`), or every test class, whatever its other options (`mvn -q test`
+where the detected suite is `mvn -B -q test`). When every criterion the proof is given
 is such a guard and the change touches no test file, the change is coverage of
 existing behavior, as one guarded by named tests is, and needs no new test: a
 refactor of a Minitest, `make test` or shell project is proven this way. A bug fix

@@ -1368,8 +1368,56 @@ proved the fix with a new test in each module (`mvn -q -pl core test -Dtest=Page
 Three planning reports were refused and repaired, each for the same reason: the guard
 ``guard: run `mvn -B -q test -Dtest=PagerTest,ReportTest` `` selects existing test classes, and the plan
 check accepts only a command that names an existing test file or is the project's suite ("names no
-existing test file and is not the project's suite `mvn -B -q test`"). Open: a Maven or Gradle guard that
-selects existing test classes.
+existing test file and is not the project's suite `mvn -B -q test`"). Fixed in section 44.
+
+## 44. Maven and Gradle guards: plan reports refused for commands that run existing tests (fixed)
+
+A guard that is a command must run tests the project already has, which the plan check judged by two
+things only: the command names an existing test file, or it is exactly the suite AutoCode detected. Maven
+and Gradle select tests by class and by module, never by file, and the detected suite is one spelling of
+the whole suite (`mvn -B -q test`). So in a Maven project every guard a Planner wrote, other than that exact
+spelling, was refused, and each refusal cost a report repair. Three real runs showed three such guards:
+
+| Guard the Planner wrote | What it runs | Seen in |
+| --- | --- | --- |
+| ``guard: run `mvn -B -q test -Dtest=PagerTest,ReportTest` `` | two existing test classes | the bug fix across two modules of section 43: three planning reports refused in a row |
+| ``guard: run `mvn -q -pl core test` ``, ``guard: run `mvn -q -pl app -am test` `` | the tests of one module | a refactor of the same project |
+| ``guard: run `mvn -q test` `` | every test, without `-B` | the same refactor again |
+
+Each time the refusal said the command "names no existing test file and is not the project's suite
+`mvn -B -q test`", and the Planner then wrote the detected suite. No run asked the person, but the rule was
+wrong: all three commands run existing tests and pass on the original code.
+
+**Fix** (`autocode_plan_proof_command`). A Maven or Gradle command that runs tests names the test classes it
+runs, as a command that names a test file names that file:
+
+- a class selector, `-Dtest=PagerTest,ReportTest#heading` or `--tests example.PagerTest`, names the files of
+  those classes (`PagerTest.java`, also Kotlin, Scala and Groovy), with the tool's own `*` and `?`;
+- a module, `-pl core,app` or Gradle's `:core:test`, names the test classes under the module's `src/test/`;
+- neither names every test class: `mvn -q test`, `./mvnw verify`, `gradle check`, whatever the other options.
+
+It names none when it runs no test (`mvn compile`, `-DskipTests`, `-Dmaven.test.skip=true`, `gradle build -x
+test`), when the selector leaves classes or modules out (`-Dtest='!PagerTest'`, `-pl '!core'`) or names a
+module by its artifact, and when the tool is only a word of another command (`echo mvn test`). A selector for
+a class that does not exist yet still names no existing test, so that guard is still refused, now with the
+tool's own form in the message: "selects no existing test class ... Write the command that runs existing test
+classes (``guard: run `mvn -B -q test -Dtest=PagerTest` ``)".
+
+The gate itself is unchanged: the proof runs each guard on the original code and with the change, and both
+must pass. A whole proof of the refactor with the guards `mvn -q -pl core test` and `mvn -q test` passes, and
+the same refactor with a broken calculation fails with "Guard AC1's command `mvn -o -q -pl core test` passes
+on the original code and fails with the change (exit 1)".
+
+Real runs with the fix, each `TASK_COMPLETE` with one plan approval and no question:
+
+| Task | Result | Bundle manifest |
+| --- | --- | --- |
+| The bug fix across two Maven modules again | 9 stages, 283 s, $1.14. This plan wrote no guard, so it did not reach the change | `537625f1170302f05c3d4607a261ce464827c2f534edf457a223c85fc13fb12b` |
+| A refactor of both modules ("no test should be added or changed"), first version of the fix | 10 stages, 215 s, $1.40. One planning report refused, for the module guards of the table's second row, with the new message; the Planner then guarded with `mvn -B -q test` and the proof passed | `9e4a3697c906650126c7fe3b377b499aad37fdfedf6f90e46cce0be7ceb529b1` |
+| The same refactor with module guards accepted | 8 stages, 202 s, $1.25. One planning report refused, for `mvn -q test` (the third row); the proof passed | `f96d7eb2798cbc886005d04a7b2cef789fd78cc9c27132ada1367662553a696f` |
+
+No real run has yet drafted one of these guards after its fix, so the accepted path is shown by the tests
+and the whole proofs above, not by a real run.
 
 ## Also seen, not yet run on real models
 
