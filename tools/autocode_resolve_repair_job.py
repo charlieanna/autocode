@@ -202,7 +202,9 @@ def eligible_report_repair(state: RunState) -> bool:
     if stop.applied_stop(state):
         return False
     pending = state.get("pending_report_repair")
-    original = pending.get("original") if isinstance(pending, dict) else None
+    if not isinstance(pending, dict):
+        return False
+    original = pending.get("original")
     if not isinstance(original, dict) or state.get("next_stage") != original.get("stage"):
         return False
     if pending.get("attempts", 0) < 1 and not pending.get("correction_failed"):
@@ -218,7 +220,9 @@ def queue_from_pending(state: RunState, run_dir: Path | None = None, *, force: b
     if stop.applied_stop(state):
         return False
     pending = state.get("pending_report_repair")
-    original = pending.get("original") if isinstance(pending, dict) else None
+    if not isinstance(pending, dict):
+        return False
+    original = pending.get("original")
     if not isinstance(original, dict) or state.get("next_stage") != original.get("stage"):
         return False
     if not force and not eligible_report_repair(state):
@@ -473,10 +477,12 @@ def _set_path(root: Any, parts: list[str | int], val: Any) -> None:
         else:
             raise ValueError(f"Cannot traverse edit path at {part!r}")
     leaf = parts[-1]
-    if (isinstance(cur, list) and isinstance(leaf, int)) or isinstance(cur, dict):
+    if isinstance(cur, dict):
         cur[leaf] = val
-    else:
+        return
+    if not isinstance(cur, list) or not isinstance(leaf, int):
         raise ValueError(f"Cannot set edit leaf {leaf!r}")
+    cur[leaf] = val
 
 
 def _delete_path(root: Any, parts: list[str | int]) -> None:

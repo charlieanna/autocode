@@ -4,6 +4,13 @@ Tools-off report repair can only fix JSON wrappers, missing/misformatted fields,
 and uncited event references; it can never re-run a failed test or fabricate an
 unexecuted check. Separating ``tests_failed`` and ``missing_execution`` before
 queuing report repair avoids wasted same-model repair loops.
+
+A check a reviewer reported as passing that fails the clean replay (``ReportedCheckFailure``) is not a
+failing test: the code may be fine and the report false. autocode_reported_check_rerun owns that refusal
+(the reviewer runs again), then the existing report repair and pause; sending the Builder back would leave
+it nothing to build. A ``tests_failed`` send-back is bounded to ``ROUNDS`` for each stage of a task, not
+one per source revision: each Builder round makes a new revision, so a per-revision bound looped Builder
+and reviewer until the iteration ceiling paused the run for the person.
 """
 
 from __future__ import annotations
@@ -39,6 +46,7 @@ except ImportError:
 
 REVIEW_STAGES = ("tester", "review_completion", "review_checkpoint", "verify_build", "judge_acceptance")
 EXECUTION_STAGES = ("builder", *REVIEW_STAGES)
+ROUNDS = 1  # tests_failed send-backs to the Builder for each stage of a task
 
 
 def executed_checks(record: dict) -> list[dict]:
@@ -64,7 +72,9 @@ def executed_checks(record: dict) -> list[dict]:
 
 def classify_rejection(state: RunState, record: dict, error: Exception) -> str:
     """Classify a stage rejection as ``tests_failed``, ``missing_execution``, or ``report_defect``."""
-    if isinstance(error, (verification_plan.PlannedCheckFailure, verification_plan.ReportedCheckFailure)):
+    if isinstance(error, verification_plan.ReportedCheckFailure):
+        return "report_defect"  # a false report, settled by autocode_reported_check_rerun and the existing route
+    if isinstance(error, verification_plan.PlannedCheckFailure):
         return "tests_failed"
     if isinstance(error, report_repair_queue.ExecutionEvidenceRequired) and not isinstance(
         error, acceptance_tests_job.TestsNeedRewriting
@@ -98,7 +108,7 @@ def reroute(state: RunState, record: dict, error: Exception) -> bool:
         return False
     kind = classify_rejection(state, record, error)
     stage = record.get("stage")
-    task_id = state["current_task"]["id"]
+    task_id = (state.get("current_task") or {})["id"]
     contract_hash = (state.get("goal_contract") or {}).get("hash")
     revision = record["source_revision"]
     if kind == "tests_failed" and stage in REVIEW_STAGES:
@@ -113,15 +123,16 @@ def reroute(state: RunState, record: dict, error: Exception) -> bool:
                 before_investigator=True,
             )
         history = state.get("resolve_repair_history") or []
-        if any(
-            isinstance(row, dict)
+        earlier = [
+            row
+            for row in history
+            if isinstance(row, dict)
             and row.get("kind") == "triage_tests_failed"
             and row.get("stage") == stage
             and row.get("task_id") == task_id
             and row.get("contract_hash") == contract_hash
-            and row.get("source_revision") == revision
-            for row in history
-        ):
+        ]
+        if len(earlier) >= ROUNDS:
             return False
         state.setdefault("resolve_repair_history", []).append(
             {

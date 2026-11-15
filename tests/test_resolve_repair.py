@@ -544,6 +544,39 @@ class ResolveRepairTests(unittest.TestCase):
         # Second missing_execution on same stage & source_revision is refused
         self.assertFalse(resolve_repair_job.queue_missing_execution(self.state, tester_unrun, miss_err))
 
+    def test_triage_leaves_a_false_report_to_its_route_and_bounds_builder_send_backs(self):
+        # A check reported as passing that fails the clean replay is a false report, not a failing
+        # test: the Builder has nothing to build, so triage leaves it to the reviewer rerun and the
+        # existing route (the offline demo's refused check, which looped Builder until the ceiling).
+        false_claim = self._stage_files(
+            "tester-false", stage="tester", role="tester", report_obj={}, commands=[("c1", "test -f x", 0)]
+        )
+        self.state["next_stage"] = "tester"
+        reported = verification_plan.ReportedCheckFailure("`test -f x` was reported as exit 0 but exited 1")
+        self.assertEqual("report_defect", repair_triage.classify_rejection(self.state, false_claim, reported))
+        self.assertFalse(repair_triage.reroute(self.state, false_claim, reported))
+        self.assertEqual("tester", self.state["next_stage"])
+        self.assertNotIn("resolve_repair_history", self.state)
+
+        # A failing planned check sends the Builder back once for the task, not once per source:
+        # every Builder round makes a new revision.
+        failed = verification_plan.PlannedCheckFailure("pytest -q exited 1")
+        first = self._stage_files(
+            "tester-fail-a", stage="tester", role="tester", report_obj={}, commands=[("c2", "pytest -q", 1)]
+        )
+        self.assertTrue(repair_triage.reroute(self.state, first, failed))
+        self.assertEqual("builder", self.state["next_stage"])
+        self.state["next_stage"] = "tester"
+        second = dict(
+            self._stage_files(
+                "tester-fail-b", stage="tester", role="tester", report_obj={}, commands=[("c3", "pytest -q", 1)]
+            ),
+            source_revision="another-revision",
+        )
+        self.assertFalse(repair_triage.reroute(self.state, second, failed))
+        self.assertEqual("tester", self.state["next_stage"])
+        self.assertEqual(1, len(self.state["resolve_repair_history"]))
+
     def test_mid_stage_stalls_rework_replan_ask_user_and_stop_guard(self):
         # 1. PAUSED_BUILDER_RETRY_LIMIT intercepted before investigator via stuck_job.drive
         ident = builder_policy.key(self.state)
