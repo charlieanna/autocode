@@ -2448,6 +2448,8 @@ def complete(value, schema: dict):
         properties = schema.get("properties", {})
         if "basis" in value and "answer_id" in value and "category" in properties:
             real = [ref for ref in source_refs() if ref != "task"]
+            if Path("todo.py").is_file() and "todo.py" not in real:
+                real.append("todo.py")
             if value.get("basis") == "agent_proposed":
                 value.setdefault("category", "technical")
                 value.setdefault("convention_ref", f"{real[0]}:1" if real else "")
