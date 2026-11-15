@@ -1,12 +1,15 @@
 """A project's runs reuse a tool check that already passed, and only that (providers/env_prep.reuse_checks)."""
 
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from providers import env_prep
+import autocode_connections as connections
+from providers import command, env_prep
 
 TOOL = """#!/bin/sh
 echo run >> "{bin}/calls"
@@ -159,6 +162,181 @@ class PreflightReuseTests(unittest.TestCase):
         [kept] = (self.run_dir / env_prep.REUSE_FOLDER).iterdir()
         self.assertEqual(0o600, kept.stat().st_mode & 0o777)
         self.assertEqual(0o700, (self.run_dir / env_prep.REUSE_FOLDER).stat().st_mode & 0o777 & ~_umask_bits())
+
+    @unittest.skipIf(os.name == "nt", "POSIX O_NONBLOCK fd 1 pipe truncation test")
+    def test_nonblocking_large_stdout_is_not_truncated_by_pipe(self):
+        # A single O_NONBLOCK write larger than the kernel pipe buffer (64 KB default, 1 MB Linux max)
+        # deterministically short-writes on a pipe regardless of parent reader scheduling (#3078).
+        single_write = (
+            "import fcntl, os, sys\n"
+            "flags = fcntl.fcntl(1, fcntl.F_GETFL)\n"
+            "fcntl.fcntl(1, fcntl.F_SETFL, flags | os.O_NONBLOCK)\n"
+            "data = b'x' * 2_000_000\n"
+            "written = os.write(1, data)\n"
+            "sys.stderr.write(f'wrote={written}\\n')\n"
+        )
+        piped = subprocess.run([sys.executable, "-c", single_write], capture_output=True, text=True, timeout=15)
+        self.assertLess(len(piped.stdout), 2_000_000, "POSIX pipe short-writes single O_NONBLOCK 2 MB write")
+        captured = env_prep.preflight_run(
+            [sys.executable, "-c", single_write],
+            env_prep.snapshot_environment(),
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        self.assertEqual(0, captured.returncode)
+        self.assertEqual(2_000_000, len(captured.stdout))
+        self.assertEqual("x" * 2_000_000, captured.stdout)
+        self.assertEqual("wrote=2000000\n", captured.stderr)
+
+        loop_write = (
+            "import fcntl, os, sys\n"
+            "flags = fcntl.fcntl(1, fcntl.F_GETFL)\n"
+            "fcntl.fcntl(1, fcntl.F_SETFL, flags | os.O_NONBLOCK)\n"
+            "view = memoryview(b'y' * 500_000)\n"
+            "written = 0\n"
+            "while written < len(view):\n"
+            "    written += os.write(1, view[written:])\n"
+            "sys.stderr.write(f'wrote={written}\\n')\n"
+        )
+        loop_captured = env_prep.preflight_run(
+            [sys.executable, "-c", loop_write],
+            env_prep.snapshot_environment(),
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        self.assertEqual(0, loop_captured.returncode)
+        self.assertEqual(500_000, len(loop_captured.stdout))
+        self.assertEqual("wrote=500000\n", loop_captured.stderr)
+
+    def test_captured_timeout_decodes_partial_output_and_leaves_mocks_untouched(self):
+        script = "import os, time\nos.write(1, b'part1\\r\\n\\xc3')\nos.write(2, b'err1\\r\\n')\ntime.sleep(30)\n"
+        with self.assertRaises(subprocess.TimeoutExpired) as caught:
+            env_prep.preflight_run(
+                [sys.executable, "-S", "-c", script],
+                env_prep.snapshot_environment(),
+                capture_output=True,
+                encoding="utf-8",
+                timeout=2.0,
+            )
+        self.assertEqual("part1\n\ufffd", caught.exception.stdout)
+        self.assertEqual("err1\n", caught.exception.stderr)
+
+        binary = env_prep.preflight_run(
+            [sys.executable, "-S", "-c", "import os; os.write(1, b'raw\\r\\n\\xff')"],
+            env_prep.snapshot_environment(),
+            capture_output=True,
+            timeout=15,
+        )
+        self.assertEqual(b"raw\r\n\xff", binary.stdout)
+        self.assertEqual(b"", binary.stderr)
+
+        with self.assertRaises(UnicodeDecodeError):
+            env_prep.preflight_run(
+                [sys.executable, "-S", "-c", "import os; os.write(1, b'\\xff')"],
+                env_prep.snapshot_environment(),
+                capture_output=True,
+                encoding="utf-8",
+                timeout=15,
+            )
+
+        with self.assertRaises(subprocess.CalledProcessError) as failed:
+            env_prep.preflight_run(
+                [
+                    sys.executable,
+                    "-S",
+                    "-c",
+                    "import os; os.write(1, b'out\\r\\n'); os.write(2, b'err\\r\\n'); raise SystemExit(3)",
+                ],
+                env_prep.snapshot_environment(),
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=15,
+            )
+        self.assertEqual(3, failed.exception.returncode)
+        self.assertEqual("out\n", failed.exception.output)
+        self.assertEqual("err\n", failed.exception.stderr)
+
+        with mock.patch.object(
+            env_prep.subprocess, "run", return_value=subprocess.CompletedProcess(["tool"], 0, "ok", "")
+        ) as mocked:
+            result = env_prep.preflight_run(["tool"], self.env, capture_output=True, text=True, timeout=15)
+        self.assertEqual("ok", result.stdout)
+        self.assertTrue(mocked.call_args.kwargs["capture_output"])
+        self.assertNotIn("stdout", mocked.call_args.kwargs)
+        self.assertNotIn("stderr", mocked.call_args.kwargs)
+
+    def test_reuse_workspace_checks_reuses_only_in_initialized_workspace_without_creating_dot_autocode(self):
+        uninit = self.root / "uninitialized"
+        uninit.mkdir()
+        with env_prep.reuse_workspace_checks(uninit):
+            self.check()
+            self.check()
+        self.assertEqual(2, self.calls())
+        self.assertFalse((uninit / ".autocode").exists())
+
+        project = self.root / "initialized"
+        (project / ".autocode").mkdir(parents=True)
+        with env_prep.reuse_workspace_checks(project):
+            self.check()
+            self.check()
+        self.assertEqual(3, self.calls())
+        self.assertTrue((project / ".autocode" / env_prep.REUSE_FOLDER).is_dir())
+        self.assertFalse((project / ".autocode" / "runs").exists())
+
+        # An explicit run_dir still routes reuse there, and an outer reuse scope is preserved.
+        explicit = self.root / "explicit-run"
+        explicit.mkdir()
+        with env_prep.reuse_workspace_checks(uninit, run_dir=explicit):
+            self.check()
+            self.check()
+        self.assertEqual(4, self.calls())
+        self.assertTrue((explicit / env_prep.REUSE_FOLDER).is_dir())
+        with env_prep.reuse_checks(explicit):
+            with env_prep.reuse_workspace_checks(project):
+                self.check()
+        self.assertEqual(4, self.calls())
+
+    def test_connections_routes_reuses_kept_preflights_when_autocode_exists(self):
+        project = self.root / "conn-project"
+        (project / ".autocode").mkdir(parents=True)
+        xdg = self.root / "xdg"
+        xdg.mkdir()
+        fake_bin = self.root / "kbin"
+        fake_bin.mkdir()
+        calls_file = fake_bin / "calls"
+        kilo = fake_bin / "kilo"
+        kilo.write_text(
+            "#!/bin/sh\n"
+            f'echo "$*" >> "{calls_file}"\n'
+            'case "$*" in\n'
+            '  "--version") echo "7.8.12" ;;\n'
+            '  "auth list") printf "%s\\n" "●  Zhipu AI Coding Plan api" "●  OpenAI oauth" ;;\n'
+            '  "models") printf "%s\\n" "zhipuai-coding-plan/glm-5.3" "openai/gpt-6-sol" ;;\n'
+            '  "models --verbose") printf "%s\\n" "zhipuai-coding-plan/glm-5.3" \'{"family":"glm","capabilities":{"toolcall":true},"variants":{"high":{}}}\' "openai/gpt-6-sol" \'{"family":"gpt","capabilities":{"toolcall":true},"variants":{"high":{}}}\' ;;\n'
+            "  *) exit 1 ;;\n"
+            "esac\n"
+        )
+        kilo.chmod(0o755)
+        old_cwd = Path.cwd()
+        path = f"{fake_bin}{os.pathsep}/usr/bin{os.pathsep}/bin"
+        try:
+            os.chdir(project)
+            with mock.patch.dict(os.environ, {"PATH": path, "XDG_CONFIG_HOME": str(xdg)}):
+                with mock.patch.object(command, "load", side_effect=command.load):
+                    first = connections.routes("kilocode")
+                    second = connections.routes("kilocode")
+        finally:
+            os.chdir(old_cwd)
+        self.assertEqual("kilocode", first["tool"])
+        self.assertEqual(first["routes"], second["routes"])
+        self.assertTrue((project / ".autocode" / env_prep.REUSE_FOLDER).is_dir())
+        self.assertEqual(
+            ["--version", "auth list", "models", "models --verbose"],
+            sorted(calls_file.read_text().splitlines()),
+        )
 
 
 def _umask_bits():

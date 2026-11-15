@@ -30,6 +30,7 @@ try:
     from . import autocode_route_fit as route_fit
     from . import autocode_run_stage_models as run_stage_models
     from . import autocode_stage_choices as stage_choices
+    from .providers import env_prep
 except ImportError:
     import autocode_connected_engine as connected_engine
     import autocode_names as names
@@ -38,6 +39,7 @@ except ImportError:
     import autocode_route_fit as route_fit
     import autocode_run_stage_models as run_stage_models
     import autocode_stage_choices as stage_choices
+    from providers import env_prep
 
 # The job names a person may type for a stage, beside the route names the view uses.
 ALIASES = {
@@ -418,75 +420,79 @@ def cli(argv=None) -> int:
             file=sys.stderr,
         )
         return 2
-    if args.run_dir is not None:
-        return _run(args)
-    if args.chat_stage and args.action != "list":
-        print(
-            f"autocode stages: {stage_choices.CHAT_FLAG} only lists a new chat's stages; it saves nothing",
-            file=sys.stderr,
-        )
-        return 2
-    if args.stage_pick and args.action != "set":
-        print(f"autocode stages: {SET_FLAG} names a stage for `autocode stages set`", file=sys.stderr)
-        return 2
-    try:
-        if args.action == "choose":
-            backend = args.backend or current_backend(args.workspace)
-            if args.json or not _terminal():
-                print("autocode stages choose asks in a terminal; use `autocode stages set` elsewhere", file=sys.stderr)
-                return 2
-            try:
-                return 0 if choose(backend, args.workspace) else 1
-            except (KeyboardInterrupt, EOFError):
-                print("\nNothing was saved.")
-                return 130
-        if args.action == "set":
-            backend = args.backend or current_backend(args.workspace)
-            named = stage or args.model or args.effort
-            if (named and not (stage and args.model and args.effort)) or not (named or args.stage_pick):
-                print(
-                    f"autocode stages set needs a stage, --model and --effort, or {SET_FLAG} STAGE MODEL EFFORT",
-                    file=sys.stderr,
-                )
-                return 2
-            picks = _picks(args.stage_pick, SET_FLAG)
-            if stage:
-                if stage in picks:
-                    raise ValueError(f"autocode stages set names {stage} twice")
-                picks = {stage: (args.model, args.effort), **picks}
-            try:
-                current = stage_choices.choose(backend, picks, args.workspace)
-            except stage_choices.CrossCheckError as error:
-                # One stage at a time can never reach a table where checker and producer both move (#3312).
-                raise ValueError(
-                    f"{error}. To change stages together, name each in one command: "
-                    f"autocode stages set {SET_FLAG} STAGE MODEL EFFORT {SET_FLAG} STAGE MODEL EFFORT"
-                ) from error
-        elif args.action == "reset":
-            backend = args.backend or current_backend(args.workspace)
-            current = stage_choices.reset(backend, stage, args.workspace)
-        else:
-            configured, run_engine, run_provider = _configured(args.workspace, run_options)
-            if args.backend:
-                backend = args.backend
-            elif run_provider:
-                backend = run_provider
-            elif run_engine == "claude":
-                backend = "claude"
-            elif run_engine in ("codex", "opencode"):
-                backend = run_engine if run_engine == "codex" else _default_backend()
-            else:
-                backend = current_backend(args.workspace)
-            current = stage_choices.chat_view(
-                backend,
-                _picks(args.chat_stage, stage_choices.CHAT_FLAG),
-                _list_command(args),
-                args.workspace,
-                configured=configured,
+    with env_prep.reuse_workspace_checks(getattr(args, "workspace", "."), getattr(args, "run_dir", None)):
+        if args.run_dir is not None:
+            return _run(args)
+        if args.chat_stage and args.action != "list":
+            print(
+                f"autocode stages: {stage_choices.CHAT_FLAG} only lists a new chat's stages; it saves nothing",
+                file=sys.stderr,
             )
-    except ValueError as error:
-        print(f"autocode stages: {error}", file=sys.stderr)
-        return 2
+            return 2
+        if args.stage_pick and args.action != "set":
+            print(f"autocode stages: {SET_FLAG} names a stage for `autocode stages set`", file=sys.stderr)
+            return 2
+        try:
+            if args.action == "choose":
+                backend = args.backend or current_backend(args.workspace)
+                if args.json or not _terminal():
+                    print(
+                        "autocode stages choose asks in a terminal; use `autocode stages set` elsewhere",
+                        file=sys.stderr,
+                    )
+                    return 2
+                try:
+                    return 0 if choose(backend, args.workspace) else 1
+                except (KeyboardInterrupt, EOFError):
+                    print("\nNothing was saved.")
+                    return 130
+            if args.action == "set":
+                backend = args.backend or current_backend(args.workspace)
+                named = stage or args.model or args.effort
+                if (named and not (stage and args.model and args.effort)) or not (named or args.stage_pick):
+                    print(
+                        f"autocode stages set needs a stage, --model and --effort, or {SET_FLAG} STAGE MODEL EFFORT",
+                        file=sys.stderr,
+                    )
+                    return 2
+                picks = _picks(args.stage_pick, SET_FLAG)
+                if stage:
+                    if stage in picks:
+                        raise ValueError(f"autocode stages set names {stage} twice")
+                    picks = {stage: (args.model, args.effort), **picks}
+                try:
+                    current = stage_choices.choose(backend, picks, args.workspace)
+                except stage_choices.CrossCheckError as error:
+                    # One stage at a time can never reach a table where checker and producer both move (#3312).
+                    raise ValueError(
+                        f"{error}. To change stages together, name each in one command: "
+                        f"autocode stages set {SET_FLAG} STAGE MODEL EFFORT {SET_FLAG} STAGE MODEL EFFORT"
+                    ) from error
+            elif args.action == "reset":
+                backend = args.backend or current_backend(args.workspace)
+                current = stage_choices.reset(backend, stage, args.workspace)
+            else:
+                configured, run_engine, run_provider = _configured(args.workspace, run_options)
+                if args.backend:
+                    backend = args.backend
+                elif run_provider:
+                    backend = run_provider
+                elif run_engine == "claude":
+                    backend = "claude"
+                elif run_engine in ("codex", "opencode"):
+                    backend = run_engine if run_engine == "codex" else _default_backend()
+                else:
+                    backend = current_backend(args.workspace)
+                current = stage_choices.chat_view(
+                    backend,
+                    _picks(args.chat_stage, stage_choices.CHAT_FLAG),
+                    _list_command(args),
+                    args.workspace,
+                    configured=configured,
+                )
+        except ValueError as error:
+            print(f"autocode stages: {error}", file=sys.stderr)
+            return 2
     print(json.dumps(current) if args.json else text(current))
     return 0
 
