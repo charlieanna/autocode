@@ -20,10 +20,17 @@ def token(contract):
 
 
 def sealed(contract):
+    """A complete, correctly shaped identity whose digest matches its actual body."""
+    if (
+        not isinstance(contract, dict)
+        or not isinstance(contract.get("task_id"), str)
+        or not contract["task_id"]
+        or type(contract.get("revision")) is not int
+        or not isinstance(contract.get("body"), dict)
+    ):
+        return False
     fields = ("task_id", "revision", "body")
-    return all(key in contract for key in fields) and contract.get("hash") == util.digest(
-        {key: contract[key] for key in fields}
-    )
+    return contract.get("hash") == util.digest({key: contract[key] for key in fields})
 
 
 _REVIEW_RECEIPT_KEYS = frozenset({"stage", "events", "events_sha256", "output", "output_sha256"})
@@ -96,26 +103,35 @@ def _retained_approval_valid(state: RunState, contract: dict, approval: dict) ->
 
 
 def approved(state: RunState):
-    contract = cast(dict, state.get("goal_contract", {}))
-    approval = contract.get("approval_event") or {}
+    contract = state.get("goal_contract")
+    if not sealed(contract):
+        return False
+    contract = cast(dict, contract)
+    approval = contract.get("approval_event")
+    events = state.get("user_events")
+    questions = contract["body"].get("open_blocking_questions")
     return bool(
-        contract
-        and sealed(contract)
+        isinstance(approval, dict)
+        and isinstance(events, list)
+        and isinstance(questions, list)
         and contract.get("approval_status") == "approved"
         and approval.get("token") == token(contract)
         and workflows.approval_actor_ok(contract.get("origin"), approval)
-        and approval in state.get("user_events", [])
+        and approval in events
         and _retained_approval_valid(state, contract, approval)
-        and not contract["body"]["open_blocking_questions"]
+        and not questions
     )
 
 
 def historical_approval(state: RunState, contract):
     """Authenticate earlier authority without restoring revoked execution approval."""
+    ledger = state.get("user_events")
+    if not sealed(contract) or not isinstance(ledger, list):
+        return None
     events = [
         event
-        for event in state["user_events"]
-        if event.get("kind") == "goal_approval" and event.get("token") == token(contract)
+        for event in ledger
+        if isinstance(event, dict) and event.get("kind") == "goal_approval" and event.get("token") == token(contract)
     ]
     if len(events) != 1 or contract.get("approval_event") not in (None, events[0]):
         return None

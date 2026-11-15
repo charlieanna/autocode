@@ -11,6 +11,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **Approval checks handle the whole record before reading it** (#3620): a missing or null plan, a malformed identity, questions, approval event or event ledger now has no approval authority. Current and historical readers share the identity check, so pre-plan cancellation and report recovery can publish status without crashing. The earlier missing-key check is replaced; authenticated approvals and their exact digest/token/actor/event requirements are preserved. Focused CI for identity changes also keeps the indirect cancellation, change-set and report-repair consumers, even when they are listed as slow.
 - **An incomplete retained plan has no approval authority and does not crash recovery** (#3614): checking a plan identity missing its task, revision or body now returns unapproved, so rejected-report recovery can continue through its existing path. Exact digest, approval-token, actor and event checks stay required.
 
 ### Added
