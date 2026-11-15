@@ -101,7 +101,7 @@ class PreflightReuseTests(unittest.TestCase):
         self.assertEqual(1, self.calls())
 
     def test_controller_call_markers_do_not_repeat_successful_preflights(self):
-        with mock.patch.object(env_prep.subprocess, "run", wraps=env_prep.subprocess.run) as spawn:
+        with mock.patch.object(env_prep.captured, "run_metadata", wraps=env_prep.captured.run_metadata) as spawn:
             for argument in ("--version", "models", "auth"):
                 with self.subTest(preflight=argument):
                     before = self.calls()

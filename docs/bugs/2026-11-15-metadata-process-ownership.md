@@ -88,3 +88,12 @@ quiet with no fallback signals and the exact container exited 0. Its final
 receipt is `73c1ce602cfae60c61592ef01793e034c61ae75e103ceafb01a7d99b02f5af75`.
 This verifies local credential discovery and editor rendering; no key validity,
 model access or paid task was tested. The earlier failed attempts remain failed.
+
+The separate actual-editor helper-loss check on that source also passed. One
+authenticated capture helper was killed after its offline root and detached
+worker were ready. Check returned a sanitized blocked result without Check or
+Sign in actions; a fresh Core list kept that state while both workers and an
+unrelated sentinel remained alive. After seventeen readers finished naturally
+and the editor host closed, the fixture collected its known workers. Native
+fallback signals remained zero and the exact container exited 0. Its final
+receipt is `b150881fec1c46fa274e1a60eec81503bb107e5249fb5aff0d544b263cd42c57`.
