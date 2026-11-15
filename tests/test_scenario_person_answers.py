@@ -35,6 +35,7 @@ class PersonAnswerTests(unittest.TestCase):
             "options": ["The first file's value", "The later file's value"],
             "proposed_default": "The first file's value",
         }
+        self.driver.last_stages = ["requirements_gather"]
         self.driver.serve({"kind": "answer", "questions": [question], "resolver_token": "t"})
         self.call.assert_called_once_with(
             "answer", "--answer", "model-chosen-1=The later file's value", "--resolver-token", "t", action=True
@@ -42,6 +43,7 @@ class PersonAnswerTests(unittest.TestCase):
         row = self.driver.answers[0]
         self.assertEqual(("person", True), (row["source"], row["explicit"]))
         self.assertEqual("The first file's value", row["proposed_default"])
+        self.assertEqual(["requirements_gather"], row["stages_before_answer"])
 
     def test_a_freeform_question_takes_the_answer_text(self):
         question = {"id": "Q", "question": "What should an empty merge do?", "options": [], "proposed_default": ""}

@@ -296,7 +296,7 @@ class Driver:
         # The person's answers by topic ([person] answers, harness.person_answers), in fake and live runs;
         # ``person_applied`` holds the entries already given as a correction to Requirements' confirmation.
         self.person, self.person_applied = tuple(person), set()
-        self.last_next_stage = None
+        self.last_stages: list[str] = []
         self.resume_after_explicit = False
         # The person's own acknowledgement of a budget pause ([fake] acknowledge): pause status -> the flags
         # they type with --resume-paused. Each pause is acknowledged at most once per drive (``acknowledged``).
@@ -545,7 +545,8 @@ class Driver:
             view = self.view() if pending_view is None else pending_view
             pending_view = None
             need = view["needs"]
-            self.last_next_stage = view.get("next_stage")
+            attempts = ((view.get("usage") or {}).get("accounting") or {}).get("attempts") or []
+            self.last_stages = [row["stage"] for row in attempts if isinstance(row, dict) and row.get("stage")]
             self.assert_needs_command_accepted(view)
             if view["done"] or need is None:
                 return view  # A no-action failed/blocked outcome is not completion.
@@ -709,7 +710,7 @@ class Driver:
                             {
                                 "options": question.get("options"),
                                 "proposed_default": question.get("proposed_default"),
-                                "next_stage": self.last_next_stage,
+                                "stages_before_answer": list(self.last_stages),
                             }
                             if self.person
                             else {}

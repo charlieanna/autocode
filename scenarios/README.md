@@ -506,7 +506,7 @@ answers in fake and live runs alike:
 
 - `match` is searched (case-insensitively) in a question's text and `why`; the first entry that
   matches answers it, recorded with `source = "person"`, the options offered, the proposed default and
-  the view's `next_stage` at that moment.
+  `stages_before_answer` (the stages run so far when the question was asked).
 - A question with options takes one of its own labels (docs/task-run.md, needs `answer`): the first
   label `choose` finds, or `answer` when it is itself a label. When none fits, the driver gives the
   default as before rather than text the CLI would refuse.
