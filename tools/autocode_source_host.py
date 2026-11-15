@@ -36,6 +36,7 @@ ANSWER_SECONDS = 120.0
 # Environment that can change what `git ls-files`, `git rev-parse` and backend/config lookups report.
 GIT_ENV = ("HOME", "PATH", "XDG_CONFIG_HOME")
 _CODE_SUFFIXES = (".py", ".json", ".toml", ".md")
+_CAP_SETPCAP = 1 << 8
 _CAP_MASK = (1 << 19) | (1 << 21)  # Linux CAP_SYS_PTRACE | CAP_SYS_ADMIN
 _STATUS_BOOL_FLAGS = frozenset({"--status", "--explain", "--json", "--summary", "--inspect-evidence"})
 _STATUS_VALUE_FLAGS = ("--workspace", "--run-dir")
@@ -249,12 +250,18 @@ def _needs_capability_reexec() -> bool:
         return False
     try:
         with open("/proc/self/status", encoding="ascii") as status_file:
-            for line in status_file.read(65537).splitlines():
-                if line.startswith("CapBnd:"):
-                    return bool(int(line.partition(":")[2].strip(), 16) & _CAP_MASK)
+            lines = status_file.read(65537).splitlines()
+        sets = {}
+        for field in ("CapBnd", "CapPrm", "CapEff"):
+            values = [line.partition(":")[2].strip() for line in lines if line.startswith(field + ":")]
+            if len(values) != 1:
+                return False
+            sets[field] = int(values[0], 16)
     except (OSError, ValueError):
         return False
-    return False
+    if (sets["CapEff"] | sets["CapPrm"]) & _CAP_MASK:
+        return True
+    return bool((sets["CapBnd"] & _CAP_MASK) and (sets["CapEff"] & _CAP_SETPCAP))
 
 
 def cli_fast_path(argv: list[str] | tuple[str, ...] | None = None) -> int | None:

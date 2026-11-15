@@ -106,6 +106,45 @@ class SourceHostTests(unittest.TestCase):
                 self.assertNotEqual(same, REAL_SOCKET_PATH({**base, **changed}))
         self.assertEqual(0o700, same.parent.stat().st_mode & 0o777 if same.parent.exists() else 0o700)
 
+    def test_linux_capability_reexec_only_defers_when_privileges_are_held_or_droppable(self):
+        unprivileged_ubuntu = (
+            "Name:\tpython\nCapBnd:\t000001ffffffffff\nCapPrm:\t0000000000000000\nCapEff:\t0000000000000000\n"
+        )
+        privileged_root = (
+            "Name:\tpython\nCapBnd:\t000001ffffffffff\nCapPrm:\t000001ffffffffff\nCapEff:\t000001ffffffffff\n"
+        )
+        setpcap_only = (
+            "Name:\tpython\nCapBnd:\t000001ffffffffff\nCapPrm:\t0000000000000100\nCapEff:\t0000000000000100\n"
+        )
+        permitted_ptrace = (
+            "Name:\tpython\nCapBnd:\t0000000000000000\nCapPrm:\t0000000000080000\nCapEff:\t0000000000000000\n"
+        )
+        with (
+            mock.patch.object(host.sys, "platform", "linux"),
+            mock.patch.dict(os.environ, {}, clear=True),
+        ):
+            with mock.patch("builtins.open", mock.mock_open(read_data=unprivileged_ubuntu)):
+                self.assertFalse(host._needs_capability_reexec())
+            with mock.patch("builtins.open", mock.mock_open(read_data=privileged_root)):
+                self.assertTrue(host._needs_capability_reexec())
+            with mock.patch("builtins.open", mock.mock_open(read_data=setpcap_only)):
+                self.assertTrue(host._needs_capability_reexec())
+            with mock.patch("builtins.open", mock.mock_open(read_data=permitted_ptrace)):
+                self.assertTrue(host._needs_capability_reexec())
+            with mock.patch("builtins.open", mock.mock_open(read_data="CapBnd:\t0\n")):
+                self.assertFalse(host._needs_capability_reexec())
+            with mock.patch("builtins.open", side_effect=OSError("no proc")):
+                self.assertFalse(host._needs_capability_reexec())
+            with mock.patch.dict(os.environ, {"_AUTOCODE_CAPABILITY_REEXEC": "1"}):
+                self.assertTrue(host._needs_capability_reexec())
+            with (
+                mock.patch.dict(os.environ, {"AUTOCODE_NO_CAPABILITY_DROP": "1"}),
+                mock.patch("builtins.open", mock.mock_open(read_data=privileged_root)),
+            ):
+                self.assertFalse(host._needs_capability_reexec())
+        with mock.patch.object(host.sys, "platform", "darwin"):
+            self.assertFalse(host._needs_capability_reexec())
+
 
 @unittest.skipIf(os.name == "nt", "warm CLI host uses POSIX Unix-domain sockets")
 class WarmCliHostTests(unittest.TestCase):
