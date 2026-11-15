@@ -681,7 +681,9 @@ class VisualCheckTests(unittest.TestCase):
                         "gpt-6-astra",
                     ),
                     env=env,
-                    timeout=90,
+                    # This is the test driver's watchdog, not a run limit;
+                    # full subprocess coverage can make local proofs slower.
+                    timeout=900,
                 )
                 view = run.advance_until_input()
                 self.assertEqual("approve_plan", view["needs"]["kind"], view)

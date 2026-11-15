@@ -23,6 +23,7 @@ def binding(state: RunState, stage: str) -> dict:
         return {
             "execution_context": util.digest(
                 {
+                    "runtime_sources": util.runtime_source_digest(),
                     "task": state.get("task"),
                     "current_task": state.get("current_task"),
                     "contract": {key: contract.get(key) for key in ("revision", "hash")},
@@ -37,6 +38,7 @@ def binding(state: RunState, stage: str) -> dict:
     return {
         "planning_context": util.digest(
             {
+                "runtime_sources": util.runtime_source_digest(),
                 "task": state.get("task"),
                 "contract": {key: contract.get(key) for key in ("revision", "hash", "body")},
                 "current_task": state.get("current_task"),

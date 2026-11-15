@@ -138,6 +138,20 @@ class ScrubTests(unittest.TestCase):
         self.assertNotIn("GH_TOKEN", environment)
         self.assertEqual("/usr/bin", environment["PATH"])
 
+    def test_git_repository_variables_are_withheld_without_secret_redaction_or_auth_hint(self):
+        import autocode_provider_env as provider_env
+        import autocode_util as util
+
+        env = {"PATH": "/usr/bin", **{name: "/repo/.git" for name in util.GIT_REPOSITORY_VARIABLES}}
+        env[agent_env.PASS_VARIABLE] = ",".join(util.GIT_REPOSITORY_VARIABLES)
+        for name in util.GIT_REPOSITORY_VARIABLES:
+            self.assertFalse(agent_env.is_secret(name, "/repo/.git"))
+        self.assertEqual(sorted(util.GIT_REPOSITORY_VARIABLES), agent_env.withheld(env))
+        self.assertEqual(
+            {"PATH": "/usr/bin", agent_env.PASS_VARIABLE: env[agent_env.PASS_VARIABLE]}, agent_env.scrubbed(env)
+        )
+        self.assertEqual("", provider_env.withheld_hint(list(util.GIT_REPOSITORY_VARIABLES)))
+
 
 class ProviderEnvironmentTests(unittest.TestCase):
     """A real CLI run: the provider process never receives the withheld variables."""

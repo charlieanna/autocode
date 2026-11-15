@@ -16,15 +16,17 @@ import subprocess
 from pathlib import Path
 
 try:
+    from . import autocode_util as util
     from . import autocode_workspaces as workspaces
     from . import autocode_worktrees as worktrees
 except ImportError:
+    import autocode_util as util
     import autocode_workspaces as workspaces
     import autocode_worktrees as worktrees
 
 
 def _git(root, *args, check=True):
-    result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+    result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, env=util.git_environment())
     if check and result.returncode:
         raise ValueError(result.stderr.strip() or f"git {' '.join(args)} failed")
     return result.stdout.strip()
@@ -33,7 +35,10 @@ def _git(root, *args, check=True):
 def _is_ancestor(root, commit, tip) -> bool:
     """git merge-base --is-ancestor answers on its exit code and prints nothing (#2315)."""
     result = subprocess.run(
-        ["git", "-C", str(root), "merge-base", "--is-ancestor", commit, tip], capture_output=True, text=True
+        ["git", "-C", str(root), "merge-base", "--is-ancestor", commit, tip],
+        capture_output=True,
+        text=True,
+        env=util.git_environment(),
     )
     return result.returncode == 0
 

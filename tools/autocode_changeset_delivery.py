@@ -52,7 +52,9 @@ class DeliveryRefused(Exception):
 
 
 def _git(workspace, *args) -> bytes:
-    return subprocess.run(["git", "-C", str(workspace), *args], capture_output=True, check=False).stdout
+    return subprocess.run(
+        ["git", "-C", str(workspace), *args], capture_output=True, check=False, env=util.git_environment()
+    ).stdout
 
 
 def workspace_fingerprint(workspace) -> str:

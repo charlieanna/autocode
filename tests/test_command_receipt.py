@@ -240,6 +240,19 @@ class CommandReceiptTests(unittest.TestCase):
         linked_root = directory / nested.name
         metadata = {**self.metadata, "receipt": str(linked_root / self.path.name)}
         self.assertIsNone(policy.load(metadata, root=linked_root))
+        self.assertEqual((nested, Path(self.path.name)), policy.owned_relative(linked_root / self.path.name, nested))
+        self.assertEqual((nested, Path(self.path.name)), policy.owned_relative(nested / self.path.name, linked_root))
+        for invalid_path, invalid_root in (
+            ("relative.json", nested),
+            (nested / self.path.name, "relative-root"),
+            (f"{nested}/../nested/{self.path.name}", nested),
+            (nested / self.path.name, f"{self.root}/../{self.root.name}/nested"),
+            (nested, nested),
+            (self.path, nested),
+            (nested / self.path.name, directory),
+        ):
+            with self.subTest(path=invalid_path, root=invalid_root):
+                self.assertIsNone(policy.owned_relative(invalid_path, invalid_root))
 
 
 if __name__ == "__main__":

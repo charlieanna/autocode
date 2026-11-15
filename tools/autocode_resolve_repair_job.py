@@ -23,6 +23,7 @@ try:
     from . import autocode_builder_policy as builder_policy
     from . import autocode_draft_assignment as draft_assignment
     from . import autocode_goals as goals
+    from . import autocode_plan_revision_reference as revision_reference
     from . import autocode_planning_calls as planning_calls
     from . import autocode_progressive_state as progressive
     from . import autocode_prompts as prompts
@@ -43,6 +44,7 @@ except ImportError:
     import autocode_builder_policy as builder_policy
     import autocode_draft_assignment as draft_assignment
     import autocode_goals as goals
+    import autocode_plan_revision_reference as revision_reference
     import autocode_planning_calls as planning_calls
     import autocode_progressive_state as progressive
     import autocode_prompts as prompts
@@ -685,6 +687,11 @@ def _apply_repair_report(
         else {}
     )
     repaired_value = _parse_repaired_report(value.get("repaired_report_json", ""), pending, original, schema)
+    if original.get("stage") == "revise_plan":
+        # Ordinary stage loading decodes schema-offered null no-ops before
+        # expanding the saved revision. Apply the same pinned rule to Resolver
+        # repairs; the Resolver's own report retains its original bytes.
+        repaired_value = revision_reference.normalize_nullable_reference(repaired_value, schema)
     runtime_support = getattr(runtime, "support", support)
     file_hash_fn = getattr(runtime_support, "file_hash", util.file_hash)
     snap_fn = getattr(runtime_support, "snapshot", support.snapshot)

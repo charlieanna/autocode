@@ -25,9 +25,11 @@ from typing import TYPE_CHECKING
 
 try:
     from . import autocode_command_guards as command_guards
+    from . import autocode_command_looks as command_looks
     from . import autocode_named_reporters as reporters
     from . import autocode_native_test_names as native_test_names
     from . import autocode_package_scope as package_scope
+    from . import autocode_plan_command_roles as plan_roles
     from . import autocode_project_kinds as project_kinds
     from . import autocode_rust_inline_tests as rust_inline_tests
     from . import autocode_test_cases as test_cases
@@ -35,9 +37,11 @@ try:
     from . import autocode_verify as verify
 except ImportError:
     import autocode_command_guards as command_guards
+    import autocode_command_looks as command_looks
     import autocode_named_reporters as reporters
     import autocode_native_test_names as native_test_names
     import autocode_package_scope as package_scope
+    import autocode_plan_command_roles as plan_roles
     import autocode_project_kinds as project_kinds
     import autocode_rust_inline_tests as rust_inline_tests
     import autocode_test_cases as test_cases
@@ -197,6 +201,117 @@ def untested_code(workspace, body) -> str | None:
     )
 
 
+def _to_look_at(workspace, body) -> dict[str, str]:
+    """The code files of the workspace a look for tests tries for this plan, in order: the ones the plan
+    names, then the ones beside a file the plan adds or in a directory it names (a new check goes where
+    the checks are)."""
+    root, found = Path(workspace), []
+    for path in _planned(body):
+        file = root / path
+        if file.is_file():
+            found.append(path)
+        else:
+            folder = file if file.is_dir() else file.parent
+            beside = sorted(child for child in folder.iterdir() if child.is_file()) if folder.is_dir() else []
+            found += [str(child.relative_to(root)) for child in beside]
+    code = [path for path in dict.fromkeys(found) if verify.is_code_path(path) and not (root / path).is_symlink()]
+    return dict.fromkeys(code, plan_roles.ORIGINAL)
+
+
+def seen_to_run_tests(state: RunState, workspace, body, commands) -> dict[str, str]:
+    """{command: file}: the ``commands`` of this plan seen to run a file of the project as a test is run,
+    among the files the plan is about (``_to_look_at``), with the first such file. The command passes on
+    the code as it is, fails when the file cannot be loaded and passes when it is empty
+    (autocode_plan_command_roles.leaves): it runs the file, and nothing else needs it. A project that
+    keeps its checks in ``checks/`` and runs them with ``ruby run_checks.rb`` has tests, whatever
+    ``untested_code`` reads from its paths.
+
+    That is as true of a program's own entry file as of a test, so it never makes a file a test by
+    itself: it checks what a plan says (a command guard), or tells the Planner what it may say. Looked at
+    only in a run that has a place to look in. A replay runs nothing: it reads what the recording's proof
+    found."""
+    try:
+        from . import autocode_replay_checks as recorded_checks
+    except ImportError:
+        import autocode_replay_checks as recorded_checks
+    if recorded_checks.simulated(state.get("settings") or {}):
+        recorded = recorded_checks.kept(state, "plan_command_roles") or {}
+        runs = recorded.get("runs_tests") or []
+        runs = [*runs, recorded.get("tests_command")]
+        return {command: str(recorded.get("existing_test") or "") for command in commands if command in runs}
+    run_dir, base = state.get("run_dir"), state.get("base_commit")
+    files = _to_look_at(workspace, body)
+    # The drafted plan's commands, read as an approved plan's are: a look is no approval.
+    runnable = plan_roles.candidates({"body": body, "approval_status": "approved"}, workspace)
+    wanted = [command for command in runnable if command in set(commands)][: plan_roles.MAX_COMMANDS]
+    if not (run_dir and base and files and wanted):
+        return {}
+    look = command_looks.looker(state, workspace, run_dir, base, lambda *_, **__: None, limit=plan_roles.RUN_SECONDS)
+    probe = lambda command, path, how, where: look(  # noqa: E731
+        command, how, {}, {path: plan_roles.UNLOADABLE if how == plan_roles.UNLOADED else ""}, strict=True
+    )
+    found = {}
+    for command in wanted:
+        if look(command, plan_roles.ORIGINAL, {}, {}) != 0:
+            continue
+        for path in list(files)[: plan_roles.MAX_FILES]:
+            if plan_roles.leaves(command, {path: plan_roles.ORIGINAL}, probe):
+                found[command] = path
+                break
+    return found
+
+
+def _how_to_say_so(state: RunState, workspace, body) -> str:
+    """What the Planner is told with ``untested_code`` when one of the plan's commands is seen to run a
+    file the plan is about as a test is run: how the plan says that this is the project's test command.
+    AutoCode does not decide it from the look alone (``seen_to_run_tests``)."""
+    try:
+        from . import autocode_replay_checks as recorded_checks
+    except ImportError:
+        import autocode_replay_checks as recorded_checks
+    if recorded_checks.simulated(state.get("settings") or {}):
+        return ""
+    commands = plan_roles.candidates({"body": body, "approval_status": "approved"}, workspace)
+    seen = seen_to_run_tests(state, workspace, body, commands)
+    if not seen:
+        return ""
+    command, path = next(iter(seen.items()))
+    return (
+        f". No rule says where this project's tests are, but `{command}` runs {path} as a test is run: it passes "
+        f"on the code as it is, fails when {path} cannot be loaded and passes when {path} is empty. If `{command}` "
+        "is the command this project runs its tests with, say so and put the change's check where it runs: write "
+        f'the criterion the new check shows as "run `{command}`: it fails on the original code and passes with the '
+        'fix", and name the file that gets the new check in the affected_paths of the milestone that changes the '
+        "code. If that command runs the program itself, it is no test: plan a new test file"
+    )
+
+
+def _guard_problem(state: RunState, workspace, body, framework) -> str | None:
+    """Why the plan's command guards could never be proven, or None (autocode_command_guards.problem).
+    Where no rule names a test of this project, a guard's command is usable when it is seen to run one
+    (``seen_to_run_tests``): the plan says it is the test command, and the look checks that."""
+    guards = command_guards.plan_guards(body)
+    judge = lambda observed=(): command_guards.problem(  # noqa: E731
+        guards,
+        framework,
+        _test_paths(workspace),
+        per_test=reporters.suite_reports(framework, workspace),
+        is_test=project_kinds.test_rule(_workspace_files(workspace)),
+        observed=observed,
+    )
+    unusable = judge()
+    if not unusable or framework is not None:
+        return unusable
+    seen = seen_to_run_tests(state, workspace, body, [guard["command"] for guard in guards])
+    unusable = judge(tuple(seen))
+    return unusable and (
+        f"{unusable}. No rule names a test file in this project, so AutoCode ran each guard's command to see "
+        "whether it runs one: the command must pass on the code as it is, fail when a file this plan names (or "
+        "one beside a file it adds) cannot be loaded, and pass when that file is empty. Name the file that "
+        "gets the change's check in the affected_paths of the milestone that changes the code"
+    )
+
+
 def _workspace_files(workspace) -> list[str]:
     listed = subprocess.run(
         ["git", "-C", str(workspace), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
@@ -243,17 +358,14 @@ def check(state: RunState, body, *, origin=None) -> None:
     if unnamed := unnamed_cases(workspace, framework, tests, body, detect):
         raise ValueError(unnamed)
     # A guard that is a command runs tests the project already has, where no runner names them.
-    if unusable := command_guards.problem(
-        command_guards.plan_guards(body),
-        framework,
-        _test_paths(workspace),
-        per_test=reporters.suite_reports(framework, workspace),
-        is_test=project_kinds.test_rule(_workspace_files(workspace)),
-    ):
+    if unusable := _guard_problem(state, workspace, body, framework):
         raise ValueError(unusable)
     builds = (state.get("workflow") or {}).get("kind") in (None, "build", "bugfix")
-    if builds and (untested := untested_code(workspace, body)):
-        raise ValueError(untested)
+    # No path rule finds a test here. A plan that says which command runs the project's tests, where that
+    # command is seen to run a file the plan is about as a test is run, has planned its test.
+    untested = untested_code(workspace, body) if builds else None
+    if untested and not seen_to_run_tests(state, workspace, body, plan_roles.declared(body, workspace)):
+        raise ValueError(untested + _how_to_say_so(state, workspace, body))
     if not tests:
         return
     unrun = problems(workspace, framework, tests, detect, scoped=package_scope.of(settings) is not None)

@@ -31,6 +31,7 @@ try:
     from . import autocode_rewording_question as rewording
     from . import autocode_run_status as run_status
     from . import autocode_support as support
+    from . import autocode_util as util
     from .autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
 except ImportError:
     import autocode_member_stop as member_stop
@@ -42,6 +43,7 @@ except ImportError:
     import autocode_rewording_question as rewording
     import autocode_run_status as run_status
     import autocode_support as support
+    import autocode_util as util
     from autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
 
 
@@ -98,9 +100,7 @@ def _binding(state: RunState):
     binding = {
         # A repaired runner changes the cause even when task source is unchanged.
         # Expire the old response hold; ordinary approval/admission checks still run.
-        "runtime_sources": support.digest(
-            {str(path.relative_to(runtime)): support.file_hash(path) for path in sorted(runtime.rglob("*.py"))}
-        ),
+        "runtime_sources": util.runtime_source_digest(runtime),
         "task_id": state.get("task_id"),
         "workspace": state.get("workspace"),
         "run_dir": state.get("run_dir"),

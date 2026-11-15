@@ -28,6 +28,7 @@ except ImportError:
 
 import copy
 import json
+import os
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -1592,7 +1593,10 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
             instruction, response_schema if response_schema is not None else _requirements_model_schema(state)
         )
     full_packet_bytes = len(json.dumps(packet, indent=2).encode("utf-8"))
-    if state_path is not None and Path(state_path).parent.is_dir():
+    state_file = Path(state_path) if state_path is not None else None
+    if state_file is not None and (
+        state_file.exists() or (state_file.parent.is_dir() and os.access(state_file.parent, os.W_OK))
+    ):
         packet, externalized, budgeted_fields = autocode_context.compact_with_metrics(packet, state_path, stage=stage)
     else:
         externalized, budgeted_fields = [], []

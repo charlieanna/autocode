@@ -249,6 +249,8 @@ class PersistentHost(unittest.TestCase):
 
         def terminal():
             os.setsid()
+            if hasattr(signal, "SIGHUP"):
+                signal.signal(signal.SIGHUP, signal.SIG_DFL)
             fcntl.ioctl(0, termios.TIOCSCTTY, 0)
 
         child = subprocess.Popen(

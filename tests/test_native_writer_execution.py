@@ -29,6 +29,10 @@ import autocode_visual_protection as protection
 
 import tests.test_native_writer as original_fixture
 
+# This is a test-process watchdog, not the product's stage limit. Source
+# sealing can be much slower on a loaded, instrumented Linux runner.
+LAUNCH_TIMEOUT = 120
+
 
 class FirstWriterCallerControls(unittest.TestCase):
     setUp = original_fixture.FirstWriterAuthorityTests.setUp
@@ -218,9 +222,9 @@ class OriginalWriterTransportControls(unittest.TestCase):
             environment=self.environment,
             options=options,
             receipt_path=self.run / "supervision.json",
-            timeout=15,
+            timeout=LAUNCH_TIMEOUT,
         ) as (child, on_root):
-            code, expired = processes.wait_for_stage(child, 15, lambda _: None, on_root=on_root)
+            code, expired = processes.wait_for_stage(child, LAUNCH_TIMEOUT, lambda _: None, on_root=on_root)
         self.assertEqual((0, False), (code, expired))
         self.assertFalse(processes.live_processes([child.supervision["provider"]]))
         if change:
@@ -311,9 +315,9 @@ class OriginalWriterTransportControls(unittest.TestCase):
                 environment=self.environment,
                 options=options,
                 receipt_path=self.run / "supervision.json",
-                timeout=15,
+                timeout=LAUNCH_TIMEOUT,
             ) as (child, on_root):
-                processes.wait_for_stage(child, 15, lambda _: None, on_root=on_root)
+                processes.wait_for_stage(child, LAUNCH_TIMEOUT, lambda _: None, on_root=on_root)
         self.assertIsNotNone(child.returncode)
         self.assertFalse(processes.live_processes([child.supervision["provider"]]))
         self.assertEqual("selected ignored source\n", (self.root / "ignored.txt").read_text())
@@ -404,9 +408,9 @@ class FinalWriterSealControls(unittest.TestCase):
                 environment=self.environment,
                 options=options,
                 receipt_path=self.run / "supervision.json",
-                timeout=15,
+                timeout=LAUNCH_TIMEOUT,
             ) as (child, on_root):
-                processes.wait_for_stage(child, 15, lambda _: None, on_root=on_root)
+                processes.wait_for_stage(child, LAUNCH_TIMEOUT, lambda _: None, on_root=on_root)
         self.assertEqual([True], entered, "an earlier refusal cannot stand in for the final seal guard")
         self.assertIsNotNone(child.returncode)
         self.assertFalse(processes.live_processes([child.supervision["provider"]]))

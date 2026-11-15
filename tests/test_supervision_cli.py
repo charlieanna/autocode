@@ -19,7 +19,17 @@ from unittest.mock import patch
 import autocode_process as processes
 import autocode_supervision_cli as bridge
 
+from tests.test_subprocess import compiled_tools
+
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
+
+
+def pty_session_launcher():
+    return (
+        "import fcntl,os,signal,sys,termios; os.setsid(); "
+        "signal.signal(signal.SIGHUP,signal.SIG_DFL); "
+        "fcntl.ioctl(0,termios.TIOCSCTTY,0); os.execv(sys.argv[1],sys.argv[1:])"
+    )
 
 
 class DeclarationTests(unittest.TestCase):
@@ -192,6 +202,78 @@ class DeclarationTests(unittest.TestCase):
         finally:
             signal.signal(signal.SIGHUP, old)
 
+    @unittest.skipUnless(hasattr(signal, "SIGHUP"), "POSIX SIGHUP")
+    def test_non_interactive_ignored_hangup_normalizes_suite_and_pty_without_changing_nohup(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        nohup_probe = (
+            "import os, signal, autocode_process as processes; "
+            "assert signal.getsignal(signal.SIGHUP) == signal.SIG_IGN; "
+            "ctx = processes.interruption_handler(); ctx.__enter__(); "
+            "assert signal.getsignal(signal.SIGHUP) == signal.SIG_IGN; "
+            "os.kill(os.getpid(), signal.SIGHUP); "
+            "ctx.__exit__(None, None, None)"
+        )
+        nohup = subprocess.run(
+            [sys.executable, "-c", nohup_probe],
+            cwd=repo_root,
+            env={**os.environ, "PYTHONPATH": str(TOOLS)},
+            preexec_fn=lambda: signal.signal(signal.SIGHUP, signal.SIG_IGN),
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        self.assertEqual(0, nohup.returncode, nohup.stderr)
+
+        pty_target = (
+            "import os, sys, autocode_process as processes\n"
+            "ready_fd = int(sys.argv[1])\n"
+            "try:\n"
+            "    with processes.interruption_handler():\n"
+            "        os.write(ready_fd, b'R')\n"
+            "        os.close(ready_fd)\n"
+            "        while True:\n"
+            "            os.read(0, 1)\n"
+            "except KeyboardInterrupt as exc:\n"
+            "    raise SystemExit(2 if str(exc) == 'SIGHUP' else 3)\n"
+        )
+        suite_probe = (
+            "import os, pty, signal, subprocess, sys\n"
+            "import tests\n"
+            "from tests.test_supervision_cli import pty_session_launcher\n"
+            "assert signal.getsignal(signal.SIGHUP) == signal.SIG_DFL, signal.getsignal(signal.SIGHUP)\n"
+            "signal.signal(signal.SIGHUP, signal.SIG_IGN)\n"
+            "master, slave = pty.openpty()\n"
+            "ready_r, ready_w = os.pipe()\n"
+            "child = subprocess.Popen(\n"
+            "    [sys.executable, '-c', pty_session_launcher(), sys.executable, '-c', sys.argv[1], str(ready_w)],\n"
+            "    stdin=slave, stdout=slave, stderr=slave, pass_fds=(ready_w,),\n"
+            ")\n"
+            "os.close(slave)\n"
+            "os.close(ready_w)\n"
+            "try:\n"
+            "    assert os.read(ready_r, 1) == b'R'\n"
+            "    os.close(master)\n"
+            "    master = None\n"
+            "    assert child.wait(timeout=5) == 2, child.returncode\n"
+            "finally:\n"
+            "    os.close(ready_r)\n"
+            "    if master is not None:\n"
+            "        os.close(master)\n"
+            "    if child.poll() is None:\n"
+            "        child.kill()\n"
+            "        child.wait(timeout=5)\n"
+        )
+        normalized = subprocess.run(
+            [sys.executable, "-c", suite_probe, pty_target],
+            cwd=repo_root,
+            env={**os.environ, "PYTHONPATH": os.pathsep.join((str(repo_root), str(TOOLS)))},
+            preexec_fn=lambda: signal.signal(signal.SIGHUP, signal.SIG_IGN),
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        self.assertEqual(0, normalized.returncode, normalized.stderr)
+
 
 @unittest.skipUnless(os.name == "posix", "POSIX owner/session fault controls")
 class KillWindowCLI(unittest.TestCase):
@@ -264,6 +346,8 @@ with bridge.guard(sys.argv[1:]) as argv:
 @unittest.skipUnless(os.name == "posix", "POSIX owner/session fault controls")
 class SupervisorLossCLI(unittest.TestCase):
     def setUp(self):
+        if hasattr(signal, "SIGHUP") and signal.getsignal(signal.SIGHUP) == signal.SIG_IGN:
+            self.addCleanup(signal.signal, signal.SIGHUP, signal.signal(signal.SIGHUP, signal.SIG_DFL))
         temp = tempfile.TemporaryDirectory(prefix="ac454-", dir="/tmp")
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name).resolve()
@@ -322,7 +406,7 @@ raise SystemExit(0)
         self.listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.listener.bind(self.address)
         self.listener.listen(1)
-        self.listener.settimeout(25)
+        self.listener.settimeout(60)
         self.addCleanup(self.listener.close)
         self.launches = self.root / "launches"
         self.env = {
@@ -332,6 +416,7 @@ raise SystemExit(0)
             "CODEX_HOME": str(self.root / "codex-home"),
             "XDG_CONFIG_HOME": str(self.root / "config"),
             "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONPYCACHEPREFIX": str(compiled_tools()),
             "AUTOCODE_FIXTURE_SUPERVISION_SOCKET": self.address,
             "AUTOCODE_FIXTURE_SUPERVISION_LAUNCHES": str(self.launches),
         }
@@ -374,7 +459,7 @@ raise SystemExit(0)
             env=self.env,
             capture_output=True,
             text=True,
-            timeout=25,
+            timeout=60,
         )
 
     def fault(self, kind):
@@ -384,10 +469,7 @@ raise SystemExit(0)
             master, slave = pty.openpty()
             # Establish a controlling terminal before exec, rather than merely
             # attaching a non-controlling PTY to an already detached session.
-            launcher = (
-                "import fcntl,os,sys,termios; os.setsid(); "
-                "fcntl.ioctl(0,termios.TIOCSCTTY,0); os.execv(sys.argv[1],sys.argv[1:])"
-            )
+            launcher = pty_session_launcher()
             child = subprocess.Popen(
                 [sys.executable, "-c", launcher, *self.command], env=self.env, stdin=slave, stdout=slave, stderr=slave
             )
