@@ -104,6 +104,14 @@ class AcceptanceArchiveOrderTests(unittest.TestCase):
         self.install((("a", self.new), ("z", self.old)))
         self.assertEqual(self.new["files"], acceptance.protected(self.state))
 
+    def test_a_stage_without_an_output_does_not_order_a_legacy_receipt(self):
+        self.new["contract_hash"] = "h1"
+        self.old.pop("output")
+        self.state["stages"].append({"stage": "local bookkeeping"})
+        self.install((("a", self.new), ("z", self.old)))
+        self.assertEqual(self.new["files"], acceptance.protected(self.state))
+        self.assertEqual("a-newer.json", acceptance.view(self.state)["output"])
+
     def test_unrelated_legacy_history_entries_do_not_break_file_custody(self):
         self.state["contract_history"][:0] = [None, {}]
         self.install((("a", self.new), ("z", self.old)))

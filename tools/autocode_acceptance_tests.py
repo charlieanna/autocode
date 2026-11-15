@@ -129,7 +129,7 @@ def _ordered_receipts(state: RunState, rows) -> list[dict]:
         for row in [*(state.get("contract_history") or []), contract]
         if isinstance(row, dict) and type(row.get("revision")) is int
     }
-    stages = {row.get("output"): index for index, row in enumerate(state.get("stages") or [])}
+    stages = {row["output"]: index for index, row in enumerate(state.get("stages") or []) if row.get("output")}
     return sorted(
         rows,
         key=lambda row: (
