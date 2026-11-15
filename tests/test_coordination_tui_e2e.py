@@ -651,21 +651,12 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
         self.env["COORDINATION_FIXTURE_MEMBER_CONTEXT"] = "1"
         self.env["COORDINATION_FIXTURE_MEMBER_ROLE_LABEL"] = "stuck"
         history = chat.History(self.intake, env=self.env)
-        captured = {}
+        questions = []
 
         def decide(question):
             if "Approve these coordinated plans?" in question:
                 return "yes"
-            # Diagnose the public gate before answering it, while the member's own
-            # stop reason is still the displayed one.
-            client = captured.get("client")
-            if client and "stop" not in captured:
-                summary = coordination.read(client, client.status())
-                tax = next((row for row in summary["members"] if row["target"] == "tax"), None)
-                if tax and tax["status"] != "STARTING":
-                    run = taskrun.TaskRun(Path(tax["workspace"]), Path(tax["run_dir"]), env=self.env)
-                    captured["stop"] = run.status().get("needs") or {}
-                    captured["shown"] = "\n".join(self.lines[-8:])
+            questions.append(question)
             return "n"
 
         with patch.dict(os.environ, self.env, clear=True):
@@ -681,7 +672,6 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             )
             self.addCleanup(client.close)
             client.history = history
-            captured["client"] = client
             for _ in range(200):
                 outcome = client.step()
                 if outcome is not None:
@@ -692,19 +682,19 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             # The publicly shown stop is the refused report's own bounded failure:
             # the configured two repair attempts both rejected the same labels, no
             # publication, no repository-choice or /repos prompt.
-            stop = captured["stop"]
-            self.assertIn("The same step repeatedly failed", captured["shown"])
-            self.assertEqual("answer", stop.get("kind"), captured["shown"])
-            self.assertEqual(
-                ("operational_exhaustion", "PAUSED_REPEATED_FAILURE"),
-                (stop.get("resolver_scope"), stop.get("pause_origin")),
-                captured["shown"],
-            )
             summary = coordination.read(client, client.status())
             tax = next(row for row in summary["members"] if row["target"] == "tax")
-            self.assertIn("PAUSED", tax["status"])
-            self.assertEqual(("input", "tax"), (summary["needs"]["kind"], summary["needs"].get("target")))
+            self.assertEqual("blocked", summary["needs"]["kind"])
+            self.assertIn("tax", summary["needs"]["reason"])
+            self.assertEqual([], questions, "an internal recovery must not ask the person to decide")
             view = taskrun.TaskRun(Path(tax["workspace"]), Path(tax["run_dir"]), env=self.env).status()
+            self.assertFalse(view["done"])
+            self.assertEqual("blocked", view["recovery"]["category"])
+            self.assertIsNone(view["chat"]["input"])
+            self.assertEqual(
+                ("operational_exhaustion", "PAUSED_REPEATED_FAILURE"),
+                (view["needs"].get("resolver_scope"), view["needs"].get("pause_origin")),
+            )
             self.assertEqual(
                 [], (view.get("scope") or {}).get("external_parts", []), "No ungrounded scope was persisted"
             )

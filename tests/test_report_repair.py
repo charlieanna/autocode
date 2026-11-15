@@ -27,6 +27,22 @@ runner, support = base.runner, base.s
 class RepairTests(unittest.TestCase):
     setUp = base.RetrofitTest.setUp
 
+    def test_stage_less_legacy_record_keeps_repair_without_fabricating_a_handoff(self):
+        self.state["settings"]["report_repair"] = {"max_attempts": 2}
+        record = self.stage_record()
+        record.pop("stage")
+        self.assertTrue(
+            runner.report_repair_queue.queue(self.state, record, ValueError("invalid"), completed=lambda: True)
+        )
+        pending = self.state["pending_report_repair"]
+        self.assertIsNone(pending["revalidation_context"])
+        self.state["next_stage"] = None
+        pending["validation_runtime"] = "earlier runtime"
+        with patch.object(runner, "load_stage_report") as load:
+            self.assertFalse(runner.report_revalidation.revalidate(runner, self.state, self.run, self.root))
+        load.assert_not_called()
+        self.assertEqual(record, pending["original"])
+
     def test_runtime_change_revalidates_pinned_rejected_report_without_a_new_provider_call(self):
         pending = self.queue(report='{"summary":"saved"}')
         pending["validation_runtime"] = "earlier runtime"
