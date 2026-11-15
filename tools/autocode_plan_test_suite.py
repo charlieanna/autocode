@@ -25,23 +25,23 @@ from typing import TYPE_CHECKING
 
 try:
     from . import autocode_command_guards as command_guards
-    from . import autocode_companion_suites as companion_suites
     from . import autocode_named_reporters as reporters
     from . import autocode_native_test_names as native_test_names
     from . import autocode_package_scope as package_scope
     from . import autocode_project_kinds as project_kinds
     from . import autocode_rust_inline_tests as rust_inline_tests
     from . import autocode_test_cases as test_cases
+    from . import autocode_test_homes as test_homes
     from . import autocode_verify as verify
 except ImportError:
     import autocode_command_guards as command_guards
-    import autocode_companion_suites as companion_suites
     import autocode_named_reporters as reporters
     import autocode_native_test_names as native_test_names
     import autocode_package_scope as package_scope
     import autocode_project_kinds as project_kinds
     import autocode_rust_inline_tests as rust_inline_tests
     import autocode_test_cases as test_cases
+    import autocode_test_homes as test_homes
     import autocode_verify as verify
 
 if TYPE_CHECKING:
@@ -91,11 +91,14 @@ def problems(workspace, framework, tests, detect_in, *, scoped=False) -> list[st
 
 
 def _own_suite(workspace, test, detect_in) -> bool:
-    """Whether the project around ``test`` (a directory below the root with its own manifest) has a suite
-    that runs tests of its kind. Judged before the file exists, so by its kind and never by targeting it."""
-    project = companion_suites.project_of(workspace, test)
-    found = package_scope.detect(workspace, project, detect_in) if project != companion_suites.ROOT else None
-    return found is not None and RUNNER_KIND.get(found.name) == kind(test)
+    """Whether a directory around ``test`` has a suite that runs tests of its kind: the places the proof
+    runs a test from when the root's suite does not run it (autocode_test_homes.places), with or without a
+    manifest. Judged before the file exists, so by its kind and never by targeting or running it."""
+    for project in test_homes.places(test):
+        found = package_scope.detect(workspace, project, detect_in)
+        if found is not None and RUNNER_KIND.get(found.name) == kind(test):
+            return True
+    return False
 
 
 def unnamed_cases(workspace, framework, tests, body, detect_in) -> str | None:

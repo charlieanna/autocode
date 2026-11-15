@@ -95,6 +95,7 @@ try:
     from . import autocode_runner_check as runner_check
     from . import autocode_status as status
     from . import autocode_test_cases as test_cases
+    from . import autocode_test_homes as test_homes
     from . import autocode_test_role_inventory as role_inventory
     from . import autocode_util as util
     from . import autocode_verification_schedule as schedule
@@ -132,6 +133,7 @@ except ImportError:
     import autocode_runner_check as runner_check
     import autocode_status as status
     import autocode_test_cases as test_cases
+    import autocode_test_homes as test_homes
     import autocode_test_role_inventory as role_inventory
     import autocode_util as util
     import autocode_verification_schedule as schedule
@@ -167,6 +169,7 @@ SUMMARY_KEYS = (
     "suite_fallback",
     "changed_code_evidence",
     "changed_code_receipts",
+    "test_homes",
 )
 
 
@@ -428,6 +431,27 @@ def proof_dependencies(state: RunState, workspace):
     }
 
 
+def _probe(state: RunState, workspace, run_dir, say):
+    """``probe(suite, command, label)`` for autocode_test_homes.settle: one command on a scratch copy of the
+    changed code, with the run's dependencies and ignored inputs, under the suite's time limit or five
+    minutes. None when the copy cannot be made: the proof then finds the same and says so itself."""
+    run, _identity = launch_inputs.runners(state, workspace, run_dir, verify.scratch_run)
+    out = Path(run_dir).resolve() / "regression" / ("homes-" + uuid.uuid4().hex)
+    limit = min(suite_timeout(state) or test_homes.PROBE_SECONDS, test_homes.PROBE_SECONDS)
+    seen: list[str] = []
+
+    def probe(_suite, command, label):
+        seen.append(label)
+        folder = out / f"{len(seen):02d}"
+        say("Running the changed tests to see where they load", command=command, output=folder)
+        try:
+            return run(workspace, folder, command=command, timeout=limit)
+        except ValueError:
+            return None
+
+    return probe
+
+
 def _settled_key(binding) -> str:
     """The key of a detected baseline's timeout: the command, the original code and the time limit.
 
@@ -596,6 +620,10 @@ def _prove_once(state, workspace, run_dir, current, *, all_due=False):
         options = _with_plan_command(options, adopted)
         command = options.get("test_command")
     unscoped = "package" not in detection and "test_root" not in detection
+    try:
+        from . import autocode_replay_checks as recorded_checks
+    except ImportError:
+        import autocode_replay_checks as recorded_checks
     companions: list = []
     companion_notes: list = []
     guard_suites: list = []
@@ -611,8 +639,21 @@ def _prove_once(state, workspace, run_dir, current, *, all_due=False):
         tests = [path for path, change in changes.items() if roles.is_test(path) and change != "deleted"]
         detect = lambda directory: verify.detect_framework(directory, python=python)  # noqa: E731
         root_framework = framework
-        framework, test_suites, test_notes = companion_suites.test_suites(
-            workspace, root_framework, tests, detect, is_code=verify.is_code_path
+        chosen = companion_suites.test_suites(workspace, root_framework, tests, detect, is_code=verify.is_code_path)
+        # Where the layout rules put a changed test is checked by running it there once: one that does not
+        # load is run from each directory around it, and runs where it loads (autocode_test_homes).
+        runnable = [test for test in tests if verify.is_code_path(test)]
+        if recorded_checks.simulated(state.get("settings")):
+            # A replay runs nothing: it takes the homes the recorded proof kept, and compares the commands.
+            test_homes.restore(state, recorded_checks.test_homes(state))
+        elif test_homes.unsettled(state, chosen, runnable):
+            with runner_check.track(
+                state, run_dir, STAGE, "Finding where the changed tests run", status.persist
+            ) as say:
+                probe = _probe(state, workspace, run_dir, say)
+                test_homes.settle(state, workspace, root_framework, chosen, runnable, detect, probe)
+        framework, test_suites, test_notes = test_homes.place(
+            state, workspace, root_framework, chosen, runnable, detect
         )
         code = [path for path in changes if verify.is_code_path(path) and not roles.is_test(path)]
         # Every original file, changed or not: one whose role cannot be proven stays protected, as in the
@@ -644,10 +685,6 @@ def _prove_once(state, workspace, run_dir, current, *, all_due=False):
             workspace, framework, root_framework, original_tests, _guards_named(workspace, guards, titles), detect
         )
         companion_notes = [*companion_notes, *guard_notes]
-    try:
-        from . import autocode_replay_checks as recorded_checks
-    except ImportError:
-        import autocode_replay_checks as recorded_checks
     if recorded_checks.simulated(state.get("settings")):
         recorded_checks.require_supported(state)
         if reviewed_patch(state, workspace) or operator_patch.pinned(state):
@@ -1397,6 +1434,10 @@ def _proving(
         proved_at=util.now(),
         duration_seconds=round(time.monotonic() - started, 1),
     )
+    if homes := test_homes.moved(state):
+        # Where the changed tests were found to run, kept with the commands it explains: a replay of this
+        # run cannot look for itself (autocode_replay_checks.test_homes).
+        proof["test_homes"] = homes
     if path:
         # A suite-level PASS may still miss a required case. Persist the final
         # decision and coverage while retaining the full executed check receipts.

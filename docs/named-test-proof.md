@@ -759,13 +759,17 @@ below the root, and a Python file anywhere, are left to the role inventory above
 `test/` directory below the root from the Python packages around it. The proof, the original tests a run keeps and the plan check ask the rule of
 the tree they read (`test_rule`); a reader with only a path sees the repository's own top.
 
-A Python project often has no manifest, only `requirements.txt` or a `Pipfile`. Where no directory
-around the changed tests has a manifest, the innermost one that declares its dependencies that way
-is the project whose suite proves them, run from inside it (`cd backend && python3 -m unittest -v
-tests/test_pager.py`; `autocode_package_scope.projects_around`), unless the tests may be meant to
-run from the root: the root declares dependencies or holds pytest's or tox's configuration, the
-directory is a package or is imported by its own name, or it is one of the repository's test
-directories. See [the workflow](workflow.md) for the whole rule.
+The manifests say where the proof first runs a changed test, not where it must run. Many projects
+have none: a backend with only `requirements.txt`, a directory of code and tests that declares
+nothing, a Python directory inside a Node project. The proof runs the changed tests once where the
+rules put them, and a file that does not load there (`collection_errors`, `uncollected` or no test
+at all in the runner's results), or that no suite there runs, is run from each directory around
+it, innermost first, then from the root. It runs from the first place where it loads
+(`cd backend && python3 -m unittest -v tests/test_pager.py`; `autocode_test_homes`), a note says
+which run showed what, and the home is kept for the run as `test_homes` in its state and in the
+proof's receipt. No file name, language or layout is consulted, and nothing about passing changes:
+the test must still fail on the original code and pass with the change, under one command for
+both. See [the workflow](workflow.md) for the whole rule.
 
 The original-test gate runs the command the run bound when it started, the suite of the
 repository's root. Where that is a Python suite, or the root has none, and the changed original
@@ -781,13 +785,20 @@ below it, the gate runs them inside that project with the bound runner
 of the original tests' command) runs where they typed it, and so does a runner that names something
 by where it runs: an environment set before it, an interpreter named by a relative path, a pytest
 option that names a path (`--rootdir`, `-c`, `--ignore`).
-Where the changed test modules are in more than one such project (`api/` and `worker/`), or in
-one and at the root, the gate runs one command for each, inside each project, on the change and
-again with the original tests put back (`cd api && python3 -m unittest -v tests/test_orders.py ;
-cd worker && python3 -m unittest -v tests/test_jobs.py`; `python_parts`). Each must pass: the
-receipt keeps the runs under `suites`, and one that fails with the original tests fails the gate.
-The proof runs the same tests the same way: a project's changed tests are proven by its own suite
-(`autocode_companion_suites.test_suites`), not by a root runner that could only name the files.
+The gate does not work out again where a changed test runs. A test the proof saw load anywhere
+but the root (`test_homes`, above: one it moved, or one the rules put in a project below the root)
+runs in the gate with the command the proof used, on the change and again with the original tests
+put back, so the two agree by reading one answer (`autocode_protected_oracles.replay_parts`,
+`autocode_test_homes.away`, `replay_commands`). Changed tests
+in more than one place (`api/` and `worker/`, or one project and the root) give one command for
+each (`cd api && python3 -m unittest -v tests/test_orders.py ; cd worker && python3 -m unittest -v
+tests/test_jobs.py`). Each must pass: the receipt keeps the runs under `suites`, and one that fails
+with the original tests fails the gate. A changed file in such a project that is no test of its
+own (a helper of its tests), or a deleted test, runs that project's whole suite. A Python
+directory inside another language's project is covered the same way, with or without a manifest of
+its own: its changed original tests now run in the gate, where the root's `npm test` never ran
+them. Before the proof has run, and for a test that loads at the root, the bound command and the
+rules above decide, as before.
 An original internal test link also retains a declared oracle outside test roots
 when packaging, runtime imports and dynamic uncertainty do not give it a conflicting
 role. A candidate-added link cannot promote an original product or unknown endpoint.
