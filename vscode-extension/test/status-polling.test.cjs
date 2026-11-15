@@ -246,7 +246,7 @@ test('a CLI call that never exits times out instead of hanging the caller foreve
   const started = Date.now();
   await assert.rejects(
     cli.stream({ command: 'sleep', prefix: [] }, ['30'], {}, undefined, 50, 120),
-    /timed out after 120ms/,
+    (error) => error instanceof cli.ActionDeadlineExceeded && /timed out after 120ms/.test(error.message),
   );
   assert.ok(Date.now() - started < 5000, 'the timeout bound is what ends the call, not the sleep');
 });
