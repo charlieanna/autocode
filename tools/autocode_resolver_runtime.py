@@ -7,8 +7,10 @@ authorize a retry, mutate the contract, grant permission, or declare success.
 from __future__ import annotations
 
 try:
+    from . import autocode_operational_receipt_identity as receipt_identity
     from . import autocode_prompts as prompts
 except ImportError:
+    import autocode_operational_receipt_identity as receipt_identity
     import autocode_prompts as prompts
 
 
@@ -44,6 +46,7 @@ try:
     from . import autocode_resolver_recovery as recovery
     from . import autocode_run_status as run_status
     from . import autocode_support as support
+    from . import autocode_util as util
     from . import autocode_worker_quota as worker_quota
 except ImportError:
     import autocode_failures as failures
@@ -60,6 +63,7 @@ except ImportError:
     import autocode_resolver_recovery as recovery
     import autocode_run_status as run_status
     import autocode_support as support
+    import autocode_util as util
     import autocode_worker_quota as worker_quota
 
 
@@ -391,7 +395,7 @@ def reconsider_operational_request(runner, state: RunState, run_dir, workspace):
     """
     try:
         with runner.interventions.admission(run_dir):
-            public = human.current(state)
+            public = human.current(state) or human.recovery_request(state)
             if not public or public["scope"] != "operational_exhaustion":
                 return False
             saved = state.get("resolver") or {}
@@ -427,6 +431,8 @@ def reconsider_operational_request(runner, state: RunState, run_dir, workspace):
             cast(dict, state).clear()
             state.update(candidate)
             return True
+    except util.JSONCommitUncertain:
+        raise
     except (support.Paused, KeyError, TypeError, ValueError, OSError, RuntimeError):
         # A failed speculative proof never withdraws or republishes the old ask.
         return False
@@ -435,15 +441,7 @@ def reconsider_operational_request(runner, state: RunState, run_dir, workspace):
 def _operational_receipt(state: RunState, run_dir, action, detail, evidence):
     state["run_dir"] = str(Path(run_dir).resolve())
     binding = human._binding(state)
-    identity = support.digest(
-        {
-            "scope": "operational_diagnostic",
-            "action": action,
-            "detail": detail,
-            "evidence": evidence,
-            "binding": binding,
-        }
-    )
+    identity = receipt_identity.diagnostic(action, detail, evidence, binding)
     saved = state.setdefault("resolver", {})
     receipts = saved.setdefault("operational_receipts", {})
     if identity in receipts:
@@ -662,7 +660,8 @@ def record_operational_exhaustion(runner, state: RunState, run_dir, error, *, re
         "origin": {"pause_status": error.status, "stage": facts["stage"], "budget": budget},
         "questions": [route] if route else [],
     }
-    machinery = disposition.classify(proposal) == "machinery"
+    facts.update(disposition=disposition.classify(proposal), questions=copy.deepcopy(proposal["questions"]))
+    machinery = facts["disposition"] == "machinery"
     receipt = _operational_receipt(
         state,
         run_dir,

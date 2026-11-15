@@ -35,12 +35,9 @@ try:
     from . import autocode_action_resolver as action_resolver
     from . import autocode_action_scope as action_scope
     from . import autocode_action_stage_model as action_stage_model
-    from . import autocode_conversation_ingress as conversation_ingress
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_goals as goals
     from . import autocode_jobs as jobs
-    from . import autocode_model_listing_failure as model_listing_failure
-    from . import autocode_model_listing_failure_recovery as model_listing_recovery
     from . import autocode_operational_admission as operational_admission
     from . import autocode_operational_block as operational_block
     from . import autocode_operational_information as operational_information
@@ -49,7 +46,6 @@ try:
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
-    from . import autocode_role_transport as role_transport
     from . import autocode_run_finder as run_finder
     from . import autocode_run_records as records
     from . import autocode_skip_requirements as skip_requirements
@@ -67,12 +63,9 @@ except ImportError:
     import autocode_action_resolver as action_resolver
     import autocode_action_scope as action_scope
     import autocode_action_stage_model as action_stage_model
-    import autocode_conversation_ingress as conversation_ingress
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
     import autocode_jobs as jobs
-    import autocode_model_listing_failure as model_listing_failure
-    import autocode_model_listing_failure_recovery as model_listing_recovery
     import autocode_operational_admission as operational_admission
     import autocode_operational_block as operational_block
     import autocode_operational_information as operational_information
@@ -81,7 +74,6 @@ except ImportError:
     import autocode_recovery_limits as recovery_limits
     import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
-    import autocode_role_transport as role_transport
     import autocode_run_finder as run_finder
     import autocode_run_records as records
     import autocode_skip_requirements as skip_requirements
@@ -217,7 +209,7 @@ def admit(runner, args, parser, state: RunState, state_path, run_dir, workspace,
 
     It runs only when no user decision was given: action_decisions.apply stops for every one.
     """
-    if not operational_admission.ready(state, decided):
+    if not operational_admission.authorized(state, decided):
         return operational_admission.refuse()
     if state.get("status") != "TASK_COMPLETE" and (retired := workflows.retired_stage(state)):
         print(f"Input rejected: {retired}", file=sys.stderr)
@@ -289,40 +281,8 @@ def admit(runner, args, parser, state: RunState, state_path, run_dir, workspace,
     return _admit_build(runner, args, parser, state, state_path, run_dir, workspace, decided)
 
 
-def _admit_build(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
-    """Final guards shared with a checked fast dispatch, without generic resume resets."""
-    if not operational_admission.ready(state, decided):
-        return operational_admission.refuse()
-    try:
-        conversation_ingress.require_expected_goal(
-            state, getattr(args, "expected_goal_token", None), token_for=goals.token, is_approved=goals.approved
-        )
-    except ValueError as error:
-        print(f"Input rejected: {error}", file=sys.stderr)
-        return 2
-    if state["settings"].get("engine") == "opencode":
-        try:
-            role_transport.check_models(
-                state["settings"], runner.opencode, workspace, inventory=getattr(args, "_model_inventory", None)
-            )
-        except model_listing_failure.ModelListingTimeout as error:
-            if model_listing_recovery.settle(runner, state, run_dir, workspace, error):
-                print(f"{state['status']}: {state['stop_reason']}", file=sys.stderr)
-                return 2
-            raise
-    if conversation_ingress.record_build_start(
-        state, getattr(args, "expected_goal_token", None), token_for=goals.token, is_approved=goals.approved
-    ):
-        runner.write_json(state_path, state)
-    if operational_admission.ready(state, decided) and getattr(decided, "operational_resume_deferred", False):
-        resolver_runtime.reset_for_resume(state)
-        runner.reset_report_repair_for_resume(state)
-        decided.operational_resume_deferred = False
-    if operational_admission.retire(runner, state, run_dir, decided):
-        runner.write_json(state_path, state)
-        if not operational_admission.ready(state, decided):
-            return operational_admission.refuse()
-    return None
+_admit_build = operational_admission.finalize  # Existing final guard boundary, shared with checked dispatch.
+_dispatch = operational_admission.dispatch
 
 
 def read_shown_tokens(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
@@ -349,10 +309,10 @@ STEPS = (
     read_shown_tokens,  # the shown command's token selector resolves from this run, before any step reads it
     action_recovery.reconcile_checkpoint,  # metadata-only ownership inspection, before configuration/decisions
     honor_stops,  # an applied or pending stop, and a bound retry mixed with other actions
-    operational_admission.guard,  # Exhausted machinery grants no ordinary advancement.
     action_stage_model.apply,  # --stage-model: one stage's route on a started run, between stages; no launch
     action_discrepancy.apply,  # --report-discrepancy: a report against the approved plan, kept for the Tester; no launch
     hold_operational_block,  # advancement only; stops and nonadvancing records keep their existing precedence
+    operational_admission.guard,  # Exhausted machinery grants no ordinary advancement.
     action_decisions.preflight,  # invalid approval cannot reconcile or migrate a stopped attempt
     action_edits.apply,  # a standalone edit: design revision, dependency, report recovery, repair handoff
     action_recovery.gate_failures,  # a classification or job failure, and its exact retry
@@ -373,12 +333,6 @@ def handle(runner, args, parser, state: RunState, state_path, run_dir, workspace
     decided = action_authority.prepare_actions(runner, args, state, Decided)
     for step in STEPS:
         code = step(runner, args, parser, state, state_path, run_dir, workspace, decided)
-        if code is not None:
-            return code
-        if decided.dispatch:
-            if not operational_admission.ready(state, decided):
-                return operational_admission.refuse()
-            if getattr(decided, "operational_incident", None) is not None:
-                return _admit_build(runner, args, parser, state, state_path, run_dir, workspace, decided)
-            return code
+        if code is not None or decided.dispatch:
+            return _dispatch(code, runner, args, parser, state, state_path, run_dir, workspace, decided)
     return None

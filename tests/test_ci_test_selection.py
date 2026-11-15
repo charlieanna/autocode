@@ -29,6 +29,46 @@ class AccessTransportConsumerTests(unittest.TestCase):
         kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
         self.assertEqual(consumers, set(kept))
 
+    def test_operational_fact_helpers_keep_protected_and_machinery_consumers_when_slow(self):
+        consumers = {
+            "tests.test_operational_disposition",
+            "tests.test_operational_information",
+            "tests.test_operational_pause_authority",
+            "tests.test_operational_reconsideration",
+            "tests.test_operational_recovery",
+            "tests.test_human_publication",
+            "tests.test_resolver_human",
+            "tests.test_resolver_runtime",
+            "tests.test_startup_timeout_person_view",
+            "tests.test_pause_authority",
+            "tests.test_goals",
+            "tests.test_operational_block",
+            "tests.test_metadata_operational_block",
+            "tests.test_model_listing_failure",
+            "tests.test_model_listing_failure_cli",
+            "tests.test_verification_preparation_failure",
+            "tests.test_repaired_acceptance_no_progress",
+        }
+        for path in (
+            "tools/autocode_operational_disposition.py",
+            "tools/autocode_operational_admission.py",
+            "tools/autocode_operational_receipt_identity.py",
+            "tests/operational_fixtures.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests(
+                    [path], {**{name: "" for name in consumers}, "tests.test_unrelated": ""}
+                )
+                kept, _ = run_suite.drop_slow(selected, {name: "30s" for name in consumers})
+                self.assertEqual(consumers, set(kept))
+
+    def test_digest_prefix_keeps_its_direct_no_process_consumer_when_slow(self):
+        selected = run_suite.select_tests(
+            ["tools/autocode_util.py"], {"tests.test_util_digest_prefix": "", "tests.test_unrelated": ""}
+        )
+        kept, _ = run_suite.drop_slow(selected, {"tests.test_util_digest_prefix": "30s"})
+        self.assertEqual({"tests.test_util_digest_prefix"}, set(kept))
+
     def test_codex_settings_facade_keeps_its_owned_metadata_consumers_when_slow(self):
         consumers = {
             "tests.test_autocode_support",

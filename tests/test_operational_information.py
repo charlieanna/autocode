@@ -355,27 +355,23 @@ class OperationalInformationCLITests(unittest.TestCase):
         self.assertEqual([], self.evaluations())
 
     def assert_held_for_a_grant_once(self, checkpoint):
-        self.inform(checkpoint, "The provider was slow; it is healthy again")
-        code, launched, output = self.resume()
-        self.assertEqual((2, False), (code, launched), output)
-        view = self.status()
-        review = view["information_review"]
-        self.assertEqual(("held", "hold"), (review["status"], review["decision"]))
-        self.assertEqual(
-            ("resume", "--resume-paused --grant-recovery N"), (view["needs"]["kind"], view["needs"]["action"])
-        )
-        self.assertIn("--grant-recovery N", view["stop_reason"])
-        # Not repeated: the next resume restates the decision; nothing is evaluated or asked again.
-        code, launched, output = self.resume()
-        self.assertEqual((2, False), (code, launched), output)
-        self.assertIn(view["stop_reason"], output)
-        again = self.status()
-        self.assertEqual(
-            (view["stop_reason"], review, "resume"),
-            (again["stop_reason"], again["information_review"], again["needs"]["kind"]),
-        )
-        self.assertEqual(1, len(self.evaluations()))
-        # The control it names is accepted here and moves the run.
+        self.assert_blocked(checkpoint)
+        _, before = self.saved()
+        for _ in range(2):
+            code, launched, output = self.resume()
+            self.assertEqual((2, False), (code, launched), output)
+            self.assert_blocked(self.status())
+        _, after = self.saved()
+        for key in (
+            "automatic_recoveries_since_resume",
+            "automatic_timeout_recoveries",
+            "consecutive_timeout_recoveries",
+            "settings",
+        ):
+            self.assertEqual(before.get(key), after.get(key), key)
+        self.assertEqual([], self.evaluations())
+        # The existing explicit control still validates and grants exactly once;
+        # no machinery question or information review is needed for that proof.
         code, launched, output = self.resume("--grant-recovery", "1")
         self.assertNotIn("Input rejected", output)
         self.assertTrue(launched, output)
@@ -411,26 +407,18 @@ class OperationalInformationCLITests(unittest.TestCase):
         self.assertFalse(after.get("recovery_grants"))
 
     def assert_spent_report_repair_held(self, status, reason):
-        view = self.checkpoint(status, reason, self.pending_repair(2))
+        cached = self.checkpoint(status, reason, self.pending_repair(2), legacy=True)
         self.env.pop("AUTOCODE_FIXTURE_QUOTA_STAGE")
         _, before = self.saved()
-        self.inform(view, "The workspace is fine now")
-        # A report that failed validation twice is not a cause outside the run: information cannot
-        # buy the fresh Builder attempt the spent repair allowance stopped.
+        self.refuse_cached_information(cached, "The workspace is fine now")
         for _ in range(2):
             code, launched, output = self.resume()
             self.assertEqual((2, False), (code, launched), output)
-            view = self.status()
-            self.assertEqual(
-                (status, "held", "resume"),
-                (view["status"], view["information_review"]["status"], view["needs"]["kind"]),
-            )
-            self.assertIn("report-only repairs for this attempt are spent", view["stop_reason"])
-            self.assertNotIn("continues", view["stop_reason"])
+            self.assert_blocked(self.status())
             _, after = self.saved()
-            for key in ("pending_report_repair", "report_repair_archive", "sessions"):
+            for key in ("pending_report_repair", "report_repair_archive", "sessions", "settings"):
                 self.assertEqual(before.get(key), after.get(key), key)
-        self.assertEqual(1, len(self.evaluations()))
+        self.assertEqual([], self.evaluations())
 
     def test_a_spent_report_repair_allowance_is_held_for_the_operator(self):
         self.assert_spent_report_repair_held(
@@ -463,29 +451,33 @@ class OperationalInformationCLITests(unittest.TestCase):
             state["settings"]["report_repair"] = {"max_attempts": 2}
             state["pending_report_repair"] = {"attempts": 2, "original": record}
 
-        view = self.checkpoint("PAUSED_REPEATED_FAILURE", "Repeated invalid source trace", failed_planning)
-        self.inform(view, "Retain the validated contract; correct only contradictory source trace metadata")
-        self.assertEqual((2, False), self.resume()[:2])
-        held = self.status()
-        self.assertEqual("held", held["information_review"]["status"])
-        self.assertEqual("--resume-paused", held["needs"]["action"])
+        cached = self.checkpoint(
+            "PAUSED_REPEATED_FAILURE", "Repeated invalid source trace", failed_planning, legacy=True
+        )
+        self.refuse_cached_information(
+            cached, "Retain the validated contract; correct only contradictory source trace metadata"
+        )
         _, before = self.saved()
-        client = object.__new__(ConformanceDriver)
-        client.project, client.run_dir = self.project, self.run
-        words, env, _ = client.named_command(held)
-        code, launched, output = self.invoke(*words, env=env)
+        self.assertEqual((2, False), self.resume()[:2])
+        self.assert_blocked(self.status())
+        _, held = self.saved()
+        self.assertEqual(before["pending_report_repair"], held["pending_report_repair"])
+        # One exact scoped retry first reconciles the recorded terminal repair,
+        # then obtains real retry authorization. A stale final plan token must
+        # still prevent dispatch and retirement of the retained incident.
+        code, launched, output = self.resume("--retry-failed-stage", "--expected-goal-token", "r0:stale")
         self.assertEqual((2, False), (code, launched), output)
-        after = self.status()
-        self.assertIn("Spent planning repair reconciled", output)
-        self.assertEqual("PAUSED_REPEATED_FAILURE", after["status"])
-        retry, _, _ = client.named_command(after)
-        self.assertIn("--retry-failed-stage", retry)
         _, saved = self.saved()
         self.assertEqual(before["pending_report_repair"], saved["report_repair_archive"][-1]["repair"])
         self.assertNotIn("pending_report_repair", saved)
-        for key in ("failure_history", "stages", "sessions", "settings", "planning", "failure_retry_authorizations"):
+        self.assertTrue(saved.get("failure_retry_authorizations"), "archival alone is not authorization")
+        for key in ("failure_history", "sessions", "settings", "planning"):
             self.assertEqual(before.get(key), saved.get(key), key)
-        self.assertEqual(1, len(self.evaluations()))
+        self.assertTrue(
+            all(row in saved["stages"] for row in before["stages"]), "all original observations are retained"
+        )
+        self.assert_blocked(self.status())
+        self.assertEqual([], self.evaluations())
 
     def test_a_spent_report_repair_behind_a_resolver_stop_is_held(self):
         # resolver_runtime.boundary publishes an exhausted report repair as PAUSED_RESOLVER.
@@ -533,30 +525,19 @@ class OperationalInformationCLITests(unittest.TestCase):
             ]
             state.update(next_stage="tester")
 
-        view = self.checkpoint("PAUSED_RESOLVER", "Validation-only rounds made no progress on F-1", stalled)
+        cached = self.checkpoint(
+            "PAUSED_RESOLVER", "Validation-only rounds made no progress on F-1", stalled, legacy=True
+        )
         self.env.pop("AUTOCODE_FIXTURE_QUOTA_STAGE")
         _, before = self.saved()
-        self.inform(view, "The Validator environment is fixed")
-        # The rounds limit is the run's own bound: information closes no finding, so it is held.
+        self.refuse_cached_information(cached, "The Validator environment is fixed")
         code, launched, output = self.resume()
         self.assertEqual((2, False), (code, launched), output)
-        view = self.status()
-        self.assertEqual(("PAUSED_RESOLVER", "held"), (view["status"], view["information_review"]["status"]))
-        self.assertIn("validation-only rounds at source", view["stop_reason"])
-        self.assertIn("--close-finding", view["stop_reason"])
-        self.assertNotIn("continues", view["stop_reason"])
+        self.assert_blocked(self.status())
         _, after = self.saved()
-        self.assertEqual(before["validation_only_rounds"], after["validation_only_rounds"])
-        # Closing the finding changes the cause: the run asks again, and information sent then continues.
-        self.assertEqual(0, self.invoke("--close-finding", "F-1", "--close-reason", "Duplicate of a settled one")[0])
-        code, launched, output = self.resume()
-        self.assertEqual((2, False), (code, launched), output)
-        asked = self.status()
-        self.assertEqual("answer", asked["needs"]["kind"], asked["needs"])
-        self.inform(asked, "F-1 was a duplicate")
-        code, launched, output = self.resume()
-        self.assertTrue(launched, output)
-        self.assertEqual("admitted", self.status()["information_review"]["status"])
+        for key in ("validation_only_rounds", "findings_ledger", "settings", "goal_contract"):
+            self.assertEqual(before.get(key), after.get(key), key)
+        self.assertEqual([], self.evaluations())
 
     def test_a_held_content_filter_stop_names_a_model_change(self):
         # The content filter refused the Tester's model; it would likely refuse again (#464/#465).
@@ -586,33 +567,26 @@ class OperationalInformationCLITests(unittest.TestCase):
         self.assertIn("Tester: started; model=gpt-6-luna", output)
         self.assertNotIn("Tester: started; model=gpt-5.6-sol", output)
 
-    def test_an_explicit_control_leaves_pending_information_unevaluated(self):
-        self.inform(
-            self.checkpoint(
-                "PAUSED_TIMEOUT_RECOVERY",
-                "Automatic recovery budget exhausted; no further provider will launch.",
-                automatic_recoveries_since_resume=3,
-                consecutive_timeout_recoveries=3,
-                automatic_timeout_recoveries=[
-                    {"stage": "builder", "timeout_reason": "idle watchdog"} for _ in range(3)
-                ],
-            ),
-            "The provider was slow; it is healthy again",
+    def test_an_explicit_control_needs_no_machinery_information_review(self):
+        checkpoint = self.checkpoint(
+            "PAUSED_TIMEOUT_RECOVERY",
+            "Automatic recovery budget exhausted; no further provider will launch.",
+            automatic_recoveries_since_resume=3,
+            consecutive_timeout_recoveries=3,
+            automatic_timeout_recoveries=[{"stage": "builder", "timeout_reason": "idle watchdog"} for _ in range(3)],
         )
+        self.assert_blocked(checkpoint)
         self.env.pop("AUTOCODE_FIXTURE_QUOTA_STAGE")
         code, launched, output = self.resume("--grant-recovery", "1")
         self.assertTrue(launched, output)
         self.assertEqual("TASK_COMPLETE", self.status()["status"], output)
         self.assertEqual([], self.evaluations())
-        # The finished run is reported as finished; the unused information neither holds nor runs it.
         for args in ((), ("--resume-paused",)):
             code, launched, output = self.invoke(*args)
             self.assertEqual((0, False), (code, launched), output)
             self.assertNotIn("re-evaluate", output)
+        self.assertIsNone(self.status()["information_review"])
         self.assertEqual([], self.evaluations())
-        # The view does not call it pending: no resume will ever evaluate it.
-        review = self.status()["information_review"]
-        self.assertEqual(("superseded", None), (review["status"], review["action"]))
 
     def test_old_information_never_bypasses_normal_admission_guards(self):
         def earlier_incident(state):

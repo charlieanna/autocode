@@ -84,7 +84,7 @@ def prepare(runner, args, parser, state: RunState, state_path, run_dir, workspac
         if args.retry_builder:
             if not dispatch.try_request_retry(state, run_dir, args.retry_builder, issued=issued):
                 return 2
-            operational_admission.checked(state, decided, "builder", {"milestone": args.retry_builder})
+            operational_admission.checked(runner, state, run_dir, decided, "builder", {"milestone": args.retry_builder})
     except support.Paused as error:
         if not getattr(error, "quota_worker", None):
             raise

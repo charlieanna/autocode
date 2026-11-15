@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
+import copy
 import sys
 
 try:
@@ -179,13 +180,15 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
         refused = operational_admission.guard(runner, args, parser, state, state_path, run_dir, workspace, decided)
         if refused is not None:
             return refused
-    if getattr(decided, "operational_selection", None) == "planning_input":
+    if getattr(decided, "operational_selection", None) in ("planning_input", "planning_reserve"):
         # Its existing owner-input handler runs later. A requested resume must
         # not reset internal recovery/report allowances before that commit.
         return None
     if args.abandon_stage is not None:
+        original = copy.deepcopy(state.get("active_stage"))
         try:
             runner.abandon_stage(state, run_dir, workspace, args.abandon_stage, launch=runner)
+            operational_admission.abandoned(runner, state, run_dir, decided, original)
         except ValueError as error:
             print(f"Input rejected: {error}", file=sys.stderr)
             return 2
@@ -229,7 +232,7 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
                         maximum=recovery_accounting.MAX_AUTOMATIC_RECOVERIES,
                         pending_limit_events=getattr(args, "_grant_limit_events", None) or (),
                     )
-                    operational_admission.checked(state, decided, "grant", granted)
+                    operational_admission.checked(runner, state, run_dir, decided, "grant", granted)
                 except ValueError as error:
                     print(f"Input rejected: {error}", file=sys.stderr)
                     return 2
@@ -257,7 +260,9 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
             if args.retry_report:
                 try:
                     runner.retry_format_failed_report(state, run_dir, workspace, args.retry_report)
-                    operational_admission.checked(state, decided, "report", {"attempt": args.retry_report})
+                    operational_admission.checked(
+                        runner, state, run_dir, decided, "report", {"attempt": args.retry_report}
+                    )
                 except ValueError as error:
                     print(f"Input rejected: {error}", file=sys.stderr)
                     return 2
@@ -267,6 +272,12 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
                     pass  # exact job authorization was validated before generic recovery
                 elif args.retry_failed_stage:
                     try:
+                        if getattr(decided, "operational_selection", None) == "failure_retry":
+                            # The exact recorded repair was checked before this
+                            # handler. Archival preserves its original count and
+                            # grants nothing; real retry authorization must still
+                            # succeed below, before final admission can retire it.
+                            runner.prepare_planning_retry(state, run_dir)
                         authorization = runner.resolver_recovery.authorize_retry(
                             runner,
                             state,
@@ -277,7 +288,7 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
                             else None,
                         ) or runner.authorize_failure_retry(state, run_dir, workspace)
                         args._failure_retry_authorization = authorization
-                        operational_admission.checked(state, decided, "failure_retry", authorization)
+                        operational_admission.checked(runner, state, run_dir, decided, "failure_retry", authorization)
                         print(
                             "Failure retry authorized for the recorded repeated failure; "
                             "one fresh attempt proceeds under existing limits.",
@@ -356,9 +367,9 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
             "Legacy partial stage remains unresolved: " + cast(str, state["uncertain_artifacts"]),
         )
     if getattr(decided, "operational_selection", None) == "bound":
-        operational_admission.checked(state, decided, "bound", {"settings": state.get("settings")})
+        operational_admission.checked(runner, state, run_dir, decided, "bound", {"settings": state.get("settings")})
     if getattr(decided, "operational_incident", None):
-        decided.operational_resume_deferred = bool(args.resume_paused)
+        decided.operational_resume_deferred = bool(args.resume_paused and decided.operational_selection != "abandon")
         # --retry-builder is validated by prepare after queued input is applied.
         # Reaching that metadata handler grants no dispatch or resume allowance.
         if getattr(decided, "operational_selection", None) == "builder":

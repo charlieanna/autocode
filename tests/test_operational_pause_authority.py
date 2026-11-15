@@ -26,6 +26,7 @@ from unittest.mock import patch
 
 import autocode as runner
 import autocode_goals as goals
+import autocode_operational_disposition as disposition
 import autocode_operational_information as operational_information
 import autocode_pause_authority as pause_authority
 import autocode_resolver_human as human
@@ -135,22 +136,64 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         state.update(status=status, stop_reason=f"{status} fixture stop")
         return state
 
-    def stage_request(self, state, *, then=None):
+    def stage_request(self, state, *, then=None, legacy=False):
         """AutoResolver stages its operational request for the saved pause; the save publishes it."""
         with patch.dict(os.environ, self.flow.env, clear=True):
+            before = copy.deepcopy(state)
             self.assertTrue(
                 resolver_runtime.record_operational_exhaustion(
                     runner, state, self.run_dir, support.Paused(state["status"], state["stop_reason"])
                 )
             )
+            if legacy and disposition.held(state) is not None:
+                # An authentic historical publication, rather than asking the
+                # current publisher to accept a machinery question. Attempts,
+                # usage and saved caps are exactly the pre-publication fixture.
+                state.clear()
+                state.update(before)
+                status, stage = state["status"], state["next_stage"]
+                budget = disposition.budget(state, status)
+                receipt = resolver_runtime._operational_receipt(
+                    state,
+                    self.run_dir,
+                    "hold",
+                    "Retained fixture recovery exhaustion",
+                    {"status": status, "stage": stage, "budget": budget},
+                )
+                human.queue(
+                    state,
+                    "operational_exhaustion",
+                    {"pause_status": status, "stage": stage, "budget": budget},
+                    request={
+                        "kind": "blocker",
+                        "discovered": "Retained fixture exhaustion",
+                        "impact": "No stage can start",
+                        "decision_needed": "Provide corrective information",
+                        "options": ["Provide corrective information", "Leave paused"],
+                    },
+                    evidence={"resolver_receipt_id": receipt},
+                    next_stage=stage,
+                )
+                if then is None:
+                    human._publish(
+                        state,
+                        {
+                            "version": 1,
+                            "issuer": "resolver",
+                            "binding": human._binding(state),
+                            "proposal": copy.deepcopy(state[human.PRIVATE]),
+                            "action": "escalate",
+                            "reason": "Historical operational request",
+                        },
+                    )
             if then:
                 then(state)
             runner.write_json(self.run_dir / "state.json", state)
         return self.saved()
 
-    def checkpoint(self, status="PAUSED_RESOLVER_OPERATIONAL", edit=None):
+    def checkpoint(self, status="PAUSED_RESOLVER_OPERATIONAL", edit=None, *, legacy=False):
         """Publish AutoResolver's operational request for ``status`` on a fresh copy of the stopped run."""
-        state = self.stage_request(self.stopped(status, edit))
+        state = self.stage_request(self.stopped(status, edit), legacy=legacy)
         self.assertEqual(status, self.pause_in_force(state))
         return state
 
@@ -163,6 +206,8 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
 
     def pause_in_force(self, state):
         """The pause holding the run: its published operational request's, else its saved status."""
+        if current := disposition.held(state):
+            return (current.get("receipt", {}).get("evidence") or {}).get("status", state["status"])
         published = human.current(state)
         if published is None:
             return state["status"]
@@ -213,6 +258,34 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
 
     def answer(self, state, **options):
         published = human.current(state)
+        if published is None and disposition.held(state) is not None:
+            published = state.get(human.PUBLIC)
+            self.assertIsNotNone(published, "answered histories must explicitly use legacy=True")
+            with patch.object(disposition, "refused", return_value=False):
+                human.respond_operational(
+                    state,
+                    published["request_id"],
+                    published["request_token"],
+                    "provide_information",
+                    "The temporary directory is valid",
+                )
+            runner.write_json(self.run_dir / "state.json", state)
+            before = self.saved()
+            result = self.invoke(
+                "--resolver-request",
+                published["request_id"],
+                "--resolver-token",
+                published["request_token"],
+                "--resolver-response",
+                "provide_information",
+                "--resolver-message",
+                "The temporary directory is valid",
+                **options,
+            )
+            self.assertEqual((2, []), result[:2], result[2])
+            self.assertEqual(before, self.saved(), "a cached historical reply grants no authority")
+            self.assert_blocked()
+            return
         code, stages, output = self.invoke(
             "--resolver-request",
             published["request_id"],
@@ -225,6 +298,14 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
             **options,
         )
         self.assertEqual((0, []), (code, stages), output)
+
+    def assert_blocked(self):
+        shown = self.view()
+        self.assertIsNone(shown["needs"])
+        self.assertIsNone(shown["next_command"])
+        self.assertIsNone(shown["chat"]["input"])
+        self.assertEqual("blocked", shown["recovery"]["category"])
+        self.assertFalse(shown["done"])
 
     def submit_pause(self, request_id="req-pause", **options):
         self.submit("pause", request_id, **options)
@@ -253,7 +334,10 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         self.assertEqual([], stages, f"no provider may launch past {status}:\n{output}")
         self.assertEqual(2, code, output)
         state = self.saved()
-        self.assertNotEqual("RUNNING", state["status"], output)
+        if disposition.held(state) is not None:
+            self.assert_blocked()
+        else:
+            self.assertNotEqual("RUNNING", state["status"], output)
         if settled:
             self.assertEqual(status, self.pause_in_force(state), output)
 
@@ -271,7 +355,7 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         self.assert_held(self.invoke("--resume-paused", process=True))
 
     def test_unrelated_limit_on_resume_never_releases_an_answered_operational_pause(self):
-        self.answer(self.checkpoint(), process=True)
+        self.answer(self.checkpoint(legacy=True), process=True)
         self.assert_held(self.invoke("--resume-paused", "--max-stage-seconds", "1200", process=True))
         self.assert_held(self.invoke("--resume-paused", process=True))
 
@@ -284,7 +368,7 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
     def resume_after_answer(self, status, *, pause, process=False, applied_by=()):
         """Answer the request; with ``pause``, submit a pause intervention and apply it with the command
         ``applied_by`` (a plain invocation, or --resume-paused itself); then resume."""
-        self.answer(self.checkpoint(status), process=process)
+        self.answer(self.checkpoint(status, legacy=True), process=process)
         if pause:
             self.submit_pause(process=process)
             self.assert_held(self.invoke(*applied_by, process=process, env=STOP_AT_TESTER), status, settled=False)
@@ -310,7 +394,12 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
             kept = Path(tempfile.mkdtemp()) / "kept"
             shutil.copytree(self.flow.root, kept, symlinks=True)
             try:
-                stages = self.resume_after_answer(status, pause=False)[1]
+                result = self.resume_after_answer(status, pause=False)
+                stages = result[1]
+                if disposition.held(self.saved()) is not None:
+                    self.assertEqual((2, []), result[:2], result[2])
+                    self.assert_blocked()
+                    self.assertEqual((None, None), self.information_review())
                 self._after_answer[status] = (stages, self.information_review())
             finally:
                 shutil.rmtree(self.flow.root)
@@ -341,7 +430,7 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         self.assert_intervention_adds_nothing("PAUSED_TIMEOUT_RECOVERY", process=True)
         # Applied by --resume-paused itself, at a stop the answer alone continues: the queued pause was bound
         # into nothing the information was sent for, so it neither retires that answer nor stands in for it.
-        self.assertEqual(["tester"], self.admitted_after_answer("PAUSED_RATE_LIMIT"))
+        self.assertEqual([], self.admitted_after_answer("PAUSED_RATE_LIMIT"))
         self.assert_intervention_adds_nothing("PAUSED_RATE_LIMIT", process=True, applied_by=("--resume-paused",))
 
     def test_pause_intervention_never_releases_an_unanswered_operational_pause(self):
@@ -351,7 +440,8 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         self.assertEqual("PAUSED_INTERVENTION", self.view()["status"], "the queued pause is applied, never stranded")
         # Resuming the intervention returns to the operational pause and asks its request again.
         self.assert_held(self.invoke("--resume-paused", process=True))
-        self.answer(self.saved(), process=True)
+        self.assertIsNone(human.current(self.saved()), "machinery is not asked again")
+        self.assert_blocked()
 
     def test_a_pause_queued_over_an_unanswered_request_leaves_its_own_recovery_usable(self):
         # Before, the plain invocation left no request to answer and --grant-recovery was refused
@@ -361,14 +451,15 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         self.assert_held(self.invoke(), "PAUSED_TIMEOUT_RECOVERY", settled=False)
         self.assertEqual("PAUSED_INTERVENTION", self.view()["status"], "the queued pause is applied")
         self.assert_held(self.invoke("--resume-paused"), "PAUSED_TIMEOUT_RECOVERY")
-        self.assertIsNotNone(human.current(self.saved()), "its request is asked again")
+        self.assertIsNone(human.current(self.saved()), "the scoped grant needs no machinery question")
+        self.assert_blocked()
         self.assert_resumes(self.invoke("--resume-paused", "--grant-recovery", "1", env=STOP_AT_TESTER))
 
     # Every pause status, in-process.
     def test_no_unrelated_limit_releases_any_operational_pause(self):
         for status, answered in itertools.product(STATUSES, (False, True)):
             with self.subTest(status=status, answered=answered):
-                state = self.checkpoint(status)
+                state = self.checkpoint(status, legacy=answered)
                 if answered:
                     self.answer(state)
                 self.assert_held(self.invoke("--resume-paused", "--max-stage-seconds", "1200"), status)
@@ -388,7 +479,7 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         def account(state):
             state["active_seconds"] = state.get("active_seconds", 0) + 1
 
-        state = self.stage_request(self.stopped(status), then=account)
+        state = self.stage_request(self.stopped(status), then=account, legacy=True)
         self.assertEqual(("RESOLVER_PENDING", None), (state["status"], human.current(state)))
         if saved_status != "RESOLVER_PENDING":
             state["status"] = saved_status
@@ -400,7 +491,8 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.stranded("PAUSED_RESOLVER_OPERATIONAL", "RESOLVER_PENDING")
                 self.assert_held(self.invoke(*command))
-                self.assertEqual("WAITING_FOR_USER", self.view()["status"], "the request is published again")
+                self.assert_blocked()
+                self.assertIsNone(human.current(self.saved()), "a stale machinery request is not republished")
 
     def test_a_save_that_defers_a_queued_request_launches_nothing(self):
         # Defense in depth at stage admission: the stage's own save before launch deferred the queued request.
@@ -410,7 +502,7 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
     # Review of the fix: every other input that replaced the pause, or arrived with a settings write.
     def stacked_pauses(self, status, *, answered, process=False):
         """Two pause interventions, each applied by an invocation, then a resume."""
-        state = self.checkpoint(status)
+        state = self.checkpoint(status, legacy=answered)
         if answered:
             self.answer(state, process=process)
         # Unanswered, as reported: a settings write on the first resume applies the first pause.
@@ -435,7 +527,9 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         for status, answered in cases:
             with self.subTest(status=status, answered=answered):
                 self.assert_adds_nothing(self.stacked_pauses(status, answered=answered), status, answered=answered)
-                if not answered:  # asked again from its own cause: the earlier advice is not repeated
+                if disposition.held(self.saved()) is not None:
+                    self.assert_blocked()
+                elif not answered:  # protected decisions retain their existing advice
                     self.assertEqual(
                         1,
                         self.view()["stop_reason"].count("AutoResolver could not resolve"),
@@ -444,7 +538,7 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
 
     def queued_feedback(self, status, variant, *, process=False):
         """Feedback queued at the operational pause, an invocation that applies it, then a resume."""
-        state = self.checkpoint(status)
+        state = self.checkpoint(status, legacy=variant == "answered")
         if variant == "answered":
             self.answer(state, process=process)
         self.submit("feedback", "req-feedback", FEEDBACK, process=process)
@@ -475,7 +569,10 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
                     self.assertEqual(0, code, output)
                     continue
                 self.assertEqual((2, []), (code, stages), output)
-                self.assertIn("does not acknowledge", output)
+                if disposition.held(self.saved()) is not None:
+                    self.assertIn(disposition.MESSAGE, output)
+                else:
+                    self.assertIn("does not acknowledge", output)
                 self.assert_held(self.invoke(env=STOP_AT_TESTER), status)
 
     def test_enabling_joint_planning_never_releases_an_operational_pause(self):
@@ -484,7 +581,7 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         cases = [*((status, False) for status in STATUSES), ("PAUSED_RESOLVER_OPERATIONAL", True)]
         for status, paused in cases:
             with self.subTest(status=status, after_pause_intervention=paused):
-                self.answer(self.checkpoint(status))
+                self.answer(self.checkpoint(status, legacy=True))
                 if paused:
                     self.submit_pause()
                     self.assert_held(self.invoke(), status, settled=False)
@@ -518,21 +615,25 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         flags = ((), ("--max-stage-seconds", "1200"))
         for answered, extra in itertools.product((False, True), flags):
             with self.subTest(answered=answered, flags=extra):
-                state = self.checkpoint()
+                state = self.checkpoint(legacy=answered)
                 if answered:
                     self.answer(state)
                 pause = self.run_dir / "pause-requested"
                 pause.write_text("operator")
                 code, stages, output = self.invoke("--resume-paused", *extra, env=STOP_AT_TESTER)
                 self.assert_held((code, stages, output), settled=False)
-                self.assertIn("pause-requested", output)
+                if disposition.held(self.saved()) is not None:
+                    self.assertTrue(pause.exists(), "the owner's requested pause remains recorded")
+                    self.assert_blocked()
+                else:
+                    self.assertIn("pause-requested", output)
                 pause.unlink()
                 self.assert_held(self.invoke("--resume-paused", env=STOP_AT_TESTER))
 
     def test_queued_milestone_checkpoints_never_release_an_operational_pause(self):
         for status, answered in itertools.product(("PAUSED_RESOLVER_OPERATIONAL", "PAUSED_TIME_LIMIT"), (False, True)):
             with self.subTest(status=status, answered=answered):
-                state = self.checkpoint(status)
+                state = self.checkpoint(status, legacy=answered)
                 if answered:
                     self.answer(state)
                 code, _, output = self.cli(
@@ -569,7 +670,7 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         )
         for status, command, edit, answered in cases:
             with self.subTest(status=status, command=command, answered=answered):
-                state = self.checkpoint(status, edit)
+                state = self.checkpoint(status, edit, legacy=answered)
                 if answered:
                     self.answer(state)
                 self.submit_pause()
@@ -584,7 +685,7 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         # authority before that, a milestone it then refused (here one that does not exist) had the input
         # applied to a released run, and the next plain --resume-paused launched past the pause.
         def queued_then_retry(status, kind, *, answered, process=False):
-            state = self.checkpoint(status)
+            state = self.checkpoint(status, legacy=answered)
             if answered:
                 self.answer(state, process=process)
             self.submit(kind, f"req-{kind}", FEEDBACK if kind == "feedback" else "", process=process)
@@ -621,11 +722,14 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
                     argv = [self.approval_token(state) if arg is None else arg for arg in command]
                     code, stages, output = self.invoke(*argv, "--max-stage-seconds", "1200", env=STOP_AT_TESTER)
                     self.assertEqual([], stages, output)
-                    self.assertEqual(
-                        "operational_exhaustion",
-                        (self.view()["needs"] or {}).get("resolver_scope"),
-                        f"the request is asked again under the new settings:\n{output}",
-                    )
+                    if disposition.held(self.saved()) is not None:
+                        self.assert_blocked()
+                    else:
+                        self.assertEqual(
+                            "operational_exhaustion",
+                            (self.view()["needs"] or {}).get("resolver_scope"),
+                            f"the protected request is asked again under the new settings:\n{output}",
+                        )
                     self.assertEqual(status, self.pause_in_force(self.saved()), output)
 
     # Composition with #509 (#586): --resume-paused with an answer or approval dispatches the next stage
@@ -648,8 +752,9 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         cases = [*((status, True) for status in STATUSES), *((status, False) for status in SAMPLE)]
         for status, answered in cases:
             with self.subTest(status=status, answered=answered):
-                state = self.checkpoint(status)
-                token = human.current(state)["request_token"]
+                state = self.checkpoint(status, legacy=True)
+                token = state[human.PUBLIC]["request_token"]
+                machinery = disposition.held(state) is not None
                 if answered:
                     self.answer(state)
                     state = self.saved()
@@ -664,7 +769,11 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
                 ):
                     result = self.invoke(*command, "--resume-paused", env=STOP_AT_TESTER)
                     self.assert_held(result, status)
-                    self.assertIn(f"Input rejected: {refusal}", result[2])
+                    if machinery:
+                        self.assertIn(disposition.MESSAGE, result[2])
+                        self.assert_blocked()
+                    else:
+                        self.assertIn(f"Input rejected: {refusal}", result[2])
                     self.assertNotIn("Resumed: dispatching the next stage.", result[2])
                 # Neither input used up the pause's own rule: AutoResolver's one re-evaluation of the
                 # answered request's information then holds or continues exactly as it does without them.
@@ -678,8 +787,11 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         # one only an operator control releases, at every pause; holding inputs never changes that.
         for status in STATUSES:
             with self.subTest(status=status):
+                state = self.checkpoint(status)
                 expected = (
-                    (["tester"], ("admitted", "continue"))
+                    ([], (None, None))
+                    if disposition.held(state) is not None
+                    else (["tester"], ("admitted", "continue"))
                     if status in operational_information.INFORMATION_CAUSES
                     else ([], ("held", "hold"))
                 )
@@ -689,7 +801,7 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         # The edit installed a draft for approval in place of the pause, and --approve-goal - (reads AUTOCODE_APPROVE_GOAL_TOKEN)
         # --resume-paused then dispatched the Planner, Builder and Tester in one invocation.
         def edit_then_approve(status, variant, process=False):
-            state = self.checkpoint(status)
+            state = self.checkpoint(status, legacy=variant != "unanswered")
             if variant != "unanswered":
                 self.answer(state, process=process)
             if variant == "paused":
@@ -700,7 +812,11 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
                 self.assertEqual((0, "AWAITING_GOAL_APPROVAL"), (code, self.view()["status"]), output)
                 return
             self.assertEqual((2, []), (code, stages), output)
-            self.assertIn("does not acknowledge", output)
+            if disposition.held(self.saved()) is not None:
+                self.assertIn(disposition.MESSAGE, output)
+                self.assert_blocked()
+            else:
+                self.assertIn("does not acknowledge", output)
             self.assertEqual(state["goal_contract"], self.saved()["goal_contract"], "the goal is unchanged")
             self.assert_held(
                 self.invoke(
@@ -745,7 +861,7 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
     def test_changing_the_exhausted_bound_still_resumes_every_bounded_pause(self):
         for (status, flag), variant in itertools.product(ACKNOWLEDGING.items(), ("unanswered", "answered", "paused")):
             with self.subTest(status=status, variant=variant):
-                state = self.checkpoint(status)
+                state = self.checkpoint(status, legacy=variant != "unanswered")
                 if variant != "unanswered":
                     self.answer(state)
                 if variant == "paused":
@@ -766,7 +882,7 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         )
         for (status, edit, flag), answered in itertools.product(cases, (False, True)):
             with self.subTest(status=status, answered=answered):
-                state = self.checkpoint(status, edit)
+                state = self.checkpoint(status, edit, legacy=answered)
                 if answered:
                     self.answer(state)
                 code, stages, output = self.invoke("--resume-paused", *flag, env=STOP_AT_TESTER)

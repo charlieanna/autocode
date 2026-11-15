@@ -396,10 +396,10 @@ def _decision(state: RunState, proposal):
             return "reject", "Only the resolver intake adapter can publish a project-free question"
         return "escalate", "The resolver needs user intent before a project or contract can be established"
     evidence = proposal["evidence"]
-    if evidence.get("recovery_available"):
-        return "recover", "A permitted bounded recovery remains; do not ask the user yet"
     if disposition.refused(state, proposal):
         return "hold", disposition.MESSAGE
+    if scope != disposition.SCOPE and evidence.get("recovery_available"):
+        return "recover", "A permitted bounded recovery remains; do not ask the user yet"
     # These references must be constructed from recorded runner evidence, not
     # copied from model output. Their concrete pins are rechecked by the caller.
     origin_stage = proposal["origin"].get("stage")
@@ -651,21 +651,33 @@ def retained(state: RunState):
     return copy.deepcopy(public)
 
 
-def current(state: RunState):
-    """Read-only receipt and fresh frontier verification for answer authority."""
+def _fresh_retained(state: RunState, *, recovery=False):
+    """One saved publication/frontier answer for public and Core-only readers."""
     public = retained(state)
     if public:
         try:
             identity = state["resolver"]["human_escalations"][public["request_id"]]["identity"]
-            if (
-                not disposition.refused(state, identity["proposal"])
-                and identity["binding"] == _binding(state)
-                and _evidence_valid(identity["proposal"])
-            ):
+            proposal = identity["proposal"]
+            allowed = (
+                public["scope"] == disposition.SCOPE and disposition.saved_disposition(state, proposal) == "machinery"
+                if recovery
+                else not disposition.refused(state, proposal)
+            )
+            if allowed and identity["binding"] == _binding(state) and _evidence_valid(proposal):
                 return public
         except (KeyError, TypeError, ValueError, AttributeError):
             return None
     return None
+
+
+def current(state: RunState):
+    """Read-only receipt and fresh frontier verification for answer authority."""
+    return _fresh_retained(state)
+
+
+def recovery_request(state: RunState):
+    """Core may inspect an authentic old machinery ask without republishing it."""
+    return _fresh_retained(state, recovery=True)
 
 
 def queued_operational(state: RunState):

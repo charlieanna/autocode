@@ -29,6 +29,7 @@ try:
     from . import autocode_acceptance_verification_retry as acceptance_retry
     from . import autocode_contract_identity as contracts
     from . import autocode_interventions as interventions
+    from . import autocode_operational_receipt_identity as receipt_identity
     from . import autocode_project_kinds as project_kinds
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_resolver as policy
@@ -42,6 +43,7 @@ except ImportError:
     import autocode_acceptance_verification_retry as acceptance_retry
     import autocode_contract_identity as contracts
     import autocode_interventions as interventions
+    import autocode_operational_receipt_identity as receipt_identity
     import autocode_project_kinds as project_kinds
     import autocode_recovery_limits as recovery_limits
     import autocode_resolver as policy
@@ -521,7 +523,6 @@ def _append_operational_record(
     run_dir: Path | str,
     *,
     scope: str,
-    prefix: str,
     action: str,
     summary: str,
     evidence: dict[str, Any],
@@ -530,7 +531,7 @@ def _append_operational_record(
     resolver = state.setdefault("resolver", {})
     identities = resolver.setdefault("operational_diagnostics", [])
     receipts = resolver.setdefault("operational_receipts", {})
-    identity = f"{prefix}-{len(identities) + 1}"
+    identity = receipt_identity.ordinal(scope, len(identities) + 1)
     path = Path(run_dir) / "resolver" / f"{identity}.json"
     record = {
         "stage": "resolver",
@@ -685,7 +686,6 @@ def recover(
             state,
             run_path,
             scope=RECOVERY_SCOPE,
-            prefix="no-progress-proof-recovery",
             action="continue",
             summary=summary,
             evidence={
@@ -753,7 +753,6 @@ def conclude_exhausted(
         state,
         run_path,
         scope=EXHAUSTED_SCOPE,
-        prefix="no-progress-exhausted",
         action="could_not_finish",
         summary=reason,
         evidence=evidence,
