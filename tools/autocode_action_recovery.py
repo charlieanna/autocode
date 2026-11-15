@@ -29,6 +29,7 @@ try:
     from . import autocode_job_failure as job_failure
     from . import autocode_job_route as job_route
     from . import autocode_model_listing_failure as model_listing_failure
+    from . import autocode_operational_admission as operational_admission
     from . import autocode_recovery_accounting as recovery_accounting
     from . import autocode_recovery_dispatch as recovery_dispatch
     from . import autocode_recovery_grants as recovery_grants
@@ -46,6 +47,7 @@ except ImportError:
     import autocode_job_failure as job_failure
     import autocode_job_route as job_route
     import autocode_model_listing_failure as model_listing_failure
+    import autocode_operational_admission as operational_admission
     import autocode_recovery_accounting as recovery_accounting
     import autocode_recovery_dispatch as recovery_dispatch
     import autocode_recovery_grants as recovery_grants
@@ -173,6 +175,14 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
             file=sys.stderr,
         )
         return 2
+    if getattr(decided, "operational_incident", None) is None:
+        refused = operational_admission.guard(runner, args, parser, state, state_path, run_dir, workspace, decided)
+        if refused is not None:
+            return refused
+    if getattr(decided, "operational_selection", None) == "planning_input":
+        # Its existing owner-input handler runs later. A requested resume must
+        # not reset internal recovery/report allowances before that commit.
+        return None
     if args.abandon_stage is not None:
         try:
             runner.abandon_stage(state, run_dir, workspace, args.abandon_stage, launch=runner)
@@ -206,7 +216,7 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
                 # (#2479): no exit can persist one without the other (#2412), and a refused
                 # grant persists neither.
                 try:
-                    recovery_grants.grant(
+                    granted = recovery_grants.grant(
                         state,
                         run_dir,
                         args.grant_recovery,
@@ -219,6 +229,7 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
                         maximum=recovery_accounting.MAX_AUTOMATIC_RECOVERIES,
                         pending_limit_events=getattr(args, "_grant_limit_events", None) or (),
                     )
+                    operational_admission.checked(state, decided, "grant", granted)
                 except ValueError as error:
                     print(f"Input rejected: {error}", file=sys.stderr)
                     return 2
@@ -237,11 +248,16 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
             # only after exhaustion-gated retry decisions below. A
             # continuation admitted on corrective information renews
             # neither allowance: information never resets a count (#486).
-            if not information_admitted and not getattr(decided, "evidence_reconciled", False):
+            if (
+                not information_admitted
+                and not getattr(decided, "evidence_reconciled", False)
+                and not getattr(decided, "operational_incident", None)
+            ):
                 resolver_runtime.reset_for_resume(state)
             if args.retry_report:
                 try:
                     runner.retry_format_failed_report(state, run_dir, workspace, args.retry_report)
+                    operational_admission.checked(state, decided, "report", {"attempt": args.retry_report})
                 except ValueError as error:
                     print(f"Input rejected: {error}", file=sys.stderr)
                     return 2
@@ -261,6 +277,7 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
                             else None,
                         ) or runner.authorize_failure_retry(state, run_dir, workspace)
                         args._failure_retry_authorization = authorization
+                        operational_admission.checked(state, decided, "failure_retry", authorization)
                         print(
                             "Failure retry authorized for the recorded repeated failure; "
                             "one fresh attempt proceeds under existing limits.",
@@ -296,7 +313,11 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
             # above (which requires and archives the true attempt count)
             # already consumed it if one applied; resetting first would
             # corrupt that archived count and always fail those guards.
-            if not information_admitted and not getattr(decided, "evidence_reconciled", False):
+            if (
+                not information_admitted
+                and not getattr(decided, "evidence_reconciled", False)
+                and not getattr(decided, "operational_incident", None)
+            ):
                 runner.reset_report_repair_for_resume(state)
         if args.resume_paused and state.get("no_progress_reports"):
             runner.autopilot.recover_retained_candidate(state, workspace, bound_only=True)
@@ -304,7 +325,11 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
     except runner.ReportRepairQueued:
         pass  # Durable pending repair is dispatched below, not original work.
     except support.Paused as error:
-        fired = recovery_dispatch.recover(runner, state, run_dir, workspace, error)
+        fired = (
+            None
+            if getattr(decided, "operational_incident", None)
+            else recovery_dispatch.recover(runner, state, run_dir, workspace, error)
+        )
         if fired == "job_failure" and state.get("status") != "RUNNING":
             print(state["stop_reason"])
             return 2
@@ -330,3 +355,13 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
             "PAUSED_UNCERTAIN_STAGE",
             "Legacy partial stage remains unresolved: " + cast(str, state["uncertain_artifacts"]),
         )
+    if getattr(decided, "operational_selection", None) == "bound":
+        operational_admission.checked(state, decided, "bound", {"settings": state.get("settings")})
+    if getattr(decided, "operational_incident", None):
+        decided.operational_resume_deferred = bool(args.resume_paused)
+        # --retry-builder is validated by prepare after queued input is applied.
+        # Reaching that metadata handler grants no dispatch or resume allowance.
+        if getattr(decided, "operational_selection", None) == "builder":
+            return None
+        if not operational_admission.ready(state, decided):
+            return operational_admission.refuse()

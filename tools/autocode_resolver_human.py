@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_member_stop as member_stop
+    from . import autocode_operational_disposition as disposition
     from . import autocode_operational_information as information
     from . import autocode_pause_command as pause_command
     from . import autocode_recovery_limits as recovery_limits
@@ -35,6 +36,7 @@ try:
     from .autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
 except ImportError:
     import autocode_member_stop as member_stop
+    import autocode_operational_disposition as disposition
     import autocode_operational_information as information
     import autocode_pause_command as pause_command
     import autocode_recovery_limits as recovery_limits
@@ -396,6 +398,8 @@ def _decision(state: RunState, proposal):
     evidence = proposal["evidence"]
     if evidence.get("recovery_available"):
         return "recover", "A permitted bounded recovery remains; do not ask the user yet"
+    if disposition.refused(state, proposal):
+        return "hold", disposition.MESSAGE
     # These references must be constructed from recorded runner evidence, not
     # copied from model output. Their concrete pins are rechecked by the caller.
     origin_stage = proposal["origin"].get("stage")
@@ -562,6 +566,8 @@ def rebind_stale(state: RunState, request_id, request_token):
             continue
         if entry.get("status") == "consumed":
             return None
+        if disposition.refused(state, identity.get("proposal")):
+            return None
         live = current(state)
         if entry.get("status") == "superseded":
             proposal = identity["proposal"]
@@ -651,7 +657,11 @@ def current(state: RunState):
     if public:
         try:
             identity = state["resolver"]["human_escalations"][public["request_id"]]["identity"]
-            if identity["binding"] == _binding(state) and _evidence_valid(identity["proposal"]):
+            if (
+                not disposition.refused(state, identity["proposal"])
+                and identity["binding"] == _binding(state)
+                and _evidence_valid(identity["proposal"])
+            ):
                 return public
         except (KeyError, TypeError, ValueError, AttributeError):
             return None
@@ -803,6 +813,8 @@ def restage_pending(state: RunState):
         ):
             return False
         proposal = identity["proposal"]
+    if disposition.refused(state, proposal):
+        return False
     if (
         not isinstance(proposal, dict)
         or proposal.get("version") != VERSION
@@ -953,6 +965,8 @@ def require_response(state: RunState, request_id, request_token):
     # superseded it.
     entry = cast(dict, state.get("resolver", {})).get("human_escalations", {}).get(request_id) or {}
     identity = entry.get("identity") or {}
+    if disposition.refused(state, identity.get("proposal")):
+        raise ValueError(disposition.MESSAGE)
     if (
         entry.get("status") in ("pending", "superseded")
         and identity.get("issuer") == "resolver"
@@ -1033,6 +1047,8 @@ def release_stranded_operational(state: RunState):
     receipt. A scheduled internal diagnosis, or input still pending, leaves it alone.
     """
     proposal = state.get(PRIVATE) or {}
+    if disposition.refused(state, proposal):
+        return False
     pause = str((proposal.get("origin") or {}).get("pause_status") or "")
     if (
         proposal.get("scope") != "operational_exhaustion"
@@ -1056,6 +1072,8 @@ def release_stranded_operational(state: RunState):
 def respond_operational(state: RunState, request_id, request_token, action, text=""):
     """Store human input for the resolver; this is not retry or approval consent."""
     old = cast(dict, state.get("resolver", {})).get("human_escalations", {}).get(request_id, {})
+    if disposition.refused(state, (old.get("identity") or {}).get("proposal")):
+        raise ValueError(disposition.MESSAGE)
     if old.get("status") == "consumed":
         response = old.get("response") or {}
         if (
@@ -1140,6 +1158,8 @@ def review_operational_response(state: RunState):
     entry = resolver.get("human_escalations", {}).get(event.get("request_id"), {})
     if entry.get("status") != "consumed" or entry.get("response") != event or event.get("actor") != "user_cli":
         raise ValueError("Operational guidance lacks its consumed AutoResolver request")
+    if disposition.refused(state, (entry.get("identity") or {}).get("proposal")):
+        return None
     resolution = {
         "request_id": event["request_id"],
         "at": support.now(),

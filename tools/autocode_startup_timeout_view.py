@@ -12,14 +12,20 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_operational_disposition as disposition
     from . import autocode_pause_authority as pause_authority
     from . import autocode_resolver_human as resolver_human
 except ImportError:
+    import autocode_operational_disposition as disposition
     import autocode_pause_authority as pause_authority
     import autocode_resolver_human as resolver_human
 
 
 def presentation(state: RunState):
+    return _startup(state) or disposition.presentation(state)
+
+
+def _startup(state: RunState):
     request = state.get(resolver_human.PUBLIC) or {}
     if (
         state.get("status") != "WAITING_FOR_USER"

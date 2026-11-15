@@ -15,6 +15,7 @@ try:
     from . import autocode_interventions as interventions
     from . import autocode_member_stop as member_stop
     from . import autocode_milestones as milestones
+    from . import autocode_operational_admission as operational_admission
     from . import autocode_requirements_chat as requirements_chat
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_support as support
@@ -26,6 +27,7 @@ except ImportError:
     import autocode_interventions as interventions
     import autocode_member_stop as member_stop
     import autocode_milestones as milestones
+    import autocode_operational_admission as operational_admission
     import autocode_requirements_chat as requirements_chat
     import autocode_resolver_runtime as resolver_runtime
     import autocode_support as support
@@ -79,8 +81,10 @@ def prepare(runner, args, parser, state: RunState, state_path, run_dir, workspac
         print("Migrated to an unapproved draft; saved work retained; no agent launched")
         return 0
     try:
-        if args.retry_builder and not dispatch.try_request_retry(state, run_dir, args.retry_builder, issued=issued):
-            return 2
+        if args.retry_builder:
+            if not dispatch.try_request_retry(state, run_dir, args.retry_builder, issued=issued):
+                return 2
+            operational_admission.checked(state, decided, "builder", {"milestone": args.retry_builder})
     except support.Paused as error:
         if not getattr(error, "quota_worker", None):
             raise

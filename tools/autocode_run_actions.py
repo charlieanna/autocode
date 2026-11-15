@@ -41,6 +41,7 @@ try:
     from . import autocode_jobs as jobs
     from . import autocode_model_listing_failure as model_listing_failure
     from . import autocode_model_listing_failure_recovery as model_listing_recovery
+    from . import autocode_operational_admission as operational_admission
     from . import autocode_operational_block as operational_block
     from . import autocode_operational_information as operational_information
     from . import autocode_planning as planning
@@ -72,6 +73,7 @@ except ImportError:
     import autocode_jobs as jobs
     import autocode_model_listing_failure as model_listing_failure
     import autocode_model_listing_failure_recovery as model_listing_recovery
+    import autocode_operational_admission as operational_admission
     import autocode_operational_block as operational_block
     import autocode_operational_information as operational_information
     import autocode_planning as planning
@@ -99,6 +101,10 @@ class Decided:
     information_admitted: bool = False  # AutoResolver admitted corrective information for one continuation
     evidence_reconciled: bool = False  # exact retained evidence corrected; ordinary admission, no allowance resets
     checked_authority: bool = False  # the held pause's own authority, checked before queued input applies
+    operational_incident: str | None = None  # Exact retained diagnostic for this invocation.
+    operational_selection: str | None = None  # Permits trying its existing handler, never dispatch.
+    operational_recovery_checked: dict | None = None  # Handler-return evidence, not a saved grant.
+    operational_resume_deferred: bool = False  # Generic resume bookkeeping waits for final guards.
     issued: dict | None = None  # AutoResolver's current request when that authority was weighed
     released: bool = False  # that authority released the held pause (autocode_stop)
 
@@ -211,6 +217,8 @@ def admit(runner, args, parser, state: RunState, state_path, run_dir, workspace,
 
     It runs only when no user decision was given: action_decisions.apply stops for every one.
     """
+    if not operational_admission.ready(state, decided):
+        return operational_admission.refuse()
     if state.get("status") != "TASK_COMPLETE" and (retired := workflows.retired_stage(state)):
         print(f"Input rejected: {retired}", file=sys.stderr)
         return 2
@@ -278,6 +286,13 @@ def admit(runner, args, parser, state: RunState, state_path, run_dir, workspace,
         runner.write_json(state_path, state)
     if runner.migrate_opencode_roles(state, run_dir, workspace):
         print("Saved roles now use OpenCode; previous sessions archived and task progress retained.", flush=True)
+    return _admit_build(runner, args, parser, state, state_path, run_dir, workspace, decided)
+
+
+def _admit_build(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
+    """Final guards shared with a checked fast dispatch, without generic resume resets."""
+    if not operational_admission.ready(state, decided):
+        return operational_admission.refuse()
     try:
         conversation_ingress.require_expected_goal(
             state, getattr(args, "expected_goal_token", None), token_for=goals.token, is_approved=goals.approved
@@ -299,6 +314,14 @@ def admit(runner, args, parser, state: RunState, state_path, run_dir, workspace,
         state, getattr(args, "expected_goal_token", None), token_for=goals.token, is_approved=goals.approved
     ):
         runner.write_json(state_path, state)
+    if operational_admission.ready(state, decided) and getattr(decided, "operational_resume_deferred", False):
+        resolver_runtime.reset_for_resume(state)
+        runner.reset_report_repair_for_resume(state)
+        decided.operational_resume_deferred = False
+    if operational_admission.retire(runner, state, run_dir, decided):
+        runner.write_json(state_path, state)
+        if not operational_admission.ready(state, decided):
+            return operational_admission.refuse()
     return None
 
 
@@ -326,6 +349,7 @@ STEPS = (
     read_shown_tokens,  # the shown command's token selector resolves from this run, before any step reads it
     action_recovery.reconcile_checkpoint,  # metadata-only ownership inspection, before configuration/decisions
     honor_stops,  # an applied or pending stop, and a bound retry mixed with other actions
+    operational_admission.guard,  # Exhausted machinery grants no ordinary advancement.
     action_stage_model.apply,  # --stage-model: one stage's route on a started run, between stages; no launch
     action_discrepancy.apply,  # --report-discrepancy: a report against the approved plan, kept for the Tester; no launch
     hold_operational_block,  # advancement only; stops and nonadvancing records keep their existing precedence
@@ -349,6 +373,12 @@ def handle(runner, args, parser, state: RunState, state_path, run_dir, workspace
     decided = action_authority.prepare_actions(runner, args, state, Decided)
     for step in STEPS:
         code = step(runner, args, parser, state, state_path, run_dir, workspace, decided)
-        if code is not None or decided.dispatch:
+        if code is not None:
+            return code
+        if decided.dispatch:
+            if not operational_admission.ready(state, decided):
+                return operational_admission.refuse()
+            if getattr(decided, "operational_incident", None) is not None:
+                return _admit_build(runner, args, parser, state, state_path, run_dir, workspace, decided)
             return code
     return None
