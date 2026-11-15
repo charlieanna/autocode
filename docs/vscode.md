@@ -430,15 +430,23 @@ chat it reads "Models · loading…" while the backend's models are read and
 the stage may not run beside the others is not offered, and AutoCode checks the
 pick again either way. An AutoCode without per-chat models shows no chip.
 
-### No Kilo or OpenCode installed
+### Backends and API keys
 
-The **AutoCode · Direct connection** card is always available in Connections.
-Choose **Set up AutoCode** to select MiMo, Z.ai, OpenAI or Claude and enter its
-API endpoint/key in a terminal, then refresh Connections. **Use for new chats** is enabled after
-local setup is complete; it does not mean live model access was verified.
-See
+Connections lists AutoCode's four backends: **Claude Code** and **Codex** as
+engines, and **OpenCode** and **Kilo** for other accounts and API keys
+(`opencode auth login`, `kilo auth login`). When a backend's CLI is not on
+`PATH`, its card remains listed as unavailable until it is installed in the
+AutoCode CLI environment (`autocode setup` can install OpenCode or Kilo).
+
+The **AutoCode · Direct connection** card is retired (#2049) and hidden from new
+setups. It appears in Connections only when already configured, so existing
+setups can still be checked, updated (**Check setup**, **Edit AutoCode setup**,
+or **Add or rotate an API provider**), and selected for new chats until the
+direct connection is removed in the next release. Local configuration does not
+mean live model access was verified. See
 [AutoCode direct connections](providers.md#autocode-direct-connections-issue-1493)
-for credential storage, protocol support and qualification limits.
+for retirement details, credential storage, protocol support and qualification
+limits.
 
 Credentials are never entered into the chat or its webview. Existing chats keep
 their saved backend. Model overrides, explicit external role transports and
