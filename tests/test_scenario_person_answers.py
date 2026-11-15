@@ -5,6 +5,7 @@ live run could only take AutoCode's proposed default and an oracle could not see
 that differs from it reach the build. These tests drive the harness driver with the CLI call mocked.
 """
 
+import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
@@ -132,6 +133,34 @@ class PersonCatalogTests(unittest.TestCase):
                 'title = "t"\ncategory = "feature"\n[[person.answers]]\nmatch = "x"\nanswer = "y"\n'
             )
             self.assertEqual(({"match": "x", "answer": "y"},), catalog.load("demo").person_answers)
+
+    def test_hidden_assumptions_oracle_does_not_flag_latest_file_as_noise(self):
+        scenario = catalog.load("feature-hidden-assumptions")
+        spec = importlib.util.spec_from_file_location("hidden_assumptions_oracle", scenario.dir / "oracle.py")
+        oracle_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(oracle_mod)
+        run_record = {
+            "answers": [
+                {
+                    "id": "q1-duplicate-key-precedence",
+                    "question": "When a key appears in more than one of the input files, which value should `merge` print — the one from the earliest file on the command line, or the one from the latest file that sets it?",
+                    "why": "The request never says which value wins when a key repeats across files.",
+                    "answer": "Latest file wins",
+                    "source": "person",
+                    "proposed_default": "Earliest file wins",
+                    "stages_before_answer": ["requirements_gather"],
+                }
+            ]
+        }
+        checks = {c.name: c for c in oracle_mod.run_level_checks(run_record)}
+        self.assertTrue(
+            checks["no_convention_or_machinery_questions"].ok,
+            checks["no_convention_or_machinery_questions"].detail,
+        )
+        self.assertTrue(checks["fork_cleared_with_person: duplicate_keys"].ok)
+        noisy_record = {"answers": [{"id": "Q2", "question": "Which test file should hold the new tests?"}]}
+        noisy_checks = {c.name: c for c in oracle_mod.run_level_checks(noisy_record)}
+        self.assertFalse(noisy_checks["no_convention_or_machinery_questions"].ok)
 
 
 if __name__ == "__main__":
