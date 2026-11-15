@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode as runner
 import autocode_resolver_human as human
@@ -51,6 +52,8 @@ class StartupTimeoutPersonViewTests(unittest.TestCase):
         self.assertEqual("blocked", view["recovery"]["category"])
         self.assertIn("model step", view["recovery"]["what_happened"].lower())
         self.assertIsNone(view["chat"]["input"])
+        self.assertIn("failed attempts", view["explanation"]["what_it_means"])
+        self.assertNotIn("source binding", view["explanation"]["what_it_means"])
         text = " ".join(row["text"] for row in view["chat"]["messages"])
         self.assertNotIn("Provide corrective information", text)
         self.assertNotIn("grant-recovery", text)
@@ -71,7 +74,36 @@ class StartupTimeoutPersonViewTests(unittest.TestCase):
         self.assertIn("model step", view["summary"]["sentence"].lower())
         self.assertIsNone(view["summary"]["next_command"])
         self.assertIsNone(view["chat"]["input"])
+        self.assertEqual("AutoCode could not start the model step", view["progress"]["headline"])
+        self.assertEqual("nothing needed from you", view["progress"]["needs_you"])
         self.assertNotIn("Pending questions", result.stderr)
+        with tempfile.TemporaryDirectory() as home:
+            explanation = subprocess.run(
+                [
+                    sys.executable,
+                    runner.__file__,
+                    "--explain",
+                    "--workspace",
+                    saved["workspace"],
+                    "--run-dir",
+                    str(run),
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+                env={**os.environ, "AUTOCODE_HOME": home},
+            )
+        self.assertIn("model step", explanation.stdout)
+        self.assertIn("failed attempts", explanation.stdout)
+        self.assertNotIn("grant-recovery", explanation.stdout)
+
+    def test_reconciliation_does_not_offer_a_retry_for_this_block(self):
+        saved, run = self.exhausted()
+        with patch("autocode_checkpoint_reconciliation.offer", return_value={"kind": "resume"}) as offer:
+            view = run_view.view(saved, run_dir=run, workspace=Path(saved["workspace"]))
+        offer.assert_not_called()
+        self.assertIsNone(view["needs"])
+        self.assertIsNone(view["next_command"])
 
     def test_a_stale_but_authenticated_request_is_still_reported_without_asking(self):
         saved, run = self.exhausted()
