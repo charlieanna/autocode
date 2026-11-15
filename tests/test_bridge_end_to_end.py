@@ -10,6 +10,7 @@ each to its own evidence pull request; every poll is a new daemon process, so
 the queue is also carried across restarts.
 """
 
+import contextlib
 import json
 import os
 import re
@@ -198,6 +199,94 @@ class BridgeEndToEndTests(unittest.TestCase):
         self.assertEqual("done", rows[0]["gate"]["key"])
         self.assertTrue(rows[0]["pr_prepared"])
         self.assertTrue(rows[0]["owned"])
+
+    def test_a_bridge_stopped_while_a_run_is_starting_adopts_it_at_the_next_poll(self):
+        # On a real host a bridge in the no-systemd mode was stopped while a run was starting (2026-11-14).
+        # The run was never adopted: its questions did not reach the issue, every later poll refused the
+        # issue as one that "already has an issue record", and the limit did not count it. Here the provider
+        # holds its first stage call, so the bridge is stopped with the run saved and its start not returned.
+        import psutil
+
+        root = self.project.parent
+        real = root / "bin" / "codex-real"
+        (root / "bin" / "codex").rename(real)
+        hold, reached = root / "hold", root / "hold.reached"
+        hold.write_text("")
+        (root / "bin" / "codex").write_text(
+            "#!/bin/sh\n"
+            f'if [ "$1" != login ] && [ -e "{hold}" ]; then\n'
+            f'  : > "{reached}"\n'
+            f'  while [ -e "{hold}" ]; do sleep 0.1; done\n'
+            "fi\n"
+            f'exec "{real}" "$@"\n'
+        )
+        (root / "bin" / "codex").chmod(0o755)
+        bridge = subprocess.Popen(
+            [sys.executable, str(TOOLS / "autocode.py"), "bridge", "run", "--once"],
+            env=self.env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        try:
+            for _ in range(1200):  # the first stage call within two minutes, unless the bridge ends first
+                if reached.exists():
+                    break
+                try:
+                    bridge.wait(timeout=0.1)
+                    break
+                except subprocess.TimeoutExpired:
+                    pass
+            self.assertTrue(reached.exists(), "the run's first stage never started")
+            self.assertEqual([], self.posted())
+            (starting,) = self.records()
+            self.assertIs(True, starting["launching"])  # on record before the start returns
+            self.assertEqual("starting", starting["gate"]["key"])
+        finally:
+            bridge.kill()  # the bridge goes first, so it never sees its start end
+            bridge.wait(timeout=30)
+            for process in psutil.process_iter(["cmdline"]):  # then everything it had started
+                if str(root) in " ".join(process.info["cmdline"] or []):
+                    with contextlib.suppress(psutil.Error):
+                        process.kill()
+            hold.unlink(missing_ok=True)
+
+        resumed = False
+        for _ in range(12):
+            self.bridge_once()
+            bodies = self.posted()
+            if any("Task complete" in body for body in bodies):
+                break
+            if any("The run paused" in body for body in bodies) and not resumed:
+                self.reply("resume")  # the interrupted stage is the person's to continue, as on any restart
+                resumed = True
+            elif any("Plan for approval" in body for body in bodies) and not any(
+                "Plan approved" in body for body in bodies
+            ):
+                self.reply("approve")
+            elif any("questions for you" in body for body in bodies) and not any("Answered" in body for body in bodies):
+                proposed = re.search(r"proposed: (.+)", "\n".join(bodies))
+                self.reply(proposed.group(1).strip() if proposed else "sqlite")
+        bodies = self.posted()
+        self.assertEqual(1, sum("took this issue" in body for body in bodies), bodies)
+        self.assertFalse(any("could not start this run" in body for body in bodies), bodies)
+        self.assertTrue(any("Task complete" in body for body in bodies), bodies)
+        (record,) = self.records()
+        self.assertNotIn("launching", record)
+        self.assertEqual("done", record["gate"]["key"])
+        self.assertEqual(starting["run_dir"], record["run_dir"])  # the same run, not a second one
+        worktree = self.project / ".autocode" / "issues" / "acme-widgets-7"
+        self.assertEqual("Add a greeting CLI (#7)", self.git("log", "-1", "--format=%s", cwd=worktree))
+
+    def records(self):
+        status = subprocess.run(
+            [sys.executable, str(TOOLS / "autocode.py"), "bridge", "status", "--json"],
+            capture_output=True,
+            text=True,
+            env=self.env,
+            timeout=60,
+        )
+        return json.loads(status.stdout)["records"]
 
     def test_an_actors_words_before_the_plan_cannot_approve_it(self):
         self.reply("approve")  # written into the issue's history before the bridge ever takes it

@@ -697,6 +697,131 @@ class ProvisionTests(unittest.TestCase):
         again = store.load("acme", "widgets", 12)
         self.assertEqual(record["run_dir"], again["run_dir"])
 
+    def interrupted_start(self, number=14):
+        """The real provisioning of an issue whose bridge is stopped before the run's start returns."""
+
+        def stopped(worktree, run_dir, brief, options):
+            raise KeyboardInterrupt  # the process ends: no handler in the bridge sees this start again
+
+        ref = github.IssueRef("acme", "widgets", number)
+        with self.assertRaises(KeyboardInterrupt):
+            worker.start_issue_run(self.project, ref, self.issue(number), [], launch=stopped, owned=True)
+        return ref
+
+    @staticmethod
+    def issue(number):
+        return {"number": number, "state": "open", "title": f"Task {number}", "labels": [{"name": "autocode"}]}
+
+    def restarted_bridge(self, run, numbers=(14,)):
+        """A new bridge over the same project and store; a launch it makes is a real one, and is counted."""
+        from autocode_bridge_github import GitHubChannel
+
+        self.client = FakeClient({number: {"issue": self.issue(number), "comments": []} for number in numbers})
+        self.launched = []
+
+        def started(worktree, run_dir, brief, options):
+            self.launched.append(Path(run_dir).name)
+            return self.launch(worktree, run_dir, brief, options)
+
+        config = bridge_cli.Config(
+            repo="acme/widgets",
+            project=self.project,
+            label="autocode",
+            actors=("dev",),
+            options=(),
+            poll_seconds=10.0,
+            open_pr=False,
+            owned=True,
+            max_active=1,
+        )
+        return bridge_cli.Bridge(
+            config,
+            GitHubChannel(self.client, "acme/widgets", "autocode", ("dev",)),
+            launch=lambda project, ref, issue, options, owned=False: worker.start_issue_run(
+                project, ref, issue, options, launch=started, owned=owned
+            ),
+            adopt=lambda record: run,
+            prepare=lambda record, *, open_: "PR body written",
+        )
+
+    def said(self, words, number=14):
+        return [body for issue, body in self.client.posted if issue == number and words in body]
+
+    def test_a_start_the_bridge_did_not_survive_is_on_record_as_a_start_in_progress(self):
+        import autocode_issue as issue_tool
+
+        ref = self.interrupted_start()
+        left = store.load("acme", "widgets", 14)
+        self.assertIs(True, left["launching"])
+        self.assertEqual({"key": "starting"}, left["gate"])
+        self.assertTrue(left["owned"])
+        self.assertEqual(issue_tool.load(self.project, ref)["run_dir"], left["run_dir"])
+        self.assertTrue(bridge_cli.holds_slot(left))  # the run it may have started counts against the limit
+
+    def test_a_bridge_stopped_during_a_start_adopts_that_run_when_it_comes_back(self):
+        # A bridge in the no-systemd mode was stopped while a run was starting (2026-11-14): the run was never
+        # adopted, its questions never reached the issue, every later poll refused the issue as "already has
+        # an issue record", and the limit did not count it, so a third run started beside two.
+        self.interrupted_start()
+        run = FakeRun()
+        run.advance_until_input = lambda: run.calls.append(("advance_until_input",))
+        bridge = self.restarted_bridge(run, numbers=(14, 15))
+        bridge.tick()
+        self.assertEqual([], self.launched)  # neither started again, nor a second issue beside it
+        self.assertEqual([], self.said("could not start this run"))
+        self.assertEqual(1, len(self.said("took this issue")))
+        self.assertEqual(1, len(self.said("[q-1]")))  # the run's question reaches the issue
+        self.assertIn(("advance_until_input",), run.calls)  # and the daemon drives the run on
+        adopted = store.load("acme", "widgets", 14)
+        self.assertNotIn("launching", adopted)
+        self.assertTrue(bridge_cli.holds_slot(adopted))
+        self.assertEqual("queued", store.load("acme", "widgets", 15)["gate"]["key"])
+        bridge.tick()
+        self.assertEqual(1, len(self.said("took this issue")))
+        self.assertEqual([], self.launched)
+
+    def test_a_start_that_saved_no_run_before_the_bridge_stopped_is_reported_and_not_repeated(self):
+        from autocode_taskrun import TaskRunError
+
+        class NoRun:
+            def status(self):
+                raise TaskRunError("no run is saved in this directory")
+
+        self.interrupted_start()
+        bridge = self.restarted_bridge(NoRun())
+        bridge.tick()
+        failed = store.load("acme", "widgets", 14)
+        self.assertIn("the bridge stopped while this run was starting, and no run was saved", failed["failed"])
+        self.assertIn("no run is saved in this directory", failed["failed"])
+        self.assertNotIn("launching", failed)
+        self.assertFalse(bridge_cli.holds_slot(failed))
+        self.assertEqual(1, len(self.said("could not start this run")))
+        self.assertEqual([], self.said("took this issue"))
+        bridge.tick()
+        self.assertEqual(1, len(self.said("could not start this run")))
+        self.assertEqual([], self.launched)
+
+    def test_a_refused_launch_is_recorded_as_refused_and_a_finished_one_as_started(self):
+        def refused(worktree, run_dir, brief, options):
+            raise RuntimeError("no engine is installed")
+
+        with self.assertRaises(worker.BridgeError):
+            worker.start_issue_run(
+                self.project, github.IssueRef("acme", "widgets", 16), self.issue(16), [], launch=refused
+            )
+        failed = store.load("acme", "widgets", 16)
+        self.assertEqual("the durable launch was refused: no engine is installed", failed["failed"])
+        self.assertEqual({"key": "failed"}, failed["gate"])
+        self.assertNotIn("launching", failed)
+        self.assertFalse(bridge_cli.holds_slot(failed))
+
+        started = worker.start_issue_run(
+            self.project, github.IssueRef("acme", "widgets", 17), self.issue(17), [], launch=self.launch
+        )
+        self.assertNotIn("launching", started)
+        self.assertNotIn("launching", store.load("acme", "widgets", 17))
+        self.assertEqual({"launch_id": "b" * 32, "ready": True}, started["receipt"])
+
     def test_launch_options_never_carry_a_human_action(self):
         ref = github.IssueRef("acme", "widgets", 13)
         issue = {"number": 13, "title": "Fix", "body": "b"}
