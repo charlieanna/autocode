@@ -139,7 +139,7 @@ class OwnedConnectionCheckTests(unittest.TestCase):
         command = ["codex", "login", "status"]
         expected = subprocess.CompletedProcess(command, 0, "signed in", "")
         with (
-            patch.object(captured, "run", return_value=expected) as owned,
+            patch.object(captured, "run_metadata", return_value=expected) as owned,
             patch.object(subprocess, "run", return_value=expected) as raw,
         ):
             self.assertIs(expected, connected._run(command, cwd="owned workspace"))
@@ -147,7 +147,7 @@ class OwnedConnectionCheckTests(unittest.TestCase):
         raw.assert_not_called()
 
     def test_unconfirmed_opencode_cleanup_does_not_select_a_different_backend(self):
-        with patch.object(captured, "run", side_effect=captured.ProcessError("cleanup unknown")) as owned:
+        with patch.object(captured, "run_metadata", side_effect=captured.ProcessError("cleanup unknown")) as owned:
             with patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "0 credentials", "")):
                 with self.assertRaises(captured.ProcessError):
                     connected._opencode_has_no_account(connected._run)

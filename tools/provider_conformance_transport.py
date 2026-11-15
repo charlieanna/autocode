@@ -81,10 +81,10 @@ def preflight(name, model, adapter, workspace, env, *, fake=False):
         config = tomllib.loads(path.read_text()) if path.exists() else {}
         if config.get("model_provider") not in (None, "openai") or config.get("openai_base_url"):
             raise RuntimeError("Codex subscription probe requires the default OpenAI route")
-    version = captured.run(
+    version = captured.run_metadata(
         [executable, "--version"], env=env, cwd=workspace, capture_output=True, text=True, timeout=15, check=True
     )
-    login = captured.run(
+    login = captured.run_metadata(
         [executable, "login", "status"], env=env, cwd=workspace, capture_output=True, text=True, timeout=15
     )
     if login.returncode or "using ChatGPT" not in login.stdout + login.stderr:

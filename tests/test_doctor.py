@@ -52,7 +52,7 @@ class KeeperDependencyTests(unittest.TestCase):
                         lambda path: True if str(path) == doctor.tool_containment.BWRAP else is_file(path),
                     ),
                     mock.patch.object(
-                        doctor.captured, "run", side_effect=ModuleNotFoundError("psutil", name="psutil")
+                        doctor.captured, "run_metadata", side_effect=ModuleNotFoundError("psutil", name="psutil")
                     ) as capture,
                     mock.patch.object(doctor, "connected_choice", return_value=None) as connected,
                     mock.patch.object(doctor, "local_compose_checks") as docker,

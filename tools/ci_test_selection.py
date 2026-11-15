@@ -558,13 +558,21 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     # Captured commands execute this private helper by file path, beyond Python imports.
     (
-        ("tools/autocode_capture_reaper.py", "tools/autocode_captured_process.py"),
+        (
+            "tools/autocode_capture_reaper.py",
+            "tools/autocode_captured_process.py",
+            "tools/autocode_metadata_custody.py",
+        ),
         (
             "tests.test_captured_process",
             "tests.test_connection_processes",
             "tests.test_local_run",
+            "tests.test_metadata_custody",
+            "tests.test_metadata_preflight",
+            "tests.test_metadata_recovery",
             "tests.test_process_without_psutil",
             "tests.test_taskrun",
+            "tests.test_tool_containment_parallel",
         ),
     ),
     (

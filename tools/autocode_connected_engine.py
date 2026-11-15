@@ -59,7 +59,7 @@ CHECK_TIMEOUT = env_prep.CONNECTION_TIMEOUT_SECONDS
 
 
 def _run(command, cwd=None):
-    return captured.run(command, cwd=cwd, timeout=CHECK_TIMEOUT)
+    return captured.run_metadata(command, cwd=cwd, timeout=CHECK_TIMEOUT)
 
 
 def explicit_choice(args) -> bool:

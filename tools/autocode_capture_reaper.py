@@ -162,6 +162,8 @@ def main():
         os.close(owner)
         with os.fdopen(result, "wb") as stream:
             stream.write(json.dumps(response).encode("utf-8"))
+            stream.flush()
+            os.fsync(stream.fileno())
     return 0 if response["clean"] else 125
 
 

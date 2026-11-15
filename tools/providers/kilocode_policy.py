@@ -10,6 +10,7 @@ import re
 import shutil
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from pathlib import Path
 
 from . import env_prep, kilocode_probe
@@ -82,51 +83,53 @@ def effective_agent(argv, child, workspace, *, cache=None):
         raise RuntimeError("Kilo readonly launch cannot find the configured executable")
     selected = argv[argv.index("--agent") + 1] if "--agent" in argv else None
     key = (str(Path(executable).resolve()), selected, tuple(sorted(child.items())), str(Path(workspace).resolve()))
-    if cache is not None and key in cache:
-        return argv, cache[key]
+    allowance = kilocode_probe.PROBE_SECONDS * (1 if selected is not None else 2)
+    with captured.custody.group(timeout=allowance):
+        if cache is not None and key in cache:
+            return argv, cache[key]
 
-    observe = kilocode_probe.observer()
+        observe = kilocode_probe.observer()
 
-    def debug(*args):
-        words = [executable, "debug", *args]
-        # Asked through the kept checks (env_prep), keyed by the executable, the environment (which carries
-        # any KILO_CONFIG_CONTENT), the folder and Kilo's settings and agent definitions there and in its
-        # config folder: a changed default or permission is asked again, an unchanged one costs no Kilo start.
-        result = kilocode_probe.probe(
-            words,
-            lambda seconds: env_prep.preflight_run(
+        def debug(*args):
+            words = [executable, "debug", *args]
+            # Asked through the kept checks (env_prep), keyed by the executable, the environment (which carries
+            # any KILO_CONFIG_CONTENT), the folder and Kilo's settings and agent definitions there and in its
+            # config folder: a changed default or permission is asked again, an unchanged one costs no Kilo start.
+            result = kilocode_probe.probe(
                 words,
-                child,
-                complete=_policy_answer,
-                cwd=workspace,
-                capture_output=True,
-                text=True,
-                timeout=seconds,
-            ),
-            observe=observe,
-        )
-        if result.returncode:
-            raise RuntimeError("Kilo readonly policy could not be resolved before launch")
-        value = json.loads(result.stdout)
-        if not isinstance(value, dict):
-            raise ValueError("Kilo debug policy must be a JSON object")
-        return value
+                lambda seconds: env_prep.preflight_run(
+                    words,
+                    child,
+                    complete=_policy_answer,
+                    cwd=workspace,
+                    capture_output=True,
+                    text=True,
+                    timeout=seconds,
+                ),
+                observe=observe,
+            )
+            if result.returncode:
+                raise RuntimeError("Kilo readonly policy could not be resolved before launch")
+            value = json.loads(result.stdout)
+            if not isinstance(value, dict):
+                raise ValueError("Kilo debug policy must be a JSON object")
+            return value
 
-    if selected is not None:
-        original = debug("agent", selected)
-    else:
-        # Each debug command is a Kilo start, and `probe` bounds the whole set of attempts rather than each
-        # one. The usual default agent's policy is read alongside the config; it is used only when the config
-        # names that agent. Both are kept answers only while nothing they depend on changed (above).
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            usual = pool.submit(debug, "agent", "code")
-            selected = debug("config").get("default_agent") or "code"
-            if selected != "code":
-                usual.cancel()
-            original = usual.result() if selected == "code" else debug("agent", selected)
-    if cache is not None:
-        cache[key] = original
-    return argv, original
+        if selected is not None:
+            original = debug("agent", selected)
+        else:
+            # Each debug command is a Kilo start, and `probe` bounds the whole set of attempts rather than each
+            # one. The usual default agent's policy is read alongside the config; it is used only when the config
+            # names that agent. Both are kept answers only while nothing they depend on changed (above).
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                usual = pool.submit(copy_context().run, debug, "agent", "code")
+                selected = debug("config").get("default_agent") or "code"
+                if selected != "code":
+                    usual.cancel()
+                original = usual.result() if selected == "code" else debug("agent", selected)
+        if cache is not None:
+            cache[key] = original
+        return argv, original
 
 
 def _permission_match(value, pattern):

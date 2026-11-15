@@ -111,7 +111,7 @@ class Check:
 
 def run(cmd: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess:
     try:
-        return captured.run(cmd, cwd=cwd, timeout=20)
+        return captured.run_metadata(cmd, cwd=cwd, timeout=20)
     except ModuleNotFoundError as error:
         if error.name != "psutil":
             raise

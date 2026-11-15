@@ -47,7 +47,10 @@ class MetadataCaptureTests(unittest.TestCase):
 
     def test_preflight_reuses_only_a_completed_owned_answer(self):
         expected = subprocess.CompletedProcess(self.command, 0, "provider/model\n", "")
-        with env_prep.reuse_checks(self.root / "run"), patch.object(captured, "run", return_value=expected) as run:
+        with (
+            env_prep.reuse_checks(self.root / "run"),
+            patch.object(captured, "run_metadata", return_value=expected) as run,
+        ):
             kwargs = dict(cwd=self.root, capture_output=True, text=True, timeout=30, require_executable=True)
             self.assertIs(expected, env_prep.preflight_run(self.command, self.env, **kwargs))
             kept = env_prep.preflight_run(self.command, self.env, **kwargs)
@@ -62,7 +65,7 @@ class MetadataCaptureTests(unittest.TestCase):
         complete = Mock(return_value=True)
         with (
             env_prep.reuse_checks(self.root / "run"),
-            patch.object(captured, "run", side_effect=error) as run,
+            patch.object(captured, "run_metadata", side_effect=error) as run,
             self.assertRaises(captured.ProcessError) as raised,
         ):
             env_prep.preflight_listing(
@@ -82,7 +85,10 @@ class MetadataCaptureTests(unittest.TestCase):
     def test_a_legacy_kept_answer_is_replaced_by_an_owned_check(self):
         kwargs = dict(cwd=self.root, capture_output=True, text=True, timeout=30)
         expected = subprocess.CompletedProcess(self.command, 0, "owned answer", "")
-        with env_prep.reuse_checks(self.root / "run"), patch.object(captured, "run", return_value=expected) as run:
+        with (
+            env_prep.reuse_checks(self.root / "run"),
+            patch.object(captured, "run_metadata", return_value=expected) as run,
+        ):
             env_prep.preflight_run(self.command, self.env, **kwargs)
             [file] = (self.root / "run" / env_prep.REUSE_FOLDER).glob("*.json")
             legacy = json.loads(file.read_text())
@@ -94,11 +100,52 @@ class MetadataCaptureTests(unittest.TestCase):
         self.assertEqual(2, run.call_count)
         self.assertEqual(env_prep.OWNED_CHECK_SCHEMA, json.loads(file.read_text())["ownership_schema"])
 
+    @unittest.skipUnless(os.name == "posix", "Linux metadata filesystem and locks")
+    def test_uncertain_prior_attempt_blocks_kept_answers_and_a_different_child_environment(self):
+        custody = captured.custody
+        expected = subprocess.CompletedProcess(self.command, 0, "provider/model\n", "")
+        kwargs = dict(cwd=self.root, capture_output=True, text=True, timeout=30, require_executable=True)
+        with (
+            patch.dict(os.environ, {"HOME": str(self.root), "XDG_STATE_HOME": str(self.root / "state")}),
+            patch.object(custody.sys, "platform", "linux"),
+            patch.object(custody, "_boot_id", return_value="00000000-0000-4000-8000-000000000001"),
+            env_prep.reuse_checks(self.root / "run"),
+            patch.object(captured, "run_metadata", return_value=expected) as run,
+        ):
+            env_prep.preflight_run(self.command, self.env, **kwargs)
+            self.assertIsInstance(env_prep.preflight_run(self.command, self.env, **kwargs), env_prep.KeptCheck)
+            with self.assertRaises(captured.ProcessError), custody.admission(timeout=1) as scope:
+                scope.arm()  # Simulates a launched helper lost without its terminal response.
+            for child_env in (self.env, {"PATH": "", "HOME": str(self.root / "different-home")}):
+                with self.subTest(child_env=child_env), self.assertRaises(captured.ProcessError):
+                    env_prep.preflight_run(self.command, child_env, **kwargs)
+            self.assertEqual(1, run.call_count, "neither a cached answer nor another backend call may pass")
+
+    @unittest.skipUnless(os.name == "posix", "Linux metadata filesystem and locks")
+    def test_uncertain_prior_attempt_also_blocks_launch_local_policy_cache(self):
+        custody = captured.custody
+        cache = {}
+        argv = [str(self.tool), "run", "--agent", "stage"]
+        expected = subprocess.CompletedProcess([], 0, '{"permission": []}', "")
+        with (
+            patch.dict(os.environ, {"HOME": str(self.root), "XDG_STATE_HOME": str(self.root / "state")}),
+            patch.object(custody.sys, "platform", "linux"),
+            patch.object(custody, "_boot_id", return_value="00000000-0000-4000-8000-000000000001"),
+            patch.object(captured, "run_metadata", return_value=expected) as run,
+        ):
+            kilocode_policy.effective_agent(argv, self.env, self.root, cache=cache)
+            self.assertEqual(1, len(cache))
+            with self.assertRaises(captured.ProcessError), custody.admission(timeout=1) as scope:
+                scope.arm()
+            with self.assertRaises(captured.ProcessError):
+                kilocode_policy.effective_agent(argv, self.env, self.root, cache=cache)
+            self.assertEqual(1, run.call_count, "a kept policy must not bypass unresolved metadata ownership")
+
     def test_metadata_bypasses_use_the_same_owned_runner_and_bounds(self):
         expected = subprocess.CompletedProcess([], 0, "using ChatGPT\n", "")
         with (
             patch.dict(os.environ, {"CODEX_HOME": str(self.root)}, clear=False),
-            patch.object(captured, "run", return_value=expected) as run,
+            patch.object(captured, "run_metadata", return_value=expected) as run,
             patch.object(subprocess, "run", side_effect=AssertionError("unowned metadata spawn")),
         ):
             self.assertEqual("ChatGPT", support.local_settings()["auth_mode"])
@@ -114,7 +161,7 @@ class MetadataCaptureTests(unittest.TestCase):
 
     def test_native_version_and_debug_checks_share_capture(self):
         expected = subprocess.CompletedProcess([], 0, containment.SUPPORTED_VERSION, "")
-        with patch.object(captured, "run", return_value=expected) as run:
+        with patch.object(captured, "run_metadata", return_value=expected) as run:
             self.assertEqual(containment.SUPPORTED_VERSION, containment.backend_version(containment.BUBBLEWRAP))
             run.assert_called_with([containment.BWRAP, "--version"], capture_output=True, text=True, timeout=15)
             with (
@@ -145,7 +192,7 @@ class MetadataCaptureTests(unittest.TestCase):
         expected = subprocess.CompletedProcess([], 0, '{"permission": []}', "")
         with (
             patch.object(kilocode_policy.shutil, "which", return_value=str(self.tool)),
-            patch.object(captured, "run", return_value=expected) as run,
+            patch.object(captured, "run_metadata", return_value=expected) as run,
             patch.object(env_prep, "preflight_run", side_effect=AssertionError("private policy entered reuse")),
         ):
             argv, policy = kilocode_policy.effective_agent(["kilo", "run", "--agent", "review"], self.env, self.root)
@@ -168,7 +215,7 @@ class MetadataCaptureTests(unittest.TestCase):
 
         with (
             patch.object(env_prep, "resolve_executable", return_value=str(self.tool)),
-            patch.object(captured, "run", side_effect=answer) as run,
+            patch.object(captured, "run_metadata", side_effect=answer) as run,
         ):
             result = conformance.preflight("codex", "fixture/model", None, self.root, self.env, fake=True)
         self.assertEqual("ChatGPT", result["auth_mode"])
@@ -182,7 +229,7 @@ class MetadataCaptureTests(unittest.TestCase):
     def test_missing_process_dependency_is_a_doctor_failure_without_a_raw_fallback(self):
         missing = ModuleNotFoundError("fixture psutil absent", name="psutil")
         with (
-            patch.object(captured, "run", side_effect=missing),
+            patch.object(captured, "run_metadata", side_effect=missing),
             patch.object(subprocess, "run", side_effect=AssertionError("unsafe fallback")),
         ):
             result = doctor.run(self.command)
@@ -192,7 +239,9 @@ class MetadataCaptureTests(unittest.TestCase):
     def test_codex_metadata_timeout_does_not_disclose_captured_auth_output(self):
         with (
             patch.dict(os.environ, {"CODEX_HOME": str(self.root)}),
-            patch.object(captured, "run", side_effect=subprocess.TimeoutExpired("fixture", 45, output="SECRET")),
+            patch.object(
+                captured, "run_metadata", side_effect=subprocess.TimeoutExpired("fixture", 45, output="SECRET")
+            ),
             self.assertRaisesRegex(RuntimeError, "Codex login check timed out") as raised,
         ):
             support.local_settings()
@@ -286,7 +335,7 @@ class MetadataUncertaintyTests(unittest.TestCase):
         with (
             patch.object(connections, "_definition", return_value=("Fixture", "fixture", None, ["fixture"], None)),
             patch.object(connections.shutil, "which", return_value="/owned/fixture"),
-            patch.object(captured, "run", side_effect=self.error) as run,
+            patch.object(captured, "run_metadata", side_effect=self.error) as run,
         ):
             with self.assertRaises(captured.ProcessError):
                 setup.rows()

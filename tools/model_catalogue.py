@@ -80,7 +80,7 @@ def roles_from_pins_or_suggest(models: list[str], pins: dict | None = None) -> d
 
 
 def list_catalogue(workspace: Path | None = None, command=("opencode", "models")) -> list[str]:
-    result = captured.run(
+    result = captured.run_metadata(
         list(command), cwd=str(workspace) if workspace else None, capture_output=True, text=True, timeout=180
     )
     if result.returncode:

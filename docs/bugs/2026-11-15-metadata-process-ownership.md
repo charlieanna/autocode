@@ -35,8 +35,46 @@ and [waitpid](https://www.man7.org/linux/man-pages/man2/waitpid.2.html).
 An uncertain result cannot authorize another attempt, a cached answer, a
 different backend or a tool-containment waiver.
 
+A further fault injection killed that subreaper after the backend and its
+detached worker were ready. The first public connection check reported failure,
+but a fresh CLI still offered Check and started another backend while both old
+processes survived. Its observation receipt is
+`5d38a132ff860e1944f95284c30aa7a4ea235a62fa06aca533586a58f2c3b947`.
+An exception in one Core invocation is therefore insufficient admission policy.
+
+Linux metadata admission now retains a private pending record before launch.
+The reaper writes its nonce-bound terminal result to a durable private file
+after collecting the family. Declared parallel batches retain a separate result
+for every command and release only after all of them finish; healthy toolchain
+and policy checks keep their concurrency. Every metadata call and cached-answer
+lookup checks that same record under a bounded lock. Missing or invalid completion
+evidence remains blocked across CLI exits; elapsed time, helper death and
+sampled process absence cannot release it. Connections displays that block
+without offering another check or sign-in action. A changed kernel boot may
+retire an old record while retaining it as failure evidence.
+
+This prevents another launch after lost cleanup authority. It does not claim
+automatic recovery of an unknown surviving family after the reaper itself was
+killed. The macOS runner retains its documented sampled cleanup limitation.
+
 The original VS Code status-read deadline fix has separate actual-editor
 evidence. Forty subsequent reads did not reproduce the rare 65–72 second
 delay, so its underlying latency cause remains open. Metadata process
-ownership, current Kilo readiness and the new Connections editor check require
-their own qualification; this note does not claim those checks have passed.
+ownership and current Kilo readiness require their own qualification. The
+Connections deadline, duplicate refusal, late-result discard and fresh-result
+recovery were observed in the actual extension on source `4576a3ce`; all its
+readers and native processes were collected. Both real Kilo checks returned
+`sign_in_required`, so that combined readiness attempt remains failed. It does
+not establish that saved credentials are missing: auth-list startup errors must
+be distinguished from a successful empty list.
+
+A subsequent model-free comparison on that same source identified the failed
+setup: Docker had created Kilo's data directory as root, and both version and
+auth-list commands exited 1 with `EACCES`. With private writable runtime
+directories and identical read-only account mounts, version returned 7.8.3 and
+auth-list returned six saved entries. Both namespaces were collected without
+fallback signals. Its terminal observation receipt is
+`de74b9c56728efd95993637ebf3443bfccd76ad23ca88cb6ea2196243423dd7d`.
+This qualifies local account discovery, not key validity or model access. Core
+now reports every nonzero Kilo/OpenCode auth-list exit as an operational failure;
+a successful empty list still means no saved login was confirmed.

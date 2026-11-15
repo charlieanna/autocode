@@ -63,7 +63,7 @@ class ConnectionTests(unittest.TestCase):
         self.configure()
         with (
             mock.patch.object(connections.subprocess, "run", side_effect=AssertionError("discovery ran a backend")),
-            mock.patch.object(captured, "run", side_effect=AssertionError("discovery ran a backend")),
+            mock.patch.object(captured, "run_metadata", side_effect=AssertionError("discovery ran a backend")),
         ):
             code, output = self.call("list", "--json")
         self.assertEqual(0, code)
@@ -185,7 +185,7 @@ class ConnectionTests(unittest.TestCase):
                     self.subTest(code=code),
                     mock.patch.object(
                         captured,
-                        "run",
+                        "run_metadata",
                         return_value=subprocess.CompletedProcess([], code, "Logged in using ChatGPT", ""),
                     ) as run,
                 ):
@@ -201,10 +201,49 @@ class ConnectionTests(unittest.TestCase):
         ):
             with (
                 mock.patch.object(connections.shutil, "which", return_value="/kilo"),
-                mock.patch.object(captured, "run", return_value=subprocess.CompletedProcess([], 0, output, "")),
+                mock.patch.object(
+                    captured, "run_metadata", return_value=subprocess.CompletedProcess([], 0, output, "")
+                ),
             ):
                 row = connections.connection_view("kilocode", check=True)
             self.assertEqual(status, row["connection_status"])
+
+    def test_auth_list_errors_are_operational_failures_and_empty_success_requires_sign_in(self):
+        # These list commands succeed even when there are zero saved logins;
+        # their exit 1 is also used for startup/configuration/permission errors.
+        for name in ("kilocode", "opencode"):
+            for exit_code, stdout, stderr, expected in (
+                (0, "0 credentials\n", "", "sign_in_required"),
+                (0, "● Offline fixture api\n", "", "credentials_present"),
+                (1, "", "EACCES: fixture startup failed", "check_failed"),
+                (1, "● Offline fixture api\n", "fixture command failed", "check_failed"),
+                (2, "", "fixture command failed", "check_failed"),
+            ):
+                with (
+                    self.subTest(name=name, exit_code=exit_code, stdout=stdout),
+                    mock.patch.object(connections.shutil, "which", return_value="/owned/backend"),
+                    mock.patch.object(
+                        captured,
+                        "run_metadata",
+                        return_value=subprocess.CompletedProcess([], exit_code, stdout, stderr),
+                    ),
+                ):
+                    row = connections.connection_view(name, check=True)
+                    self.assertEqual(expected, row["connection_status"])
+                    if stderr:
+                        self.assertNotIn(stderr, json.dumps(row))
+
+    def test_registered_status_exit_one_keeps_its_declared_missing_login_contract(self):
+        with (
+            mock.patch.object(
+                connections, "_definition", return_value=("Fixture", "fixture", None, ["fixture", "status"], None)
+            ),
+            mock.patch.object(connections.shutil, "which", return_value="/owned/fixture"),
+            mock.patch.object(captured, "run_metadata", return_value=subprocess.CompletedProcess([], 1, "", "")),
+        ):
+            self.assertEqual(
+                "sign_in_required", connections.connection_view("fixture", check=True)["connection_status"]
+            )
 
     def test_claude_login_that_would_bill_an_api_key_is_not_reported_signed_in(self):
         """A claude.ai login whose key comes from apiKeyHelper paused every run with PAUSED_BILLING_ROUTE
@@ -241,7 +280,7 @@ class ConnectionTests(unittest.TestCase):
                 mock.patch.object(connections.shutil, "which", return_value="/claude"),
                 mock.patch.object(
                     captured,
-                    "run",
+                    "run_metadata",
                     return_value=subprocess.CompletedProcess([], 0, json.dumps(status), ""),
                 ),
             ):
@@ -254,7 +293,7 @@ class ConnectionTests(unittest.TestCase):
 
     def test_check_timeout_is_explicit_and_does_not_disclose_errors(self):
         self.configure()
-        with mock.patch.object(captured, "run", side_effect=subprocess.TimeoutExpired("SECRET", 45)):
+        with mock.patch.object(captured, "run_metadata", side_effect=subprocess.TimeoutExpired("SECRET", 45)):
             _, output = self.call("check", "--provider", "company", "--json")
         self.assertEqual("check_failed", json.loads(output)["connection_status"])
         self.assertNotIn("SECRET", output)
@@ -263,7 +302,7 @@ class ConnectionTests(unittest.TestCase):
         self.configure()
         expected = subprocess.CompletedProcess([], 1, "SECRET account", "SECRET token")
         with (
-            mock.patch.object(captured, "run", return_value=expected) as owned,
+            mock.patch.object(captured, "run_metadata", return_value=expected) as owned,
             mock.patch.object(subprocess, "run", return_value=expected) as raw,
         ):
             _, output = self.call("check", "--provider", "company", "--json")
@@ -275,7 +314,7 @@ class ConnectionTests(unittest.TestCase):
     def test_unconfirmed_cleanup_is_a_safe_operational_failure(self):
         self.configure()
         with (
-            mock.patch.object(captured, "run", side_effect=captured.ProcessError("SECRET cleanup error")),
+            mock.patch.object(captured, "run_metadata", side_effect=captured.ProcessError("SECRET cleanup error")),
             mock.patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "")),
         ):
             _, output = self.call("check", "--provider", "company", "--json")

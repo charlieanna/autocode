@@ -58,7 +58,7 @@ except ImportError:
     from autocode_invocation_environment import without_call_markers
 
 CONNECTION_TIMEOUT_SECONDS = 45
-OWNED_CHECK_SCHEMA = 1  # Older kept answers predate owned descendant cleanup.
+OWNED_CHECK_SCHEMA = 2  # Older answers predate durable metadata cleanup admission.
 REUSE_SECONDS = 3600  # owner decision 2026-10-20: an hour
 REUSE_FOLDER = "preflight-reuse"
 LISTING_RETRY_FACTOR = 2  # a timed-out listing's second attempt gets twice its bound (#3313)
@@ -178,24 +178,25 @@ def preflight_run(
     decides whether an answer is whole enough to keep or to answer again; ``fresh``
     skips a kept answer (and keeps the new one as usual).
     """
-    if require_executable and not resolve_executable(command[0], env, cwd=kwargs.get("cwd")):
-        raise FileNotFoundError(f"{command[0]!r} cannot be found in the explicit environment")
     decoding = _decoding(kwargs)
-    execution_key = _execution_key(command, env, kwargs)
-    key = _reuse_key(execution_key, decoding)
-    kept = None if fresh else _recall(key, command, complete)
-    if kept is not None:
-        return kept
-    try:
-        result = captured.run(command, env=dict(env), **kwargs)
-    except subprocess.TimeoutExpired:
-        if warming and execution_key:
-            # A warm-up that overran its bound was the check's first attempt (preflight_listing).
-            _timed_out.add(execution_key)
-        raise
-    if key and result.returncode == 0 and (complete is None or complete(result.stdout)):
-        _keep(key, result)
-    return result
+    with captured.custody.admission(env=env, timeout=kwargs.get("timeout")):
+        if require_executable and not resolve_executable(command[0], env, cwd=kwargs.get("cwd")):
+            raise FileNotFoundError(f"{command[0]!r} cannot be found in the explicit environment")
+        execution_key = _execution_key(command, env, kwargs)
+        key = _reuse_key(execution_key, decoding)
+        kept = None if fresh else _recall(key, command, complete)
+        if kept is not None:
+            return kept
+        try:
+            result = captured.run_metadata(command, env=dict(env), **kwargs)
+        except subprocess.TimeoutExpired:
+            if warming and execution_key:
+                # A warm-up that overran its bound was the check's first attempt (preflight_listing).
+                _timed_out.add(execution_key)
+            raise
+        if key and result.returncode == 0 and (complete is None or complete(result.stdout)):
+            _keep(key, result)
+        return result
 
 
 def preflight_listing(command, env: Mapping[str, str], *, timeout, **kwargs):

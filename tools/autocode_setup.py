@@ -284,7 +284,7 @@ def _get_node() -> str:
 def _npm_bin() -> str | None:
     """npm's global bin folder (``npm prefix -g`` + /bin), or None when npm cannot say."""
     try:
-        prefix = captured.run(
+        prefix = captured.run_metadata(
             ["npm", "prefix", "-g"], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30
         ).stdout.strip()
     except (OSError, subprocess.TimeoutExpired):

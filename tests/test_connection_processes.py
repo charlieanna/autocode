@@ -53,6 +53,7 @@ class ConnectionProcessTests(unittest.TestCase):
 
         try:
             with (
+                patch.dict(os.environ, {"HOME": str(root), "XDG_STATE_HOME": str(root / "state")}),
                 patch.object(captured, "run", side_effect=bounded),
                 patch.object(connections, "_definition", return_value=("Fixture", sys.executable, None, command, None)),
             ):
@@ -74,7 +75,9 @@ class ConnectionProcessTests(unittest.TestCase):
                 not path.exists() or path.read_text().rpartition(")")[2].split()[19] != row["start"],
                 "connection check left an owned child",
             )
-            self.assertEqual([45], allowances)
+            self.assertEqual(1, len(allowances))
+            self.assertGreater(allowances[0], 0)
+            self.assertLessEqual(allowances[0], 45, "admission must consume the original allowance")
         finally:
             if record.exists():
                 row = json.loads(record.read_text())

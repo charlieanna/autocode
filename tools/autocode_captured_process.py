@@ -13,9 +13,11 @@ from pathlib import Path
 
 try:
     from . import autocode_grader_process as supervisor
+    from . import autocode_metadata_custody as custody
     from .autocode_process import ProcessError, interruption_handler, preflight
 except ImportError:
     import autocode_grader_process as supervisor
+    import autocode_metadata_custody as custody
     from autocode_process import ProcessError, interruption_handler, preflight
 
 
@@ -107,15 +109,20 @@ def _sampled(command, timeout, env, cwd, output, errors, stdin):
 
 def _linux(command, timeout, env, cwd, output, errors, stdin):
     """One private subreaper owns exactly one invocation, even off the main thread."""
+    scope = custody.current()
     deadline = None if timeout is None else time.monotonic() + timeout
+    if scope is not None and (admitted := scope.effective_deadline()) is not None:
+        deadline = admitted if deadline is None else min(deadline, admitted)
     parent_deadline = None if deadline is None else deadline + HELPER_RESERVE
-    nonce = uuid.uuid4().hex
+    nonce = scope.nonce if scope is not None else uuid.uuid4().hex
     words = (
         os.fsdecode(command) if isinstance(command, (str, bytes, os.PathLike)) else [os.fsdecode(w) for w in command]
     )
     with ExitStack() as stack:
         request = stack.enter_context(_temporary("w+b"))
-        result = stack.enter_context(_temporary("w+b"))
+        result = scope.result if scope is not None else stack.enter_context(_temporary("w+b"))
+        if result is None or nonce is None:
+            raise ProcessError("Metadata capture was not admitted before launch")
         reader, writer = _private_pipe()
         owner_read = stack.enter_context(os.fdopen(reader, "rb", buffering=0))
         owner_write = stack.enter_context(os.fdopen(writer, "wb", buffering=0))
@@ -199,6 +206,8 @@ def run(command, *, timeout=None, env=None, cwd=None, capture_output=True, text=
     if capture_output is not True or text is not True:
         raise ValueError("Captured commands require capture_output=True and text=True")
     preflight()
+    if scope := custody.current():
+        scope.arm()
     with ExitStack() as stack:
         if threading.current_thread() is threading.main_thread():
             stack.enter_context(interruption_handler())
@@ -214,3 +223,13 @@ def run(command, *, timeout=None, env=None, cwd=None, capture_output=True, text=
         if check and code:
             raise subprocess.CalledProcessError(code, command, output=stdout, stderr=stderr)
         return subprocess.CompletedProcess(command, code, stdout, stderr)
+
+
+def run_metadata(command, *, env=None, timeout=None, **kwargs):
+    """Admit one metadata command, retaining uncertain cleanup across Core exits.
+
+    TaskRun and LocalRun use ``run`` directly: their outer CLI invocations may
+    contain metadata calls of their own and must not hold this admission lock.
+    """
+    with custody.admission(env=env, timeout=timeout) as scope:
+        return run(command, env=env, timeout=scope.remaining_timeout(), **kwargs)

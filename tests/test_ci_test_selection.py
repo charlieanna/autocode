@@ -43,10 +43,18 @@ class AccessTransportConsumerTests(unittest.TestCase):
             "tests.test_captured_process",
             "tests.test_connection_processes",
             "tests.test_local_run",
+            "tests.test_metadata_custody",
+            "tests.test_metadata_preflight",
+            "tests.test_metadata_recovery",
             "tests.test_process_without_psutil",
             "tests.test_taskrun",
+            "tests.test_tool_containment_parallel",
         }
-        for path in ("tools/autocode_capture_reaper.py", "tools/autocode_captured_process.py"):
+        for path in (
+            "tools/autocode_capture_reaper.py",
+            "tools/autocode_captured_process.py",
+            "tools/autocode_metadata_custody.py",
+        ):
             with self.subTest(path=path):
                 selected = run_suite.select_tests([path], {name: "" for name in (*consumers, "tests.test_unrelated")})
                 kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
