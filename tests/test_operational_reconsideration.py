@@ -176,9 +176,7 @@ class ReconsiderationCLITests(unittest.TestCase):
             self.state["planning"].update(review_call_limit=2, review_call_limit_origin="user_explicit")
         self.timeout(1)
         self.timeout(2)
-        resolver.record_operational_exhaustion(
-            runner, self.state, self.run, s.Paused("PAUSED_PLANNING_BUDGET", "Saved cap reached")
-        )
+        legacy_publication(self.state, self.run, pause="PAUSED_PLANNING_BUDGET")
         runner.write_json(self.run / "state.json", self.state)
 
     def test_cli_continuation_reconsiders_but_status_is_read_only(self):

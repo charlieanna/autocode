@@ -276,7 +276,10 @@ def _questions(proposal, key, reason):
 
 def _evidence_valid(proposal):
     try:
-        pins = proposal.get("evidence", {}).get("hashes", {})
+        evidence = proposal.get("evidence", {})
+        if not isinstance(evidence, dict):
+            return False
+        pins = evidence.get("hashes", {})
         if not isinstance(pins, dict):
             return False
         return all(

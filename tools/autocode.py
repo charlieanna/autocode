@@ -1633,9 +1633,9 @@ def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None)
     background, literal = None, {}  # the overlap call (#3233) and the exact replies the person typed
     try:
         while state["status"] == "WAITING_FOR_USER":
-            published = resolver_human.current(state)
+            published, notice = action_resolver.chat_request(state)
             if not published:
-                print("The Resolver is still deciding whether this needs you; it asks once it does.")
+                print(notice)
                 return False
             if published["scope"] in ("operational_exhaustion", "blocker"):
                 show_question()

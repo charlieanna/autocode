@@ -86,6 +86,31 @@ def _normalize(runner, state: RunState, state_path, run_dir, row, identity):
     state.update(candidate)
 
 
+def _fresh_try(state: RunState, identity, previous_settings):
+    """A status-gated handler inspects only this exact authenticated request.
+
+    Locked CLI setup may already have selected new settings. Its one saved
+    prior setting is the existing recovery contract; every other frontier fact
+    must still be fresh. No normalization or cause projection precedes this.
+    """
+    versions = [state]
+    if previous_settings is not None:
+        versions.append({**state, "settings": previous_settings})
+    for checked_state in versions:
+        issued = human.current(checked_state) or human.recovery_request(checked_state)
+        if issued:
+            proposal = checked_state["resolver"]["human_escalations"][issued["request_id"]]["identity"]["proposal"]
+        else:
+            proposal = human.queued_operational(checked_state)
+        if (
+            isinstance(proposal, dict)
+            and (proposal.get("evidence") or {}).get("resolver_receipt_id") == identity
+            and disposition.saved_disposition(checked_state, proposal) == "machinery"
+        ):
+            return True
+    return False
+
+
 def guard(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Refuse ordinary advancement before recovery bookkeeping or dispatch can run."""
     current = disposition.decision(state)
@@ -197,11 +222,24 @@ def guard(runner, args, parser, state: RunState, state_path, run_dir, workspace,
         except ValueError as error:
             print(f"Requested milestone settings remain queued: {error}", file=sys.stderr)
         return refuse()
+    inspected_request = state.get("status") in ("WAITING_FOR_USER", "RESOLVER_PENDING") and selection in (
+        "grant",
+        "failure_retry",
+        "report",
+        "builder",
+    )
+    if inspected_request and not _fresh_try(
+        state, decided.operational_incident, getattr(args, "_recovery_grant_settings", None)
+    ):
+        return refuse()
     _normalize(runner, state, state_path, run_dir, row, decided.operational_incident)
     decided.operational_selection = selection
     # Selection permits trying the existing exact handler, not another stage.
-    # A stale publication does not change this original incident's cause.
-    if state.get("status") in ("WAITING_FOR_USER", "RESOLVER_PENDING"):
+    # These handlers read a cause status and may archive their exact repair
+    # before the next handler runs. Only a fresh request can hand them its cause.
+    # Grant instead keeps the original publication: its owner distinguishes a
+    # bare timeout from a request and records that request's exact identity.
+    if inspected_request and selection != "grant":
         run_status.pause(state, cast(str, cause), state.get("stop_reason"))
     return None
 

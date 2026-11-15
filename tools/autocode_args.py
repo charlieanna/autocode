@@ -967,7 +967,7 @@ def _acknowledges_pause(args):
     ):
         # Publication changes the status, not the underlying pause. Verify its receipt rather
         # than treating a request's scope label as authority; locked recovery still checks it.
-        issued = resolver_human.current(state)
+        issued = resolver_human.current(state) or resolver_human.recovery_request(state)
         if issued and issued["scope"] == "operational_exhaustion":
             proposal = state["resolver"]["human_escalations"][issued["request_id"]]["identity"]["proposal"]
             status = str(proposal["origin"].get("pause_status", ""))

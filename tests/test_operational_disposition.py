@@ -1,6 +1,8 @@
 """Internal exhaustion cannot create or accept a machinery question; no provider is launched."""
 
+import contextlib
 import copy
+import io
 import json
 import subprocess
 import tempfile
@@ -383,6 +385,39 @@ class OperationalDispositionTests(unittest.TestCase):
             self.assertIsNone(shown["human_escalation"])
             self.assertEqual([], shown["pending_questions"])
 
+    def test_terminal_checkpoint_reports_the_saved_block_without_asking_or_changing_state(self):
+        import autocode as core
+        import autocode_action_resolver as action_resolver
+
+        contract = {"task_id": "fixture", "revision": 1, "body": body()}
+        contract.update(hash=util.digest(contract), approval_status="draft", approval_event=None)
+        self.state["goal_contract"] = contract
+        pristine = copy.deepcopy(self.state)
+        self.legacy()
+        before = copy.deepcopy(self.state)
+        output = io.StringIO()
+        with (
+            patch("builtins.input", side_effect=AssertionError("no machinery question")) as asked,
+            contextlib.redirect_stdout(output),
+        ):
+            self.assertFalse(core.chat_checkpoint(self.state, self.run))
+        asked.assert_not_called()
+        self.assertIn(disposition.MESSAGE, output.getvalue())
+        self.assertNotIn("still deciding", output.getvalue())
+        self.assertEqual(before, self.state)
+
+        self.state = pristine
+        question = {"id": "Q1", "question": "Which product scope?", "options": ["A", "B"]}
+        self.state["goal_contract"]["body"]["open_blocking_questions"] = [question]
+        self.state["goal_contract"]["hash"] = util.digest(
+            {key: self.state["goal_contract"][key] for key in ("task_id", "revision", "body")}
+        )
+        human.queue(self.state, "clarification", {"stage": "requirements_gather"}, questions=[question])
+        self.assertEqual("escalate", human.evaluate(self.state))
+        public = human.current(self.state)
+        self.assertIsNotNone(public)
+        self.assertEqual(public, action_resolver.chat_request(self.state)[0])
+
     def test_historical_fixture_constructor_never_reauthorizes_its_cached_reply(self):
         from .operational_fixtures import legacy_publication, legacy_response
 
@@ -397,6 +432,31 @@ class OperationalDispositionTests(unittest.TestCase):
             )
         self.assertEqual(before, self.state)
         self.assertIsNotNone(disposition.held(self.state))
+
+    def test_resume_word_can_try_existing_companion_without_republishing_or_admitting_old_machinery(self):
+        import autocode as core
+        import autocode_args as cli_args
+
+        self.legacy(pause="PAUSED_TIMEOUT_RECOVERY")
+        support.atomic_json(self.run / "state.json", self.state)
+        before = copy.deepcopy(self.state)
+        args = Arguments(run_dir=str(self.run), grant_recovery=1, _explicit_budget_flags=set())
+        self.assertTrue(
+            cli_args._acknowledges_pause(args), "fresh authenticated legacy cause permits only trying its companion"
+        )
+        parsed, _ = cli_args.parse(
+            None,
+            ["resume", "--workspace", str(self.root), "--run-dir", str(self.run), "--grant-recovery", "1"],
+            core.DEFAULT_ROLE_MODELS,
+        )
+        self.assertTrue(parsed.resume_paused)
+        self.assertIsNone(human.current(self.state))
+        self.assertFalse(admission.ready(self.state, actions.Decided()))
+        self.assertFalse(cli_args._acknowledges_pause(Arguments(run_dir=str(self.run), _explicit_budget_flags=set())))
+        self.assertEqual(before, self.state)
+        self.state["settings"]["unrelated"] = True
+        support.atomic_json(self.run / "state.json", self.state)
+        self.assertFalse(cli_args._acknowledges_pause(args), "stale publication grants no shorthand acknowledgment")
 
     def test_startup_failure_uses_original_diagnostic_without_requiring_a_person_question(self):
         import autocode_startup_timeout_view as startup_view
@@ -803,6 +863,37 @@ class OperationalDispositionTests(unittest.TestCase):
                     typed_block.guard(self.writer(), self.state, self.run, self.root)
                 self.assertFalse(admission.ready(self.state, actions.Decided()))
 
+    def test_one_public_aggregate_preserves_typed_priority_and_generic_only_compatibility_without_disk_reads(self):
+        import autocode_internal_failure_view as aggregate
+        import autocode_operational_hold as compatibility
+
+        pristine = copy.deepcopy(self.state)
+        self.legacy()
+        with patch.object(
+            Path, "read_text", side_effect=AssertionError("saved generic disposition needs no receipt disk probe")
+        ):
+            self.assertEqual("blocked", compatibility.presentation(self.state)["category"])
+        self.assertTrue(
+            typed_block.record(self.state, custody.CustodyUncertain(), run_dir=self.run, workspace=self.root)
+        )
+        title = "AutoCode is blocked on an internal check"
+        with patch.object(Path, "read_text", side_effect=AssertionError("pure aggregate")):
+            self.assertEqual(title, aggregate.presentation(self.state)["title"])
+        shown = run_view.view(self.state, run_dir=self.run, workspace=self.root)
+        self.assertEqual(title, shown["recovery"]["title"])
+        self.assertIsNone(shown["needs"])
+        self.assertIsNone(shown["next_command"])
+        self.assertIsNone(shown["chat"]["input"])
+
+        self.state = pristine
+        self.assertTrue(
+            typed_block.record(self.state, custody.CustodyUncertain(), run_dir=self.run, workspace=self.root)
+        )
+        self.assertIsNone(
+            compatibility.presentation(self.state), "generic-only API does not acquire unrelated typed domains"
+        )
+        self.assertEqual(title, aggregate.presentation(self.state)["title"])
+
     def test_retagged_generic_ids_cannot_disappear_into_another_receipt_domain(self):
         pristine = copy.deepcopy(self.state)
         for kind in ("legacy_hold", "blocked", "recovered"):
@@ -974,7 +1065,7 @@ class OperationalDispositionTests(unittest.TestCase):
             self.run,
             1,
             previous_settings=None,
-            current_request=human.current,
+            current_request=lambda state: human.current(state) or human.recovery_request(state),
             queued_request=human.queued_operational,
             count=3,
             supersede=human.supersede_operational,
@@ -988,6 +1079,154 @@ class OperationalDispositionTests(unittest.TestCase):
             admission.checked(writer, self.state, self.run, decided, "grant", result)
             self.assertTrue(admission.ready(self.state, actions.Decided()))
         return original, writer, decided, result
+
+    def test_retry_selections_authenticate_original_publication_before_any_status_projection(self):
+        pristine = copy.deepcopy(self.state)
+        selections = (
+            ("grant", "PAUSED_TIMEOUT_RECOVERY", {"grant_recovery": 1}),
+            ("failure_retry", "PAUSED_REPEATED_FAILURE", {"retry_failed_stage": True}),
+            ("builder", "PAUSED_BUILDER_RETRY_LIMIT", {"retry_builder": ["M1"]}),
+            ("report", "PAUSED_REPORT_REPAIR_LIMIT", {"retry_report": "001/requirements"}),
+        )
+        for selection, pause, flags in selections:
+            for queued in (False, True):
+                for changed in ("runtime_sources", "observed_source", "settings", "foreign_request", "evidence_shape"):
+                    with self.subTest(selection=selection, queued=queued, changed=changed):
+                        self.state = copy.deepcopy(pristine)
+                        if queued:
+                            self.queued(pause)
+                        else:
+                            self.legacy(pause=pause)
+                        if changed == "foreign_request":
+                            if queued:
+                                self.state[human.PRIVATE]["evidence"]["resolver_receipt_id"] = "foreign"
+                            else:
+                                self.state[human.PUBLIC]["request_token"] = "foreign"
+                        elif changed == "evidence_shape":
+                            if queued:
+                                self.state[human.PRIVATE]["evidence"] = True
+                            else:
+                                request = self.state[human.PUBLIC]["request_id"]
+                                self.state["resolver"]["human_escalations"][request]["identity"]["proposal"][
+                                    "evidence"
+                                ] = True
+                        before = copy.deepcopy(self.state)
+                        args, decided = Arguments(resume_paused=True, **flags), actions.Decided()
+                        with patch.object(
+                            human, "_binding", side_effect=lambda state: {**self.binding(state), changed: "changed"}
+                        ):
+                            self.assertEqual(
+                                2,
+                                admission.guard(
+                                    self.writer(),
+                                    args,
+                                    None,
+                                    self.state,
+                                    self.run / "state.json",
+                                    self.run,
+                                    self.root,
+                                    decided,
+                                ),
+                            )
+                        self.assertEqual(before, self.state, "TRY must not normalize, reset or replace a stale request")
+                        self.assertIsNone(decided.operational_selection)
+                        self.assertIsNotNone(disposition.held(self.state))
+
+    def test_actual_grant_keeps_original_publication_or_queue_identity_until_owner_validation(self):
+        import autocode_action_recovery as action_recovery
+
+        pristine = copy.deepcopy(self.state)
+
+        class GrantApplied(Exception):
+            pass
+
+        for queued in (False, True):
+            with self.subTest(queued=queued):
+                self.state = copy.deepcopy(pristine)
+                self.state.pop("active_stage")
+                self.state.update(automatic_recoveries_since_resume=3, consecutive_timeout_recoveries=3)
+                if queued:
+                    expected = self.queued("PAUSED_TIMEOUT_RECOVERY")
+                else:
+                    expected = self.legacy(pause="PAUSED_TIMEOUT_RECOVERY")["request_id"]
+                status = self.state["status"]
+                writer, decided, args = (
+                    self.recovery_writer(),
+                    actions.Decided(),
+                    Arguments(
+                        resume_paused=True,
+                        grant_recovery=1,
+                    ),
+                )
+                writer.recovery_count = lambda state: 3
+                self.assertIsNone(
+                    admission.guard(
+                        writer, args, None, self.state, self.run / "state.json", self.run, self.root, decided
+                    )
+                )
+                self.assertEqual(status, self.state["status"], "only the actual grant may withdraw its request")
+                with patch.object(writer, "prepare_abandoned_completion_revalidation", side_effect=GrantApplied):
+                    with self.assertRaises(GrantApplied):
+                        action_recovery.resume(
+                            writer,
+                            args,
+                            None,
+                            self.state,
+                            self.run / "state.json",
+                            self.run,
+                            self.root,
+                            decided,
+                        )
+                self.assertEqual(2, self.state["automatic_recoveries_since_resume"])
+                self.assertEqual(expected, self.state["recovery_grants"][-1]["request_id"])
+                self.assertEqual(1, len(self.state["recovery_grants"]))
+                self.assertIsNotNone(disposition.held(self.state), "owner metadata is not final task admission")
+
+    def test_original_settings_only_recovery_fallback_cannot_hide_other_stale_binding_facts(self):
+        pristine = copy.deepcopy(self.state)
+        for changed in (None, "observed_source", "runtime_sources", "accounting"):
+            with self.subTest(changed=changed):
+                self.state = copy.deepcopy(pristine)
+                self.state.pop("active_stage")
+                self.state.update(automatic_recoveries_since_resume=3, consecutive_timeout_recoveries=3)
+                self.legacy(pause="PAUSED_TIMEOUT_RECOVERY")
+                previous = copy.deepcopy(self.state["settings"])
+                self.state["settings"]["timeouts"] = {"requirements": 60}
+                before = copy.deepcopy(self.state)
+                args, decided = (
+                    Arguments(
+                        resume_paused=True,
+                        grant_recovery=1,
+                        _recovery_grant_settings=previous,
+                    ),
+                    actions.Decided(),
+                )
+                with patch.object(
+                    human,
+                    "_binding",
+                    side_effect=lambda state: {
+                        **self.binding(state),
+                        **({changed: "changed"} if changed else {}),
+                    },
+                ):
+                    result = admission.guard(
+                        self.writer(),
+                        args,
+                        None,
+                        self.state,
+                        self.run / "state.json",
+                        self.run,
+                        self.root,
+                        decided,
+                    )
+                if changed:
+                    self.assertEqual(2, result)
+                    self.assertEqual(before, self.state)
+                    self.assertIsNone(decided.operational_selection)
+                else:
+                    self.assertIsNone(result)
+                    self.assertEqual("WAITING_FOR_USER", self.state["status"])
+                    self.assertFalse(admission.ready(self.state, decided), "validated TRY gives no execution credit")
 
     def test_checked_grant_survives_queued_pause_and_repeats_final_guards_without_a_second_grant(self):
         original, writer, _, _ = self.actual_grant()
@@ -1773,6 +2012,23 @@ class OperationalDispositionTests(unittest.TestCase):
                 self.assertEqual(original, disposition.incident_identity(self.state, disposition.held(self.state)))
                 self.assertFalse(admission.ready(self.state, actions.Decided()))
                 self.assert_blocked_status()
+
+    def test_complete_legacy_identity_with_malformed_question_shape_is_not_an_answerable_choice(self):
+        public = self.legacy()
+        entry = self.state["resolver"]["human_escalations"][public["request_id"]]
+        original = entry["identity"]["proposal"]["evidence"]["resolver_receipt_id"]
+        identity = copy.deepcopy(entry["identity"])
+        pristine = copy.deepcopy(self.state)
+        for questions in (True, 1, "not-questions", [True]):
+            with self.subTest(questions=questions):
+                self.state = copy.deepcopy(pristine)
+                malformed = copy.deepcopy(identity)
+                malformed["proposal"]["questions"] = questions
+                self.state["resolver"]["human_escalations"] = {}
+                human._publish(self.state, malformed)
+                self.assertEqual("invalid", disposition.saved_disposition(self.state, malformed["proposal"]))
+                self.assertIsNone(human.current(self.state))
+                self.assertEqual(original, disposition.incident_identity(self.state, disposition.held(self.state)))
 
     def test_stage_model_metadata_preserves_queued_incident_and_next_resume_refusal(self):
         import autocode_action_stage_model as stage_model

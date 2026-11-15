@@ -79,7 +79,6 @@ class OperationalInformationCLITests(unittest.TestCase):
             with (
                 patch.object(runner.resolver_runtime.disposition, "refused", return_value=False),
                 patch.object(runner.resolver_runtime.disposition, "presentation", return_value=None),
-                patch.object(runner.run_view.operational_hold, "presentation", return_value=None),
             ):
                 cached = runner.run_view.view(stopped, run_dir=self.run, workspace=self.project)
         else:

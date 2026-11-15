@@ -26,6 +26,7 @@ try:
     from . import autocode_dispatch as dispatch
     from . import autocode_effort_question as effort_question
     from . import autocode_follow_up as follow_up
+    from . import autocode_internal_failure_view as internal_failure
     from . import autocode_interventions as interventions
     from . import autocode_member_stop as member_stop
     from . import autocode_operational_information as operational_information
@@ -43,6 +44,7 @@ except ImportError:
     import autocode_dispatch as dispatch
     import autocode_effort_question as effort_question
     import autocode_follow_up as follow_up
+    import autocode_internal_failure_view as internal_failure
     import autocode_interventions as interventions
     import autocode_member_stop as member_stop
     import autocode_operational_information as operational_information
@@ -161,6 +163,14 @@ def review_response(runner, candidate, run_dir):
         return runner.lifecycle.present(candidate, run_dir)
     resolver_human.review_operational_response(candidate)
     return False
+
+
+def chat_request(state: RunState):
+    """The terminal uses the same blocked explanation and genuine decision boundary."""
+    failure = internal_failure.presentation(state)
+    if failure and failure["category"] == "blocked":
+        return None, failure["what_happened"]
+    return resolver_human.current(state), "The Resolver is still deciding whether this needs you; it asks once it does."
 
 
 def chat(runner, state: RunState, run_dir, published, *, persist=None, native=None):

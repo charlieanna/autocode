@@ -78,6 +78,9 @@ def classify(proposal):
     """One disposition for structured operational facts, without interpreting prose."""
     if not isinstance(proposal, dict) or proposal.get("scope") != SCOPE:
         return None
+    questions = proposal.get("questions", [])
+    if not isinstance(questions, list) or any(not isinstance(question, dict) for question in questions):
+        return "invalid"
     origin = proposal.get("origin") or {}
     status = origin.get("pause_status")
     if status in ("PAUSED_COST_LIMIT", "PAUSED_PLANNING_CALL_LIMIT"):
@@ -191,7 +194,11 @@ def record_answer(state: RunState, row):
     facts = detail.get("evidence") or {}
     if "disposition" in facts:
         kind, questions = facts["disposition"], facts.get("questions")
-        if kind not in ("limit", "model", "machinery") or not isinstance(questions, list):
+        if (
+            kind not in ("limit", "model", "machinery")
+            or not isinstance(questions, list)
+            or any(not isinstance(question, dict) for question in questions)
+        ):
             return {"kind": "invalid", "questions": []}
         return {"kind": kind, "questions": copy.deepcopy(questions)}
     origin = {"pause_status": facts.get("status"), "stage": facts.get("stage"), "budget": facts.get("budget")}
@@ -206,12 +213,15 @@ def record_answer(state: RunState, row):
             and isinstance(references, dict)
             and all(offered_origin.get(name) == value for name, value in origin.items())
             and references.get("resolver_receipt_id") == detail.get("id")
-            and (protected or classify(proposal) == "model")
         ):
-            return {
-                "kind": "limit" if protected else "model",
-                "questions": copy.deepcopy(proposal.get("questions") or []),
-            }
+            selected = classify(proposal)
+            if selected == "invalid":
+                return {"kind": "invalid", "questions": []}
+            if protected or selected == "model":
+                return {
+                    "kind": "limit" if protected else "model",
+                    "questions": copy.deepcopy(proposal.get("questions") or []),
+                }
     return {"kind": "limit" if protected else "machinery", "questions": []}
 
 

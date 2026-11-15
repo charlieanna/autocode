@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import autocode_operational_disposition as disposition
 from goal_fixtures import approve_fixture
 
 from . import test_autocode as base
@@ -133,10 +134,9 @@ class OperationalRecoveryTests(unittest.TestCase):
         error = s.Paused("PAUSED_RATE_LIMIT", "Provider returned an actual rate limit")
         self.assertTrue(resolver.record_operational_exhaustion(runner, self.state, self.run, error))
         runner.write_json(self.run / "state.json", self.state)
-        public = runner.resolver_human.current(self.state)
-        self.assertEqual("operational_exhaustion", public["scope"])
-        origin = self.state["resolver"]["human_escalations"][public["request_id"]]["identity"]["proposal"]["origin"]
-        self.assertEqual("PAUSED_RATE_LIMIT", origin["pause_status"])
+        self.assertIsNone(runner.resolver_human.current(self.state))
+        origin = disposition.held(self.state)["receipt"]["evidence"]
+        self.assertEqual("PAUSED_RATE_LIMIT", origin["status"])
         self.assertEqual("provider_or_spending_guard", origin["budget"]["category"])
         self.assertEqual(roles, self.state["settings"]["roles"])
         self.assertNotIn("reviewer_route_fallbacks", self.state["planning"])
@@ -160,10 +160,8 @@ class OperationalRecoveryTests(unittest.TestCase):
         self.assertEqual(2, code)
         launch.assert_not_called()
         saved = s.read(self.run / "state.json")
-        public = runner.resolver_human.current(saved)
-        self.assertEqual("operational_exhaustion", public["scope"])
-        origin = saved["resolver"]["human_escalations"][public["request_id"]]["identity"]["proposal"]["origin"]
-        self.assertEqual("PAUSED_RATE_LIMIT", origin["pause_status"])
+        self.assertIsNone(runner.resolver_human.current(saved))
+        self.assertEqual("PAUSED_RATE_LIMIT", disposition.held(saved)["receipt"]["evidence"]["status"])
 
     def test_two_timeouts_fund_challenge_then_final_not_extra_debate(self):
         self.boundary()
@@ -488,16 +486,15 @@ class OperationalRecoveryTests(unittest.TestCase):
         self.assertNotIn("recovery_review_grants", self.state["planning"])
         error = s.Paused("PAUSED_RESOLVER_OPERATIONAL", "Exhausted")
         self.assertTrue(resolver.record_operational_exhaustion(runner, self.state, self.run, error))
-        self.assertEqual("hold", self.state["stages"][-1]["decision"]["action"])
-        self.assertEqual("RESOLVER_PENDING", self.state["status"])
+        self.assertEqual("blocked", self.state["stages"][-1]["decision"]["action"])
+        self.assertEqual("PAUSED_RESOLVER_OPERATIONAL", self.state["status"])
         self.assertIsNone(runner.resolver_human.current(self.state))
         self.assertEqual([], self.state["pending_questions"])
         runner.write_json(self.run / "state.json", self.state)
         saved = s.read(self.run / "state.json")
-        self.assertEqual("WAITING_FOR_USER", saved["status"])
-        public = runner.resolver_human.current(saved)
-        self.assertEqual("operational_exhaustion", public["scope"])
-        self.assertEqual("resolver", public["issuer"])
+        self.assertEqual("PAUSED_RESOLVER_OPERATIONAL", saved["status"])
+        self.assertIsNone(runner.resolver_human.current(saved))
+        self.assertIsNotNone(disposition.held(saved))
         self.assertEqual(before["goal_contract"], saved["goal_contract"])
         self.assertEqual(before["planning"], saved["planning"])
         self.assertEqual([recovery], saved["automatic_timeout_recoveries"])

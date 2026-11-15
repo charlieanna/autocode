@@ -689,11 +689,17 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
             if answered:
                 self.answer(state, process=process)
             self.submit(kind, f"req-{kind}", FEEDBACK if kind == "feedback" else "", process=process)
+            before_retry = self.saved()
             code, stages, output = self.invoke(
                 "--resume-paused", "--retry-builder", "M-unknown", process=process, env=STOP_AT_TESTER
             )
             self.assert_held((code, stages, output), status, settled=False)
-            self.assertIn("--retry-builder was not applied", output)
+            if disposition.held(self.saved()) is not None:
+                for key in ("builder_retries", "builder_retry_decisions"):
+                    self.assertEqual(before_retry.get(key), self.saved().get(key), "an unchecked selector grants no retry")
+                self.assert_blocked()
+            else:
+                self.assertIn("--retry-builder was not applied", output)
             return self.invoke("--resume-paused", process=process, env=STOP_AT_TESTER)
 
         self.assert_held(

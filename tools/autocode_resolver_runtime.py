@@ -661,7 +661,7 @@ def record_operational_exhaustion(runner, state: RunState, run_dir, error, *, re
         "questions": [route] if route else [],
     }
     facts.update(disposition=disposition.classify(proposal), questions=copy.deepcopy(proposal["questions"]))
-    machinery = facts["disposition"] == "machinery"
+    machinery = facts["disposition"] in ("machinery", "invalid")
     receipt = _operational_receipt(
         state,
         run_dir,

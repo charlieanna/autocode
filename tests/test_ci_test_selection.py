@@ -48,11 +48,23 @@ class AccessTransportConsumerTests(unittest.TestCase):
             "tests.test_model_listing_failure_cli",
             "tests.test_verification_preparation_failure",
             "tests.test_repaired_acceptance_no_progress",
+            "tests.test_operational_hold",
+            "tests.test_approval_provenance_cli",
+            "tests.test_dispatch",
+            "tests.test_planning",
+            "tests.test_quota_worker",
+            "tests.test_finalizer_timeouts",
+            "tests.test_activity_runtime",
+            "tests.test_autocode",
+            "tests.test_member_stop_settings",
+            "tests.test_subprocess",
+            "tests.test_unlimited_iterations",
         }
         for path in (
             "tools/autocode_operational_disposition.py",
             "tools/autocode_operational_admission.py",
             "tools/autocode_operational_receipt_identity.py",
+            "tools/autocode_operational_hold.py",
             "tests/operational_fixtures.py",
         ):
             with self.subTest(path=path):
