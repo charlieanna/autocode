@@ -418,6 +418,33 @@ class PinnedRolePolicyTests(unittest.TestCase):
         self.assertEqual(role_policy.TEST, result.role("shop/tests.py"))
         self.assertTrue(result.protected("shop/tests.py"))
 
+    def test_a_project_below_the_root_keeps_its_tests_at_its_own_top(self):
+        web = {"web/package.json": "{}\n", "web/index.js": "module.exports = 1;\n"}
+        result = self.roles({**web, "web/test/pager.js": "// tests\n", "web/lib/test/run.js": "// a command\n"})
+        self.assertEqual(role_policy.TEST, result.role("web/test/pager.js"))
+        self.assertTrue(result.protected("web/test/pager.js"))
+        self.assertTrue(result.test_path("web/test/pager.js"))
+        self.assertEqual(role_policy.PRODUCT, result.role("web/lib/test/run.js"))
+        self.assertFalse(result.test_path("web/lib/test/run.js"))
+        # A manifest the change adds names no project: code that was product stays product, and a file the
+        # change adds beside it is product too.
+        result = self.roles(
+            {"lib/index.js": "module.exports = 1;\n", "lib/test/run.js": "// a command\n"},
+            candidates={"lib/package.json": "{}\n", "lib/test/run.js": "// tests\n", "lib/test/new.js": "// tests\n"},
+        )
+        self.assertEqual(role_policy.PRODUCT, result.role("lib/test/run.js"))
+        self.assertEqual(role_policy.PRODUCT, result.role("lib/test/new.js"))
+        # A Python project below the root is read as before, from the packages around it.
+        docs = {
+            "docs/pyproject.toml": "[project]\nname='docs'\n",
+            "docs/test/build.py": "VALUE = 1\n",
+            "docs/test/expected/index.html": "<p>docs</p>\n",
+        }
+        result = self.roles(docs)
+        self.assertEqual(role_policy.PRODUCT, result.role("docs/test/build.py"))
+        self.assertEqual(role_policy.PRODUCT, result.role("docs/test/expected/index.html"))
+        self.assertFalse(result.test_path("docs/test/expected/index.html"))
+
     def test_candidate_test_declarations_do_not_convert_original_product_or_unknown_files(self):
         for original in (
             {"pyproject.toml": '[tool.setuptools]\npackages=["pkg"]\n', "pkg/billing_tests.py": "VALUE=1\n"},
@@ -673,7 +700,7 @@ class RoleProofFreshnessTests(unittest.TestCase):
             mock.patch.object(regression.changed_code, "ready", return_value=True),
         ):
             self.assertFalse(regression.complete(state, "current"))
-            for previous_policy in (1, 2, 3, 4):
+            for previous_policy in (1, 2, 3, 4, 5):
                 proof["execution_context"] = {"test_role_policy": previous_policy}
                 self.assertFalse(regression.complete(state, "current"))
             proof["execution_context"] = {"test_role_policy": role_policy.VERSION}

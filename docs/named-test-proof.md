@@ -740,6 +740,22 @@ where the language's own tools do not say which files are tests: `test.js` (also
 regression test, proven by its named tests or, where the suite reports only an exit code, by the
 suite failing on the original code with the new test and passing with the change. Deeper in the
 tree such a file stays product code (`lib/commands/test.js`).
+
+A repository may hold several projects, each with its own manifest (`web/package.json` beside
+`api/pyproject.toml`, `packages/pager/package.json`, `services/api/go.mod`). What holds tests at
+the top of the repository holds them at the top of each of those projects: `web/test/pager.js`,
+`web/spec/`, a single `web/test.js`. The projects are read from the original tree
+(`autocode_project_kinds.project_roots`), so a manifest the change adds makes no code a test, and a
+`test/` directory with no manifest beside it (`lib/test/`) stays product code. A Python project
+below the root, and a Python file anywhere, are left to the role inventory above, which reads a
+`test/` directory below the root from the Python packages around it. The proof, the original tests a run keeps and the plan check ask the rule of
+the tree they read (`test_rule`); a reader with only a path sees the repository's own top.
+
+The original-test gate runs the command the run bound when it started, the suite of the
+repository's root. Where that is a Python suite, or the root has none, and the changed original
+tests are another language's files in one project below the root, the gate runs them with that
+project's own suite, as the proof does (`cd web && node --test test/pager.js`;
+`autocode_protected_project_suite`).
 An original internal test link also retains a declared oracle outside test roots
 when packaging, runtime imports and dynamic uncertainty do not give it a conflicting
 role. A candidate-added link cannot promote an original product or unknown endpoint.

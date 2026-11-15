@@ -10,10 +10,12 @@ from functools import cache
 from pathlib import Path
 
 try:
+    from . import autocode_project_kinds as project_kinds
     from . import autocode_python_test_roles as policy
     from . import autocode_suite_definition_inputs as definition_inputs
     from . import autocode_util as util
 except ImportError:
+    import autocode_project_kinds as project_kinds
     import autocode_python_test_roles as policy
     import autocode_suite_definition_inputs as definition_inputs
     import autocode_util as util
@@ -52,6 +54,12 @@ def entries(workspace, base):
             mode, kind, oid = header.decode("ascii").split()
             result[name.decode("utf-8")] = (mode, kind, oid)
     return result
+
+
+def test_rule(names):
+    """Which paths of the tree that holds ``names`` are tests by their path, counting the projects it
+    holds below its root (autocode_project_kinds.test_rule)."""
+    return project_kinds.test_rule(names)
 
 
 def _candidate(workspace, changes):

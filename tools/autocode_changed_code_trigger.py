@@ -103,6 +103,7 @@ def unmeasurable(state: RunState) -> str | None:
         listed = verify._git(Path(workspace), "ls-files", "-z", "--cached", "--others", "--exclude-standard")
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
         return None
-    if any(verify.is_test_path(path) for path in listed.split("\0") if path):
+    files = [path for path in listed.split("\0") if path]
+    if any(map(role_inventory.test_rule(files), files)):
         return None
     return UNMEASURABLE
