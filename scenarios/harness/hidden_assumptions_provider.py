@@ -35,10 +35,10 @@ QUESTIONS = (
         "why": "show exits 1 with 'no entries' for an empty file; the request does not say what an empty "
         "merge does, and scripts calling it see a different exit status.",
         "options": [
-            "Exit 1 with an error, as show does for an empty file",
-            "Print nothing and exit 0",
+            "Fail with an error, as show does for an empty file",
+            "Print nothing and succeed cleanly",
         ],
-        "proposed_default": "Exit 1 with an error, as show does for an empty file",
+        "proposed_default": "Fail with an error, as show does for an empty file",
         "kind": "decision",
         "category": "behavior",
         "delegable": False,
