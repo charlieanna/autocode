@@ -99,6 +99,99 @@ def tool_event(part_id, command, code, output):
     )
 
 
+def _workspace_sources():
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], capture_output=True
+    ).stdout.split(b"\0")
+    excluded = {".autocode", ".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
+    found = []
+    for name in ("greet.py", "bye.py") + tuple(raw.decode(errors="surrogateescape") for raw in tracked if raw):
+        path = Path(name)
+        if name in found or path.suffix == ".pyc" or any(part in excluded for part in path.parts):
+            continue
+        if path.is_file():
+            found.append(name)
+    return found[:8]
+
+
+def _complete_required(value, subschema):
+    kind = subschema.get("type")
+    kind = ("null" if "null" in kind else kind[0]) if isinstance(kind, list) else kind
+    if kind == "object" and isinstance(value, dict):
+        properties = subschema.get("properties", {})
+        for key in subschema.get("required", []):
+            if key not in value and key in properties:
+                prop = properties[key]
+                prop_kind = prop.get("type")
+                prop_kind = (
+                    ("null" if "null" in prop_kind else prop_kind[0]) if isinstance(prop_kind, list) else prop_kind
+                )
+                value[key] = (
+                    prop["enum"][0]
+                    if prop.get("enum")
+                    else {
+                        "object": lambda p=prop: _complete_required({}, p),
+                        "array": list,
+                        "string": str,
+                        "boolean": bool,
+                        "integer": int,
+                        "number": float,
+                    }.get(prop_kind, lambda: None)()
+                )
+        for key, prop in properties.items():
+            if key in value:
+                _complete_required(value[key], prop)
+    elif kind == "array" and isinstance(value, list) and isinstance(subschema.get("items"), dict):
+        for item in value:
+            _complete_required(item, subschema["items"])
+    return value
+
+
+def _conform_ledger(payload, schema_obj, default_ref, *, has_events: bool):
+    if not isinstance(payload, dict) or not isinstance(schema_obj, dict):
+        return
+    props = schema_obj.get("properties", {})
+    if "repair_report" in props and "repair_report" not in payload:
+        branches = (props.get("repair_report") or {}).get("anyOf") or []
+        if len(branches) == 2:
+            props = branches[1].get("properties", {})
+    if "ambiguity_audit" in props and "ambiguity_audit" not in payload:
+        payload["ambiguity_audit"] = _complete_required({}, props["ambiguity_audit"])
+    q_props = ((props.get("open_questions") or {}).get("items") or {}).get("properties") or {}
+    if "convention_ref" in q_props:
+        for q in payload.get("open_questions") or []:
+            if isinstance(q, dict):
+                q.setdefault("convention_ref", "")
+    for box_key in ("contract", "requirements"):
+        box = payload.get(box_key)
+        box_props = ((props.get(box_key) or {}).get("properties")) or {}
+        if not isinstance(box, dict) or not box_props:
+            continue
+        bq_props = ((box_props.get("open_blocking_questions") or {}).get("items") or {}).get("properties") or {}
+        if "convention_ref" in bq_props:
+            for q in box.get("open_blocking_questions") or []:
+                if isinstance(q, dict):
+                    q.setdefault("convention_ref", "")
+        for dec_key in ("accepted_assumptions", "delegated_decisions"):
+            d_props = ((box_props.get(dec_key) or {}).get("items") or {}).get("properties") or {}
+            if not ("category" in d_props or "convention_ref" in d_props):
+                continue
+            for row in box.get(dec_key) or []:
+                if not isinstance(row, dict):
+                    continue
+                if row.get("basis") == "agent_proposed":
+                    if default_ref and not has_events:
+                        row["basis"] = "original_request"
+                        row.setdefault("category", "requested_outcome")
+                        row.setdefault("convention_ref", "")
+                    else:
+                        row.setdefault("category", "technical")
+                        row.setdefault("convention_ref", default_ref)
+                else:
+                    row.setdefault("category", "requested_outcome")
+                    row.setdefault("convention_ref", "")
+
+
 def deliver(value):
     if (
         stage == "finalize_plan"
@@ -140,6 +233,28 @@ def deliver(value):
         value.setdefault("source_trace", {"out_of_scope": [], "negation_waivers": []})
     if "source_verdict" in properties:
         value.setdefault("source_verdict", dict(SOURCE_VERDICT))
+    _sources = _workspace_sources()
+    if (
+        EVENTS
+        and not data.get("report_repair")
+        and stage
+        in {
+            "requirements_gather",
+            "draft_plan",
+            "revise_plan",
+            "review_plan",
+            "finalize_plan",
+            "requirements",
+            "plan",
+            "plan_review",
+            "plan_revise",
+            "plan_finalize",
+        }
+        and "ready" not in properties
+        and _sources
+    ):
+        tool_event("prt_read", shlex.join(["head", "-n", "1", *_sources]), 0, "")
+    _conform_ledger(value, schema, f"{_sources[0]}:1" if _sources else "", has_events=EVENTS)
     if not EVENTS:
         report_path().write_text(json.dumps(value))
         return
@@ -335,17 +450,7 @@ if data.get("report_repair"):
                 "constraints": draft["constraints"],
                 "acceptance_tests": ["Valid and invalid CLI input have the requested outcomes"],
                 "source_refs": ["task"],
-                "proposed_assumptions": [
-                    {
-                        "id": "A1",
-                        "text": "Use a local CLI",
-                        "kind": "inferable",
-                        "category": "behavior",
-                        "convention_ref": "task",
-                        "rationale": "The task asks for a local tool",
-                        "supports": [],
-                    }
-                ],
+                "proposed_assumptions": [],
                 "open_questions": [],
                 "requirements": [],
                 "ignored_statements": [],
@@ -548,17 +653,7 @@ elif stage == "requirements_gather":
         "constraints": draft["constraints"],
         "acceptance_tests": ["Valid and invalid CLI input have the requested outcomes"],
         "source_refs": ["task"],
-        "proposed_assumptions": [
-            {
-                "id": "A1",
-                "text": "Use a local CLI if the user chooses that interface",
-                "kind": "inferable",
-                "category": "behavior",
-                "convention_ref": "task",
-                "rationale": "The task asks for a local tool",
-                "supports": [],
-            }
-        ],
+        "proposed_assumptions": [],
         "open_questions": draft["open_blocking_questions"],
         "requirements": [],
         "ignored_statements": [],

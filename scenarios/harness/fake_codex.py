@@ -2420,6 +2420,14 @@ def complete(value, schema: dict):
     kind = kind[0] if isinstance(kind, list) else kind
     if kind == "object" and isinstance(value, dict):
         properties = schema.get("properties", {})
+        if "basis" in value and "answer_id" in value and "category" in properties:
+            real = [ref for ref in source_refs() if ref != "task"]
+            if value.get("basis") == "agent_proposed":
+                value.setdefault("category", "technical")
+                value.setdefault("convention_ref", f"{real[0]}:1" if real else "")
+            else:
+                value.setdefault("category", "requested_outcome")
+                value.setdefault("convention_ref", "")
         for key in schema.get("required", []):
             if key not in value and key in properties:
                 value[key] = empty(properties[key])
@@ -2781,6 +2789,39 @@ def _main() -> int:
     if WIRE_SCHEMA and _schema_has_unique_items(WIRE_SCHEMA):
         return refuse_unique_items_schema(WIRE_SCHEMA)
     OUTPUT_SCHEMA = report_schema(WIRE_SCHEMA)
+    if (
+        not data.get("report_repair")
+        and "ready" not in OUTPUT_SCHEMA.get("properties", {})
+        and stage
+        in {
+            "requirements_gather",
+            "draft_plan",
+            "revise_plan",
+            "review_plan",
+            "finalize_plan",
+            "requirements",
+            "plan",
+            "plan_review",
+            "plan_revise",
+            "plan_finalize",
+        }
+    ):
+        _read = [ref for ref in source_refs() if ref != "task"]
+        if Path("todo.py").is_file() and "todo.py" not in _read:
+            _read.append("todo.py")
+        if _read:
+            emit(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "read-sources",
+                        "type": "command_execution",
+                        "command": shlex.join(["head", "-n", "1", *_read]),
+                        "exit_code": 0,
+                        "aggregated_output": "",
+                    },
+                }
+            )
     # Live #452 run jb1acns9: the Builder's first report after approval cites no evidence.
     no_evidence = stage == "builder" and os.environ.get("SCENARIO_FAKE_BUILDER_NO_EVIDENCE") == "1"
     if no_evidence and data.get("report_repair"):

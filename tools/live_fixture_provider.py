@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import uuid
@@ -426,6 +427,74 @@ def _prompt_schema(prompt: str) -> dict:
     return schema if isinstance(schema, dict) else {}
 
 
+def _complete_required(value: Any, subschema: dict) -> Any:
+    kind = subschema.get("type")
+    kind = ("null" if "null" in kind else kind[0]) if isinstance(kind, list) else kind
+    if kind == "object" and isinstance(value, dict):
+        properties = subschema.get("properties", {})
+        for key in subschema.get("required", []):
+            if key not in value and key in properties:
+                prop = properties[key]
+                prop_kind = prop.get("type")
+                prop_kind = (
+                    ("null" if "null" in prop_kind else prop_kind[0]) if isinstance(prop_kind, list) else prop_kind
+                )
+                value[key] = (
+                    prop["enum"][0]
+                    if prop.get("enum")
+                    else {
+                        "object": lambda p=prop: _complete_required({}, p),
+                        "array": list,
+                        "string": str,
+                        "boolean": bool,
+                        "integer": int,
+                        "number": float,
+                    }.get(prop_kind, lambda: None)()
+                )
+        for key, prop in properties.items():
+            if key in value:
+                _complete_required(value[key], prop)
+    elif kind == "array" and isinstance(value, list) and isinstance(subschema.get("items"), dict):
+        for item in value:
+            _complete_required(item, subschema["items"])
+    return value
+
+
+def _conform_ledger(payload: Any, props: dict, default_ref: str) -> None:
+    if not isinstance(payload, dict) or not props:
+        return
+    if "ambiguity_audit" in props and "ambiguity_audit" not in payload:
+        payload["ambiguity_audit"] = _complete_required({}, props["ambiguity_audit"])
+    q_props = ((props.get("open_questions") or {}).get("items") or {}).get("properties") or {}
+    if "convention_ref" in q_props:
+        for q in payload.get("open_questions") or []:
+            if isinstance(q, dict):
+                q.setdefault("convention_ref", "")
+    for box_key in ("contract", "requirements"):
+        box = payload.get(box_key)
+        box_props = ((props.get(box_key) or {}).get("properties")) or {}
+        if not isinstance(box, dict) or not box_props:
+            continue
+        bq_props = ((box_props.get("open_blocking_questions") or {}).get("items") or {}).get("properties") or {}
+        if "convention_ref" in bq_props:
+            for q in box.get("open_blocking_questions") or []:
+                if isinstance(q, dict):
+                    q.setdefault("convention_ref", "")
+        for dec_key in ("accepted_assumptions", "delegated_decisions"):
+            d_props = ((box_props.get(dec_key) or {}).get("items") or {}).get("properties") or {}
+            if not ("category" in d_props or "convention_ref" in d_props):
+                continue
+            for row in box.get(dec_key) or []:
+                if not isinstance(row, dict):
+                    continue
+                if row.get("basis") == "agent_proposed":
+                    row.setdefault("category", "technical")
+                    row.setdefault("convention_ref", default_ref)
+                else:
+                    row.setdefault("category", "requested_outcome")
+                    row.setdefault("convention_ref", "")
+
+
 def main() -> int:
     if sys.argv[1:] == ["login", "status"]:
         print("Logged in using ChatGPT (offline live-trial fixture)")
@@ -461,6 +530,39 @@ def main() -> int:
         ),
         flush=True,
     )
+    _real_sources = [ref for ref in _source_refs() if ref != "task"]
+    if (
+        not repairing
+        and _real_sources
+        and stage
+        in {
+            "requirements_gather",
+            "draft_plan",
+            "revise_plan",
+            "review_plan",
+            "finalize_plan",
+            "requirements",
+            "plan",
+            "plan_review",
+            "plan_revise",
+            "plan_finalize",
+        }
+    ):
+        print(
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "read-sources",
+                        "type": "command_execution",
+                        "command": shlex.join(["head", "-n", "1", *_real_sources]),
+                        "exit_code": 0,
+                        "aggregated_output": "",
+                    },
+                }
+            ),
+            flush=True,
+        )
 
     common = {
         "contract_revision": contract.get("revision", 0),
@@ -535,8 +637,8 @@ def main() -> int:
                     "id": "A1",
                     "text": "CLI invocation is sufficient",
                     "kind": "inferable",
-                    "category": "behavior",
-                    "convention_ref": "task",
+                    "category": "technical",
+                    "convention_ref": f"{_real_sources[0]}:1" if _real_sources else "task",
                     "rationale": "The task specifies a command-line tool",
                     "supports": [],
                 }
@@ -829,6 +931,7 @@ def main() -> int:
             "assistant_reply": "Offline fixture: interpreted the reply to the displayed decision.",
         }
     output = Path(sys.argv[sys.argv.index("-o") + 1])
+    _conform_ledger(report, properties, f"{_real_sources[0]}:1" if _real_sources else "")
     output.write_text(json.dumps(report))
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}), flush=True)
     return 0

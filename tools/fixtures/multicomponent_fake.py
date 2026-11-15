@@ -20,6 +20,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import uuid
@@ -558,6 +559,14 @@ def complete(value, schema):
         kind = next((item for item in kind if item != "null"), "null")
     if kind == "object" and isinstance(value, dict):
         properties = schema.get("properties", {})
+        if "basis" in value and "answer_id" in value and "category" in properties:
+            real = [ref for ref in source_refs() if ref != "task"]
+            if value.get("basis") == "agent_proposed":
+                value.setdefault("category", "technical")
+                value.setdefault("convention_ref", f"{real[0]}:1" if real else "")
+            else:
+                value.setdefault("category", "requested_outcome")
+                value.setdefault("convention_ref", "")
         for key in schema.get("required", []):
             if key not in value and key in properties:
                 sub = properties[key]
@@ -638,6 +647,34 @@ def main() -> int:
         # This fixture cannot manufacture evidence to fix a semantic rejection.
         report = repair_report(data)
     else:
+        _real = [ref for ref in source_refs() if ref != "task"]
+        if _real and stage in {
+            "requirements_gather",
+            "draft_plan",
+            "revise_plan",
+            "review_plan",
+            "finalize_plan",
+            "requirements",
+            "plan",
+            "plan_review",
+            "plan_revise",
+            "plan_finalize",
+        }:
+            print(
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "id": "read-sources",
+                            "type": "command_execution",
+                            "command": shlex.join(["head", "-n", "1", *_real]),
+                            "exit_code": 0,
+                            "aggregated_output": "",
+                        },
+                    }
+                ),
+                flush=True,
+            )
         component_id = component_id_for(prompt, data)
         spec = MANIFEST[component_id]
         if spec.get("observations"):

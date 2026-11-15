@@ -150,6 +150,108 @@ def source_verdict(result):
         )
 
 
+PLANNING_STAGES = {
+    "requirements_gather",
+    "draft_plan",
+    "revise_plan",
+    "review_plan",
+    "finalize_plan",
+    "requirements",
+    "plan",
+    "plan_review",
+    "plan_revise",
+    "plan_finalize",
+}
+
+
+def _workspace_sources():
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], capture_output=True
+    ).stdout.split(b"\0")
+    excluded = {".autocode", ".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
+    found = []
+    for name in ("greet.py", "bye.py") + tuple(raw.decode(errors="surrogateescape") for raw in tracked if raw):
+        path = Path(name)
+        if name in found or path.suffix == ".pyc" or any(part in excluded for part in path.parts):
+            continue
+        if path.is_file():
+            found.append(name)
+    return found[:8]
+
+
+def _complete_required(value, subschema):
+    kind = subschema.get("type")
+    kind = ("null" if "null" in kind else kind[0]) if isinstance(kind, list) else kind
+    if kind == "object" and isinstance(value, dict):
+        properties = subschema.get("properties", {})
+        for key in subschema.get("required", []):
+            if key not in value and key in properties:
+                prop = properties[key]
+                prop_kind = prop.get("type")
+                prop_kind = (
+                    ("null" if "null" in prop_kind else prop_kind[0]) if isinstance(prop_kind, list) else prop_kind
+                )
+                value[key] = (
+                    prop["enum"][0]
+                    if prop.get("enum")
+                    else {
+                        "object": lambda p=prop: _complete_required({}, p),
+                        "array": list,
+                        "string": str,
+                        "boolean": bool,
+                        "integer": int,
+                        "number": float,
+                    }.get(prop_kind, lambda: None)()
+                )
+        for key, prop in properties.items():
+            if key in value:
+                _complete_required(value[key], prop)
+    elif kind == "array" and isinstance(value, list) and isinstance(subschema.get("items"), dict):
+        for item in value:
+            _complete_required(item, subschema["items"])
+    return value
+
+
+def _conform_ledger(payload, schema_obj, default_ref):
+    if not isinstance(payload, dict) or not isinstance(schema_obj, dict):
+        return
+    props = schema_obj.get("properties", {})
+    if "repair_report" in props and "repair_report" not in payload:
+        branches = (props.get("repair_report") or {}).get("anyOf") or []
+        if len(branches) == 2:
+            props = branches[1].get("properties", {})
+    if "ambiguity_audit" in props and "ambiguity_audit" not in payload:
+        payload["ambiguity_audit"] = _complete_required({}, props["ambiguity_audit"])
+    q_props = ((props.get("open_questions") or {}).get("items") or {}).get("properties") or {}
+    if "convention_ref" in q_props:
+        for q in payload.get("open_questions") or []:
+            if isinstance(q, dict):
+                q.setdefault("convention_ref", "")
+    for box_key in ("contract", "requirements"):
+        box = payload.get(box_key)
+        box_props = ((props.get(box_key) or {}).get("properties")) or {}
+        if not isinstance(box, dict) or not box_props:
+            continue
+        bq_props = ((box_props.get("open_blocking_questions") or {}).get("items") or {}).get("properties") or {}
+        if "convention_ref" in bq_props:
+            for q in box.get("open_blocking_questions") or []:
+                if isinstance(q, dict):
+                    q.setdefault("convention_ref", "")
+        for dec_key in ("accepted_assumptions", "delegated_decisions"):
+            d_props = ((box_props.get(dec_key) or {}).get("items") or {}).get("properties") or {}
+            if not ("category" in d_props or "convention_ref" in d_props):
+                continue
+            for row in box.get(dec_key) or []:
+                if not isinstance(row, dict):
+                    continue
+                if row.get("basis") == "agent_proposed":
+                    row.setdefault("category", "technical")
+                    row.setdefault("convention_ref", default_ref)
+                else:
+                    row.setdefault("category", "requested_outcome")
+                    row.setdefault("convention_ref", "")
+
+
 def record_launch(stage):
     probe = os.environ.get("AUTOCODE_REGISTRY_LAUNCH_PROBE")
     if probe:
@@ -211,6 +313,8 @@ if data.get("report_repair"):
     source_verdict(result)
     if "progressive_checkpoint" in schema.get("properties", {}):
         result.setdefault("progressive_checkpoint", False)
+    _repair_sources = _workspace_sources()
+    _conform_ledger(result, schema, f"{_repair_sources[0]}:1" if _repair_sources else "")
     session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
     print(json.dumps({"type": "thread.started", "thread_id": session}))
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
@@ -277,6 +381,22 @@ if os.environ.get("AUTOCODE_FIXTURE_QUOTA_STAGE") == stage and (
     }
     print(json.dumps({"type": "error", "error": error}))
     raise SystemExit(3)
+_sources = _workspace_sources()
+if stage in PLANNING_STAGES and "ready" not in schema.get("properties", {}) and _sources:
+    print(
+        json.dumps(
+            {
+                "type": "item.completed",
+                "item": {
+                    "id": "read-sources",
+                    "type": "command_execution",
+                    "command": shlex.join(["head", "-n", "1", *_sources]),
+                    "exit_code": 0,
+                    "aggregated_output": "",
+                },
+            }
+        )
+    )
 
 
 def adaptive_task(draft, implement):
@@ -362,17 +482,7 @@ elif stage == "requirements_gather":
             "constraints": draft["constraints"],
             "acceptance_tests": ["Valid and invalid CLI input have the requested outcomes"],
             "source_refs": [f"{name}:1" for name in ("greet.py", "bye.py") if Path(name).is_file()],
-            "proposed_assumptions": [
-                {
-                    "id": "A1",
-                    "text": "Use a local CLI if the user chooses that interface",
-                    "kind": "inferable",
-                    "category": "behavior",
-                    "convention_ref": "task",
-                    "rationale": "The task asks for a local tool",
-                    "supports": [],
-                }
-            ],
+            "proposed_assumptions": [],
             "open_questions": draft["open_blocking_questions"],
             "requirements": [],
             "ignored_statements": [],
@@ -1012,5 +1122,6 @@ if "failure_class" in schema.get("properties", {}):
     # fake-provider output.
     result.setdefault("failure_class", "unknown")
     result.setdefault("failure_id", "offline-fixture-failure")
+_conform_ledger(result, schema, f"{_sources[0]}:1" if _sources else "")
 Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
 print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "output_tokens": 50}}))
