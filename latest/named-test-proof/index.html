@@ -2667,6 +2667,15 @@ repository's root. Where that is a Python suite, or the root has none, and the c
 tests are another language's files in one project below the root, the gate runs them with that
 project's own suite, as the proof does (<code>cd web &amp;&amp; node --test test/pager.js</code>;
 <code>autocode_protected_project_suite</code>).
+Python tests have the mirror problem: the bound Python runner can run them, but from the root, where
+<code>python3 -m unittest -v api/tests/test_orders.py</code> cannot import <code>orders</code> from <code>api/</code>. Where the root
+is no project of its own (it holds no manifest) and the changed test modules are all in one project
+below it, the gate runs them inside that project with the bound runner
+(<code>cd api &amp;&amp; python3 -m unittest -v tests/test_orders.py</code>), where the proof runs them
+(<code>autocode_package_scope.for_tests</code>). A command the person typed (<code>--test-command</code>, or a correction
+of the original tests' command) runs where they typed it, and so does a runner that names something
+by where it runs: an environment set before it, an interpreter named by a relative path, a pytest
+option that names a path (<code>--rootdir</code>, <code>-c</code>, <code>--ignore</code>).
 An original internal test link also retains a declared oracle outside test roots
 when packaging, runtime imports and dynamic uncertainty do not give it a conflicting
 role. A candidate-added link cannot promote an original product or unknown endpoint.</p>
