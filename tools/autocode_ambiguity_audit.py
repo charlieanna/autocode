@@ -5,15 +5,15 @@ from: the person's own words (``specified_in_source``), a convention in code the
 (``repo_convention``), nothing to decide (``not_applicable``), or a question to the person in this
 report (``open_question``). The runner holds each answer to its evidence, from one place:
 
-- ``specified_in_source`` cites a requirement id of this report, ``task``, or a saved answer or
-  user event id;
+- ``specified_in_source`` cites a requirement id of this report, a ``source_inventory`` or pinned
+  ``catalog/...`` id, ``task``, or a saved answer or user event id;
 - ``repo_convention`` cites ``path[:line]`` the stage actually read (``code_citations``);
 - ``open_question`` names questions of this report, and every question the person decides
   (``kind=decision``, any category but technical) is named by some dimension, so the audit and
   the questions cannot disagree.
 
 A report without the field (saved before it existed, or the triage pass) is not checked. Domain
-layer: pure over the run state and the report; the only import is the citation check.
+layer: pure over the run state and the report.
 """
 
 from __future__ import annotations
@@ -24,8 +24,12 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_brief_obligations as brief_obligations
+    from . import autocode_catalog_context as source_catalog
     from . import autocode_code_citations as code_citations
 except ImportError:
+    import autocode_brief_obligations as brief_obligations
+    import autocode_catalog_context as source_catalog
     import autocode_code_citations as code_citations
 
 FIELD = "ambiguity_audit"
@@ -57,11 +61,16 @@ SCHEMA = {
 
 
 def source_ids(state: RunState, report: dict) -> set[str]:
-    """What a ``specified_in_source`` dimension may cite: the person's words, directly or as a requirement."""
+    """What a ``specified_in_source`` dimension may cite: the person's words, pinned sources or a requirement."""
     ids = {"task", *(state.get("answers") or {})}
+    ids.update(row["id"] for row in brief_obligations.sources(state) or [] if isinstance(row, dict) and row.get("id"))
     ids.update(event["id"] for event in state.get("user_events") or [] if isinstance(event, dict) and event.get("id"))
     ids.update(row["id"] for row in report.get("requirements") or [] if isinstance(row, dict) and row.get("id"))
     return {value for value in ids if isinstance(value, str) and value}
+
+
+def _valid_source(state: RunState, sources: set[str], ref: str) -> bool:
+    return ref in sources or (ref.startswith("catalog/") and bool(source_catalog.evidence(state, ref)))
 
 
 def validate(state: RunState, report: dict) -> None:
@@ -92,11 +101,11 @@ def validate(state: RunState, report: dict) -> None:
             if missing:
                 problems.append(f"{label} names {', '.join(missing)}, which are not open_questions ids in this report")
         elif status == "specified_in_source":
-            missing = [ref for ref in refs if ref not in sources]
+            missing = [ref for ref in refs if not _valid_source(state, sources, ref)]
             if missing:
                 problems.append(
-                    f"{label} cites {', '.join(missing)}: cite a requirement id of this report, task, or a saved "
-                    "answer or user event id"
+                    f"{label} cites {', '.join(missing)}: cite a requirement id of this report, a source_inventory "
+                    "or pinned catalog/... id, task, or a saved answer or user event id"
                 )
         else:
             problems.extend(

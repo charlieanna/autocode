@@ -59,11 +59,13 @@ invalid and boundary inputs), error_and_failure_behavior (what the user sees whe
 compatibility_and_callers (existing callers, flags, saved data and output that must keep
 working), ux_and_output_contract (exact output, messages, exit status, interface states) and
 state_and_side_effects (files, persistence, network and other effects). status is
-specified_in_source (refs: requirement ids of this report, task, or saved answer and event ids),
-repo_convention (refs: path:line you read that settles it), not_applicable (refs: [], also for
-every dimension while Tier 1 is still asking what the outcome is) or open_question (refs: the ids
-of this report's open_questions that ask it). Every question asking the person to decide is
-named by an open_question dimension. The runner checks every ref against its source.
+specified_in_source (refs: requirement ids of this report, source_inventory or catalog/... ids,
+task, or saved answer and event ids), repo_convention (refs: path:line you read that settles it),
+not_applicable (refs: []) or open_question (refs: the ids of this report's open_questions that ask
+it). Every question asking the person to decide is named by an open_question dimension: while Tier 1
+is still asking what the outcome is, outcome_scope is open_question naming that question and the
+other five dimensions are not_applicable (all six are not_applicable only when no decision question
+is asked, such as for a greeting). The runner checks every ref against its source.
 Do not plan or inspect repository files just to respond to a greeting, small talk
 or a vague idea. Establish what the user wants first. Once a change is named, inspect the
 relevant source before deciding what to ask: Tier 2 questions come from it. Do not perform a

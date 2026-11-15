@@ -441,6 +441,12 @@ def context(state: RunState, stage, run_dir, current_source):
     return None
 
 
+def _turn_start(state: RunState, count: int) -> int:
+    turns = state.get("turns") or []
+    start = turns[-1].get("stage_index") if turns and isinstance(turns[-1], dict) else 0
+    return start if type(start) is int and 0 <= start <= count else 0
+
+
 def _handoff_packet(state: RunState, stage, handoff, run_dir, current_source):
     records = state.get("stages") or []
     matching = [
@@ -452,6 +458,8 @@ def _handoff_packet(state: RunState, stage, handoff, run_dir, current_source):
     if len(matching) != 1:
         return None
     index, record, owner, repair_binding = matching[0]
+    if index < _turn_start(state, len(records)):
+        return None
     seal = owner.get(FIELD)
     if (
         (repair_binding is None and not _eligible(record))

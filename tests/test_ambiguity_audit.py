@@ -107,6 +107,75 @@ class AmbiguityAuditTests(unittest.TestCase):
         report["open_questions"][0]["kind"] = "discoverable"
         self.assertIsNone(self.problems(report), "a discoverable or technical question is not the person's")
 
+    def test_tier1_missing_intent_puts_requested_outcome_question_under_outcome_scope(self):
+        tier1 = {
+            "requirements": [],
+            "open_questions": [
+                {"id": "Q1", "kind": "decision", "category": "requested_outcome", "question": "What should happen?"}
+            ],
+            audit.FIELD: {dimension: entry("not_applicable") for dimension in audit.DIMENSIONS},
+        }
+        self.assertIn("open_questions Q1 ask the person to decide", self.problems(tier1))
+        tier1[audit.FIELD]["outcome_scope"] = entry("open_question", "Q1")
+        self.assertIsNone(self.problems(tier1))
+
+    def test_source_inventory_linked_sources_and_pinned_catalog_refs_are_accepted(self):
+        import hashlib
+        from unittest import mock
+
+        import autocode_catalog_context as source_catalog
+        import autocode_source_log as source_log
+
+        design = self.workspace / "docs" / "spec.md"
+        design.parent.mkdir()
+        design.write_text("# Spec\nReturn JSON.\n")
+        state = {
+            **self.state,
+            "task": "Implement docs/spec.md for https://github.com/acme/app/issues/42",
+        }
+        issue_record = {
+            "id": "issue:acme:app:42",
+            "kind": source_log.linked_issues.LINKED_ISSUE_KIND,
+            "parent_id": "task:0",
+            "url": "https://github.com/acme/app/issues/42",
+            "text": "Issue body",
+            "sha256": hashlib.sha256(b"Issue body").hexdigest(),
+        }
+        with mock.patch.object(
+            source_log.linked_issues,
+            "fetch_linked_records",
+            side_effect=lambda _ws, parent_id, *_args, **_kw: [issue_record] if parent_id == "task:0" else [],
+        ):
+            source_log.seed(state)
+            source_log.save_answer(
+                state, "Q0", {"id": "A0", "kind": "answer", "actor": "user_cli", "question_id": "Q0", "text": "yes"}
+            )
+            source_log.save_feedback(
+                state, {"id": "E1", "kind": "brief_feedback", "actor": "user_cli", "text": "keep v1"}
+            )
+        report = {
+            "requirements": [],
+            "open_questions": [],
+            audit.FIELD: {
+                "outcome_scope": entry("specified_in_source", "task:0"),
+                "inputs_and_edge_cases": entry("specified_in_source", "answer:Q0", "feedback:E1"),
+                "error_and_failure_behavior": entry("specified_in_source", "issue:acme:app:42"),
+                "compatibility_and_callers": entry("specified_in_source", "design:docs:spec.md"),
+                "ux_and_output_contract": entry("specified_in_source", "catalog/repo-a/api.py:1"),
+                "state_and_side_effects": entry("not_applicable"),
+            },
+        }
+        with mock.patch.object(
+            source_catalog,
+            "evidence",
+            side_effect=lambda _state, ref: {"path": ref} if ref == "catalog/repo-a/api.py:1" else None,
+        ):
+            self.assertIsNone(audit.validate(state, report))
+            bad = copy.deepcopy(report)
+            bad[audit.FIELD]["ux_and_output_contract"] = entry("specified_in_source", "catalog/repo-a/missing.py:1")
+            with self.assertRaisesRegex(ValueError, "catalog/repo-a/missing.py:1"):
+                audit.validate(state, bad)
+
     def test_the_audit_must_state_exactly_the_six_dimensions(self):
         report = copy.deepcopy(self.report)
         del report[audit.FIELD]["state_and_side_effects"]

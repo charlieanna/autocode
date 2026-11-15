@@ -67,6 +67,12 @@ class RequirementsQuestionContractTests(unittest.TestCase):
                     "state_and_side_effects",
                 ):
                     self.assertIn(dimension, text)
+                self.assertIn(
+                    "while Tier 1 is still asking what the outcome is, outcome_scope is open_question naming "
+                    "that question and the other five dimensions are not_applicable",
+                    text,
+                )
+                self.assertNotIn("for every dimension while Tier 1", text)
                 self.assertIn("the runner checks your tool calls", text)
         self.assertIn(
             "refuses a citation of a file it never read", flat(prompts.get("fragments/autoplanner/source-refs-rule.md"))
