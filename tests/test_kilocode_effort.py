@@ -113,6 +113,48 @@ class KiloEffortTests(unittest.TestCase):
         self.assertNotIn("--variant", argv)
         listing.assert_not_called()
 
+    def test_declared_levels_from_run_settings_validate_effort_without_relisting(self):
+        import autocode_provider_launch as provider_launch
+
+        settings = {"declared_variants": {"zai-coding-plan/glm-5.3": ["low", "high", "max"]}}
+        with patch.object(kilocode.command.env_prep, "preflight_run") as listing:
+            argv, _, _, _ = provider_launch.prepare(
+                engine="opencode",
+                adapter=self.provider,
+                role="builder",
+                route_role="builder",
+                workspace=self.root,
+                run_dir=self.root,
+                session=None,
+                model="zai-coding-plan/glm-5.3",
+                effort="low",
+                allow_write=True,
+                planning=False,
+                report=self.root / "report.json",
+                schema=self.root / "schema.json",
+                prompt_file=self.root / "prompt.txt",
+                sandbox="workspace-write",
+                transport_args=[],
+                chatgpt=False,
+                provider="kilocode",
+                enforce_tool_boundary=False,
+                settings=settings,
+            )
+            with self.assertRaisesRegex(kilocode.KiloEffortError, "medium.*low, high, max"):
+                self.provider.launch(
+                    "builder",
+                    self.root,
+                    self.root,
+                    None,
+                    "zai-coding-plan/glm-5.3",
+                    "medium",
+                    True,
+                    env=self.env,
+                    declared_levels=["low", "high", "max"],
+                )
+        self.assertEqual("low", argv[argv.index("--variant") + 1])
+        listing.assert_not_called()
+
     def test_missing_empty_or_unreadable_variant_metadata_cannot_authorize_explicit_effort(self):
         for output, code in (("fixture/model\n{}", 0), (self.listing({}), 0), ("bad listing", 0), ("", 1)):
             with self.subTest(output=output):

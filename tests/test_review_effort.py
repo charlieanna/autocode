@@ -237,7 +237,7 @@ class DecideTests(unittest.TestCase):
 
 
 class LaunchTests(unittest.TestCase):
-    def test_launch_lowers_a_review_and_keeps_a_stage_choice_builder_at_its_level(self):
+    def test_launch_lowers_a_review_and_a_bounded_stage_choice_builder_under_their_ceilings(self):
         state = run_state()
         before = copy.deepcopy(state["settings"])
         route = state["settings"]["roles"]["completion"]
@@ -245,12 +245,14 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(("medium", True), (level, choice["lowered"]))
         self.assertEqual(before, state["settings"], "the saved ceiling is never rewritten")
         state.update(
-            goal_contract={"approval_status": "approved", "body": {"milestones": [{"id": "m1"}]}},
-            current_task={"id": "task-1", "affected_paths": ["slugify.py"]},
+            goal_contract={"approval_status": "approved", "body": {"milestones": [{"id": "m1"}, {"id": "m2"}]}},
+            current_task={"id": "task-1", "milestone_id": "m1", "affected_paths": ["slugify.py"]},
+        )
+        builder_level, builder_choice = review_effort.launch(
+            state, "builder", "builder", False, state["settings"]["roles"]["builder"]
         )
         self.assertEqual(
-            ("high", None),
-            review_effort.launch(state, "builder", "builder", False, state["settings"]["roles"]["builder"]),
+            ("medium", True, "bounded_task"), (builder_level, builder_choice["lowered"], builder_choice["reason"])
         )
 
     def test_launch_keeps_the_builders_light_first_attempt_for_a_runner_default(self):
@@ -486,6 +488,45 @@ class ListingTests(unittest.TestCase):
             configure._list_review_ceilings(unread, object(), "/fixture")
             discover.assert_called_once()
             self.assertEqual({}, unread["declared_variants"], "an unreadable listing saves nothing, never stops a run")
+
+    def test_claude_and_codex_stage_choices_record_declared_variants_without_discovery_calls(self):
+        import autocode_configure as configure
+        import providers.claude as claude_mod
+
+        claude_settings = {
+            "engine": "opencode",
+            "provider": "claude",
+            "roles": {
+                "builder": {"model": claude_mod.HAIKU, "reasoning_effort": "high"},
+                "tester": {"model": claude_mod.SONNET, "reasoning_effort": "high"},
+            },
+            "effort_origins": {"builder": "stage_choice", "tester": "stage_choice"},
+        }
+        codex_settings = {
+            "engine": "codex",
+            "roles": {
+                "builder": {"model": "gpt-5.6-terra", "reasoning_effort": "high"},
+                "tester": {"model": "gpt-5.6-sol", "reasoning_effort": "high"},
+                "completion": {"model": "gpt-6-astra", "reasoning_effort": "high"},
+            },
+            "effort_origins": {
+                "builder": "stage_choice",
+                "tester": "stage_choice",
+                "completion": "runner_default",
+            },
+        }
+        with mock.patch("autocode_route_discovery.discover", side_effect=RuntimeError("no subprocess")):
+            configure._list_review_ceilings(claude_settings, claude_mod, "/fixture")
+            configure._list_review_ceilings(codex_settings, object(), "/fixture")
+        full_scale = ["low", "medium", "high", "xhigh", "max"]
+        self.assertEqual(
+            {claude_mod.HAIKU: full_scale, claude_mod.SONNET: full_scale},
+            claude_settings["declared_variants"],
+        )
+        self.assertEqual(
+            {"gpt-5.6-terra": full_scale, "gpt-5.6-sol": full_scale},
+            codex_settings["declared_variants"],
+        )
 
 
 def _key(choice):

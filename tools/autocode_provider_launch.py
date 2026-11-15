@@ -24,6 +24,7 @@ try:
     from . import autocode_prompts as prompts
     from . import autocode_proof_projection as proof_projection
     from . import autocode_route_evidence as route_evidence
+    from . import autocode_route_fit as route_fit
     from . import autocode_storage_errors as storage_errors
     from . import autocode_tool_admission as tool_admission
     from . import autocode_util as util
@@ -40,6 +41,7 @@ except ImportError:
     import autocode_prompts as prompts
     import autocode_proof_projection as proof_projection
     import autocode_route_evidence as route_evidence
+    import autocode_route_fit as route_fit
     import autocode_storage_errors as storage_errors
     import autocode_tool_admission as tool_admission
     import autocode_util as util
@@ -244,6 +246,11 @@ def prepare(
             )
         if native_image_preparation is not None:
             launch_kwargs["image_preparation"] = native_image_preparation
+        if type(adapter) is KiloProvider:
+            recorded = ((settings or {}).get(route_fit.DECLARED) or {}).get(model)
+            declared = list(recorded) if isinstance(recorded, list) else route_fit.declared_for(settings, model)
+            if declared is not None:
+                launch_kwargs["declared_levels"] = declared
         if engine == "opencode" and not getattr(adapter, "CONFIGURED", False):
             version = getattr(adapter, "transport_version", lambda _settings: None)(settings)
             if version:

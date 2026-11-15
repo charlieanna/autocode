@@ -135,22 +135,29 @@ def launch(state: RunState, stage, route_role, report_only, route: dict) -> tupl
     bound and its reason, because the runner launches a repair under the original stage name and
     the triage pass stays due until a report is accepted.
     """
-    configured = light_builder.effort(state, stage, report_only, route.get("reasoning_effort"))
+    raw_configured = route.get("reasoning_effort")
+    configured = light_builder.effort(state, stage, report_only, raw_configured)
     if report_only:
         decision = repair_effort.decide(state, configured, model=route.get("model"))
     elif triage_decision := requirements_triage.effort_decision(state, stage, configured):
         decision = triage_decision
     else:
-        # A hard plan's Planner and Plan Reviewer run one level up (autocode_plan_difficulty); a raise
-        # wins over a small task's lowered review, so a small plan touching sensitive files is not cut.
-        raised = plan_difficulty.decide(state, stage, route_role, report_only, configured, model=route.get("model"))
-        lowered = decide(state, stage, route_role, report_only, configured, model=route.get("model"))
-        decision = raised if raised and (raised.get("raised") or not lowered) else lowered
+        builder_decision = light_builder.decide(
+            state, stage, route_role, report_only, raw_configured, model=route.get("model")
+        )
+        if builder_decision is not None:
+            decision = builder_decision
+        else:
+            # A hard plan's Planner and Plan Reviewer run one level up (autocode_plan_difficulty); a raise
+            # wins over a small task's lowered review, so a small plan touching sensitive files is not cut.
+            raised = plan_difficulty.decide(state, stage, route_role, report_only, configured, model=route.get("model"))
+            lowered = decide(state, stage, route_role, report_only, configured, model=route.get("model"))
+            decision = raised if raised and (raised.get("raised") or not lowered) else lowered
         # A stage that spent its whole output limit on reasoning at a level keeps below it on that model
         # (autocode_output_cap_recovery); that bound wins over a raise, which would only exhaust it again.
         exhausted = output_cap_recovery.decide(state, stage, effort(decision, configured), model=route.get("model"))
         if exhausted:
-            decision = {**exhausted, "ceiling": configured}
+            decision = {**exhausted, "ceiling": raw_configured}
     level = effort(decision, configured)
     # A route answer moved the saved level to the nearest one its model offers (#3120): say so, beside
     # whichever rule set this launch's level, or as the choice itself when none did.
