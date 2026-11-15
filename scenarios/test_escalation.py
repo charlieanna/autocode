@@ -81,7 +81,11 @@ class EscalationScenarioTests(unittest.TestCase):
         self.assertEqual("could_not_finish", outcome["result"])
         self.assertEqual("builder", outcome["evidence"]["stage"])
         self.assertEqual(3, outcome["evidence"]["attempt"])
-        self.assertEqual("resume", view["needs"]["kind"], view["needs"])
+        self.assertIsNone(view["needs"])
+        self.assertIsNone(view["next_command"])
+        self.assertIsNone(view["chat"]["input"])
+        self.assertEqual("stopped", view["recovery"]["category"])
+        self.assertEqual(["inspect", "new_conversation"], [action["kind"] for action in view["recovery"]["actions"]])
         self.assertIn("Escalations: 1 (1 paused).", said)
         self.assertRegex(said, "  " + CLIMB.replace("$", r"\$") + r"[0-9.]+; the run paused\.")
 
