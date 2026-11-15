@@ -107,6 +107,24 @@ class UnloadableProofTests(unittest.TestCase):
             proof["review_reasons"],
         )
 
+    def test_a_test_directory_that_is_no_package_is_read_from_where_discovery_started(self):
+        # ``unittest discover -s tests`` names tests/test_calc.py ``test_calc``; given by name it is
+        # ``tests.test_calc``. The files the whole suite ran, and the tests it passed, are read either way.
+        seed = {"calc.py": PYTHON["calc.py"], **{"tests/" + name: PYTHON[name] for name in PYTHON if name != "calc.py"}}
+        change = {"calc.py": FIXED["calc.py"], "tests/test_calc.py": FIXED["test_calc.py"]}
+        proof, _state = prove(self.project(seed, change))
+        self.assertIn("unittest discover -v -s tests", proof["suite_fallback"]["whole_suite"])
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual(["tests/test_sibling.py"], proof["suite_fallback"]["left_out"])
+        self.assertTrue(
+            proof["commands"]["suite"].endswith("-m unittest -v tests/test_calc.py tests/test_sub.py"),
+            proof["commands"],
+        )
+        broken = {**change, "calc.py": "def add(a, b): return a + b\ndef sub(a, b): return a + b\n"}
+        proof, _state = prove(self.project(seed, broken))
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertIn("tests.test_sub.Sub.test_sub", " ".join(proof["failures"]))
+
     def test_a_test_the_rest_of_the_suite_passed_must_still_pass(self):
         broken = {**FIXED, "calc.py": "def add(a, b): return a + b\ndef sub(a, b): return a + b\n"}
         proof, _state = prove(self.project(PYTHON, broken))
@@ -295,9 +313,75 @@ class SelectionTests(unittest.TestCase):
                 "left_out": ["test_broken.py"],
                 "probe": "python -m unittest -v test_broken.py",
                 "directory": None,
+                "others": ["fixtures/test_sample.py", "test_calc.py", "tests/test_fine.py"],
             },
             chosen,
         )
+
+    def test_a_test_is_read_as_its_file_and_its_name_from_where_the_runner_found_it(self):
+        tests = ["test_calc.py", "tests/test_calc.py", "tests/test_sub.py", "tests/unit/test_more.py", "spec/a_spec.rb"]
+        named = unloadable_tests.named
+        # ``unittest discover -s tests`` names its tests from tests/. The run says so: most ids name a file
+        # from there, so ``test_calc`` is tests/test_calc.py and not the file of that name at the root.
+        self.assertEqual(
+            {
+                "test_calc.Calc.test_zero": ("tests/test_calc.py", "Calc.test_zero"),
+                "test_sub.Sub.test_sub": ("tests/test_sub.py", "Sub.test_sub"),
+                "unit.test_more.More.test_more": ("tests/unit/test_more.py", "More.test_more"),
+                "doctest.calc.add": (None, "doctest.calc.add"),
+            },
+            named(
+                [
+                    "test_calc.Calc.test_zero",
+                    "test_sub.Sub.test_sub",
+                    "unit.test_more.More.test_more",
+                    "doctest.calc.add",
+                ],
+                tests,
+            ),
+        )
+        # The same files given by name are named from the command's own directory, which comes first.
+        self.assertEqual(
+            {
+                "tests.test_calc.Calc.test_zero": ("tests/test_calc.py", "Calc.test_zero"),
+                "test_calc.Calc.test_root": ("test_calc.py", "Calc.test_root"),
+                "tests.test_sub::test_sub": ("tests/test_sub.py", "test_sub"),
+                "./spec/a_spec.rb::Grader::Rows sorts": ("spec/a_spec.rb", "Grader::Rows sorts"),
+            },
+            named(
+                [
+                    "tests.test_calc.Calc.test_zero",
+                    "test_calc.Calc.test_root",
+                    "tests.test_sub::test_sub",
+                    "./spec/a_spec.rb::Grader::Rows sorts",
+                ],
+                tests,
+            ),
+        )
+        # A package suite's files are named from its directory, and two files with one name are neither.
+        self.assertEqual(
+            {"spec/a_spec.rb::x": ("backend/spec/a_spec.rb", "x")},
+            named(["spec/a_spec.rb::x"], ["backend/spec/a_spec.rb", "spec/a_spec.rb"], "backend"),
+        )
+        self.assertEqual(
+            {"test_same.Same.test_one": (None, "test_same.Same.test_one")},
+            named(["test_same.Same.test_one"], ["tests/test_same.py", "tests/test_same.rb"]),
+        )
+        self.assertEqual({}, named([], tests))
+
+    def test_the_files_the_whole_suite_ran_are_found_from_where_its_discovery_started(self):
+        whole = run_of(
+            passed=["test_calc.Calc.test_zero", "unit.test_more.More.test_more"],
+            unloaded=["unittest.loader._FailedTest.test_broken"],
+        )
+        tests = ["tests/test_broken.py", "tests/test_calc.py", "tests/unit/test_more.py"]
+        framework = Framework("unittest", "python -m unittest discover -v -s tests", python="python")
+        chosen = unloadable_tests.choose(framework, whole, tests, {})
+        self.assertEqual("python -m unittest -v tests/test_calc.py tests/unit/test_more.py", chosen["command"])
+        # Given by name, the same tests are spelled from the root. They are the tests the whole suite passed.
+        named = run_of(passed=["tests.test_calc.Calc.test_zero", "tests.unit.test_more.More.test_more"])
+        self.assertTrue(unloadable_tests.keeps(whole, named, chosen))
+        self.assertFalse(unloadable_tests.keeps(whole, run_of(passed=["tests.test_calc.Calc.test_zero"]), chosen))
 
     def test_nothing_is_chosen_without_a_file_to_leave_out_or_a_command_that_does(self):
         whole = run_of(passed=["test_calc.Calc.test_zero"], unloaded=["unittest.loader._FailedTest.test_broken"])
@@ -355,7 +439,11 @@ class SelectionTests(unittest.TestCase):
 
     def test_leaving_a_file_out_must_not_lose_a_test_that_ran(self):
         whole = run_of(passed=["a.A.test_one", "b.B.test_two"], unloaded=["unittest.loader._FailedTest.c"])
-        keeps = unloadable_tests.keeps
+        choice = {"others": ["a.py", "b.py", "d.py"], "directory": None}
+
+        def keeps(before, without):
+            return unloadable_tests.keeps(before, without, choice)
+
         self.assertTrue(keeps(whole, run_of(passed=["a.A.test_one", "b.B.test_two", "d.D.test_three"])))
         self.assertFalse(keeps(whole, run_of(passed=["a.A.test_one"])), "a test the whole suite passed is gone")
         self.assertFalse(keeps(whole, run_of(passed=["a.A.test_one", "b.B.test_two"], complete=False)))

@@ -732,7 +732,7 @@ def _without_unloadable(
         inputs,
         settled_timeout=True,
     )
-    if focused_suite.usable(result) and unloadable_tests.keeps(whole, result):
+    if focused_suite.usable(result) and unloadable_tests.keeps(whole, result, choice):
         if kept is not None:
             state["regression_baseline"] = {**(state.get("regression_baseline") or {}), "whole": kept}
         return unloadable_tests.record(choice, whole), without, result

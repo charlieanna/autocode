@@ -31,6 +31,7 @@ This module only selects and describes; it runs nothing and imports no controlle
 
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import PurePosixPath
 
 VERSION = 1
@@ -81,12 +82,47 @@ def _names(identity, name) -> bool:
     return False
 
 
-def _ran(identities, name) -> bool:
-    """Whether one of a run's test ids is a test of the file the runner knows as ``name``: ``FILE::test``,
-    ``pkg.module::test`` (pytest) or ``pkg.module.Class.test`` (unittest)."""
-    dotted = ".".join(PurePosixPath(name).with_suffix("").parts)
-    starts = (name + "::", "./" + name + "::", dotted + "::", dotted + ".")
-    return any(identity.startswith(starts) for identity in identities)
+def _read(identity, known) -> dict:
+    """For each directory a runner may name its tests from, the test file ``identity`` names there and the
+    test's name within that file: ``FILE::test``, ``pkg.module::test`` (pytest) or ``pkg.module.Class.test``
+    (unittest), where the longest module that is a file is the test's."""
+    head, mark, rest = identity.partition("::")
+    if mark:
+        return {root: (path, rest) for root, path in known.get(head, {}).items()}
+    found: dict = {}
+    parts = identity.split(".")
+    for cut in range(len(parts) - 1, 0, -1):
+        for root, path in known.get(".".join(parts[:cut]), {}).items():
+            found.setdefault(root, (path, ".".join(parts[cut:])))
+    return found
+
+
+def named(identities, tests, directory=None) -> dict:
+    """Each test id of one run as (its test file, the test's name within that file).
+
+    A runner names a test from where it found it: the directory its command runs in, or the one its
+    discovery started from (``unittest discover -s tests`` calls ``tests/test_a.py`` ``test_a``, and the
+    same file given by name is ``tests.test_a``). That directory is not guessed from the command. It is
+    read from the run: the directory from which the most ids name a test file, the nearest to the
+    command's own first. An id that names no file from there keeps its whole name, with no file.
+    """
+    # Every name a runner could give a test file: its path from each directory above it, and that module.
+    known: dict = {}
+    for path in tests:
+        parts = PurePosixPath(_within(directory, path) or "").parts
+        for depth in range(len(parts)):
+            root, inner = "/".join(parts[:depth]), "/".join(parts[depth:])
+            for form in (inner, "./" + inner, ".".join(PurePosixPath(inner).with_suffix("").parts)):
+                found = known.setdefault(form, {})
+                # Two files one directory would give the same name are no file an id names exactly.
+                found[root] = path if found.get(root, path) == path else None
+    read = {identity: _read(identity, known) for identity in identities}
+    counts = Counter(root for found in read.values() for root, (path, _name) in found.items() if path)
+    root = min(counts, key=lambda found: (-counts[found], found.count("/") + bool(found), found), default="")
+    return {
+        identity: found[root] if found.get(root, (None, None))[0] else (None, identity)
+        for identity, found in read.items()
+    }
 
 
 def files(identities, tests, directory=None) -> list[str] | None:
@@ -121,16 +157,13 @@ def choose(framework, whole, tests, changes) -> dict | None:
     results = _results(whole) or {}
     ran = [identity for key in ("passed", "failed", "skipped") for identity in results.get(key) or ()]
     ran = sorted(set(ran) - set(identities))
-    remaining = [
-        path
-        for path in tests
-        if path not in left_out and (not ran or ((name := _within(directory, path)) and _ran(ran, name)))
-    ]
+    others = [path for path in tests if path not in left_out and _within(directory, path)]
+    remaining = sorted({path for path, _name in named(ran, others, directory).values() if path}) if ran else others
     command = framework.without(left_out, remaining)
     probe = framework.targeted(left_out)
     if not command or not probe or command == framework.suite or len(command) > MAX_COMMAND:
         return None
-    return {"command": command, "left_out": left_out, "probe": probe, "directory": directory}
+    return {"command": command, "left_out": left_out, "probe": probe, "directory": directory, "others": others}
 
 
 def still(receipt, choice) -> bool:
@@ -146,14 +179,21 @@ def still(receipt, choice) -> bool:
     return files(identities, choice["left_out"], choice.get("directory")) == choice["left_out"]
 
 
-def keeps(whole, without) -> bool:
+def keeps(whole, without, choice) -> bool:
     """Whether the suite without those files, on the original code, loads every file it runs and passes
-    every test the whole suite passed there. Leaving a file out must not lose a test that ran."""
+    every test the whole suite passed there. Leaving a file out must not lose a test that ran.
+
+    A test is its file and its name within the file (``named``): a runner given files by name may spell
+    the file another way than its own discovery did."""
     results, before = _results(without), _results(whole) or {}
     if results is None or not results.get("complete") or unloaded(without):
         return False
-    passed = set(results.get("passed") or ())
-    return bool(passed) and set(before.get("passed") or ()) <= passed
+
+    def tests(identities):
+        return set(named(sorted(set(identities)), choice["others"], choice.get("directory")).values())
+
+    passed = tests(results.get("passed") or ())
+    return bool(passed) and tests(before.get("passed") or ()) <= passed
 
 
 def _listed(paths) -> str:
