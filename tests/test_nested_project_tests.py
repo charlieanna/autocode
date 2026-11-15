@@ -20,6 +20,7 @@ from unittest import mock
 
 import autocode_project_kinds as project_kinds
 import autocode_protected_oracles as guard
+import autocode_protected_project_suite as project_suite
 import autocode_regression as regression
 import autocode_test_role_inventory as role_inventory
 import autocode_util as util
@@ -154,6 +155,28 @@ API = {
 }
 
 
+def run_gate(case, seed, change, command, name, *, typed=False):
+    """Bind ``command`` and the original tests of ``seed`` as a run does when it starts, apply ``change``
+    and run the original-test gate. ``typed``: the person gave the command (``--test-command``)."""
+    project = Project(seed)
+    case.addCleanup(project.close)
+    run = project.root.parent / "run"
+    state = {"settings": {"regression": {"test_command": command}} if typed else {}}
+    guard.reconcile(
+        state,
+        state["settings"],
+        SimpleNamespace(run_dir=None),
+        project.root,
+        run,
+        is_test_path=verify.is_test_path,
+        discover_command=lambda: command,
+    )
+    case.assertEqual(command, state["settings"]["protected_tests"]["command"])
+    case.assertIn(name, state["settings"]["protected_tests"]["files"])
+    project.write(change)
+    return guard.replay(state, project.root, run / "replays", verify.scratch_run, timeout=60)
+
+
 @unittest.skipUnless(shutil.which("node"), "the nested project's tests run with node --test")
 class NestedProjectOriginalGateTests(unittest.TestCase):
     """The original tests a change edits run again with the original assertions put back
@@ -166,23 +189,7 @@ class NestedProjectOriginalGateTests(unittest.TestCase):
     TARGETED = "cd web && node --test test/pager.js"
 
     def gate(self, seed, change, command, name="web/test/pager.js"):
-        project = Project(seed)
-        self.addCleanup(project.close)
-        run = project.root.parent / "run"
-        state = {"settings": {}}
-        guard.reconcile(
-            state,
-            state["settings"],
-            SimpleNamespace(run_dir=None),
-            project.root,
-            run,
-            is_test_path=verify.is_test_path,
-            discover_command=lambda: command,
-        )
-        self.assertEqual(command, state["settings"]["protected_tests"]["command"])
-        self.assertIn(name, state["settings"]["protected_tests"]["files"])
-        project.write(change)
-        return guard.replay(state, project.root, run / "replays", verify.scratch_run, timeout=60)
+        return run_gate(self, seed, change, command, name)
 
     def python_suite(self):
         return shlex.join([sys.executable, "-m", "unittest", "discover", "-v"])
@@ -247,6 +254,117 @@ class NestedProjectOriginalGateTests(unittest.TestCase):
             with self.subTest(command=command, changed=changed):
                 self.assertEqual(command, guard.replay_command(command, changed, project.root))
         self.assertEqual(self.TARGETED, guard.replay_command(python, ["web/test/pager.js"], project.root))
+
+
+class NestedPythonOriginalGateTests(unittest.TestCase):
+    """The Python half of the same repository. The bound Python runner can run ``api/``'s tests, but from
+    the root: ``python3 -m unittest -v api/tests/test_orders.py`` cannot import ``orders`` from ``api/``,
+    where the tests are written to run and where the regression proof runs them
+    (``cd api && python3 -m unittest -v tests/test_orders.py``). The proof passed and the gate failed with
+    "Protected tests changed and the original gate did not pass" (checked without a model, 2026-11-15)."""
+
+    SEED = {"README.md": "# shop\n", "web/package.json": PACKAGE, "web/index.js": INDEX, **API}
+    NAME = "api/tests/test_orders.py"
+    ORIGINAL = API[NAME]
+    NEW = "\n    def test_cents_are_rounded(self):\n        self.assertEqual(0.3, total([0.1, 0.2]))\n"
+    ROUNDED = "def total(lines):\n    return round(sum(lines), 2)\n"
+
+    def python(self, *arguments):
+        return shlex.join([sys.executable, "-m", *arguments])
+
+    def test_the_changed_tests_run_inside_their_own_project(self):
+        change = {"api/orders.py": self.ROUNDED, self.NAME: self.ORIGINAL + self.NEW}
+        result = run_gate(self, self.SEED, change, self.python("unittest", "discover", "-v"), self.NAME)
+        self.assertEqual("PASS", result["verdict"], result)
+        self.assertEqual([self.NAME], result["changed_tests"])
+        self.assertEqual(
+            "cd api && " + self.python("unittest", "-v", "tests/test_orders.py"), result["replayed_command"]
+        )
+        self.assertEqual((0, 0), (result["candidate"]["exit_code"], result["original"]["exit_code"]))
+
+    def test_a_weakened_original_assertion_still_fails_the_gate(self):
+        change = {
+            "api/orders.py": "def total(lines):\n    return sum(lines) + 1\n",
+            self.NAME: self.ORIGINAL.replace("assertEqual(5,", "assertEqual(6,"),
+        }
+        with self.assertRaisesRegex(ValueError, "original gate did not pass") as raised:
+            run_gate(self, self.SEED, change, self.python("unittest", "discover", "-v"), self.NAME)
+        receipt = raised.exception.receipt
+        self.assertTrue(receipt["replayed_command"].startswith("cd api && "), receipt)
+        self.assertEqual(0, receipt["candidate"]["exit_code"])
+        self.assertNotEqual(0, receipt["original"]["exit_code"])
+
+    def test_the_bound_runner_is_the_one_that_runs_them_there(self):
+        project = Project(self.SEED)
+        self.addCleanup(project.close)
+        pytest = self.python("pytest", "-q")
+        self.assertEqual(
+            "cd api && " + self.python("pytest", "-q", "tests/test_orders.py"),
+            guard.replay_command(pytest, [self.NAME], project.root),
+        )
+
+    def test_a_command_the_person_typed_runs_where_they_typed_it(self):
+        # These tests are written to run from the root (``from api.orders import total``), and the person
+        # says so with --test-command, which the proof runs from the root too.
+        from_root = self.ORIGINAL.replace("from orders import", "from api.orders import")
+        self.assertNotEqual(self.ORIGINAL, from_root)
+        seed = {**self.SEED, "api/__init__.py": "", "api/tests/__init__.py": "", self.NAME: from_root}
+        change = {"api/orders.py": self.ROUNDED, self.NAME: from_root + self.NEW}
+        typed = self.python("unittest", "discover", "-v", "-s", "api/tests", "-t", ".")
+        result = run_gate(self, seed, change, typed, self.NAME, typed=True)
+        self.assertEqual("PASS", result["verdict"], result)
+        self.assertEqual(self.python("unittest", "-v", self.NAME), result["replayed_command"])
+        # So does a command the person corrected the original tests' command to.
+        state = {"settings": {}, "user_events": [{"kind": "protected_tests_revised"}]}
+        self.assertFalse(project_suite.detected(state))
+        self.assertTrue(project_suite.detected({"settings": {}, "user_events": [{"kind": "plan_approved"}]}))
+        self.assertFalse(project_suite.detected({"settings": {"regression": {"test_command": typed}}}))
+
+    def test_the_root_still_runs_what_is_its_own(self):
+        unittest_suite = self.python("unittest", "discover", "-v")
+        from_root = self.python("unittest", "-v")
+        files = {
+            **self.SEED,
+            "jobs/pyproject.toml": API["api/pyproject.toml"],
+            "jobs/tests/test_jobs.py": self.ORIGINAL,
+            "scripts/tests/test_scripts.py": self.ORIGINAL,
+            "tests/fixtures/app/pyproject.toml": API["api/pyproject.toml"],
+            "tests/fixtures/app/tests/test_app.py": self.ORIGINAL,
+        }
+        project = Project(files)
+        self.addCleanup(project.close)
+        for changed in (
+            [self.NAME, "jobs/tests/test_jobs.py"],  # two projects: no one directory holds both
+            ["scripts/tests/test_scripts.py"],  # no manifest: not a project
+            ["tests/fixtures/app/tests/test_app.py"],  # a fixture of the root's own tests
+        ):
+            with self.subTest(changed=changed):
+                self.assertEqual(
+                    shlex.join([*shlex.split(from_root), *sorted(changed)]),
+                    guard.replay_command(unittest_suite, changed, project.root),
+                )
+        # A runner that cannot be narrowed to the files runs the whole bound suite where it was bound.
+        unknown = self.python("unittest", "discover", "-v", "--unknown-option")
+        self.assertEqual(unknown, guard.replay_command(unknown, [self.NAME], project.root))
+        # A runner that names something by where it runs is narrowed there.
+        for bound, narrowed in (
+            ("env PYTHONPATH=api " + unittest_suite, "env PYTHONPATH=api " + from_root),
+            (".venv/bin/python -m unittest discover -v", ".venv/bin/python -m unittest -v"),
+            (self.python("pytest", "-q", "--rootdir", "."), self.python("pytest", "-q", "--rootdir", ".")),
+            (self.python("pytest", "-q", "--ignore=web"), self.python("pytest", "-q", "--ignore=web")),
+        ):
+            with self.subTest(bound=bound):
+                self.assertEqual(
+                    shlex.join([*shlex.split(narrowed), self.NAME]),
+                    guard.replay_command(bound, [self.NAME], project.root),
+                )
+        # A root that is a project of its own runs its tests from the root, as its suite does.
+        owned = Project({**self.SEED, "pyproject.toml": API["api/pyproject.toml"]})
+        self.addCleanup(owned.close)
+        self.assertEqual(
+            shlex.join([*shlex.split(from_root), self.NAME]),
+            guard.replay_command(unittest_suite, [self.NAME], owned.root),
+        )
 
 
 class ProjectRootRuleTests(unittest.TestCase):
