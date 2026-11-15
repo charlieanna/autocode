@@ -19,6 +19,7 @@ import autocode_run_records as records
 import autocode_stop as stop
 import autocode_support as support
 import autocode_util as util
+import autopilot
 
 
 class JobPersonStopTests(unittest.TestCase):
@@ -142,9 +143,18 @@ class JobPersonStopTests(unittest.TestCase):
                     "reason": "fixture",
                     "identity": "fixture",
                 }
-                prompt, _ = (
-                    job.prompt(state, self.run / "state.json") if stage == "investigate_stuck" else job.prompt(state)
-                )
+                if hasattr(job, "prompt"):
+                    prompt, _ = (
+                        job.prompt(state, self.run / "state.json")
+                        if stage == "investigate_stuck"
+                        else job.prompt(state)
+                    )
+                else:
+                    # The job's unit assembles its prompt (resolve_repair: its handoff): read what it would launch.
+                    schemas = self.run / "schemas"
+                    schemas.mkdir(exist_ok=True)
+                    prompt = autopilot.unit_module(stage).prepare(state, stage, self.run / "state.json", schemas).prompt
+                self.assertTrue(prompt.strip())
                 self.assertNotIn(kept["sha256"], prompt)
                 self.assertNotIn('"stopped_capture"', prompt)
                 manifest = json.loads(Path(kept["path"]).read_text())
