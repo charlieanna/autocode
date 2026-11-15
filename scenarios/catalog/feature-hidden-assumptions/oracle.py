@@ -77,7 +77,11 @@ def run_level_checks(run_record):
     checks = []
     for fork, pattern in FORKS.items():
         asked = [row for row in questions if re.search(pattern, _text(row), re.I)]
-        early = [row for row in asked if row.get("next_stage") not in AFTER_REQUIREMENTS]
+        early = [
+            row
+            for row in asked
+            if row.get("stages_before_answer") and not (set(row["stages_before_answer"]) & AFTER_REQUIREMENTS)
+        ]
         listed = [row for row in [*corrections, *confirmations] if re.search(pattern, _text(row), re.I)]
         overrode = [
             row

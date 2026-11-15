@@ -236,6 +236,36 @@ PROFILES = {
             "zai-coding-plan/glm-5.3",
         ],
     },
+    # glm-mimo-kilo with Requirements on MiMo too (#3603): same Kilo split, exercising MiMo on requirements_gather.
+    "glm-mimo-kilo-requirements-mimo": {
+        "provider": "kilocode",
+        "models": {
+            "requirements": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "planner": "zai-coding-plan/glm-5.3",
+            "reviewer": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "builder": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "validator": "zai-coding-plan/glm-5.3",
+            "completion": "zai-coding-plan/glm-5.3",
+            "resolver": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+        },
+        "effort": {
+            "requirements": "high",
+            "planner": "high",
+            "reviewer": "high",
+            "builder": "medium",
+            "validator": "high",
+            "completion": "high",
+            "resolver": "high",
+        },
+        "extra": [
+            "--resolver-model",
+            "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "--resolver-reasoning-effort",
+            "high",
+            "--investigator-model",
+            "zai-coding-plan/glm-5.3",
+        ],
+    },
     # Every role on OpenAI via the ChatGPT login (user 2026-09-27, while the Z.AI plan
     # was out of quota). Each verifier is a different model from its producer
     # (planner astra / plan reviewer sol; builder sol / validator astra / completion

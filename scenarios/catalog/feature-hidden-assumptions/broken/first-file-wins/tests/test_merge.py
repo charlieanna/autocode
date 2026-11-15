@@ -61,6 +61,12 @@ class MergeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertTrue(result.stderr.startswith("envfile: error: "), result.stderr)
 
+    def test_merge_needs_at_least_two_files(self):
+        a = self.write("a.env", "A=1\n")
+        result = envfile("merge", a, cwd=self.dir)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("at least two files", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

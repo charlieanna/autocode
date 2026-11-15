@@ -22,7 +22,7 @@ answer = "When a key is set in more than one file, the last file's value wins (l
 [[person.answers]]
 match = "\\bempty\\b|no entries|without entries|nothing to merge|zero entries|no keys"
 choose = "exit\\w*\\s+(with\\s+)?(status\\s+|code\\s+)?0\\b|succe|not an error|no error"
-answer = "Files with no entries are not an error: merge prints nothing and exits 0."
+answer = "Empty inputs merge to empty output and succeed cleanly."
 
 [run]
 timeout_minutes = 90
