@@ -23,6 +23,7 @@ import autocode_repair_triage as repair_triage
 import autocode_resolve_repair_job as resolve_repair_job
 import autocode_resolver_human as resolver_human
 import autocode_stop as stop
+import autocode_stray_writes as stray_writes
 import autocode_stuck_job as stuck_job
 import autocode_support as support
 import autocode_unit_request as unit_request
@@ -957,6 +958,43 @@ class ResolveRepairTests(unittest.TestCase):
                 self.state, "PAUSED_NO_PROGRESS", "Legacy run", before_investigator=False
             )
         )
+
+    def test_stray_writes_raise_stray_writes_and_undo_restores_workspace(self):
+        before_path = self.run_dir / "before.snap.json"
+        after_path = self.run_dir / "after.snap.json"
+        util.atomic_json(before_path, support.snapshot(self.root))
+        (self.root / "app.py").write_text("def greet():\n    return 'tampered'\n")
+        util.atomic_json(after_path, support.snapshot(self.root))
+        record = {
+            **self._resolve_record("res-stray"),
+            "changed_files": ["app.py"],
+            "before_ref": str(before_path),
+            "after_ref": str(after_path),
+        }
+        with self.assertRaises(stray_writes.StrayWrites) as err:
+            resolve_repair_job.apply(
+                None,
+                self.state,
+                {
+                    "diagnosis": "",
+                    "action": "hold",
+                    "repaired_report_json": "",
+                    "guidance": "",
+                    "next_objective": "",
+                    "affected_paths": [],
+                    "user_question": "",
+                    "user_options": [],
+                    "evidence_refs": [],
+                },
+                record,
+                self.root,
+                self.run_dir,
+            )
+        self.assertEqual(["app.py"], err.exception.paths)
+        restored = stray_writes.undo(self.state, record, err.exception)
+        self.assertIsInstance(restored, stray_writes.StrayWrites)
+        self.assertIn("restored app.py", str(restored))
+        self.assertEqual("def greet():\n    return 'hi'\n", (self.root / "app.py").read_text())
 
 
 if __name__ == "__main__":

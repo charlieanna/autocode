@@ -2,6 +2,7 @@
 
 import re
 import unittest
+from pathlib import Path
 
 import autocode_jobs as jobs
 import autocode_stage_access as access
@@ -38,6 +39,9 @@ class GuardsAgreeWithTheRules(unittest.TestCase):
         "collect_design": lambda changed: jobs.design_intake.apply({}, {}, {"changed_files": changed}, "/repo"),
         "check_design": lambda changed: jobs.design_check_job.check({}, {"design_document": ""}, changed, "/repo"),
         "investigate_stuck": lambda changed: jobs.stuck_job.check({"diagnosis": ""}, changed),
+        "resolve_repair": lambda changed: jobs.resolve_repair_job.apply(
+            None, {}, {}, {"changed_files": changed}, Path("/repo"), Path("/run")
+        ),
         # Test files only, wherever the project keeps them (autocode_verify.is_test_path), not a prefix.
         "write_acceptance_tests": lambda changed: jobs.acceptance_tests_job.apply(
             {}, {}, {"changed_files": changed}, "/repo"
@@ -45,8 +49,9 @@ class GuardsAgreeWithTheRules(unittest.TestCase):
     }
 
     def outcome(self, stage, changed):
+        check = self.CHECKS[stage]
         try:
-            self.CHECKS[stage](changed)
+            check(changed)
         except stray_writes.StrayWrites as error:
             return error.paths
         except (ValueError, KeyError, TypeError):

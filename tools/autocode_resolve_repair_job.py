@@ -35,6 +35,7 @@ try:
     from . import autocode_source_scope as source_scope
     from . import autocode_stage_access as stage_access
     from . import autocode_stop as stop
+    from . import autocode_stray_writes as stray_writes
     from . import autocode_support as support
     from . import autocode_util as util
     from . import autocode_verifier_independence as verifier_independence
@@ -54,6 +55,7 @@ except ImportError:
     import autocode_source_scope as source_scope
     import autocode_stage_access as stage_access
     import autocode_stop as stop
+    import autocode_stray_writes as stray_writes
     import autocode_support as support
     import autocode_util as util
     import autocode_verifier_independence as verifier_independence
@@ -960,7 +962,10 @@ def apply(
     if stop.applied_stop(state):
         raise support.Paused(stop.STOP_STATUS, stop.STOP_REASON)
     if stray := stage_access.stray(STAGE, record.get("changed_files") or []):
-        raise ValueError(f"resolve_repair is read-only and may not modify files: {', '.join(stray)}")
+        raise stray_writes.StrayWrites(
+            f"resolve_repair is read-only and may not modify files: {', '.join(stray)}",
+            stray,
+        )
     request = state.get("resolve_repair_request")
     if not isinstance(request, dict):
         raise ValueError("resolve_repair finished without an active resolve_repair_request")
