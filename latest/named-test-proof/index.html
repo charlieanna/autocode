@@ -2083,9 +2083,22 @@ running (<code>tests/pages.rs</code>, or <code>src/lib.rs</code> for unit tests)
   <code>fn exact_multiple</code>, and <code>guard: tests::exact_multiple</code> the one in <code>mod tests</code>. A lone word
   (<code>guard: manual</code>) is still prose. Every other runner keeps the rule above: only a <code>test_*</code> or
   Go <code>Test*</code> name binds, and anything else falls back to the criterion id.</li>
-<li>The changed test files are the files under <code>tests/</code> (and other test paths). A test added to a
-  <code>#[cfg(test)]</code> module inside a source file is part of the source: the proof cannot run it
-  against the original code, so plans put a new Rust test in a file under <code>tests/</code>.</li>
+<li>The changed test files are the files under <code>tests/</code> (and other test paths), and the code files
+  whose tests changed. Some tests are written inside a code file: a Python doctest in a docstring,
+  a Rust example in a doc comment, a <code>#[cfg(test)]</code> module, and the examples of a doctest document
+  (<code>.txt</code>, <code>.rst</code>, <code>.md</code>). Each language's own syntax says which lines those are
+  (<code>autocode_test_parts.parts</code>). The proof puts the change's edits to those lines on the original
+  code, and nothing else: it refuses to when the original program would differ, read without its
+  docstrings, doc comments and test modules, so a fix cannot ride along. An example of a function
+  the change adds goes into doctest's own <code>__test__</code> table, so it fails on the original code as a
+  new test of a new function does. A docstring example is the change's test only when no test file
+  changed, since a project with test files may not run its doctests; a Rust doc example is one
+  always, since <code>cargo test</code> runs them. A command that names a file holding such tests
+  (<code>python -m doctest textutil.py</code>) runs existing tests, so it can guard a change; the plan check,
+  the guard and the proof's choice of command read that from <code>autocode_test_parts.named_holding</code>.
+  Open: a Rust doc example on a function the change adds
+  cannot be put on the original code, and an edit that mixes test lines and code on one line is not
+  split, so such a proof finds no test rather than passing.</li>
 </ul>
 <p>A literal Go check with an explicit empty selector (<code>go test -run '^$' ./...</code>)
 may validate compilation in a plan. Its exit must be zero, but it supplies no
