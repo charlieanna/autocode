@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import autocode_code_citations as citations
 from units import autoplanner
@@ -36,7 +37,7 @@ def opencode_tool(identity, tool, status="completed", output="", metadata=None, 
     return {"type": "tool_use", "sessionID": "session", "part": {"id": identity, "tool": tool, "state": state}}
 
 
-class CodeCitationTests(unittest.TestCase):
+class Workspace(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -58,6 +59,8 @@ class CodeCitationTests(unittest.TestCase):
         self.state["stages"].append(record)
         return record
 
+
+class CodeCitationTests(Workspace):
     def test_each_backend_native_and_shell_reads_count_and_listings_do_not(self):
         self.record(
             [
@@ -160,6 +163,59 @@ class CodeCitationTests(unittest.TestCase):
                 self.state, ["app.py:1"], "source_refs", planning_unit=autoplanner, stage="requirements_gather"
             )
 
+    def test_single_file_grep_and_matched_grep_hits_count_while_directory_grep_does_not(self):
+        self.record(
+            [
+                claude_tool("c1", "Grep", path=str(self.workspace / "app.py"), pattern="two"),
+                claude_tool("c2", "Grep", path=str(self.workspace), pattern="two"),
+                opencode_tool(
+                    "o1",
+                    "grep",
+                    output="Found 1 match\npkg/util.py:\n  Line 1: def helper():\n",
+                    path=".",
+                    pattern="helper",
+                ),
+            ]
+        )
+        self.assertEqual(frozenset({"app.py", "pkg/util.py"}), citations.read_paths(self.state, "requirements_gather"))
+
+    def test_replay_rebinds_native_read_paths_into_a_fresh_workspace(self):
+        import autocode_replay_bindings as replay_bindings
+        import autocode_replay_recording as recording
+
+        payload = {
+            "events": [
+                claude_tool("c1", "Read", file_path=str(self.workspace / "app.py")),
+                claude_tool("c2", "Grep", path=str(self.workspace), pattern="one"),
+                opencode_tool("o1", "read", filePath=str(self.workspace / "pkg" / "util.py")),
+                opencode_tool("o2", "read", filePath="/etc/hosts"),
+                {"type": "turn.completed"},
+            ],
+            "report": {"source_refs": ["app.py:1", "pkg/util.py:1"]},
+            "response": None,
+        }
+        bound = replay_bindings.bindings(payload, {}, {}, self.workspace, self.run, [])
+        fresh = self.root / "replayed-project"
+        (fresh / "pkg").mkdir(parents=True)
+        (fresh / "app.py").write_text("one\ntwo\nthree\n")
+        (fresh / "pkg" / "util.py").write_text("def helper():\n    return 1\n")
+        fresh_run = fresh / ".autocode" / "runs" / "reproduction"
+        fresh_run.mkdir(parents=True)
+        rebound = recording.rebind(payload, bound, {"workspace": str(fresh), "run_dir": str(fresh_run)})
+        self.assertEqual("/etc/hosts", rebound["events"][3]["part"]["state"]["input"]["filePath"])
+        events_path = fresh_run / "events.jsonl"
+        events_path.write_text("".join(json.dumps(row) + "\n" for row in rebound["events"]))
+        replayed_state = {
+            "workspace": str(fresh),
+            "run_dir": str(fresh_run),
+            "task": "Fix app",
+            "stages": [{"stage": "requirements_gather", "events": str(events_path)}],
+        }
+        self.assertEqual(
+            frozenset({"app.py", "pkg/util.py"}), citations.read_paths(replayed_state, "requirements_gather")
+        )
+        self.assertIsNone(citations.verify_citation(replayed_state, "requirements_gather", "app.py:2"))
+
     def test_split_and_cited_file_match_the_planning_units_parsing(self):
         for ref in ("app.py", "app.py:2", "app.py: why", "app.py why", "pkg/util.py:1-2 x"):
             with self.subTest(ref=ref):
@@ -170,6 +226,92 @@ class CodeCitationTests(unittest.TestCase):
             autoplanner.cited_file(self.workspace, "app.py", "f", "app.py"),
             citations.cited_file(self.workspace, "app.py", "f", "app.py"),
         )
+
+
+class RequirementsAcceptanceWiringTests(Workspace):
+    """The controller authenticates Requirements citations and its audit; later stages keep the file check."""
+
+    def accept(self, stage, value, record=None, *, verify=None):
+        import autopilot
+
+        seen = {}
+
+        def prepare(state, stage, value, record, *, investigation_stages, check_code_refs):
+            seen["prepare"] = check_code_refs
+            return value, stage != "requirements_gather"  # deferred: a later stage stops here
+
+        def accept(state, value, record, *, check_code_refs, queue):
+            seen["accept"] = check_code_refs
+            if verify is not None:
+                verify(state, check_code_refs)
+
+        with (
+            mock.patch.object(autopilot.requirements_triage, "validate_application"),
+            mock.patch.object(autopilot.planning_unit.planning_scope, "prepare_handoff", side_effect=prepare),
+            mock.patch.object(autopilot.requirements_handoff, "accept", side_effect=accept),
+            mock.patch.object(autopilot.planning_unit, "rerun_requirements", return_value=False),
+        ):
+            autopilot.apply_planning(self.state, stage, value, record or {"output": "report.json"})
+        return seen
+
+    def test_requirements_checks_are_bound_to_what_requirements_read(self):
+        self.record([codex_command("x", "cat app.py", "one\n")])
+        seen = self.accept("requirements_gather", {"summary": "s", "open_questions": []})
+        for name in ("prepare", "accept"):
+            with self.subTest(check=name):
+                seen[name](self.state, ["app.py:1"], "source_refs")
+                with self.assertRaisesRegex(ValueError, "never read: README.md"):
+                    seen[name](self.state, ["README.md"], "source_refs")
+        later = self.accept("draft_plan", {"summary": "s"})
+        later["prepare"](self.state, ["README.md"], "code_refs")  # the Planner keeps the file check
+
+    def test_inflight_record_not_yet_saved_in_stages_is_authenticated_during_acceptance(self):
+        from autocode_report_repair_queue import ExecutionEvidenceRequired
+
+        events = self.run / "overlap.jsonl"
+        events.write_text(json.dumps({"type": "turn.completed"}) + "\n")
+        inflight = {"stage": "requirements_gather", "output": "report.json", "events": str(events)}
+
+        def check_empty(state, check_code_refs):
+            with self.assertRaisesRegex(ExecutionEvidenceRequired, "read no file"):
+                check_code_refs(state, ["app.py:1"], "source_refs")
+
+        self.accept("requirements_gather", {"summary": "s", "open_questions": []}, inflight, verify=check_empty)
+        events.write_text(
+            json.dumps(
+                {
+                    "type": "tool_use",
+                    "part": {"tool": "read", "state": {"input": {"filePath": str(self.workspace / "app.py")}}},
+                }
+            )
+            + "\n"
+        )
+
+        def check_read(state, check_code_refs):
+            check_code_refs(state, ["app.py:1"], "source_refs")
+            self.assertIsNone(citations.verify_citation(state, "requirements_gather", "app.py:1"))
+            with self.assertRaisesRegex(ValueError, "never read: README.md"):
+                check_code_refs(state, ["README.md"], "source_refs")
+
+        self.accept("requirements_gather", {"summary": "s", "open_questions": []}, inflight, verify=check_read)
+
+    def test_requirements_audit_is_checked_before_the_handoff(self):
+        import autocode_ambiguity_audit as audit
+
+        value = {
+            "summary": "s",
+            "open_questions": [],
+            audit.FIELD: {dimension: {"status": "open_question", "refs": ["Q9"]} for dimension in audit.DIMENSIONS},
+        }
+        import autopilot
+
+        with (
+            mock.patch.object(autopilot.requirements_triage, "validate_application"),
+            mock.patch.object(autopilot.requirements_handoff, "accept") as accepted,
+            self.assertRaisesRegex(ValueError, "Q9, which are not open_questions ids"),
+        ):
+            autopilot.apply_planning(self.state, "requirements_gather", value, {"output": "report.json"})
+        accepted.assert_not_called()
 
 
 if __name__ == "__main__":
