@@ -352,6 +352,26 @@ class BridgeTests(unittest.TestCase):
         self.assertTrue(any("Task complete" in body for body in self.bodies()))
         self.assertEqual([("answer", "q-1", "sqlite")], run.calls)
 
+    def test_words_written_while_the_bridge_acted_on_a_reply_are_read_on_the_next_poll(self):
+        client = self.client
+
+        class Slow(FakeRun):
+            def feedback(self, text):
+                super().feedback(text)
+                if text == "make the greeting shout":  # the person writes again before the bridge has answered
+                    comment(client, 7, "dev", "and greet in French")
+
+        run = Slow()
+        bridge = self.bridge(run)
+        bridge.tick()
+        comment(self.client, 7, "dev", "sqlite")
+        bridge.tick()
+        bridge.tick()  # the plan gate
+        comment(self.client, 7, "dev", "make the greeting shout")
+        bridge.tick()
+        bridge.tick()  # the plan did not change, so its gate stands and the second comment is above it
+        self.assertEqual([("feedback", "make the greeting shout"), ("feedback", "and greet in French")], run.calls[1:])
+
     def test_a_person_who_pastes_the_bridges_marker_is_not_heard(self):
         from autocode_bridge_github import OWN_COMMENT
 
