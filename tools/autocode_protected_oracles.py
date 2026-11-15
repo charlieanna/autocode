@@ -43,6 +43,7 @@ try:
     from . import autocode_python_tests as python_tests
     from . import autocode_scratch_suites as scratch_suites
     from . import autocode_superseded_tests as superseded_tests
+    from . import autocode_test_homes as test_homes
     from . import autocode_test_role_correction as role_correction
     from . import autocode_test_role_inventory as role_inventory
     from . import autocode_util as util
@@ -59,6 +60,7 @@ except ImportError:
     import autocode_python_tests as python_tests
     import autocode_scratch_suites as scratch_suites
     import autocode_superseded_tests as superseded_tests
+    import autocode_test_homes as test_homes
     import autocode_test_role_correction as role_correction
     import autocode_test_role_inventory as role_inventory
     import autocode_util as util
@@ -324,14 +326,23 @@ def replay_command(command, changed, workspace, *, detected=True):
     return nested or invocation.targeted(names) or command
 
 
-def replay_parts(command, changed, workspace, *, detected=True) -> list:
-    """The commands that together run the changed tests: ``replay_command``'s one, or one for each project
-    when that command was narrowed to Python test modules of several projects below a root that is no
-    project of its own (autocode_protected_project_suite.python_parts)."""
-    single = replay_command(command, changed, workspace, detected=detected)
-    if detected and single and single != command and (invocation := python_tests.parse(command)):
-        return project_suite.python_parts(invocation, command, sorted(changed), workspace) or [single]
-    return [single] if single else []
+def replay_parts(command, changed, workspace, *, detected=True, homes=None) -> list:
+    """The commands that together run the changed tests: ``replay_command``'s one, and before it the
+    command of each changed file the regression proof saw load somewhere other than the root (``homes``,
+    autocode_test_homes.away), so the gate runs such a test where the proof ran it. A command the person
+    typed runs everything where they typed it."""
+
+    def intact(name):
+        try:
+            path_in(workspace, name)
+        except (OSError, ValueError):
+            return False
+        return True
+
+    placed = test_homes.replay_commands(homes, sorted(changed), intact) if detected and homes else {}
+    rest = {name for name in changed if name not in placed}
+    single = replay_command(command, rest, workspace, detected=detected) if rest or not placed else None
+    return [*([single] if single else []), *sorted(set(placed.values()))]
 
 
 def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=None):
@@ -367,7 +378,9 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
         return result
     directory = Path(out) / "protected-tests" / uuid.uuid4().hex
     original = record["command"] or _plan_suite(state, record)
-    parts = replay_parts(original, changed, workspace, detected=project_suite.detected(state))
+    parts = replay_parts(
+        original, changed, workspace, detected=project_suite.detected(state), homes=test_homes.away(state)
+    )
     command = " ; ".join(parts)
     if not command:
         result.update(
