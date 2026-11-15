@@ -222,7 +222,7 @@ def _category(row):
         return "planning"
     if stage in ("builder", "builder"):
         return "build"
-    if stage in ("resolve", "diagnose", "investigate_stuck", "investigate_bug"):
+    if stage in ("resolve", "diagnose", "investigate_stuck", "resolve_repair", "investigate_bug"):
         return "diagnosis"
     if stage in ("visual_review", "visual_capture"):
         return "visual_capture_review"

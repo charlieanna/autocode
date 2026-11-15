@@ -1,0 +1,850 @@
+"""Unit and integration tests for resolve_repair, upfront triage, provenance, and stall resolution."""
+
+from __future__ import annotations
+
+import copy
+import json
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+
+import autocode as runner
+import autocode_builder_policy as builder_policy
+import autocode_code_checkpoints as code_checkpoints
+import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
+import autocode_planning_calls as planning_calls
+import autocode_rejection_retry as rejection_retry
+import autocode_rejection_route as rejection_route
+import autocode_repair_provenance as repair_provenance
+import autocode_repair_triage as repair_triage
+import autocode_resolve_repair_job as resolve_repair_job
+import autocode_resolver_human as resolver_human
+import autocode_stop as stop
+import autocode_stuck_job as stuck_job
+import autocode_support as support
+import autocode_unit_request as unit_request
+import autocode_usage as usage
+import autocode_util as util
+import autocode_verification_plan as verification_plan
+import autocode_verifier_independence as verifier_independence
+import autopilot
+from goal_fixtures import body as fixture_body
+from units.model_request import ModelRequest
+
+
+def _init_git_repo(root: Path) -> str:
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root, check=True)
+    (root / "app.py").write_text("def greet():\n    return 'hi'\n")
+    subprocess.run(["git", "add", "app.py"], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=root, check=True)
+    return support.snapshot(root)["revision"]
+
+
+def _approved_contract() -> tuple[dict, dict]:
+    plan_body = fixture_body(questions=False)
+    contract = {
+        "task_id": "task-1",
+        "revision": 1,
+        "body": plan_body,
+    }
+    contract["hash"] = util.digest({k: contract[k] for k in ("task_id", "revision", "body")})
+    tok = goals.token(contract)
+    approval_ev = {"kind": "goal_approval", "token": tok, "actor": "user_cli", "at": "2026-11-14T09:59:00Z"}
+    contract.update(
+        approval_status="approved",
+        approval_event=approval_ev,
+        origin="planner",
+        created_at="2026-11-14T09:58:00Z",
+    )
+    return contract, approval_ev
+
+
+def _base_state(root: Path, run_dir: Path, revision: str) -> dict:
+    contract, approval_ev = _approved_contract()
+    criteria_defs = [
+        {"id": c["id"], "criterion": c["criterion"], "status": "unverified", "evidence": ""}
+        for c in contract["body"]["acceptance_criteria"]
+    ]
+    return {
+        "version": 3,
+        "task_id": "task-1",
+        "workspace": str(root),
+        "run_dir": str(run_dir),
+        "status": "RUNNING",
+        "phase": "EXECUTING",
+        "next_stage": "draft_plan",
+        "iteration": 1,
+        "source_revision": revision,
+        "criteria_revision": util.digest(support.criteria_definition(criteria_defs)),
+        "goal_contract": contract,
+        "current_task": {
+            "id": "T1",
+            "milestone_id": contract["body"]["milestones"][0]["id"],
+            "contract_hash": contract["hash"],
+            "contract_revision": 1,
+            "kind": "implement",
+            "objective": "Implement greet in app.py",
+            "affected_paths": ["app.py"],
+            "acceptance_criteria": [contract["body"]["acceptance_criteria"][0]["id"]],
+            "validation_plan": [{"step": "Run unit tests", "command": "pytest -q"}],
+        },
+        "settings": {
+            "engine": "opencode",
+            "report_repair": {"max_attempts": 2},
+            "builder_retry": {"enabled": True, "ordinary_retries": 1, "strong_model": "gpt-5.4"},
+            "limits": {"planning_calls": 20},
+            "roles": {
+                "planner": {"model": "gpt-5.4", "reasoning_effort": "high"},
+                "plan_reviewer": {"model": "claude-sonnet-4-6", "reasoning_effort": "high"},
+                "builder": {"model": "gpt-5.3-codex", "reasoning_effort": "high"},
+                "tester": {"model": "claude-sonnet-4-6", "reasoning_effort": "high"},
+                "task_planner": {"model": "claude-sonnet-4-6", "reasoning_effort": "high"},
+                "completion": {"model": "claude-sonnet-4-6", "reasoning_effort": "high"},
+                "resolver": {"model": "claude-sonnet-4-6", "reasoning_effort": "high"},
+            },
+        },
+        "stages": [],
+        "history": [],
+        "user_events": [approval_ev],
+        "sessions": {},
+        "acceptance_criteria": criteria_defs,
+    }
+
+
+def _write_events(path: Path, *, thread_id: str = "sess-1", commands: list[tuple[str, str, int]] = ()) -> None:
+    lines = [{"type": "thread.started", "thread_id": thread_id}]
+    for cmd_id, cmd, code in commands:
+        lines.append(
+            {
+                "type": "item.completed",
+                "item": {"id": cmd_id, "type": "command_execution", "command": cmd, "exit_code": code},
+            }
+        )
+    lines.append({"type": "turn.completed"})
+    path.write_text("\n".join(json.dumps(row) for row in lines) + "\n")
+
+
+class ResolveRepairTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.run_dir = self.root / ".autocode" / "runs" / "run-1"
+        self.run_dir.mkdir(parents=True, exist_ok=True)
+        self.revision = _init_git_repo(self.root)
+        self.state = _base_state(self.root, self.run_dir, self.revision)
+
+    def _stage_files(
+        self,
+        name: str,
+        *,
+        stage: str,
+        role: str,
+        report_obj: dict | str,
+        schema_obj: dict | None = None,
+        commands: list[tuple[str, str, int]] = (),
+        changed_files: list[str] | None = None,
+        cost_usd: float = 0.0,
+    ) -> dict:
+        out = self.run_dir / f"{name}.json"
+        ev = self.run_dir / f"{name}.events.jsonl"
+        sch = self.run_dir / f"{name}.schema.json"
+        out.write_text(json.dumps(report_obj) if isinstance(report_obj, dict) else report_obj)
+        _write_events(ev, thread_id=f"sess-{name}", commands=commands)
+        sch.write_text(json.dumps(schema_obj or {"type": "object"}))
+        return {
+            "role": role,
+            "stage": stage,
+            "iteration": self.state["iteration"],
+            "exit_code": 0,
+            "duration_seconds": 2,
+            "source_revision": self.revision,
+            "task_id": self.state["current_task"]["id"],
+            "contract_hash": self.state["goal_contract"]["hash"],
+            "criteria_revision": self.state["criteria_revision"],
+            "thread_id": f"sess-{name}",
+            "supports_sessions": True,
+            "output": str(out),
+            "events": str(ev),
+            "schema": str(sch),
+            "engine": "opencode",
+            "model": self.state["settings"]["roles"].get(role, {}).get("model", "gpt-5.4"),
+            "changed_files": list(changed_files or []),
+            "started_at": "2026-11-14T10:00:00Z",
+            "finished_at": "2026-11-14T10:00:02Z",
+            "cost_usd": cost_usd,
+        }
+
+    def _queue_after_one_local_repair(self, original: dict, rejected_err: str = "Missing required field") -> None:
+        self.state["stages"].append(copy.deepcopy(original))
+        self.state["history"].append(copy.deepcopy(original))
+        rejected_local = {
+            **copy.deepcopy(original),
+            "stage": f"{original['stage']}_report_repair",
+            "original_stage": original["stage"],
+            "report_only": True,
+            "output": str(self.run_dir / f"{Path(original['output']).stem}.local.json"),
+            "rejected": True,
+            "rejection_reason": rejected_err,
+        }
+        Path(rejected_local["output"]).write_text("{}")
+        pins = {
+            original["output"]: util.file_hash(original["output"]),
+            original["events"]: util.file_hash(original["events"]),
+            original["schema"]: util.file_hash(original["schema"]),
+            rejected_local["output"]: util.file_hash(rejected_local["output"]),
+        }
+        self.state["pending_report_repair"] = {
+            "original": copy.deepcopy(original),
+            "original_error": rejected_err,
+            "error": rejected_err,
+            "attempts": 1,
+            "contract_hash": self.state["goal_contract"]["hash"],
+            "pins": pins,
+            "latest_rejected": rejected_local,
+        }
+        self.state["next_stage"] = original["stage"]
+
+    def _stub_runtime(self, *, fail_apply=None):
+        applied_calls = []
+
+        def apply_result(state, stage, value, record, workspace, run_dir):
+            if fail_apply is not None:
+                fail_apply(state, stage, value, record, workspace, run_dir)
+            applied_calls.append((stage, value, record["output"]))
+            state.setdefault("stages", []).append(copy.deepcopy(record))
+            state.setdefault("history", []).append(copy.deepcopy(record))
+            state["status"] = "RUNNING"
+            state["next_stage"] = "review_completion" if stage == "tester" else "tester"
+
+        def commit_boundary_candidate(state, candidate, *args, **kwargs):
+            state.clear()
+            state.update(candidate)
+
+        def save_record(state, record):
+            state.setdefault("stages", []).append(copy.deepcopy(record))
+            state.setdefault("history", []).append(copy.deepcopy(record))
+
+        attrs = {
+            name: getattr(runner, name)
+            for name in (
+                "support",
+                "goals",
+                "planning",
+                "workflow",
+                "milestones",
+                "escalation",
+                "dispatch",
+                "now",
+                "write_json",
+                "restore_builder_history",
+                "assert_repair_preserves_builder_history",
+                "retained_dispositions",
+                "original_report_for_repair",
+                "stage_completed",
+            )
+        }
+        attrs.update(
+            apply_result=apply_result,
+            commit_boundary_candidate=commit_boundary_candidate,
+            save_record=save_record,
+        )
+        return SimpleNamespace(**attrs), applied_calls
+
+    def _resolve_record(self, name: str, *, cost_usd: float = 0.25) -> dict:
+        out = self.run_dir / f"{name}.json"
+        ev = self.run_dir / f"{name}.events.jsonl"
+        out.write_text("{}")
+        _write_events(ev, thread_id=f"sess-{name}")
+        return {
+            "role": "resolver",
+            "stage": "resolve_repair",
+            "iteration": self.state["iteration"],
+            "exit_code": 0,
+            "duration_seconds": 3,
+            "source_revision": self.revision,
+            "output": str(out),
+            "events": str(ev),
+            "schema": str(self.run_dir / f"{name}.schema.json"),
+            "engine": "claude",
+            "model": "claude-sonnet-4-6",
+            "changed_files": [],
+            "started_at": "2026-11-14T10:01:00Z",
+            "finished_at": "2026-11-14T10:01:03Z",
+            "metrics": {
+                "provider_cost_usd": cost_usd,
+                "provider_tokens": {"input_tokens": 100, "output_tokens": 20},
+            },
+        }
+
+    def test_direct_report_fix_across_planning_builder_tester_provenance_and_single_charge(self):
+        # 1. draft_plan direct JSON repair -> repair_provenance.witness + single cost + 0 blind re-runs
+        self.state["goal_contract"]["approval_status"] = "draft"
+        self.state["goal_contract"].pop("approval_event", None)
+        schema = {
+            "type": "object",
+            "required": ["summary"],
+            "properties": {"summary": {"type": "string"}},
+        }
+        orig_plan = self._stage_files("draft", stage="draft_plan", role="planner", report_obj={}, schema_obj=schema)
+        self._queue_after_one_local_repair(orig_plan)
+        self.assertTrue(resolve_repair_job.eligible_report_repair(self.state))
+        self.assertTrue(resolve_repair_job.queue_from_pending(self.state, self.run_dir))
+        self.assertEqual("resolve_repair", self.state["next_stage"])
+
+        rt, calls = self._stub_runtime()
+        res_rec = self._resolve_record("res-plan", cost_usd=0.42)
+        autopilot.apply_result(
+            rt,
+            self.state,
+            "resolve_repair",
+            {
+                "diagnosis": "Draft report missed required summary",
+                "action": "repair_report",
+                "repaired_report_json": json.dumps({"summary": "Clean greeting plan"}),
+                "guidance": "",
+                "next_objective": "",
+                "affected_paths": [],
+                "user_question": "",
+                "user_options": [],
+                "evidence_refs": [],
+            },
+            res_rec,
+            self.root,
+            self.run_dir,
+        )
+        self.assertEqual(1, len(calls))
+        repaired_out = calls[0][2]
+        self.assertTrue(Path(repaired_out).is_file())
+        witness_orig, _ = repair_provenance.witness(self.state, "draft_plan", repaired_out)
+        self.assertEqual(orig_plan["output"], witness_orig["output"])
+        self.assertFalse(
+            rejection_retry.admit(
+                self.state, "draft_plan", "PAUSED_INVALID_OUTPUT", [{"rejected": True}], at=util.now()
+            )
+        )
+        rows = usage.stage_rows(self.state)
+        resolve_charges = [r for r in rows if r["stage"] == "draft_plan_report_repair"]
+        runner_rows = [r for r in rows if r["stage"] == "resolve_repair"]
+        self.assertEqual(1, len(resolve_charges))
+        self.assertEqual(0.42, resolve_charges[0]["cost_usd"])
+        self.assertEqual("runner", runner_rows[0]["basis"])
+        self.assertEqual(0.0, runner_rows[0]["cost_usd"])
+        repair_stage = next(s for s in self.state["stages"] if s.get("stage") == "draft_plan_report_repair")
+        self.assertEqual("resolve_repair", repair_stage.get("resolved_by"))
+
+        # 2. builder report repair -> code_checkpoints.builder_execution passes
+        self.state["stages"].clear()
+        self.state["history"].clear()
+        self.state["report_repair_history"].clear()
+        self.state["resolve_repair_history"].clear()
+        self.state = _base_state(self.root, self.run_dir, self.revision)
+        orig_builder = self._stage_files(
+            "build",
+            stage="builder",
+            role="builder",
+            report_obj={"summary": "partial"},
+            schema_obj=schema,
+            changed_files=["app.py"],
+            commands=[("c1", "pytest -q", 0)],
+        )
+        self._queue_after_one_local_repair(orig_builder)
+        self.assertTrue(resolve_repair_job.queue_from_pending(self.state, self.run_dir))
+        rt_b, _ = self._stub_runtime()
+        autopilot.apply_result(
+            rt_b,
+            self.state,
+            "resolve_repair",
+            {
+                "diagnosis": "Builder omitted summary",
+                "action": "repair_report",
+                "repaired_report_json": json.dumps({"summary": "Built app.py"}),
+                "guidance": "",
+                "next_objective": "",
+                "affected_paths": [],
+                "user_question": "",
+                "user_options": [],
+                "evidence_refs": ["event:c1"],
+            },
+            self._resolve_record("res-build"),
+            self.root,
+            self.run_dir,
+        )
+        accepted_builder = next(r for r in self.state["stages"] if r.get("stage") == "builder_report_repair")
+        exec_orig = code_checkpoints.builder_execution(self.state, accepted_builder, accepted_builder)
+        self.assertEqual(orig_builder["output"], exec_orig["output"])
+
+        # 3. tester compact edits patch against pinned rejected report
+        orig_tester = self._stage_files(
+            "test",
+            stage="tester",
+            role="tester",
+            report_obj={"summary": "bad", "verdict": "PASS"},
+            schema_obj=schema,
+            commands=[("t1", "pytest -q", 0)],
+        )
+        self._queue_after_one_local_repair(orig_tester)
+        latest_path = Path(self.state["pending_report_repair"]["latest_rejected"]["output"])
+        latest_path.write_text(json.dumps({"summary": "old", "verdict": "PASS"}))
+        self.state["pending_report_repair"]["pins"][str(latest_path)] = util.file_hash(latest_path)
+        self.assertTrue(resolve_repair_job.queue_from_pending(self.state, self.run_dir))
+        rt_t, calls_t = self._stub_runtime()
+        autopilot.apply_result(
+            rt_t,
+            self.state,
+            "resolve_repair",
+            {
+                "diagnosis": "Patched tester summary",
+                "action": "repair_report",
+                "repaired_report_json": json.dumps(
+                    {"edits": [{"path": "summary", "action": "set", "value": "Verified PASS"}]}
+                ),
+                "guidance": "",
+                "next_objective": "",
+                "affected_paths": [],
+                "user_question": "",
+                "user_options": [],
+                "evidence_refs": ["event:t1"],
+            },
+            self._resolve_record("res-test"),
+            self.root,
+            self.run_dir,
+        )
+        self.assertEqual("Verified PASS", calls_t[0][1]["summary"])
+
+    def test_fabricated_command_is_refused_and_cleans_up_repaired_file(self):
+        schema = {"type": "object", "properties": {"commands_run": {"type": "array", "items": {"type": "string"}}}}
+        orig_tester = self._stage_files(
+            "test-real",
+            stage="tester",
+            role="tester",
+            report_obj={},
+            schema_obj=schema,
+            commands=[("c1", "pytest -q", 0)],
+        )
+        self._queue_after_one_local_repair(orig_tester)
+        self.assertTrue(resolve_repair_job.queue_from_pending(self.state, self.run_dir))
+
+        def check_no_fabrication(state, stage, value, record, workspace, run_dir):
+            if "pytest --fabricated" in value.get("commands_run", []):
+                raise ValueError("invented a command not in original events")
+
+        rt, _ = self._stub_runtime(fail_apply=check_no_fabrication)
+        with self.assertRaisesRegex(ValueError, "invented a command"):
+            autopilot.apply_result(
+                rt,
+                self.state,
+                "resolve_repair",
+                {
+                    "diagnosis": "Attempted fabricated command",
+                    "action": "repair_report",
+                    "repaired_report_json": json.dumps({"commands_run": ["pytest --fabricated"]}),
+                    "guidance": "",
+                    "next_objective": "",
+                    "affected_paths": [],
+                    "user_question": "",
+                    "user_options": [],
+                    "evidence_refs": [],
+                },
+                self._resolve_record("res-fab"),
+                self.root,
+                self.run_dir,
+            )
+        repaired_candidate = Path(orig_tester["output"]).with_name("test-real.resolve-repaired.json")
+        self.assertFalse(repaired_candidate.exists())
+
+    def test_verifier_independence_selects_independent_route(self):
+        self.state["settings"]["engine"] = "opencode"
+        self.state["settings"]["roles"]["resolver"] = {"model": "gpt-5.4", "reasoning_effort": "high"}
+        self.state["settings"]["roles"]["task_planner"] = {"model": "gpt-5.4", "reasoning_effort": "high"}
+        self.state["settings"]["roles"]["builder"] = {"model": "gpt-5.3-codex", "reasoning_effort": "high"}
+        self.state["settings"]["roles"]["plan_reviewer"] = {"model": "claude-sonnet-4-6", "reasoning_effort": "high"}
+
+        chosen = resolve_repair_job.select_route(self.state, "tester")
+        vendor = verifier_independence.same_vendor_engine(self.state["settings"])
+        self.assertFalse(verifier_independence.shares("gpt-5.3-codex", chosen["model"], vendor_engine=vendor))
+        self.assertEqual("claude-sonnet-4-6", chosen["model"])
+        self.assertEqual(chosen, self.state["settings"]["roles"][resolve_repair_job.ROUTE])
+
+        # Under codex vendor_engine, identical model identity also triggers fallback.
+        self.state["settings"]["engine"] = "codex"
+        self.state["settings"]["roles"]["builder"] = {"model": "gpt-5.4", "reasoning_effort": "high"}
+        chosen_codex = resolve_repair_job.select_route(self.state, "tester")
+        self.assertEqual("claude-sonnet-4-6", chosen_codex["model"])
+
+        resolve_repair_job.release_route(self.state)
+        self.assertNotIn(resolve_repair_job.ROUTE, self.state["settings"]["roles"])
+
+    def test_upfront_rejection_triage_separates_tests_failed_and_missing_execution(self):
+        # tests_failed bypasses pending_report_repair -> routes directly to builder rework
+        tester_fail = self._stage_files(
+            "tester-fail",
+            stage="tester",
+            role="tester",
+            report_obj={},
+            commands=[("c1", "pytest -q", 1)],
+        )
+        self.state["next_stage"] = "tester"
+        err = verification_plan.PlannedCheckFailure("pytest -q exited 1")
+        self.assertEqual("tests_failed", repair_triage.classify_rejection(self.state, tester_fail, err))
+        self.assertTrue(rejection_route.reroute(self.state, tester_fail, err, lambda *a, **k: None))
+        self.assertEqual("builder", self.state["next_stage"])
+        self.assertNotIn("pending_report_repair", self.state)
+
+        # When builder retries already paused, tests_failed routes into resolve_repair stall
+        ident = builder_policy.key(self.state)
+        self.state["builder_retries"] = {ident: {"action": "pause", "failures": ["f1"]}}
+        tester_fail2 = self._stage_files(
+            "tester-fail-2",
+            stage="tester",
+            role="tester",
+            report_obj={},
+            commands=[("c2", "pytest -q", 1)],
+        )
+        self.state["next_stage"] = "tester"
+        self.assertTrue(rejection_route.reroute(self.state, tester_fail2, err, lambda *a, **k: None))
+        self.assertEqual("resolve_repair", self.state["next_stage"])
+        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", self.state["resolve_repair_request"]["pause_status"])
+
+        # missing_execution routes directly to resolve_repair, and rerun is bounded to 1 per revision
+        self.state.pop("resolve_repair_request", None)
+        self.state["builder_retries"] = {}
+        self.state["next_stage"] = "tester"
+        tester_unrun = self._stage_files("tester-unrun", stage="tester", role="tester", report_obj={}, commands=[])
+        miss_err = ValueError("Technically passing validation lacks successful executed checks")
+        self.assertEqual("missing_execution", repair_triage.classify_rejection(self.state, tester_unrun, miss_err))
+        self.assertTrue(rejection_route.reroute(self.state, tester_unrun, miss_err, lambda *a, **k: None))
+        self.assertEqual("resolve_repair", self.state["next_stage"])
+        rt, _ = self._stub_runtime()
+        autopilot.apply_result(
+            rt,
+            self.state,
+            "resolve_repair",
+            {
+                "diagnosis": "Tester never ran pytest",
+                "action": "rerun_missing_execution",
+                "repaired_report_json": "",
+                "guidance": "Run pytest -q from repo root.",
+                "next_objective": "",
+                "affected_paths": [],
+                "user_question": "",
+                "user_options": [],
+                "evidence_refs": [],
+            },
+            self._resolve_record("res-miss"),
+            self.root,
+            self.run_dir,
+        )
+        self.assertEqual("tester", self.state["next_stage"])
+        # Second missing_execution on same stage & source_revision is refused
+        self.assertFalse(resolve_repair_job.queue_missing_execution(self.state, tester_unrun, miss_err))
+
+    def test_triage_leaves_a_false_report_to_its_route_and_bounds_builder_send_backs(self):
+        # A check reported as passing that fails the clean replay is a false report, not a failing
+        # test: the Builder has nothing to build, so triage leaves it to the reviewer rerun and the
+        # existing route (the offline demo's refused check, which looped Builder until the ceiling).
+        false_claim = self._stage_files(
+            "tester-false", stage="tester", role="tester", report_obj={}, commands=[("c1", "test -f x", 0)]
+        )
+        self.state["next_stage"] = "tester"
+        reported = verification_plan.ReportedCheckFailure("`test -f x` was reported as exit 0 but exited 1")
+        self.assertEqual("report_defect", repair_triage.classify_rejection(self.state, false_claim, reported))
+        self.assertFalse(repair_triage.reroute(self.state, false_claim, reported))
+        self.assertEqual("tester", self.state["next_stage"])
+        self.assertNotIn("resolve_repair_history", self.state)
+
+        # A failing planned check sends the Builder back once for the task, not once per source:
+        # every Builder round makes a new revision.
+        failed = verification_plan.PlannedCheckFailure("pytest -q exited 1")
+        first = self._stage_files(
+            "tester-fail-a", stage="tester", role="tester", report_obj={}, commands=[("c2", "pytest -q", 1)]
+        )
+        self.assertTrue(repair_triage.reroute(self.state, first, failed))
+        self.assertEqual("builder", self.state["next_stage"])
+        self.state["next_stage"] = "tester"
+        second = dict(
+            self._stage_files(
+                "tester-fail-b", stage="tester", role="tester", report_obj={}, commands=[("c3", "pytest -q", 1)]
+            ),
+            source_revision="another-revision",
+        )
+        self.assertFalse(repair_triage.reroute(self.state, second, failed))
+        self.assertEqual("tester", self.state["next_stage"])
+        self.assertEqual(1, len(self.state["resolve_repair_history"]))
+
+    def test_mid_stage_stalls_rework_replan_ask_user_and_stop_guard(self):
+        # 1. PAUSED_BUILDER_RETRY_LIMIT intercepted before investigator via stuck_job.drive
+        ident = builder_policy.key(self.state)
+        self.state["next_stage"] = "builder"
+        self.state["builder_retries"] = {
+            ident: {
+                "action": "pause",
+                "position": 2,
+                "failures": ["f1"],
+                "initial_route": {"model": "gpt-5.3-codex", "reasoning_effort": "high"},
+            }
+        }
+        prior = self._stage_files("prev-build", stage="builder", role="builder", report_obj={})
+
+        dispatched_stages = []
+
+        def fake_dispatch(state, stage):
+            dispatched_stages.append(stage)
+            if stage == "builder" and len(dispatched_stages) == 1:
+                state["stages"].append(prior)
+                raise support.Paused("PAUSED_BUILDER_RETRY_LIMIT", "Exhausted retries")
+            if stage == "resolve_repair":
+                # Verify guidance rejects unchanged approach, then accepts changed approach
+                unchanged = {
+                    "diagnosis": "Retry same thing",
+                    "action": "rework_tests_failed",
+                    "repaired_report_json": "",
+                    "guidance": "Retry",
+                    "next_objective": state["current_task"]["objective"],
+                    "affected_paths": list(state["current_task"]["affected_paths"]),
+                    "user_question": "",
+                    "user_options": [],
+                    "evidence_refs": [],
+                }
+                with self.assertRaisesRegex(ValueError, "must change next_objective or affected_paths"):
+                    resolve_repair_job.apply(
+                        None,
+                        state,
+                        unchanged,
+                        self._resolve_record("bad-rework"),
+                        self.root,
+                        self.run_dir,
+                    )
+                resolve_repair_job.apply(
+                    None,
+                    state,
+                    {
+                        **unchanged,
+                        "action": "rework_tests_failed",
+                        "guidance": "Handle None name before formatting.",
+                        "next_objective": "Fix empty-input handling in app.py",
+                        "affected_paths": ["app.py", "tests/test_app.py"],
+                    },
+                    self._resolve_record("good-rework"),
+                    self.root,
+                    self.run_dir,
+                )
+                return None
+            if stage == "builder":
+                req = unit_request.prepare(
+                    state,
+                    "builder",
+                    self.run_dir / "state.json",
+                    self.root,
+                    select_unit=lambda _s: SimpleNamespace(
+                        prepare=lambda *a, **kw: ModelRequest("builder", "builder", "BASE", {}, {}, True)
+                    ),
+                )
+                self.assertIn("RESOLVER GUIDANCE (resolve_repair)", req.prompt)
+                state["status"] = "TASK_COMPLETE"
+                return None
+            return None
+
+        stuck_job.drive(
+            self.state,
+            fake_dispatch,
+            active=lambda s: s.get("status") == "RUNNING",
+            skip=object(),
+            paused=support.Paused,
+            investigate=True,
+            queue=True,
+        )
+        self.assertEqual(["builder", "resolve_repair", "builder"], dispatched_stages)
+        self.assertNotIn("investigate_stuck", dispatched_stages)
+        self.assertEqual("retry", self.state["builder_retries"][ident]["action"])
+        self.assertIsNone(self.state.get("resolve_repair_request"))
+
+        # 2. PAUSED_MILESTONE_STALLED -> replan invalidates approved contract & routes to draft_plan
+        self.state["status"] = "RUNNING"
+        self.state["next_stage"] = "tester"
+        self.assertTrue(
+            resolve_repair_job.intercept_stall(
+                self.state, "PAUSED_MILESTONE_STALLED", "Milestone stalled after replan", before_investigator=True
+            )
+        )
+        resolve_repair_job.apply(
+            None,
+            self.state,
+            {
+                "diagnosis": "Milestone scope is impossible without API split",
+                "action": "replan",
+                "repaired_report_json": "",
+                "guidance": "Split M1 into sync helper + CLI adapter.",
+                "next_objective": "",
+                "affected_paths": [],
+                "user_question": "",
+                "user_options": [],
+                "evidence_refs": [],
+            },
+            self._resolve_record("res-replan"),
+            self.root,
+            self.run_dir,
+        )
+        self.assertEqual("PLANNING", self.state["phase"])
+        self.assertEqual("draft_plan", self.state["next_stage"])
+        self.assertFalse(goals.approved(self.state))
+        self.assertEqual(1, len(self.state.get("contract_history") or ()))
+
+        # 3. ask_user enters WAITING_FOR_USER and blocks machinery strings
+        self.state["status"] = "RUNNING"
+        self.state["next_stage"] = "builder"
+        self.assertTrue(
+            resolve_repair_job.intercept_stall(
+                self.state, "PAUSED_NO_PROGRESS", "Ambiguous output format", before_investigator=False
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "internal machinery"):
+            resolve_repair_job.apply(
+                None,
+                self.state,
+                {
+                    "diagnosis": "Bad question",
+                    "action": "ask_user",
+                    "repaired_report_json": "",
+                    "guidance": "",
+                    "next_objective": "",
+                    "affected_paths": [],
+                    "user_question": "Please run --retry-report now.",
+                    "user_options": ["ok"],
+                    "evidence_refs": [],
+                },
+                self._resolve_record("res-mach"),
+                self.root,
+                self.run_dir,
+                ask_user=lifecycle.wait_for_user,
+            )
+        rt_ask, _ = self._stub_runtime()
+        ask_rec = self._resolve_record("res-ask")
+        autopilot.apply_result(
+            rt_ask,
+            self.state,
+            "resolve_repair",
+            {
+                "diagnosis": "Greeting format unspecified",
+                "action": "ask_user",
+                "repaired_report_json": "",
+                "guidance": "",
+                "next_objective": "",
+                "affected_paths": [],
+                "user_question": "Should greet() accept empty strings or raise ValueError?",
+                "user_options": ["Raise ValueError", "Return default greeting"],
+                "evidence_refs": [],
+            },
+            ask_rec,
+            self.root,
+            self.run_dir,
+        )
+        self.assertEqual("RESOLVER_PENDING", self.state["status"])
+        self.assertEqual("escalate", resolver_human.evaluate(self.state))
+        self.assertEqual("WAITING_FOR_USER", self.state["status"])
+        self.assertEqual(
+            "Should greet() accept empty strings or raise ValueError?",
+            self.state["pending_questions"][0]["question"],
+        )
+
+        # 4. Terminal applied_stop blocks triage, interception, queueing, and apply
+        self.state["applied_interventions"] = [{"kind": "stop", "id": "stop-1"}]
+        self.assertFalse(
+            resolve_repair_job.intercept_stall(
+                self.state, "PAUSED_MILESTONE_STALLED", "Stopped", before_investigator=True
+            )
+        )
+        with self.assertRaises(support.Paused) as paused:
+            resolve_repair_job.apply(
+                None,
+                self.state,
+                {
+                    "diagnosis": "Should be refused",
+                    "action": "hold",
+                    "repaired_report_json": "",
+                    "guidance": "",
+                    "next_objective": "",
+                    "affected_paths": [],
+                    "user_question": "",
+                    "user_options": [],
+                    "evidence_refs": [],
+                },
+                self._resolve_record("res-stop"),
+                self.root,
+                self.run_dir,
+            )
+        self.assertEqual(stop.STOP_STATUS, paused.exception.status)
+
+    def test_planning_calls_counts_resolve_repair_and_enforces_cap(self):
+        schema = {"type": "object", "required": ["summary"], "properties": {"summary": {"type": "string"}}}
+        orig = self._stage_files("plan-orig", stage="draft_plan", role="planner", report_obj={}, schema_obj=schema)
+        self._queue_after_one_local_repair(orig)
+        self.assertEqual(1, planning_calls.used(self.state))
+
+        self.assertTrue(resolve_repair_job.queue_from_pending(self.state, self.run_dir))
+        self.assertTrue(planning_calls.launching(self.state))
+        self.assertIsNone(planning_calls.reached(self.state))
+
+        rt, _ = self._stub_runtime()
+        autopilot.apply_result(
+            rt,
+            self.state,
+            "resolve_repair",
+            {
+                "diagnosis": "Fixed draft_plan summary",
+                "action": "repair_report",
+                "repaired_report_json": json.dumps({"summary": "Drafted greeting plan"}),
+                "guidance": "",
+                "next_objective": "",
+                "affected_paths": [],
+                "user_question": "",
+                "user_options": [],
+                "evidence_refs": [],
+            },
+            self._resolve_record("plan-res"),
+            self.root,
+            self.run_dir,
+        )
+        # 1 original draft_plan + 1 repair_record (not double-counted) = 2
+        self.assertEqual(2, planning_calls.used(self.state))
+
+        # Non-repair resolve_repair on planning stage counts via resolve_repair_history
+        self.state["next_stage"] = "draft_plan"
+        self.assertTrue(
+            resolve_repair_job.intercept_stall(
+                self.state, "PAUSED_PLANNING_BUDGET", "Planning budget", before_investigator=False
+            )
+        )
+        resolve_repair_job.apply(
+            None,
+            self.state,
+            {
+                "diagnosis": "Hold planning stall",
+                "action": "hold",
+                "repaired_report_json": "",
+                "guidance": "",
+                "next_objective": "",
+                "affected_paths": [],
+                "user_question": "",
+                "user_options": [],
+                "evidence_refs": [],
+            },
+            self._resolve_record("plan-hold"),
+            self.root,
+            self.run_dir,
+        )
+        self.assertEqual(3, planning_calls.used(self.state))
+
+        # Reached triggers at cap == used
+        self.state["settings"]["limits"]["planning_calls"] = 3
+        self.state["next_stage"] = "draft_plan"
+        self.assertEqual((3, 3), planning_calls.reached(self.state))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -19,11 +19,13 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_planned_check_rework as planned_check_rework
+    from . import autocode_repair_triage as repair_triage
     from . import autocode_reported_check_rerun as reported_check_rerun
     from . import autocode_rewording_question as rewording
     from . import autocode_superseded_correction as replanned
 except ImportError:
     import autocode_planned_check_rework as planned_check_rework
+    import autocode_repair_triage as repair_triage
     import autocode_reported_check_rerun as reported_check_rerun
     import autocode_rewording_question as rewording
     import autocode_superseded_correction as replanned
@@ -36,4 +38,5 @@ def reroute(state: RunState, record, error, ask) -> bool:
         or replanned.send_back(state, record, error)
         or planned_check_rework.send_back(state, record, error)
         or reported_check_rerun.run_again(state, record, error)
+        or repair_triage.reroute(state, record, error)
     )

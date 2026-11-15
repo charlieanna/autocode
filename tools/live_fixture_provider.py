@@ -510,6 +510,18 @@ def main() -> int:
                 failure_id=failure.get("failure_id", ""),
                 evidence_refs=list(failure.get("evidence_refs") or [])[:1],
             )
+    elif stage == "resolve_repair":
+        report = {
+            "diagnosis": "Offline fixture: it cannot resolve; the run pauses as before.",
+            "action": "hold",
+            "repaired_report_json": "",
+            "guidance": "",
+            "next_objective": "",
+            "affected_paths": [],
+            "user_question": "",
+            "user_options": [],
+            "evidence_refs": [],
+        }
     elif stage == "requirements_gather":
         report = {
             "summary": "Handwritten greeting requirements; no model planning",

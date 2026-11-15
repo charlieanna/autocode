@@ -527,6 +527,18 @@ elif stage == "investigate_stuck":
         "untestable": "",
         "project_notes": [],
     }
+elif stage == "resolve_repair":
+    result = {
+        "diagnosis": "Offline fixture: it cannot resolve; the run pauses as before.",
+        "action": "hold",
+        "repaired_report_json": "",
+        "guidance": "",
+        "next_objective": "",
+        "affected_paths": [],
+        "user_question": "",
+        "user_options": [],
+        "evidence_refs": [],
+    }
 elif stage == "requirements_gather":
     draft = body(questions=not data["saved_answers"], human=False)
     result: dict[str, Any] = {

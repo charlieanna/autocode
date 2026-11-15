@@ -1589,8 +1589,15 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                 need["action"] = command_inputs.GRANT_ACTION
         pending = state.get("pending_report_repair") or {}
         rejected = report_retry.rejected_attempt(state) or {}
+        resolved_already = bool(state.get("resolve_repair_request")) or any(
+            isinstance(row, dict)
+            and row.get("kind") == "report_repair"
+            and row.get("original_output") == (pending.get("original") or {}).get("output")
+            for row in state.get("resolve_repair_history") or ()
+        )
         if (
             status == "PAUSED_REPEATED_FAILURE"
+            and not resolved_already
             and (pending.get("original") or {}).get("stage") == "tester"
             and not any(state.get(key) for key in ("active_stage", "active_runner_check", "uncertain_artifacts"))
             and report_retry.retryable(pending.get("error"))

@@ -275,6 +275,8 @@ KEYS: frozenset[str] = frozenset(
         "requirements_triage",
         "resolution_history",
         "resolution_request",
+        "resolve_repair_history",
+        "resolve_repair_request",
         "resolver",
         "resolver_human_proposal",
         "resolver_human_request",
@@ -422,6 +424,8 @@ class RunState(TypedDict, total=False):
     # Pending Resolver request; resolver_recovery.retain_diagnosis writes its
     # diagnosis_binding, read by autopilot.queue_resolution before reuse.
     resolution_request: dict | None
+    resolve_repair_request: dict | None  # autocode_resolve_repair_job writes/pops active request
+    resolve_repair_history: list  # autocode_resolve_repair_job appends outcomes; planning_calls reads
     stuck_investigation: dict  # stuck_job writes a request; removed when no investigation is active
     stuck_investigations: list  # history; planning_advice binds planning advice, never the spent retry identity
     # autocode_report_repair_queue.queue writes it for a rejected completed report (autocode.reject_completed_stage,

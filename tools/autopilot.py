@@ -1116,7 +1116,7 @@ def _apply_result(runtime, state: RunState, stage, value, record, workspace, run
             builder_failure.finalize(current, completed, enabled=stuck.enabled(current))
 
     if stage in jobs.UNIT:
-        continuation = unit_module(stage).apply_job(stage, state, value, record, workspace, run_dir=run_dir)
+        continuation = unit_module(stage).apply_job(stage, state, value, record, workspace, run_dir, runtime)
         if stage == stuck.STAGE and isinstance(continuation, dict) and continuation.get("mode") == "builder_failure":
             evidence = continuation["failure_evidence"]
             evidence["diagnosis"] = continuation["diagnosis"]

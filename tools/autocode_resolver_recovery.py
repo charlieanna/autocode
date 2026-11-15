@@ -170,6 +170,8 @@ _CEILINGS = {
 # (autocode_role_transport.PREFIX + route), named here so this module stays below both.
 INVESTIGATOR_ROUTE = "stuck_investigator"
 INVESTIGATOR_TRANSPORT = "role:" + INVESTIGATOR_ROUTE
+REPAIR_RESOLVER_ROUTE = "repair_resolver"
+REPAIR_RESOLVER_TRANSPORT = "role:" + REPAIR_RESOLVER_ROUTE
 
 
 def _bound_settings(state: RunState, ceilings, *, derived=False):
@@ -195,9 +197,11 @@ def _bound_settings(state: RunState, ceilings, *, derived=False):
     # the Investigator's launch a stale handoff of the attempt it was called to explain, so an
     # exhausted recovery never reached it and the run asked a person instead (#3356).
     roles.pop(INVESTIGATOR_ROUTE, None)
+    roles.pop(REPAIR_RESOLVER_ROUTE, None)
     identities = settings.get("transport_identities")
     if isinstance(identities, dict):
         identities.pop(INVESTIGATOR_TRANSPORT, None)
+        identities.pop(REPAIR_RESOLVER_TRANSPORT, None)
     # Investigator preparation may initialize this empty registry. No transport
     # identity has changed; any actual entry remains strictly bound below.
     if settings.get("transport_identities") == {}:

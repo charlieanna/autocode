@@ -38,6 +38,7 @@ try:
     from . import autocode_progressive_state as progressive
     from . import autocode_recovery_dispatch as recovery_dispatch
     from . import autocode_regression as regression
+    from . import autocode_resolve_repair_job as resolve_repair_job
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_skip_requirements as skip_requirements
     from . import autocode_storage_budget as storage_budget
@@ -68,6 +69,7 @@ except ImportError:
     import autocode_progressive_state as progressive
     import autocode_recovery_dispatch as recovery_dispatch
     import autocode_regression as regression
+    import autocode_resolve_repair_job as resolve_repair_job
     import autocode_resolver_runtime as resolver_runtime
     import autocode_skip_requirements as skip_requirements
     import autocode_storage_budget as storage_budget
@@ -297,12 +299,26 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
                 )
                 current["settings"]["transport_identity"] = current_settings
         if current.get("pending_report_repair"):
+            if (
+                getattr(runner, "native_calls", None) is None
+                and resolve_repair_job.eligible_report_repair(current)
+                and resolve_repair_job.queue_from_pending(current, run_dir)
+            ):
+                runner.write_json(state_path, current)
+                return runner.orchestrator.SKIP
             record_resume(runner, args, current, state_path)
             try:
                 runner.execute_report_repair(current, run_dir, workspace)
             except runner.ReportRepairQueued:
                 return runner.orchestrator.SKIP
             except support.Paused as error:
+                if (
+                    getattr(runner, "native_calls", None) is None
+                    and error.status == "PAUSED_REPORT_REPAIR_LIMIT"
+                    and resolve_repair_job.queue_from_pending(current, run_dir, force=True)
+                ):
+                    runner.write_json(state_path, current)
+                    return runner.orchestrator.SKIP
                 if getattr(runner, "native_calls", None) is None and recovery_dispatch.recover(
                     runner, current, run_dir, workspace, error
                 ):

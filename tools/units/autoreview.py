@@ -231,7 +231,7 @@ def _planned_go_targeted(state: RunState, tests):
     return None
 
 
-def apply_job(stage, state: RunState, value, record, workspace, *, run_dir=None):
+def apply_job(stage, state: RunState, value, record, workspace, run_dir=None, runtime=None):
     """Autopilot hands a job stage's validated report here; the job decides how the run continues."""
     evidence_dir = Path(record.get("output") or workspace).parent
     if stage == design_intake.STAGE:

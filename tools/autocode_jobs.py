@@ -21,6 +21,7 @@ try:
     from . import autocode_design_intake as design_intake
     from . import autocode_prompts as prompts
     from . import autocode_requirements_answer as requirements_answer
+    from . import autocode_resolve_repair_job as resolve_repair_job
     from . import autocode_stuck_job as stuck_job
 except ImportError:
     import autocode_acceptance_tests_job as acceptance_tests_job
@@ -30,14 +31,16 @@ except ImportError:
     import autocode_design_intake as design_intake
     import autocode_prompts as prompts
     import autocode_requirements_answer as requirements_answer
+    import autocode_resolve_repair_job as resolve_repair_job
     import autocode_stuck_job as stuck_job
 
-JOBS = (design_check_job, stuck_job, design_intake, acceptance_tests_job)
+JOBS = (design_check_job, stuck_job, resolve_repair_job, design_intake, acceptance_tests_job)
 # Which unit prepares and applies each job's stage (autopilot.unit_for). Units
 # expose apply_job(stage, state, value, record, workspace).
 UNIT = {
     design_check_job.STAGE: "autoreview",
     stuck_job.STAGE: "autoresolver",
+    resolve_repair_job.STAGE: "autoresolver",
     design_intake.STAGE: "autoreview",
     acceptance_tests_job.STAGE: "autoreview",
 }

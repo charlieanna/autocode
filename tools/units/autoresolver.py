@@ -30,6 +30,7 @@ try:
     from .. import autocode_providers
     from .. import autocode_quota_route as quota_route
     from .. import autocode_recovery_novelty as novelty
+    from .. import autocode_resolve_repair_job as resolve_repair_job
     from .. import autocode_resolver_human as human
     from .. import autocode_resolver_recommendation as recommendation
     from .. import autocode_resolver_recovery as resolver_recovery
@@ -49,6 +50,7 @@ except ImportError:
     import autocode_providers
     import autocode_quota_route as quota_route
     import autocode_recovery_novelty as novelty
+    import autocode_resolve_repair_job as resolve_repair_job
     import autocode_resolver_human as human
     import autocode_resolver_recommendation as recommendation
     import autocode_resolver_recovery as resolver_recovery
@@ -67,8 +69,19 @@ from .common import ModelRequest, execution_request
 PROBE_TIMEOUT = 120  # seconds per probe; a probe checks one claim, it is not a test suite
 
 
-def apply_job(stage, state: RunState, value, record, workspace, *, run_dir=None):
-    """Autopilot hands a job stage's validated report here: the Investigator's diagnosis of a stuck stage."""
+def apply_job(stage, state: RunState, value, record, workspace, run_dir=None, runtime=None):
+    """Autopilot hands a job stage's validated report here: Investigator or Resolver repair."""
+    if stage == resolve_repair_job.STAGE:
+        resolve_repair_job.apply(
+            runtime,
+            state,
+            value,
+            record,
+            workspace,
+            run_dir,
+            ask_user=lifecycle.wait_for_user,
+        )
+        return None
     if stage != stuck_job.STAGE:
         raise ValueError(f"Autoresolver cannot apply {stage}")
     clean_run, _ = launch_inputs.runners(
@@ -211,9 +224,50 @@ def prepare_stuck(state: RunState, state_path):
     return ModelRequest("task_planner", stuck_job.ROUTE, prompt, metrics, stuck_job.schema(state), False)
 
 
+def prepare_resolve_repair(state: RunState, state_path) -> ModelRequest:
+    """Build the read-only ``resolve_repair`` ModelRequest from ``state['resolve_repair_request']``."""
+    del state_path
+    request = state.get("resolve_repair_request") or {}
+    target_stage = str(request.get("stage") or "builder")
+    roles = (state.get("settings") or {}).get("roles") or {}
+    chosen = roles.get(resolve_repair_job.ROUTE) or resolve_repair_job.select_route(state, target_stage)
+    source = next(
+        (
+            r
+            for r in ("resolver", "plan_reviewer", "task_planner", *roles)
+            if r != resolve_repair_job.ROUTE
+            and isinstance(roles.get(r), dict)
+            and roles[r].get("model") == chosen.get("model")
+        ),
+        "resolver" if "resolver" in roles else "task_planner",
+    )
+    role_transport.inherit(state.get("settings"), resolve_repair_job.ROUTE, source)
+    state.setdefault("sessions", {}).pop(resolve_repair_job.ROUTE, None)
+    prompt = (
+        resolve_repair_job.PROMPT
+        + "\n\nCURRENT HANDOFF DATA\n"
+        + json.dumps(resolve_repair_job.handoff(state), separators=(",", ":"))
+    )
+    return ModelRequest(
+        role="resolver",
+        route_role=resolve_repair_job.ROUTE,
+        prompt=prompt,
+        metrics={
+            "stage": resolve_repair_job.STAGE,
+            "target_stage": target_stage,
+            "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4,
+            "soft_budget_tokens": state.get("settings", {}).get("context_soft_tokens", 10000),
+        },
+        schema=copy.deepcopy(resolve_repair_job.SCHEMA),
+        allow_write=False,
+    )
+
+
 def prepare(state: RunState, stage, state_path, schema_dir, *, retry_authorization=None):
     if stage == stuck_job.STAGE:
         return prepare_stuck(state, state_path)
+    if stage == resolve_repair_job.STAGE:
+        return prepare_resolve_repair(state, state_path)
     if stage == "diagnose":
         return prepare_diagnosis(state, stage, state_path, schema_dir)
     if stage != "resolve":

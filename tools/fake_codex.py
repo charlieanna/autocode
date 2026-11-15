@@ -330,6 +330,18 @@ if stage == "investigate_stuck":
             failure_id=failure.get("failure_id", ""),
             evidence_refs=list(failure.get("evidence_refs") or [])[:1],
         )
+elif stage == "resolve_repair":
+    result = {
+        "diagnosis": "Offline fixture: it cannot resolve; the run pauses as before.",
+        "action": "hold",
+        "repaired_report_json": "",
+        "guidance": "",
+        "next_objective": "",
+        "affected_paths": [],
+        "user_question": "",
+        "user_options": [],
+        "evidence_refs": [],
+    }
 elif stage == "requirements_gather":
     draft = body(questions=not data["saved_answers"], task_kind=task_kind)
     if "ready" in schema.get("properties", {}):

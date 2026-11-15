@@ -755,6 +755,7 @@ def next_after(state: RunState, stage):
 JOB_ROUTES = {
     "check_design": "architect",
     "investigate_stuck": "stuck_investigator",
+    "resolve_repair": "repair_resolver",
     "write_acceptance_tests": "acceptance_tester",
 }
 

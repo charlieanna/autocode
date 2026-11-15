@@ -35,6 +35,7 @@ ACTIVITIES = {
     "review_checkpoint": "Auditing results",
     "resolve": "Diagnosing a failure",
     "diagnose": "Diagnosing a failure",
+    "resolve_repair": "Repairing or rerouting stalled stage",
     "resolver": "Runner decision (no model call)",
     "orchestrator": "Coordinating Builders",
     "investigate_stuck": "Investigating",
