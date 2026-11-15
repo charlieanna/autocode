@@ -841,6 +841,19 @@ test('a start that exits 2 at a saved pause returns the run', async (t) => {
   assert.deepEqual(status.mock.calls[0].arguments[0], created);
 });
 
+test('a timed-out status read after a paused start keeps the allocated run', async (t) => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'vscode-start-status-pending-'));
+  t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
+  t.mock.method(cli, 'stream', async () => ({ ...ok, code: 2 }));
+  t.mock.method(controller, 'status', async () => { throw new cli.ReadDeadlineExceeded(30_000, Promise.resolve()); });
+  let allocated;
+  const result = await controller.start(folder, 'hi', (run) => { allocated = run; });
+  assert.deepEqual(result, allocated, 'a pending read cannot prove the run was not saved');
+});
+
 test('tree actions use the clicked run with no active run and with another run active', async (t) => {
   t.mock.timers.enable({ apis: ['setInterval'] });
   t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));

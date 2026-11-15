@@ -10,7 +10,7 @@
 
 import * as vscode from "vscode";
 import { realpath } from "node:fs/promises";
-import { invoke, invokeRead, readStatus, stream, tail, STATUS_TIMEOUT_MS, type CliResult } from "./core/cli";
+import { invoke, invokeRead, readStatus, stream, tail, ReadDeadlineExceeded, STATUS_TIMEOUT_MS, type CliResult } from "./core/cli";
 import { LEGACY_PLACEMENT, placementArgs } from "./core/worktrees";
 import { freshRunDir } from "./core/run-dir";
 import {
@@ -196,7 +196,10 @@ export class RunController {
       // exists (docs/task-run.md). Then the start's own output is the error, not a refused status read.
       try {
         await this.status(started);
-      } catch {
+      } catch (error) {
+        // A timed-out reader is still in flight. It has not established that
+        // the run is missing; keep its allocated tab and let polling recover.
+        if (error instanceof ReadDeadlineExceeded) return started;
         throw new Error(`AutoCode stopped before it saved the run:\n${tail(result)}`);
       }
     }
