@@ -879,6 +879,85 @@ class ResolveRepairTests(unittest.TestCase):
         self.state["next_stage"] = "draft_plan"
         self.assertEqual((3, 3), planning_calls.reached(self.state))
 
+    def test_person_and_operator_owned_pauses_bypass_resolve_repair(self):
+        # 1. Operator-authorized --retry-failed-stage returns directly to the operator without Resolver/Investigator
+        orig = self._stage_files("op-tester", stage="tester", role="tester", report_obj={"verdict": "pass"})
+        orig["failure_key"] = "fk-tester-1"
+        self._queue_after_one_local_repair(orig)
+        self.state["stages"][-1]["failure_key"] = "fk-tester-1"
+        self.state["failure_retry_authorizations"] = [{"failure_key": "fk-tester-1", "consumed": True}]
+        self.assertTrue(resolve_repair_job.operator_retried(self.state, "tester"))
+        self.assertIs(stuck_job.operator_retried, resolve_repair_job.operator_retried)
+        self.assertIs(stuck_job.persons_review_total, resolve_repair_job.persons_review_total)
+        self.assertFalse(resolve_repair_job.eligible_report_repair(self.state))
+        self.assertFalse(resolve_repair_job.queue_from_pending(self.state, self.run_dir, force=True))
+        self.assertFalse(
+            resolve_repair_job.queue_missing_execution(self.state, orig, ValueError("lacks successful executed checks"))
+        )
+        self.assertFalse(
+            resolve_repair_job.intercept_stall(
+                self.state, "PAUSED_REPORT_REPAIR_LIMIT", "Exhausted local repairs", before_investigator=True
+            )
+        )
+        self.assertFalse(
+            resolve_repair_job.intercept_stall(
+                self.state,
+                "PAUSED_REPEATED_FAILURE",
+                "Repeated failure after --retry-failed-stage",
+                before_investigator=False,
+            )
+        )
+        dispatched: list[str] = []
+
+        def fail_tester(_current, stage):
+            dispatched.append(stage)
+            raise support.Paused("PAUSED_REPEATED_FAILURE", "Repeated failure after --retry-failed-stage")
+
+        with self.assertRaises(support.Paused) as paused:
+            stuck_job.drive(
+                self.state,
+                fail_tester,
+                active=lambda s: s.get("status") == "RUNNING",
+                skip=object(),
+                paused=support.Paused,
+                investigate=True,
+                queue=True,
+            )
+        self.assertEqual("PAUSED_REPEATED_FAILURE", paused.exception.status)
+        self.assertEqual(["tester"], dispatched)
+        self.assertIsNone(self.state.get("resolve_repair_request"))
+
+        # 2. Person-chosen review total (--planning-review-call-limit) and progressive retained review budget
+        self.state.pop("failure_retry_authorizations", None)
+        self.state["next_stage"] = "review_plan"
+        self.state["planning"] = {"review_call_limit_origin": "user_explicit"}
+        self.assertTrue(resolve_repair_job.persons_review_total(self.state, "PAUSED_PLANNING_BUDGET"))
+        self.assertFalse(
+            resolve_repair_job.intercept_stall(
+                self.state, "PAUSED_PLANNING_BUDGET", "User review call limit reached", before_investigator=False
+            )
+        )
+        self.state.pop("planning", None)
+        self.state["progressive"] = {"budget": {"slice_review_calls": 2}}
+        self.assertFalse(
+            resolve_repair_job.intercept_stall(
+                self.state, "PAUSED_PLANNING_BUDGET", "Retained slice review ceiling", before_investigator=False
+            )
+        )
+
+        # 3. Pre-v3 legacy run state declines all resolve_repair entry points
+        self.state.pop("progressive", None)
+        self.state["version"] = 2
+        self.state["next_stage"] = "tester"
+        self.assertFalse(resolve_repair_job.eligible_report_repair(self.state))
+        self.assertFalse(resolve_repair_job.queue_from_pending(self.state, self.run_dir, force=True))
+        self.assertFalse(resolve_repair_job.queue_missing_execution(self.state, orig, ValueError("missing")))
+        self.assertFalse(
+            resolve_repair_job.intercept_stall(
+                self.state, "PAUSED_NO_PROGRESS", "Legacy run", before_investigator=False
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
