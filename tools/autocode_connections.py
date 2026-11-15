@@ -21,13 +21,13 @@ try:
     from . import autocode_direct_config as direct
     from . import autocode_project_config as project_config
     from . import autocode_providers as providers
-    from .providers import claude, command
+    from .providers import claude, command, env_prep
 except ImportError:
     import autocode_connected_engine as connected_engine
     import autocode_direct_config as direct
     import autocode_project_config as project_config
     import autocode_providers as providers
-    from providers import claude, command
+    from providers import claude, command, env_prep
 
 BUILTINS = {
     # Codex is an engine (--engine codex), not a provider config; its row lets a client say it is installed
@@ -255,7 +255,8 @@ def routes(provider=None):
     except ImportError:
         import model_catalogue
     try:
-        found = model_catalogue.preview(provider=provider)
+        with env_prep.reuse_workspace_checks("."):
+            found = model_catalogue.preview(provider=provider)
     except (RuntimeError, ValueError, OSError) as error:
         return {"tool": None, "routes": [], "routes_lines": [], "routes_stop": str(error)}
     return {
