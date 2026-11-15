@@ -2322,7 +2322,7 @@
 
 
 <h1 id="workflow-planning-approval-and-handoffs">Workflow: planning, approval, and handoffs<a class="headerlink" href="#workflow-planning-approval-and-handoffs" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/ac8314ef7d8ff352b620d155aa7d7a9734b1cfee/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/692a721896fc9e41bf6161f20c118b13874ccf74/README.md">← Back to README</a></p>
 <p>This page covers the end-to-end conversation flow: how a rough idea becomes an
 approved plan, how that plan is implemented and reviewed, and what Autopilot
 coordinates along the way.</p>
@@ -3114,7 +3114,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   root, normally the package (<code>test_greet.TestGreet.test_x</code>), and a node:test file there that runs another test runner is still not named
   proof (#380). A feature that adds the first Go module in the package, on a
   base with no Go project, is not held to a base Go suite that cannot exist,
-  as at the root (<a href="https://github.com/charlieanna/autocode/blob/ac8314ef7d8ff352b620d155aa7d7a9734b1cfee/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
+  as at the root (<a href="https://github.com/charlieanna/autocode/blob/692a721896fc9e41bf6161f20c118b13874ccf74/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
 <li>Only the package's existing tests are retained as
   <a href="../protected-tests/">original test gates</a>, with the package suite as their
   command unless <code>--test-command</code> gives one, so a large repository does not bind
@@ -3192,7 +3192,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   also leaves a change outside the package <code>UNVERIFIED</code>, because the package
   suite never ran it.</p>
 <p>The <code>feature-monorepo-package</code> scenario
-(<a href="https://github.com/charlieanna/autocode/blob/ac8314ef7d8ff352b620d155aa7d7a9734b1cfee/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
+(<a href="https://github.com/charlieanna/autocode/blob/692a721896fc9e41bf6161f20c118b13874ccf74/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
 one package of a two-package repository with <code>--package</code> and the scripted
 model. Its reference completes; its broken variant, which also edits the other
 package, stops with each of those files named in the open <code>runner</code> finding.
@@ -3262,7 +3262,12 @@ showed fail on the original code and pass with the change. The proof's own suite
 is the one that runs the remaining tests, or the first project's when the root's
 runs none of them. The checks keep each receipt as <code>companion_tests:DIR:CHECK</code>
 (<code>companion_tests:packages/web:regression_on_base</code>), and the proof's notes name
-the files and the suite. A changed test in a directory where no suite runs its
+the files and the suite. Where the root has no manifest, a project's changed test
+is also proven by that project's suite when the root's runner could name the file:
+a fix in <code>api/</code> and <code>worker/</code>, two Python projects whose tests import their own
+code, is proven with <code>cd api &amp;&amp; ...</code> and <code>cd worker &amp;&amp; ...</code>, not with the root's
+<code>python3 -m unittest</code>, from where neither project's code can be imported. A
+changed test in a directory where no suite runs its
 kind is named in a note and is not run. A run with <code>--package</code>, <code>--test-root</code>,
 <code>--test-command</code> or <code>--regression-command</code> keeps to the suite it names.</p>
 <p>A change can also reach the code of a project whose tests it does not change.
@@ -3531,7 +3536,7 @@ it is generated from the front matter so reviewers can read the plan.</p>
 holds it. A plan read back from the file has the same goal hash as the run's. The scenario runner
 (<code>scenarios/run.py</code>) checks this at every plan approval its catalog runs reach: it exports the plan
 and reads the file back with <code>--check</code> before it approves the plan
-(<a href="https://github.com/charlieanna/autocode/blob/ac8314ef7d8ff352b620d155aa7d7a9734b1cfee/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
+(<a href="https://github.com/charlieanna/autocode/blob/692a721896fc9e41bf6161f20c118b13874ccf74/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
 committing it approves nothing. Text that looks like a credential is masked before the file is
 written, with the same policy as <code>autocode bundle</code>; the export then says that the file's goal hash
 differs from the run's.</p>
