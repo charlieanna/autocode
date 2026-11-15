@@ -23,6 +23,13 @@ def inline_tests(workspace, base, tests, sources, changes) -> tuple[list[str], l
     return rust_inline_tests.partition_tests(workspace, base, tests, sources, changes)
 
 
+def inline_tests_kept(workspace, base, changes) -> bool:
+    """Whether every changed Rust file keeps the tests written beside its code, unchanged. Removing a test
+    module is no edit of a test file, and on code that did not build none of its tests ran to be missed.
+    A module the change adds is the change's own test, as a new test file is."""
+    return rust_inline_tests.kept(workspace, base, changes)
+
+
 def seam_words(path: str, before: str, after: str, proof_seam) -> tuple[set[str], set[str]]:
     """Product identifiers added by ``path`` plus inline test identifiers for seam detection."""
     if path.endswith(".rs") and rust_inline_tests.test_modules(after.encode()):
