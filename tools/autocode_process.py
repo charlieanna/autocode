@@ -762,6 +762,9 @@ def _sampling_instant(activity, before, after):
 # How often the supervisor asks whether the person stopped the step (#3263), and what it records then.
 STOP_CHECK_SECONDS = 1.0
 PERSON_STOP_REASON = "Stopped by you"
+# Why the supervisor itself ended a provider, saved as the launch's `timeout_kind`. The usage report
+# gives each kind its class (`autocode_rejection_classes.KIND_CLASSES`); a new kind needs one there.
+STOP_KINDS = ("stage", "idle", "tool", "progress", "person")
 
 
 def wait_for_stage(
@@ -832,7 +835,7 @@ def wait_for_stage(
         with firing:
             if stopped.is_set() or watchdog_fired.is_set() or child.poll() is not None:
                 return
-            if reason["kind"] in ("stage", "idle", "tool", "progress", "person"):
+            if reason["kind"] in STOP_KINDS:
                 timeout_decision = dict(reason)
             if activity is not None:
                 activity.timeout = reason

@@ -13,6 +13,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import autocode_process as process
 import autocode_recovery_history as recovery_history
 import autocode_rejection_classes as rejection_classes
 import autocode_usage as usage
@@ -22,6 +23,9 @@ import autocode_usage_report as usage_report
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / "tools"
 AUTOCODE = TOOLS / "autocode.py"
+
+# The reason every stop the runner makes is archived under, whatever stopped it.
+ARCHIVED_STOP = "Timed-out non-terminal provider request automatically archived; partial work retained"
 
 
 def _make_live_row(
@@ -170,6 +174,46 @@ class RejectionClassifierTests(unittest.TestCase):
             "provider_timeout",
             rejection_classes.classify("Saved repair timeout exceeded (max 900s)"),
         )
+
+    def test_a_stop_is_classified_by_the_kind_the_runner_recorded(self):
+        """A launch the runner stopped is not always a provider that failed to answer.
+
+        Every stop is saved as timed out with the archive's "Timed-out non-terminal" reason, so a person's
+        Stop now and the Requirements reply budget were both counted as provider timeouts.
+        """
+        self.assertEqual(
+            "other",
+            rejection_classes.classify(
+                ARCHIVED_STOP, timeout_kind="person", timeout_reason=process.PERSON_STOP_REASON, timed_out=True
+            ),
+        )
+        self.assertEqual(
+            "stage_wall",
+            rejection_classes.classify(
+                ARCHIVED_STOP,
+                timeout_kind="progress",
+                timeout_reason="Requirements pass reached its 12-tool-call reply budget; finish from collected evidence",
+                timed_out=True,
+            ),
+        )
+        for kind in ("idle", "tool"):
+            self.assertEqual(
+                "provider_timeout", rejection_classes.classify(ARCHIVED_STOP, timeout_kind=kind, timed_out=True)
+            )
+        # The recorded kind is what the runner saw; the text beside it does not overrule it.
+        self.assertEqual(
+            "provider_timeout",
+            rejection_classes.classify(
+                "Investigator: Stage exceeded its 120-second hard runtime limit", timeout_kind="idle", timed_out=True
+            ),
+        )
+        # A launch saved without a kind is still read from its text.
+        self.assertEqual("provider_timeout", rejection_classes.classify(ARCHIVED_STOP, timed_out=True))
+        self.assertEqual("provider_timeout", rejection_classes.classify(ARCHIVED_STOP, timeout_kind="", timed_out=True))
+
+    def test_every_stop_kind_the_runner_records_has_a_class(self):
+        self.assertEqual(set(), set(process.STOP_KINDS) - set(rejection_classes.KIND_CLASSES))
+        self.assertEqual(set(), set(rejection_classes.KIND_CLASSES.values()) - set(rejection_classes.CLASSES))
 
     def test_classifies_not_a_report_schema_contract_and_evidence(self):
         self.assertEqual(
@@ -406,6 +450,57 @@ class UsageOutcomesProjectionTests(unittest.TestCase):
             updated_rows = usage_report.read_ledger(ledger_path)
             self.assertEqual(1, len(updated_rows))
             self.assertEqual(4, updated_rows[0]["outcome"]["model_calls"])
+
+    def test_a_step_the_person_stopped_is_not_reported_as_a_provider_timeout(self):
+        """The report's route table blames a route for a provider timeout; a person's stop is not one."""
+
+        def stopped(stage, kind, reason, seconds):
+            return {
+                "stage": stage,
+                "engine": "opencode",
+                "provider": "kilocode",
+                "model": "zai-coding-plan/glm-5.3",
+                "reasoning_effort": "high",
+                "duration_seconds": seconds,
+                "started_at": "2026-11-13T02:36:14+00:00",
+                "finished_at": "2026-11-13T02:37:44+00:00",
+                "exit_code": -15,
+                "timed_out": True,
+                "timeout_kind": kind,
+                "timeout_reason": reason,
+                "abandoned": True,
+                "rejected": True,
+                "rejection_reason": ARCHIVED_STOP,
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "repo"
+            run_dir = project / ".autocode" / "runs" / "20261113-023600"
+            run_dir.mkdir(parents=True)
+            state = {
+                "status": "PAUSED_INTERRUPTED",
+                "workflow": {"kind": "build"},
+                "settings": {"engine": "opencode", "evidence_provenance": {"kind": "live"}},
+                "stages": [
+                    stopped("builder", "person", process.PERSON_STOP_REASON, 90.0),
+                    stopped(
+                        "tester",
+                        "idle",
+                        "No new provider activity within the inactivity limit (300 seconds, runner default)",
+                        2400.0,
+                    ),
+                ],
+            }
+            usage.record(run_dir / "state.json", state)
+            rejections = usage_report.read_ledger(project / ".autocode" / "usage.jsonl")[0]["rejections"]
+            self.assertEqual(
+                [("builder", "other", 90.0), ("tester", "provider_timeout", 2400.0)],
+                [(item["stage"], item["class"], item["seconds"]) for item in rejections],
+            )
+            cohort = usage_report.build_report(project)["by_provenance"]["live"]["rejections"]
+            by_class = {item["class"]: (item["launches"], item["seconds"]) for item in cohort["by_class"]}
+            self.assertEqual((1, 2400.0), by_class["provider_timeout"])
+            self.assertEqual((1, 90.0), by_class["other"])
 
 
 class OutcomeReportAggregationTests(unittest.TestCase):
