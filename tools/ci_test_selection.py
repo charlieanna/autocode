@@ -1229,6 +1229,12 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tools/autocode.py", "tools/autocode_requirements_overlap", "tools/autocode_usage"),
         ("tests.test_requirements_overlap",),
     ),
+    # A run's prompts share one reader of the person's answers. The case that pipes answers past the
+    # model-replacement prompt into the questions launches the CLI, so no import reaches it from them.
+    (
+        ("tools/autocode_requirements_overlap_input", "tools/model_catalogue.py", "tools/autocode_action_resolver.py"),
+        ("tests.test_opencode",),
+    ),
     (
         ("tools/autocode_build_loop", "tools/autocode_run_setup", "tools/autocode_run_actions"),
         (*PUBLIC_FLOW_CONSUMERS, "tests.test_subprocess"),
