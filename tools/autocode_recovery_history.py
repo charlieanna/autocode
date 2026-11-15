@@ -24,10 +24,12 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_python_test_roles as test_roles
+    from . import autocode_rejection_classes as rejection_classes
     from . import autocode_roles as roles
     from . import autocode_util as util
 except ImportError:
     import autocode_python_test_roles as test_roles
+    import autocode_rejection_classes as rejection_classes
     import autocode_roles as roles
     import autocode_util as util
 
@@ -148,7 +150,7 @@ def _summarize_schema(text: str) -> str | None:
 
 
 def _is_schema_rejection(text: str) -> bool:
-    return "$:" in text or "$." in text
+    return rejection_classes.is_schema_rejection(text)
 
 
 def _plain(text, limit=TEXT):
