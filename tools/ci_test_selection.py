@@ -538,6 +538,15 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
+        ("tools/autocode_contract_identity.py",),
+        (
+            "tests.test_native_abandon_constructor",
+            "tests.test_native_report_repair",
+            "tests.test_verification_repair_retirement",
+            "tests.test_changeset_barrier",
+        ),
+    ),
+    (
         (
             "tools/providers/command.py",
             "tools/autocode_model_listing_failure.py",
