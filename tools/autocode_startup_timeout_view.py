@@ -52,7 +52,7 @@ def presentation(state: RunState):
         return None
     return {
         "category": "blocked",
-        "title": "AutoCode could not reach the model provider",
-        "what_happened": "The model provider did not start responding after several attempts. AutoCode could not finish this task; saved work and evidence are kept.",
+        "title": "AutoCode could not start the model step",
+        "what_happened": "The model step did not start responding after several attempts. AutoCode could not finish this task; saved work and evidence are kept.",
         "what_it_means": "The task is not complete. AutoCode retained the failed attempts and will not repeat them without a safe recovery.",
     }

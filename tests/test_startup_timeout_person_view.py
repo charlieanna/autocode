@@ -49,7 +49,7 @@ class StartupTimeoutPersonViewTests(unittest.TestCase):
         self.assertIsNone(view["needs"])
         self.assertIsNone(view["next_command"])
         self.assertEqual("blocked", view["recovery"]["category"])
-        self.assertIn("provider", view["recovery"]["what_happened"].lower())
+        self.assertIn("model step", view["recovery"]["what_happened"].lower())
         self.assertIsNone(view["chat"]["input"])
         text = " ".join(row["text"] for row in view["chat"]["messages"])
         self.assertNotIn("Provide corrective information", text)
@@ -68,7 +68,7 @@ class StartupTimeoutPersonViewTests(unittest.TestCase):
             )
         view = json.loads(result.stdout)["view"]
         self.assertEqual("blocked", view["summary"]["state"])
-        self.assertIn("provider", view["summary"]["sentence"].lower())
+        self.assertIn("model step", view["summary"]["sentence"].lower())
         self.assertIsNone(view["summary"]["next_command"])
         self.assertIsNone(view["chat"]["input"])
         self.assertNotIn("Pending questions", result.stderr)
