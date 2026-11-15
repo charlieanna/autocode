@@ -321,7 +321,10 @@ change's tests alone. The tests that could not run on the original code and pass
 then the proof, listed as not run on the original code, and the modules count as repaired,
 so the base's collection errors leave nothing unproven. A change may add test files of its
 own: their tests cannot run on such code either, so they count in the same way
-(`tools/autocode_first_suite.py`, `loaded` and `reloaded`). A change that edits one of the
+(`tools/autocode_first_suite.py`, `loaded` and `reloaded`). A test file that cannot be loaded
+and that the change neither touches nor repairs proves nothing either way: the proof leaves
+it out, names it and compares every other test
+([workflow](workflow.md), `tools/autocode_unloadable_tests.py`). A change that edits one of the
 project's test files is judged as before, and so is any change to code that loads: a bug
 fix's new test must run and fail
 on the original code. `cargo test` builds every target before it runs a test, and names the
