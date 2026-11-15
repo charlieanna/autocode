@@ -38,6 +38,7 @@ from copy import deepcopy
 from pathlib import Path
 
 try:
+    from . import autocode_attempt_ledger as attempt_ledger
     from . import autocode_prices as prices
     from . import autocode_request_usage as request_usage
     from . import autocode_roles as roles
@@ -46,7 +47,10 @@ try:
     from . import autocode_usage_outcomes as usage_outcomes
     from . import autocode_usage_report as usage_report
     from . import autocode_util as util
+    from .autocode_attempt_ledger import attempt_identity as attempt_identity
+    from .autocode_attempt_ledger import finished_records, run_identity, running_stage
 except ImportError:
+    import autocode_attempt_ledger as attempt_ledger
     import autocode_prices as prices
     import autocode_request_usage as request_usage
     import autocode_roles as roles
@@ -55,6 +59,8 @@ except ImportError:
     import autocode_usage_outcomes as usage_outcomes
     import autocode_usage_report as usage_report
     import autocode_util as util
+    from autocode_attempt_ledger import attempt_identity as attempt_identity
+    from autocode_attempt_ledger import finished_records, run_identity, running_stage
 
 # Historical comparison rates, USD per 1M inclusive input/output tokens.
 # These are not verified current provider prices or subscription charges.
@@ -195,33 +201,6 @@ def pending_workers(state: RunState):
         for row in (workers if isinstance(workers, list) else [])
         if isinstance(row, dict) and row.get("status") not in ("COMPLETE", "INTEGRATED", "DONE")
     ]
-
-
-def running_stage(state: RunState):
-    """The saved in-flight attempt, excluding a finished attempt retained for reconciliation.
-
-    The runner saves finish metrics before applying a report; reconciliation also
-    accounts stopped legacy attempts that have no finish timestamp. Neither the
-    slot name nor a paused status establishes whether the attempt finished.
-    """
-    record = _dict(state.get("active_stage"))
-    return record if record and not record.get("finished_at") and record.get("accounted") is not True else None
-
-
-def finished_records(state: RunState):
-    """Saved finished attempts plus a retained stopped attempt, once by artifact identity."""
-    stages = state.get("stages")
-    records = [item for item in stages if isinstance(item, dict)] if isinstance(stages, list) else []
-    retained = _dict(state.get("active_stage"))
-    if retained and not running_stage(state):
-        namespace = run_identity(state.get("run_dir") or state.get("task_id")) or ""
-        identity = attempt_identity(retained, namespace=namespace, index=len(records))
-        if not any(
-            record is retained or attempt_identity(record, namespace=namespace, index=index) == identity
-            for index, record in enumerate(records)
-        ):
-            records.append(retained)
-    return records
 
 
 def stage_rows(state: RunState, estimator=None):
@@ -392,30 +371,6 @@ def _grouped(rows, key):
     }
 
 
-def attempt_identity(record, *, namespace="", index=None):
-    """Artifact identity survives parent imports; anonymous legacy rows never merge."""
-    for field in ("events", "output"):
-        value = record.get(field)
-        if isinstance(value, str) and value:
-            path = Path(value)
-            if path.is_absolute():
-                return f"{field}:{path.resolve()}"
-            if namespace:
-                return f"{field}:{(Path(namespace) / path).resolve()}"
-    for field in ("worker_attempt", "attempt_id"):
-        if isinstance(record.get(field), str) and record[field]:
-            return f"{namespace}:{field}:{record[field]}"
-    return f"{namespace}:unidentified:{index}"
-
-
-def run_identity(value):
-    """Canonicalize public run paths without opening any run state."""
-    if not value:
-        return None
-    path = Path(str(value))
-    return str(path.resolve()) if path.is_absolute() else str(value)
-
-
 def _quantity(values, *, uncertain=False):
     known = [value for value in values if value is not None]
     complete = len(known) == len(values) and not uncertain
@@ -435,13 +390,10 @@ def accounting(state: RunState):
     refreshed for live/partial usage; unreadable logs remain a coverage warning.
     Cross-run callers use combine_accounting with public status attempts.
     """
-    records = finished_records(state)
     active = running_stage(state)
-    if active:
-        records = [*records, active]
     namespace = run_identity(state.get("run_dir") or state.get("task_id")) or ""
     attempts = []
-    for index, record in enumerate(records):
+    for identity, record in attempt_ledger.observations(state, include_running=True):
         runner = record.get("runner_owned") is True and record.get("engine") == "runner"
         metrics = _dict(record.get("metrics"))
         context = _dict(metrics.get("request_context"))
@@ -512,7 +464,7 @@ def accounting(state: RunState):
             local_id = f"{record['iteration']:03d}/{Path(record['output']).stem}"
         attempts.append(
             {
-                "identity": attempt_identity(record, namespace=namespace, index=index),
+                "identity": identity,
                 "attempt_id": local_id,
                 "run_id": namespace or None,
                 "worker_attempt": record.get("worker_attempt"),
@@ -590,7 +542,7 @@ def accounting(state: RunState):
                 "unfinished_requests": native.get("unfinished_requests"),
                 "usage_basis": "runner" if runner else "native_requests" if requests else "stage_counters",
                 "unobserved_usage_possible": bool(is_active or issues),
-                "identity_complete": ":unidentified:" not in attempt_identity(record, namespace=namespace, index=index),
+                "identity_complete": ":unidentified:" not in identity,
             }
         )
     result = combine_accounting(attempts)

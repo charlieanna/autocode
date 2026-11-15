@@ -20,9 +20,11 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_attempt_ledger as attempts
     from . import autocode_names as names
     from . import autocode_roles as roles
 except ImportError:
+    import autocode_attempt_ledger as attempts
     import autocode_names as names
     import autocode_roles as roles
 
@@ -90,11 +92,13 @@ def used(state: RunState) -> int:
     """The planning model calls since the person's last new input."""
     since = _time(renewed_at(state))
     calls = 0
-    for row in _records(state, "stages"):
-        if not isinstance(row, dict) or row.get("runner_owned") or row.get("dry_run"):
-            continue
-        if planning_stage(row.get("original_stage") or row.get("stage")) and _counts(
-            _time(row.get("started_at")), since
+    for group in attempts.groups(state):
+        if any(
+            not row.get("runner_owned")
+            and not row.get("dry_run")
+            and planning_stage(row.get("original_stage") or row.get("stage"))
+            and _counts(_time(row.get("started_at")), since)
+            for row in group
         ):
             calls += 1
     for entry in _records(state, "stuck_investigations"):

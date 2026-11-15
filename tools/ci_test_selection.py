@@ -106,6 +106,20 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tools/autocode_acceptance_tests.py",
         ("tests.test_acceptance_archive_order", "tests.test_replay_transport", "tests.test_usage"),
     ),
+    (
+        "tools/autocode_attempt_ledger.py",
+        (
+            "tests.test_attempt_ledger",
+            "tests.test_planning_calls",
+            "tests.test_usage",
+            "tests.test_cost",
+            "tests.test_cost_breakdown",
+            "tests.test_escalation_view",
+            "tests.test_efficiency",
+            "tests.test_resolve_repair",
+            "tests.test_retained_attempt_display",
+        ),
+    ),
     ("tests/test_changed_code_evidence_cli.py", ("tests.test_mutation_continuation_cli",)),
     (
         "tests/metadata_capture_fixture.py",

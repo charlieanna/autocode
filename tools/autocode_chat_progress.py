@@ -8,9 +8,11 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_attempt_ledger as attempt_ledger
     from . import autocode_recovery_history as recovery_history
     from . import autocode_roles as roles
 except ImportError:
+    import autocode_attempt_ledger as attempt_ledger
     import autocode_recovery_history as recovery_history
     import autocode_roles as roles
 
@@ -23,7 +25,7 @@ def project(state: RunState, public, *, finished=False, stopped=False) -> list[s
     headline = progress.get("headline")
     if not headline:
         return []
-    active = state.get("active_stage") or {}
+    active = attempt_ledger.running_stage(state) or {}
     if active and not finished and not stopped:
         if (public.get("liveness") or {}).get("kind") != "supervised":
             headline = f"{progress.get('stage') or 'Current step'}: activity could not be confirmed."

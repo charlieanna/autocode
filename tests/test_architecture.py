@@ -585,7 +585,7 @@ class ArchitectureTests(unittest.TestCase):
     def test_the_shared_helpers_import_nothing_from_autocode(self):
         # autocode_util is the bottom layer; one AutoCode import would drag its 18 users back into the cycle.
         graph = import_graph()
-        for module in ("autocode_util", "autocode_output_decoding"):
+        for module in ("autocode_util", "autocode_output_decoding", "autocode_attempt_ledger"):
             with self.subTest(module=module):
                 self.assertEqual(set(), graph[module])
 

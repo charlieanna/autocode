@@ -341,14 +341,14 @@ def _sent_back(state: RunState, attempts, milestones) -> list[tuple[dt.datetime,
 def _attempts(state: RunState) -> list[dict]:
     """Each launched attempt with its price: the saved stage records (autocode_usage.stage_rows at the dated
     table, the basis of the view's `cost`), then the running stage, whose cost is not known yet."""
-    records = [record for record in _list(state.get("stages")) if not record.get("dry_run")]
-    priced = usage.stage_rows({"stages": records}, estimator=prices.estimate)
+    records = [record for record in usage.finished_records(state) if not record.get("dry_run")]
+    priced = usage.stage_rows({**state, "stages": records, "active_stage": None}, estimator=prices.estimate)
     found = [
         {"record": record, "when": _when(record.get("started_at")), **price}
         for record, price in zip(records, priced, strict=True)
         if record.get("runner_owned") is not True
     ]
-    active = state.get("active_stage")
+    active = usage.running_stage(state)
     if isinstance(active, dict) and not active.get("dry_run"):
         found.append({"record": active, "when": _when(active.get("started_at")), "cost_usd": None, "basis": "running"})
     return [row for row in found if row["when"] is not None]

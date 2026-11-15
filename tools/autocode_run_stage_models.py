@@ -26,9 +26,15 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
+try:
+    from . import autocode_attempt_ledger as attempt_ledger
+except ImportError:
+    import autocode_attempt_ledger as attempt_ledger
+
 FLAG = "--stage-model"
 VIA = "stage_models"
 BUSY = "A stage is working. Pause the chat, or wait until it asks you something, to change its models."
+RETAINED = "The last stage attempt still needs recovery. Its models cannot be changed yet."
 NO_ROUTES = "This run has no saved routes yet; its models are chosen when it starts."
 CHECK_UNCERTAIN = "A previous check has not been confirmed stopped. Models cannot be changed while this run is paused."
 
@@ -74,6 +80,9 @@ def busy(state: RunState) -> str | None:
     if state.get("status") == "PAUSED_VERIFICATION_UNCERTAIN" and state.get("active_runner_check"):
         return CHECK_UNCERTAIN
     if state.get("status") == "RUNNING" or state.get("active_stage") or state.get("active_runner_check"):
+        active = state.get("active_stage")
+        if isinstance(active, dict) and active and attempt_ledger.running_stage(state) is None:
+            return RETAINED
         return BUSY
     return None
 
