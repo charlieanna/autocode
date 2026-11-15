@@ -29,6 +29,7 @@ try:
     from . import autocode_draft_failure_correction as failure_correction
     from . import autocode_first_reply_budget as first_reply_budget
     from . import autocode_format_correction as format_correction
+    from . import autocode_idle_policy as idle_policy
     from . import autocode_job_failure as job_failure
     from . import autocode_output_cap as output_cap
     from . import autocode_output_policy as output_policy
@@ -64,6 +65,7 @@ except ImportError:
     import autocode_draft_failure_correction as failure_correction
     import autocode_first_reply_budget as first_reply_budget
     import autocode_format_correction as format_correction
+    import autocode_idle_policy as idle_policy
     import autocode_job_failure as job_failure
     import autocode_output_cap as output_cap
     import autocode_output_policy as output_policy
@@ -352,6 +354,39 @@ def stage_deadline_and_progress(state: RunState, stage: str, configured_timeout,
         stage_timeout = max_seconds
     budget_meta = {"max_seconds": stage_timeout, "max_tool_calls": max_calls}
     return stage_timeout, budget_meta, first_reply_budget.ProgressBudget(max_calls)
+
+
+def launch_limits(state: RunState, model, original_stage: str, stage: str, *, report_only: bool):
+    """One launch's limits: ``(stage_timeout, budget_meta, progress_budget, watch, saved)``.
+
+    ``watch`` holds the inactivity and tool limits this launch runs under, as ``supervision`` keywords: a
+    route's or planning stage's floor and the startup budget apply per launch (autocode_idle_policy).
+    ``saved`` holds the configured limits the stage record keeps, which no floor rewrites.
+    """
+    settings = state["settings"]
+    limits = settings.get("limits", {})
+    stage_timeout, budget_meta, progress_budget = stage_deadline_and_progress(
+        state, original_stage, limits.get("stage_timeout_seconds"), report_only=report_only
+    )
+    idle_timeout = limits.get("idle_timeout_seconds", 300)
+    saved_origin = settings.get("budget_origins", {}).get("idle_timeout_seconds")
+    idle_limit, idle_origin = idle_policy.effective(idle_timeout, saved_origin, model, stage=original_stage)
+    first_event_limit, first_event_origin = idle_policy.first_event_limit(
+        idle_limit,
+        saved_origin,
+        stage_timeout=stage_timeout,
+        silent_start=idle_policy.silent_start(state.get("recovery_context"), stage),
+    )
+    tool_timeout = limits.get("tool_timeout_seconds", 1800)
+    watch = {
+        "idle_limit": idle_limit,
+        "idle_origin": idle_origin,
+        "tool_timeout": tool_timeout,
+        "first_event_limit": first_event_limit,
+        "first_event_origin": first_event_origin,
+    }
+    saved = {"idle_timeout_seconds": idle_timeout, "tool_timeout_seconds": tool_timeout}
+    return stage_timeout, budget_meta, progress_budget, watch, saved
 
 
 def activity_monitor(
