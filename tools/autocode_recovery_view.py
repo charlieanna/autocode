@@ -511,7 +511,7 @@ def project(state: RunState, need=None):
         "category": "stopped" if terminal else "request" if decision else "recovery",
         "what_happened": f"{ended.get('reason')} This conversation will launch no more stages."
         if ended is not None
-        else "The current step finished and saved. This conversation will launch no more stages."
+        else "This conversation was stopped. It will launch no more stages."
         if terminal
         else (
             _auth_stop(state)

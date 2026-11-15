@@ -278,6 +278,7 @@ def view(
     plan = approved_contract(state)
     # Tokens and cost so far, by role (autocode_usage.summary), with the live accounting the cost reads.
     usage_summary = autocode_usage.summary(state)
+    recovery = recovery_view.project(state, need)
     result = {
         "replay_source": None if invalid_replay else replay_view.project(state, run_dir=run_dir),
         "replay_progress": replay_progress,
@@ -320,7 +321,7 @@ def view(
         "liveness": liveness_policy.classify(supervision, liveness),
         "done": status in COMPLETE and not simulated and not invalid_replay,
         "needs": need,
-        "recovery": recovery_view.project(state, need),
+        "recovery": recovery,
         # What went wrong and what AutoCode did about it, oldest first (autocode_recovery_history): rejected
         # answers, rewritten reports, Builder send-backs, Investigator and Resolver calls, as plain sentences.
         "recoveries": recovery_history.project(state),
@@ -343,6 +344,7 @@ def view(
             held_cause=pause_authority.answered_cause(state),
             ready=(controller or {}).get("kind") == "ready",
             internal_failure=(operational_hold.presentation(state) or operational_block.presentation(state)),
+            recovery=recovery,
         ),
         "current_task": {key: task.get(key) for key in ("id", "objective", "milestone_id")} if task else None,
         # The kind of job named for the request (autocode_workflows.WORKFLOWS);
