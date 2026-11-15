@@ -974,6 +974,9 @@ and on Linux a launch refuses any release but the qualified **7.8.3** (`npm inst
 @kilocode/cli@7.8.3`): restricted read-only and planning stages need its kernel
 shell, so a newer Kilo stops before any spend instead of running uncontained. macOS
 has no such shell and no pin; its checkers run as described above (#1766).
+Isolated live Linux fixtures also need the backend's cached helpers to execute;
+follow the [Kilo cache execution preflight](testing.md#executable-helpers-in-live-kilo-fixtures)
+before admitting a task or model call.
 Its default routes use ChatGPT OAuth for `openai/...`, Zhipu AI Coding Plan for
 `zhipuai-coding-plan/...`, and Alibaba Token Plan for `alibaba-token-plan/...`.
 Optional `zai-coding-plan/...` and `kilo/...` routes require their separate
