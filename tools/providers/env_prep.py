@@ -170,6 +170,11 @@ def reuse_checks(run_dir):
         _reuse = previous
 
 
+def reusing() -> bool:
+    """Whether successful checks are being kept now (inside ``reuse_checks``)."""
+    return _reuse is not None
+
+
 def reuse_folder(run_dir) -> Path:
     """The project's folder for kept checks, or the run's own when it is not in a project's run store."""
     run_dir = Path(run_dir)
@@ -179,16 +184,40 @@ def reuse_folder(run_dir) -> Path:
     return run_dir / REUSE_FOLDER
 
 
-def _tool_files(executable: str, env: Mapping[str, str]) -> list:
-    """The tool's own login and settings files (its XDG data ``auth.json`` and config JSON files), by identity."""
+# The settings an OpenCode-family tool reads that can change a listing or an agent's permissions: JSON
+# settings files, and the agent and mode definitions in their folders. Lock files and installed plugins are
+# left out, since the tool may rewrite them as it starts. The project's own copies, in the folder the tool
+# runs in, count as well as the tool's config folder.
+SETTINGS_SUFFIXES = (".json", ".jsonc")
+DEFINITION_FOLDERS = ("agent", "agents", "mode", "modes")
+PROJECT_SETTINGS = (".kilo", ".kilocode", ".opencode")
+PROJECT_FILES = ("kilo.json", "kilo.jsonc", "opencode.json", "opencode.jsonc")
+SETTINGS_FILE_LIMIT = 200
+
+
+def _settings_in(folder: Path) -> list[Path]:
+    """A settings folder's JSON files and every agent or mode definition below it, bounded."""
+    found: list[Path] = []
+    with contextlib.suppress(OSError):
+        found = sorted(path for path in folder.iterdir() if path.suffix in SETTINGS_SUFFIXES and path.is_file())
+    for name in DEFINITION_FOLDERS:
+        with contextlib.suppress(OSError):
+            found.extend(sorted(path for path in (folder / name).rglob("*") if path.is_file()))
+    return found[:SETTINGS_FILE_LIMIT]
+
+
+def _tool_files(executable: str, env: Mapping[str, str], cwd=None) -> list:
+    """The tool's own login and settings files, by identity: its XDG data ``auth.json``, its config folder's
+    settings, and the project settings in the folder it runs in."""
     name = Path(executable).name
     home = env.get("HOME") or os.path.expanduser("~")
     data = Path(env.get("XDG_DATA_HOME") or Path(home, ".local", "share")) / name
     config = Path(env.get("XDG_CONFIG_HOME") or Path(home, ".config")) / name
-    try:
-        settings = sorted(path for path in config.iterdir() if path.suffix in (".json", ".jsonc"))
-    except OSError:
-        settings = []
+    settings = _settings_in(config)
+    if cwd is not None:
+        settings.extend(Path(cwd, entry) for entry in PROJECT_FILES)
+        for entry in PROJECT_SETTINGS:
+            settings.extend(_settings_in(Path(cwd, entry)))
     found = []
     for path in [data / "auth.json", *settings]:
         try:
@@ -220,7 +249,7 @@ def _reuse_key(command, env: Mapping[str, str], kwargs) -> str | None:
         real,
         info.st_mtime_ns,
         info.st_size,
-        _tool_files(command[0], env),
+        _tool_files(command[0], env, kwargs.get("cwd")),
     ]
     return hashlib.sha256(json.dumps(identity, default=str).encode()).hexdigest()
 

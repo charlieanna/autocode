@@ -21,12 +21,14 @@ except ImportError:
     import autocode_provider_env as provider_env
 
 
+import contextlib
 import hashlib
 import json
 import os
 import re
 import subprocess
 import tomllib
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 try:
@@ -110,18 +112,10 @@ class CommandProvider:
                 f"{self._config['name']} command {command[0]!r} is not on PATH; no provider request was launched"
             )
         version = None
-        version_command = self._config.get("version_command")
+        version_command, version_options = self._version_check(workspace, env)
         if version_command:
             try:
-                result = env_prep.preflight_run(
-                    version_command,
-                    effective,
-                    cwd=cwd,
-                    require_executable=env is not None,
-                    capture_output=True,
-                    text=True,
-                    timeout=15,
-                )
+                result = env_prep.preflight_run(version_command, effective, **version_options)
             except subprocess.TimeoutExpired as error:
                 raise RuntimeError(f"{self._config['name']} version check timed out; no agent was launched") from error
             except OSError as error:
@@ -141,6 +135,57 @@ class CommandProvider:
             "config_path": str(self._path),
             "config_sha256": hashlib.sha256(self._path.read_bytes()).hexdigest(),
         }
+
+    # Each model-free check's command and options, read by the check itself and by warm_checks, so a
+    # warmed answer is the one the check then asks for (env_prep keys a kept answer by both).
+    def _version_check(self, workspace, env):
+        options = {"cwd": workspace if env is not None else None, "timeout": 15}
+        return self._config.get("version_command"), self._check_options(env, options)
+
+    def _auth_check(self, workspace, env):
+        auth = self._config.get("auth") or {}
+        options = {"cwd": workspace, "timeout": auth.get("timeout_seconds", 15)}
+        return (auth.get("command") if auth.get("routes") else None), self._check_options(env, options)
+
+    def _models_check(self, workspace, env):
+        command = None if self._config.get("models") is not None else self._config.get("models_command")
+        return command, self._check_options(env, {"cwd": workspace, "timeout": 30})
+
+    @staticmethod
+    def _check_options(env, options):
+        return {**options, "require_executable": env is not None, "capture_output": True, "text": True}
+
+    def _warm_calls(self, workspace, env):
+        """The model-free checks a run of this tool asks before its first stage, as (command, options)."""
+        return [
+            self._version_check(workspace, env),
+            self._auth_check(workspace, env),
+            self._models_check(workspace, env),
+        ]
+
+    def warm_checks(self, workspace=None, *, env=None) -> int:
+        """Ask this tool's model-free checks at the same time, so the checks that follow, one after another,
+        are answered from the kept answers (env_prep). Each Kilo start costs 5-9 s on macOS, and its
+        version, login and model checks ran in turn: 17 s of a 77 s "hi" on 2026-11-15.
+
+        Decides nothing: an answer is kept only as env_prep keeps any check's (a whole, successful one),
+        a failure or timeout is dropped here, and each check still runs and judges its own answer. Does
+        nothing while checks are not being kept, since it would only run them twice. Returns how many ran."""
+        if not env_prep.reusing():
+            return 0
+        calls = [(command, options) for command, options in self._warm_calls(workspace, env) if command]
+        if len(calls) < 2:
+            return 0
+        effective = self._preflight_environment(env)
+
+        def ask(call):
+            command, options = call
+            with contextlib.suppress(Exception):
+                env_prep.preflight_run(command, effective, **options)
+
+        with ThreadPoolExecutor(max_workers=len(calls)) as pool:
+            list(pool.map(ask, calls))
+        return len(calls)
 
     def transport_drift(self, current, checkpoint):
         # The same config bytes read from another checkout are the same transport (#2773).
@@ -206,18 +251,11 @@ class CommandProvider:
         if not selected:
             return None
         self.check_forbidden_environment(env)
-        timeout_seconds = auth.get("timeout_seconds", 15)
+        auth_command, auth_options = self._auth_check(workspace, env)
+        timeout_seconds = auth_options["timeout"]
         try:
             # Asked once more when it overruns its bound under load, instead of pausing the run (#3313).
-            result = env_prep.preflight_listing(
-                auth["command"],
-                self._preflight_environment(env),
-                cwd=workspace,
-                require_executable=env is not None,
-                capture_output=True,
-                text=True,
-                timeout=timeout_seconds,
-            )
+            result = env_prep.preflight_listing(auth_command, self._preflight_environment(env), **auth_options)
         except subprocess.TimeoutExpired:
             raise RuntimeError(
                 f"cannot verify {name} login; auth listing timed out after {env_prep.listing_bounds(timeout_seconds)}; "
@@ -416,20 +454,12 @@ class CommandProvider:
         listed = self._config.get("models")
         if listed is not None:
             return set(listed)
-        command = self._config.get("models_command")
+        command, options = self._models_check(workspace, env)
         if not command:
             return None
         try:
             # Asked once more when it overruns its bound under load (#3313).
-            result = env_prep.preflight_listing(
-                command,
-                self._preflight_environment(env),
-                cwd=workspace,
-                require_executable=env is not None,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
+            result = env_prep.preflight_listing(command, self._preflight_environment(env), **options)
         except subprocess.TimeoutExpired as error:
             message = (
                 f"{self._config['name']} model listing timed out after {env_prep.listing_bounds(30)}; "

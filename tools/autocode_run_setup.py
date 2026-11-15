@@ -945,6 +945,15 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
     return state
 
 
+def warm_tool_checks(runner, args, state: RunState, workspace) -> None:
+    """Ask the run's tool its model-free checks at once before the setup that asks them in turn (each a
+    Kilo start of 5-9 s on macOS); a Codex run asks none of them, and a tool without the method is left."""
+    engine = (state.get("settings") or {}).get("engine") or getattr(args, "engine", None) or "opencode"
+    warm = getattr(getattr(runner, "opencode", None), "warm_checks", None)
+    if engine != "codex" and callable(warm):
+        warm(workspace)
+
+
 def run_locked(
     runner,
     args,
@@ -966,6 +975,7 @@ def run_locked(
 
     with ExitStack() as ownership:
         ownership.enter_context(env_prep.reuse_checks(run_dir))  # chats in this project reuse its tool checks
+        warm_tool_checks(runner, args, state, workspace)
         keep_awake.hold()  # a sleeping Mac cannot supervise a stage (#1717)
         if runner.stop_policy.applied_stop(state):
             return runner.stop_policy.refuse_before_configure(runner.write_json, state, state_path) or 0
