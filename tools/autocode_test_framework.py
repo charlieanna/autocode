@@ -128,14 +128,18 @@ class Framework:
     def without(self, left_out, remaining):
         """The suite without the test files ``left_out``; ``remaining`` are the project's other test files.
 
-        RSpec has an option for it, which keeps the command short however large the suite is. Every other
-        runner is given the remaining files by name, as ``targeted`` gives it any files. None when the
-        runner cannot be given files, as for ``targeted``.
+        RSpec and pytest have an option for it, which keeps the suite's own discovery and a short command
+        however large the suite is. Every other runner is given the remaining files by name, as
+        ``targeted`` gives it any files. None when the runner cannot be given files, as for ``targeted``.
         """
-        specs = [p for p in sorted(left_out) if RSPEC_TEST.match(PurePosixPath(p).name)]
-        if self.name == "rspec" and specs and len(specs) == len(left_out) and not any(_GLOB.search(p) for p in specs):
+        files, names = sorted(left_out), [PurePosixPath(p).name for p in left_out]
+        specs = self.name == "rspec" and all(map(RSPEC_TEST.match, names)) and not any(map(_GLOB.search, files))
+        if files and specs:
             # RSpec reads the pattern as a comma-separated list of globs, relative to where it runs.
-            return f"{self.runner} --exclude-pattern {shlex.quote(','.join(specs))}"
+            return f"{self.runner} --exclude-pattern {shlex.quote(','.join(files))}"
+        modules = self.name == "pytest" and not self.invocation and all(map(PYTHON_TEST_MODULE.match, names))
+        if files and modules and " -m pytest " in f"{self.suite} ":
+            return self.suite + "".join(f" --ignore={shlex.quote(p)}" for p in files)
         return self.targeted(remaining)
 
     def to_dict(self):

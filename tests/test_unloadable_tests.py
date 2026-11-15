@@ -203,13 +203,11 @@ class UnloadableProofTests(unittest.TestCase):
         proof, _state = prove(self.project(seed, change))
         self.assertEqual(verify.PASS, proof["verdict"], proof)
         self.assertEqual(["tests/test_sibling.py"], proof["suite_fallback"]["left_out"])
-        self.assertIn("--continue-on-collection-errors", proof["suite_fallback"]["whole_suite"])
-        self.assertTrue(
-            proof["commands"]["suite"].endswith(
-                "-m pytest -q -p no:cacheprovider tests/test_calc.py tests/unit/test_more.py"
-            ),
-            proof["commands"],
+        # pytest keeps its own discovery and is told which file to pass over.
+        self.assertEqual(
+            proof["suite_fallback"]["whole_suite"] + " --ignore=tests/test_sibling.py", proof["commands"]["suite"]
         )
+        self.assertIn("--continue-on-collection-errors", proof["commands"]["suite"])
 
     @unittest.skipUnless(shutil.which("node"), "Node runs the suite")
     def test_a_node_test_file_that_cannot_load_is_left_out_too(self):
@@ -321,7 +319,7 @@ class SelectionTests(unittest.TestCase):
         long = run_of(passed=ran, unloaded=["unittest.loader._FailedTest.test_broken"])
         self.assertIsNone(choose(self.framework(), long, [*many, "test_broken.py"], {}), "a command nobody can read")
 
-    def test_rspec_leaves_files_out_with_its_own_option_however_large_the_suite(self):
+    def test_rspec_and_pytest_leave_files_out_with_their_own_option_however_large_the_suite(self):
         rspec = Framework("rspec", "bundle exec rspec", runner="bundle exec rspec")
         many = [f"spec/models/m{number:04d}_spec.rb" for number in range(400)]
         whole = run_of(unloaded=["spec/a_spec.rb::[collection]", "spec/tools/b_spec.rb::[collection]"])
@@ -332,6 +330,11 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(
             "cd backend && bundle exec rspec --exclude-pattern spec/a_spec.rb",
             packaged.without(["backend/spec/a_spec.rb"], ["backend/spec/b_spec.rb"]),
+        )
+        pytest = Framework("pytest", "python -m pytest -q --continue-on-collection-errors", python="python")
+        self.assertEqual(
+            "python -m pytest -q --continue-on-collection-errors --ignore=test_b.py --ignore=tests/test_a.py",
+            pytest.without(["tests/test_a.py", "test_b.py"], ["tests/test_c.py"]),
         )
         # A name RSpec would read as a pattern is given no pattern: the other files are named instead.
         self.assertEqual("bundle exec rspec spec/b_spec.rb", rspec.without(["spec/a[1]_spec.rb"], ["spec/b_spec.rb"]))

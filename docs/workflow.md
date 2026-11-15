@@ -522,8 +522,9 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.
   out instead of calling the comparison unproven: when the change touches none of them
   and a run of them on the changed code shows that none loads there either, the suite
   without them is the proof's suite, on the original code and with the change
-  (`tools/autocode_unloadable_tests.py`). RSpec is given `--exclude-pattern`; another
-  runner is given by name the files the whole suite ran. That suite must load completely
+  (`tools/autocode_unloadable_tests.py`). RSpec and pytest are told which files to pass
+  over (`--exclude-pattern`, `--ignore`); another runner is given by name the files the
+  whole suite ran. That suite must load completely
   on the original code and pass every test the whole suite passed there, and it is
   judged as any suite is; otherwise the whole suite stays and the proof is judged as
   before. A file the change repairs is never left out: the tests that could not run
