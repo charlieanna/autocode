@@ -88,22 +88,22 @@ class InvestigationReviewTests(EpisodeCase):
 
 class ObligationReviewTests(ObligationCase):
     def test_2_mentioning_an_obligation_in_feedback_does_not_resolve_it(self):
-        oid = self.reject(category="cost")
+        oid = self.reject(category="behavior")
         self.apply("draft_plan", self.discovery(plan([decision_question(oid)])))
         self.publish()
         goals.feedback(self.state, f"{oid} is still unresolved. Investigate another approach.")
         self.assertEqual("open", self.obligation(oid)["status"])
 
     def test_3_delegating_an_obligation_question_is_refused_before_any_change(self):
-        oid = self.reject(category="cost")
-        question = {**decision_question(oid), "proposed_default": "Prefer the paid provider"}
+        oid = self.reject(category="behavior")
+        question = {**decision_question(oid), "proposed_default": "Exit 2 on empty name"}
         self.apply("draft_plan", self.discovery(plan([question])))
         self.publish()
         before = copy.deepcopy(self.state)
         with self.assertRaisesRegex(ValueError, "cannot be delegated"):
             goals.answer(self.state, oid, "accept default", delegated=True)
         self.assertEqual(before, self.state)
-        goals.answer(self.state, oid, "Use the free provider")
+        goals.answer(self.state, oid, "Exit 2 with usage on stderr")
         self.assertEqual("resolved", self.obligation(oid)["status"])
 
     def test_6_new_intent_invalidates_a_carried_remediation(self):
