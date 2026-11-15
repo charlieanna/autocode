@@ -24,6 +24,15 @@ class AccessTransportConsumerTests(unittest.TestCase):
         kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
         self.assertEqual(consumers, set(kept))
 
+    def test_terminal_stop_views_keep_the_ladder_outcome_scenario_even_when_slow(self):
+        consumer = "scenarios.test_escalation"
+        for path in ("tools/autocode_run_view.py", "tools/autocode_recovery_view.py"):
+            with self.subTest(path=path):
+                selected, skipped = run_suite.scenario_selection([path], {consumer: "60s"})
+                self.assertIn(consumer, selected)
+                self.assertNotIn(consumer, skipped)
+                self.assertNotIn("scenarios.test_adversarial_runner", selected)
+
     def test_acceptance_ordering_keeps_its_public_projection_consumers_when_slow(self):
         consumers = {"tests.test_acceptance_archive_order", "tests.test_replay_transport", "tests.test_usage"}
         selected = run_suite.select_tests(
