@@ -264,6 +264,10 @@ class PackageFramework(Framework):
         selected = self.inner.targeted(paths) if paths else None
         return command(self.directory, selected) if selected else None
 
+    def without(self, left_out, remaining):
+        selected = self.inner.without(inside(self.directory, left_out), inside(self.directory, remaining))
+        return command(self.directory, selected) if selected else None
+
     def to_dict(self):
         return {**super().to_dict(), "directory": self.directory}
 
