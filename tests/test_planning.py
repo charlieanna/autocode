@@ -1403,17 +1403,19 @@ class JointFlow(unittest.TestCase):
             # fresh request the way the stale-token message tells a user to.
             self.launch(["--run-dir", str(run), "--no-chat"], 2)
             run, state = self.saved()
-        # The Requirements Gatherer runs first and names the job (#1860); no recognizer call before it.
-        self.assertEqual(["requirements", "planner"], [row["role"] for row in state["stages"]])
+        # The Requirements Gatherer runs first and names the job (#1860), stopping before
+        # draft_plan while its open question is unanswered (#3603).
+        self.assertEqual(["requirements"], [row["role"] for row in state["stages"]])
         self.assertEqual("requirements_gather", state["stages"][0]["stage"])
         handoff = state["requirements_handoff"]
         self.assertEqual(state["stages"][0]["output"], handoff["output"])
         self.assertNotIn("milestones", json.loads(Path(handoff["output"]).read_text()))
-        self.assertNotEqual(state["sessions"]["requirements"], state["sessions"]["planner"])
         self.assertEqual("WAITING_FOR_USER", state["status"])
         self.launch(["--run-dir", str(run), "--answer", "Q1=CLI"], 0)
         self.launch(["--run-dir", str(run), "--no-chat"], 2)
-        return self.saved()
+        run, state = self.saved()
+        self.assertNotEqual(state["sessions"]["requirements"], state["sessions"]["planner"])
+        return run, state
 
     def test_stale_answer_token_rebinds_in_one_invocation(self):
         """A saved-state change after display must not strand the shown token."""
@@ -1445,7 +1447,8 @@ class JointFlow(unittest.TestCase):
         self.launch(["--run-dir", str(run), "--answer", "Q1=CLI"], 0)
         _, answered = self.saved()
         self.assertEqual([], answered["pending_questions"])
-        self.assertEqual([], answered["goal_contract"]["body"]["open_blocking_questions"])
+        self.assertNotIn("goal_contract", answered)
+        self.assertEqual("requirements_gather", answered["next_stage"])
         self.assertEqual("RUNNING", answered["status"])
         self.assertEqual("", answered.get("discovery_summary", ""))
         self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
@@ -1466,20 +1469,20 @@ class JointFlow(unittest.TestCase):
         self.assertNotIn(state["resolver_human_request"]["request_token"], result.stdout)
 
     def test_planning_pauses_at_its_call_cap_and_continues_only_when_the_person_changes_it(self):
-        # Owner decision 2026-11-12. After the answer this flow makes four planning calls (draft, review,
-        # revise, finalize) with no input between them, so a cap of 2 stops it before the third.
+        # Owner decision 2026-11-12. After the answer this flow makes five planning calls (requirements,
+        # draft, review, revise, finalize) with no input between them, so a cap of 2 stops it before the third.
         self.prepare()
         self.launch(["Build a greeting tool", "--no-chat", "--max-planning-calls", "2"], 2)
         run, state = self.saved()
         self.assertEqual("WAITING_FOR_USER", state["status"])
-        self.assertEqual(2, planning_calls.used(state), "Requirements and the Planner's question")
+        self.assertEqual(1, planning_calls.used(state), "Requirements' question, before any Planner call")
         self.launch(["--run-dir", str(run), "--answer", "Q1=CLI"], 0)
         self.launch(["--run-dir", str(run), "--no-chat"], 2)
         _, paused = self.saved()
         self.assertEqual(planning_calls.STATUS, paused["status"], paused.get("stop_reason"))
         self.assertEqual(2, planning_calls.used(paused), "the answer started the count again; none past the cap")
         launched = [row for row in paused["stages"] if not row.get("runner_owned")]
-        self.assertEqual(4, len(launched))
+        self.assertEqual(3, len(launched))
         # A plain resume and the reached cap restated leave it paused, and launch nothing.
         for restated in ((), ("--max-planning-calls", "2")):
             with self.subTest(restated=restated):
@@ -1491,14 +1494,14 @@ class JointFlow(unittest.TestCase):
         self.launch(["--run-dir", str(run), "--resume-paused", "--max-planning-calls", "0", "--no-chat"], 2)
         _, done = self.saved()
         self.assertEqual("AWAITING_GOAL_APPROVAL", done["status"], done.get("stop_reason"))
-        self.assertEqual(4, planning_calls.used(done))
+        self.assertEqual(5, planning_calls.used(done))
         self.assertEqual(0, done["settings"]["limits"]["planning_calls"])
 
     def test_opencode_planning_approval_then_implementation_and_validation(self):
         run, state = self.draft()
         stages = state["stages"]
         self.assertEqual(
-            ["requirements", "planner", "planner", "task_planner", "planner", "task_planner"],
+            ["requirements", "requirements", "planner", "task_planner", "planner", "task_planner"],
             [r["role"] for r in stages],
         )
         self.assertEqual(["opencode"] * 6, [r["engine"] for r in stages])
@@ -1718,7 +1721,7 @@ class JointFlow(unittest.TestCase):
         self.assertEqual(1, source.count(anchor), "Timeout injection must reach the owned fixture")
         fake.write_text(source.replace(anchor, TIMEOUT_ONCE))
         self.env["AUTOCODE_FIXTURE_TIMEOUT_ONCE"] = str(self.root / "timeout-once")
-        self.launch(["Build a greeting tool", "--no-chat", "--max-stage-seconds", "5"], 2)
+        self.launch(["Build a greeting tool", "--no-chat", "--max-stage-seconds", "25"], 2)
         run, _ = self.saved()
         args = ["--run-dir", str(run), "--no-chat"]
         self.launch([*args, "--answer", "Q1=CLI"], 0)
@@ -1728,7 +1731,7 @@ class JointFlow(unittest.TestCase):
         # test_failed_extended_review_...). Stop at the pre-final checkpoint with
         # an explicit pause request to inspect the same boundary as before.
         result = self.launch([*args, "--pause-after-stage"], 2)
-        for expected_stage in ("review_plan", "revise_plan", "finalize_plan"):
+        for expected_stage in ("draft_plan", "review_plan", "revise_plan", "finalize_plan"):
             checkpoint = self.saved()[1]
             # Reconcile the one deliberately timed-out challenge if its keeper
             # required a cleanup checkpoint. Other blocked outcomes must fail.
@@ -1828,11 +1831,11 @@ class JointFlow(unittest.TestCase):
         run, _ = self.saved()
         args = ["--run-dir", str(run), "--no-chat"]
         self.launch(["--run-dir", str(run), "--answer", "Q1=CLI"], 0)
-        for next_stage, count in (("review_plan", 0), ("revise_plan", 1), ("finalize_plan", 1)):
+        for next_stage, count in (("draft_plan", 0), ("review_plan", 0), ("revise_plan", 1), ("finalize_plan", 1)):
             self.launch([*args, "--resume-paused", "--pause-after-stage"], 2)
             state = self.saved()[1]
             self.assertEqual(next_stage, state["next_stage"])
-            self.assertEqual(count, state["planning"]["plan_review_calls"])
+            self.assertEqual(count, (state.get("planning") or {}).get("plan_review_calls", 0))
         before_final = copy.deepcopy(state)
         self.launch([*args, "--resume-paused"], 2)
         final = self.saved()[1]
@@ -1903,7 +1906,7 @@ class NativeJointFlow(unittest.TestCase):
         self.assertEqual(
             [
                 "requirements_gather",
-                "draft_plan",
+                "requirements_gather",
                 "draft_plan",
                 "review_plan",
                 "revise_plan",
