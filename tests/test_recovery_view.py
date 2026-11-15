@@ -7,6 +7,7 @@ import io
 import itertools
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode_args
 import autocode_configure as configure
@@ -16,6 +17,7 @@ import autocode_recovery_novelty as novelty
 import autocode_recovery_view as recovery
 import autocode_run_finder as finder
 import autocode_run_view as run_view
+import autocode_stop as stop
 
 
 class RecoveryViewTests(unittest.TestCase):
@@ -314,7 +316,10 @@ class RecoveryViewTests(unittest.TestCase):
         ):
             with self.subTest(status=status, fields=fields):
                 view = run_view.view(self.state(status, **fields))
-                self.assertIsNot(False, view["needs"].get("confirmation_required"))
+                if stop.applied_stop(self.state(status, **fields)) is not None:
+                    self.assertIsNone(view["needs"])
+                else:
+                    self.assertIsNot(False, view["needs"].get("confirmation_required"))
 
     def test_interruption_is_exact_abandon_without_resume_and_missing_attempt_has_no_guess(self):
         state = self.state(
@@ -715,3 +720,115 @@ class AuthenticationStopTests(unittest.TestCase):
                 self.assertNotIn("expired", what)
                 self.assertNotIn("HTTP 401", what)
                 self.assertEqual(before, state)
+
+
+class StoppedRunProjectionTests(unittest.TestCase):
+    def setUp(self):
+        guard = patch("subprocess.Popen", side_effect=AssertionError("A status projection must not launch a process"))
+        self.launch = guard.start()
+        self.addCleanup(guard.stop)
+
+    def state(self, **fields):
+        return RecoveryViewTests().state(
+            **{
+                "status": "PAUSED_INTERVENTION",
+                "workspace": "/ws",
+                "run_dir": "/run",
+                "stop_reason": stop.STOP_REASON,
+                **fields,
+            }
+        )
+
+    def apply_stop(self, state, actor="user_cli"):
+        if actor == stop.RUNNER_ACTOR:
+            stop.end(state, "An internal check could not be verified.", {"retained": "evidence"}, at="saved")
+        else:
+            state["applied_interventions"] = [{"id": "saved-stop", "kind": "stop", "actor": actor}]
+
+    def assert_terminal(self, state):
+        before = copy.deepcopy(state)
+        self.assertIsNone(run_view.needs(state))
+        action = run_view.action(state, workspace="/ws", run_dir="/run")
+        self.assertIsNone(action["needs"])
+        self.assertIsNone(action["next_command"])
+        public = run_view.view(state, workspace=Path("/ws"), run_dir=Path("/run"))
+        self.assertIsNone(public["needs"])
+        self.assertIsNone(public["next_command"])
+        self.assertEqual("stopped", public["recovery"]["category"])
+        self.assertEqual(["inspect", "new_conversation"], [row["kind"] for row in public["recovery"]["actions"]])
+        self.assertIsNone(public["chat"]["input"])
+        self.assertEqual(before, state)
+        self.launch.assert_not_called()
+        return public
+
+    def test_applied_user_stop_is_terminal_even_before_status_reconciliation(self):
+        for status in ("PAUSED_INTERVENTION", "RUNNING"):
+            with self.subTest(status=status):
+                state = self.state(status=status)
+                self.apply_stop(state)
+                self.assert_terminal(state)
+
+    def test_autocode_stop_keeps_its_failed_outcome_without_a_resume_need(self):
+        state = self.state(status="RUNNING")
+        self.apply_stop(state, stop.RUNNER_ACTOR)
+        public = self.assert_terminal(state)
+        self.assertEqual(stop.outcome(state), public["recovery"]["outcome"])
+        self.assertEqual("AutoCode could not finish this task", public["recovery"]["title"])
+        self.assertEqual("autocode", public["pause_category"])
+
+    def test_applied_stop_precedes_retained_failure_presentations(self):
+        for actor in ("user_cli", stop.RUNNER_ACTOR):
+            for scope in ("verification_preparation", "model_listing"):
+                with self.subTest(actor=actor, scope=scope):
+                    record = {
+                        "runner_owned": True,
+                        "engine": "runner",
+                        "decision": {"action": "blocked"},
+                        "receipt": {"scope": scope},
+                    }
+                    state = self.state(
+                        resolver={"operational_diagnostics": ["failure"], "operational_receipts": {"failure": record}}
+                    )
+                    self.apply_stop(state, actor)
+                    self.assert_terminal(state)
+
+    def test_applied_stop_precedes_competing_plan_and_answer_needs(self):
+        for fields, kind in (
+            ({"status": "AWAITING_GOAL_APPROVAL", "displayed_goal": "r1:approved"}, "approve_plan"),
+            ({"status": "WAITING_FOR_USER", "pending_questions": [{"id": "Q1", "question": "Which scope?"}]}, "answer"),
+        ):
+            with self.subTest(kind=kind):
+                state = self.state(**fields)
+                self.assertEqual(kind, run_view.needs(state)["kind"])
+                self.apply_stop(state)
+                self.assert_terminal(state)
+
+    def test_pause_and_stop_now_receipts_remain_resumable(self):
+        for reason in ("Pause requested at a saved boundary.", stop.STOPPED_NOW_REASON):
+            with self.subTest(reason=reason):
+                state = self.state(
+                    stop_reason=reason,
+                    applied_interventions=[{"id": "saved-pause", "kind": "pause", "actor": "user_cli"}],
+                )
+                before = copy.deepcopy(state)
+                public = run_view.view(state, workspace=Path("/ws"), run_dir=Path("/run"))
+                self.assertEqual("resume", public["needs"]["kind"])
+                self.assertIn("--resume-paused", public["next_command"])
+                self.assertNotEqual("stopped", public["recovery"]["category"])
+                self.assertEqual(before, state)
+        self.launch.assert_not_called()
+
+    def test_nonstopped_plan_and_answer_keep_their_named_actions(self):
+        for fields, kind in (
+            ({"status": "AWAITING_GOAL_APPROVAL", "displayed_goal": "r1:approved"}, "approve_plan"),
+            ({"status": "WAITING_FOR_USER", "pending_questions": [{"id": "Q1", "question": "Which scope?"}]}, "answer"),
+        ):
+            with self.subTest(kind=kind):
+                state = self.state(**fields)
+                before = copy.deepcopy(state)
+                public = run_view.view(state, workspace=Path("/ws"), run_dir=Path("/run"))
+                self.assertEqual(kind, public["needs"]["kind"])
+                self.assertIsNotNone(public["next_command"])
+                self.assertEqual("request", public["recovery"]["category"])
+                self.assertEqual(before, state)
+        self.launch.assert_not_called()

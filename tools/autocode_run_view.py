@@ -90,6 +90,7 @@ try:
     from . import autocode_stage_pipeline as stage_pipeline
     from . import autocode_stage_policy as stage_policy
     from . import autocode_startup_timeout_view as startup_timeout_view
+    from . import autocode_stop as stop
     from . import autocode_stop_explanations as stop_explanations
     from . import autocode_task_input as task_input
     from . import autocode_tool_containment as tool_containment
@@ -160,6 +161,7 @@ except ImportError:
     import autocode_stage_pipeline as stage_pipeline
     import autocode_stage_policy as stage_policy
     import autocode_startup_timeout_view as startup_timeout_view
+    import autocode_stop as stop
     import autocode_stop_explanations as stop_explanations
     import autocode_task_input as task_input
     import autocode_tool_containment as tool_containment
@@ -1006,6 +1008,15 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
         from . import autocode_changeset_barrier as changeset_barrier
     except ImportError:
         import autocode_changeset_barrier as changeset_barrier
+    terminal = stop.applied_stop(state) is not None
+    if terminal:
+        category = pause_category.category(state.get("status"), {"reason": stop.stop_reason(state)})
+        return {
+            "needs": None,
+            "pause_category": category,
+            "pause_category_label": pause_category.LABELS.get(category) if category else None,
+            "next_command": None,
+        }
     if (
         verification_failure.presentation(state)
         or model_listing_failure.presentation(state)
@@ -1033,7 +1044,6 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
     status = state.get("status", "")
     need = needs(state, stale_report_repair=stale_report_repair)
     category = pause_category.category(status, need)
-    terminal = any(row.get("kind") == "stop" for row in state.get("applied_interventions", []) if isinstance(row, dict))
     # This status also names novelty/source holds; only its bound hold needs a larger limit.
     resume_flags = (
         None
@@ -1178,10 +1188,14 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                                                      --abandon-stage ATTEMPT as deterministic recovery
     """
     status = state.get("status", "")
-    if status in COMPLETE or (
-        verification_failure.presentation(state)
-        or model_listing_failure.presentation(state)
-        or startup_timeout_view.presentation(state)
+    if (
+        stop.applied_stop(state) is not None
+        or status in COMPLETE
+        or (
+            verification_failure.presentation(state)
+            or model_listing_failure.presentation(state)
+            or startup_timeout_view.presentation(state)
+        )
     ):
         return None
     if retired := workflows.retired_stage(state):
