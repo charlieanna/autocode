@@ -2911,6 +2911,9 @@ report and the original execution evidence; the archived bytes and provider
 usage remain intact. A failed revalidation is recorded once for that runtime.
 Older checkpoints without a handoff binding remain on the existing repair path:
 the current handoff cannot authenticate what the original provider saw.
+Bounded report edits can append missing array entries at consecutive indices
+starting at the original array length. They cannot insert before existing
+entries or skip an index, and all ordinary report and evidence checks still run.
 
 ### Failed workflow jobs
 
