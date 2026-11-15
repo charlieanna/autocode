@@ -797,6 +797,17 @@ function trim(text: string, max: number): string {
  * (24×24, stroke currentColor). The webview CSP loads no fonts or images, so
  * inline markup is the only icon path; codicon names exist only in host UI.
  */
+/** Both detail surfaces use the same section layout and hierarchy. */
+const DETAIL_STYLES = `
+  .detail-section { margin: 4px 0 8px; }
+  .detail-head { display: flex; gap: 8px; align-items: baseline; }
+  .detail-title { font-weight: 600; text-transform: uppercase; letter-spacing: .05em; opacity: .75; font-size: .68rem; }
+  .detail-summary { opacity: .85; }
+  .detail-line { overflow-wrap: anywhere; padding: 1px 0; }
+  .detail-line.sub { padding-left: 12px; opacity: .8; }
+  .detail-line.sub2 { padding-left: 24px; }
+`;
+
 /** The chat's stage rows, cost line, welcome and closing card. Colors come from the VS Code theme. */
 const METER_STYLES = `
   .chat-toolbar { flex-wrap: nowrap; }
@@ -921,13 +932,6 @@ const METER_STYLES = `
   #header-place:empty { display: none; }
   #header-links { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 2px; }
   #header-details { max-height: 35vh; overflow-y: auto; margin-top: 4px; border-top: 1px solid var(--vscode-panel-border); padding-top: 4px; }
-  .detail-section { margin: 4px 0 8px; }
-  .detail-head { display: flex; gap: 8px; align-items: baseline; }
-  .detail-title { font-weight: 600; text-transform: uppercase; letter-spacing: .05em; opacity: .75; font-size: .68rem; }
-  .detail-summary { opacity: .85; }
-  .detail-line { overflow-wrap: anywhere; padding: 1px 0; }
-  .detail-line.sub { padding-left: 12px; opacity: .8; }
-  .detail-line.sub2 { padding-left: 24px; }
 `;
 
 /**
@@ -1042,6 +1046,7 @@ export function panelHtml(chat = false): string {
     #composer .run-control { transition: none; }
     #composer .run-control.busy svg { animation: none; }
   }` : ""}
+  ${DETAIL_STYLES}
   ${chat ? METER_STYLES : ""}
 </style>
 </head>

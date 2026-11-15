@@ -4733,6 +4733,7 @@ test('unestablished start failure rolls back provisional run, restores editable 
 });
 
 test('established run with subsequent status failure does not roll back run (#1539)', async (t) => {
+  t.mock.method(cli, 'stream', async () => ok);
   const ui = await openChat(t, null);
   ui.chat.show();
   await flush();
@@ -5243,6 +5244,7 @@ test('Chat #details toolbar button is disabled without an active run and enabled
 });
 
 test('Command palette run commands show "Select a run first." when no run is selected (#1543)', async (t) => {
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
   t.mock.timers.enable({ apis: ['setInterval'] });
   const messages = [];
   t.mock.method(host.vscode.window, 'showInformationMessage', (msg) => { messages.push(msg); });
@@ -5323,6 +5325,7 @@ test('a deleted chat’s tab closes and leaves the other chats', async (t) => {
 });
 
 test('autocode.watchRun toggles watching off/on, switches watched runs, and updates status bar immediately (#1543)', async (t) => {
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
   t.mock.timers.enable({ apis: ['setInterval'] });
   let statusVisible = false;
   let statusText = '';
@@ -5383,6 +5386,7 @@ test('autocode.watchRun toggles watching off/on, switches watched runs, and upda
 });
 
 test('delayed status resolution does not re-show unwatched run or replace newly watched run (#1543)', async (t) => {
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
   t.mock.timers.enable({ apis: ['setInterval'] });
   let statusVisible = false;
   let statusText = '';
@@ -7788,3 +7792,72 @@ test('a send button held back by unanswered questions says so', async (t) => {
   assert.equal(take.disabled, false);
   assert.equal(take.title, '', 'the reason goes once the answer lands');
 });
+
+function recordedStageEvidence(context, path) {
+  const working = context === 'working';
+  const done = context === 'done';
+  const paused = context === 'paused';
+  return {
+    status: working ? 'RUNNING' : done ? 'TASK_COMPLETE' : context === 'blocked' ? 'PAUSED_PROCESS_CLEANUP' : 'PAUSED_INTERVENTION',
+    done,
+    summary: { state: paused ? 'needs_you' : context, label: context, sentence: 'Recorded state.' },
+    needs: paused ? { kind: 'resume', reason: 'Boundary pause requested' } : null,
+    next_command: paused ? `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused` : null,
+    recovery: ['stopped', 'blocked'].includes(context) ? { category: context, title: context, what_happened: 'Recorded ending.',
+      retained: 'Recorded evidence remains available.', actions: context === 'stopped' ? [{ kind: 'inspect', label: 'Inspect evidence' }, { kind: 'new_conversation', label: 'New conversation' }] : [] } : null,
+    pipeline: [
+      { job: 'requirements', label: 'Requirements', state: working ? 'working' : 'ran', model: 'provider/requirements-model' },
+      { job: 'planner', label: 'Planner', state: working ? 'next' : 'pending', model: 'provider/planner-model', reasoning_effort: 'high' },
+      { job: 'builder', label: 'Builder', state: 'pending', model: 'provider/builder-model', reasoning_effort: 'medium' },
+      { job: 'tester', label: 'Tester', state: 'not_run' },
+    ],
+    routes: { builder: { job: 'Builder', model: 'provider/builder-model', reasoning_effort: 'medium' } },
+    escalations: [{ job: 'Builder', from: 'prior-model', to: 'provider/builder-model', trigger: 'prior failure', outcome: 'failure evidence retained' }],
+    stage_policy: { path, decisions: [{ stage: 'draft_plan', decision: 'included', reason: 'Recorded policy choice' }], reasons: [] },
+    chat: { messages: [], input: null },
+  };
+}
+
+for (const surface of ['chat', 'Run details']) {
+  for (const context of ['working', 'paused', 'stopped', 'blocked', 'done']) {
+    for (const path of ['full', 'compact']) {
+      test(`recorded stage evidence: ${surface}, ${context}, ${path} policy remains observation only`, async (t) => {
+        const launch = t.mock.method(cli, 'stream', async () => ok);
+        const value = recordedStageEvidence(context, path);
+        const ui = surface === 'chat' ? await openChat(t, value) : await openPanel(t, value);
+        if (surface === 'chat') ui.document.querySelector('#header-toggle').click();
+        const host = surface === 'chat' ? ui.document.querySelector('#header-details') : ui.document.querySelector('#app');
+        const stages = host.querySelector('[data-section="pipeline"]').textContent;
+        assert.match(stages, /Builder: not run; saved route: provider\/builder-model medium/);
+        assert.match(stages, /Tester: not run/);
+        if (context === 'working') {
+          assert.match(stages, /Requirements working/);
+          assert.match(stages, /Planner: next; saved route: provider\/planner-model high/);
+        } else assert.match(stages, /1 of 4 ran/);
+        const models = host.querySelector('[data-section="routes"]');
+        assert.equal(models.querySelector('.detail-title').textContent, 'Models');
+        assert.equal(models.querySelector('.detail-summary').textContent, '1 saved route');
+        assert.match(models.textContent, /Builder: provider\/builder-model · medium/);
+        assert.match(models.textContent, /failure evidence retained/);
+        assert.equal(host.querySelector('[data-section="path"] .detail-summary').textContent, path === 'full' ? 'Full planning path' : 'Compact planning path');
+        assert.doesNotMatch(host.textContent, /will run on|Models for the next attempts|every stage runs/);
+        assert.equal(launch.mock.callCount(), 0);
+      });
+    }
+  }
+
+  test(`recorded stage evidence: ${surface} applies readable detail styles to the actual nodes`, async (t) => {
+    const value = recordedStageEvidence('stopped', 'full');
+    const ui = surface === 'chat' ? await openChat(t, value) : await openPanel(t, value);
+    if (surface === 'chat') ui.document.querySelector('#header-toggle').click();
+    const host = surface === 'chat' ? ui.document.querySelector('#header-details') : ui.document.querySelector('#app');
+    const section = host.querySelector('[data-section="pipeline"]');
+    const head = section.querySelector('.detail-head');
+    assert.equal(ui.window.getComputedStyle(head).display, 'flex', 'section title and summary are laid out separately');
+    assert.equal(ui.window.getComputedStyle(head).gap, '8px', 'the summary has the same visible separation in each surface');
+    assert.equal(ui.window.getComputedStyle(head.querySelector('.detail-title')).fontWeight, '600');
+    assert.equal(ui.window.getComputedStyle(section.querySelector('.detail-line')).overflowWrap, 'anywhere', 'a long route wraps instead of stretching the pane');
+    const historical = host.querySelector('[data-section="routes"] .detail-line.sub');
+    assert.equal(ui.window.getComputedStyle(historical).paddingLeft, '12px', 'recorded route history retains its indentation');
+  });
+}
