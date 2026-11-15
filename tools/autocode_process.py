@@ -702,7 +702,14 @@ def interruption_handler():
     after this scope too, until the held scope ends. A scope opened inside another
     on the main thread changes nothing: the enclosing one raises the one interrupt.
     """
-    if _handling and threading.current_thread() is threading.main_thread():
+    if threading.current_thread() is not threading.main_thread():
+        # Only the main thread may install handlers. The controller's background
+        # Requirements call (#3233) runs this same launch path off the main thread,
+        # where the invocation's own held scope on the main thread keeps owning
+        # interrupts, so this stage scope is a no-op there instead of a crash.
+        yield
+        return
+    if _handling:
         yield
         return
     held = _held[-1] if _held else None
@@ -1059,7 +1066,14 @@ def wait_for_stage(
         # meanwhile is deferred, not ignored: ignoring lost the hangup that came
         # as a provider ended, and the run went on (#454).
         deferred = []
-        handlers = {sig: signal.signal(sig, lambda signum, frame: deferred.append(signum)) for sig in INTERRUPTS}
+        # A non-main-thread caller (the controller's background Requirements call,
+        # #3233) cannot install the deferral handlers; nothing is deferred there and
+        # the main thread's own scopes keep owning interrupts.
+        handlers = (
+            {sig: signal.signal(sig, lambda signum, frame: deferred.append(signum)) for sig in INTERRUPTS}
+            if threading.current_thread() is threading.main_thread()
+            else {}
+        )
         try:
             receipts.cancel.set()
             if receipts.started:

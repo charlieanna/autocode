@@ -186,6 +186,13 @@ to investigate as a bug, retaining provider, model, host and human-wait evidence
 These are initial observational targets from one paired sample, not a measured
 population percentile, a guarantee, or a target for the default profile.
 
+Since the [chat reading-time overlap](docs/task-run.md#the-requirements-reading-time-overlap)
+(#3233 part 1), a chat run whose Requirements pause offers a default for every
+question runs that full pass while the person reads and keeps it when the answers
+match, so model time no longer waits behind reading time between the first
+question and the plan. The three targets above are unchanged: part 2 of #3233
+takes a paired live sample on this profile and lowers them only if it supports it.
+
 On 2026-10-10 the frozen #727 candidate on base `e18cf660` saved first question,
 plan and Builder dispatch at **291.251412 / 563.112154 / 655.162113 seconds**.
 The baseline's external observations were **415.238558 / 1016.650956 /

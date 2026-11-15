@@ -357,6 +357,22 @@
                         ],
                         "minimum": 0,
                         "description": "Seconds from launch until the last observed provider stream event, or null when unknown/no events arrived."
+                      },
+                      "speculative": {
+                        "type": "boolean",
+                        "description": "True on the attempt of the full Requirements pass AutoCode ran in the background while the person read a blocking-question pause (#3233 part 1). Its spend is real and counted; only its report may be thrown away. Absent on every other attempt."
+                      },
+                      "outcome": {
+                        "type": "string",
+                        "enum": [
+                          "kept",
+                          "discarded"
+                        ],
+                        "description": "How a speculative pass settled: kept when every answer equalled the default it assumed, discarded otherwise, when the run was stopped, or when a resume found it unfinished. Present only beside speculative; a pass still running names none."
+                      },
+                      "reason": {
+                        "type": "string",
+                        "description": "The keep/discard decision's own reason in words, as the run recorded it, beside a speculative outcome. Empty when the decision carried no further reason."
                       }
                     }
                   }
