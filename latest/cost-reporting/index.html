@@ -1982,8 +1982,19 @@ switched on and no model is called.</p>
 <li><strong>Project ledger.</strong> <code>PROJECT/.autocode/usage.jsonl</code> has one row per run, rewritten at every
   checkpoint save, so it is right during a task and after it pauses, completes or is killed. It
   is under <code>.autocode/</code>, which Git ignores.</li>
-<li><strong>Report.</strong> <code>python3 tools/autocode_usage.py [PROJECT]</code> prints one line per run and a total;
-  <code>--json</code> prints the rows.</li>
+<li><strong>Outcome and latency fields.</strong> Alongside stage time and cost, each ledger row records
+  additive summary metrics (<code>schema: 2</code>): stage outcomes split into <code>accepted</code>, <code>rejected</code> (when
+  an attempt's output or decision was rejected), and <code>report_repair</code>; rejection classes and
+  routes (<code>stage_wall</code>, <code>provider_timeout</code>, <code>not_a_report</code>, <code>schema</code>, <code>contract_rule</code>,
+  <code>evidence_not_authenticated</code>, <code>other</code>); first-interaction latency with <code>human_wait</code> separated;
+  stage prompt byte size and first-request cache counts; and run outcome/plan size without
+  recording prompt text, model output, raw rejection prose, or credentials.</li>
+<li><strong>Cross-run report.</strong> <code>autocode usage report [--workspace PATH] [--since DATE] [--all] [--json]</code>
+  (or <code>autocode usage list</code> for raw rows, and backward-compatible
+  <code>python3 tools/autocode_usage.py [PROJECT] [--json]</code>) aggregates only <code>usage.jsonl</code> ledgers —
+  never <code>state.json</code> — keeping <code>live</code> and <code>fake</code> evidence separate and comparing against
+  <a href="../efficiency-targets.json">efficiency-targets.json</a>. Legacy rows without new fields are counted
+  under <code>not_recorded</code>.</li>
 </ul>
 <p>Cost has three bases, always kept apart: <strong>reported</strong> is the provider's own <code>cost_usd</code> (the built-in
 claude provider writes each call's share of Claude Code's cumulative session cost; a provider that
