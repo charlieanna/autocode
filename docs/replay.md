@@ -186,6 +186,12 @@ are still compared with the recording's commands, and a difference is refused.
 A recording made while the two-project and `requirements.txt` rules existed
 (2026-11-15) kept no homes and replays only where those rules were not used.
 
+The same holds in a project with no runner AutoCode detects, where a live proof
+finds which of the plan's commands runs the project's tests by running them (see
+[named test proof](named-test-proof.md)): a simulated proof takes that answer from
+the recorded receipt (`plan_command_roles`), for the same plan, and its commands
+are compared with the recording's as above.
+
 ## Public task-run interface
 
 The CLI uses [`TaskRun`](task-run.md), including its ordinary approval and

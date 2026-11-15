@@ -36,15 +36,21 @@ except ImportError:
     import autocode_verification_plan as verification_plan
 
 
-def _commands(method) -> list[str]:
+def _commands(method, runs=None) -> list[str]:
     """The commands a criterion's method runs; a guard that is a command (autocode_command_guards) runs it."""
     guard = test_cases.guard_command(method)
-    return [guard] if guard else verification_plan.commands(method)
+    try:
+        return [guard] if guard else verification_plan.commands(method, runs=runs)
+    except ValueError:
+        if runs is None:
+            raise
+        return []  # exit codes the plan check would refuse: no command to try
 
 
-def approved_commands(contract) -> list[str]:
+def approved_commands(contract, *, runs=None) -> list[str]:
     """The commands the approved plan's acceptance criteria run, in criterion order; [] unless approved. A
-    guard that is a command (autocode_command_guards) runs that command."""
+    guard that is a command (autocode_command_guards) runs that command. ``runs`` says which text is a
+    command (autocode_verification_plan.commands), for a caller that looks for one to try."""
     if not isinstance(contract, dict) or contract.get("approval_status") != "approved":
         return []
     rows = (contract.get("body") or {}).get("acceptance_criteria") or []
@@ -52,7 +58,7 @@ def approved_commands(contract) -> list[str]:
         command
         for row in rows
         if isinstance(row, dict) and not row.get("human_review")
-        for command in _commands(row.get("verification_method") or "")
+        for command in _commands(row.get("verification_method") or "", runs)
     ]
     return list(dict.fromkeys(found))
 

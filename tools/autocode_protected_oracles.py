@@ -34,6 +34,7 @@ from pathlib import Path, PurePosixPath
 try:
     from . import autocode_command_receipt as command_receipt
     from . import autocode_package_scope as package_scope
+    from . import autocode_plan_command_roles as plan_roles
     from . import autocode_plan_proof_command as plan_command
     from . import autocode_protected_commands as commands
     from . import autocode_protected_paths as paths
@@ -51,6 +52,7 @@ try:
 except ImportError:
     import autocode_command_receipt as command_receipt
     import autocode_package_scope as package_scope
+    import autocode_plan_command_roles as plan_roles
     import autocode_plan_proof_command as plan_command
     import autocode_protected_commands as commands
     import autocode_protected_paths as paths
@@ -473,7 +475,8 @@ def _plan_suite(state: RunState, record):
         original_tests=list(record["files"]),
         changed_tests=[],
     )
-    return chosen["suite"] if chosen else None
+    # Where no rule knows the plan's command, the one the proof saw run the project's existing tests.
+    return chosen["suite"] if chosen else plan_roles.suite(state, state.get("goal_contract"))
 
 
 def _failed(row):
