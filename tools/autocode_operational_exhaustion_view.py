@@ -17,12 +17,14 @@ try:
     from . import autocode_pause_authority as pause_authority
     from . import autocode_recovery_progress as recovery_progress
     from . import autocode_resolver_human as human
+    from . import autocode_stop_explanations as stop_explanations
     from . import autocode_validation_exhaustion_recovery as validation
 except ImportError:
     import autocode_no_progress_recovery as no_progress
     import autocode_pause_authority as pause_authority
     import autocode_recovery_progress as recovery_progress
     import autocode_resolver_human as human
+    import autocode_stop_explanations as stop_explanations
     import autocode_validation_exhaustion_recovery as validation
 
 
@@ -30,6 +32,7 @@ except ImportError:
 # internal failure must not remove the person's existing ability to change them.
 PROTECTED_BOUNDS = frozenset(
     {
+        "PAUSED_BUDGET",
         "PAUSED_COST_LIMIT",
         "PAUSED_TIME_LIMIT",
         "PAUSED_ITERATION_LIMIT",
@@ -72,9 +75,20 @@ def presentation(state: RunState, *, reconciliation_checked=False):
         or budget.get("category") in ("explicit_user_cap", "protected_saved_limit")
     ):
         return None
+    # Reuse the shared plain-language cause, never the saved model's raw text.
+    # These generic recovery statuses describe an active hold in the ordinary
+    # stop table, but this authenticated request has already exhausted it.
+    if pause == "PAUSED_TIMEOUT_RECOVERY":
+        cause = "A model step timed out and automatic recovery ran out of safe attempts."
+    elif pause in ("PAUSED_RESOLVER", "PAUSED_RESOLVER_OPERATIONAL"):
+        cause = "Automatic recovery could not settle the recorded failure."
+    else:
+        cause = stop_explanations.TABLE.get(pause, ("", ""))[0]
     return {
         "category": "blocked",
         "title": "AutoCode could not continue this task",
-        "what_happened": "AutoCode could not safely continue this task. It kept the saved work and failure evidence.",
+        "what_happened": (
+            f"{cause} AutoCode could not safely continue this task. It kept the saved work and failure evidence."
+        ).strip(),
         "what_it_means": "The task is not complete. AutoCode will not repeat the step without a safe recovery.",
     }

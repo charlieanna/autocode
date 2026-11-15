@@ -40,8 +40,23 @@ class OperationalExhaustionPersonViewTests(unittest.TestCase):
                 self.assertIsNone(view["chat"]["input"])
                 self.assertFalse(view["done"])
 
+    def test_failure_explains_its_saved_cause_without_requesting_recovery(self):
+        for pause, expected in (
+            ("PAUSED_TIMEOUT_RECOVERY", "timed out"),
+            ("PAUSED_REPORT_REPAIR_LIMIT", "Report repair"),
+            ("PAUSED_PROVIDER_UNCERTAIN", "provider result is uncertain"),
+            ("PAUSED_REPEATED_FAILURE", "same failure repeated"),
+        ):
+            with self.subTest(pause=pause):
+                self.setUp()
+                saved, run = self.exhausted(stall="during_reasoning_or_output", pause=pause)
+                view = run_view.view(saved, run_dir=run, workspace=Path(saved["workspace"]))
+                self.assertIn(expected.lower(), view["recovery"]["what_happened"].lower())
+                self.assertIn(expected.lower(), view["explanation"]["what_happened"].lower())
+                self.assertIsNone(view["next_command"])
+
     def test_spending_and_time_boundaries_keep_their_existing_actions(self):
-        for pause in ("PAUSED_COST_LIMIT", "PAUSED_TIME_LIMIT", "PAUSED_ITERATION_LIMIT"):
+        for pause in ("PAUSED_BUDGET", "PAUSED_COST_LIMIT", "PAUSED_TIME_LIMIT", "PAUSED_ITERATION_LIMIT"):
             with self.subTest(pause=pause):
                 self.setUp()
                 saved, run = self.exhausted(pause=pause)
