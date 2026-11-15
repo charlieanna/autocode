@@ -22,6 +22,7 @@ import {
   findUnsupplied,
   integerValue,
   isAdvancing,
+  jobTimeOffers,
   openDecisions,
   parseNamedCommand,
   ClientGap,
@@ -303,6 +304,31 @@ export class RunController {
     const own = effective(view, run);
     const offer = boundOffer(view, own);
     if (!offer) throw new ClientGap("AutoCode offers no limit to raise for this pause");
+    const argv = [...offer.named.argv];
+    argv[offer.input.arg_index] = integerValue(text, offer.input);
+    const args = [...argv, "--workspace", own.workspace, "--run-dir", own.runDir];
+    this.log.appendLine(`$ autocode ${args.map(redact).join(" ")}`);
+    const result = await this.mutating([run, own], () =>
+      stream(this.settings, args, offer.named.env, (chunk) => this.log.append(chunk)));
+    this.log.appendLine(`[autocode exited ${result.code}]`);
+    if (result.rejected) throw new Error(`AutoCode rejected the command:\n${tail(result)}`);
+    if (result.code !== 0 && result.code !== 2) throw new Error(tail(result));
+    return result;
+  }
+
+  jobTimeControls(view: StatusView, run: RunRef): IntegerCommandInput[] {
+    try {
+      return jobTimeOffers(view, effective(view, run)).map(({ input: { command: _command, ...input } }) => input);
+    } catch (error) {
+      if (error instanceof ClientGap) return [];
+      throw error;
+    }
+  }
+
+  async setJobTime(view: StatusView, run: RunRef, id: string, text: string): Promise<CliResult> {
+    const own = effective(view, run);
+    const offer = jobTimeOffers(view, own).find((row) => row.input.id === id);
+    if (!offer) throw new ClientGap("AutoCode no longer offers that time control");
     const argv = [...offer.named.argv];
     argv[offer.input.arg_index] = integerValue(text, offer.input);
     const args = [...argv, "--workspace", own.workspace, "--run-dir", own.runDir];

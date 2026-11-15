@@ -13,6 +13,8 @@ from unittest.mock import Mock, patch
 import autocode_args as arguments
 import autocode_job_args as job_args
 import autocode_job_failure as failure
+import autocode_job_time_view as job_time_view
+import autocode_run_view as run_view
 from autocode_taskrun import TaskRun, TaskRunError
 
 from . import test_acceptance_writer_route as writer_fixture
@@ -94,6 +96,10 @@ class StageLimitPolicyTests(unittest.TestCase):
                 "stage": "write_acceptance_tests",
                 "source_identity": "original",
                 "job_retry_token": "jr:current",
+                "reason": "Stage timed out",
+                "archive": "/run/archive",
+                "write_diagnosis": {},
+                "unrestored": [],
             },
             "recovery_context": {
                 "timeout_kind": "stage",
@@ -101,8 +107,47 @@ class StageLimitPolicyTests(unittest.TestCase):
                 "stage": "write_acceptance_tests",
             },
             "status": "PAUSED_JOB_FAILURE",
+            "active_seconds": 1000,
             "user_events": [],
         }
+
+    def test_failed_job_offers_separate_token_bound_time_controls(self):
+        state = self.state()
+        view = run_view.action(state, run_dir=Path("/run"), workspace=Path("/workspace"))
+        controls = view["needs"]["job_time_controls"]
+        self.assertEqual(["max_seconds", "max_stage_seconds"], [row["id"] for row in controls])
+        for row, flag, current in zip(controls, ("--max-seconds", "--max-stage-seconds"), (5000, 900), strict=True):
+            self.assertEqual((current, current + 1), (row["current"], row["minimum"]))
+            self.assertEqual(flag, row["flag"])
+            self.assertIn("AUTOCODE_JOB_RETRY_TOKEN=jr:current", row["command"])
+            self.assertIn(f"{flag} N --job-retry-token -", row["command"])
+            self.assertNotIn("--resume-paused", row["command"])
+        state["recovery_context"]["timeout_kind"] = "idle"
+        controls = run_view.action(state, run_dir=Path("/run"), workspace=Path("/workspace"))["needs"][
+            "job_time_controls"
+        ]
+        self.assertEqual(["max_seconds"], [row["id"] for row in controls])
+
+    def test_time_controls_only_describe_actionable_finite_limits(self):
+        state = self.state()
+        need = run_view.needs(state)
+        for key in ("active_stage", "active_runner_check", "pending_report_repair", "uncertain_artifacts"):
+            with self.subTest(busy=key):
+                busy = copy.deepcopy(state)
+                busy[key] = {"in_progress": True}
+                self.assertEqual([], job_time_view.offers(busy, need, run_dir="/run", workspace="/workspace"))
+        for value in (None, 0):
+            with self.subTest(total=value):
+                uncapped = copy.deepcopy(state)
+                uncapped["settings"]["limits"]["max_seconds"] = value
+                self.assertEqual(
+                    ["max_stage_seconds"],
+                    [row["id"] for row in job_time_view.offers(uncapped, need, run_dir="/run", workspace="/workspace")],
+                )
+        for change in ({"kind": "recover_source"}, {"job_retry_token": None}):
+            self.assertEqual(
+                [], job_time_view.offers(state, {**need, **change}, run_dir="/run", workspace="/workspace")
+            )
 
     def change(self, state, seconds):
         expected = copy.deepcopy(state["settings"])

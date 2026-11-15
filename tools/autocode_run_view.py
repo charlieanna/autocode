@@ -58,6 +58,7 @@ try:
     from . import autocode_finding_rescope as finding_rescope
     from . import autocode_goals as goals
     from . import autocode_implementation_discrepancy as implementation_discrepancy
+    from . import autocode_job_time_view as job_time_view
     from . import autocode_liveness as liveness_policy
     from . import autocode_member_stop as member_stop
     from . import autocode_no_progress_recovery as no_progress_recovery
@@ -124,6 +125,7 @@ except ImportError:
     import autocode_finding_rescope as finding_rescope
     import autocode_goals as goals
     import autocode_implementation_discrepancy as implementation_discrepancy
+    import autocode_job_time_view as job_time_view
     import autocode_liveness as liveness_policy
     import autocode_member_stop as member_stop
     import autocode_no_progress_recovery as no_progress_recovery
@@ -1052,6 +1054,15 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
         inputs = [{**inputs[0], "command": named_raise}] if named_raise and token else None
     if inputs and need is not None:
         need = {**need, "command_inputs": inputs}
+    job_times = (
+        job_time_view.offers(
+            state, need, run_dir=run_dir or state.get("run_dir"), workspace=workspace or state.get("workspace")
+        )
+        if not terminal
+        else []
+    )
+    if job_times:
+        need = {**need, "job_time_controls": job_times}
     ready_boundary = (
         (need or {}).get("kind") == "continue"
         and state.get("active_stage") is None

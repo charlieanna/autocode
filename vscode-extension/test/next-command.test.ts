@@ -11,6 +11,7 @@ import {
   commandInputs,
   findUnsupplied,
   isAdvancing,
+  jobTimeOffers,
   leavesForPerson,
   openDecisions,
   parseNamedCommand,
@@ -22,6 +23,24 @@ import type { ChangesetSummary, StatusView } from "../src/core/view";
 const RUN = "/ws/.autocode/runs/20261015-run";
 const WS = "/ws";
 const own = { runDir: RUN, workspace: WS };
+
+test("failed-job time offers bind only the current token and never retry", () => {
+  const row = { id: "max_stage_seconds", kind: "integer" as const, flag: "--max-stage-seconds", placeholder: "N" as const,
+    arg_index: 1 as const, label: "Time per step (seconds)", current: 900, used: 900, minimum: 901, maximum: 2147483647,
+    command: `AUTOCODE_JOB_RETRY_TOKEN=jr:current autocode --run-dir ${RUN} --workspace ${WS} --max-stage-seconds N --job-retry-token -` };
+  const view: StatusView = { status: "PAUSED_JOB_FAILURE", done: false,
+    needs: { kind: "retry_job", job_retry_token: "jr:current", job_time_controls: [row] } };
+  assert.deepEqual(jobTimeOffers(view, own)[0]?.named.argv, ["--max-stage-seconds", "N", "--job-retry-token", "-"]);
+  for (const change of [
+    { command: row.command.replace("jr:current", "jr:stale") },
+    { command: row.command + " --resume-paused" },
+    { minimum: 900 }, { maximum: Number.MAX_SAFE_INTEGER }, { flag: "--max-seconds" },
+  ]) {
+    const bad = structuredClone(view);
+    Object.assign(bad.needs!.job_time_controls![0]!, change);
+    assert.throws(() => jobTimeOffers(bad, own), ClientGap);
+  }
+});
 
 function timeOffer(): StatusView {
   return {

@@ -1807,6 +1807,16 @@ the structured action from a fresh status read, never parse the displayed prose
 or replace an expired action's token with one from a newer view. The same rule
 applies to separate numeric offers, model retry offers and chat recovery replies.
 
+A stopped, source-bound job may separately offer `needs.job_time_controls`. Each
+row describes one finite integer and a complete save-only `command`, bound to
+`needs.job_retry_token` through `AUTOCODE_JOB_RETRY_TOKEN`. A total-time row is
+offered when a finite total is saved; a per-step row is offered only for the
+matching hard stage timeout. The minimum exceeds the saved total and active time,
+or the saved per-step deadline, respectively. Saving changes no model route and
+does not authorize a retry. The job issues a new token, so a client must read a
+fresh view before offering or taking any subsequent action. The VS Code sidebar
+and Run Details accept an explicit number for each row and confirm the save.
+
 `needs.command_inputs` describes the one number a pause leaves to a person, so a
 client can ask for it instead of handing the command off (#2044). Every bound a
 budget pause names is described, with the same row shape:

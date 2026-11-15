@@ -218,6 +218,36 @@ export function boundOffer(
   return { input: checkInput(view, input, named), named };
 }
 
+/** Independent save-only time changes named for the exact stopped job. */
+export function jobTimeOffers(
+  view: StatusView, own: { runDir: string; workspace: string },
+): { input: IntegerCommandInput; named: NamedCommand }[] {
+  const rows = view.needs?.job_time_controls;
+  if (rows === undefined) return [];
+  const gap = () => new ClientGap("Unsupported or stale failed-job time control from AutoCode");
+  const token = view.needs?.job_retry_token;
+  if (!Array.isArray(rows) || rows.length > 2 || view.needs?.kind !== "retry_job" || !token) throw gap();
+  const seen = new Set<string>();
+  return rows.map((input) => {
+    const stage = input?.id === "max_stage_seconds";
+    const total = input?.id === "max_seconds";
+    const flag = stage ? "--max-stage-seconds" : "--max-seconds";
+    const maximum = stage ? 2147483647 : Number.MAX_SAFE_INTEGER;
+    const label = stage ? "Time per step (seconds)" : "Total active time (seconds)";
+    if ((!stage && !total) || seen.has(input.id) || input.kind !== "integer" || input.flag !== flag
+      || input.placeholder !== "N" || input.arg_index !== 1 || input.label !== label || input.maximum !== maximum
+      || !count(input.current, false) || input.current === 0 || !count(input.used, true)
+      || (stage && input.used !== input.current) || !Number.isSafeInteger(input.minimum)
+      || input.minimum !== Math.floor(Math.max(input.current, input.used!)) + 1 || input.minimum > maximum
+      || typeof input.command !== "string") throw gap();
+    seen.add(input.id);
+    const named = parseNamedCommand(input.command, own);
+    if (Object.keys(named.env).length !== 1 || named.env.AUTOCODE_JOB_RETRY_TOKEN !== token
+      || JSON.stringify(named.argv) !== JSON.stringify([flag, "N", "--job-retry-token", "-"])) throw gap();
+    return { input, named };
+  });
+}
+
 /** Digits supplied by the person, within the advertised finite integer bounds. */
 export function integerValue(value: string | undefined, input: IntegerCommandInput): string {
   const number = typeof value === "string" && /^[0-9]+$/.test(value) ? Number(value) : NaN;
