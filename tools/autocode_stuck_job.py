@@ -369,27 +369,9 @@ def stopped(state: RunState, status: str, reason: str) -> str:
     return rejection_retry.stop_reason(state, stage, status, _seen(state, stage, status), reason)
 
 
-def persons_review_total(state: RunState, status: str) -> bool:
-    """A planning-budget pause at the review total the person chose in this run (--planning-review-call-limit).
-
-    Nothing there needs investigating: the runner keeps the counter itself and the person set the number, so
-    an Investigator call only cost a model call before the same pause (#3094), and its retry would raise the
-    person's own limit. The pause goes straight back to them with its typed allowance offer."""
-    return (
-        status == "PAUSED_PLANNING_BUDGET"
-        and (state.get("planning") or {}).get("review_call_limit_origin") == "user_explicit"
-    )
-
-
-def operator_retried(state: RunState, stage: str) -> bool:
-    """An operator authorized a retry of this stage's failure (--retry-failed-stage): its
-    outcome goes back to the operator, who is already handling that exact failure."""
-    keys = {
-        row.get("failure_key")
-        for row in state.get("stages") or []
-        if row.get("stage") == stage and row.get("failure_key")
-    }
-    return any(grant.get("failure_key") in keys for grant in state.get("failure_retry_authorizations") or [])
+# Shared with autocode_resolve_repair_job so both recovery lanes respect the same person/operator bounds.
+persons_review_total = resolve_repair_job.persons_review_total
+operator_retried = resolve_repair_job.operator_retried
 
 
 def annotate(state: RunState, status: str, reason: str) -> str:

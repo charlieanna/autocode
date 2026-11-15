@@ -24,6 +24,7 @@ try:
     from . import autocode_draft_assignment as draft_assignment
     from . import autocode_goals as goals
     from . import autocode_planning_calls as planning_calls
+    from . import autocode_progressive_state as progressive
     from . import autocode_prompts as prompts
     from . import autocode_report_edits as report_edits
     from . import autocode_report_source as report_source
@@ -42,6 +43,7 @@ except ImportError:
     import autocode_draft_assignment as draft_assignment
     import autocode_goals as goals
     import autocode_planning_calls as planning_calls
+    import autocode_progressive_state as progressive
     import autocode_prompts as prompts
     import autocode_report_edits as report_edits
     import autocode_report_source as report_source
@@ -197,15 +199,42 @@ def _history_has_repair(state: RunState, stage: str | None, output: str | None, 
     return False
 
 
+def persons_review_total(state: RunState, status: str) -> bool:
+    """A planning-budget pause at the review total the person chose in this run (--planning-review-call-limit).
+
+    Nothing there needs investigating or Resolver repair: the runner keeps the counter itself and the person set
+    the number, so a recovery call only costs a model call before the same pause (#3094), and its retry would
+    raise the person's own limit. The pause goes straight back to them with its typed allowance offer."""
+    return (
+        status == "PAUSED_PLANNING_BUDGET"
+        and (state.get("planning") or {}).get("review_call_limit_origin") == "user_explicit"
+    )
+
+
+def operator_retried(state: RunState, stage: str) -> bool:
+    """An operator authorized a retry of this stage's failure (--retry-failed-stage): its
+    outcome goes back to the operator, who is already handling that exact failure."""
+    keys = {
+        row.get("failure_key")
+        for row in state.get("stages") or []
+        if row.get("stage") == stage and row.get("failure_key")
+    }
+    return any(grant.get("failure_key") in keys for grant in state.get("failure_retry_authorizations") or [])
+
+
 def eligible_report_repair(state: RunState) -> bool:
     """True when a rejected report already spent 1 local repair (or failed correction) and may escalate."""
-    if stop.applied_stop(state):
+    if stop.applied_stop(state) or state.get("version", 2) < 3:
         return False
     pending = state.get("pending_report_repair")
     if not isinstance(pending, dict):
         return False
     original = pending.get("original")
-    if not isinstance(original, dict) or state.get("next_stage") != original.get("stage"):
+    if (
+        not isinstance(original, dict)
+        or state.get("next_stage") != original.get("stage")
+        or operator_retried(state, original["stage"])
+    ):
         return False
     if pending.get("attempts", 0) < 1 and not pending.get("correction_failed"):
         return False
@@ -217,13 +246,17 @@ def eligible_report_repair(state: RunState) -> bool:
 def queue_from_pending(state: RunState, run_dir: Path | None = None, *, force: bool = False) -> bool:
     """Escalate ``pending_report_repair`` into ``resolve_repair_request`` and schedule ``resolve_repair``."""
     del run_dir
-    if stop.applied_stop(state):
+    if stop.applied_stop(state) or state.get("version", 2) < 3:
         return False
     pending = state.get("pending_report_repair")
     if not isinstance(pending, dict):
         return False
     original = pending.get("original")
-    if not isinstance(original, dict) or state.get("next_stage") != original.get("stage"):
+    if (
+        not isinstance(original, dict)
+        or state.get("next_stage") != original.get("stage")
+        or operator_retried(state, original["stage"])
+    ):
         return False
     if not force and not eligible_report_repair(state):
         return False
@@ -256,12 +289,12 @@ def queue_from_pending(state: RunState, run_dir: Path | None = None, *, force: b
 
 def queue_missing_execution(state: RunState, record: dict[str, Any], error: Exception) -> bool:
     """Queue ``resolve_repair`` directly when a stage exited 0 without running required checks."""
-    if stop.applied_stop(state):
+    if stop.applied_stop(state) or state.get("version", 2) < 3:
         return False
     stage = record.get("stage")
     revision = record.get("source_revision")
     contract_hash = (state.get("goal_contract") or {}).get("hash")
-    if stage not in EXECUTION_RERUN_STAGES or not revision:
+    if stage not in EXECUTION_RERUN_STAGES or not revision or operator_retried(state, stage):
         return False
     for entry in state.get("resolve_repair_history") or ():
         if (
@@ -296,18 +329,20 @@ def queue_missing_execution(state: RunState, record: dict[str, Any], error: Exce
 
 def intercept_stall(state: RunState, status: str, reason: str, *, before_investigator: bool) -> bool:
     """Intercept a qualifying pause/stall into ``resolve_repair`` once per distinct problem."""
-    if stop.applied_stop(state) or state.get("active_stage"):
+    if stop.applied_stop(state) or state.get("version", 2) < 3 or state.get("active_stage"):
         return False
     if state.get("next_stage") in (STAGE, "investigate_stuck", "diagnose"):
         return False
     allowed = BEFORE_INVESTIGATOR if before_investigator else AFTER_INVESTIGATOR
     if status not in allowed:
         return False
+    if progressive.retained_review_budget_pause(state, status) or persons_review_total(state, status):
+        return False
+    target_stage = state.get("next_stage")
+    if not isinstance(target_stage, str) or not target_stage or operator_retried(state, target_stage):
+        return False
     if status == "PAUSED_REPORT_REPAIR_LIMIT" and state.get("pending_report_repair"):
         return queue_from_pending(state, force=True)
-    target_stage = state.get("next_stage")
-    if not isinstance(target_stage, str) or not target_stage:
-        return False
     if planning_calls.planning_stage(target_stage):
         cap = planning_calls.cap(state)
         if cap is not None and planning_calls.used(state) >= cap:
