@@ -403,8 +403,15 @@ class AskTests(unittest.TestCase):
         state = {"goal_contract": approved}
         after = copy.deepcopy(approved["body"])
         after["acceptance_criteria"][0]["verification_method"] = "guard: test_total"
-        changes = [{"item": "AC2", "change": "reworded", "basis": "agent_proposed", "answer_id": "",
-                    "replacement": "guard: test_total"}]
+        changes = [
+            {
+                "item": "AC2",
+                "change": "reworded",
+                "basis": "agent_proposed",
+                "answer_id": "",
+                "replacement": "guard: test_total",
+            }
+        ]
         with self.assertRaises(ValueError) as caught:
             revision_guard(state, after, changes, "revise_plan")
         self.assertNotIsInstance(caught.exception, rewording.ProtectedRewording)
@@ -429,8 +436,15 @@ class AskTests(unittest.TestCase):
         state = {"goal_contract": approved}
         after, changes = revised(approved["body"])
         after["acceptance_criteria"][1]["verification_method"] = "guard: test_total"
-        changes.append({"item": "AC3", "change": "reworded", "basis": "agent_proposed", "answer_id": "",
-                        "replacement": "guard: test_total"})
+        changes.append(
+            {
+                "item": "AC3",
+                "change": "reworded",
+                "basis": "agent_proposed",
+                "answer_id": "",
+                "replacement": "guard: test_total",
+            }
+        )
         with self.assertRaises(ValueError) as caught:
             revision_guard(state, after, changes, "revise_plan")
         self.assertNotIsInstance(caught.exception, rewording.ProtectedRewording)
@@ -440,8 +454,9 @@ class AskTests(unittest.TestCase):
         state = {"goal_contract": approved}
         after = copy.deepcopy(approved["body"])
         after["acceptance_criteria"][0]["human_review"] = True
-        changes = [{"item": "AC2", "change": "reworded", "basis": "agent_proposed", "answer_id": "",
-                    "replacement": APPROVED}]
+        changes = [
+            {"item": "AC2", "change": "reworded", "basis": "agent_proposed", "answer_id": "", "replacement": APPROVED}
+        ]
         with self.assertRaises(rewording.ProtectedRewording) as caught:
             revision_guard(state, after, changes, "revise_plan")
         text = rewording.question(state, caught.exception.rewordings)["question"]

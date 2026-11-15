@@ -648,10 +648,9 @@ def revision_guard(state: RunState, body, changes, origin):
                 # The declaration is model-written commentary, not the plan to
                 # approve. A proof-only change is a repair, not a question
                 # about criterion wording.
-                if (
-                    old_criterion.get("criterion") == new_criterion.get("criterion")
-                    and old_criterion.get("human_review") == new_criterion.get("human_review")
-                ):
+                if old_criterion.get("criterion") == new_criterion.get("criterion") and old_criterion.get(
+                    "human_review"
+                ) == new_criterion.get("human_review"):
                     continue
                 proposed = str(new_criterion.get("criterion") or "").strip()
             if row["change"] == "removed" and assumption is not None and assumption.get("basis") in PERSON_TEXT_BASES:
