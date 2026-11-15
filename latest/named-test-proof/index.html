@@ -2233,7 +2233,12 @@ instead. Behavior that must keep working is guarded there by the command that ru
 the existing tests, <code>guard: run `ruby test/pager_test.rb`</code> (or the detected suite,
 <code>guard: run `make test`</code>): the proof runs that command on the original code and with
 the change, and both must pass. The command must run tests the original code has,
-which is checked when the plan is drafted. When every criterion the proof is given
+which is checked when the plan is drafted: it names an existing test file, it is the
+detected suite, or, where the build tool selects tests by class, it selects existing
+test classes (<code>guard: run `mvn -B -q test -Dtest=PagerTest,ReportTest`</code>, or
+<code>--tests PagerTest</code> with Gradle), a module that has some (<code>mvn -q -pl core test</code>,
+<code>gradle :core:test</code>), or every test class, whatever its other options (<code>mvn -q test</code>
+where the detected suite is <code>mvn -B -q test</code>). When every criterion the proof is given
 is such a guard and the change touches no test file, the change is coverage of
 existing behavior, as one guarded by named tests is, and needs no new test: a
 refactor of a Minitest, <code>make test</code> or shell project is proven this way. A bug fix
