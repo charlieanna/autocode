@@ -158,7 +158,8 @@ def _paths_from_text(text: str) -> list[str]:
 
 def _native_call(item: dict[str, Any]) -> str:
     """``Read app.py``: a native tool call (Claude Code's adapted ``tool_call``) with what it looked at."""
-    shown = item.get("display_input") if isinstance(item.get("display_input"), dict) else {}
+    raw_shown = item.get("display_input")
+    shown: dict[str, Any] = raw_shown if isinstance(raw_shown, dict) else {}
     target = " ".join(str(shown[key]) for key in ("file_path", "path", "pattern") if isinstance(shown.get(key), str))
     return f"{item.get('name')} {target}".strip() if isinstance(item.get("name"), str) else ""
 

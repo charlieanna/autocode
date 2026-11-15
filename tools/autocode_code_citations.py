@@ -267,7 +267,8 @@ def read_targets(raw, workspace) -> list[str]:
             if not isinstance(part_state, dict):
                 continue
             status = part_state.get("status")
-            arguments = part_state.get("input") if isinstance(part_state.get("input"), dict) else {}
+            raw_input = part_state.get("input")
+            arguments: dict[str, object] = raw_input if isinstance(raw_input, dict) else {}
             if part.get("tool") in NATIVE_READ_TOOLS and status in ("completed", None):
                 for key in READ_ARGUMENTS:
                     add(arguments.get(key))

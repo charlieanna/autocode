@@ -372,7 +372,7 @@ def automatically_recover_report_repair_timeout(state: RunState, run_dir, worksp
     # validation or original pins are reset here; a zero-event startup timeout refunds
     # its unstarted attempt once so the retry runs without the 90s startup budget.
     with interventions.admission(run_dir):
-        if is_silent_start:
+        if is_silent_start and isinstance(attempts, int):
             pending["attempts"] = attempts - 1
             pending["silent_start_retried"] = True
         record["metrics"] = support.event_metrics(record["events"])

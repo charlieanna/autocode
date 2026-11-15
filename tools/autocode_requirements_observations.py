@@ -427,7 +427,7 @@ def context(state: RunState, stage, run_dir, current_source):
     handoffs = [state.get("requirements_handoff") or {}]
     if stage == "requirements_gather":
         handoffs += [row for row in reversed(state.get("requirements_history") or []) if isinstance(row, dict)]
-    source = []
+    source: list[object] = []
 
     def current():
         if not source:
