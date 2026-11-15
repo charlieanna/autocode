@@ -40,19 +40,6 @@ except ImportError:
 
 def git(workspace, *args, env=None, data=None):
     """Bound Git plus its hooks to an owned process tree; preserve Git configuration."""
-    environment = {
-        key: value
-        for key, value in os.environ.items()
-        if key
-        not in (
-            "GIT_DIR",
-            "GIT_WORK_TREE",
-            "GIT_INDEX_FILE",
-            "GIT_COMMON_DIR",
-            "GIT_OBJECT_DIRECTORY",
-            "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-        )
-    }
     with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors, tempfile.TemporaryFile() as source:
         source.write(data or b"")
         source.seek(0)
@@ -61,7 +48,7 @@ def git(workspace, *args, env=None, data=None):
             stdin=source,
             stdout=output,
             stderr=errors,
-            env={**environment, **(env or {})},
+            env=util.git_environment(env),
             start_new_session=True,
         )
         code, expired, _ = processes.wait(child, 60)

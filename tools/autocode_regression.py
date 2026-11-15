@@ -280,7 +280,10 @@ base_commit = run_base.base_commit
 
 def head(workspace):
     result = subprocess.run(
-        ["git", "-C", str(workspace), "rev-parse", "--verify", "HEAD"], capture_output=True, text=True
+        ["git", "-C", str(workspace), "rev-parse", "--verify", "HEAD"],
+        capture_output=True,
+        text=True,
+        env=util.git_environment(),
     )
     return result.stdout.strip() if result.returncode == 0 else None
 
@@ -296,7 +299,9 @@ CHANGED_CODE_REASON = (
 
 
 def _git(workspace, *args):
-    result = subprocess.run(["git", "-C", str(workspace), *args], capture_output=True, text=True)
+    result = subprocess.run(
+        ["git", "-C", str(workspace), *args], capture_output=True, text=True, env=util.git_environment()
+    )
     if result.returncode:
         raise RuntimeError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
     return result.stdout

@@ -70,14 +70,23 @@ if "AUTOCODE_PROJECT_INDEX_HOME" not in os.environ:
 # test starts may import this package too (a fixture provider does): it inherits
 # the marker and keeps the XDG_CONFIG_HOME that test chose for it.
 USER_CONFIG_MARKER = "AUTOCODE_TEST_USER_CONFIG_HOME"
-# Where git says the repository is, whatever directory a command names (see below).
+# Where git says the repository is (`git rev-parse --local-env-vars` minus GIT_CONFIG_COUNT),
+# whatever directory a command names (see below).
 GIT_REPOSITORY_VARIABLES = (
     "GIT_DIR",
     "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE",
     "GIT_INDEX_FILE",
     "GIT_COMMON_DIR",
     "GIT_OBJECT_DIRECTORY",
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_GRAFT_FILE",
+    "GIT_SHALLOW_FILE",
+    "GIT_PREFIX",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_CONFIG",
+    "GIT_CONFIG_PARAMETERS",
 )
 if USER_CONFIG_MARKER not in os.environ:
     _config_home = tempfile.mkdtemp(prefix="autocode-test-config-")

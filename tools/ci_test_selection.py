@@ -1369,7 +1369,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (
         ("tools/autocode_entry.py", "tools/autocode_source_host.py", "tools/autocode_serve_cli.py"),
-        (*CORE_CONSUMERS, "tests.test_source_host", "tests.test_dev_server"),
+        (*CORE_CONSUMERS, "tests.test_source_host", "tests.test_dev_server", "tests.test_git_environment_isolation"),
     ),
     (
         ("tools/autocode_resolve_repair_job.py", "tools/autocode_stuck_job.py"),

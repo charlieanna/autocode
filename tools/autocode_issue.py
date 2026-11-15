@@ -123,7 +123,13 @@ def pr_body(record: dict, view: dict, diffstat: str, *, evidence_markdown=None) 
 
 
 def git(root: Path, *args: str, check: bool = True) -> str:
-    result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    result = subprocess.run(
+        ["git", "-C", str(root), *args],
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        env=util.git_environment(),
+    )
     if check and result.returncode:
         raise IssueError(f"git {' '.join(args)}: {(result.stderr or result.stdout).strip()}")
     return result.stdout.strip()
