@@ -1988,7 +1988,10 @@ switched on and no model is called.</p>
   routes (<code>stage_wall</code>, <code>provider_timeout</code>, <code>not_a_report</code>, <code>schema</code>, <code>contract_rule</code>,
   <code>evidence_not_authenticated</code>, <code>other</code>); first-interaction latency with <code>human_wait</code> separated;
   stage prompt byte size and first-request cache counts; and run outcome/plan size without
-  recording prompt text, model output, raw rejection prose, or credentials.</li>
+  recording prompt text, model output, raw rejection prose, or credentials. A launch AutoCode
+  stopped itself is classed by what stopped it: <code>provider_timeout</code> when the provider went quiet or
+  a tool call ran past its limit, <code>stage_wall</code> when a stage limit or the Requirements reply budget
+  ended a stage that was still working, and <code>other</code> when you stopped it.</li>
 <li><strong>Cross-run report.</strong> <code>autocode usage report [--workspace PATH] [--since DATE] [--all] [--json]</code>
   (or <code>autocode usage list</code> for raw rows, and backward-compatible
   <code>python3 tools/autocode_usage.py [PROJECT] [--json]</code>) aggregates only <code>usage.jsonl</code> ledgers —
