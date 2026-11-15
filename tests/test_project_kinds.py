@@ -18,6 +18,7 @@ class TestRoleTests(unittest.TestCase):
         "test_calc.py",
         "calc_test.py",
         "calc_tests.py",
+        "tests.py",
         "calc_test.go",
         "calc.test.ts",
         "calc.spec.mjs",
@@ -36,7 +37,7 @@ class TestRoleTests(unittest.TestCase):
     SUPPORT = ("conftest.py", "Calc.test.tsx.snap")
     PRODUCT = (
         "calc.py",
-        "tests.py",
+        "testing.py",
         "calc.go",
         "test_calc.go",
         "calc.ts",
@@ -61,6 +62,26 @@ class TestRoleTests(unittest.TestCase):
         for name in self.PRODUCT:
             self.assertFalse(kinds.is_test_file(name), name)
             self.assertFalse(verify.is_test_path(f"src/{name}"), name)
+
+    def test_one_test_file_beside_the_code_is_a_test_at_the_top_of_the_repository_only(self):
+        # index.js and test.js, pager.c and test.c: as the root test/ directory holds tests, while
+        # lib/commands/test.js or django/core/management/commands/test.py is product code.
+        names = ("test.py", "test.js", "test.mjs", "test.cjs", "test.ts", "tests.tsx", "test.c", "tests.cpp", "test.sh")
+        for name in names:
+            self.assertTrue(verify.is_test_path(name), name)
+            self.assertTrue(kinds.is_test_file(name), name)
+            self.assertTrue(test_examples.is_test_file(name), name)
+            for deeper in (f"src/{name}", f"pkg/commands/{name}"):
+                self.assertFalse(verify.is_test_path(deeper), deeper)
+                self.assertFalse(kinds.is_test_file(deeper), deeper)
+        # A language whose toolchain says which files are tests has no such file.
+        for name in ("test.go", "test.rs", "test.java", "test.rb", "test.h", "test.md", "test.json", "testing.py"):
+            self.assertFalse(verify.is_test_path(name), name)
+            self.assertFalse(kinds.is_test_file(name), name)
+        # A Python application's tests.py is collected by unittest at any depth.
+        for path in ("tests.py", "polls/tests.py", "shop/orders/tests.py"):
+            self.assertTrue(verify.is_test_path(path), path)
+        self.assertFalse(verify.is_test_path("lib/tests.js"))
 
     def test_examples_shown_to_a_stage_are_test_files_of_the_same_table(self):
         for name in self.TESTS:
@@ -119,6 +140,8 @@ class RunnerTests(unittest.TestCase):
             Framework("pytest", "x", python="py").targeted(files),
         )
         self.assertTrue(python_tests.TEST_MODULE.match("tests.py"))
+        # A test.py is a test at the top of the repository only, so no runner is given one by its name alone.
+        self.assertFalse(python_tests.TEST_MODULE.match("test.py"))
 
 
 class ProjectFilesTests(unittest.TestCase):

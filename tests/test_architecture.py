@@ -75,6 +75,8 @@ TANGLED: frozenset[str] = frozenset()
 # 2026-11-14: the whole suite's run on the candidate and what it adds to the fail-to-pass proof moved to
 # autocode_first_suite (suite_on_candidate, flip), with the repair of code that cannot be loaded:
 # autocode_verify.py -4, _preserve_suite -8.
+# 2026-11-14: which files are tests by their path (is_test_path) lives in autocode_project_kinds, beside the
+# languages' rows it reads: autocode_verify.py -8.
 MAX_LINES = {
     "autocode.py": 1830,
     "autocode_goals.py": 1404,
@@ -82,7 +84,7 @@ MAX_LINES = {
     "autopilot.py": 1392,
     "autocode_run_actions.py": 366,
     "autocode_args.py": 1038,
-    "autocode_verify.py": 3002,
+    "autocode_verify.py": 2994,
 }
 
 # Line counts of the largest functions, (module, function): lines. handle() was 946 lines before its

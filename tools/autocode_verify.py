@@ -171,16 +171,8 @@ DEFAULT_TIMEOUT = 900
 
 
 def is_test_path(path: str) -> bool:
-    """True for files that belong to the test suite rather than the product."""
-    parts = PurePosixPath(path).parts
-    if not parts:
-        return False
-    directories = parts[:-1]
-    if any(part in TEST_DIRS for part in directories) or (directories and directories[0] in ROOT_TEST_DIRS):
-        return True
-    if path.startswith("src/test/") or "/src/test/" in path:
-        return True  # Maven and Gradle layouts
-    return bool(TEST_NAME.match(parts[-1]))
+    """True for files that belong to the test suite rather than the product (autocode_project_kinds)."""
+    return project_kinds.is_test_path(path)
 
 
 def is_code_path(path: str) -> bool:
