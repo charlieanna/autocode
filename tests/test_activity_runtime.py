@@ -1317,6 +1317,67 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertEqual(0, attempt.get("completed_tool_calls"))
         self.assertIsNone(attempt.get("last_event_offset_seconds"))
 
+    def test_a_stage_retried_after_a_silent_start_is_not_stopped_at_the_startup_budget_again(self):
+        """A first answer that is only slow to begin reaches its report on the retry.
+
+        The Planner's first launch emits nothing and is stopped at the startup budget. Its automatic retry
+        emits its first event later than that budget too, as a large planning prompt on a busy host does,
+        and must run on under the stage's ordinary inactivity limit instead of being stopped again.
+        """
+        self.state.update(next_stage="draft_plan", phase="DISCOVERING")
+        self.state["settings"]["limits"].update(
+            stage_timeout_seconds=60, idle_timeout_seconds=10, tool_timeout_seconds=10
+        )
+        self.state["settings"]["budget_origins"] = {"idle_timeout_seconds": "runner_default"}
+        report = {"contract": test_goals.body(), "summary": "Drafted the greeting plan"}
+        script = f"""
+            import json, sys, time
+            from pathlib import Path
+            sys.stdin.read()
+            launched = Path(__file__).with_name('launched')
+            if not launched.exists():
+                launched.write_text('the first launch never answers')
+                time.sleep(30)
+            time.sleep(1)
+            print(json.dumps({{'type': 'thread.started', 'thread_id': 'offline-slow-start'}}), flush=True)
+            Path(sys.argv[sys.argv.index('-o') + 1]).write_text(json.dumps({report!r}))
+            print(json.dumps({{'type': 'turn.completed', 'usage': {{'input_tokens': 1, 'output_tokens': 1}}}}), flush=True)
+        """
+        schema = self.run / "fixture-draft.schema.json"
+        support.atomic_json(schema, goals.DISCOVERY_SCHEMA)
+
+        def planner():
+            return runner.run_role(
+                role="task_planner",
+                prompt="Draft the greeting plan",
+                sandbox="read-only",
+                workspace=self.root,
+                run_dir=self.run,
+                state=self.state,
+                schema=schema,
+                model="offline-fixture",
+                allow_write=False,
+                dry_run=False,
+            )
+
+        with (
+            patch.object(runner.idle_policy, "FIRST_EVENT_SECONDS", 0.3),
+            self.fake_provider(script),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            with self.assertRaises(support.Paused) as caught:
+                planner()
+            stopped = support.read(self.run / "state.json")["active_stage"]
+            self.assertIn("initial stream event", stopped["timeout_reason"])
+            self.assertTrue(
+                runner.automatically_recover_timed_out_stage(self.state, self.run, self.root, caught.exception)
+            )
+            self.assertEqual("draft_plan", self.state["next_stage"])
+            value, record = planner()
+        self.assertFalse(record["timed_out"])
+        self.assertGreaterEqual(record["duration_seconds"], 1)
+        self.assertEqual("Drafted the greeting plan", value["summary"])
+
 
 if __name__ == "__main__":
     unittest.main()

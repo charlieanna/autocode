@@ -52,9 +52,29 @@ def effective(limit, origin, model, stage=None):
     return (floor, label) if floor > limit else (limit, origin)
 
 
-def first_event_limit(limit, origin, *, stage_timeout=None):
-    """Return ``(seconds, origin)`` for initial stream liveness when using runner defaults."""
-    if origin != "runner_default" or not limit:
+# A stopped attempt's ``stall_phase`` when no provider event arrived at all (autocode_stall_recovery).
+SILENT_START = "before_first_event"
+
+
+def silent_start(recovery, stage) -> bool:
+    """Whether the run's recovery note says the attempt of ``stage`` now being retried stopped before
+    its first provider event."""
+    return isinstance(recovery, dict) and recovery.get("stage") == stage and recovery.get("stall_phase") == SILENT_START
+
+
+def first_event_limit(limit, origin, *, stage_timeout=None, silent_start=False):
+    """Return ``(seconds, origin)`` for initial stream liveness when using runner defaults.
+
+    ``silent_start``: this launch retries an attempt that already ended at this budget. The budget cannot
+    tell a wedged transport from a first answer that is slow to begin, and a second budget of the same
+    length tells them apart no better. On a busy host, with OpenCode taking 45 to 49 s to start and
+    planning prompts of 177 to 211 KB, three Plan Reviewer calls in a row on MiMo ended at it after 103
+    to 105 s each, which spent the run's automatic recoveries and asked the person to authorize more;
+    two GLM Requirements calls and two more MiMo reviews ended the same way (2026-11-14). The retry
+    therefore gets no startup budget: it runs under the stage's ordinary inactivity limit (``effective``),
+    which still stops a transport that is wedged.
+    """
+    if origin != "runner_default" or not limit or silent_start:
         return None, None
     candidates = [limit, FIRST_EVENT_SECONDS]
     if isinstance(stage_timeout, (int, float)) and stage_timeout > 0:

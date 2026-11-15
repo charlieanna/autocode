@@ -93,6 +93,31 @@ class IdlePolicyTests(unittest.TestCase):
             with self.subTest(limit=limit, origin=origin):
                 self.assertEqual((None, None), idle_policy.first_event_limit(limit, origin))
 
+    def test_a_retry_after_a_silent_start_gets_no_second_startup_budget(self):
+        note = {"stage": "finalize_plan", "stall_phase": "before_first_event", "timeout_kind": "idle"}
+        self.assertTrue(idle_policy.silent_start(note, "finalize_plan"))
+        self.assertEqual((None, None), idle_policy.first_event_limit(900, "runner_default", silent_start=True))
+        self.assertEqual(
+            (None, None), idle_policy.first_event_limit(900, "runner_default", stage_timeout=30, silent_start=True)
+        )
+        # Only the retry of that stage: another stage, an attempt that stopped after its first event, and a
+        # note that says nothing about where the attempt stopped all keep the budget.
+        for recovery, stage in (
+            (note, "review_plan"),
+            ({**note, "stall_phase": "during_reasoning_or_output"}, "finalize_plan"),
+            ({**note, "stall_phase": "during_tool_call"}, "finalize_plan"),
+            ({"stage": "finalize_plan"}, "finalize_plan"),
+            ({}, "finalize_plan"),
+            (None, "finalize_plan"),
+            ("before_first_event", "finalize_plan"),
+        ):
+            with self.subTest(recovery=recovery, stage=stage):
+                self.assertFalse(idle_policy.silent_start(recovery, stage))
+        self.assertEqual(
+            (90, idle_policy.FIRST_EVENT_ORIGIN),
+            idle_policy.first_event_limit(900, "runner_default", silent_start=False),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
