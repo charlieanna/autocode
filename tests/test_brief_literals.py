@@ -8,6 +8,8 @@ import autocode_goals as goals
 import autocode_planning as planning
 from goal_fixtures import body
 
+from tests import context_fixtures
+
 TODO_BRIEF = (Path(__file__).resolve().parents[1] / "scenarios/catalog/greenfield-todo-cli/brief.md").read_text()
 
 
@@ -203,7 +205,7 @@ class PlannerPromptTests(unittest.TestCase):
             "user_events": [],
             "acceptance_criteria": [],
         }
-        return planning.context(state, stage, Path("/run/state.json"))[0]
+        return planning.context(state, stage, context_fixtures.state_path(self))[0]
 
     def test_each_drafting_stage_names_every_literal(self):
         for stage in ("draft_plan", "revise_plan", "finalize_plan"):
