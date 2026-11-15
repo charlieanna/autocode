@@ -124,6 +124,7 @@ STATUS_GROUPS = MappingProxyType(
                 "PAUSED_ITERATION_LIMIT",
                 "PAUSED_JOURNEY_UNVERIFIED",
                 "PAUSED_LEGACY_COMPLETION_UNVERIFIED",
+                "PAUSED_METADATA_ADMISSION",
                 "PAUSED_MILESTONE_BUDGET",
                 "PAUSED_MILESTONE_EVIDENCE",
                 "PAUSED_MILESTONE_REPLAN",

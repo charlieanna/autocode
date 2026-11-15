@@ -130,7 +130,7 @@ class BoundaryScenarios(BoundaryCase):
         with (
             patch.dict(os.environ, {"CODEX_HOME": str(home)}),
             patch.object(
-                support.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout="", stderr="")
+                support.captured, "run_metadata", return_value=subprocess.CompletedProcess([], 0, stdout="", stderr="")
             ),
         ):
             settings = support.local_settings()

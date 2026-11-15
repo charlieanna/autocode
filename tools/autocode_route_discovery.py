@@ -26,11 +26,14 @@ from __future__ import annotations
 import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from pathlib import Path
 
 try:
+    from . import autocode_captured_process as captured
     from . import autocode_route_levels as route_levels
 except ImportError:
+    import autocode_captured_process as captured
     import autocode_route_levels as route_levels
 
 try:
@@ -53,6 +56,7 @@ OPENCODE_ROUTES = {
 OPENCODE_FREE_PREFIX = "opencode/"
 OPENCODE_FREE_ACCOUNT = "OpenCode Zen"
 _ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+VERBOSE_LISTING_SECONDS = 60
 
 
 def discover(provider, workspace=None, *, env=None, inventory=None) -> dict:
@@ -94,18 +98,20 @@ def _from_command_provider(provider, workspace, env, inventory=None):
     warm = getattr(provider, "warm_checks", None)
     if callable(warm):
         warm(workspace, env=env)
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        login = pool.submit(_run, table["command"], table["name"], workspace, env, table["timeout_seconds"], checked)
-        roster = pool.submit(_models, provider, workspace, env, inventory)
-        listing = pool.submit(_listing, provider, workspace, env, checked)
+    allowance = (
+        max(table["timeout_seconds"], 30, VERBOSE_LISTING_SECONDS) * (1 + env_prep.LISTING_RETRY_FACTOR)
+        + 2 * captured.HELPER_RESERVE
+    )
+    with captured.custody.group(timeout=allowance), ThreadPoolExecutor(max_workers=3) as pool:
+        login = pool.submit(
+            copy_context().run, _run, table["command"], table["name"], workspace, env, table["timeout_seconds"], checked
+        )
+        roster = pool.submit(copy_context().run, _models, provider, workspace, env, inventory)
+        listing = pool.submit(copy_context().run, _listing, provider, workspace, env, checked)
         summary = login.result()
         models = roster.result()
         levels = listing.result()
-    connected = []
-    for route in table["routes"]:
-        found = re.findall(route["pattern"], summary, re.MULTILINE)
-        if found and route["expect"] in found:
-            connected.append(route)
+    connected = _connected_routes(table, summary)
     return {
         "tool": table["name"],
         "candidates": _candidates(models, table["name"], connected, *levels),
@@ -119,6 +125,29 @@ def _from_command_provider(provider, workspace, env, inventory=None):
             for route in connected
         ],
     }
+
+
+def connected_accounts(provider, workspace=None, *, runner=None):
+    """Read only a configured tool's login summary, using an injected runner when supplied."""
+    table = provider.auth_table()
+    if not table["command"] or not table["routes"]:
+        return []
+    summary = _run(
+        table["command"],
+        table["name"],
+        workspace,
+        None,
+        table["timeout_seconds"],
+        _checked_environment(provider, None),
+        runner=runner,
+    )
+    return _connected_routes(table, summary)
+
+
+def _connected_routes(table, summary):
+    return [
+        route for route in table["routes"] if route["expect"] in re.findall(route["pattern"], summary, re.MULTILINE)
+    ]
 
 
 def _from_opencode(workspace, env, inventory=None):
@@ -150,9 +179,13 @@ def _from_opencode(workspace, env, inventory=None):
         )
         if route["models"] not in account["prefixes"]:
             account["prefixes"].append(route["models"])
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        models_future = pool.submit(_models, opencode, workspace, env, inventory)
-        listing_future = pool.submit(_listing, opencode, workspace, env)
+    allowance = max(
+        opencode.MODEL_LISTING_SECONDS + captured.HELPER_RESERVE,
+        VERBOSE_LISTING_SECONDS * (1 + env_prep.LISTING_RETRY_FACTOR) + 2 * captured.HELPER_RESERVE,
+    )
+    with captured.custody.group(timeout=allowance), ThreadPoolExecutor(max_workers=2) as pool:
+        models_future = pool.submit(copy_context().run, _models, opencode, workspace, env, inventory)
+        listing_future = pool.submit(copy_context().run, _listing, opencode, workspace, env)
         models = models_future.result()
         levels, metadata = listing_future.result()
     return {
@@ -200,7 +233,17 @@ def _listing(provider, workspace, env, checked=None):
         return {}, {}
     try:
         # A listing cut off before its end is not kept for the next check to trust (#3078).
-        listing = _run([*command, "--verbose"], name, workspace, env, 60, checked, complete=route_levels.complete)
+        listing = _run(
+            [*command, "--verbose"],
+            name,
+            workspace,
+            env,
+            VERBOSE_LISTING_SECONDS,
+            checked,
+            complete=route_levels.complete,
+        )
+    except captured.ProcessError:
+        raise
     except RuntimeError:
         # Older tools may lack verbose metadata. Qualification evidence remains
         # the fallback; an unreadable optional listing never invents new levels.
@@ -227,19 +270,23 @@ def _checked_environment(provider, env):
     return prepare(env) if callable(prepare) else None
 
 
-def _run(command, name, workspace, env, timeout_seconds, checked=None, *, complete=None):
+def _run(command, name, workspace, env, timeout_seconds, checked=None, *, complete=None, runner=None):
     try:
         # A listing that overruns its bound under load is asked once more before a person's command
         # or a run stops on it (#3313).
-        result = env_prep.preflight_listing(
-            command,
-            checked if checked is not None else env_prep.snapshot_environment(env),
-            cwd=workspace,
-            require_executable=env is not None,
-            complete=complete,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
+        result = (
+            runner(command, cwd=workspace)
+            if runner is not None
+            else env_prep.preflight_listing(
+                command,
+                checked if checked is not None else env_prep.snapshot_environment(env),
+                cwd=workspace,
+                require_executable=env is not None,
+                complete=complete,
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+            )
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError(

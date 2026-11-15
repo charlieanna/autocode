@@ -1,7 +1,7 @@
 /** Connection metadata and named actions come from the public AutoCode CLI. */
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
-import { invoke, invokeRead, tail, STATUS_TIMEOUT_MS } from "./core/cli";
+import { invokeRead, tail, STATUS_TIMEOUT_MS, STAGES_TIMEOUT_MS } from "./core/cli";
 import { partitionOptions, readSettings, routeKeyOf, sanitizeRoutes } from "./settings";
 
 interface ConnectionAction { id: string; label: string; next_command: string[] }
@@ -25,7 +25,7 @@ export class ConnectionsPanel implements vscode.Disposable {
       const panel = vscode.window.createWebviewPanel("autocode.connections", "AutoCode Connections", vscode.ViewColumn.One, { enableScripts: true, localResourceRoots: [] });
       this.panel = panel;
       panel.webview.html = connectionsHtml();
-      panel.onDidDispose(() => { if (this.panel === panel) this.panel = undefined; });
+      panel.onDidDispose(() => { if (this.panel === panel) { this.panel = undefined; this.busy = false; this.error = ""; } });
       panel.webview.onDidReceiveMessage((message) => void this.receive(message));
     }
     await this.refresh();
@@ -38,10 +38,11 @@ export class ConnectionsPanel implements vscode.Disposable {
       selected: routeKeyOf(readSettings()) });
   }
 
-  private async refresh(): Promise<void> {
+  private async refresh(panel = this.panel): Promise<void> {
     // Bounded like a status poll: a wedged read must fail and say so. Without a limit the
     // busy flag this panel holds would never clear and every button would stay disabled.
     const result = await invokeRead(readSettings(), ["connections", "list", "--json"], {}, STATUS_TIMEOUT_MS);
+    if (this.panel !== panel) return;
     if (result.code !== 0) throw new Error(tail(result));
     const data = JSON.parse(result.stdout);
     if (data.version !== 1 || !Array.isArray(data.connections)) throw new Error("Update AutoCode to use Connections.");
@@ -50,10 +51,11 @@ export class ConnectionsPanel implements vscode.Disposable {
   }
 
   private async receive(message: { type?: string; provider?: string; action?: string }): Promise<void> {
-    if (this.busy) return;
+    const panel = this.panel;
+    if (this.busy || !panel) return;
     this.busy = true; this.error = ""; this.post();
     try {
-      if (message.type === "ready" || message.type === "refresh") { await this.refresh(); return; }
+      if (message.type === "ready" || message.type === "refresh") { await this.refresh(panel); return; }
       const row = this.rows.find((item) => item.id === message.provider);
       if (!row) return;
       if (message.type === "select") {
@@ -63,7 +65,8 @@ export class ConnectionsPanel implements vscode.Disposable {
       }
       // The webview supplies only an action ID. It cannot supply executable,
       // arguments or credentials. Re-read the core offer before executing it.
-      await this.refresh();
+      await this.refresh(panel);
+      if (this.panel !== panel) return;
       const action = this.rows.find((item) => item.id === row.id)?.actions.find((item) => item.id === message.action);
       if (message.type !== "action" || !action) return;
       const settings = readSettings();
@@ -73,14 +76,16 @@ export class ConnectionsPanel implements vscode.Disposable {
         vscode.window.createTerminal({ name: `AutoCode: ${row.label} setup`, shellPath: settings.command,
           shellArgs: [...settings.prefix, ...action.next_command], env: settings.env }).show();
       } else if (action.id === "check") {
-        const result = await invoke(settings, action.next_command, {}, STATUS_TIMEOUT_MS);
+        // Core owns up to 45s of backend checking plus cleanup; UI expiry must not kill it.
+        const result = await invokeRead(settings, action.next_command, {}, STAGES_TIMEOUT_MS);
+        if (this.panel !== panel) return;
         if (result.code !== 0) throw new Error(tail(result));
         const checked = JSON.parse(result.stdout) as Connection;
         if (checked.id !== row.id) throw new Error("Connection check returned a different backend.");
         this.rows = this.rows.map((item) => item.id === checked.id ? checked : item);
       }
-    } catch (error) { this.error = error instanceof Error ? error.message : String(error); }
-    finally { this.busy = false; this.post(); }
+    } catch (error) { if (this.panel === panel) this.error = error instanceof Error ? error.message : String(error); }
+    finally { if (this.panel === panel) { this.busy = false; this.post(); } }
   }
 
   private async select(provider: string): Promise<void> {

@@ -111,7 +111,7 @@ def provider_launch(_role, workspace, _run_dir, _session, model, _effort, _write
     child = {**kwargs["env"], "KILO_CONFIG_CONTENT": json.dumps({"agent": {"fixture": {}}})}
     with (
         patch.object(containment, "backend", return_value=containment.BUBBLEWRAP),
-        patch.object(containment.subprocess, "run", side_effect=version),
+        patch.object(containment.captured, "run_metadata", side_effect=version),
         patch.object(containment, "_native_debug", return_value=policy),
         patch.object(containment, "prepare", side_effect=AssertionError("late discovery admitted a wrapper")),
     ):

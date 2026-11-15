@@ -645,7 +645,7 @@ class PolicyTests(unittest.TestCase):
         command = shlex.join([sys.executable, "-m", "unittest", "-v", "test_http"])
         with (
             patch.object(containment.sys, "platform", "darwin"),
-            patch.object(containment.subprocess, "run") as launch,
+            patch.object(containment.captured, "run_metadata") as launch,
             patch.object(Path, "mkdir") as mkdir,
         ):
             for writable in (False, True):
@@ -1092,8 +1092,8 @@ class KernelReceiptTests(unittest.TestCase):
                 patch.object(containment.sys, "platform", "darwin"),
                 patch.object(containment.shutil, "which", return_value="/owned/opencode"),
                 patch.object(
-                    containment.subprocess,
-                    "run",
+                    containment.captured,
+                    "run_metadata",
                     side_effect=[
                         SimpleNamespace(returncode=0, stdout=containment.SUPPORTED_VERSION, stderr=""),
                         SimpleNamespace(returncode=1, stdout="", stderr=diagnostic),
@@ -1128,7 +1128,7 @@ class KernelReceiptTests(unittest.TestCase):
         with (
             patch.object(containment.sys, "platform", "darwin"),
             patch.object(containment.shutil, "which", return_value="/owned/opencode"),
-            patch.object(containment.subprocess, "run", side_effect=native) as run,
+            patch.object(containment.captured, "run_metadata", side_effect=native) as run,
             patch.object(containment, "prepare", return_value=self.boundary),
             patch.object(autocode_toolchain, "discover", return_value={"read_roots": [], "probes": []}),
             patch.object(containment, "verify") as verify,
@@ -1380,10 +1380,14 @@ class KernelReceiptTests(unittest.TestCase):
         self.assertEqual([False] * len(sentinels), [path.exists() for path in sentinels])
 
     def test_private_read_probe_refuses_any_sign_that_the_bash_read_run_state(self):
-        real_run = subprocess.run  # configure() patches subprocess.run.
+        # This fixture shell runs on the actual host while configure emulates
+        # Darwin policy. Its process supervisor must use the actual kernel.
+        real_run = containment.captured.run
+        native_platform = sys.platform
 
         def uncontained(params, sentinels):
-            ran = real_run(["/bin/sh", "-c", params["command"]], capture_output=True, text=True, timeout=10)
+            with patch.object(containment.sys, "platform", native_platform):
+                ran = real_run(["/bin/sh", "-c", params["command"]], capture_output=True, text=True, timeout=10)
             return ran.returncode, ran.stdout + ran.stderr
 
         def rewritten(index):
@@ -1988,7 +1992,7 @@ class KernelTests(unittest.TestCase):
                 {"permission": "bash", "pattern": "*", "action": "allow"},
             ],
         }
-        real_run = subprocess.run
+        real_run = containment.captured.run_metadata
 
         def fake_opencode(argv, **kwargs):
             if argv[0] != str(fake):
@@ -2006,7 +2010,7 @@ class KernelTests(unittest.TestCase):
             )
 
         with (
-            patch.object(containment.subprocess, "run", side_effect=fake_opencode),
+            patch.object(containment.captured, "run_metadata", side_effect=fake_opencode),
             patch.object(toolchain, "discover", return_value={"read_roots": [], "probes": []}),
         ):
             _, boundary = containment.configure(

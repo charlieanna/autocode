@@ -1,14 +1,15 @@
-"""Local checkpoint, evidence and context utilities for the existing autocode loop.
-
-No provider calls, credentials, external memory or alternate workflow state.
-"""
+"""Local settings, checkpoint, evidence and context helpers for the existing loop."""
 
 from __future__ import annotations
 
 try:
+    from . import autocode_captured_process as captured  # noqa: F401 - existing test seam
     from . import autocode_prompts as prompts
+    from .autocode_codex_settings import local_settings  # noqa: F401 - compatibility API
 except ImportError:
+    import autocode_captured_process as captured  # noqa: F401 - existing test seam
     import autocode_prompts as prompts
+    from autocode_codex_settings import local_settings  # noqa: F401 - compatibility API
 
 
 import contextlib
@@ -17,8 +18,7 @@ import json
 import os
 import re
 import shlex
-import subprocess
-import tomllib
+import subprocess  # noqa: F401 - existing legacy-process inspection seam
 from pathlib import Path
 
 try:
@@ -470,26 +470,6 @@ def derived_check_fields(checks, reported_checks, events_path):
             if reported.get(field) is None
         ]
     return derived
-
-
-def local_settings():
-    """Read only nonsecret settings; never open auth.json or emit auth headers."""
-    config_path = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "config.toml"
-    config = tomllib.loads(config_path.read_text()) if config_path.exists() else {}
-    keys = ("model", "model_reasoning_effort", "model_provider", "openai_base_url")
-    settings = {k: config.get(k) for k in keys}
-    try:
-        auth = subprocess.run(["codex", "login", "status"], capture_output=True, text=True)
-    except OSError as error:  # a bare errno told nobody which engine or what to do (#2307)
-        raise RuntimeError(
-            "Codex is not on PATH; no provider request was launched. Run `autocode doctor` to see what this "
-            "host has: an installed Claude Code or OpenCode runs with --engine claude or --engine opencode"
-        ) from error
-    message = auth.stdout + auth.stderr
-    settings["auth_mode"] = "ChatGPT" if "using ChatGPT" in message else "unknown"
-    settings["environment_auth_present"] = any(k in os.environ for k in ("OPENAI_API_KEY", "CODEX_API_KEY"))
-    settings["environment_base_url_present"] = "OPENAI_BASE_URL" in os.environ
-    return settings
 
 
 def transport_drift(current, checkpoint, roles):

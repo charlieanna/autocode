@@ -119,6 +119,15 @@ class BareProbeAgentTests(unittest.TestCase):
 
 
 class PreflightCheckTests(unittest.TestCase):
+    def test_login_cleanup_uncertainty_cannot_become_a_billing_pause_or_model_probe(self):
+        error = preflight.processes.ProcessError("fixture metadata cleanup unknown")
+        with patch.object(self.adapter, "check_subscription_routes", side_effect=error):
+            with self.assertRaises(preflight.processes.ProcessError) as raised:
+                self.check({})
+        self.assertIs(error, raised.exception)
+        self.assertEqual([], self.calls)
+        self.assertFalse((self.run_dir / "model-preflight.json").exists())
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

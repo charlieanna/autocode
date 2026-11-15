@@ -74,6 +74,17 @@ class ScrubTests(unittest.TestCase):
         self.assertEqual({"PATH": "/usr/bin", agent_env.PASS_VARIABLE: "AUTOCODE_SOURCE_HOST"}, agent_env.scrubbed(env))
         self.assertEqual("", provider_env.withheld_hint(["AUTOCODE_SOURCE_HOST"]))
 
+    def test_private_capture_capability_is_never_passed_to_a_model(self):
+        import autocode_provider_env as provider_env
+
+        for name in ("AUTOCODE_CAPTURE_FAMILY", "autocode_capture_family"):
+            with self.subTest(spelling=name):
+                env = {"PATH": "/usr/bin", name: "private-runtime-context", agent_env.PASS_VARIABLE: name}
+                self.assertFalse(agent_env.is_secret(name, env[name]))
+                self.assertEqual([name], agent_env.withheld(env))
+                self.assertEqual({"PATH": "/usr/bin", agent_env.PASS_VARIABLE: name}, agent_env.scrubbed(env))
+                self.assertEqual("", provider_env.withheld_hint([name]))
+
     def test_git_config_variables_are_kept_or_withheld_as_one_set(self):
         env = {
             "GIT_CONFIG_COUNT": "2",

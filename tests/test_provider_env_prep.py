@@ -22,6 +22,7 @@ import textwrap
 import threading
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from tools.providers import command as command_provider
@@ -82,6 +83,9 @@ class ProviderEnvPrepTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        core_state = patch.dict(os.environ, {"XDG_STATE_HOME": str(self.root / "core-state")})
+        core_state.start()
+        self.addCleanup(core_state.stop)
         self.original_path = os.environ["PATH"]
         self.workspace = self.root / "workspace"
         self.workspace.mkdir()

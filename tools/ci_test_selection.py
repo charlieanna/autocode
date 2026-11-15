@@ -91,10 +91,25 @@ SCENARIO_SELECTION_INPUTS = {
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
+        "tools/autocode_codex_settings.py",
+        (
+            "tests.test_autocode_support",
+            "tests.test_catalogue_t09",
+            "tests.test_catalogue_t11",
+            "tests.test_metadata_preflight",
+            "tests.test_metadata_startup",
+            "tests.test_run_setup_boundary",
+        ),
+    ),
+    (
         "tools/autocode_acceptance_tests.py",
         ("tests.test_acceptance_archive_order", "tests.test_replay_transport", "tests.test_usage"),
     ),
     ("tests/test_changed_code_evidence_cli.py", ("tests.test_mutation_continuation_cli",)),
+    (
+        "tests/metadata_capture_fixture.py",
+        ("tests.test_metadata_recovery", "tests.test_metadata_parent_recovery"),
+    ),
     *(
         (path, ("tests.test_storage_errors", "tests.test_verification_preparation_failure"))
         for path in ("scenarios/harness/driver.py", "docs/schemas/status-view.schema.json")
@@ -570,6 +585,29 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # that previously broke master would remain. These are fake-provider consumers,
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    # Captured commands execute this private helper by file path, beyond Python imports.
+    (
+        (
+            "tools/autocode_capture_reaper.py",
+            "tools/autocode_capture_family.py",
+            "tools/autocode_captured_process.py",
+            "tools/autocode_metadata_custody.py",
+        ),
+        (
+            "tests.test_captured_process",
+            "tests.test_capture_family",
+            "tests.test_connection_processes",
+            "tests.test_local_run",
+            "tests.test_metadata_custody",
+            "tests.test_metadata_preflight",
+            "tests.test_metadata_recovery",
+            "tests.test_metadata_parent_recovery",
+            "tests.test_metadata_startup",
+            "tests.test_process_without_psutil",
+            "tests.test_taskrun",
+            "tests.test_tool_containment_parallel",
+        ),
+    ),
     (
         (
             "tools/autocode_mutation_checkpoint.py",

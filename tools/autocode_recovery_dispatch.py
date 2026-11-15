@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 try:
     from . import autocode_job_failure as job_failure
     from . import autocode_network_retry as network_retry
+    from . import autocode_operational_block as operational_block
     from . import autocode_output_cap_recovery as output_cap_recovery
     from . import autocode_provider_recovery as provider_recovery
     from . import autocode_resolver_recovery as resolver_recovery
@@ -29,6 +30,7 @@ try:
 except ImportError:
     import autocode_job_failure as job_failure
     import autocode_network_retry as network_retry
+    import autocode_operational_block as operational_block
     import autocode_output_cap_recovery as output_cap_recovery
     import autocode_provider_recovery as provider_recovery
     import autocode_resolver_recovery as resolver_recovery
@@ -80,6 +82,8 @@ def recover(runtime, state: RunState, run_dir, workspace, error) -> str | None:
 
     Returns its row name, or None when nothing recovered and the pause stands.
     """
+    if operational_block.error(error) is not None:
+        return None
     for name, invoke in RECOVERY_CHAIN:
         if invoke(runtime, state, run_dir, workspace, error):
             return name
@@ -88,6 +92,9 @@ def recover(runtime, state: RunState, run_dir, workspace, error) -> str | None:
 
 def settle_prelaunch(runtime, state: RunState, run_dir, workspace, error):
     """The typed preparation outcome also applies where native retries are forbidden."""
+    if operational_block.record(state, error, run_dir=run_dir, workspace=workspace):
+        runtime.write_json(run_dir / "state.json", state)
+        return True
     return verification_failure_recovery.recover(runtime, state, run_dir, workspace, error)
 
 

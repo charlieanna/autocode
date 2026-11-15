@@ -23,6 +23,7 @@ try:
     from . import autocode_native_parent as parent
     from . import autocode_native_role_isolation as isolation
     from . import autocode_native_stage_recovery as stage_recovery
+    from . import autocode_operational_block as operational_block
     from . import autocode_report_repair_queue as report_repair_queue
     from . import autocode_roles as roles
     from . import autocode_run_status as run_status
@@ -36,6 +37,7 @@ except ImportError:
     import autocode_native_parent as parent
     import autocode_native_role_isolation as isolation
     import autocode_native_stage_recovery as stage_recovery
+    import autocode_operational_block as operational_block
     import autocode_report_repair_queue as report_repair_queue
     import autocode_roles as roles
     import autocode_run_status as run_status
@@ -443,6 +445,7 @@ class PlanningCalls:
         without one (an OpenCode final message that never parsed) stays unclosed and keeps
         the original pause instead of queuing a repair.
         """
+        operational_block.raise_if_blocked(error)
         record["rejected"] = True
         closed = Path(record["output"]).is_file()
         if closed:
@@ -456,6 +459,7 @@ class PlanningCalls:
         planning report get the ordinary bounded report-only repair; otherwise, or once
         the repair attempts are spent, the run pauses with the original output retained.
         """
+        operational_block.raise_if_blocked(error)
         record.update(rejected=True, rejection_reason=str(error))
         if not any(row.get("output") == record.get("output") for row in state.get("stages", [])):
             state.setdefault("stages", []).append(deepcopy(record))

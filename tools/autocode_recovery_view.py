@@ -20,24 +20,22 @@ from pathlib import PurePath
 try:
     from . import autocode_accepted_source as accepted_source
     from . import autocode_builder_policy as builder_policy
+    from . import autocode_internal_failure_view as operational_block
     from . import autocode_member_stop as member_stop
-    from . import autocode_model_listing_failure as model_listing_failure
     from . import autocode_provider_auth as provider_auth
     from . import autocode_quota_route as quota_route
     from . import autocode_run_messages as run_messages
-    from . import autocode_startup_timeout_view as startup_timeout_view
-    from . import autocode_verification_failure as verification_failure
+    from . import autocode_stop as stop
     from .autocode_role_names import role_name
 except ImportError:
     import autocode_accepted_source as accepted_source
     import autocode_builder_policy as builder_policy
+    import autocode_internal_failure_view as operational_block
     import autocode_member_stop as member_stop
-    import autocode_model_listing_failure as model_listing_failure
     import autocode_provider_auth as provider_auth
     import autocode_quota_route as quota_route
     import autocode_run_messages as run_messages
-    import autocode_startup_timeout_view as startup_timeout_view
-    import autocode_verification_failure as verification_failure
+    import autocode_stop as stop
     from autocode_role_names import role_name
 
 ACTIVE = {"RUNNING", "DISCOVERING", "EXECUTING", "TASK_COMPLETE", "COMPLETE"}
@@ -468,6 +466,7 @@ def _failures(state: RunState):
 def project(state: RunState, need=None):
     status = state.get("status") or ""
     need = _dict(need)
+    terminal = stop.applied_stop(state) is not None
     # A run this runtime cannot continue (autocode_workflows.retired_stage: saved at a retired stage or
     # under the old route names). Its next_command, if any, only explains the stop, which is not an
     # action a client can take for the person, so the card says the chat has ended here and offers a
@@ -475,9 +474,7 @@ def project(state: RunState, need=None):
     fresh_run = bool(
         need.get("new_run_required") and need.get("action") == "fresh_run" and status != "PAUSED_COMPONENT_PLAN"
     )
-    if ((status in ACTIVE and not fresh_run) or not status) and not (
-        verification_failure.blocked(state) or model_listing_failure.blocked(state)
-    ):
+    if not terminal and ((status in ACTIVE and not fresh_run) or not status) and not (operational_block.receipt(state)):
         return None
     native_need = native_cleanup_need(state)
     if native_need is not None and need.get("kind") not in ("answer", "review", "approve_plan"):
@@ -485,7 +482,6 @@ def project(state: RunState, need=None):
     stage = _dict(state.get("active_stage")).get("stage") or state.get("next_stage")
     role = role_name(stage, _dict(_dict(state.get("settings")).get("workflow")).get("mode"))
     cause = _cause(state) or status
-    terminal = any(row.get("kind") == "stop" for row in _rows(state.get("applied_interventions")))
     # A stop AutoCode recorded itself when it could not continue (autocode_stop.end, #2485).
     ended = next(
         (
@@ -543,15 +539,6 @@ def project(state: RunState, need=None):
             "Read the saved plan, changes, checks and attempt history. This does not run a step.",
         )
     )
-    if (
-        failure := (
-            verification_failure.presentation(state)
-            or model_listing_failure.presentation(state)
-            or startup_timeout_view.presentation(state)
-        )
-    ) and failure["category"] == "blocked":
-        result.update(failure)
-        return result
     if terminal:
         actions.append(
             _action(
@@ -560,6 +547,9 @@ def project(state: RunState, need=None):
                 "Keep this stopped conversation and start separate work in the same project.",
             )
         )
+        return result
+    if (failure := (operational_block.presentation(state))) and failure["category"] == "blocked":
+        result.update(failure)
         return result
     if fresh_run:
         why = need.get("reason") or need.get("recovery_hint") or result["what_happened"]

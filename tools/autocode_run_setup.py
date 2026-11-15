@@ -29,11 +29,13 @@ from pathlib import Path
 try:
     from . import autocode_cost as cost
     from . import autocode_interaction_timing as interaction_timing
+    from . import autocode_operational_block as operational_block
     from . import autocode_planning_calls as planning_calls
     from . import autocode_roles as roles
 except ImportError:
     import autocode_cost as cost
     import autocode_interaction_timing as interaction_timing
+    import autocode_operational_block as operational_block
     import autocode_planning_calls as planning_calls
     import autocode_roles as roles
 
@@ -964,22 +966,36 @@ def run_locked(
     def owned_result(code, *, ready=False):
         return owner.result(code, ready=ready) if owner is not None else code
 
+    def load():
+        nonlocal state
+        state = load_locked(runner, args, parser, state, state_path, run_dir, workspace)
+        warning = runner.util.runner_changed(state.get("runner"), runner.util.runner_identity())
+        if warning:
+            print(f"warning: {warning}", file=sys.stderr)
+
     with ExitStack() as ownership:
         ownership.enter_context(env_prep.reuse_checks(run_dir))  # chats in this project reuse its tool checks
         keep_awake.hold()  # a sleeping Mac cannot supervise a stage (#1717)
         if runner.stop_policy.applied_stop(state):
             return runner.stop_policy.refuse_before_configure(runner.write_json, state, state_path) or 0
+        preload_denial = None
         if native is None:
-            state = load_locked(runner, args, parser, state, state_path, run_dir, workspace)
-            warning = runner.util.runner_changed(state.get("runner"), runner.util.runner_identity())
-            if warning:
-                print(f"warning: {warning}", file=sys.stderr)
+            try:
+                load()
+            except runner.util.JSONCommitUncertain:
+                raise
+            except Exception as error:
+                # Ordinary setup refusals retain their original CLI/cleanup
+                # boundary. Only typed operational evidence enters the run's
+                # persisted denial path; prose never changes that authority.
+                preload_denial = operational_block.error(error, preload=True)
+                if preload_denial is None:
+                    raise
         try:
+            if preload_denial is not None:
+                raise preload_denial
             if native is not None:
-                state = load_locked(runner, args, parser, state, state_path, run_dir, workspace)
-                warning = runner.util.runner_changed(state.get("runner"), runner.util.runner_identity())
-                if warning:
-                    print(f"warning: {warning}", file=sys.stderr)
+                load()
             if native is not None:
                 native.require_supported_action(args, state)
             owner = ownership.enter_context(controller_owner.Owner(state, run_dir, runner.write_json))
@@ -1018,18 +1034,20 @@ def run_locked(
             print(str(error), file=sys.stderr)
             return owned_result(2, ready=state.get("status") == "RUNNING")
         except (runner.support.Paused, ValueError, RuntimeError, OSError) as error:
-            run_status.pause(
-                state,
-                getattr(error, "status", "PAUSED_INVALID_OUTPUT"),
-                str(error),
-                paused_at=runner.now(),
-            )
-            if native is None and isinstance(error, runner.support.Paused) and error.status != "PAUSED_JOB_FAILURE":
-                runner.resolver_runtime.record_operational_exhaustion(runner, state, run_dir, error)
+            blocked = operational_block.record(state, error, run_dir=run_dir, workspace=workspace)
+            if not blocked:
+                run_status.pause(
+                    state,
+                    getattr(error, "status", "PAUSED_INVALID_OUTPUT"),
+                    str(error),
+                    paused_at=runner.now(),
+                )
+                if native is None and isinstance(error, runner.support.Paused) and error.status != "PAUSED_JOB_FAILURE":
+                    runner.resolver_runtime.record_operational_exhaustion(runner, state, run_dir, error)
             runner.write_json(state_path, state)
             print(
                 f"{state['status']}: {error}"
-                f"{runner.pause_command.recovery(state.get('needs'), run_dir=run_dir, workspace=workspace)}",
+                f"{'' if blocked else runner.pause_command.recovery(state.get('needs'), run_dir=run_dir, workspace=workspace)}",
                 file=sys.stderr,
             )
             return owned_result(2)

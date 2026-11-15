@@ -37,7 +37,7 @@ displayed, and keeps issued tokens in the child's environment rather than on the
 command line.
 
 Status and other metadata reads have a UI deadline (30 seconds, or 60 seconds
-for model and placement lists). A missed deadline shows the read as unavailable
+for model/placement lists and connection checks). A missed deadline shows the read as unavailable
 and disables actions that need a fresh view. The extension keeps the configured
 reader alive until it exits and holds identical read attempts in the meantime,
 so repeated polls cannot pile up behind a slow wrapper. Late output is discarded;

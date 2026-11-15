@@ -56,7 +56,7 @@ class PublishGuardTests(unittest.TestCase):
         child = {"PATH": os.environ["PATH"], "KILO_CONFIG_CONTENT": "{}"}
         argv = [sys.executable, "run", "--model", "xiaomi-token-plan-sgp/mimo-v2.6-pro"]
         for options in ({"portable_shell": True}, {"write_stage": True}):
-            with self.subTest(**options), patch.object(kilo.subprocess, "run", side_effect=debug):
+            with self.subTest(**options), patch.object(kilo.captured, "run_metadata", side_effect=debug):
                 _, env = kilo.restrict(argv, dict(child), Path.cwd(), role="requirements", **options)
             (agent,) = json.loads(env["KILO_CONFIG_CONTENT"])["agent"].values()
             bash = agent["permission"]["bash"]

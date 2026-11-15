@@ -854,16 +854,25 @@ def scripted_fault(name: str) -> dict:
 
 
 def cite_sources(body: dict) -> dict:
-    """Trace every criterion to the run's human sources, quoting each whole (#595),
-    as the runner's source-trace gate requires of a real Planner."""
+    """Cite primary human requirements without adopting every background fact.
+
+    Linked issues and design documents are citable context, not mandatory
+    criterion scope. Keep any supporting quotes the scripted criterion authored;
+    the real source-trace gate still checks every fact those quotes adopt.
+    """
     citations = [
         {"source_id": row["id"], "quote": row["text"]}
         for row in DATA.get("source_inventory") or []
-        if isinstance(row, dict) and row.get("id") and row.get("text")
+        if isinstance(row, dict)
+        and row.get("id")
+        and row.get("text")
+        and row.get("kind") not in ("linked issue", "design document")
     ]
     if citations:
         for row in body.get("acceptance_criteria") or []:
-            row["sources"] = [dict(citation) for citation in citations]
+            sources = row.setdefault("sources", [])
+            if isinstance(sources, list):
+                sources.extend(dict(citation) for citation in citations if citation not in sources)
     return body
 
 
