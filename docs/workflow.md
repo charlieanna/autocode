@@ -928,6 +928,17 @@ directory's suite runs its tests even when the root's suite could also run them,
 so a project kept beside others (Docutils' `docutils/` beside old experiments in
 `sandbox/`) is not proven with a root suite that also collects its neighbours'
 tests (#2944).
+Many Python projects have no manifest, only a list of what they need. Where no
+directory around the tests has a manifest, the innermost one that holds a
+`requirements.txt` or a `Pipfile` is such a project: a backend kept as
+`backend/requirements.txt`, code and `tests/` beside `frontend/` runs its tests
+from `backend/` (`cd backend && python3 -m pytest ...`), where they import its code.
+This applies only where the tests could not be meant to run from the root: not
+when the root itself holds a `requirements.txt`, a `Pipfile`, a `conftest.py`, a
+`pytest.ini` or a `tox.ini`; not for a directory that is a Python package (it
+holds an `__init__.py`) or that its code or tests import by its own name
+(`from backend.orders import total`); and not for one of the repository's test
+directories (`tests/requirements.txt` lists what the tests need).
 When no such directory runs them and the root suite's runner chooses tests by
 kind (pytest, unittest, Node, Go, Jest, Vitest, Mocha or RSpec) and runs none of
 the changed tests, the proof is unverified and names the tests and the suite that

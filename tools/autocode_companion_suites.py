@@ -52,14 +52,8 @@ ROOT = ""
 
 
 def project_of(root, path) -> str:
-    """The innermost directory around ``path`` with its own manifest, or ``ROOT``."""
-    parts = PurePosixPath(path).parent.parts
-    for end in range(len(parts), 0, -1):
-        project = "/".join(parts[:end])
-        directory = package_scope.directory_in(root, project)
-        if directory is not None and any((directory / name).is_file() for name in package_scope.MANIFESTS):
-            return project
-    return ROOT
+    """The innermost project directory around ``path`` (autocode_package_scope.projects_around), or ``ROOT``."""
+    return next(iter(package_scope.projects_around(root, PurePosixPath(path).parent)), ROOT)
 
 
 def where(project) -> str:

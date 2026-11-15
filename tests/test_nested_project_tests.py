@@ -18,6 +18,8 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+import autocode_companion_suites as companion_suites
+import autocode_package_scope as package_scope
 import autocode_project_kinds as project_kinds
 import autocode_protected_oracles as guard
 import autocode_protected_project_suite as project_suite
@@ -365,6 +367,129 @@ class NestedPythonOriginalGateTests(unittest.TestCase):
             shlex.join([*shlex.split(from_root), self.NAME]),
             guard.replay_command(unittest_suite, [self.NAME], owned.root),
         )
+
+
+BACKEND = {
+    "README.md": "# shop\n",
+    "frontend/package.json": PACKAGE,
+    "frontend/index.js": INDEX,
+    "backend/requirements.txt": "requests\n",
+    "backend/pager.py": "def page_count(total, size):\n    return total // size\n",
+    "backend/tests/test_pager.py": (
+        "import unittest\n\nfrom pager import page_count\n\n\nclass PagerTests(unittest.TestCase):\n"
+        "    def test_an_exact_multiple(self):\n        self.assertEqual(2, page_count(10, 5))\n"
+    ),
+}
+BACKEND_FIXED = "def page_count(total, size):\n    return (total + size - 1) // size\n"
+BACKEND_NEW = "\n    def test_a_partial_last_page(self):\n        self.assertEqual(3, page_count(11, 5))\n"
+
+
+class DeclaredPythonProjectTests(unittest.TestCase):
+    """A backend kept as ``backend/requirements.txt``, code and ``tests/``, beside ``frontend/``, with no
+    manifest anywhere above its tests. They say ``from pager import page_count`` and run from ``backend/``.
+    The proof ran the root's suite, which finds no test it can import: "The regression command ran no
+    passing tests", "the new tests only fail to import or collect" (checked without a model, 2026-11-15)."""
+
+    NAME = "backend/tests/test_pager.py"
+    CHANGE = {"backend/pager.py": BACKEND_FIXED, NAME: BACKEND[NAME] + BACKEND_NEW}
+
+    def python(self, *arguments):
+        return shlex.join([sys.executable, "-m", *arguments])
+
+    def assert_proven_inside(self, proof):
+        self.assertEqual((verify.PASS, [], []), (proof["verdict"], proof["failures"], proof["unverified"]), proof)
+        commands = proof["commands"]
+        self.assertRegex(commands["suite"], r"^cd backend && \S+ -m unittest discover -v -s tests$")
+        self.assertRegex(commands["regression"], r"^cd backend && \S+ -m unittest -v tests/test_pager\.py$")
+        self.assertEqual(["tests.test_pager.PagerTests.test_a_partial_last_page"], proof["fail_to_pass"])
+
+    def test_a_fix_in_a_directory_that_declares_its_dependencies_is_proven_from_inside_it(self):
+        self.assert_proven_inside(prove(self, BACKEND, self.CHANGE))
+
+    def test_a_pipfile_declares_them_too(self):
+        seed = {name: text for name, text in BACKEND.items() if name != "backend/requirements.txt"}
+        self.assert_proven_inside(prove(self, {**seed, "backend/Pipfile": "[packages]\n"}, self.CHANGE))
+
+    def test_its_original_tests_run_inside_it(self):
+        result = run_gate(self, BACKEND, self.CHANGE, self.python("unittest", "discover", "-v"), self.NAME)
+        self.assertEqual("PASS", result["verdict"], result)
+        self.assertEqual(
+            "cd backend && " + self.python("unittest", "-v", "tests/test_pager.py"), result["replayed_command"]
+        )
+
+    def test_a_new_test_that_passes_on_the_original_code_is_still_no_proof(self):
+        passing = "\n    def test_one_page(self):\n        self.assertEqual(1, page_count(5, 5))\n"
+        proof = prove(self, BACKEND, {"backend/pager.py": BACKEND_FIXED, self.NAME: BACKEND[self.NAME] + passing})
+        self.assertEqual(verify.FAIL, proof["verdict"])
+        self.assertTrue(any("No test fails on the unfixed base code" in text for text in proof["failures"]), proof)
+
+    def test_a_package_its_tests_import_by_name_is_still_proven_from_the_root(self):
+        tests_from_root = BACKEND[self.NAME].replace("from pager import", "from backend.pager import")
+        seed = {**BACKEND, "backend/__init__.py": "", "backend/tests/__init__.py": "", self.NAME: tests_from_root}
+        proof = prove(self, seed, {"backend/pager.py": BACKEND_FIXED, self.NAME: tests_from_root + BACKEND_NEW})
+        self.assertEqual((verify.PASS, [], []), (proof["verdict"], proof["failures"], proof["unverified"]), proof)
+        self.assertRegex(proof["commands"]["suite"], r"^\S+ -m unittest discover -v$")
+        self.assertEqual(["backend.tests.test_pager.PagerTests.test_a_partial_last_page"], proof["fail_to_pass"])
+
+    def around(self, files, directory="backend/tests"):
+        project = Project({"README.md": "# shop\n", **files})
+        self.addCleanup(project.close)
+        return package_scope.projects_around(project.root, directory)
+
+    def test_which_directories_are_projects(self):
+        code = {"backend/pager.py": BACKEND["backend/pager.py"], self.NAME: BACKEND[self.NAME]}
+        declared = {**code, "backend/requirements.txt": "requests\n"}
+        by_name = BACKEND[self.NAME].replace("from pager import", "from backend.pager import")
+        for label, files, directory, expected in (
+            ("it declares its dependencies", declared, "backend/tests", ["backend"]),
+            ("so does a Pipfile", {**code, "backend/Pipfile": ""}, "backend/tests", ["backend"]),
+            ("the directory itself", declared, "backend", ["backend"]),
+            ("nothing declared", code, "backend/tests", []),
+            ("a manifest comes first", {**declared, "backend/svc/setup.py": ""}, "backend/svc/tests", ["backend/svc"]),
+            ("a manifest above it too", {**declared, "backend/pyproject.toml": ""}, "backend/tests", ["backend"]),
+            ("the root declares its own", {**declared, "requirements.txt": ""}, "backend/tests", []),
+            ("the root holds pytest's fixtures", {**declared, "conftest.py": ""}, "backend/tests", []),
+            ("the root holds pytest's configuration", {**declared, "pytest.ini": "[pytest]\n"}, "backend/tests", []),
+            ("the root holds tox's", {**declared, "tox.ini": "[tox]\n"}, "backend/tests", []),
+            ("a package", {**declared, "backend/__init__.py": ""}, "backend/tests", []),
+            ("imported by its name from its tests", {**declared, self.NAME: by_name}, "backend/tests", []),
+            (
+                "imported by its name from its code",
+                {**declared, "backend/app.py": "import backend.pager\n"},
+                "backend",
+                [],
+            ),
+            (
+                "a longer name is another module",
+                {**declared, "backend/app.py": "import backends\n"},
+                "backend",
+                ["backend"],
+            ),
+            ("what the tests need", {"tests/requirements.txt": "pytest\n", "tests/test_x.py": ""}, "tests", []),
+            (
+                "a project's own tests' needs",
+                {**declared, "backend/tests/requirements.txt": ""},
+                "backend/tests",
+                ["backend"],
+            ),
+            ("the root", declared, ".", []),
+        ):
+            with self.subTest(label):
+                self.assertEqual(expected, self.around(files, directory))
+
+    def test_a_directory_whose_code_cannot_be_read_is_not_shown_to_be_a_project(self):
+        project = Project(BACKEND)
+        self.addCleanup(project.close)
+        self.assertEqual(["backend"], package_scope.projects_around(project.root, "backend"))
+        with mock.patch.object(package_scope.Path, "read_bytes", side_effect=OSError("unreadable")):
+            self.assertEqual([], package_scope.projects_around(project.root, "backend"))
+
+    def test_code_and_tests_belong_to_the_same_project(self):
+        project = Project(BACKEND)
+        self.addCleanup(project.close)
+        for path in ("backend/pager.py", self.NAME):
+            self.assertEqual("backend", companion_suites.project_of(project.root, path))
+        self.assertEqual(companion_suites.ROOT, companion_suites.project_of(project.root, "README.md"))
 
 
 class ProjectRootRuleTests(unittest.TestCase):
