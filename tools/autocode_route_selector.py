@@ -35,6 +35,7 @@ from functools import lru_cache
 from pathlib import Path
 
 try:
+    from . import autocode_measured_routes as measured_routes
     from . import autocode_model_identity as model_identity
     from . import autocode_prices as prices
     from . import autocode_role_route as role_route
@@ -42,6 +43,7 @@ try:
     from . import autocode_route_evidence as route_evidence
     from . import autocode_verifier_independence as independence
 except ImportError:
+    import autocode_measured_routes as measured_routes
     import autocode_model_identity as model_identity
     import autocode_prices as prices
     import autocode_role_route as role_route
@@ -141,6 +143,8 @@ def _valid_run(run, role=None, model=None):
 
 
 def evidence_summary(entry):
+    if entry.get("provenance") == "measured":
+        return entry["evidence"]
     return route_evidence.summary(entry)
 
 
@@ -183,9 +187,27 @@ def table():
 
 
 def qualified(role):
-    """The table's entries for ``role``, in file order; () when the table names none."""
-    entries = table()["roles"].get(role)
-    return tuple(entries) if isinstance(entries, list) else ()
+    """The entries for ``role``: the person's measured ranking first, then the shipped table's.
+
+    The one place every route policy reads (#3630): selection, the quota fallback in
+    ``autocode_route_pool`` and the model listing. A model the person's probe measured for this
+    role ranks by that measurement (``autocode_measured_routes``), and one it measured and found
+    not to qualify is left out, even when the shipped table lists it. Shipped entries keep their
+    own order after the measured ones. () when neither names any.
+    """
+    shipped = table()["roles"].get(role)
+    shipped = shipped if isinstance(shipped, list) else []
+    document = measured_routes.load()
+    measured = measured_routes.entries(role, document)
+    if not measured and not measured_routes.failed(role, document):
+        return tuple(shipped)
+    known = {model_identity.identity(entry["model"]) for entry in measured} | measured_routes.failed(role, document)
+    rest = [
+        {**entry, "preference": len(measured) + entry.get("preference", 0)}
+        for entry in shipped
+        if not known & {model_identity.identity(route) for route in entry.get("routes") or [entry["model"]]}
+    ]
+    return tuple(measured + rest)
 
 
 def _label(role):
