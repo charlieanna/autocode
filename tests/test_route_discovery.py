@@ -1,11 +1,13 @@
 """Route discovery (#1426 steps 4-5): the tool's own listings become the selector's candidates."""
 
+import json
 import os
 import subprocess
 import sys
 import tempfile
 import threading
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
 
@@ -102,6 +104,108 @@ case "$*" in
   *) echo "unexpected kilo $*" >&2; exit 1 ;;
 esac
 """
+
+
+@unittest.skipUnless(os.name == "posix", "Linux metadata filesystem and locks")
+class RouteDiscoveryCustodyTests(unittest.TestCase):
+    @contextmanager
+    def metadata_batch(self, *, name="kilocode", uncertain=None):
+        custody = discovery.captured.custody
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "run").mkdir()
+            tool = root / "kilo"
+            tool.write_text("# Not executed: metadata boundary is replaced.\n")
+            tool.chmod(0o700)
+            environment = {"HOME": str(root), "XDG_STATE_HOME": str(root / "state"), "PATH": str(root)}
+            provider = command.load("kilocode")
+            provider.NAME = provider._config["name"] = name
+            together = threading.Barrier(3, timeout=1)
+            records, lock = [], threading.Lock()
+
+            def metadata(words, *, env, timeout, **kwargs):
+                with custody.admission(env=env, timeout=timeout) as scope:
+                    stream, nonce = scope.arm()
+                    kind = tuple(words[1:])
+                    with lock:
+                        records.append(
+                            {"kind": kind, "group": scope.group.nonce, "nonce": nonce, "fd": stream.fileno()}
+                        )
+                    try:
+                        together.wait()
+                        output = {
+                            ("auth", "list"): KILO_AUTH_LISTING,
+                            ("models",): "zai-coding-plan/glm-5.3\n",
+                            ("models", "--verbose"): 'zai-coding-plan/glm-5.3\n{"variants":{"high":{}}}\n',
+                        }[kind]
+                    finally:
+                        if kind != uncertain:
+                            stream.write(
+                                json.dumps(
+                                    {
+                                        "schema": 1,
+                                        "nonce": nonce,
+                                        "clean": True,
+                                        "started": True,
+                                        "returncode": 0,
+                                        "expired": False,
+                                    }
+                                ).encode()
+                            )
+                            stream.flush()
+                            os.fsync(stream.fileno())
+                    return subprocess.CompletedProcess(words, 0, output, "")
+
+            with (
+                mock.patch.dict(os.environ, environment),
+                mock.patch.object(custody.sys, "platform", "linux"),
+                mock.patch.object(custody, "_boot_id", return_value="00000000-0000-4000-8000-000000000001"),
+                mock.patch.object(discovery.captured, "run_metadata", side_effect=metadata),
+            ):
+                yield provider, root, environment, records
+
+    def test_discovery_workers_share_admission_and_keep_distinct_receipts(self):
+        from providers import env_prep
+
+        for name in ("kilocode", "registered_connection"):
+            with self.subTest(name=name), self.metadata_batch(name=name) as (provider, root, environment, records):
+                with env_prep.reuse_checks(root / "run"):
+                    found = discovery.discover(provider, root, env=environment)
+                    self.assertEqual(found, discovery.discover(provider, root, env=environment))
+                self.assertEqual(
+                    {("auth", "list"), ("models",), ("models", "--verbose")}, {row["kind"] for row in records}
+                )
+                self.assertEqual(
+                    (3, 1, 3, 3),
+                    (
+                        len(records),
+                        len({row["group"] for row in records}),
+                        len({row["nonce"] for row in records}),
+                        len({row["fd"] for row in records}),
+                    ),
+                )
+                self.assertEqual(name, found["tool"])
+                store = root / "state/autocode/metadata"
+                self.assertFalse((store / "pending.json").exists())
+                [receipt] = store.glob("collected-*.json")
+                self.assertEqual(3, len(json.loads(receipt.read_text())["attempts"]))
+
+    def test_uncertain_member_settles_siblings_and_blocks_fresh_discovery(self):
+        custody = discovery.captured.custody
+        with self.metadata_batch(uncertain=("auth", "list")) as (provider, root, environment, records):
+            with self.assertRaises(custody.ProcessError):
+                discovery.discover(provider, root, env=environment)
+            pending = json.loads((root / "state/autocode/metadata/pending.json").read_text())
+            self.assertEqual(3, len(pending["attempts"]))
+            completed = [
+                json.loads((root / "state/autocode/metadata" / row["result_file"]).read_text())
+                for row in pending["attempts"]
+                if (root / "state/autocode/metadata" / row["result_file"]).stat().st_size
+            ]
+            self.assertEqual(2, len(completed), "dispatched siblings must settle before discovery returns")
+            with self.assertRaises(custody.ProcessError):
+                discovery.discover(provider, root, env=environment)
+            self.assertEqual(3, len(records), "fresh discovery must not bypass retained uncertainty")
 
 
 class KiloStartChecksTests(unittest.TestCase):

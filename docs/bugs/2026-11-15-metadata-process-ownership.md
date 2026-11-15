@@ -46,7 +46,8 @@ Linux metadata admission now retains a private pending record before launch.
 The reaper writes its nonce-bound terminal result to a durable private file
 after collecting the family. Declared parallel batches retain a separate result
 for every command and release only after all of them finish; healthy toolchain
-and policy checks keep their concurrency. Every metadata call and cached-answer
+and policy checks keep their concurrency. Route discovery shares the same batch
+authority across its three workers, with independent context copies and receipts. Every metadata call and cached-answer
 lookup checks that same record under a bounded lock. Missing or invalid completion
 evidence remains blocked across CLI exits; elapsed time, helper death and
 sampled process absence cannot release it. Connections displays that block
@@ -78,3 +79,12 @@ fallback signals. Its terminal observation receipt is
 This qualifies local account discovery, not key validity or model access. Core
 now reports every nonzero Kilo/OpenCode auth-list exit as an operational failure;
 a successful empty list still means no saved login was confirmed.
+
+The final saved-credential check on source `0ca0c609` passed through the actual
+VS Code extension: its named Check returned `credentials_present`, and the
+panel showed “Saved credentials found”. All thirteen public readers and their
+transports finished naturally before collection; the private namespace was
+quiet with no fallback signals and the exact container exited 0. Its final
+receipt is `73c1ce602cfae60c61592ef01793e034c61ae75e103ceafb01a7d99b02f5af75`.
+This verifies local credential discovery and editor rendering; no key validity,
+model access or paid task was tested. The earlier failed attempts remain failed.

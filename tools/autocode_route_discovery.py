@@ -26,6 +26,7 @@ from __future__ import annotations
 import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from pathlib import Path
 
 try:
@@ -96,10 +97,13 @@ def _from_command_provider(provider, workspace, env, inventory=None):
     warm = getattr(provider, "warm_checks", None)
     if callable(warm):
         warm(workspace, env=env)
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        login = pool.submit(_run, table["command"], table["name"], workspace, env, table["timeout_seconds"], checked)
-        roster = pool.submit(_models, provider, workspace, env, inventory)
-        listing = pool.submit(_listing, provider, workspace, env, checked)
+    allowance = max(table["timeout_seconds"], 30) * (1 + env_prep.LISTING_RETRY_FACTOR) + 2 * captured.HELPER_RESERVE
+    with captured.custody.group(timeout=allowance), ThreadPoolExecutor(max_workers=3) as pool:
+        login = pool.submit(
+            copy_context().run, _run, table["command"], table["name"], workspace, env, table["timeout_seconds"], checked
+        )
+        roster = pool.submit(copy_context().run, _models, provider, workspace, env, inventory)
+        listing = pool.submit(copy_context().run, _listing, provider, workspace, env, checked)
         summary = login.result()
         models = roster.result()
         levels = listing.result()
