@@ -20,7 +20,10 @@ def token(contract):
 
 
 def sealed(contract):
-    return contract.get("hash") == util.digest({k: contract[k] for k in ("task_id", "revision", "body")})
+    fields = ("task_id", "revision", "body")
+    return all(key in contract for key in fields) and contract.get("hash") == util.digest(
+        {key: contract[key] for key in fields}
+    )
 
 
 _REVIEW_RECEIPT_KEYS = frozenset({"stage", "events", "events_sha256", "output", "output_sha256"})

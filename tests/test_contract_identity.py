@@ -42,6 +42,33 @@ class ContractIdentityTests(unittest.TestCase):
                     contract["approval_event"]["actor"] = "model"
                 self.assertFalse(identity.approved(state))
 
+    def test_incomplete_identity_is_unapproved_without_interrupting_recovery(self):
+        for missing in ("task_id", "revision", "body", "legacy partial record"):
+            with self.subTest(missing=missing):
+                state = self.fixture()
+                contract = state["goal_contract"]
+                if missing == "legacy partial record":
+                    contract = state["goal_contract"] = {
+                        "hash": "approved",
+                        "revision": 6,
+                        "approval_status": "approved",
+                    }
+                else:
+                    del contract[missing]
+                before = copy.deepcopy(state)
+                try:
+                    observed = identity.sealed(contract), identity.approved(state)
+                except (KeyError, TypeError, AttributeError) as error:
+                    self.fail(f"Incomplete identity interrupted rejection recovery: {error!r}")
+                self.assertEqual((False, False), observed)
+                self.assertEqual(before, state)
+        state = self.fixture()
+        state["goal_contract"]["body"]["technical_approach"] = ["Changed after approval"]
+        self.assertFalse(
+            identity.sealed(state["goal_contract"]), "complete identities still require their exact digest"
+        )
+        self.assertFalse(identity.approved(state))
+
     def test_shared_run_slug_preserves_name_and_length_rules(self):
         self.assertEqual("hello-world", util.slug("Hello, world!"))
         self.assertEqual("task", util.slug("!!!"))

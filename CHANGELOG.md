@@ -9,6 +9,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Fixed
+
+- **An incomplete retained plan has no approval authority and does not crash recovery** (#3614): checking a plan identity missing its task, revision or body now returns unapproved, so rejected-report recovery can continue through its existing path. Exact digest, approval-token, actor and event checks stay required.
+
 ### Added
 
 - **Kilo and OpenCode runs start their stages sooner**: each Kilo start costs 5-9 s on macOS, and a "hi" waited 77 s for a 2.8 s answer. The first of its tool's model-free checks (version, logins, model listings) a run asks now asks the others at the same time, once per run, so four checks take as long as one; a run that asks none (a held run's resume) starts no tool, and a warm-up that times out counts as the listing's first attempt. Kilo's permission reads (`debug config`, `debug agent`), asked before every stage, are kept like the other checks for an hour and asked again when Kilo's settings, its agent or mode definitions, the project's Kilo or OpenCode settings, the environment or the executable change. Each check still judges its own answer; a failed or cut-off answer is never kept.
