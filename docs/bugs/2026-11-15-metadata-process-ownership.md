@@ -47,8 +47,11 @@ The reaper writes its nonce-bound terminal result to a durable private file
 after collecting the family. Declared parallel batches retain a separate result
 for every command and release only after all of them finish; healthy toolchain
 and policy checks keep their concurrency. Route discovery shares the same batch
-authority across its three workers, with independent context copies and receipts. Every metadata call and cached-answer
-lookup checks that same record under a bounded lock. Missing or invalid completion
+authority across its three workers, with independent context copies and receipts.
+The once-per-run startup warm-up uses the same shared ownership for its concurrent
+checks, preserves their original execution bounds, and propagates uncertain cleanup
+instead of treating it as an ordinary warm-up failure. Every metadata call and
+cached-answer lookup checks that same record under a bounded lock. Missing or invalid completion
 evidence remains blocked across CLI exits; elapsed time, helper death and
 sampled process absence cannot release it. Connections displays that block
 without offering another check or sign-in action. A changed kernel boot may
@@ -78,9 +81,13 @@ pending target without a cleanup owner.
 
 Without a surviving owner's valid receipt, an unknown family remains blocked;
 elapsed time and sampled process absence grant no recovery authority. The macOS
-runner retains its documented sampled cleanup limitation. Native qualification
-of the new enclosing-owner and startup behavior is recorded separately from the
-earlier checks below.
+runner retains its documented sampled cleanup limitation. The seven-method native qualification on source `9c4f2956` passed both
+nesting depths for helper loss and cancellation, all three startup failures, and
+the original helper-loss and Core-loss cases. All families reached their checked
+terminal outcomes, with no fallback cleanup signals; the source pins and exact
+container exit were verified. Its host receipt is
+`e3cb7dfd22d6c095153b9c87aac9281245ad9db41bafc64951f550214f65ce18`.
+The subsequent upstream warm-up integration requires its own qualification.
 
 The original VS Code status-read deadline fix has separate actual-editor
 evidence. Forty subsequent reads did not reproduce the rare 65–72 second
