@@ -1543,10 +1543,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#no-kilo-or-opencode-installed" class="md-nav__link">
+  <a href="#backends-and-api-keys" class="md-nav__link">
     <span class="md-ellipsis">
       
-        No Kilo or OpenCode installed
+        Backends and API keys
       
     </span>
   </a>
@@ -1976,10 +1976,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#no-kilo-or-opencode-installed" class="md-nav__link">
+  <a href="#backends-and-api-keys" class="md-nav__link">
     <span class="md-ellipsis">
       
-        No Kilo or OpenCode installed
+        Backends and API keys
       
     </span>
   </a>
@@ -2012,7 +2012,7 @@
 
 
 <h1 id="vs-code-extension">VS Code extension<a class="headerlink" href="#vs-code-extension" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/205d62a66e53c62daa2ce681eeb816ff3ba28e65/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/3c08a3e45fad044e711c783162e9ff5b65d67dfb/README.md">← Back to README</a></p>
 <p>Chat with AutoCode in the sidebar (issue #884). The extension starts the CLI,
 reads <code>--status</code> and <code>registry list --json</code>, and takes the actions the public
 <a href="../task-run/">task-run interface</a> names. It imports no runner internals and never
@@ -2090,7 +2090,7 @@ Markdown and code blocks for assistant replies. A fixed composer grows with your
 draft. New output follows the bottom until you scroll up or select text;
 <strong>Latest messages</strong> returns to the bottom. These composer and scrolling components
 are adapted from Kilo Code's open-source UI; the exact revision and attribution
-are in <a href="https://github.com/charlieanna/autocode/blob/205d62a66e53c62daa2ce681eeb816ff3ba28e65/vscode-extension/THIRD_PARTY_NOTICES.md">THIRD_PARTY_NOTICES.md</a>.</p>
+are in <a href="https://github.com/charlieanna/autocode/blob/3c08a3e45fad044e711c783162e9ff5b65d67dfb/vscode-extension/THIRD_PARTY_NOTICES.md">THIRD_PARTY_NOTICES.md</a>.</p>
 <p>Models and usage are shown once, in the run header at the top of the chat (below):
 each stage's model, level, time, tokens and cost is a row of its stage table, and
 <strong>Show details</strong> has the rest. Cache and reasoning are already included in
@@ -2275,7 +2275,7 @@ conversation.</p>
 Requirements follow-up has passed a real Kilo/token-plan greeting conversation;
 full build/test/completion qualification remains outstanding. The earlier full
 task attempt stopped on a MiMo network failure before building.
-See the <a href="https://github.com/charlieanna/autocode/blob/205d62a66e53c62daa2ce681eeb816ff3ba28e65/docs/bugs/2026-10-16-vscode-chat-qualification.md">qualification record</a>.
+See the <a href="https://github.com/charlieanna/autocode/blob/3c08a3e45fad044e711c783162e9ff5b65d67dfb/docs/bugs/2026-10-16-vscode-chat-qualification.md">qualification record</a>.
 The jsdom tests alone establish neither editor-host nor live-provider compatibility.</p>
 <h2 id="settings">Settings<a class="headerlink" href="#settings" title="Permanent link">&para;</a></h2>
 <table>
@@ -2420,14 +2420,21 @@ chat it reads "Models · loading…" while the backend's models are read and
 "Models · starting…" once the first message starts the chat. A model
 the stage may not run beside the others is not offered, and AutoCode checks the
 pick again either way. An AutoCode without per-chat models shows no chip.</p>
-<h3 id="no-kilo-or-opencode-installed">No Kilo or OpenCode installed<a class="headerlink" href="#no-kilo-or-opencode-installed" title="Permanent link">&para;</a></h3>
-<p>The <strong>AutoCode · Direct connection</strong> card is always available in Connections.
-Choose <strong>Set up AutoCode</strong> to select MiMo, Z.ai, OpenAI or Claude and enter its
-API endpoint/key in a terminal, then refresh Connections. <strong>Use for new chats</strong> is enabled after
-local setup is complete; it does not mean live model access was verified.
-See
+<h3 id="backends-and-api-keys">Backends and API keys<a class="headerlink" href="#backends-and-api-keys" title="Permanent link">&para;</a></h3>
+<p>Connections lists AutoCode's four backends: <strong>Claude Code</strong> and <strong>Codex</strong> as
+engines, and <strong>OpenCode</strong> and <strong>Kilo</strong> for other accounts and API keys
+(<code>opencode auth login</code>, <code>kilo auth login</code>). When a backend's CLI is not on
+<code>PATH</code>, its card remains listed as unavailable until it is installed in the
+AutoCode CLI environment (<code>autocode setup</code> can install OpenCode or Kilo).</p>
+<p>The <strong>AutoCode · Direct connection</strong> card is retired (#2049) and hidden from new
+setups. It appears in Connections only when already configured, so existing
+setups can still be checked, updated (<strong>Check setup</strong>, <strong>Edit AutoCode setup</strong>,
+or <strong>Add or rotate an API provider</strong>), and selected for new chats until the
+direct connection is removed in the next release. Local configuration does not
+mean live model access was verified. See
 <a href="../providers/#autocode-direct-connections-issue-1493">AutoCode direct connections</a>
-for credential storage, protocol support and qualification limits.</p>
+for retirement details, credential storage, protocol support and qualification
+limits.</p>
 <p>Credentials are never entered into the chat or its webview. Existing chats keep
 their saved backend. Model overrides, explicit external role transports and
 backend-specific containment options are kept with their original backend when
