@@ -480,14 +480,57 @@ class ProcessTests(unittest.TestCase):
                 child.kill()
             child.wait(timeout=5)
 
-    def wait_ready(self, root, child, *, ready="ready", go="go"):
+    def wait_ready(self, root, child, *, ready="ready", go="go", contents=None):
         deadline = time.monotonic() + 15
-        while not (root / ready).exists():
+        marker = root / ready
+        while not marker.exists() or (contents is not None and not contents(marker.read_text())):
             if child.poll() is not None or time.monotonic() >= deadline:
                 self.fail(f"Provider fixture failed to initialize: {ready}")
             time.sleep(0.01)
         if go:
             (root / go).touch()
+
+    def test_activity_fixture_observes_required_worker_before_starting_idle(self):
+        original_wait = self.wait_ready
+        original_monitor = ActivityMonitor
+
+        def ready(root, child, *, ready="ready", go="go", **kwargs):
+            if ready != "worker.pid":
+                return original_wait(root, child, ready=ready, go=go, **kwargs)
+            # An existing empty marker is not the child's completed readiness record.
+            (root / ready).write_text("")
+            original_poll = child.poll
+
+            def release_worker():
+                (root / "launch-worker").touch()
+                return original_poll()
+
+            with patch.object(child, "poll", release_worker):
+                return original_wait(root, child, ready=ready, go=go, **kwargs)
+
+        def monitor(events, *args, **kwargs):
+            marker = Path(events).parent / "worker.pid"
+            value = marker.read_text() if marker.exists() else ""
+            self.assertTrue(value.isdecimal(), "idle observation began before required descendant readiness")
+            self.addCleanup(cleanup_fixture_worker, processes.psutil.Process(int(value)))
+            return original_monitor(events, *args, **kwargs)
+
+        for lifecycle in (False, True):
+            with self.subTest(lifecycle=lifecycle):
+                event = "emit({'type':'step_start','sessionID':'fixture'})\n" if lifecycle else ""
+                body = (
+                    event
+                    + """while not Path('launch-worker').exists(): time.sleep(.01)
+worker = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True)
+Path('worker.pid').write_text(str(worker.pid))
+worker.wait()
+"""
+                )
+                with patch.object(self, "wait_ready", ready), patch(__name__ + ".ActivityMonitor", monitor):
+                    code, expired, _, reason = self.activity_child(body, idle=2, tool=8, require_worker=True)
+                self.assertNotEqual(0, code)
+                self.assertTrue(expired)
+                self.assertEqual("idle", reason["kind"])
 
     def activity_child(
         self,
@@ -524,6 +567,9 @@ class ProcessTests(unittest.TestCase):
                 child = subprocess.Popen([sys.executable, str(worker)], cwd=root, stdout=stream, start_new_session=True)
                 try:
                     self.wait_ready(root, child)
+                    if require_worker:
+                        # Establish the descendant stimulus before starting its idle clock.
+                        self.wait_ready(root, child, ready="worker.pid", go=None, contents=str.isdecimal)
                     if tool_ready:
                         self.wait_ready(root, child, ready="tool-started", go=None)
                     monitor = ActivityMonitor(events, idle_seconds=idle, tool_seconds=tool)

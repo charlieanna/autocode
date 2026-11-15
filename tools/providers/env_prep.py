@@ -12,8 +12,8 @@ explicit mapping or :func:`snapshot_environment`. Parallel workers pass their
 own mappings; billing admission deliberately checks both the explicit mapping
 and the process environment through :func:`combined_environment`.
 
-Pure functions over mappings, standard library only. This module imports
-nothing from AutoCode, so it cannot create an import cycle.
+Environment policy uses only mappings and the shared invocation-marker utility,
+which has no AutoCode dependencies.
 
 Within a run (``reuse_checks``), a preflight that succeeded is answered again for
 ``REUSE_SECONDS``. A chat message relaunches the controller, and the same
@@ -45,6 +45,11 @@ import subprocess
 import time
 from collections.abc import Mapping
 from pathlib import Path
+
+try:
+    from ..autocode_invocation_environment import without_call_markers
+except ImportError:
+    from autocode_invocation_environment import without_call_markers
 
 REUSE_SECONDS = 3600  # owner decision 2026-10-20: an hour
 REUSE_FOLDER = "preflight-reuse"
@@ -205,7 +210,9 @@ def _reuse_key(command, env: Mapping[str, str], kwargs) -> str | None:
         info = os.stat(real)
     except OSError:
         return None
-    variables = sorted((name, value) for name, value in env.items() if name not in SESSION_VARIABLES)
+    variables = sorted(
+        (name, value) for name, value in without_call_markers(env).items() if name not in SESSION_VARIABLES
+    )
     identity = [
         list(command),
         str(kwargs.get("cwd")),
