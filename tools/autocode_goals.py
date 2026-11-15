@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 try:
+    from . import autocode_assumption_ledger as assumption_ledger
     from . import autocode_plan_chat as plan_chat
     from . import autocode_prompts as prompts
     from . import autocode_roles as roles
@@ -11,6 +12,7 @@ try:
     from .autocode_role_schema import USER_REQUEST as USER_REQUEST
     from .autocode_role_schema import role_schema as role_schema
 except ImportError:
+    import autocode_assumption_ledger as assumption_ledger
     import autocode_plan_chat as plan_chat
     import autocode_prompts as prompts
     import autocode_roles as roles
@@ -105,23 +107,15 @@ QUESTION = obj({"id": STRING, "question": STRING, "why": STRING, "options": STRI
 # AutoPlanner's requirements-clarification investigation pass); it is either
 # resolved from the workspace, reclassified to "decision", or turned into an
 # access blocker.
-ASSUMPTION_CATEGORIES = (
-    "cost",
-    "quota",
-    "permission",
-    "external_side_effect",
-    "requested_outcome",
-    "behavior",
-    "technical",
-    "other",
-)
-# A choice in one of these categories changes cost, quota, permissions, external
-# side effects, or the user's literal requested outcome. It may never be silently
-# inferred from convention, and it may never be bulk-delegated.
-NON_INFERABLE_CATEGORIES = frozenset({"cost", "quota", "permission", "external_side_effect", "requested_outcome"})
+# The categories and who may infer each are the assumption ledger's (autocode_assumption_ledger).
+ASSUMPTION_CATEGORIES = assumption_ledger.ASSUMPTION_CATEGORIES
+NON_INFERABLE_CATEGORIES = assumption_ledger.NON_INFERABLE_CATEGORIES
 QUESTION["properties"]["kind"] = {"type": "string", "enum": ["discoverable", "inferable", "decision"]}
 QUESTION["properties"]["category"] = {"type": "string", "enum": list(ASSUMPTION_CATEGORIES)}
 QUESTION["properties"]["delegable"] = {"type": "boolean"}
+# Optional evidence for a technical question's default: a workspace citation the stage read. Only a
+# default it verifies is settled by AutoCode (autocode_technical_questions); otherwise the person decides.
+QUESTION["properties"]["convention_ref"] = STRING
 DECISION = obj(
     {
         "text": STRING,
@@ -170,7 +164,7 @@ BODY_SCHEMA = obj(
         "accepted_assumptions": {"type": "array", "items": DECISION},
         "delegated_decisions": {"type": "array", "items": DECISION},
         "acceptance_criteria": {"type": "array", "items": CRITERION},
-        "open_blocking_questions": {"type": "array", "maxItems": 3, "items": QUESTION},
+        "open_blocking_questions": {"type": "array", "maxItems": 5, "items": QUESTION},
     }
 )
 # Keep existing, sealed v3 briefs readable without silently changing their contract.
@@ -180,6 +174,10 @@ CRITERION["properties"]["sources"] = {"type": "array", "items": obj({"source_id"
 # Optional: what happens today, which the criterion replaces (#2133; autocode_current_behavior). Not in LEGACY_BODY_SCHEMA.
 CRITERION["properties"]["current_behavior"] = STRING
 CRITERION["properties"]["supersedes"] = {"type": "array", "items": obj({"file": STRING, "test": STRING})}  # 2748
+# Optional: what a Planner's own (agent_proposed) assumption is about and the code it rests on (#3603). A
+# behavior or protected one must be a question instead; a technical one needs a citation the Planner read.
+DECISION["properties"]["category"] = {"type": "string", "enum": list(ASSUMPTION_CATEGORIES)}
+DECISION["properties"]["convention_ref"] = STRING
 REQUIREMENTS_BODY_SCHEMA = copy.deepcopy(BODY_SCHEMA)
 MILESTONE = obj({"id": STRING, "objective": STRING, "acceptance_criteria": STRINGS})
 MILESTONE["properties"]["depends_on"] = STRINGS
@@ -313,43 +311,25 @@ def check_delegable(questions):
             )
 
 
-def normalize_assumption(row):
-    """A legacy proposed_assumptions entry (plain string) becomes an unstructured,
-    id-less record: displayed and counted, but never evidenced and never a
-    target for --reject-assumption."""
-    if isinstance(row, str):
-        return {
-            "id": None,
-            "text": row,
-            "kind": "inferable",
-            "category": "requested_outcome",
-            "convention_ref": "",
-            "rationale": "",
-            "supports": [],
-            "legacy": True,
-        }
-    if not isinstance(row, dict):
-        raise ValueError("proposed_assumptions entries must be a string or an object")
-    return {
-        "id": row.get("id"),
-        "text": str(row.get("text", "")),
-        "kind": row.get("kind", "inferable"),
-        "category": row.get("category", "requested_outcome"),
-        "convention_ref": str(row.get("convention_ref", "")),
-        "rationale": str(row.get("rationale", "")),
-        "supports": list(row.get("supports") or []),
-        "legacy": False,
-    }
+normalize_assumption = assumption_ledger.normalize
 
 
-def validate_assumptions(rows, known_requirement_ids):
+def validate_assumptions(rows, known_requirement_ids, *, verify=None, cites_person=lambda ref: False):
+    """Check a report's proposed_assumptions; the ledger decides who confirms each (#3603).
+
+    A protected choice is never an assumption, whatever ``kind`` the model gave it: it must be an
+    open decision question. Every structured assumption needs a rationale. An engineering convention
+    (``technical``) must cite a ``convention_ref`` verified against workspace code the stage read
+    (``verify``, bound to ``autocode_code_citations.verify_citation``, which accepts an empty
+    greenfield workspace with nothing to read), unless it cites a saved person event. User-visible
+    behavior (``behavior``, ``other``) is never silently inferred from code: ``unconfirmed`` keeps
+    it for the person's confirmation unless confirmed by id or citing a saved person event."""
     if not isinstance(rows, list):
         raise ValueError("proposed_assumptions must be an array")
     normalized = [normalize_assumption(row) for row in rows]
+    structured = [row for row in normalized if not row["legacy"]]
     seen_ids = set()
-    for row in normalized:
-        if row["legacy"]:
-            continue
+    for row in structured:
         if not row["text"].strip():
             raise ValueError("Each structured assumption needs text")
         if not row["id"] or not _ID_RE.fullmatch(row["id"]):
@@ -361,16 +341,28 @@ def validate_assumptions(rows, known_requirement_ids):
             raise ValueError(f"Assumption {row['id']} has an invalid category")
         if not set(row["supports"]) <= known_requirement_ids:
             raise ValueError(f"Assumption {row['id']} supports an unknown requirement id")
-        if row["kind"] == "inferable":
-            if row["category"] in NON_INFERABLE_CATEGORIES:
-                raise ValueError(
-                    f"Assumption {row['id']} in category {row['category']} cannot be inferable; "
-                    "it must be an open decision question"
-                )
-            if not row["convention_ref"].strip():
-                raise ValueError(f"Assumption {row['id']} needs a convention_ref as evidence for the inference")
-            if not row["rationale"].strip():
-                raise ValueError(f"Assumption {row['id']} needs a rationale for the inference")
+    for row in structured:
+        if row["category"] in NON_INFERABLE_CATEGORIES:
+            raise ValueError(
+                f"Assumption {row['id']} in category {row['category']} cannot be inferable or assumed "
+                "under any kind; it must be an open decision question"
+            )
+        ref = row["convention_ref"].strip()
+        if row["category"] in assumption_ledger.CONVENTION_CATEGORIES:
+            if not (ref and cites_person(ref)):
+                if verify is not None:
+                    failure = verify(ref)
+                    if failure is not None:
+                        raise ValueError(
+                            f"Assumption {row['id']} needs a convention_ref verified against read workspace code: "
+                            + failure
+                        )
+                elif not ref:
+                    raise ValueError(f"Assumption {row['id']} needs a convention_ref as evidence for the inference")
+        elif row["kind"] in ("inferable", "discoverable") and not ref:
+            raise ValueError(f"Assumption {row['id']} needs a convention_ref as evidence for the inference")
+        if not row["rationale"].strip():
+            raise ValueError(f"Assumption {row['id']} needs a rationale for the inference")
     return normalized
 
 
@@ -423,7 +415,12 @@ def check_requirement_handoff(state: RunState, report):
             raise ValueError("A proposed reframe must name an existing requirement and a replacement proposal")
         if reframe["question_id"] not in questions and reframe["question_id"] not in state.get("answers", {}):
             raise ValueError("A proposed reframe needs an explicit user acceptance question")
-    validate_assumptions(report.get("proposed_assumptions", []), seen)
+    validate_assumptions(
+        report.get("proposed_assumptions", []),
+        seen,
+        verify=assumption_ledger.verifier(state, "requirements_gather"),
+        cites_person=assumption_ledger.cites_person(state),
+    )
     check_delegable(report.get("open_questions", []))
     requirement_retention.check(
         previous_requirements,
@@ -977,7 +974,7 @@ def reject_assumption(state: RunState, assumption_id, selected):
     ):
         raise ValueError(f"Assumption {assumption_id} already has an open rejection")
     category = row["category"] if row["category"] in ASSUMPTION_CATEGORIES else "requested_outcome"
-    kind = "human_decision" if category in NON_INFERABLE_CATEGORIES else "remediation"
+    kind = "human_decision" if category in assumption_ledger.PERSON_CATEGORIES else "remediation"
     contract = state.get("goal_contract") or {}
     event = {
         "kind": "reject_assumption",

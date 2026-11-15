@@ -4,8 +4,10 @@ import copy
 import json
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import autocode_chat_history as chat_history
+import autocode_code_citations as code_citations
 import autocode_goal_lifecycle as lifecycle
 import autocode_goals as goals
 import autocode_report_repair_context as repair_context
@@ -30,8 +32,26 @@ def question(qid="Q1", **extra):
         "kind": "decision",
         "category": "technical",
         "delegable": False,
+        "convention_ref": "config.py:1",
         **extra,
     }
+
+
+# The files a planning stage read in these tests; discovery's verify_citation decides it in a run.
+READ = {"config.py"}
+
+
+def fake_verify(state, stage, ref, **_):
+    path = ref.split(":", 1)[0].strip()
+    return None if path in READ else f"convention_ref entry {ref!r} cites {path!r}, which this stage never read"
+
+
+class ReadCitations(unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        patcher = mock.patch.object(code_citations, "verify_citation", create=True, side_effect=fake_verify)
+        self.verify = patcher.start()
+        self.addCleanup(patcher.stop)
 
 
 def state():
@@ -48,12 +68,39 @@ def state():
     }
 
 
-class TechnicalQuestionPolicyTests(unittest.TestCase):
+def verified(ref):
+    return fake_verify({}, None, ref)
+
+
+class TechnicalQuestionPolicyTests(ReadCitations):
     def test_selects_technical_defaults_without_requiring_human_delegation(self):
         rows = [question(), question("Q2", kind="inferable")]
         original = copy.deepcopy(rows)
-        self.assertEqual((rows, []), technical.split(rows, set()))
+        self.assertEqual((rows, []), technical.split(rows, set(), verify=verified))
         self.assertEqual(original, rows)
+
+    def test_a_technical_label_without_code_that_was_read_stays_the_persons(self):
+        # #3603: a product choice labelled technical was settled silently on the label alone.
+        rows = [
+            question("unread", convention_ref="cli.py:4"),
+            question("uncited", convention_ref=""),
+            question("absent", convention_ref=None),
+        ]
+        rows[2].pop("convention_ref")
+        self.assertEqual(([], rows), technical.split(rows, set(), verify=verified))
+
+    def test_settle_asks_the_person_when_the_default_cites_code_nobody_read(self):
+        current = state()
+        row = question(convention_ref="reports/export.py:12")
+        self.assertEqual([row], technical.settle(current, [row], "r1:draft"))
+        self.assertEqual([], current["user_events"])
+        self.verify.assert_called_once_with(current, None, "reports/export.py:12", field="convention_ref")
+
+    def test_settle_checks_the_citation_against_the_named_stage(self):
+        current = state()
+        self.assertEqual([], technical.settle(current, [question()], "r1:draft", stage="requirements_gather"))
+        self.verify.assert_called_once_with(current, "requirements_gather", "config.py:1", field="convention_ref")
+        self.assertEqual("config.py:1", current["user_events"][-1]["question"]["convention_ref"])
 
     def test_keeps_human_intent_protected_and_legacy_questions_visible(self):
         rows = [
@@ -66,11 +113,11 @@ class TechnicalQuestionPolicyTests(unittest.TestCase):
         legacy = question("legacy")
         legacy.pop("category")
         rows.append(legacy)
-        self.assertEqual(([], rows), technical.split(rows, set()))
+        self.assertEqual(([], rows), technical.split(rows, set(), verify=verified))
 
     def test_never_self_answers_a_rejected_assumption_obligation(self):
         row = question()
-        self.assertEqual(([], [row]), technical.split([row], {"Q1"}))
+        self.assertEqual(([], [row]), technical.split([row], {"Q1"}, verify=verified))
 
     def test_records_an_internal_answer_without_changing_user_intent(self):
         current = state()
@@ -148,7 +195,7 @@ class TechnicalQuestionPolicyTests(unittest.TestCase):
         self.assertEqual(["FIRST", "SECOND"], [event["question_id"] for event in current["user_events"]])
 
 
-class TechnicalDraftTests(unittest.TestCase):
+class TechnicalDraftTests(ReadCitations):
     def test_nonjoint_runs_keep_their_existing_human_question_path(self):
         current = state()
         current["settings"]["joint_planning"] = False
@@ -238,7 +285,7 @@ class TechnicalDraftTests(unittest.TestCase):
             lifecycle.install_draft(current, changed, origin="planner_draft")
 
 
-class TechnicalPlanningTests(EpisodeCase):
+class TechnicalPlanningTests(ReadCitations, EpisodeCase):
     def test_requirements_redraft_internal_questions_before_asking_the_human(self):
         self.state["settings"]["spec_first"] = True
         self.apply("requirements_gather", requirements([question()], assistant_reply="May AC4 use the full fixture?"))

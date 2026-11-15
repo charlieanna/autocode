@@ -101,6 +101,18 @@ class ObligationCase(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.workspace = Path(temp.name)
         (self.workspace / "config.py").write_text("INTERFACE = 'cli'\nPROVIDER = 'opencode'\n")
+        events_dir = self.workspace / ".autocode"
+        events_dir.mkdir()
+        events = events_dir / "events.jsonl"
+        events.write_text(
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {"type": "command_execution", "command": "cat config.py", "exit_code": 0},
+                }
+            )
+            + "\n"
+        )
         self.state = {
             "version": 3,
             "task_id": "task-1",
@@ -111,6 +123,7 @@ class ObligationCase(unittest.TestCase):
             "acceptance_criteria": [],
             "status": "RUNNING",
             "next_stage": "requirements_gather",
+            "stages": [{"stage": "requirements_gather", "events": str(events)}],
             "settings": {"joint_planning": True, "roles": {"requirements": {}, "planner": {}, "plan_reviewer": {}}},
         }
 
@@ -499,7 +512,9 @@ class SentenceIdCitationFlowTests(ObligationCase):
 
 class HumanDecisionTests(ObligationCase):
     def test_policy_rejection_blocks_a_real_discovery_contract_until_the_user_answers(self):
-        oid = self.reject(category="cost")
+        with self.assertRaisesRegex(ValueError, "open decision question"):
+            self.reject(category="cost")
+        oid = self.reject(category="behavior")
         self.assertEqual("human_decision", self.obligation(oid)["kind"])
         with self.assertRaisesRegex(ValueError, "does not name an open remediation obligation"):
             self.apply("draft_plan", self.discovery(records=[self.record(oid)]))
@@ -510,13 +525,13 @@ class HumanDecisionTests(ObligationCase):
         self.apply("draft_plan", self.discovery(plan([decision_question(oid)])))
         self.publish()
         self.assertEqual("WAITING_FOR_USER", self.state["status"])
-        goals.answer(self.state, oid, "Quality matters more than cost here")
+        goals.answer(self.state, oid, "Empty name should exit 2 with usage")
         self.assertEqual("resolved", self.obligation(oid)["status"])
         self.apply("draft_plan", self.discovery())
         self.assertEqual("review_plan", self.state["next_stage"])
 
     def test_cap_full_defers_presentation_but_not_the_obligation(self):
-        oid = self.reject(category="cost")
+        oid = self.reject(category="behavior")
         others = [decision_question(q) for q in ("Q1", "Q2", "Q3")]
         self.apply("draft_plan", self.discovery(plan(others)))
         self.publish()
