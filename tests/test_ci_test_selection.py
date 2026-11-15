@@ -8,6 +8,22 @@ import run_suite
 
 
 class AccessTransportConsumerTests(unittest.TestCase):
+    def test_codex_settings_facade_keeps_its_owned_metadata_consumers_when_slow(self):
+        consumers = {
+            "tests.test_autocode_support",
+            "tests.test_catalogue_t09",
+            "tests.test_catalogue_t11",
+            "tests.test_metadata_preflight",
+            "tests.test_metadata_startup",
+            "tests.test_run_setup_boundary",
+        }
+        selected = run_suite.select_tests(
+            ["tools/autocode_codex_settings.py"],
+            {**{module: "" for module in consumers}, "tests.test_unrelated": ""},
+        )
+        kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+        self.assertEqual(consumers, set(kept))
+
     def test_mutation_checkpoint_keeps_its_public_cli_consumer_when_slow(self):
         consumer = "tests.test_mutation_continuation_cli"
         for path in (
