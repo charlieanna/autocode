@@ -4070,6 +4070,7 @@ for (const surface of ['chat', 'Run details']) {
     for (const absent of ['No action the client can take', 'asking a person', 'Take named action', 'the run is complete']) assert.ok(!text.includes(absent), absent);
     assert.equal(ui.document.querySelector('#take-action'), null);
     assert.equal(ui.document.querySelector('#start-new-conversation'), null);
+    if (surface === 'chat') assert.equal(ui.document.getElementById('send-hint').textContent, 'This run cannot continue automatically.');
     assert.equal(launch.mock.callCount(), 0);
   });
 }

@@ -25,6 +25,7 @@ try:
     from . import autocode_provider_auth as provider_auth
     from . import autocode_quota_route as quota_route
     from . import autocode_run_messages as run_messages
+    from . import autocode_startup_timeout_view as startup_timeout_view
     from . import autocode_verification_failure as verification_failure
     from .autocode_role_names import role_name
 except ImportError:
@@ -35,6 +36,7 @@ except ImportError:
     import autocode_provider_auth as provider_auth
     import autocode_quota_route as quota_route
     import autocode_run_messages as run_messages
+    import autocode_startup_timeout_view as startup_timeout_view
     import autocode_verification_failure as verification_failure
     from autocode_role_names import role_name
 
@@ -541,9 +543,13 @@ def project(state: RunState, need=None):
             "Read the saved plan, changes, checks and attempt history. This does not run a step.",
         )
     )
-    if (failure := (verification_failure.presentation(state) or model_listing_failure.presentation(state))) and failure[
-        "category"
-    ] == "blocked":
+    if (
+        failure := (
+            verification_failure.presentation(state)
+            or model_listing_failure.presentation(state)
+            or startup_timeout_view.presentation(state)
+        )
+    ) and failure["category"] == "blocked":
         result.update(failure)
         return result
     if terminal:

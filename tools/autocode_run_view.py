@@ -89,6 +89,7 @@ try:
     from . import autocode_stage_decisions as stage_decisions
     from . import autocode_stage_pipeline as stage_pipeline
     from . import autocode_stage_policy as stage_policy
+    from . import autocode_startup_timeout_view as startup_timeout_view
     from . import autocode_stop_explanations as stop_explanations
     from . import autocode_task_input as task_input
     from . import autocode_tool_containment as tool_containment
@@ -158,6 +159,7 @@ except ImportError:
     import autocode_stage_decisions as stage_decisions
     import autocode_stage_pipeline as stage_pipeline
     import autocode_stage_policy as stage_policy
+    import autocode_startup_timeout_view as startup_timeout_view
     import autocode_stop_explanations as stop_explanations
     import autocode_task_input as task_input
     import autocode_tool_containment as tool_containment
@@ -247,7 +249,11 @@ def view(
         import autocode_checkpoint_reconciliation as reconciliation
     reconcile = (
         None
-        if (verification_failure.presentation(state) or model_listing_failure.presentation(state))
+        if (
+            verification_failure.presentation(state)
+            or model_listing_failure.presentation(state)
+            or startup_timeout_view.presentation(state)
+        )
         else reconciliation.offer(state, liveness, controller=controller, stop_pending=stop_pending)
     )
     if reconcile is not None:
@@ -338,7 +344,11 @@ def view(
             needs=need,
             held_cause=pause_authority.answered_cause(state),
             ready=(controller or {}).get("kind") == "ready",
-            internal_failure=(verification_failure.presentation(state) or model_listing_failure.presentation(state)),
+            internal_failure=(
+                verification_failure.presentation(state)
+                or model_listing_failure.presentation(state)
+                or startup_timeout_view.presentation(state)
+            ),
         ),
         "current_task": {key: task.get(key) for key in ("id", "objective", "milestone_id")} if task else None,
         # The kind of job named for the request (autocode_workflows.WORKFLOWS);
@@ -996,7 +1006,11 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
         from . import autocode_changeset_barrier as changeset_barrier
     except ImportError:
         import autocode_changeset_barrier as changeset_barrier
-    if verification_failure.presentation(state) or model_listing_failure.presentation(state):
+    if (
+        verification_failure.presentation(state)
+        or model_listing_failure.presentation(state)
+        or startup_timeout_view.presentation(state)
+    ):
         return {"needs": None, "pause_category": "autocode", "pause_category_label": "AutoCode", "next_command": None}
     if changeset_barrier.held_approval(state):
         held_need = {
@@ -1164,7 +1178,11 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                                                      --abandon-stage ATTEMPT as deterministic recovery
     """
     status = state.get("status", "")
-    if status in COMPLETE or (verification_failure.presentation(state) or model_listing_failure.presentation(state)):
+    if status in COMPLETE or (
+        verification_failure.presentation(state)
+        or model_listing_failure.presentation(state)
+        or startup_timeout_view.presentation(state)
+    ):
         return None
     if retired := workflows.retired_stage(state):
         # Saved at a stage this runtime no longer runs (owner decision 2026-11-10): nothing resumes it.

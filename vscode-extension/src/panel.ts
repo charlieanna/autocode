@@ -2099,6 +2099,7 @@ function updateComposer() {
     : input ? (chatEnvelope.busy ? 'AutoCode is working on your last message. Keep your draft here and send it after.' : label)
     : (chatEnvelope.busy || (chatEnvelope.state && chatEnvelope.state.working)) ? 'AutoCode is working. You can keep a draft here.'
     : (chatEnvelope.state && chatEnvelope.state.done) ? 'This run is finished. Start a new chat with +.'
+    : (chatEnvelope.state && chatEnvelope.state.stopped) ? 'This run cannot continue automatically.'
     : 'Use the action above, or start a new chat.';
   document.getElementById('chat-error').textContent = chatEnvelope.error || '';
 }
