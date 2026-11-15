@@ -1987,17 +1987,20 @@ switched on and no model is called.</p>
   an attempt's output or decision was rejected), and <code>report_repair</code>; rejection classes and
   routes (<code>stage_wall</code>, <code>provider_timeout</code>, <code>not_a_report</code>, <code>schema</code>, <code>contract_rule</code>,
   <code>evidence_not_authenticated</code>, <code>other</code>); first-interaction latency with <code>human_wait</code> separated;
-  stage prompt byte size and first-request cache counts; and run outcome/plan size without
-  recording prompt text, model output, raw rejection prose, or credentials. A launch AutoCode
+  stage prompt byte splits (<code>instruction_bytes</code>, <code>stable_handoff_bytes</code>, <code>changing_handoff_bytes</code>),
+  largest and budgeted handoff field names (<code>top_handoff_fields</code>, <code>budgeted_fields</code>), and
+  first-request cache read/write counts (including Claude first-message stream usage); and run
+  outcome/plan size without recording prompt text, model output, raw rejection prose, or credentials. A launch AutoCode
   stopped itself is classed by what stopped it: <code>provider_timeout</code> when the provider went quiet or
   a tool call ran past its limit, <code>stage_wall</code> when a stage limit or the Requirements reply budget
   ended a stage that was still working, and <code>other</code> when you stopped it.</li>
 <li><strong>Cross-run report.</strong> <code>autocode usage report [--workspace PATH] [--since DATE] [--all] [--json]</code>
   (or <code>autocode usage list</code> for raw rows, and backward-compatible
   <code>python3 tools/autocode_usage.py [PROJECT] [--json]</code>) aggregates only <code>usage.jsonl</code> ledgers —
-  never <code>state.json</code> — keeping <code>live</code> and <code>fake</code> evidence separate and comparing against
-  <a href="../efficiency-targets.json">efficiency-targets.json</a>. Legacy rows without new fields are counted
-  under <code>not_recorded</code>.</li>
+  never <code>state.json</code> — keeping <code>live</code> and <code>fake</code> evidence separate, summarizing stage prompt
+  byte splits, <code>first_request_cache_hit_share</code>, and <code>field_budget_overages</code>, and comparing against
+  <a href="../efficiency-targets.json">efficiency-targets.json</a>. Unrecorded legacy fields stay <code>null</code> and
+  legacy rows without outcome/latency fields are counted under <code>not_recorded</code>.</li>
 </ul>
 <p>Cost has three bases, always kept apart: <strong>reported</strong> is the provider's own <code>cost_usd</code> (the built-in
 claude provider writes each call's share of Claude Code's cumulative session cost; a provider that
