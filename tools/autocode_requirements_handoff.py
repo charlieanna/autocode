@@ -10,7 +10,9 @@ names starts (autocode_requirements_chat.start_named_job, #1860).
 Moved out of autopilot.apply_planning, so the controller does not grow; besides that stop, the only
 change is that continuing goes through autocode_run_status, which also retires a stale stop reason.
 State keys written: requirements_history, requirements_handoff (with its validated workspace_scope
-and any dropped_external_parts, autocode_workspace_scope), status/phase/next_stage, discovery_summary.
+and any dropped_external_parts, autocode_workspace_scope; the ids of the answers it was written with,
+``answers_seen``; and, in an unattended run, its assumptions confirmed by that choice,
+``confirmed_assumptions``, autocode_requirements_review), status/phase/next_stage, discovery_summary.
 """
 
 from __future__ import annotations
@@ -111,7 +113,7 @@ def _accept(state: RunState, value: dict, record: dict, *, check_code_refs, queu
     # An initial clarification can honestly leave the outcome undrafted. It must
     # return to Requirements after the answer, before any plan is prepared.
     awaiting_intent = (
-        not state.get("goal_contract")
+        not requirements_review.current_turn_has_contract(state)
         and clarification_only
         and any(question.get("id") not in (state.get("answers") or {}) for question in questions)
         and not any(value[key] for key in ("required_behaviors", "acceptance_tests"))
@@ -126,6 +128,9 @@ def _accept(state: RunState, value: dict, record: dict, *, check_code_refs, queu
     ids = [question["id"] for question in questions]
     if len(ids) != len(set(ids)) or any(not question_id.strip() for question_id in ids):
         raise ValueError("Requirements question IDs must be nonempty and unique")
+    questions, dropped_confirmations = requirements_review.without_summary_confirmations(state, value)
+    if dropped_confirmations:
+        value = {**value, "open_questions": questions}
     # Validate the reported scope before any state is written (#2066 grounding, and a
     # coordinated member's role-noun label refused so the bounded report repair
     # attempts the correction, #2420; never a silent drop).
@@ -176,7 +181,13 @@ def _accept(state: RunState, value: dict, record: dict, *, check_code_refs, queu
     intent_only = clarification_only and not any(value[key] for key in ("required_behaviors", "acceptance_tests"))
     if local_refs or (builds_code and not intent_only and not catalog_refs):
         check_code_refs(state, local_refs, "source_refs")
-    state["requirements_handoff"] = {"report": copy.deepcopy(value), "output": record["output"]}
+    # The answers this handoff was written with: an answer given after it sends Requirements back
+    # (requirements_review.after_answers); one it already had does not.
+    state["requirements_handoff"] = {
+        "report": copy.deepcopy(value),
+        "output": record["output"],
+        "answers_seen": sorted(state.get("answers") or {}),
+    }
     if isinstance(record.get("first_reply_budget"), dict):
         state["requirements_handoff"]["first_reply_budget"] = copy.deepcopy(record["first_reply_budget"])
     if "workspace_scope" in value:
@@ -185,7 +196,10 @@ def _accept(state: RunState, value: dict, record: dict, *, check_code_refs, queu
         )
     if dropped:
         state["requirements_handoff"]["dropped_external_parts"] = dropped
+    if dropped_confirmations:
+        state["requirements_handoff"]["dropped_confirmation_questions"] = dropped_confirmations
     project_memory.capture(state, value)
+    requirements_review.delegate_assumptions(state)
     remaining = technical_questions.settle(state, questions, "requirements:" + goals.handoff_ref(state))
     if len(remaining) != len(questions):
         run_status.running(state, "DISCOVERING", next_stage="requirements_gather", discovery_summary=value["summary"])
@@ -201,7 +215,8 @@ def _accept(state: RunState, value: dict, record: dict, *, check_code_refs, queu
     if requirements_review.questions(state):
         requirements_review.wait(state, record, queue)
         return
-    # Nothing waits for the person (a plain CLI run, a follow-up turn): start the job Requirements named.
+    # Nothing waits for the person (no open question, no unconfirmed assumption, no spec-first review, or
+    # this turn is already planned): start the job Requirements named.
     requirements_chat.start_named_job(state, record)
 
 

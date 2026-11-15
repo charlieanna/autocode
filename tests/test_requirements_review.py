@@ -11,6 +11,7 @@ import json
 import os
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -211,18 +212,24 @@ class SettingTests(unittest.TestCase):
         self.assertEqual([], review.questions(state))
         review.after_answers(state)
         self.assertEqual(review.STAGE, state["next_stage"], "the answer is requirements input, not planning input")
-        # A complete handoff with an open question still goes to the Planner, whose draft carries the question.
+        # A complete handoff with an open question also stops on the default flow and refreshes Requirements (#3603).
         complete = {**report, "required_behaviors": ["prints Hello, NAME"], "acceptance_tests": ["greet.py Ada"]}
         pending = {"settings": {}, "requirements_handoff": {"report": complete}, "next_stage": review.NEXT}
+        self.assertEqual([question], review.questions(pending))
+        self.assertTrue(review.accepts(pending, {"scope": "clarification", "questions": [question]}))
+        review.after_answers(pending)
+        self.assertEqual(review.NEXT, pending["next_stage"], "no answer yet: stays waiting on the question")
+        pending["answers"] = {"Q1": {"text": "Command line"}}
         self.assertEqual([], review.questions(pending))
         review.after_answers(pending)
-        self.assertEqual(review.NEXT, pending["next_stage"])
+        self.assertEqual(review.STAGE, pending["next_stage"])
 
     def test_requirements_clarification_precedes_scope_routing_without_deciding_scope(self):
         question = {"id": "example", "question": "Which action has the incorrect result?"}
-        for spec_first, complete in ((False, False), (True, False), (True, True)):
+        for spec_first, complete in ((False, False), (False, True), (True, False), (True, True)):
             with self.subTest(spec_first=spec_first, complete=complete):
                 report = {
+                    "intended_outcome": "Correct the mapped result",
                     "open_questions": [question],
                     "required_behaviors": ["Correct the result"] if complete else [],
                     "acceptance_tests": ["Result is mapped"] if complete else [],
@@ -249,6 +256,334 @@ class SettingTests(unittest.TestCase):
                 state["goal_contract"] = {"revision": 1}
                 state["answers"] = {}
                 self.assertTrue(review.questions(state)[0]["id"].startswith("workspace-scope-"))
+
+    @staticmethod
+    def _ledger_stub(calls: list[dict] | None = None):
+        def unconfirmed(assumptions, *, confirmed_ids, verify, cites_person=lambda ref: False):
+            confirmed = set(confirmed_ids)
+            if calls is not None:
+                calls.append({"assumptions": list(assumptions), "confirmed_ids": frozenset(confirmed)})
+            rows = []
+            for raw in assumptions or []:
+                if isinstance(raw, str):
+                    rows.append({"id": None, "text": raw, "legacy": True, "reason": "needs confirmation"})
+                    continue
+                if raw.get("id") in confirmed:
+                    continue
+                if raw.get("category") == "technical" and verify(raw.get("convention_ref", "")) is None:
+                    continue
+                if cites_person(raw.get("convention_ref", "")):
+                    continue
+                rows.append({**raw, "legacy": False, "reason": "needs confirmation"})
+            return rows
+
+        return types.SimpleNamespace(
+            unconfirmed=unconfirmed,
+            verifier=lambda state, stage="requirements_gather": lambda ref: None if ref == "app.py:1" else "unread",
+            cites_person=lambda state: lambda ref: ref in (state.get("answers") or {}),
+        )
+
+    def test_follow_up_turn_retaining_earlier_contract_stops_for_questions_and_spec_first_review(self):
+        import autocode_follow_up as follow_up
+        import autocode_requirements_chat as chat
+
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            state = {
+                "status": "TASK_COMPLETE",
+                "phase": "COMPLETE",
+                "next_stage": None,
+                "completed_at": "t0",
+                "task": "Build greet.py",
+                "settings": {"spec_first": True, "roles": {"requirements": {"engine": "codex", "model": "m"}}},
+                "workspace": str(workspace),
+                "workflow": {"kind": "build", "then": "draft_plan", "requirements_approved": True},
+                "goal_contract": {"revision": 1, "hash": "turn1hash", "body": {}},
+                "requirements_handoff": {
+                    "output": "iterations/001/requirements-gather-01.json",
+                    "report": {"intended_outcome": "Build greet.py", "assistant_reply": "Turn 1 reply"},
+                },
+                "stages": [],
+                "user_events": [],
+            }
+            follow_up.accept(state, "Also support --json output", workspace, "t1")
+            self.assertTrue(chat.enabled(state))
+            # Turn 1's leftover handoff does not masquerade as Turn 2's before Requirements runs.
+            self.assertEqual([], review.questions(state))
+            self.assertEqual("", chat.reply(state))
+            self.assertFalse(review.current_turn_has_contract(state))
+            self.assertEqual({}, review.current_turn_handoff(state))
+
+            question = {"id": "Q-format", "question": "Array or object JSON?"}
+            state["requirements_history"] = [state["requirements_handoff"]]
+            state["requirements_handoff"] = {
+                "output": "iterations/002/requirements-gather-01.json",
+                "answers_seen": [],
+                "report": {
+                    "intended_outcome": "Support --json output",
+                    "required_behaviors": ["Emit JSON when --json is passed"],
+                    "acceptance_tests": ["greet.py --json Ada"],
+                    "open_questions": [question],
+                    "assistant_reply": "Should --json emit an object or array?",
+                },
+            }
+            state["next_stage"] = review.NEXT
+            self.assertEqual([question], review.questions(state))
+            state["answers"] = {"Q-format": {"text": "Object"}}
+            review.after_answers(state)
+            self.assertEqual(review.STAGE, state["next_stage"])
+
+            # Refreshed Turn 2 handoff with no remaining open questions stops at the spec-first review.
+            state["requirements_history"].append(state["requirements_handoff"])
+            state["requirements_handoff"] = {
+                "output": "iterations/002/requirements-gather-02.json",
+                "answers_seen": ["Q-format"],
+                "report": {
+                    "job": "build",
+                    "intended_outcome": "Support --json object output",
+                    "required_behaviors": ["Emit {'greeting': ...} when --json is passed"],
+                    "acceptance_tests": ["greet.py --json Ada prints JSON object"],
+                    "open_questions": [],
+                },
+            }
+            state["next_stage"] = review.NEXT
+            confirm = review.review_question(state)
+            self.assertEqual([confirm], review.questions(state))
+            state["answers"][confirm["id"]] = {"text": "plan"}
+            state["pending_questions"] = []
+            review.after_answers(state)
+            self.assertTrue(chat.start_after_approval(state))
+            self.assertEqual(review.NEXT, state["next_stage"])
+
+            # Once Turn 2's Planner installs revision 2, current_turn_has_contract becomes True.
+            state["goal_contract"] = {"revision": 2, "hash": "turn2hash", "body": {}}
+            self.assertTrue(review.current_turn_has_contract(state))
+
+    def test_unconfirmed_assumptions_stop_without_spec_first_list_all_with_rationale_and_record_ids(self):
+        import autocode_requirements_chat as chat
+        import autocode_requirements_handoff as handoff
+
+        calls: list[dict] = []
+        assumptions = [
+            {
+                "id": f"A{index}",
+                "text": f"Default behavior choice {index}",
+                "kind": "inferable",
+                "category": "behavior",
+                "convention_ref": "app.py:1",
+                "rationale": f"Reason number {index}",
+                "supports": [],
+            }
+            for index in range(1, 11)
+        ]
+        behaviors = [f"Behavior {index}" for index in range(1, 11)]
+        task = "Add export command."
+        value = {
+            "job": "build",
+            "summary": "Export command with 10 assumptions.",
+            "intended_outcome": task,
+            "requirements": [{"id": "R1", "text": task, "source_quote": task}],
+            "required_behaviors": behaviors,
+            "constraints": [],
+            "acceptance_tests": ["Export writes output"],
+            "source_refs": ["task"],
+            "proposed_assumptions": assumptions,
+            "open_questions": [],
+            "ignored_statements": [],
+            "conflicts": [],
+            "proposed_reframes": [],
+        }
+        state = {
+            "task": task,
+            "settings": {},
+            "stages": [],
+            "workflow": {"kind": None, "then": "draft_plan"},
+        }
+        queued: list[dict] = []
+        with patch.dict(sys.modules, {"autocode_assumption_ledger": self._ledger_stub(calls)}):
+            handoff.accept(
+                state,
+                value,
+                {"output": "iter/001/req-01.json"},
+                check_code_refs=lambda *_: None,
+                queue=lambda *args, **kwargs: queued.append(kwargs),
+            )
+            self.assertIsNone(state["workflow"]["kind"], "must wait for assumption confirmation before starting job")
+            self.assertEqual(1, len(queued))
+            [question] = queued[0]["questions"]
+            self.assertTrue(question["id"].startswith(review.PREFIX))
+            self.assertIn("Assumptions:", question["question"])
+            # Every assumption (all 10 > SHOWN=8) and its rationale is shown; Behaviors still truncates at SHOWN.
+            for index in range(1, 11):
+                self.assertIn(f"Default behavior choice {index} (why: Reason number {index})", question["question"])
+            self.assertIn("Behavior 8", question["question"])
+            self.assertNotIn("Behavior 9", question["question"])
+            self.assertEqual(1, question["question"].count("… and 2 more"))
+
+            # A correction refreshes Requirements without confirming the assumptions.
+            correction_state = json.loads(json.dumps(state))
+            correction_state["answers"] = {question["id"]: {"text": "Use TSV for choice 1"}}
+            review.after_answers(correction_state)
+            self.assertEqual(review.STAGE, correction_state["next_stage"])
+            self.assertEqual(frozenset(), review.confirmed_assumption_ids(correction_state))
+
+            # Approving ('plan') records the confirmed assumption ids and starts the named job.
+            state["answers"] = {question["id"]: {"text": "plan"}}
+            state["pending_questions"] = []
+            review.after_answers(state)
+            expected_ids = frozenset(f"A{index}" for index in range(1, 11))
+            self.assertEqual(expected_ids, review.confirmed_assumption_ids(state))
+            self.assertEqual([], review.unconfirmed_assumptions(state))
+            self.assertEqual(expected_ids, calls[-1]["confirmed_ids"])
+            self.assertTrue(chat.start_after_approval(state))
+            self.assertEqual("build", state["workflow"]["kind"])
+            self.assertEqual(review.NEXT, state["next_stage"])
+
+            # A refreshed handoff keeps ids whose text is unchanged, but asks again when an assumption is reworded.
+            reworded = [{**assumptions[0], "text": "Changed behavior choice 1"}, *assumptions[1:]]
+            state["requirements_history"] = [state["requirements_handoff"]]
+            state["requirements_handoff"] = {
+                "output": "iter/001/req-02.json",
+                "answers_seen": list(state["answers"]),
+                "report": {**value, "proposed_assumptions": reworded},
+            }
+            self.assertEqual(expected_ids - {"A1"}, review.confirmed_assumption_ids(state))
+            self.assertEqual(["A1"], [row["id"] for row in review.unconfirmed_assumptions(state)])
+            self.assertEqual(1, len(review.questions(state)))
+            self.assertTrue(review.questions(state)[0]["id"].startswith(review.PREFIX))
+
+    def test_clear_runs_and_skip_requirements_advance_with_zero_stops(self):
+        import autocode_requirements_handoff as handoff
+
+        task = "Add export command."
+        verified_technical = [
+            {
+                "id": "A1",
+                "text": "Follow app.py logging helper",
+                "kind": "inferable",
+                "category": "technical",
+                "convention_ref": "app.py:1",
+                "rationale": "Existing module uses it",
+                "supports": [],
+            }
+        ]
+        unconfirmed_behavior = [{**verified_technical[0], "id": "A2", "category": "behavior"}]
+        base = {
+            "job": "build",
+            "summary": "Clear export handoff.",
+            "intended_outcome": task,
+            "requirements": [{"id": "R1", "text": task, "source_quote": task}],
+            "required_behaviors": ["Export writes output"],
+            "constraints": [],
+            "acceptance_tests": ["Export exits 0"],
+            "source_refs": ["task"],
+            "open_questions": [],
+            "ignored_statements": [],
+            "conflicts": [],
+            "proposed_reframes": [],
+        }
+        with patch.dict(sys.modules, {"autocode_assumption_ledger": self._ledger_stub()}):
+            for assumptions, settings in (
+                ([], {}),
+                (verified_technical, {}),
+                (unconfirmed_behavior, {"skip_requirements": True}),
+            ):
+                with self.subTest(assumptions=assumptions, settings=settings):
+                    state = {
+                        "task": task,
+                        "settings": settings,
+                        "stages": [],
+                        "workflow": {"kind": None, "then": "draft_plan"},
+                    }
+                    queued: list[dict] = []
+                    handoff.accept(
+                        state,
+                        {**base, "proposed_assumptions": assumptions},
+                        {"output": "iter/001/req-01.json"},
+                        check_code_refs=lambda *_: None,
+                        queue=lambda *args, **kwargs: queued.append(kwargs),
+                    )
+                    self.assertEqual([], queued)
+                    self.assertEqual("build", state["workflow"]["kind"])
+                    self.assertEqual(review.NEXT, state["next_stage"])
+                    if settings.get("skip_requirements"):
+                        self.assertEqual(
+                            "skip_requirements",
+                            state["requirements_handoff"]["confirmed_assumptions"]["source"],
+                        )
+                        self.assertEqual(frozenset({"A2"}), review.confirmed_assumption_ids(state))
+
+    def test_summary_confirmation_question_never_triggers_double_confirmation(self):
+        import autocode_requirements_handoff as handoff
+
+        task = "Add export command."
+        redundant = {
+            "id": "Q-confirm",
+            "question": "Is this right?",
+            "why": "Confirm summary",
+            "options": [],
+            "proposed_default": "yes",
+            "kind": "decision",
+            "category": "requested_outcome",
+            "delegable": False,
+        }
+        fork = {
+            **redundant,
+            "id": "Q-fork",
+            "question": "Is UTF-8 encoding right for CSV exports?",
+            "options": ["UTF-8", "UTF-16"],
+        }
+        base = {
+            "job": "build",
+            "summary": "Export handoff.",
+            "intended_outcome": task,
+            "requirements": [{"id": "R1", "text": task, "source_quote": task}],
+            "required_behaviors": ["Export writes output"],
+            "constraints": [],
+            "acceptance_tests": ["Export exits 0"],
+            "source_refs": ["task"],
+            "proposed_assumptions": [],
+            "ignored_statements": [],
+            "conflicts": [],
+            "proposed_reframes": [],
+        }
+        # Spec-first + redundant "Is this right?" stops ONCE at requirements-review-*, never Q-confirm first (#3304).
+        spec_state = {
+            "task": task,
+            "settings": {"spec_first": True},
+            "stages": [],
+            "workflow": {"kind": None, "then": "draft_plan"},
+        }
+        queued: list[dict] = []
+        handoff.accept(
+            spec_state,
+            {**base, "open_questions": [redundant]},
+            {"output": "iter/001/req-01.json"},
+            check_code_refs=lambda *_: None,
+            queue=lambda *args, **kwargs: queued.append(kwargs),
+        )
+        self.assertEqual(1, len(queued))
+        self.assertEqual(1, len(queued[0]["questions"]))
+        self.assertTrue(queued[0]["questions"][0]["id"].startswith(review.PREFIX))
+        self.assertEqual([], spec_state["requirements_handoff"]["report"]["open_questions"])
+        self.assertEqual(["Q-confirm"], spec_state["requirements_handoff"]["dropped_confirmation_questions"])
+
+        # Real product fork question is preserved and stops the run before planning.
+        fork_state = {
+            "task": task,
+            "settings": {},
+            "stages": [],
+            "workflow": {"kind": None, "then": "draft_plan"},
+        }
+        fork_queued: list[dict] = []
+        handoff.accept(
+            fork_state,
+            {**base, "open_questions": [fork, {**redundant, "question": "Does this look right?"}]},
+            {"output": "iter/001/req-01.json"},
+            check_code_refs=lambda *_: None,
+            queue=lambda *args, **kwargs: fork_queued.append(kwargs),
+        )
+        self.assertEqual([[fork]], [row["questions"] for row in fork_queued])
 
 
 class RequirementsReviewCliTests(unittest.TestCase):
