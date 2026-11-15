@@ -1140,12 +1140,16 @@ def drive(
             retire(state, status)
             if not fresh():
                 raise
+            # A raised pause the Resolver takes is owed back as raised: when it holds, the restored pause
+            # is published as the runner always has, not returned as a quiet paused state.
             if queue and resolve_repair_job.intercept_stall(state, status, reason, before_investigator=True):
+                owed.add(status)
                 if persist:
                     persist(state)
                 continue
             if not queue or not intercept(state, status, reason):
                 if queue and resolve_repair_job.intercept_stall(state, status, reason, before_investigator=False):
+                    owed.add(status)
                     if persist:
                         persist(state)
                     continue

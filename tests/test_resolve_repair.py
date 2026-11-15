@@ -780,6 +780,40 @@ class ResolveRepairTests(unittest.TestCase):
             )
         self.assertEqual(stop.STOP_STATUS, paused.exception.status)
 
+    def test_a_hold_restores_the_pause_with_its_own_reason_first(self):
+        # The pause's own reason says what to fix (here, which limit was reached); the Resolver's
+        # diagnosis is added after it, never in its place.
+        self.state["next_stage"] = "builder"
+        reason = "Builder retry limit reached: 3/3 attempts used"
+        self.assertTrue(
+            resolve_repair_job.intercept_stall(
+                self.state, "PAUSED_BUILDER_RETRY_LIMIT", reason, before_investigator=True
+            )
+        )
+        resolve_repair_job.apply(
+            None,
+            self.state,
+            {
+                "diagnosis": "No different approach fits the approved plan.",
+                "action": "hold",
+                "repaired_report_json": "",
+                "guidance": "",
+                "next_objective": "",
+                "affected_paths": [],
+                "user_question": "",
+                "user_options": [],
+                "evidence_refs": [],
+            },
+            self._resolve_record("res-hold"),
+            self.root,
+            self.run_dir,
+        )
+        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", self.state["status"])
+        self.assertEqual(
+            reason + "\nResolver (held): No different approach fits the approved plan.", self.state["stop_reason"]
+        )
+        self.assertEqual("builder", self.state["next_stage"])
+
     def test_planning_calls_counts_resolve_repair_and_enforces_cap(self):
         schema = {"type": "object", "required": ["summary"], "properties": {"summary": {"type": "string"}}}
         orig = self._stage_files("plan-orig", stage="draft_plan", role="planner", report_obj={}, schema_obj=schema)

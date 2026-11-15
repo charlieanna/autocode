@@ -1988,11 +1988,11 @@ def scratch_run(
                 # A project with no suite of its own: standard unittest files still run.
                 framework = Framework("unittest", f"{shlex.quote(python)} -m unittest discover -v", python=python)
             detect = lambda directory: detect_framework(directory, python=python)  # noqa: E731
-            suites = scratch_suites.suites(tree, framework, tests, detect)  # one per project the tests are in
-            receipt = scratch_suites.run_selected(
+            receipt = scratch_suites.run_tests(  # one suite per project the tests are in, where they load
                 tree,
+                framework,
                 tests,
-                suites,
+                detect,
                 lambda found, command, label: run_suite(
                     found, command, tree, run_dir, label, timeout=timeout, native_execution=native_execution
                 ),

@@ -928,18 +928,38 @@ directory's suite runs its tests even when the root's suite could also run them,
 so a project kept beside others (Docutils' `docutils/` beside old experiments in
 `sandbox/`) is not proven with a root suite that also collects its neighbours'
 tests (#2944).
-Many Python projects have no manifest, only a list of what they need. Where no
-directory around the tests has a manifest, the innermost one that holds a
-`requirements.txt` or a `Pipfile` is such a project: a backend kept as
-`backend/requirements.txt`, code and `tests/` beside `frontend/` runs its tests
-from `backend/` (`cd backend && python3 -m pytest ...`), where they import its code.
-This applies only where the tests could not be meant to run from the root: not
-when the root itself holds a `requirements.txt`, a `Pipfile`, a `conftest.py`, a
-`pytest.ini` or a `tox.ini`; not for a directory that is a Python package (it
-holds an `__init__.py`) or that its code or tests import by its own name
-(`from backend.orders import total`); and not for one of the repository's test
-directories (`tests/requirements.txt` lists what the tests need).
-When no such directory runs them and the root suite's runner chooses tests by
+Those are rules about the layout, and they are only where the proof starts. Many
+projects have no manifest at all: a backend kept as `backend/requirements.txt`,
+code and `tests/` beside `frontend/`, a directory of code and tests that declares
+nothing, a Python directory inside a Node project. Their tests say
+`from pager import page_count` and load only from `backend/`. So the proof does
+not guess from file names: it runs the changed tests once, on the changed code,
+where the rules put them. A file that does not load there (the runner reports it
+could not be imported or collected, or no test ran), or that no suite there
+runs, is run from each directory around it, innermost first, and then from the
+root, with the suite detected there. The first place where it loads is where it
+runs (`cd backend && python3 -m unittest -v tests/test_pager.py`), and the
+proof's notes say so: "The changed test backend/tests/test_pager.py does not
+load from the repository root (...); it loads from backend/ (...), so that is
+where it runs". A test that runs and fails has loaded, and stays. One of the
+repository's test directories is no place to run its own tests from. The look
+runs at most 12 commands of at most five minutes each, is kept for the run
+(`test_homes` in its state and in the proof's receipt) and is not repeated for a
+test it settled.
+
+Where a test runs decides nothing about what passes. Wherever it runs, it must
+still fail on the original code and pass with the change, under the same command
+on both, and the original tests are still put back and run. A test that loads
+nowhere stays where the rules put it and fails its proof as before.
+
+Every reader of where a test runs uses that one look. The check of the original
+tests runs a test that loads anywhere but the root with the command the proof used. A run of the Tester's
+own tests on a scratch copy looks the same way when they do not load. The plan
+check accepts a planned test when a directory around it has a suite of its kind,
+with or without a manifest. A replay, which runs nothing, takes the homes the
+recorded proof kept.
+
+When no directory runs them and the root suite's runner chooses tests by
 kind (pytest, unittest, Node, Go, Jest, Vitest, Mocha or RSpec) and runs none of
 the changed tests, the proof is unverified and names the tests and the suite that
 cannot run them; it never reports that they pass on the original code, which it
@@ -958,10 +978,11 @@ showed fail on the original code and pass with the change. The proof's own suite
 is the one that runs the remaining tests, or the first project's when the root's
 runs none of them. The checks keep each receipt as `companion_tests:DIR:CHECK`
 (`companion_tests:packages/web:regression_on_base`), and the proof's notes name
-the files and the suite. Where the root has no manifest, a project's changed test
-is also proven by that project's suite when the root's runner could name the file:
-a fix in `api/` and `worker/`, two Python projects whose tests import their own
-code, is proven with `cd api && ...` and `cd worker && ...`, not with the root's
+the files and the suite. A project's changed test is also proven by that
+project's suite when the root's runner could name the file but the file does not
+load from the root: a fix in `api/` and `worker/`, two Python projects whose
+tests import their own code, is proven with `cd api && ...` and
+`cd worker && ...`, each found by running the tests, not with the root's
 `python3 -m unittest`, from where neither project's code can be imported. A
 changed test in a directory where no suite runs its
 kind is named in a note and is not run. A run with `--package`, `--test-root`,

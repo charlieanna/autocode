@@ -304,6 +304,7 @@ KEYS: frozenset[str] = frozenset(
         "task_preflight",
         "task_sha256",
         "tasks",
+        "test_homes",
         "turns",
         "ui_run",
         "uncertain_artifacts",
@@ -672,6 +673,12 @@ class RunState(TypedDict, total=False):
     task_branch: Any
     task_preflight: Any
     tasks: Any
+    # Where the run's changed tests were found to load by running them: {version, files: {path: {project, from,
+    # moved, command, suite}}}. Written only in autocode_test_homes: by settle, from the regression proof,
+    # and by restore, which takes a recorded proof's homes in a replay. Read there (known, place), by the
+    # proof for its receipt (moved) and by autocode_protected_oracles.replay (away), so the gate of the
+    # original tests runs a test whose home is not the root where the proof ran it.
+    test_homes: dict
     ui_run: Any
     unit_handoffs: Any
     unresolved_findings: Any

@@ -90,11 +90,10 @@ def test_suites(root, root_framework, tests, detect_in, *, is_code=None) -> tupl
     """
     tests = sorted(tests)
     framework = package_scope.for_tests(root, root_framework, tests, detect_in) or root_framework
-    apart = _apart(root, framework is root_framework, tests, detect_in)
     stray = [
         test
         for test in tests
-        if (is_code is None or is_code(test)) and (verification_commands.cannot_run(framework, [test]) or test in apart)
+        if (is_code is None or is_code(test)) and verification_commands.cannot_run(framework, [test])
     ]
     if framework is None or not stray:
         return framework, [], []
@@ -123,38 +122,16 @@ def test_suites(root, root_framework, tests, detect_in, *, is_code=None) -> tupl
         framework = suites.pop(0)["framework"]
     own = getattr(framework, "directory", None) or ROOT
     suites = [suite for suite in suites if suite["project"] != own]
-    notes += [
+    return framework, suites, [*notes, *(proves(framework, suite) for suite in suites)]
+
+
+def proves(framework, suite) -> str:
+    """The proof's note on a project whose own suite proves its changed tests."""
+    return (
         f"The changed tests {', '.join(suite['files'])} are in {where(suite['project'])}, whose tests the proof's "
         f"suite `{framework.suite}` cannot run, so that project's own suite `{suite['framework'].suite}` proves "
         "them as it would alone"
-        for suite in suites
-    ]
-    return framework, suites, notes
-
-
-def _apart(root, at_root, tests, detect_in) -> set[str]:
-    """The ``tests`` that belong to a project below a root that is no project of its own, when the proof's
-    suite is the root's (``at_root``) and that project's own suite runs them.
-
-    A root with no manifest holds projects side by side (autocode_package_scope.for_tests), and its suite
-    may claim their tests by kind without being able to run them: with tests changed in ``api/`` and in
-    ``worker/``, two Python projects, the root's ``python3 -m unittest ...`` ran both from the root, where
-    neither can import its code, and the proof failed (checked without a model, 2026-11-15). Each is proven
-    with its own project's suite, as a test of another kind already is.
-    """
-    if not at_root or package_scope.is_project(root):
-        return set()
-    suites: dict[str, Any] = {}
-    apart = set()
-    for test in tests:
-        project = project_of(root, test)
-        if project == ROOT:
-            continue
-        if project not in suites:
-            suites[project] = package_scope.detect(root, project, detect_in)
-        if suites[project] is not None and suites[project].targeted([test]):
-            apart.add(test)
-    return apart
+    )
 
 
 def find(root, framework, root_framework, code_paths, test_files, detect_in, *, proven=()) -> tuple[list, list[str]]:

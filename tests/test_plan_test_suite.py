@@ -124,6 +124,20 @@ class CheckTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, r"never run the plan's tests backend/spec/requests/grader_spec\.rb:"):
             lifecycle.validate_body(self.state(project), plan(NODE_TEST, SPEC), ready=True)
 
+    def test_tests_in_a_directory_with_no_manifest_are_run_by_the_suite_found_there(self):
+        # A Python backend with code and tests but no manifest, below a Node root. The proof finds where such
+        # tests load by running them (autocode_test_homes), so the plan check looks in the same directories:
+        # it refused every plan that named a test there, and the Planner could not settle that.
+        python = {"backend/app/grader.py": "def grade():\n    return 1\n", "backend/tests/test_smoke.py": PYTHON_TEST}
+        seed = {path: text for path, text in POLYGLOT.items() if not path.startswith("backend/")}
+        project = self.repository({**seed, **python})
+        for tests in (["backend/tests/test_grader.py"], [NODE_TEST, "backend/tests/unit/test_grader.py"]):
+            with self.subTest(tests=tests):
+                lifecycle.validate_body(self.state(project), plan(*tests), ready=True)
+        # A directory around the planned test with no suite of its kind is still refused.
+        with self.assertRaisesRegex(ValueError, r"never run the plan's tests docs/tests/test_notes\.py:"):
+            lifecycle.validate_body(self.state(project), plan("docs/tests/test_notes.py"), ready=True)
+
     def test_helpers_and_fixtures_are_not_judged(self):
         project = self.repository({path: text for path, text in POLYGLOT.items() if path != "backend/Gemfile"})
         lifecycle.validate_body(self.state(project), plan("backend/spec/spec_helper.rb"), ready=True)

@@ -178,6 +178,14 @@ Recorded regression checks also require an authenticated pristine Git baseline
 and proof for every required named case. Missing or unsupported baseline mappings
 cause refusal.
 
+A live proof finds where a changed test loads by running it, and its commands
+follow from that (`cd backend && ...`; see [the workflow](workflow.md)). A
+simulated proof runs nothing, so it takes those homes from the recorded proof's
+authenticated receipt (`test_homes`) and derives its commands from them. They
+are still compared with the recording's commands, and a difference is refused.
+A recording made while the two-project and `requirements.txt` rules existed
+(2026-11-15) kept no homes and replays only where those rules were not used.
+
 ## Public task-run interface
 
 The CLI uses [`TaskRun`](task-run.md), including its ordinary approval and

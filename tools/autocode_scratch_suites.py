@@ -11,6 +11,11 @@ suite choice had the same fault (#2889, #3246).
 around it (``autocode_companion_suites.project_of``), as ``--package`` would run it, and ``merged`` joins
 their receipts so each test is reported by the suite that ran it. A file that no suite there runs is
 refused by name instead of being left out.
+
+Those are rules about the layout, and a layout they do not know put a file where it cannot load. So
+``run_tests`` reads the run: a file that did not load, or that no suite ran, is looked for by running it from
+the directories around it, as the regression proof looks (autocode_test_homes), and the files then run
+again from where they load.
 """
 
 from __future__ import annotations
@@ -18,11 +23,13 @@ from __future__ import annotations
 try:
     from . import autocode_companion_suites as companions
     from . import autocode_package_scope as package_scope
+    from . import autocode_test_homes as test_homes
     from . import autocode_verification_commands as verification_commands
     from . import autocode_wrapped_runner as wrapped_runner
 except ImportError:
     import autocode_companion_suites as companions
     import autocode_package_scope as package_scope
+    import autocode_test_homes as test_homes
     import autocode_verification_commands as verification_commands
     import autocode_wrapped_runner as wrapped_runner
 
@@ -87,6 +94,40 @@ def run_selected(root, tests, selected, execute, *, acceptance_preflight=False):
     if acceptance_preflight and (refused := wrapped_runner.execution_refusal(root, tests, selected)):
         return refused
     return merged(execute(framework, command, label) for framework, command, label in selected)
+
+
+def run_tests(root, framework, tests, detect_in, execute, *, acceptance_preflight=False):
+    """Run ``tests`` with the suites the rules choose (``suites``). When a file does not load there, or no
+    suite there runs one, and running them from the directories around them finds where they load, they run
+    again from there, and that receipt is the result."""
+    selected = suites(root, framework, tests, detect_in)
+    receipt = run_selected(root, tests, selected, execute, acceptance_preflight=acceptance_preflight)
+    if receipt.get("acceptance_refusal") or not (isinstance(selected, str) or test_homes.loads(receipt) is False):
+        return receipt
+    found = _where_they_load(root, framework, list(tests), detect_in, execute)
+    return run_selected(root, tests, found, execute, acceptance_preflight=acceptance_preflight) if found else receipt
+
+
+def _where_they_load(root, framework, tests, detect_in, execute):
+    """``suites`` for ``tests`` from where each was seen to load, or None when none moved or one runs nowhere."""
+    state: dict = {}
+    chosen = companions.test_suites(root, framework, tests, detect_in)
+    probe = lambda suite, command, label: execute(suite, command, f"{LABEL}-homes-{label.replace('/', '-')}")  # noqa: E731
+    test_homes.settle(state, root, framework, chosen, tests, detect_in, probe)
+    if not test_homes.moved(state):
+        return None
+    own, others, _notes = test_homes.place(state, root, framework, chosen, tests, detect_in)
+    groups = [{"project": getattr(own, "directory", None) or companions.ROOT, "framework": own, "files": []}, *others]
+    groups[0]["files"] = [test for test in tests if not any(test in group["files"] for group in others)]
+    found = []
+    for group in groups:
+        suite, files, project = group["framework"], group["files"], group["project"]
+        command = suite.targeted(files) if suite is not None and files else None
+        if files and not command:
+            return None
+        if files:
+            found.append((suite, command, f"{LABEL}-{project.replace('/', '-')}" if project else LABEL))
+    return found
 
 
 def explicit(root, tests, framework, command, execute, complete_results, *, acceptance_preflight=False):

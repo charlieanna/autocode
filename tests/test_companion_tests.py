@@ -191,9 +191,13 @@ class PlanTests(unittest.TestCase):
             r"the plan's tests with the unittest suite `.*`, which runs Python tests, and a test of another kind "
             r"with the suite of the project directory around it, and no such directory has a suite that runs these"
         )
+        # Without its manifest the directory still has a suite of the test's kind (node --test finds its test
+        # files), and the proof runs the test from there (ProofTests, autocode_test_homes): accepted.
         without_manifest = {path: text for path, text in SEED.items() if not path.endswith("package.json")}
+        self.check(without_manifest, API_TEST, WEB_TEST)
+        # A directory with no test of that kind has no suite for it.
         with self.assertRaisesRegex(ValueError, refusal):
-            self.check(without_manifest, API_TEST, WEB_TEST)
+            self.check({path: text for path, text in without_manifest.items() if path != WEB_TEST}, API_TEST, WEB_TEST)
         # A project whose own suite runs another kind of test would not run a new JavaScript test either.
         ruby = {path: text for path, text in without_manifest.items() if path != WEB_TEST}
         ruby.update({f"{WEB}/Gemfile": "source 'https://rubygems.org'\ngem 'rspec'\n", f"{WEB}/spec/a_spec.rb": ""})
@@ -212,8 +216,8 @@ class PlanTests(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm run the package's suite")
 class ProofTests(unittest.TestCase):
-    def prove(self, change, *, kind="build", criteria=CRITERIA):
-        project = Project(SEED)
+    def prove(self, change, *, kind="build", criteria=CRITERIA, seed=SEED):
+        project = Project(seed)
         self.addCleanup(project.close)
         project.write(change)
         with tempfile.TemporaryDirectory() as run_dir:
@@ -248,6 +252,27 @@ class ProofTests(unittest.TestCase):
         )
         self.assertEqual([WEB], list(proof["execution_context"]["companion_tests"]))
         self.assertEqual([WEB_TEST], proof["execution_context"]["companion_tests"][WEB]["files"])
+
+    def test_a_directory_with_no_manifest_proves_its_tests_from_where_they_load(self):
+        # packages/web/ without its package.json: no rule calls it a project. The root's Python suite runs no
+        # JavaScript test, so the proof looks in the directories around it and runs it from the first that
+        # has a suite which loads it (autocode_test_homes).
+        proof = self.prove(
+            CHANGE, seed={path: text for path, text in SEED.items() if not path.endswith("package.json")}
+        )
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual(["tests/format.test.js::an archived note is shown in brackets"], proof["case_tests"]["C2"])
+        self.assertEqual([WEB_TEST], sorted(proof["test_homes"]))
+        self.assertEqual(
+            (WEB, True), (proof["test_homes"][WEB_TEST]["project"], proof["test_homes"][WEB_TEST]["moved"])
+        )
+        self.assertTrue(
+            any(
+                note.startswith(f"The changed test {WEB_TEST} is run by no suite of the repository root; it loads ")
+                for note in proof["notes"]
+            ),
+            proof["notes"],
+        )
 
     def test_a_test_in_the_other_project_that_the_original_code_passes_proves_nothing(self):
         # Before, the other project's new test ran only with the change, as part of its suite: this proof passed.

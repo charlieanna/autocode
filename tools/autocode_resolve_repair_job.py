@@ -946,18 +946,27 @@ def apply(
         _apply_ask_user(state, request, value, record, ask_user)
     else:
         _record_history(state, request, record, "hold", counted_in_stages=False)
-        status, reason = abandon(state, value.get("diagnosis") or request.get("previous_stop_reason") or "")
+        status, reason = abandon(state, value.get("diagnosis") or "", outcome="held")
         run_status.pause(state, status, reason, next_stage=request.get("previous_next_stage"))
 
 
-def abandon(state: RunState, reason: str = "") -> tuple[str, str]:
-    """Restore the underlying pause when ``resolve_repair`` fails, times out, or returns ``hold``."""
+def abandon(state: RunState, reason: str = "", *, outcome: str = "could not finish") -> tuple[str, str]:
+    """Restore the underlying pause when ``resolve_repair`` fails, times out, or returns ``hold``.
+
+    The restored pause keeps its own reason, which says what to fix; ``reason`` (the Resolver's
+    diagnosis or why it could not finish) is added after it, as the Investigator's note is.
+    """
     release_route(state)
     request = state.pop("resolve_repair_request", None) or {}
     if isinstance(request.get("pending_report_repair"), dict):
         state["pending_report_repair"] = copy.deepcopy(request["pending_report_repair"])
     status = str(request.get("previous_status") or "PAUSED_INVALID_OUTPUT")
-    stop_reason = str(reason or request.get("previous_stop_reason") or status)
+    previous = str(request.get("previous_stop_reason") or "")
+    note = str(reason or "").strip()
+    if previous and note and note not in previous:
+        stop_reason = f"{previous}\nResolver ({outcome}): {note}"
+    else:
+        stop_reason = previous or note or status
     if request:
         state["next_stage"] = request.get("previous_next_stage") or request.get("stage")
         entry_recorded = any(
