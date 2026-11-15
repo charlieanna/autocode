@@ -966,16 +966,36 @@ def run_locked(
     def owned_result(code, *, ready=False):
         return owner.result(code, ready=ready) if owner is not None else code
 
+    def load():
+        nonlocal state
+        state = load_locked(runner, args, parser, state, state_path, run_dir, workspace)
+        warning = runner.util.runner_changed(state.get("runner"), runner.util.runner_identity())
+        if warning:
+            print(f"warning: {warning}", file=sys.stderr)
+
     with ExitStack() as ownership:
         ownership.enter_context(env_prep.reuse_checks(run_dir))  # chats in this project reuse its tool checks
         keep_awake.hold()  # a sleeping Mac cannot supervise a stage (#1717)
         if runner.stop_policy.applied_stop(state):
             return runner.stop_policy.refuse_before_configure(runner.write_json, state, state_path) or 0
+        preload_denial = None
+        if native is None:
+            try:
+                load()
+            except runner.util.JSONCommitUncertain:
+                raise
+            except Exception as error:
+                # Ordinary setup refusals retain their original CLI/cleanup
+                # boundary. Only typed operational evidence enters the run's
+                # persisted denial path; prose never changes that authority.
+                preload_denial = operational_block.error(error)
+                if preload_denial is None:
+                    raise
         try:
-            state = load_locked(runner, args, parser, state, state_path, run_dir, workspace)
-            warning = runner.util.runner_changed(state.get("runner"), runner.util.runner_identity())
-            if warning:
-                print(f"warning: {warning}", file=sys.stderr)
+            if preload_denial is not None:
+                raise preload_denial
+            if native is not None:
+                load()
             if native is not None:
                 native.require_supported_action(args, state)
             owner = ownership.enter_context(controller_owner.Owner(state, run_dir, runner.write_json))

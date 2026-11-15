@@ -17,8 +17,8 @@ class OpenCodeSubscriptionTests(unittest.TestCase):
     def test_oauth_summary_is_accepted_without_reading_credentials(self):
         response = SimpleNamespace(returncode=0, stdout="● Z.AI Coding Plan api\n● OpenAI \x1b[90moauth\n", stderr="")
         with (
-            patch.object(oc.time, "monotonic", side_effect=[100, 100]),
-            patch.object(oc.subprocess, "run", return_value=response) as run,
+            patch.object(oc.time, "monotonic", return_value=100),
+            patch.object(oc.env_prep, "preflight_run", return_value=response) as run,
             patch.object(Path, "read_text", side_effect=AssertionError("Do not read auth files")),
         ):
             oc.check_subscription_routes(self.roles, Path("/workspace"))
@@ -36,14 +36,16 @@ class OpenCodeSubscriptionTests(unittest.TestCase):
             with (
                 self.subTest(summary=summary),
                 patch.object(
-                    oc.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout=summary, stderr="")
+                    oc.env_prep, "preflight_run", return_value=SimpleNamespace(returncode=0, stdout=summary, stderr="")
                 ),
                 self.assertRaisesRegex(RuntimeError, "configured OAuth or API connection"),
             ):
                 oc.check_subscription_routes(self.roles)
         with (
             patch.object(
-                oc.subprocess, "run", return_value=SimpleNamespace(returncode=1, stdout="● OpenAI oauth", stderr="")
+                oc.env_prep,
+                "preflight_run",
+                return_value=SimpleNamespace(returncode=1, stdout="● OpenAI oauth", stderr=""),
             ),
             self.assertRaises(RuntimeError),
         ):
@@ -52,7 +54,7 @@ class OpenCodeSubscriptionTests(unittest.TestCase):
     def test_timeout_and_missing_cli_do_not_fallback_or_expose_output(self):
         for error in (subprocess.TimeoutExpired(["opencode"], 15), FileNotFoundError("missing")):
             with (
-                patch.object(oc.subprocess, "run", side_effect=error) as run,
+                patch.object(oc.env_prep, "preflight_run", side_effect=error) as run,
                 self.assertRaisesRegex(RuntimeError, "no provider request"),
             ):
                 oc.check_subscription_routes(self.roles)
@@ -69,8 +71,8 @@ class OpenCodeSubscriptionTests(unittest.TestCase):
             return ok
 
         with (
-            patch.object(oc.time, "monotonic", side_effect=[100, 100]),
-            patch.object(oc.subprocess, "run", side_effect=cold_start) as run,
+            patch.object(oc.time, "monotonic", return_value=100),
+            patch.object(oc.env_prep, "preflight_run", side_effect=cold_start) as run,
         ):
             oc.check_subscription_routes(self.roles)
         self.assertEqual(1, run.call_count)
@@ -78,17 +80,31 @@ class OpenCodeSubscriptionTests(unittest.TestCase):
 
     def test_early_transport_failure_retries_with_remaining_budget(self):
         ok = SimpleNamespace(returncode=0, stdout="● OpenAI oauth\n", stderr="")
+        clock = SimpleNamespace(now=100)
+
+        def probe(*args, **kwargs):
+            if clock.now == 100:
+                clock.now += 12
+                raise OSError("transient")
+            return ok
+
         with (
-            patch.object(oc.time, "monotonic", side_effect=[100, 100, 112]),
-            patch.object(oc.subprocess, "run", side_effect=[OSError("transient"), ok]) as run,
+            patch.object(oc.time, "monotonic", side_effect=lambda: clock.now),
+            patch.object(oc.env_prep, "preflight_run", side_effect=probe) as run,
         ):
             oc.check_subscription_routes(self.roles)
         self.assertEqual([45, 33], [call.kwargs["timeout"] for call in run.call_args_list])
 
     def test_exhausted_budget_never_starts_another_probe(self):
+        clock = SimpleNamespace(now=100)
+
+        def probe(*args, **kwargs):
+            clock.now += 45
+            raise subprocess.TimeoutExpired(["opencode"], 45)
+
         with (
-            patch.object(oc.time, "monotonic", side_effect=[100, 100, 145]),
-            patch.object(oc.subprocess, "run", side_effect=subprocess.TimeoutExpired(["opencode"], 45)) as run,
+            patch.object(oc.time, "monotonic", side_effect=lambda: clock.now),
+            patch.object(oc.env_prep, "preflight_run", side_effect=probe) as run,
             self.assertRaisesRegex(RuntimeError, "no provider request"),
         ):
             oc.check_subscription_routes(self.roles)
@@ -99,24 +115,32 @@ class OpenCodeSubscriptionTests(unittest.TestCase):
             SimpleNamespace(returncode=0, stdout="● OpenAI unknown\n", stderr=""),
             SimpleNamespace(returncode=1, stdout="● OpenAI oauth\n", stderr=""),
         ):
-            with patch.object(oc.subprocess, "run", return_value=response) as run, self.assertRaises(RuntimeError):
+            with (
+                patch.object(oc.env_prep, "preflight_run", return_value=response) as run,
+                self.assertRaises(RuntimeError),
+            ):
                 oc.check_subscription_routes(self.roles)
             self.assertEqual(1, run.call_count)
 
     def test_existing_zai_routes_do_not_gain_an_auth_probe(self):
-        with patch.object(oc.subprocess, "run", side_effect=AssertionError("Unrelated routes remain unchanged")):
+        with patch.object(
+            oc.env_prep, "preflight_run", side_effect=AssertionError("Unrelated routes remain unchanged")
+        ):
             oc.check_subscription_routes({"builder": {"model": "zai-coding-plan/glm-5.3"}})
 
     def test_api_summary_is_accepted(self):
         with patch.object(
-            oc.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="● OpenAI api", stderr="")
+            oc.env_prep, "preflight_run", return_value=SimpleNamespace(returncode=0, stdout="● OpenAI api", stderr="")
         ):
             oc.check_subscription_routes(self.roles)
 
     def test_configured_api_environment_is_accepted_for_all_roles_without_probe(self):
         for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"):
             for role in ("planner", "task_planner", "builder", "tester"):
-                with patch.dict(oc.os.environ, {key: "fixture-only"}), patch.object(oc.subprocess, "run") as command:
+                with (
+                    patch.dict(oc.os.environ, {key: "fixture-only"}),
+                    patch.object(oc.env_prep, "preflight_run") as command,
+                ):
                     oc.check_subscription_routes({role: {"model": "openai/gpt-5.6-sol"}})
                     command.assert_not_called()
 
