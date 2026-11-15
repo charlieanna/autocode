@@ -379,6 +379,43 @@ build or bug-fix draft that names code files and no test in a project with no te
 code: every change to code needs a test, and nothing there can guard the change
 instead (`tools/autocode_plan_test_suite.py`, `untested_code`).
 
+### Tests another file of the change lists
+
+The proof runs the change's tests on the original code, and "the change's tests" are
+its test files. Some projects run a test only because a file that is no test names it:
+a `Makefile` with a rule for each test program, a `CMakeLists.txt` that registers each
+test, an `npm test` script of `node test/a.js && node test/b.js`, a `run_tests.sh` that
+names each file. There a new test runs only once that file is edited, so on the original
+code with the test files alone the command passed without running the new test, and the
+proof said "The new tests pass on the unfixed base code" of a test that had not run. Set
+the regression command by hand to the new test's own command and the same change failed
+next with "The base suite definition fails against the candidate code": the check that
+the original tests still pass with the change ran the change's listing without the
+change's tests.
+
+Which file lists a test is seen by running, not by its name
+(`tools/autocode_listed_tests.py`). When a proof judged by exit code fails for one of
+those two reasons alone, AutoCode runs its command again:
+
+- on the original code with the change's test files made unloadable, to see which of them
+  the command does not run there;
+- on the change with those made unloadable: a command that still passes runs them nowhere,
+  and the Builder is told to add them where the project's test command runs its tests;
+- on the change with one other changed file put back as the original code has it, the
+  tests still unloadable: a command that passes now no longer runs them and nothing else
+  broke, so that file lists them.
+
+The proof then runs once more with those files taken with the tests: the original code
+the tests are run on holds them, and the check of the original tests keeps them as the
+original code has them. What must pass does not change. The command must still fail on
+the original code and pass with the change, the original tests must still pass with the
+change, a listed test that passes on the original code still fails the proof, and a
+file that carries the fix itself makes the command pass on the original code. At most
+six other files are looked at, files that are no code first, each run for at most five
+minutes; a proof that fails for another reason, or whose runner names its tests, costs
+nothing. What was seen is in the proof (`listed_tests`: the command, the tests, the
+files and each exit code) and in its notes and review reasons.
+
 ## JUnit XML from other test runners
 
 With nothing typed, a Maven, Gradle or CMake project is proven by its build tool's
