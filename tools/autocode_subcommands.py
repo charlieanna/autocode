@@ -202,14 +202,18 @@ def version_line() -> str:
 
 
 def package_version() -> str:
+    """Return the checkout pyproject.toml version when running from source, else installed metadata."""
+    pyproject = HERE.parent / "pyproject.toml"
+    try:
+        project = tomllib.loads(pyproject.read_text()).get("project") or {}
+        if project.get("name") == DISTRIBUTION and project.get("version"):
+            return str(project["version"])
+    except (OSError, ValueError):
+        pass
     try:
         return metadata.version(DISTRIBUTION)
     except metadata.PackageNotFoundError:
-        pyproject = HERE.parent / "pyproject.toml"
-        try:
-            return tomllib.loads(pyproject.read_text())["project"]["version"]
-        except (OSError, KeyError, ValueError):
-            return "unknown"
+        return "unknown"
 
 
 if __name__ == "__main__":
