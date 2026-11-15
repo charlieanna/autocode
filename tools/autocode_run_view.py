@@ -1061,7 +1061,7 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
         if not terminal
         else []
     )
-    if job_times:
+    if job_times and need is not None:  # offers() is empty without a need
         need = {**need, "job_time_controls": job_times}
     ready_boundary = (
         (need or {}).get("kind") == "continue"

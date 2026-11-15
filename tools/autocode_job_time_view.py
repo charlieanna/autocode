@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import math
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_pause_command as pause_command
@@ -10,7 +14,7 @@ except ImportError:
     import autocode_pause_command as pause_command
 
 
-def offers(state, need, *, run_dir, workspace):
+def offers(state: RunState, need, *, run_dir, workspace):
     if (
         not need
         or need.get("kind") != "retry_job"
