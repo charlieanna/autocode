@@ -245,16 +245,13 @@ class Bridge:
     def announce(self, record: dict) -> None:
         # A run in the no-systemd mode lives with this process, so the notice must not call it durable.
         hosted = "a run that works while the bridge is running" if record.get("owned") else "a durable run"
-        posted = self.post(
+        self.post(
             record["number"],
             f"**AutoCode took this issue** and started {hosted}.\n\n"
             f"- run: `{Path(record['run_dir']).name}` on branch `{record['branch']}`\n"
             f"- I will ask here when the run needs you: questions, the plan for approval, or a pause.\n"
             f"- Steering is limited to: {', '.join('@' + actor for actor in self.config.actors)}.",
         )
-        if posted:
-            record.update(store.seen_comments(record, [posted]))
-            store.save(record)
 
     def recover_start(self, record: dict) -> bool:
         """Adopt the run of a start an earlier bridge did not live to record; False when it saved none.
@@ -346,12 +343,9 @@ class Bridge:
                 view = run.status()  # a decision is always taken against a fresh view
                 action = bridge_relay.interpret(record, view, reply.text)
                 if action.kind == "none":
-                    noted = self.post(number, f"@{reply.actor} {action.text}")
+                    self.post(number, f"@{reply.actor} {action.text}")
                 else:
-                    outcome = worker.take(run, view, action)
-                    noted = self.post(number, f"@{reply.actor} {outcome}")
-                if noted:
-                    consumed.append(noted)  # the bridge's own words are never replies
+                    self.post(number, f"@{reply.actor} {worker.take(run, view, action)}")
             except (worker.BridgeError, TaskRunError) as error:
                 self.post(number, f"@{reply.actor} AutoCode refused that: {error}"[:2000])
             except OSError as error:
@@ -372,11 +366,11 @@ class Bridge:
         except (worker.BridgeError, TaskRunError, OSError) as error:
             self.post(number, f"**The run completed, but preparing the pull request failed**: {error}"[:2000])
             record["pr_prepared"] = "failed"
-            record["gate"] = {"key": "done"}
+            record["gate"] = finished_gate(record)
             store.save(record)
             return
         record["pr_prepared"] = True
-        record["gate"] = {"key": "done"}
+        record["gate"] = finished_gate(record)
         store.save(record)
         outcome = (view.get("evidence") or {}).get("outcome") or view.get("status") or "complete"
         summary = f"**Task complete** ({outcome}). The change is committed on `{record['branch']}` with the run's evidence.\n\n```\n{output[-800:]}\n```"
@@ -427,6 +421,12 @@ class Bridge:
                 if once:
                     return 0
                 self.sleep(self.config.poll_seconds)
+
+
+def finished_gate(record: dict) -> dict:
+    """The gate of a finished run. It keeps the floor of the gate before it: a comment that gate left unread
+    stays unread, and only words written after it can ask for a follow-up."""
+    return {"key": "done", "floor": int((record.get("gate") or {}).get("floor") or 0)}
 
 
 def holds_slot(record: dict) -> bool:
