@@ -48,13 +48,13 @@ def tests(code):
     )
 
 
-def prove(case, seed, change, *, package=None):
+def prove(case, seed, change, *, package=None, rows=None):
     """The run's own proof of ``change``: no plan command, and ``--package`` when the run named one."""
     project = Project(seed)
     case.addCleanup(project.close)
     project.write(change)
     row = {"id": "AC1", "criterion": "pages", "verification_method": "a regression test fails on the original code"}
-    sealed = {"task_id": "task-1", "revision": 1, "body": {"task_kind": "bugfix", "acceptance_criteria": [row]}}
+    sealed = {"task_id": "task-1", "revision": 1, "body": {"task_kind": "bugfix", "acceptance_criteria": rows or [row]}}
     state = {
         "workspace": str(project.root),
         "base_commit": project.base,
@@ -490,6 +490,168 @@ class DeclaredPythonProjectTests(unittest.TestCase):
         for path in ("backend/pager.py", self.NAME):
             self.assertEqual("backend", companion_suites.project_of(project.root, path))
         self.assertEqual(companion_suites.ROOT, companion_suites.project_of(project.root, "README.md"))
+
+
+def pager_tests(module, expected=2):
+    return (
+        f"import unittest\n\nfrom {module} import page_count\n\n\nclass PagerTests(unittest.TestCase):\n"
+        f"    def test_an_exact_multiple(self):\n        self.assertEqual({expected}, page_count(10, 5))\n"
+    )
+
+
+def partial(number):
+    return f"\n    def test_ac{number}_partial(self):\n        self.assertEqual(3, page_count(11, 5))\n"
+
+
+class TwoPythonProjectsTests(unittest.TestCase):
+    """One change that fixes ``api/`` and ``worker/``, two Python projects side by side under a root with no
+    manifest. Each project's tests import its own code and run from inside it. The root's suite claimed
+    both by their kind and ran them from the root, where neither can import its code: the proof failed with
+    "the new tests only fail to import or collect", and the gate of the original tests failed on both
+    (checked without a model, 2026-11-15)."""
+
+    MANIFEST = "[project]\nname = 'shop'\nversion = '1.0.0'\n"
+    API, WORKER = "api/tests/test_pager.py", "worker/tests/test_paging.py"
+    SEED = {
+        "README.md": "# shop\n",
+        "api/pyproject.toml": MANIFEST,
+        "api/pager.py": BACKEND["backend/pager.py"],
+        API: pager_tests("pager"),
+        "worker/pyproject.toml": MANIFEST,
+        "worker/paging.py": BACKEND["backend/pager.py"],
+        WORKER: pager_tests("paging"),
+    }
+    FIXES = {"api/pager.py": BACKEND_FIXED, "worker/paging.py": BACKEND_FIXED}
+    CHANGE = {**FIXES, API: pager_tests("pager") + partial(1), WORKER: pager_tests("paging") + partial(2)}
+    ROWS = [
+        {"id": "AC1", "criterion": "the API counts a partial page", "verification_method": "test: test_ac1_partial"},
+        {"id": "AC2", "criterion": "so does the worker", "verification_method": "test: test_ac2_partial"},
+    ]
+
+    def python(self, *arguments):
+        return shlex.join([sys.executable, "-m", *arguments])
+
+    def test_each_projects_tests_are_proven_with_its_own_suite(self):
+        proof = prove(self, self.SEED, self.CHANGE, rows=self.ROWS)
+        self.assertEqual((verify.PASS, [], []), (proof["verdict"], proof["failures"], proof["unverified"]), proof)
+        self.assertRegex(proof["commands"]["suite"], r"^cd api && \S+ -m unittest discover -v -s tests$")
+        self.assertEqual(
+            {
+                "AC1": ["tests.test_pager.PagerTests.test_ac1_partial"],
+                "AC2": ["tests.test_paging.PagerTests.test_ac2_partial"],
+            },
+            proof["case_tests"],
+        )
+        self.assertTrue(any("that project's own suite `cd worker && " in note for note in proof["notes"]), proof)
+
+    def test_a_project_whose_new_test_passes_on_the_original_code_is_still_not_proven(self):
+        passing = "\n    def test_ac2_partial(self):\n        self.assertEqual(1, page_count(5, 5))\n"
+        change = {**self.CHANGE, self.WORKER: pager_tests("paging") + passing}
+        proof = prove(self, self.SEED, change, rows=self.ROWS)
+        self.assertEqual(verify.FAIL, proof["verdict"])
+        self.assertTrue(any("worker/" in text for text in proof["failures"]), proof["failures"])
+
+    def suites(self, files, tests):
+        project = Project({"README.md": "# shop\n", **files})
+        self.addCleanup(project.close)
+        detect = verify.detect_framework
+        framework, suites, _ = companion_suites.test_suites(project.root, detect(project.root), tests, detect)
+        return getattr(framework, "directory", ""), {suite["project"]: suite["files"] for suite in suites}
+
+    def test_which_suite_proves_which_tests(self):
+        both = [self.API, self.WORKER]
+        at_root = {"tests/test_shop.py": pager_tests("api.pager")}
+        for label, files, tests, expected in (
+            ("two projects", self.SEED, both, ("api", {"worker": [self.WORKER]})),
+            (
+                "a project and the root",
+                {**self.SEED, **at_root},
+                [self.API, "tests/test_shop.py"],
+                ("", {"api": [self.API]}),
+            ),
+            ("the root is a project", {**self.SEED, "pyproject.toml": self.MANIFEST}, both, ("", {})),
+            ("one project", self.SEED, [self.API], ("api", {})),
+            (
+                "a directory with no suite of its own",
+                {**self.SEED, "docs/pyproject.toml": self.MANIFEST, "docs/conf.py": "", "docs/test_notes.txt": ""},
+                [self.API, "docs/test_notes.txt"],
+                ("api", {}),
+            ),
+        ):
+            with self.subTest(label):
+                self.assertEqual(expected, self.suites(files, tests))
+
+    def test_the_original_tests_of_each_project_run_inside_it(self):
+        bound = self.python("unittest", "discover", "-v")
+        result = run_gate(self, self.SEED, self.CHANGE, bound, self.API)
+        self.assertEqual("PASS", result["verdict"], result)
+        self.assertEqual(
+            "cd api && "
+            + self.python("unittest", "-v", "tests/test_pager.py")
+            + " ; cd worker && "
+            + self.python("unittest", "-v", "tests/test_paging.py"),
+            result["replayed_command"],
+        )
+        for half, ran in (("candidate", 4), ("original", 2)):
+            self.assertEqual([0, 0], [run["exit_code"] for run in result[half]["suites"]], result[half])
+            self.assertEqual(ran, result[half]["results"]["total"])
+
+    def test_a_weakened_original_assertion_in_one_project_still_fails_the_gate(self):
+        change = {
+            "api/pager.py": BACKEND_FIXED,
+            self.API: pager_tests("pager") + partial(1),
+            "worker/paging.py": "def page_count(total, size):\n    return total // size + 1\n",
+            self.WORKER: pager_tests("paging", expected=3),
+        }
+        with self.assertRaisesRegex(ValueError, "original gate did not pass") as raised:
+            run_gate(self, self.SEED, change, self.python("unittest", "discover", "-v"), self.WORKER)
+        receipt = raised.exception.receipt
+        self.assertEqual([0, 0], [run["exit_code"] for run in receipt["candidate"]["suites"]])
+        self.assertEqual([0, 1], [run["exit_code"] for run in receipt["original"]["suites"]])
+        self.assertIn("tests.test_paging.PagerTests.test_an_exact_multiple", str(raised.exception))
+
+    def test_when_the_gate_runs_one_command_for_each_project(self):
+        seed = {
+            **self.SEED,
+            "tests/test_shop.py": pager_tests("api.pager"),
+            "tests/fixtures/app/pyproject.toml": self.MANIFEST,
+            "tests/fixtures/app/tests/test_app.py": pager_tests("app"),
+        }
+        project = Project(seed)
+        self.addCleanup(project.close)
+        bound = self.python("unittest", "discover", "-v")
+        inside = lambda directory, file: f"cd {directory} && " + self.python("unittest", "-v", file)  # noqa: E731
+        api, worker = inside("api", "tests/test_pager.py"), inside("worker", "tests/test_paging.py")
+        from_root = self.python("unittest", "-v")
+        for label, changed, expected in (
+            ("two projects", [self.API, self.WORKER], [api, worker]),
+            ("a project and the root", [self.API, "tests/test_shop.py"], [from_root + " tests/test_shop.py", api]),
+            ("one project", [self.API], [api]),
+            ("the root alone", ["tests/test_shop.py"], [from_root + " tests/test_shop.py"]),
+            (
+                "a fixture of the root's tests is no project",
+                [self.API, "tests/fixtures/app/tests/test_app.py"],
+                [f"{from_root} {self.API} tests/fixtures/app/tests/test_app.py"],
+            ),
+            ("nothing changed", [], [bound]),
+        ):
+            with self.subTest(label):
+                self.assertEqual(expected, guard.replay_parts(bound, changed, project.root))
+        both = [self.API, self.WORKER]
+        # A command the person typed, and a runner that names something by where it runs, run where they were bound.
+        self.assertEqual(
+            [f"{from_root} {self.API} {self.WORKER}"], guard.replay_parts(bound, both, project.root, detected=False)
+        )
+        relative = ".venv/bin/python -m unittest discover -v"
+        self.assertEqual(
+            [f".venv/bin/python -m unittest -v {self.API} {self.WORKER}"],
+            guard.replay_parts(relative, both, project.root),
+        )
+        self.assertEqual(["make test"], guard.replay_parts("make test", both, project.root))
+        self.assertEqual([], guard.replay_parts(None, both, project.root))
+        owned = Project({**self.SEED, "pyproject.toml": self.MANIFEST})
+        self.addCleanup(owned.close)
+        self.assertEqual([f"{from_root} {self.API} {self.WORKER}"], guard.replay_parts(bound, both, owned.root))
 
 
 class ProjectRootRuleTests(unittest.TestCase):

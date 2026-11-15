@@ -958,7 +958,12 @@ showed fail on the original code and pass with the change. The proof's own suite
 is the one that runs the remaining tests, or the first project's when the root's
 runs none of them. The checks keep each receipt as `companion_tests:DIR:CHECK`
 (`companion_tests:packages/web:regression_on_base`), and the proof's notes name
-the files and the suite. A changed test in a directory where no suite runs its
+the files and the suite. Where the root has no manifest, a project's changed test
+is also proven by that project's suite when the root's runner could name the file:
+a fix in `api/` and `worker/`, two Python projects whose tests import their own
+code, is proven with `cd api && ...` and `cd worker && ...`, not with the root's
+`python3 -m unittest`, from where neither project's code can be imported. A
+changed test in a directory where no suite runs its
 kind is named in a note and is not run. A run with `--package`, `--test-root`,
 `--test-command` or `--regression-command` keeps to the suite it names.
 
