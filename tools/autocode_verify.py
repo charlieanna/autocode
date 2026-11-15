@@ -2114,6 +2114,7 @@ def _run_suite_base_definition(
     ignored_inputs=None,
     keep_tests=False,
     sourced=False,
+    listing=(),
 ):
     """Execute the base suite definition over the candidate's product code (#587).
 
@@ -2125,6 +2126,7 @@ def _run_suite_base_definition(
     when the definition ran, or why the boundary could not be established (never a PASS).
     ``keep_tests`` (#2966) keeps the candidate's tests too, and runs only when a retained runner input changed.
     ``sourced`` takes the files the base's shell tests source as product code (an exit-code repair's run).
+    ``listing`` files were seen to list the change's tests (autocode_listed_tests): they stay the base's too.
     """
     # An exit-code repair of a Maven or Gradle suite is held to the build-system definition a JUnit proof
     # of the same command is: the generic scan below reads no build file.
@@ -2144,7 +2146,7 @@ def _run_suite_base_definition(
     except (OSError, RuntimeError, ValueError) as error:
         return {"run": None, "boundary": f"the effective base could not be read ({error})"}
     definition, patched, roles = found.paths, found.patched, getattr(framework, "test_roles", None)
-    definition = definition - found.sourced if sourced else definition
+    definition = (definition - found.sourced if sourced else definition) | set(listing)
     test = roles.is_test if roles else is_test_path
     reviewed = definition_inputs.reviewed_changes(workspace, changes, patched)
 
@@ -2237,6 +2239,7 @@ class _Run:
     existing_exit: Any
     roles: Any
     replaced: Any
+    test_side: Any = ()
 
 
 def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
@@ -2417,6 +2420,7 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
             ignored_inputs=ignored_inputs,
             keep_tests=not untyped,
             sourced=run.existing_exit,
+            listing=run.test_side,
         )
     elif exit_zero and untyped and (comparable or {}).get("health") != "passing":
         # G1 (#652): a base suite that is not green cannot anchor preservation.
@@ -2599,6 +2603,7 @@ def verify(
     withheld=(),
     roles=None,
     replaced=None,
+    test_side=(),
 ) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
 
@@ -2653,6 +2658,7 @@ def verify(
     So do changes outside a run's ``package`` (autocode_package_scope): its suite does not run them.
     ``package_exempt`` names paths outside it that are not the change (autocode_package_writes.exempt).
     ``withheld`` test files are left out of the change and its trees (autocode_pending_tests).
+    ``test_side``: changed files that list the change's tests; the base run holds them (autocode_listed_tests).
     """
     workspace, run_dir = Path(workspace), Path(run_dir)
     test_root = test_roots.normalize(test_root) if test_root is not None else None
@@ -2675,7 +2681,7 @@ def verify(
         framework = copy.copy(framework)
         framework.test_roles = roles
     preserve = preserve_only or (test_only_allowed and not sources)
-    test_changes = {p: changes[p] for p in tests}
+    test_changes = {p: changes[p] for p in (*tests, *test_side) if p in changes}
     fail: list[Any] = []
     unverified: list[Any] = []
     unverified += (
@@ -2776,6 +2782,7 @@ def verify(
         existing_exit=existing_exit,
         roles=roles,
         replaced=replaced,
+        test_side=test_side,
     )
     trees, hidden = {}, []
     baseline_timed_out = bool(base_suite and (base_suite.get("receipt") or {}).get("timed_out") is True)

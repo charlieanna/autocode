@@ -80,6 +80,9 @@ TANGLED: frozenset[str] = frozenset()
 # 2026-11-15: #3580 and #3577 together raised autocode.py to 1845 lines without raising its limit; each
 # passed alone. The limits one launch runs under (stage deadline, inactivity and tool limits, startup budget)
 # moved to autocode_role_launch.launch_limits: autocode.py 1829, run_role -16.
+# 2026-11-15: the files of a change seen to list its new tests (autocode_listed_tests, which does the looking)
+# are an input of the proof: verify's test_side parameter, carried to the base suite definition, raised
+# autocode_verify.py by 7 lines, verify by 2 and _preserve_suite by 1.
 MAX_LINES = {
     "autocode.py": 1830,
     "autocode_goals.py": 1404,
@@ -87,7 +90,7 @@ MAX_LINES = {
     "autopilot.py": 1392,
     "autocode_run_actions.py": 366,
     "autocode_args.py": 1038,
-    "autocode_verify.py": 2994,
+    "autocode_verify.py": 3001,
 }
 
 # Line counts of the largest functions, (module, function): lines. handle() was 946 lines before its
@@ -108,8 +111,8 @@ MAX_FUNCTION_LINES = {
     ("autocode_run_actions.py", "handle"): 9,
     ("autocode_args.py", "build_parser"): 544,
     ("autocode.py", "run_role"): 527,
-    ("autocode_verify.py", "verify"): 334,
-    ("autocode_verify.py", "_preserve_suite"): 212,
+    ("autocode_verify.py", "verify"): 336,
+    ("autocode_verify.py", "_preserve_suite"): 213,
     ("autocode_configure.py", "configure"): 291,
     ("autocode_configure.py", "_configure_saved"): 164,
     ("autocode_tool_containment.py", "configure"): 189,

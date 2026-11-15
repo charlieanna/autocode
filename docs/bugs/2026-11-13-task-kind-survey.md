@@ -1857,6 +1857,102 @@ the changed-line and mutation checks still need a test that notices a broken lin
 run a command, so a wrong one is seen only at the proof; test files in a directory the rules do not call
 tests (`checks/`, above).
 
+## 53. A new test that runs only because a build file lists it: the proof says it passes on the original code (fixed)
+
+A feature in a C project whose `Makefile` has a rule for each test program ("add `clamp_page` in a new
+file, give it its own test file under `tests/` and have `make test` run it"). The Builder wrote
+`clamp.c`, `clamp.h`, `tests/test_clamp.c` and the `Makefile` lines that build and run the new test. The
+proof failed twice with "The new tests pass on the unfixed base code, so they do not reproduce the bug",
+and the run ended asking the person to "Set the regression command to `mkdir -p build && cc -Wall -Werror
+-o build/test_clamp pager.c clamp.c tests/test_clamp.c && ./build/test_clamp` and rerun the proof" (12
+stages, 283 s, $2.02).
+
+**The shared cause.** The proof runs the change's tests on the original code, and "the change's tests"
+are its test files, by a rule over paths. A `Makefile` is no test file. So the tree the proof judged held
+the original `Makefile` and `tests/test_clamp.c`, `make test` never built or ran the new test there, and
+its exit code was 0. The proof read that as a test that passes without the change. It is the same for
+every project where a file that is no test names each test: a `CMakeLists.txt` that registers them, an
+`npm test` script of `node test/a.js && node test/b.js`, a `run_tests.sh` that names each file, a
+`Makefile` that calls such a script. A bug fix fails there exactly as a feature does, and nothing a
+Builder may write settles it.
+
+Doing what the run asked does not finish it either. With the regression command set to the new test's
+own command, the proof goes on to check that the original tests still pass with the change, by running
+the original code's suite definition over the change (#587). That tree took the change's `Makefile` and
+left the change's tests out, so `make test` failed on the test file it lacks: "The base suite definition
+fails against the candidate code: the candidate changed which tests the suite runs". One cause, two
+messages.
+
+**The fix** (`tools/autocode_listed_tests.py`). Which file lists a test is seen by running, not by its
+name. When a proof judged by exit code fails for one of those two reasons alone, AutoCode runs its
+command again:
+
+- on the original code with the change's test files made unloadable, to see which of them the command
+  does not run there (with several test files, each is tried alone when that fails). A test that runs
+  there has shown what it shows;
+- on the change with those made unloadable: a command that still passes runs them nowhere, and the
+  Builder is told "it does not run them, so they show nothing. Add them where this project's test
+  command runs its tests";
+- on the change with one other changed file put back as the original code has it, the tests still
+  unloadable: a command that passes now no longer runs them and nothing else broke, so that file lists
+  them.
+
+The proof then runs once more with those files taken with the tests, and both places read that one
+answer (`verify`'s `test_side`): the original code the tests are run on holds them, and the check of the
+original tests keeps them as the original code has them. What was seen is in the proof (`listed_tests`:
+the command, the tests, the files, each exit code) and in its notes and review reasons, where the Tester
+and the Completion Reviewer read it.
+
+Nothing about what passes changes. The command must still fail on the original code and pass with the
+change, and the original tests must still pass with the change. The second check is stricter than it
+was for such a file: before, a `Makefile` edited to drop a test was run as the change has it.
+
+**Cases checked beyond the reported one**, without a model, through `autocode_regression.prove`:
+
+| Project and change | master | this change |
+| --- | --- | --- |
+| C, `make test`, feature in new files, the `Makefile` has a rule for each test program (the real run) | FAIL | PASS |
+| The same, with the regression command the run asked the person to set | FAIL, base suite definition | PASS |
+| CMake, `CMakeLists.txt` registers each test, feature | FAIL | PASS |
+| `make test`, bug fix, new test file listed in the `Makefile` | FAIL | PASS |
+| The same, with the regression command set to the new test's own | FAIL, base suite definition | PASS |
+| `make test`, feature in a new file, new test file listed in the `Makefile` | FAIL | PASS |
+| `make test` runs `run_tests.sh`, which names each test file, bug fix | FAIL | PASS |
+| no runner detected, `./run_tests.sh` names each test file, bug fix | FAIL | PASS |
+| the same project in `backend/`, `cd backend && ./run_tests.sh` | FAIL | PASS |
+| `npm test` is `node test/pager.js && node test/partial.js`, bug fix | FAIL | PASS |
+| bug fix that also edits an existing test file the original runner runs | FAIL | PASS |
+| `node --test` files named in the `npm test` script (the runner names its tests) | PASS | PASS |
+| `make test`, bug fix, the check added to the existing test file | PASS | PASS |
+| a listed new test that passes on the original code | FAIL | FAIL |
+| a new test file nothing lists | FAIL | FAIL, and the Builder is told the command does not run it |
+| the `Makefile` drops the old test, which the change breaks | FAIL | FAIL |
+
+**On real models** (Claude Code, `claude-tiers`), the feature above:
+
+| | Result | Bundle manifest |
+| --- | --- | --- |
+| master | `WAITING_FOR_USER`, 12 stages, 283 s, $2.02; two failed proofs, then the question above | `67941118cd5e2a8a31c40a82b6110a63706fdd771a799c017594ed2e480b7f89` |
+| this change | `TASK_COMPLETE`, 10 stages, 279 s, $1.75, no question. The first proof passed: `make test` exited 0 on the original code with `tests/test_clamp.c` unloadable, 2 with the change and the test unloadable, 0 again with the original `Makefile` put back, and 2 with `clamp.c` or `clamp.h` put back, so the `Makefile` was taken with the tests | `936a69f4b2e178b1c376ef1963c450c984ffac2f4dc53287667f21e62b80792b` |
+
+Costs: nothing unless a proof judged by exit code fails for one of the two reasons alone. Then one run
+of the command when the change has one test file and the original code runs it; otherwise two runs, one
+for each other changed file up to six (files that are no code first), and the proof once more when a
+file is found. Each look is stopped after five minutes.
+
+Still open:
+
+- A listing file that also carries part of the change the old tests need (a `Makefile` whose list of
+  sources gains a file the old code now includes). Put back, the original listing cannot build the
+  change, so the file is not seen to list the tests and the proof fails as before.
+- A new test whose build rule names a source file the change adds fails on the original code because it
+  cannot be built, whatever it checks, as a test that does not compile does in any compiled language. The
+  changed-line and mutation evidence still needs a test that notices a broken line.
+- A change with more than six other files: the first six are looked at.
+- The refactor rule waiting on the owner (section 52) sees which guard reads a changed test file on the
+  original code with the change's tests. A refactor whose new test of existing behavior is listed in a
+  `Makefile` should read this answer there too.
+
 ## Also seen, not yet run on real models
 
 - **Claude Code refuses to edit some directories inside the stage's own directory.** With Edit and

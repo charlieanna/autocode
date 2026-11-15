@@ -81,6 +81,7 @@ try:
     from . import autocode_follow_up_proof as follow_up_proof
     from . import autocode_goals as goals
     from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_listed_tests as listed_tests
     from . import autocode_mutation_check as mutation_check
     from . import autocode_named_reporters as reporters
     from . import autocode_package_scope as package_scope
@@ -122,6 +123,7 @@ except ImportError:
     import autocode_follow_up_proof as follow_up_proof
     import autocode_goals as goals
     import autocode_launch_inputs as launch_inputs
+    import autocode_listed_tests as listed_tests
     import autocode_mutation_check as mutation_check
     import autocode_named_reporters as reporters
     import autocode_package_scope as package_scope
@@ -177,6 +179,7 @@ SUMMARY_KEYS = (
     "changed_code_receipts",
     "test_homes",
     "plan_command_roles",
+    "listed_tests",
 )
 
 
@@ -1103,6 +1106,63 @@ def _protect_companions(proof, result, companions, workspace, base, out, kept, d
     )
 
 
+def _listed_tests(looking, changes, roles, framework, workspace, base, out, dependencies, patch, inputs) -> dict:
+    """See which changed file lists the change's tests (autocode_listed_tests.find), by running ``command``
+    on trees of the change with one file put back and the test files made unloadable.
+
+    ``looking`` is the command and why the proof looks (autocode_listed_tests.wanted). Returns them with the
+    test files, the files found and each exit code seen. A tree that cannot be made, a run that does not
+    finish and a test file that is a link show nothing."""
+    command, reason = looking
+    tests = sorted(
+        path
+        for path, status in changes.items()
+        if status != "deleted" and roles.role(path) == role_policy.TEST and verify.is_code_path(path)
+    )
+    # Build files and manifests first, then the files nearest the root: only the order of the looks.
+    others = sorted(
+        (path for path in changes if roles.role(path) != role_policy.TEST),
+        key=lambda path: (verify.is_code_path(path), path.count("/"), path),
+    )
+    runs: list = []
+
+    def look(reverted, unloadable):
+        runs.append(reverted)
+        label = f"listed-tests-{len(runs):02d}"
+        tree = Path(out) / "scratch" / label
+        try:
+            verify.make_tree(
+                workspace,
+                base,
+                tree,
+                workspace,
+                {path: status for path, status in changes.items() if path not in reverted},
+                dependencies_from=dependencies["dependencies_from"],
+                patch=patch,
+                ignored_inputs=inputs,
+            )
+        except (OSError, ValueError):
+            return None
+        try:
+            for path in unloadable:
+                file = tree / path
+                if not file.is_file() or file.is_symlink():
+                    return None
+                file.write_text(listed_tests.UNLOADABLE)
+            receipt = verify.run_suite(
+                framework, command, tree, Path(out) / "listed-tests", label, timeout=listed_tests.RUN_SECONDS
+            )
+        except (OSError, ValueError):
+            return None
+        finally:
+            verify.remove_tree(workspace, tree)
+        finished = verify.command_receipt.completed(receipt) and not receipt.get("timed_out")
+        return receipt.get("exit_code") if finished else None
+
+    files, unrun, seen = listed_tests.find(tests, others, look)
+    return {"command": command, "reason": reason, "tests": unrun or tests, "files": files, "seen": seen}
+
+
 def _run_guard_commands(
     proof, result, guards, framework, workspace, base, out, kept, dependencies, patch, inputs, timeout
 ):
@@ -1235,6 +1295,7 @@ def _proving(
     test_suites=(),
 ):
     started_at, started = util.now(), time.monotonic()
+    listed: dict = {}  # which file of the change lists its tests, when the proof had to look
     base = base_commit(state, workspace)
     adopted = execution_context.get("plan_command")
     options = _with_plan_command(settings(state), adopted)
@@ -1411,7 +1472,7 @@ def _proving(
         guards = test_cases.guard_names(due, framework.name if framework else None)
         ahead = [] if all_due else pending_tests.withheld(state, workspace, due)
         kept.append(out / "scratch" / "candidate")
-        result = verify.verify(
+        proving_run = lambda test_side=(): verify.verify(  # noqa: E731
             workspace,
             base,
             out,
@@ -1438,8 +1499,28 @@ def _proving(
             package_exempt=package_writes.exempt(state, workspace, base),
             withheld=ahead,
             replaced=superseded_tests.replaced(state),
+            test_side=test_side,
             **rooted(options),
         )
+        result = proving_run()
+        if looking := listed_tests.wanted(result):
+            # The proof failed in a way a file that lists the change's tests explains: see whether another
+            # file of the change lists them, and prove again with it taken with the tests.
+            progress("Seeing which file of the change lists its new tests", command=looking[0], output=out)
+            listed = _listed_tests(
+                looking,
+                result.get("changes") or {},
+                roles,
+                proving,
+                workspace,
+                base,
+                out,
+                dependencies,
+                base_patch,
+                inputs,
+            )
+            if listed["files"]:
+                result = proving_run(tuple(listed["files"]))
         path = out / "verification.json"
         proof = {key: result.get(key) for key in SUMMARY_KEYS}
         if inputs:
@@ -1448,6 +1529,12 @@ def _proving(
             proof["notes"] = [*(proof.get("notes") or []), pending_tests.NOTE + ", ".join(ahead)]
         if operator:
             proof["review_reasons"] = [*(proof.get("review_reasons") or []), operator_patch.review_reason(operator)]
+        if listed.get("files"):
+            said = listed_tests.note(listed["command"], listed["tests"], listed["files"])
+            proof["notes"] = [*(proof.get("notes") or []), said]
+            proof["review_reasons"] = [*(proof.get("review_reasons") or []), said]
+        elif listed and listed["reason"] == listed_tests.PASSED and listed_tests.unrun(listed["seen"]):
+            proof["notes"] = [*(proof.get("notes") or []), listed_tests.unrun_note(listed["command"], listed["tests"])]
         _protect_companions(
             proof,
             result,
@@ -1649,6 +1736,7 @@ def _proving(
     if found := plan_roles.kept(state):
         # Which of the plan's commands was found to run the project's tests, for a replay of this run.
         proof["plan_command_roles"] = found
+    proof["listed_tests"] = listed or None  # which file of the change lists its tests, and each exit code seen
     if homes := test_homes.moved(state):
         # Where the changed tests were found to run, kept with the commands it explains: a replay of this
         # run cannot look for itself (autocode_replay_checks.test_homes).
