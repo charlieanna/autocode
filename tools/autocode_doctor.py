@@ -62,6 +62,7 @@ from pathlib import Path
 
 try:
     from . import autocode_capability_startup as capability_startup
+    from . import autocode_captured_process as captured
     from . import autocode_connected_engine as connected_engine
     from . import autocode_folder_adoption as folder_adoption
     from . import autocode_install_drift
@@ -71,6 +72,7 @@ try:
     from . import autocode_util as util
 except ImportError:  # direct-script mode has no package parent
     import autocode_capability_startup as capability_startup
+    import autocode_captured_process as captured
     import autocode_connected_engine as connected_engine
     import autocode_folder_adoption as folder_adoption
     import autocode_install_drift
@@ -109,7 +111,11 @@ class Check:
 
 def run(cmd: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess:
     try:
-        return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=20)
+        return captured.run(cmd, cwd=cwd, timeout=20)
+    except ModuleNotFoundError as error:
+        if error.name != "psutil":
+            raise
+        return subprocess.CompletedProcess(cmd, 127, "", "psutil is unavailable; this check cannot run safely")
     except FileNotFoundError as error:
         return subprocess.CompletedProcess(cmd, 127, "", str(error))
     except subprocess.TimeoutExpired:
@@ -292,6 +298,8 @@ def provider_check(name: str, resolve=autocode_providers.resolve) -> Check:
     ready when its config loads and its command answers: the check a run makes before launching it."""
     try:
         settings = resolve(name).local_settings()
+    except captured.ProcessError:
+        raise
     except (OSError, RuntimeError, ValueError) as error:
         return Check(f"provider:{name}", MISSING, str(error), "see docs/providers.md#add-a-tool")
     if not settings.get("config_path"):
@@ -314,6 +322,8 @@ def route_check(name: str, workspace: Path | None, resolve=autocode_providers.re
     try:
         provider = resolve(name)
         available = provider.available_models(workspace)
+    except captured.ProcessError:
+        raise
     except (OSError, RuntimeError, ValueError) as error:
         return Check(
             "routes",
@@ -607,6 +617,8 @@ def claude_checks(
             # (ANTHROPIC_AUTH_TOKEN passed through, a project's .claude/settings.json).
             provider.check_forbidden_environment(workspace=ws)
             account = provider.login_check(ws, run=None if runner is run else runner)
+        except captured.ProcessError:
+            raise
         except (OSError, RuntimeError, ValueError) as error:
             if "billing routes" in str(error):
                 fix = (

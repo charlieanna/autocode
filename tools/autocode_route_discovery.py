@@ -29,8 +29,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 try:
+    from . import autocode_captured_process as captured
     from . import autocode_route_levels as route_levels
 except ImportError:
+    import autocode_captured_process as captured
     import autocode_route_levels as route_levels
 
 try:
@@ -101,11 +103,7 @@ def _from_command_provider(provider, workspace, env, inventory=None):
         summary = login.result()
         models = roster.result()
         levels = listing.result()
-    connected = []
-    for route in table["routes"]:
-        found = re.findall(route["pattern"], summary, re.MULTILINE)
-        if found and route["expect"] in found:
-            connected.append(route)
+    connected = _connected_routes(table, summary)
     return {
         "tool": table["name"],
         "candidates": _candidates(models, table["name"], connected, *levels),
@@ -119,6 +117,29 @@ def _from_command_provider(provider, workspace, env, inventory=None):
             for route in connected
         ],
     }
+
+
+def connected_accounts(provider, workspace=None, *, runner=None):
+    """Read only a configured tool's login summary, using an injected runner when supplied."""
+    table = provider.auth_table()
+    if not table["command"] or not table["routes"]:
+        return []
+    summary = _run(
+        table["command"],
+        table["name"],
+        workspace,
+        None,
+        table["timeout_seconds"],
+        _checked_environment(provider, None),
+        runner=runner,
+    )
+    return _connected_routes(table, summary)
+
+
+def _connected_routes(table, summary):
+    return [
+        route for route in table["routes"] if route["expect"] in re.findall(route["pattern"], summary, re.MULTILINE)
+    ]
 
 
 def _from_opencode(workspace, env, inventory=None):
@@ -201,6 +222,8 @@ def _listing(provider, workspace, env, checked=None):
     try:
         # A listing cut off before its end is not kept for the next check to trust (#3078).
         listing = _run([*command, "--verbose"], name, workspace, env, 60, checked, complete=route_levels.complete)
+    except captured.ProcessError:
+        raise
     except RuntimeError:
         # Older tools may lack verbose metadata. Qualification evidence remains
         # the fallback; an unreadable optional listing never invents new levels.
@@ -227,19 +250,23 @@ def _checked_environment(provider, env):
     return prepare(env) if callable(prepare) else None
 
 
-def _run(command, name, workspace, env, timeout_seconds, checked=None, *, complete=None):
+def _run(command, name, workspace, env, timeout_seconds, checked=None, *, complete=None, runner=None):
     try:
         # A listing that overruns its bound under load is asked once more before a person's command
         # or a run stops on it (#3313).
-        result = env_prep.preflight_listing(
-            command,
-            checked if checked is not None else env_prep.snapshot_environment(env),
-            cwd=workspace,
-            require_executable=env is not None,
-            complete=complete,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
+        result = (
+            runner(command, cwd=workspace)
+            if runner is not None
+            else env_prep.preflight_listing(
+                command,
+                checked if checked is not None else env_prep.snapshot_environment(env),
+                cwd=workspace,
+                require_executable=env is not None,
+                complete=complete,
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+            )
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError(

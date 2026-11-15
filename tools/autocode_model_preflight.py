@@ -608,6 +608,8 @@ def check(
             continue
         try:
             facade.check_subscription_routes(routes, workspace)
+        except processes.ProcessError:
+            raise
         except RuntimeError as error:
             raise support.Paused(
                 "PAUSED_BILLING_ROUTE",

@@ -149,7 +149,8 @@ class OwnedConnectionCheckTests(unittest.TestCase):
     def test_unconfirmed_opencode_cleanup_does_not_select_a_different_backend(self):
         with patch.object(captured, "run", side_effect=captured.ProcessError("cleanup unknown")) as owned:
             with patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "0 credentials", "")):
-                self.assertFalse(connected._opencode_has_no_account(connected._run))
+                with self.assertRaises(captured.ProcessError):
+                    connected._opencode_has_no_account(connected._run)
         owned.assert_called_once_with(["opencode", "auth", "list"], cwd=None, timeout=45)
 
 

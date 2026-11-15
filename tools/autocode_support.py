@@ -1,14 +1,15 @@
-"""Local checkpoint, evidence and context utilities for the existing autocode loop.
-
-No provider calls, credentials, external memory or alternate workflow state.
-"""
+"""Local settings, checkpoint, evidence and context helpers for the existing loop."""
 
 from __future__ import annotations
 
 try:
+    from . import autocode_captured_process as captured
     from . import autocode_prompts as prompts
+    from .providers.env_prep import CONNECTION_TIMEOUT_SECONDS
 except ImportError:
+    import autocode_captured_process as captured
     import autocode_prompts as prompts
+    from providers.env_prep import CONNECTION_TIMEOUT_SECONDS
 
 
 import contextlib
@@ -479,7 +480,9 @@ def local_settings():
     keys = ("model", "model_reasoning_effort", "model_provider", "openai_base_url")
     settings = {k: config.get(k) for k in keys}
     try:
-        auth = subprocess.run(["codex", "login", "status"], capture_output=True, text=True)
+        auth = captured.run(["codex", "login", "status"], timeout=CONNECTION_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError("Codex login check timed out; no provider request was launched") from error
     except OSError as error:  # a bare errno told nobody which engine or what to do (#2307)
         raise RuntimeError(
             "Codex is not on PATH; no provider request was launched. Run `autocode doctor` to see what this "

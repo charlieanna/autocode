@@ -14,12 +14,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 from collections import defaultdict
 from pathlib import Path
 
 try:
+    from . import autocode_captured_process as captured
     from . import autocode_model_identity as model_identity
     from . import autocode_prices as prices
     from . import autocode_role_route as role_route
@@ -29,6 +29,7 @@ try:
     from . import autocode_route_selector as route_selector
     from . import autocode_verifier_independence as verifier_independence
 except ImportError:
+    import autocode_captured_process as captured
     import autocode_model_identity as model_identity
     import autocode_prices as prices
     import autocode_role_route as role_route
@@ -79,7 +80,7 @@ def roles_from_pins_or_suggest(models: list[str], pins: dict | None = None) -> d
 
 
 def list_catalogue(workspace: Path | None = None, command=("opencode", "models")) -> list[str]:
-    result = subprocess.run(
+    result = captured.run(
         list(command), cwd=str(workspace) if workspace else None, capture_output=True, text=True, timeout=180
     )
     if result.returncode:
@@ -469,6 +470,8 @@ def choose(
         return settings
     try:
         available = lister(workspace)
+    except captured.ProcessError:
+        raise
     except (RuntimeError, OSError):
         return settings
     if available is None:
@@ -561,6 +564,8 @@ def route_advice(provider, available, workspace=None) -> dict:
             provider, workspace, inventory=_ListedModels(available) if available is not None else None
         )
         chosen = route_selector.select(route_selector.PIPELINE_ROLES, found["candidates"])
+    except captured.ProcessError:
+        raise
     except (RuntimeError, ValueError, OSError) as error:
         result["reason"] = str(error)
         return result

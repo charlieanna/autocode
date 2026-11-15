@@ -476,7 +476,7 @@ class CommandProvider:
                     config_sha256 = hashlib.sha256(self._path.read_bytes()).hexdigest()
                 except OSError:
                     config_sha256 = None
-                # subprocess.run has killed/reaped each timed-out listing child.
+                # The preflight runner settled each timed-out attempt before retrying.
                 # No stage request has been constructed or launched by this check.
                 raise model_listing_failure.ModelListingTimeout(
                     message, workspace=workspace, config_sha256=config_sha256

@@ -213,7 +213,7 @@ class CommandProviderTests(unittest.TestCase):
         listed = SimpleNamespace(
             returncode=0, stdout="  MODEL  DESCRIPTION\n# legacy aliases\n\n  demo  Fixture model\n"
         )
-        with mock.patch("tools.providers.command.subprocess.run", return_value=listed):
+        with mock.patch.object(command.env_prep.captured, "run", return_value=listed):
             provider.check_models({"builder": {"model": "demo"}}, self.home)
             with self.assertRaisesRegex(RuntimeError, "Models unavailable"):
                 provider.check_models({"builder": {"model": "missing"}}, self.home)

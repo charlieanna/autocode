@@ -39,6 +39,7 @@ import tomllib
 from pathlib import Path
 
 try:
+    from . import autocode_captured_process as captured
     from . import autocode_model_identity as model_identity
     from . import autocode_names as names
     from . import autocode_providers as providers
@@ -47,6 +48,7 @@ try:
     from . import autocode_route_fit as route_fit
     from . import autocode_verifier_independence as independence
 except ImportError:
+    import autocode_captured_process as captured
     import autocode_model_identity as model_identity
     import autocode_names as names
     import autocode_providers as providers
@@ -395,6 +397,8 @@ def run_view(backend, routes, set_command, workspace=None, *, resolve=None, disc
     """
     try:
         options, stop = offers(backend, workspace, resolve=resolve, discover=discover), None
+    except captured.ProcessError:
+        raise
     except (RuntimeError, ValueError, OSError) as error:
         options, stop = [], str(error)
     effective = {role: route["model"] for role, route in routes.items()}
@@ -448,6 +452,8 @@ def _read(backend, workspace, file, resolve, discover):
     fallback = defaults(backend, resolve=resolve)
     try:
         options, stop = offers(backend, workspace, resolve=resolve, discover=discover), None
+    except captured.ProcessError:
+        raise
     except (RuntimeError, ValueError, OSError) as error:
         options, stop = [], str(error)
     return file, saved, fallback, options, stop

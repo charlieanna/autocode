@@ -20,6 +20,13 @@ import tests  # noqa: F401 - runtime import path
 
 
 class LaunchContainment(unittest.TestCase):
+    def test_metadata_cleanup_uncertainty_is_not_a_waivable_boundary_failure(self):
+        error = launch.processes.ProcessError("fixture metadata cleanup unknown")
+        self.adapter.launch.side_effect = error
+        with self.assertRaises(launch.processes.ProcessError) as raised:
+            launch.prepare(**self.options)
+        self.assertIs(error, raised.exception)
+
     def test_unsupported_kilo_variant_is_a_transport_refusal_not_a_sandbox_failure(self):
         from providers.kilocode import KiloEffortError
 

@@ -38,6 +38,19 @@ class AccessTransportConsumerTests(unittest.TestCase):
         kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
         self.assertEqual(consumers, set(kept))
 
+    def test_capture_helper_keeps_process_and_public_consumers_when_slow(self):
+        consumers = {
+            "tests.test_captured_process",
+            "tests.test_connection_processes",
+            "tests.test_process_without_psutil",
+            "tests.test_taskrun",
+        }
+        for path in ("tools/autocode_capture_reaper.py", "tools/autocode_captured_process.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {name: "" for name in (*consumers, "tests.test_unrelated")})
+                kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
+                self.assertEqual(consumers, set(kept))
+
     def test_model_listing_failure_keeps_public_cli_and_policy_consumers_when_slow(self):
         consumers = {"tests.test_model_listing_failure", "tests.test_model_listing_failure_cli"}
         for path in (

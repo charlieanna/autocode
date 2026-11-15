@@ -556,6 +556,16 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # that previously broke master would remain. These are fake-provider consumers,
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    # Captured commands execute this private helper by file path, beyond Python imports.
+    (
+        ("tools/autocode_capture_reaper.py", "tools/autocode_captured_process.py"),
+        (
+            "tests.test_captured_process",
+            "tests.test_connection_processes",
+            "tests.test_process_without_psutil",
+            "tests.test_taskrun",
+        ),
+    ),
     (
         (
             "tools/autocode_mutation_checkpoint.py",

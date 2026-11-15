@@ -43,7 +43,7 @@ def capture():
 
 
 def probe(words, run, *, seconds=PROBE_SECONDS, observe=None, complete=None):
-    """Retry one timed-out setup check once, after subprocess.run has reaped it.
+    """Retry one timed-out setup check once, after its owned process tree has stopped.
 
     The first attempt is bounded by FIRST_ATTEMPT_SECONDS. A retry receives only
     the remaining shared budget. Nonzero exits, malformed answers and OS errors

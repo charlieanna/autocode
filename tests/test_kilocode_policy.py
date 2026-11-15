@@ -79,7 +79,7 @@ class KiloPolicyTests(unittest.TestCase):
         argv = [sys.executable, "run", "--agent", "code", "--session", "old", "--model", "fixture/model"]
         original = {"permission": rules, "prompt": "Preserve the operator coding prompt"}
         with patch.object(
-            policy.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(original), "")
+            policy.captured, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(original), "")
         ):
             ran, env = policy.restrict(argv, child, Path.cwd(), role="tester", write_stage=True)
         agent = json.loads(env["KILO_CONFIG_CONTENT"])["agent"][ran[-1]]
@@ -122,7 +122,7 @@ class KiloPolicyTests(unittest.TestCase):
 
         child = {"PATH": os.environ["PATH"], "KILO_CONFIG_CONTENT": "{}"}
         argv = [sys.executable, "run", "--model", "zai-coding-plan/glm-5.3"]
-        with patch.object(policy.subprocess, "run", side_effect=debug):
+        with patch.object(policy.captured, "run", side_effect=debug):
             ran, env = policy.restrict(argv, child, Path.cwd(), role="tester", portable_shell=True)
         (agent,) = json.loads(env["KILO_CONFIG_CONTENT"])["agent"].values()
         allowed = {tool for tool, rule in agent["permission"].items() if rule == {"*": "allow"}}
@@ -146,7 +146,7 @@ class KiloPolicyTests(unittest.TestCase):
 
         child = {"PATH": os.environ["PATH"], "KILO_CONFIG_CONTENT": "{}"}
         argv = [sys.executable, "run", "--model", "zai-coding-plan/glm-5.3"]
-        with patch.object(policy.subprocess, "run", side_effect=debug) as run, kilocode_probe.capture() as checks:
+        with patch.object(policy.captured, "run", side_effect=debug) as run, kilocode_probe.capture() as checks:
             _, env = policy.restrict(argv, child, Path.cwd(), role="tester")
         (agent,) = json.loads(env["KILO_CONFIG_CONTENT"])["agent"].values()
         self.assertEqual({"*": "allow"}, agent["permission"]["read"])
@@ -168,7 +168,7 @@ class KiloPolicyTests(unittest.TestCase):
 
         child = {"PATH": os.environ["PATH"], "KILO_CONFIG_CONTENT": "{}"}
         argv = [sys.executable, "run", "--model", "zai-coding-plan/glm-5.3"]
-        with patch.object(policy.subprocess, "run", side_effect=debug) as run:
+        with patch.object(policy.captured, "run", side_effect=debug) as run:
             _, env = policy.restrict(argv, child, Path.cwd(), role="tester")
         (agent,) = json.loads(env["KILO_CONFIG_CONTENT"])["agent"].values()
         self.assertEqual({"*": "deny"}, agent["permission"]["read"])
@@ -189,7 +189,7 @@ class KiloPolicyTests(unittest.TestCase):
         child = {"PATH": os.environ["PATH"], "KILO_CONFIG_CONTENT": "{}"}
         argv = [sys.executable, "run", "--agent", "selected", "--session", "old-session", "--model", "fixture/selected"]
         with patch.object(
-            policy.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(original), "")
+            policy.captured, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(original), "")
         ):
             ran, env = policy.restrict(argv, dict(child), Path.cwd(), role="plan_reviewer")
         name = ran[ran.index("--agent") + 1]
@@ -210,7 +210,7 @@ class KiloPolicyTests(unittest.TestCase):
             with (
                 self.subTest(prompt=prompt),
                 patch.object(
-                    policy.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(original), "")
+                    policy.captured, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(original), "")
                 ),
             ):
                 if prompt is not None and not isinstance(prompt, str):
@@ -237,7 +237,7 @@ class KiloPolicyTests(unittest.TestCase):
             with (
                 self.subTest(options=options),
                 patch.object(
-                    policy.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(original), "")
+                    policy.captured, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(original), "")
                 ),
             ):
                 child = {"PATH": os.environ["PATH"], "KILO_CONFIG_CONTENT": "{}"}
@@ -258,7 +258,7 @@ class KiloPolicyTests(unittest.TestCase):
             with (
                 self.subTest(steps=steps),
                 patch.object(
-                    policy.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(original), "")
+                    policy.captured, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(original), "")
                 ),
                 self.assertRaisesRegex(ValueError, "steps must be a positive integer"),
             ):
@@ -303,7 +303,7 @@ class KiloToolReadinessTests(unittest.TestCase):
         self.routes["builder"] = {"model": "fixture/build", "reasoning_effort": "medium"}
         before = dict(self.environment)
         with (
-            patch.object(policy.subprocess, "run", side_effect=self.debug),
+            patch.object(policy.captured, "run", side_effect=self.debug),
             patch.object(self.provider, "launch", side_effect=AssertionError("readiness cannot launch a model")),
             patch.object(self.provider, "validate_effort", side_effect=AssertionError("readiness cannot list models")),
         ):
@@ -325,7 +325,7 @@ class KiloToolReadinessTests(unittest.TestCase):
                     *extra,
                 ]
                 with (
-                    patch.object(policy.subprocess, "run", side_effect=self.debug),
+                    patch.object(policy.captured, "run", side_effect=self.debug),
                     self.assertRaisesRegex(
                         RuntimeError, "tester.*capture.*no provider request was launched"
                     ) as refused,
@@ -353,7 +353,7 @@ class KiloToolReadinessTests(unittest.TestCase):
                 self.rules = [
                     {"permission": "bash", "pattern": pattern, "action": action} for pattern, action in patterns
                 ]
-                with patch.object(policy.subprocess, "run", side_effect=self.debug):
+                with patch.object(policy.captured, "run", side_effect=self.debug):
                     if allowed:
                         self.check_tools(capture=capture)
                     else:
@@ -377,7 +377,7 @@ class KiloToolReadinessTests(unittest.TestCase):
             return subprocess.CompletedProcess(argv, 0, json.dumps(answer), "")
 
         with (
-            patch.object(policy.subprocess, "run", side_effect=debug),
+            patch.object(policy.captured, "run", side_effect=debug),
             self.assertRaisesRegex(RuntimeError, "tester.*capture"),
         ):
             self.check_tools()
@@ -385,7 +385,7 @@ class KiloToolReadinessTests(unittest.TestCase):
 
     def test_each_tools_enabled_launch_rechecks_capture_before_changing_the_agent(self):
         argv = [sys.executable, "run", "--agent=tester", "--model", "fixture/check"]
-        with patch.object(policy.subprocess, "run", side_effect=self.debug):
+        with patch.object(policy.captured, "run", side_effect=self.debug):
             self.check_tools()
             self.rules.append({"permission": "bash", "pattern": self.capture + " *", "action": "deny"})
             for options in ({"portable_shell": True}, {"request": {}}, {"write_stage": True}):
@@ -407,7 +407,7 @@ class KiloToolReadinessTests(unittest.TestCase):
                 child = dict(self.environment)
                 with (
                     self.subTest(action=action, options=options),
-                    patch.object(policy.subprocess, "run", side_effect=self.debug),
+                    patch.object(policy.captured, "run", side_effect=self.debug),
                     patch.object(policy.containment, "configure", return_value=(child, {})) as configure,
                     self.assertRaisesRegex(RuntimeError, "tester.*capture.*no provider request was launched"),
                 ):
@@ -418,11 +418,11 @@ class KiloToolReadinessTests(unittest.TestCase):
     def test_one_readiness_call_reuses_only_identical_agent_policy_inputs(self):
         self.routes["builder"] = {"model": "fixture/build", "reasoning_effort": "medium"}
         self.command[2] = "--agent=code"
-        with patch.object(policy.subprocess, "run", side_effect=self.debug):
+        with patch.object(policy.captured, "run", side_effect=self.debug):
             self.check_tools()
         self.assertEqual(["code"], [argv[3] for argv, _ in self.calls])
         self.calls.clear()
-        with patch.object(policy.subprocess, "run", side_effect=self.debug):
+        with patch.object(policy.captured, "run", side_effect=self.debug):
             self.check_tools()
         self.assertEqual(["code"], [argv[3] for argv, _ in self.calls], "another call must observe policy afresh")
 
@@ -445,7 +445,7 @@ class KiloToolReadinessTests(unittest.TestCase):
 
         with (
             patch.object(kilocode.command.CommandProvider, "launch", autospec=True, side_effect=prepared),
-            patch.object(policy.subprocess, "run", side_effect=debug),
+            patch.object(policy.captured, "run", side_effect=debug),
             self.assertRaisesRegex(RuntimeError, "builder.*capture"),
         ):
             self.check_tools()
@@ -455,7 +455,7 @@ class KiloToolReadinessTests(unittest.TestCase):
         for capture in ("", {}):
             with (
                 self.subTest(capture=capture),
-                patch.object(policy.subprocess, "run", side_effect=self.debug),
+                patch.object(policy.captured, "run", side_effect=self.debug),
                 self.assertRaisesRegex(ValueError, "capture command"),
             ):
                 self.check_tools(capture=capture)
@@ -466,7 +466,7 @@ class KiloToolReadinessTests(unittest.TestCase):
                 self.command[:] = [sys.executable, "run", *selector, "--model", "{model}"]
                 with (
                     self.subTest(field=field, selector=selector),
-                    patch.object(policy.subprocess, "run") as debug,
+                    patch.object(policy.captured, "run") as debug,
                     self.assertRaisesRegex(RuntimeError, "static or role-based.*selector"),
                 ):
                     self.check_tools()
@@ -475,7 +475,7 @@ class KiloToolReadinessTests(unittest.TestCase):
     def test_tools_off_repair_and_read_tools_only_launch_need_no_shell(self):
         self.rules = [{"permission": "*", "pattern": "*", "action": "deny"}]
         argv = [sys.executable, "run", "--agent=tester", "--model", "fixture/check"]
-        with patch.object(policy.subprocess, "run", side_effect=self.debug):
+        with patch.object(policy.captured, "run", side_effect=self.debug):
             for options in ({"report_recovery": True}, {}):
                 with self.subTest(options=options):
                     command, child = policy.restrict(
@@ -654,7 +654,6 @@ class KiloContainmentPolicyTests(unittest.TestCase):
         with (
             patch.object(containment, "backend", return_value=containment.SEATBELT),
             patch.object(containment.shutil, "which", return_value="/owned/kilo"),
-            patch.object(containment.subprocess, "run", side_effect=native),
             patch.object(captured_process, "run", side_effect=native),
             patch.object(containment, "prepare", return_value=boundary),
             patch.object(containment, "configure", side_effect=configure),
@@ -737,7 +736,7 @@ class KiloContainmentPolicyTests(unittest.TestCase):
             {"transport": "kilocode", "allow_write": True},
             {"transport": "kilocode", "allow_write": False, "retain_launch_identity": True},
         ):
-            with self.subTest(options=options), patch.object(containment.subprocess, "run") as run:
+            with self.subTest(options=options), patch.object(containment.captured, "run") as run:
                 with self.assertRaises(ValueError):
                     containment.configure([], {}, self.workspace, request={}, resolved_shell_policy={}, **options)
                 run.assert_not_called()

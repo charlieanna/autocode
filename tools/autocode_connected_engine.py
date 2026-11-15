@@ -38,10 +38,12 @@ try:
     from . import autocode_captured_process as captured
     from . import autocode_providers as providers
     from . import autocode_route_discovery as route_discovery
+    from .providers import env_prep
 except ImportError:
     import autocode_captured_process as captured
     import autocode_providers as providers
     import autocode_route_discovery as route_discovery
+    from providers import env_prep
 
 # (connection id, engine, provider, label) in the order a connected one is taken. Codex is
 # an engine; the others run on the OpenCode facade engine as providers (#717, #2330).
@@ -53,7 +55,7 @@ ORDER = (
 EXECUTABLES = {"claude": "claude", "codex": "codex", "kilocode": "kilo"}
 
 
-CHECK_TIMEOUT = 45
+CHECK_TIMEOUT = env_prep.CONNECTION_TIMEOUT_SECONDS
 
 
 def _run(command, cwd=None):
@@ -145,7 +147,7 @@ def _opencode_has_no_account(runner) -> bool:
     """
     try:
         result = runner(["opencode", "auth", "list"])
-    except (OSError, subprocess.TimeoutExpired, captured.ProcessError):
+    except (OSError, subprocess.TimeoutExpired):
         return False
     if result.returncode != 0:
         return False
@@ -169,9 +171,11 @@ def _not_connected(name, which, runner, workspace, resolve) -> str | None:
             return None if runner(["codex", "login", "status"]).returncode == 0 else "codex is not logged in"
         if name == "kilocode":
             facade = resolve("kilocode")
-            if route_discovery.discover(facade, workspace)["accounts"]:
+            if route_discovery.connected_accounts(facade, workspace, runner=None if runner is _run else runner):
                 return None
             return "kilo has no connected account (kilo auth login)"
+    except captured.ProcessError:
+        raise
     except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as error:
         return str(error).splitlines()[0]
     return f"{name} is not a connected backend"

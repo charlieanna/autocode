@@ -12,8 +12,8 @@ explicit mapping or :func:`snapshot_environment`. Parallel workers pass their
 own mappings; billing admission deliberately checks both the explicit mapping
 and the process environment through :func:`combined_environment`.
 
-Environment policy uses only mappings and the shared invocation-marker utility,
-which has no AutoCode dependencies.
+Environment mappings, preflight ownership and reuse live here. Executions use
+the shared captured-process supervisor; provider checks never run a model.
 
 Within a run (``reuse_checks``), a preflight that succeeded is answered again for
 ``REUSE_SECONDS``. A chat message relaunches the controller, and the same
@@ -49,12 +49,16 @@ from collections.abc import Mapping
 from pathlib import Path
 
 try:
+    from .. import autocode_captured_process as captured
     from .. import autocode_output_decoding as output_decoding
     from ..autocode_invocation_environment import without_call_markers
 except ImportError:
     import autocode_output_decoding as output_decoding
+    import autocode_captured_process as captured
     from autocode_invocation_environment import without_call_markers
 
+CONNECTION_TIMEOUT_SECONDS = 45
+OWNED_CHECK_SCHEMA = 1  # Older kept answers predate owned descendant cleanup.
 REUSE_SECONDS = 3600  # owner decision 2026-10-20: an hour
 REUSE_FOLDER = "preflight-reuse"
 LISTING_RETRY_FACTOR = 2  # a timed-out listing's second attempt gets twice its bound (#3313)
@@ -183,15 +187,7 @@ def preflight_run(
     if kept is not None:
         return kept
     try:
-        if (
-            kwargs.get("capture_output")
-            and "stdout" not in kwargs
-            and "stderr" not in kwargs
-            and subprocess.run is _STDLIB_RUN
-        ):
-            result = _run_captured(command, env, kwargs, decoding)
-        else:
-            result = subprocess.run(command, env=dict(env), **kwargs)
+        result = captured.run(command, env=dict(env), **kwargs)
     except subprocess.TimeoutExpired:
         if warming and execution_key:
             # A warm-up that overran its bound was the check's first attempt (preflight_listing).
@@ -208,7 +204,7 @@ def preflight_listing(command, env: Mapping[str, str], *, timeout, **kwargs):
     Under load these reads overran their bound by a fraction of a second (`kilo auth list` exited 0
     after 15.3 s against 15 s; `kilo models --verbose` took 21.5 s against 30 s), and the single cut
     refused a person's `autocode stages set` or paused a run to ask about machinery a second read
-    settles. The second attempt gets twice the bound, after ``subprocess.run`` has killed the first.
+    settles. The second attempt gets twice the bound, after owned cleanup of the first.
     Only a timeout is retried: a nonzero exit or an OS error is the answer. The caller passes only a
     listing command, never one that runs a model; the final ``TimeoutExpired`` names the last bound.
     """
@@ -370,7 +366,11 @@ def _recall(key, command, complete=None):
     try:
         kept = json.loads((_reuse / f"{key}.json").read_text(encoding="utf-8"))
         # An answer kept before its caller checked for a cut-off one (#3078) is not answered again.
-        if 0 <= time.time() - kept["at"] < REUSE_SECONDS and (complete is None or complete(kept["stdout"])):
+        if (
+            kept.get("ownership_schema") == OWNED_CHECK_SCHEMA
+            and 0 <= time.time() - kept["at"] < REUSE_SECONDS
+            and (complete is None or complete(kept["stdout"]))
+        ):
             return KeptCheck(command, 0, kept["stdout"], kept["stderr"])
     except (OSError, ValueError, KeyError, TypeError):
         pass
@@ -384,7 +384,14 @@ def _keep(key, result) -> None:
         _reuse.mkdir(mode=0o700, exist_ok=True)
         temporary = _reuse / f".{key}.{os.getpid()}.{threading.get_ident()}"
         temporary.write_text(
-            json.dumps({"at": time.time(), "stdout": result.stdout, "stderr": result.stderr}),
+            json.dumps(
+                {
+                    "ownership_schema": OWNED_CHECK_SCHEMA,
+                    "at": time.time(),
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                }
+            ),
             encoding="utf-8",
         )
         temporary.chmod(0o600)

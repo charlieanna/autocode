@@ -3,17 +3,18 @@
 import json
 import os
 import select
+import signal
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import suppress
 from pathlib import Path
 from unittest.mock import patch
 
 import autocode_captured_process as captured
 import autocode_connected_engine as connected
 import autocode_connections as connections
-import autocode_process as processes
 
 
 @unittest.skipUnless(sys.platform == "linux", "owned metadata descendants require supported Linux")
@@ -31,59 +32,28 @@ class ConnectionProcessTests(unittest.TestCase):
             sentinel.wait(timeout=5)
 
     def check_owned_result(self, root, caller, outcome):
-        ready = root / "ready"
-        os.mkfifo(ready)
-        descriptor = os.open(ready, os.O_RDWR)
-        self.addCleanup(os.close, descriptor)
-        worker_file = root / "worker.json"
+        record = root / "worker.json"
         script = root / "auth_status.py"
         script.write_text(
             "import json, os, pathlib, subprocess, sys\n"
-            "worker = subprocess.Popen([sys.executable, '-c', "
-            "'import os; r,w=os.pipe(); os.read(r,1)'], "
-            f"start_new_session={outcome == 'timeout'!r}, "
-            "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
-            f"pathlib.Path({str(worker_file)!r}).write_text(json.dumps(worker.pid))\n"
+            "worker = subprocess.Popen([sys.executable, '-c', 'import os; r,w=os.pipe(); os.read(r,1)'], "
+            "start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+            "start = pathlib.Path(f'/proc/{worker.pid}/stat').read_text().rpartition(')')[2].split()[19]\n"
+            f"pathlib.Path({str(record)!r}).write_text(json.dumps({{'pid':worker.pid,'start':start}}))\n"
             "print('SECRET backend account', flush=True)\n"
-            f"with open({str(ready)!r}, 'w') as ready: ready.write('R')\n"
             + ("r,w=os.pipe(); os.read(r,1)\n" if outcome == "timeout" else "")
         )
         command = [sys.executable, str(script)]
-        cleanup = None
-        child_process = None
-        worker = None
-        supervisor_wait = captured.supervisor.wait
-        communicate = subprocess.Popen.communicate
         allowances = []
+        run = captured.run
 
-        def observed(child, timeout):
-            nonlocal cleanup, child_process, worker
-            allowances.append(timeout)
-            child_process = child
-            cleanup = processes.ProcessTree(child.pid, lambda rows: None)
-            cleanup.capture_root()
-            cleanup.sample()
-            self.assertTrue(select.select([descriptor], [], [], 5)[0], "auth fixture did not become ready")
-            self.assertEqual(b"R", os.read(descriptor, 1))
-            worker_pid = json.loads(worker_file.read_text())
-            worker = processes.identity(processes.process_table({worker_pid})[worker_pid])
-            cleanup.known[worker_pid] = worker
-            cleanup.sample()
-
-        def owned_wait(child, timeout):
-            observed(child, timeout)
-            # The fixture is definitely live; advance only this existing wait's
-            # allowance instead of sleeping through its 45-second deadline.
-            return supervisor_wait(child, 0 if outcome == "timeout" else timeout)
-
-        def raw_communicate(child, input=None, timeout=None):
-            observed(child, timeout)
-            return communicate(child, input, timeout=0 if outcome == "timeout" else 5)
+        def bounded(words, **options):
+            allowances.append(options["timeout"])
+            return run(words, **{**options, "timeout": 1 if outcome == "timeout" else 5})
 
         try:
             with (
-                patch.object(captured.supervisor, "wait", owned_wait),
-                patch.object(subprocess.Popen, "communicate", raw_communicate),
+                patch.object(captured, "run", side_effect=bounded),
                 patch.object(connections, "_definition", return_value=("Fixture", sys.executable, None, command, None)),
             ):
                 if caller == "connection":
@@ -98,8 +68,22 @@ class ConnectionProcessTests(unittest.TestCase):
                         connected._run(command, cwd=root)
                 else:
                     self.assertEqual(0, connected._run(command, cwd=root).returncode)
-            self.assertEqual([], processes.live_processes([worker]), "connection check left a live owned descendant")
+            row = json.loads(record.read_text())
+            path = Path(f"/proc/{row['pid']}/stat")
+            self.assertTrue(
+                not path.exists() or path.read_text().rpartition(")")[2].split()[19] != row["start"],
+                "connection check left an owned child",
+            )
             self.assertEqual([45], allowances)
         finally:
-            if cleanup is not None:
-                cleanup.stop(child_process)
+            if record.exists():
+                row = json.loads(record.read_text())
+                with suppress(ProcessLookupError):
+                    descriptor = os.pidfd_open(row["pid"])
+                    try:
+                        path = Path(f"/proc/{row['pid']}/stat")
+                        if path.exists() and path.read_text().rpartition(")")[2].split()[19] == row["start"]:
+                            signal.pidfd_send_signal(descriptor, signal.SIGKILL)
+                            self.assertTrue(select.select([descriptor], [], [], 5)[0], "fixture worker did not stop")
+                    finally:
+                        os.close(descriptor)

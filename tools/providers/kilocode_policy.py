@@ -8,7 +8,6 @@ report recovery has no tools. Unknown tools stay denied.
 import json
 import re
 import shutil
-import subprocess  # noqa: F401 - the debug checks run it through env_prep; tests patch it here
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -16,10 +15,12 @@ from pathlib import Path
 from . import env_prep, kilocode_probe
 
 try:
+    from .. import autocode_captured_process as captured
     from .. import autocode_publish_guard as publish_guard
     from .. import autocode_tool_containment as containment
     from .. import autocode_tool_handoff as tool_handoff
 except ImportError:
+    import autocode_captured_process as captured
     import autocode_publish_guard as publish_guard
     import autocode_tool_containment as containment
     import autocode_tool_handoff as tool_handoff

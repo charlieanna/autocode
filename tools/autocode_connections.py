@@ -127,7 +127,7 @@ def connection_view(name, *, check=False):
             return row
         try:
             result = captured.run(status, timeout=connected_engine.CHECK_TIMEOUT)
-        except (OSError, subprocess.TimeoutExpired, captured.ProcessError):
+        except (OSError, subprocess.TimeoutExpired):
             row.update(
                 connection_status="check_failed",
                 detail="Connection check could not finish. Open the backend to diagnose it.",
@@ -177,6 +177,8 @@ def connection_view(name, *, check=False):
                 connection_status="sign_in_required",
                 detail="No saved login was confirmed. Sign in with the backend, then check again.",
             )
+    except captured.ProcessError:
+        raise
     except (OSError, ValueError, RuntimeError):
         row["detail"] = "Provider configuration could not be loaded. Check its user-level TOML configuration."
     return row
@@ -259,6 +261,8 @@ def routes(provider=None):
     try:
         with env_prep.reuse_workspace_checks("."):
             found = model_catalogue.preview(provider=provider)
+    except captured.ProcessError:
+        raise
     except (RuntimeError, ValueError, OSError) as error:
         return {"tool": None, "routes": [], "routes_lines": [], "routes_stop": str(error)}
     return {
@@ -356,7 +360,13 @@ def cli(argv):
             result["new_runs"] = None
             result["new_runs_next_command"] = ["connections", "list", "--new-runs", "--json"]
     elif args.action == "check":
-        result = connection_view(args.provider, check=True)
+        try:
+            result = connection_view(args.provider, check=True)
+        except captured.ProcessError:
+            # A single explicit check can report failure. Batch discovery must
+            # retain the exception and stop before checking another backend.
+            result = connection_view(args.provider, check=False)
+            result.update(connection_status="check_failed", detail="Connection check could not finish safely.")
     else:
         # Resolve again at execution time. The client cannot supply arbitrary
         # executables or credential material in this public action.

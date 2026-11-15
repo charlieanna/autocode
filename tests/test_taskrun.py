@@ -3,12 +3,14 @@
 import copy
 import json
 import os
+import select
 import shutil
 import signal
 import subprocess
 import sys
 import tempfile
 import textwrap
+import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -2147,6 +2149,7 @@ class TaskRunProcessTests(unittest.TestCase):
         real_clock = captured_process.supervisor.time.monotonic
         previous_handler = signal.getsignal(signal.SIGTERM)
         receipt = None
+        watcher = None
 
         def stop_after_fixture_is_ready(child, timeout):
             nonlocal receipt
@@ -2185,6 +2188,32 @@ class TaskRunProcessTests(unittest.TestCase):
                 code, expired, receipt = supervisor_wait(child, timeout)
             return code, expired, receipt
 
+        def linux_fixture_ready():
+            nonlocal receipt
+            if not select.select([ready_fd], [], [], 5)[0]:
+                return
+            if os.read(ready_fd, 1) != b"R":
+                return
+            worker_pid = json.loads((self.workspace / "worker.json").read_text())["pid"]
+            row = processes.process_table({worker_pid}).get(worker_pid)
+            if row is not None:
+                receipt = {"owned": [processes.identity(row)]}
+                if trigger == "sigterm":
+                    os.kill(os.getpid(), signal.SIGTERM)
+
+        if sys.platform == "linux":
+            native = captured_process._linux
+
+            def bounded_linux(command, timeout, *options):
+                self.assertEqual(60, timeout)
+                return native(command, 1 if trigger == "timeout" else timeout, *options)
+
+            launch_scope = patch.object(captured_process, "_linux", bounded_linux)
+            watcher = threading.Thread(target=linux_fixture_ready)
+            watcher.start()
+        else:
+            launch_scope = patch.object(captured_process.supervisor, "wait", stop_after_fixture_is_ready)
+
         try:
             expected_error = (
                 self.assertRaisesRegex(taskrun.TaskRunError, "start did not finish within 60 s")
@@ -2192,7 +2221,7 @@ class TaskRunProcessTests(unittest.TestCase):
                 else self.assertRaises(KeyboardInterrupt)
             )
             with (
-                patch.object(captured_process.supervisor, "wait", stop_after_fixture_is_ready),
+                launch_scope,
                 expected_error as raised,
             ):
                 taskrun.TaskRun.start(
@@ -2216,6 +2245,8 @@ class TaskRunProcessTests(unittest.TestCase):
             self.assertIsNone(sentinel.poll())
             self.assertIs(previous_handler, signal.getsignal(signal.SIGTERM))
         finally:
+            if watcher is not None:
+                watcher.join(timeout=6)
             sentinel.stdin.close()
             sentinel.wait(timeout=5)
 
