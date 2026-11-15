@@ -90,6 +90,7 @@ def build_spec(
         spec["coverage_checklist"] = requirement_cues.coverage_checklist(state)
     elif stage in _PLANNING_STAGES:
         spec["sources"] = brief_obligations.sources(state)
+        spec["active_source_ids"] = [row["id"] for row in source_trace._turn_scoped(state, spec["sources"])]
         contract = state.get("goal_contract")
         if isinstance(contract, dict):
             spec["retained_contract"] = copy.deepcopy(
@@ -172,6 +173,24 @@ def _check_revise_responses(data: dict[str, Any], concern_ids: list[str], errors
         errors.append("Plan revision responses must answer each review concern once (" + "; ".join(parts) + ")")
 
 
+def _active_sources(spec: dict[str, Any], records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Reconstruct the runner's recorded scope, retaining all sources for citation authentication."""
+    if "active_source_ids" not in spec:
+        return records  # Older public specs retain conservative full-inventory checks.
+    identities = spec["active_source_ids"]
+    known = [row.get("id") for row in records]
+    if (
+        not isinstance(identities, list)
+        or any(not isinstance(value, str) or not value.strip() for value in [*identities, *known])
+        or len(set(identities)) != len(identities)
+        or len(set(known)) != len(known)
+        or not set(identities) <= set(known)
+    ):
+        raise ValueError("Report-check active_source_ids must name unique, unambiguous source inventory IDs")
+    by_id = {row["id"]: row for row in records}
+    return [by_id[identity] for identity in identities]
+
+
 def _check_planning(stage: str, data: dict[str, Any], spec: dict[str, Any], errors: list[str]) -> None:
     saved = spec.get("retained_contract") or {}
     if not isinstance(saved, dict):
@@ -184,7 +203,9 @@ def _check_planning(stage: str, data: dict[str, Any], spec: dict[str, Any], erro
         context["planning"] = {
             "reports": {"report_check": {"report": {"contract": saved.get("body"), "requirement_trace": trace}}}
         }
+    records = [row for row in (spec.get("sources") or []) if isinstance(row, dict)]
     try:
+        active_sources = _active_sources(spec, records)
         data = revision_reference.normalize_nullable_reference(data, spec.get("schema") or {})
         data = retention.expand(context, stage, data)
     except ValueError as exc:
@@ -202,7 +223,6 @@ def _check_planning(stage: str, data: dict[str, Any], spec: dict[str, Any], erro
         ):
             errors.append("Plan acceptance_criteria must contain criterion objects after reference expansion")
             return
-        records = [row for row in (spec.get("sources") or []) if isinstance(row, dict)]
         if records:
             source_trace.resolve_sentence_ids(contract, records)
             try:
@@ -217,7 +237,7 @@ def _check_planning(stage: str, data: dict[str, Any], spec: dict[str, Any], erro
                         contract,
                         records,
                         source_trace.DEFAULT_TRACE,
-                        coverage_records=source_trace._coverage_scoped(records),
+                        coverage_records=active_sources,
                     )
                 except ValueError as exc:
                     errors.append(str(exc))
