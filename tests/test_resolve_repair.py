@@ -996,6 +996,125 @@ class ResolveRepairTests(unittest.TestCase):
         self.assertIn("restored app.py", str(restored))
         self.assertEqual("def greet():\n    return 'hi'\n", (self.root / "app.py").read_text())
 
+    def test_repeated_failure_non_rejection_guards_and_opencode_handoff(self):
+        import os
+        import shutil
+        import sys
+        from unittest import mock
+
+        from units import autoresolver
+
+        # 1. PAUSED_REPEATED_FAILURE declines non-completed-rejection stops:
+        #    - target_stage == 'resolve'
+        #    - active pending_report_repair (partial repair stop owned by autocode_report_retry)
+        #    - denied_operation operational hold
+        #    - missing, unrejected, timed-out, interrupted, abandoned, or non-zero-exit stage rows
+        self.state["next_stage"] = "resolve"
+        self.state["stages"] = [{"stage": "resolve", "rejected": True, "exit_code": 0}]
+        self.assertFalse(
+            resolve_repair_job.intercept_stall(
+                self.state, "PAUSED_REPEATED_FAILURE", "Repeated resolver failure", before_investigator=False
+            )
+        )
+
+        self.state["next_stage"] = "tester"
+        self.state["stages"] = [{"stage": "tester_report_repair", "original_stage": "tester", "rejected": True}]
+        self.state["pending_report_repair"] = {"attempts": 1, "original": {"stage": "tester"}}
+        self.assertFalse(
+            resolve_repair_job.intercept_stall(
+                self.state, "PAUSED_REPEATED_FAILURE", "Partial report repair bound", before_investigator=False
+            )
+        )
+        self.state.pop("pending_report_repair", None)
+
+        self.state["recovery_context"] = {"denied_operation": "external_directory"}
+        self.state["stages"] = [{"stage": "tester", "rejected": True, "exit_code": 0}]
+        self.assertFalse(
+            resolve_repair_job.intercept_stall(
+                self.state, "PAUSED_REPEATED_FAILURE", "Repeated permission hold", before_investigator=False
+            )
+        )
+        self.state.pop("recovery_context", None)
+
+        for bad_rows in (
+            [],
+            [{"stage": "tester", "rejected": False, "exit_code": 0}],
+            [{"stage": "tester", "rejected": True, "timed_out": True, "abandoned": True, "exit_code": 0}],
+            [{"stage": "tester", "rejected": True, "interrupted": True, "exit_code": 0}],
+            [{"stage": "tester", "rejected": True, "abandoned": True, "exit_code": 0}],
+            [{"stage": "tester", "rejected": True, "exit_code": 1}],
+        ):
+            self.state["stages"] = bad_rows
+            self.assertFalse(
+                resolve_repair_job.intercept_stall(
+                    self.state, "PAUSED_REPEATED_FAILURE", "Non-completed stop", before_investigator=False
+                ),
+                bad_rows,
+            )
+
+        # Genuine completed-stage repeated rejection IS intercepted into resolve_repair
+        self.state["stages"] = [{"stage": "tester", "rejected": True, "exit_code": 0}]
+        self.assertTrue(
+            resolve_repair_job.intercept_stall(
+                self.state, "PAUSED_REPEATED_FAILURE", "Repeated rejected output", before_investigator=False
+            )
+        )
+        self.assertEqual("resolve_repair", self.state["next_stage"])
+        self.assertEqual("codex", resolve_repair_job.handoff({"settings": {}})["execution_engine"])
+        self.assertEqual("opencode", resolve_repair_job.handoff(self.state)["execution_engine"])
+
+        # 2. OpenCode prepare_resolve_repair populates transport_identities['opencode'] and execution_engine
+        bin_dir = self.root / "fixture-bin"
+        bin_dir.mkdir(exist_ok=True)
+        repo_tools = Path(__file__).resolve().parents[1] / "tools"
+        for src_name, dst_name in (
+            ("fake_opencode.py", "opencode"),
+            ("fake_codex.py", "codex"),
+            ("goal_fixtures.py", "goal_fixtures.py"),
+        ):
+            dst = bin_dir / dst_name
+            shutil.copy2(repo_tools / src_name, dst)
+            dst.chmod(0o755)
+        self.state["workspace"] = str(self.root)
+        self.state["settings"]["execution_engine"] = "opencode"
+        self.state["settings"]["provider"] = "opencode"
+        self.state["settings"].pop("transport_identities", None)
+        self.state["settings"]["roles"][resolve_repair_job.ROUTE] = {
+            "model": "zai-coding-plan/glm-5.3",
+            "reasoning_effort": "high",
+            "engine": "opencode",
+        }
+        patched_env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
+        with mock.patch.dict(os.environ, patched_env, clear=True):
+            req = autoresolver.prepare(self.state, resolve_repair_job.STAGE, self.run_dir / "state.json", None)
+        self.assertIn("opencode", self.state["settings"]["transport_identities"])
+        handoff_json = json.loads(req.prompt.split("\nCURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual("opencode", handoff_json["execution_engine"])
+        self.assertEqual("opencode", resolve_repair_job.handoff(self.state)["execution_engine"])
+
+        # Relay through fake_opencode.py to prove the OpenCode wire contract succeeds end-to-end
+        prefix, handoff_text = req.prompt.split("\nCURRENT HANDOFF DATA\n", 1)
+        full_prompt = (
+            prefix
+            + "\nOPENCODE OUTPUT CONTRACT\nReturn JSON matching:\n"
+            + json.dumps(req.schema, indent=2)
+            + "\nCURRENT HANDOFF DATA\n"
+            + handoff_text
+        )
+        opencode_cfg = {
+            "share": "disabled",
+            "agent": {"autocode_resolver": {"permission": {"task": "deny", "question": "deny", "edit": "deny"}}},
+        }
+        proc = subprocess.run(
+            [sys.executable, str(bin_dir / "opencode"), "run", "--format", "json", "--agent", "autocode_resolver"],
+            input=full_prompt,
+            text=True,
+            capture_output=True,
+            env={**patched_env, "OPENCODE_CONFIG_CONTENT": json.dumps(opencode_cfg)},
+            check=False,
+        )
+        self.assertEqual(0, proc.returncode, proc.stderr + proc.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

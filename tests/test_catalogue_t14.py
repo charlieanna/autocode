@@ -44,8 +44,8 @@ MUTATIONS = [
     (
         "M02",
         "tools/autocode_contract_identity.py",
-        'and not contract["body"]["open_blocking_questions"]',
-        "and True",
+        "and _retained_approval_valid(state, contract, approval)\n        and not questions",
+        "and _retained_approval_valid(state, contract, approval)\n        and True",
         ["tests.test_catalogue_t01"],
     ),
     (

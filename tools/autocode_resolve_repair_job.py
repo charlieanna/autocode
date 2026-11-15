@@ -329,6 +329,36 @@ def queue_missing_execution(state: RunState, record: dict[str, Any], error: Exce
     return True
 
 
+def _repeated_failure_is_completed_rejection(state: RunState, target_stage: str) -> bool:
+    """True only when ``PAUSED_REPEATED_FAILURE`` reflects a completed rejected stage output.
+
+    Timeouts/abandoned attempts (``stage_stalls``, ``failures.repeated`` on timeouts), permission-denial
+    operational holds (``denied_operation``), ``resolve`` self-failures, and partial report-repair stops
+    still owned by ``autocode_report_retry`` (``pending_report_repair`` active before ``PAUSED_REPORT_REPAIR_LIMIT``)
+    are not ``kind='stall'`` targets for ``resolve_repair``.
+    """
+    if target_stage == "resolve" or state.get("pending_report_repair"):
+        return False
+    if (state.get("recovery_context") or {}).get("denied_operation"):
+        return False
+    last = next(
+        (
+            row
+            for row in reversed(state.get("stages") or ())
+            if isinstance(row, dict) and (row.get("original_stage") or row.get("stage")) == target_stage
+        ),
+        None,
+    )
+    return bool(
+        isinstance(last, dict)
+        and last.get("rejected")
+        and not last.get("timed_out")
+        and not last.get("interrupted")
+        and not last.get("abandoned")
+        and last.get("exit_code", 0) == 0
+    )
+
+
 def intercept_stall(state: RunState, status: str, reason: str, *, before_investigator: bool) -> bool:
     """Intercept a qualifying pause/stall into ``resolve_repair`` once per distinct problem."""
     if stop.applied_stop(state) or state.get("version", 2) < 3 or state.get("active_stage"):
@@ -345,6 +375,8 @@ def intercept_stall(state: RunState, status: str, reason: str, *, before_investi
         return False
     if status == "PAUSED_REPORT_REPAIR_LIMIT" and state.get("pending_report_repair"):
         return queue_from_pending(state, force=True)
+    if status == "PAUSED_REPEATED_FAILURE" and not _repeated_failure_is_completed_rejection(state, target_stage):
+        return False
     if planning_calls.planning_stage(target_stage):
         cap = planning_calls.cap(state)
         if cap is not None and planning_calls.used(state) >= cap:
@@ -425,9 +457,21 @@ def timed_out(state: RunState) -> bool:
     return isinstance(jf, dict) and jf.get("stage") == STAGE
 
 
-def handoff(state: RunState, workspace: Path | None = None) -> dict[str, Any]:
+def handoff(state: RunState, workspace: Path | None = None, *, engine: str | None = None) -> dict[str, Any]:
     """Assemble the read-only ``CURRENT HANDOFF DATA`` packet for ``resolve_repair``."""
     del workspace
+    raw_settings = state.get("settings")
+    settings = raw_settings if isinstance(raw_settings, dict) else {}
+    raw_roles = settings.get("roles")
+    roles_cfg = raw_roles if isinstance(raw_roles, dict) else {}
+    route_cfg = roles_cfg.get(ROUTE)
+    resolved_engine = (
+        engine
+        or (route_cfg.get("engine") if isinstance(route_cfg, dict) else None)
+        or settings.get("execution_engine")
+        or settings.get("engine")
+        or "codex"
+    )
     request = state.get("resolve_repair_request") or {}
     pending = request.get("pending_report_repair")
     original = pending.get("original") if isinstance(pending, dict) else None
@@ -463,6 +507,7 @@ def handoff(state: RunState, workspace: Path | None = None) -> dict[str, Any]:
         if isinstance(row, dict)
     ]
     return {
+        "execution_engine": resolved_engine,
         "stage": STAGE,
         "kind": request.get("kind", "stall"),
         "target": {
