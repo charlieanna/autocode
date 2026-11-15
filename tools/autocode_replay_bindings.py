@@ -10,6 +10,7 @@ from copy import deepcopy
 from pathlib import Path
 
 PATH_REFERENCE_FIELDS = frozenset(("evidence_refs", "evidence_ref", "source_refs", "output", "full_output", "receipt"))
+EVENT_PATH_FIELDS = frozenset(("file_path", "filePath", "notebook_path", "path"))
 
 
 def semantic_task(task):
@@ -170,7 +171,9 @@ def bindings(
         elif isinstance(value, list):
             for index, child in enumerate(value):
                 visit(child, _pointer(pointer, index), field)
-        elif isinstance(value, str) and field in PATH_REFERENCE_FIELDS:
+        elif isinstance(value, str) and (
+            field in PATH_REFERENCE_FIELDS or (field in EVENT_PATH_FIELDS and pointer.startswith("/events/"))
+        ):
             path = Path(value)
             if field == "evidence_refs" and "/changed_code_exceptions/" in pointer:
                 exact = (
@@ -191,7 +194,9 @@ def bindings(
                     suffix = path.relative_to(root).as_posix()
                 except ValueError:
                     continue
-                if suffix and all(part not in ("", ".", "..") for part in Path(suffix).parts):
+                if suffix == ".":
+                    add(pointer, symbol)
+                elif suffix and all(part not in ("", ".", "..") for part in Path(suffix).parts):
                     add(pointer, symbol, suffix=suffix)
                 break
 

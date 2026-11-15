@@ -117,8 +117,9 @@ def handoff_spec(state: RunState) -> dict[str, Any]:
         "instruction": (
             f"This Requirements pass has a per-pass reply budget ({max_seconds}s wall time and "
             f"{max_tool_calls} completed tool calls) so the user receives blocking questions or a "
-            "grounded handoff promptly. Spend at most a few targeted file reads or searches to resolve "
-            "genuine ambiguity; leave exhaustive file-by-file planning exploration to `draft_plan`."
+            "grounded handoff promptly. Spend them on the code the change touches (the target module, its "
+            "callers and its tests) to find the user-visible forks to ask about together, batching independent "
+            "reads; leave exhaustive file-by-file planning exploration to `draft_plan`."
         ),
     }
 
@@ -146,6 +147,20 @@ def _paths_from_text(text: str) -> list[str]:
         if candidate and "://" not in text[max(0, match.start() - 6) : match.start() + 3]:
             paths.append(candidate)
     return paths
+
+
+def _native_call(item: dict[str, Any]) -> str:
+    """``Read app.py``: a native tool call (Claude Code's adapted ``tool_call``) with what it looked at."""
+    shown = item.get("display_input") if isinstance(item.get("display_input"), dict) else {}
+    target = " ".join(str(shown[key]) for key in ("file_path", "path", "pattern") if isinstance(shown.get(key), str))
+    return f"{item.get('name')} {target}".strip() if isinstance(item.get("name"), str) else ""
+
+
+def _native_part(tool_name: str, tool_input: Any) -> str:
+    """``read /work/app.py``: an OpenCode/Kilo native tool part with what it looked at."""
+    shown = tool_input if isinstance(tool_input, dict) else {}
+    target = " ".join(str(shown[key]) for key in ("filePath", "path", "pattern") if isinstance(shown.get(key), str))
+    return f"{tool_name} {target}".strip()
 
 
 def extract_partial_evidence(events_path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
@@ -181,7 +196,7 @@ def extract_partial_evidence(events_path: Path | str, record: dict[str, Any]) ->
                 and (event_type == "item.completed" or item.get("status") in ("completed", "failed"))
             ):
                 completed_ids.add("codex:" + ident)
-                cmd = item.get("command") or item.get("title") or kind
+                cmd = item.get("command") or item.get("title") or _native_call(item) or kind
                 out = item.get("aggregated_output") or item.get("output") or ""
                 for found in _paths_from_text(f"{cmd}\n{out}"):
                     if found not in seen_paths and len(seen_paths) < MAX_PATHS:
@@ -214,7 +229,7 @@ def extract_partial_evidence(events_path: Path | str, record: dict[str, Any]) ->
                     if len(commands) < MAX_COMMANDS:
                         commands.append(
                             {
-                                "command": _trim_text(str(cmd or tool_name), 240),
+                                "command": _trim_text(str(cmd or _native_part(tool_name, tool_input)), 240),
                                 "status": state_obj.get("status"),
                                 "output_excerpt": _trim_text(str(out), 400),
                             }

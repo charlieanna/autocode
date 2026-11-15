@@ -209,6 +209,41 @@ class FirstReplyBudgetTests(unittest.TestCase):
             with self.assertRaisesRegex(autocode.support.Paused, "1-attempt allowance"):
                 stage_recovery.automatically_recover_first_reply_budget(state, run_dir, root, error)
 
+    def test_partial_evidence_names_what_native_tools_looked_at(self):
+        with tempfile.TemporaryDirectory() as directory:
+            events = Path(directory) / "events.jsonl"
+            rows = [
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "c1",
+                        "type": "tool_call",
+                        "name": "Read",
+                        "status": "completed",
+                        "display_input": {"file_path": "/work/src/app.py"},
+                    },
+                },
+                {
+                    "type": "tool_use",
+                    "part": {
+                        "id": "o1",
+                        "tool": "grep",
+                        "state": {"status": "completed", "input": {"pattern": "def run", "path": "src"}, "output": ""},
+                    },
+                },
+            ]
+            events.write_text("".join(json.dumps(row) + "\n" for row in rows))
+            evidence = first_reply_budget.extract_partial_evidence(events, {})
+        self.assertEqual(
+            ["Read /work/src/app.py", "grep src def run"], [row["command"] for row in evidence["inspected_commands"]]
+        )
+
+    def test_the_budget_points_requirements_at_the_code_the_change_touches(self):
+        instruction = first_reply_budget.handoff_spec({"settings": {}})["instruction"]
+        self.assertIn("the target module, its callers and its tests", instruction)
+        self.assertIn("user-visible forks to ask about together", instruction)
+        self.assertNotIn("at most a few targeted file reads", instruction)
+
     def test_person_stop_or_pending_intervention_bypasses_budget_finish(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()

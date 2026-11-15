@@ -75,17 +75,20 @@ if data.get('report_repair'):
 result = subprocess.run([sys.executable, {str(base)!r}, *sys.argv[1:]],
                         input=prompt, text=True, capture_output=True, check=True)
 output = Path(sys.argv[sys.argv.index('-o') + 1])
+prior_rows = [json.loads(line) for line in Path({str(observed)!r}).read_text().splitlines()] if Path({str(observed)!r}).is_file() else []
+first_intake = stage == 'requirements_gather' and not any(row['stage'] == 'requirements_gather' for row in prior_rows)
 report = json.loads(output.read_text())
-if {repair!r} and stage in ('requirements_gather', 'requirements_gather_report_repair'):
+if {repair!r} and (first_intake or stage == 'requirements_gather_report_repair'):
     report['access_blockers'] = 'invalid fixture type' if stage == 'requirements_gather' else []
     if {bare_patch!r} and stage == 'requirements_gather_report_repair':
         report = {{'sha256': data['rejected_report']['sha256'],
                   'edits': [{{'op': 'replace', 'path': ['access_blockers'], 'value_json': '[]'}}]}}
     output.write_text(json.dumps(report))
+instructions = prompt.split('CURRENT HANDOFF DATA\\n', 1)[0]
 with Path({str(observed)!r}).open('a') as stream:
     stream.write(json.dumps({{'stage': stage, 'observations': data.get('requirements_observations'),
-                             'inspection_credit': 'REQUIREMENTS OBSERVATION REUSE FOR THIS FIRST PLANNER' in
-                                                  prompt.split('CURRENT HANDOFF DATA\\n', 1)[0],
+                             'inspection_credit': 'REQUIREMENTS OBSERVATION REUSE FOR THIS FIRST PLANNER' in instructions,
+                             'round_reuse': 'REQUIREMENTS OBSERVATIONS FROM AN EARLIER ROUND' in instructions,
                              'handoff': data.get('requirements_handoff'),
                              'report': report if stage == 'requirements_gather' else None,
                              'raw_repair': report if stage == 'requirements_gather_report_repair' else None,
@@ -116,15 +119,9 @@ print(''.join(lines), end='')
         view = run.status()
         self.assertIn(view["needs"]["kind"], ("answer", "approve_plan"), view["needs"])
         rows = [json.loads(line) for line in observed.read_text().splitlines()]
-        requirements = next(row for row in rows if row["stage"] == "requirements_gather")
-        planner = next(row for row in rows if row["stage"] == "draft_plan")
-        for key, value in requirements["report"].items():
-            if repair and key == "access_blockers":
-                value = []
-            self.assertEqual(value, planner["handoff"]["report"][key], key)
+        self.assertIsNone(rows[0]["observations"], "the first Requirements pass starts with no prior observations")
         repairs = [row for row in rows if row["stage"] == "requirements_gather_report_repair"]
         self.assertEqual(int(repair), len(repairs), "repair the report once, without rerunning Requirements")
-        self.assertEqual(1, sum(row["stage"] == "requirements_gather" for row in rows))
         if bare_patch:
             repair_row = repairs[0]
             raw = repair_row["raw_repair"]
@@ -133,16 +130,23 @@ print(''.join(lines), end='')
             self.assertEqual(
                 raw["sha256"], hashlib.sha256(Path(repair_row["rejected_source"]).read_bytes()).hexdigest()
             )
+        while view["needs"]["kind"] == "answer":
+            for question in view["needs"]["questions"]:
+                choice = "plan" if str(question["id"]).startswith("requirements-review-") else "CLI"
+                run.answer(question["id"], choice)
+            view = run.advance_until_input()
+        rows = [json.loads(line) for line in observed.read_text().splitlines()]
+        planner_index, planner = next((i, row) for i, row in enumerate(rows) if row["stage"] == "draft_plan")
+        requirements = [row for row in rows[:planner_index] if row["stage"] == "requirements_gather"][-1]
+        for key, value in requirements["report"].items():
+            if repair and requirements is rows[0] and key == "access_blockers":
+                value = []
+            self.assertEqual(value, planner["handoff"]["report"][key], key)
         retained = planner["observations"]
         self.assertIsNotNone(retained, "first Planner must receive the completed source-bound intake probe")
-        self.assertEqual("2025-01-01 (2025, 1)\n", retained["observations"][0]["output"])
+        self.assertIn("2025-01-01 (2025, 1)\n", [row.get("output") for row in retained["observations"]])
         self.assertIn("untrusted", retained["instruction"])
         self.assertTrue(planner["inspection_credit"], "accepted first-Planner packet needs trusted reuse guidance")
-        self.assertTrue(all(row["observations"] is None for row in rows if row["stage"] != "draft_plan"))
-        if view["needs"]["kind"] == "answer":
-            for question in view["needs"]["questions"]:
-                run.answer(question["id"], "CLI")
-            view = run.advance_until_input()
         self.assertEqual("approve_plan", view["needs"]["kind"], view["needs"])
         rows = [json.loads(line) for line in observed.read_text().splitlines()]
         self.assertTrue(any(row["stage"] == "review_plan" for row in rows), "independent plan review was skipped")
@@ -156,11 +160,16 @@ print(''.join(lines), end='')
         view = run.advance_until_input()
         self.assertEqual("TASK_COMPLETE", view["status"], view)
         rows = [json.loads(line) for line in observed.read_text().splitlines()]
-        for row in rows:
-            with self.subTest(stage=row["stage"]):
-                self.assertEqual(bool(row["observations"]), row["inspection_credit"])
-                if row["inspection_credit"]:
-                    self.assertEqual("draft_plan", row["stage"])
+        for index, row in enumerate(rows):
+            with self.subTest(index=index, stage=row["stage"]):
+                if row["stage"] == "requirements_gather" and index > 0:
+                    self.assertEqual(bool(row["observations"]), row["round_reuse"])
+                    self.assertFalse(row["inspection_credit"])
+                else:
+                    self.assertEqual(bool(row["observations"]), row["inspection_credit"])
+                    self.assertFalse(row["round_reuse"])
+                    if row["inspection_credit"]:
+                        self.assertEqual("draft_plan", row["stage"])
         for stage in ("tester", "review_completion"):
             self.assertTrue(any(row["stage"] == stage for row in rows), stage)
             self.assertTrue(all(row["observations"] is None for row in rows if row["stage"] == stage))

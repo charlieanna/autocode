@@ -23,6 +23,8 @@ did. Only the events log the runner wrote is read; no claimed path is opened bey
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import json
 import re
 import shlex
@@ -51,14 +53,40 @@ PLANNING_STAGES = (
     "plan_finalize",
 )
 REPAIR_SUFFIX = "_report_repair"
-NATIVE_READ_TOOLS = frozenset({"Read", "NotebookRead", "read"})
-READ_ARGUMENTS = ("file_path", "filePath", "notebook_path")
+NATIVE_READ_TOOLS = frozenset({"Read", "NotebookRead", "read", "Grep", "grep"})
+READ_ARGUMENTS = ("file_path", "filePath", "notebook_path", "path")
 SHELL_TOOLS = frozenset({"bash", "shell"})
 MAX_EVENTS_BYTES = 64 * 1024 * 1024
 MAX_SHELL_DEPTH = 3
 SHOWN_READS = 24
 _OUTPUT_HIT = re.compile(r"^(?:\./)?([^\s:]+):\d+[:-]", re.MULTILINE)
+_GREP_BLOCK = re.compile(r"^(?:\./)?([^\s:]+):\r?\n\s+Line \d+:", re.MULTILINE)
 _LINES = re.compile(r"(\d+)(?:-(\d+))?(?:\s+.*)?", re.DOTALL)
+_APPLYING: contextvars.ContextVar[dict | None] = contextvars.ContextVar("applying_stage_record", default=None)
+
+
+@contextlib.contextmanager
+def applying(record):
+    """Include an in-flight stage record not yet in ``state['stages']`` while accepting its report."""
+    token = _APPLYING.set(record if isinstance(record, dict) else None)
+    try:
+        yield
+    finally:
+        _APPLYING.reset(token)
+
+
+def stage_evidenced(state: RunState, stage, record=None) -> bool:
+    """True when the turn or in-flight record carries provider event evidence for ``stage``.
+
+    Every provider dispatch records ``events`` (even when it read no file); synthetic
+    ``apply_planning`` unit helpers pass only ``{"output": ...}`` with no stage history.
+    """
+    if isinstance(record, dict) and record.get("events"):
+        return True
+    names = _stage_names(stage)
+    return any(
+        isinstance(row, dict) and _matches(row, names) and bool(row.get("events")) for row in _turn_records(state)
+    )
 
 
 def require(state: RunState, refs, field="code_refs", *, planning_unit, stage=None):
@@ -237,15 +265,20 @@ def read_targets(raw, workspace) -> list[str]:
                 for key in READ_ARGUMENTS:
                     add((shown or {}).get(key) if isinstance(shown, dict) else None)
         elif row.get("type") == "tool_use" and isinstance(part, dict):
-            state = part.get("state")
-            if not isinstance(state, dict) or state.get("status") != "completed":
+            part_state = part.get("state")
+            if not isinstance(part_state, dict):
                 continue
-            arguments = state.get("input") if isinstance(state.get("input"), dict) else {}
-            if part.get("tool") in NATIVE_READ_TOOLS:
+            status = part_state.get("status")
+            arguments = part_state.get("input") if isinstance(part_state.get("input"), dict) else {}
+            if part.get("tool") in NATIVE_READ_TOOLS and status in ("completed", None):
                 for key in READ_ARGUMENTS:
                     add(arguments.get(key))
-            elif part.get("tool") in SHELL_TOOLS and _shell_exit(state) == 0:
-                _shell(arguments.get("command"), state.get("output"), add)
+                if part.get("tool") == "grep" and isinstance(part_state.get("output"), str):
+                    for pattern in (_OUTPUT_HIT, _GREP_BLOCK):
+                        for hit in pattern.findall(part_state["output"]):
+                            add(hit)
+            elif part.get("tool") in SHELL_TOOLS and status == "completed" and _shell_exit(part_state) == 0:
+                _shell(arguments.get("command"), part_state.get("output"), add)
     return list(found)
 
 
@@ -274,9 +307,9 @@ def _tokens(command: str, depth: int):
             yield token.split("=", 1)[1]
 
 
-def _shell_exit(state):
+def _shell_exit(part_state):
     """Integer exit of an OpenCode/Kilo shell part (1.x ``metadata.exit`` or 2.x nested metadata)."""
-    metadata = state.get("metadata")
+    metadata = part_state.get("metadata")
     if not isinstance(metadata, dict):
         return None
     code = metadata.get("exit")
@@ -322,9 +355,9 @@ def _turn_records(state: RunState) -> list:
     if type(start) is not int or not 0 <= start <= len(stages):
         start = 0
     records = stages[start:]
-    active = state.get("active_stage")
-    if isinstance(active, dict) and not any(active is record for record in records):
-        records.append(active)
+    for candidate in (state.get("active_stage"), _APPLYING.get()):
+        if isinstance(candidate, dict) and not any(candidate is record for record in records):
+            records.append(candidate)
     return records
 
 
