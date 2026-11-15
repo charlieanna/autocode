@@ -11,11 +11,11 @@ import re
 try:
     from . import autocode_command_receipt as command_receipt
     from . import autocode_project_kinds as project_kinds
-    from . import autocode_rust_inline_tests as rust_inline_tests
+    from . import autocode_test_parts as test_parts
 except ImportError:
     import autocode_command_receipt as command_receipt
     import autocode_project_kinds as project_kinds
-    import autocode_rust_inline_tests as rust_inline_tests
+    import autocode_test_parts as test_parts
 
 _GO_FILES = project_kinds.TEST_PREREQUISITES["go"]
 _REQUIRE = re.compile(r'([^\s"`]+)\s+(v[^\s"`]+)\Z')
@@ -253,26 +253,24 @@ def prepare_base(make_tree, workspace, base, run_dir, candidate, test_changes, c
     from pathlib import Path
 
     tree = make_tree(workspace, base, run_dir / "scratch" / "base-with-tests", workspace, test_changes, **options)
-    rust_receipt = None
+    parts_receipt = None
     try:
-        rust_receipt = rust_inline_tests.splice_tree(
-            tree, candidate, test_changes, changes, run_dir / "rust-inline-tests"
-        )
+        parts_receipt = test_parts.splice_tree(tree, candidate, test_changes, changes, run_dir / "test-parts")
     except (OSError, ValueError) as error:
-        notes.append("Rust inline tests could not be spliced onto base: " + str(error))
+        notes.append("Tests written inside a code file could not be put on the original code: " + str(error))
     paths = [path for path in changes if Path(path).name in _GO_FILES]
     if not paths:
-        return tree, ({"rust_inline_tests": rust_receipt} if rust_receipt else None)
+        return tree, ({"test_parts": parts_receipt} if parts_receipt else None)
     try:
         receipt = from_trees(tree, candidate, paths, run_dir / "go-test-prerequisites", run_command)
     except (OSError, ValueError) as error:
         # Dependency changes that are not loading prerequisites retain the ordinary base.
         notes.append("Go metadata was not admitted as a test prerequisite: " + str(error))
-        return tree, ({"rust_inline_tests": rust_receipt} if rust_receipt else None)
+        return tree, ({"test_parts": parts_receipt} if parts_receipt else None)
     for path, content in receipt["files"].items():
         (tree / path).write_text(content)
-    if rust_receipt:
-        receipt = {**receipt, "rust_inline_tests": rust_receipt}
+    if parts_receipt:
+        receipt = {**receipt, "test_parts": parts_receipt}
     return tree, receipt
 
 

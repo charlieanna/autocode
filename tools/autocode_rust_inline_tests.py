@@ -9,15 +9,16 @@ obligations.
 This module provides a pure standard-library lexical scanner over UTF-8/raw Rust source
 bytes that locates inline ``#[cfg(test)] mod <name> { ... }`` blocks while respecting line
 and nested block comments, normal/byte/C/raw string literals, character literals vs
-lifetimes, and non-test ``#[cfg(...)]`` attributes.
+lifetimes, and non-test ``#[cfg(...)]`` attributes, and the doc comments whose code blocks rustdoc
+runs as tests (``doc_comment_lines``). Which changed files hold tests, and putting the change's tests
+onto the original code, is decided for every language in one place, autocode_test_parts, which reads
+this lexer for Rust.
 
 Pure stdlib helper; imports nothing from AutoCode.
 """
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 import subprocess
 from dataclasses import dataclass
@@ -350,6 +351,34 @@ def test_modules(data: bytes) -> list[tuple[str, int, int]]:
     return [(span.name, span.start, span.end) for span in _scan_modules(data)]
 
 
+def doc_comment_lines(data: bytes) -> set[int]:
+    """1-based line numbers that hold only an outer or inner doc comment (``///``, ``//!``), read as
+    the compiler does: a ``///`` inside a string literal or a block comment is no comment. Rustdoc runs
+    the code blocks of these comments as tests; nothing else of the program depends on them."""
+    lines: set[int] = set()
+    n, i, line, line_start = len(data), 0, 1, 0
+    while i < n:
+        if data[i] == 10:
+            i, line, line_start = i + 1, line + 1, i + 1
+            continue
+        if data[i : i + 2] == b"//":
+            doc = data[i : i + 3] in (b"///", b"//!") and data[i : i + 4] != b"////"
+            if doc and not data[line_start:i].strip():
+                lines.add(line)
+            i = _skip_line_comment(data, i)
+            line, line_start = line + 1, i
+            continue
+        end = _skip_non_code(data, i)
+        if end is None or end <= i:
+            i += 1
+            continue
+        line += data.count(b"\n", i, end)
+        if b"\n" in data[i:end]:
+            line_start = data.rindex(b"\n", i, end) + 1
+        i = end
+    return lines
+
+
 def test_lines(data: bytes) -> set[int]:
     """1-based line numbers whose content falls inside an inline ``#[cfg(test)] mod ... { ... }`` block."""
     spans = _scan_modules(data)
@@ -515,77 +544,3 @@ def kept(workspace, base, changes) -> bool:
         if shown.returncode != 0 or not tests_kept(shown.stdout, after):
             return False
     return True
-
-
-def partition_tests(workspace, base, tests, sources, changes) -> tuple[list[str], list[str]]:
-    """Promote modified/added ``.rs`` source files with changed inline tests to ``runnable_tests``.
-
-    When a non-test-named ``.rs`` file changed ONLY inside its inline ``#[cfg(test)]`` blocks
-    (its product bytes outside those blocks match ``base``), remove it from ``sources`` so
-    bugfixes with test-only inline edits cannot pass the product-change gate.
-    """
-    runnable = [path for path in tests if changes.get(path) != "deleted"]
-    kept_sources = list(sources)
-    root = Path(workspace)
-    for path in sources:
-        if not path.endswith(".rs") or changes.get(path) == "deleted" or path in runnable:
-            continue
-        candidate_file = root / path
-        if not candidate_file.is_file() or candidate_file.is_symlink():
-            continue
-        after = candidate_file.read_bytes()
-        if changes.get(path) == "added":
-            before = None
-        else:
-            shown = subprocess.run(["git", "-C", str(root), "show", f"{base}:{path}"], capture_output=True)
-            before = shown.stdout if shown.returncode == 0 else None
-        if inline_test_changed(before, after):
-            runnable.append(path)
-            if before is not None and product_bytes(before).rstrip(b"\r\n") == product_bytes(after).rstrip(b"\r\n"):
-                kept_sources.remove(path)
-    return runnable, kept_sources
-
-
-def splice_tree(base_tree, candidate_tree, test_changes, changes, evidence_dir) -> dict | None:
-    """Splice changed inline Rust test modules from ``candidate_tree`` onto ``base_tree``.
-
-    Validates all modified ``.rs`` files in memory before touching ``base_tree`` and writes a
-    provenance ``receipt.json`` into ``evidence_dir``.
-    """
-    rs_paths = sorted(
-        path
-        for path, status in changes.items()
-        if path.endswith(".rs") and status == "modified" and path not in test_changes
-    )
-    if not rs_paths:
-        return None
-    staged: list[tuple[Path, bytes, dict]] = []
-    files_receipt: dict[str, dict] = {}
-    base_root, cand_root = Path(base_tree), Path(candidate_tree)
-    for path in rs_paths:
-        base_file = base_root / path
-        cand_file = cand_root / path
-        if base_file.is_symlink() or cand_file.is_symlink() or not base_file.is_file() or not cand_file.is_file():
-            continue
-        base_data = base_file.read_bytes()
-        cand_data = cand_file.read_bytes()
-        if not inline_test_changed(base_data, cand_data):
-            continue
-        spliced, modules = splice_bytes(base_data, cand_data)
-        entry = {
-            "base_sha256": hashlib.sha256(base_data).hexdigest(),
-            "candidate_sha256": hashlib.sha256(cand_data).hexdigest(),
-            "spliced_sha256": hashlib.sha256(spliced).hexdigest(),
-            "modules": modules,
-        }
-        staged.append((base_file, spliced, entry))
-        files_receipt[path] = entry
-    if not staged:
-        return None
-    for target, spliced, _ in staged:
-        target.write_bytes(spliced)
-    evidence = Path(evidence_dir)
-    evidence.mkdir(parents=True, exist_ok=True)
-    receipt = {"files": files_receipt}
-    (evidence / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
-    return receipt
