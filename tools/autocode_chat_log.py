@@ -25,11 +25,13 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_attempt_ledger as attempt_ledger
     from . import autocode_chat_activity as activity
     from . import autocode_review_effort as review_effort
     from . import autocode_roles as roles
     from . import autocode_util as util
 except ImportError:
+    import autocode_attempt_ledger as attempt_ledger
     import autocode_chat_activity as activity
     import autocode_review_effort as review_effort
     import autocode_roles as roles
@@ -305,7 +307,7 @@ def _workers(state: RunState, workspace, supervised: Callable[[dict], bool]) -> 
             child = json.loads((run_dir / "state.json").read_text())
         except (OSError, ValueError):
             continue
-        active = child.get("active_stage") if isinstance(child, dict) else None
+        active = attempt_ledger.running_stage(child) if isinstance(child, dict) else None
         if not isinstance(active, dict) or not supervised(active):
             continue  # a Builder that cannot be confirmed as working shows nothing
         agent = _agent(str(active.get("stage") or "builder"), state, row.get("milestone_id"))
@@ -384,7 +386,7 @@ def project(
         return []
     workspace = state.get("workspace") or public.get("workspace")
     found: list[dict] = _dispatch_note(state)
-    active = state.get("active_stage")
+    active = attempt_ledger.running_stage(state)
     if (
         isinstance(active, dict)
         and not finished

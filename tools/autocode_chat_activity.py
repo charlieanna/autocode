@@ -23,6 +23,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
+try:
+    from . import autocode_attempt_ledger as attempt_ledger
+except ImportError:
+    import autocode_attempt_ledger as attempt_ledger
+
 LIMIT = 20
 READ_BYTES = 262144
 TEXT_LIMIT = 160
@@ -230,7 +235,7 @@ def events_file(state: RunState, public, run_dir, *, finished=False, stopped=Fal
     """The event file of the attempt supervised and working right now, inside the run directory; else None."""
     if public.get("status") != "RUNNING" or (public.get("needs") or {}).get("kind") != "continue":
         return None
-    active = state.get("active_stage") or {}
+    active = attempt_ledger.running_stage(state) or {}
     if not isinstance(active, dict) or not active.get("events") or finished or stopped or run_dir is None:
         return None
     if (public.get("liveness") or {}).get("kind") != "supervised":

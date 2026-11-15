@@ -27,6 +27,7 @@ class AccessTransportConsumerTests(unittest.TestCase):
             "tests.test_escalation_view",
             "tests.test_efficiency",
             "tests.test_resolve_repair",
+            "tests.test_retained_attempt_display",
         }
         selected = run_suite.select_tests(
             ["tools/autocode_attempt_ledger.py"],
