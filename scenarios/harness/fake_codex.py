@@ -1804,6 +1804,18 @@ def report_for(stage: str, data: dict) -> dict:
                 untestable="This fixture provides no independent command that can establish this cause.",
             )
         return report
+    if stage == "resolve_repair":
+        return {
+            "diagnosis": "Offline fixture: it cannot resolve; the run pauses as before.",
+            "action": "hold",
+            "repaired_report_json": "",
+            "guidance": "",
+            "next_objective": "",
+            "affected_paths": [],
+            "user_question": "",
+            "user_options": [],
+            "evidence_refs": [],
+        }
     if stage == "write_acceptance_tests":
         return acceptance_tests(data)
     task = data.get("current_task") or {}

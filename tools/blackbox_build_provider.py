@@ -348,6 +348,18 @@ def main():
             "untestable": "",
             "project_notes": [],
         }
+    elif data["stage"] == "resolve_repair":
+        result = {
+            "diagnosis": "Offline fixture: it cannot resolve; the run pauses as before.",
+            "action": "hold",
+            "repaired_report_json": "",
+            "guidance": "",
+            "next_objective": "",
+            "affected_paths": [],
+            "user_question": "",
+            "user_options": [],
+            "evidence_refs": [],
+        }
     elif data["stage"] == "draft_plan":
         draft = cite_sources(copy.deepcopy(spec["contract"]), data)
         result = dict(contract=draft, summary="Handwritten fixture plan; no model planning")

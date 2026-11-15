@@ -208,7 +208,7 @@ def findings_of(report: object, severity: str) -> list[dict]:
 REQUIREMENTS_STAGES = ("requirements_gather",)
 PLAN_REVIEW_STAGES = ("review_plan", "revise_plan")
 BUILD_STAGES = ("orchestrator", "plan_task", "builder")
-RUNNER_STAGES = ("orchestrator",)
+RUNNER_STAGES = ("orchestrator", "resolve_repair")
 
 
 # Every new task goes through the full pipeline (#3010): after Requirements, a review, a design

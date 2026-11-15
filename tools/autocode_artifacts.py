@@ -45,6 +45,7 @@ FILE_SLUGS = {
     "review_checkpoint": "completion-checkpoint",
     "resolve": "resolver",
     "diagnose": "diagnosis",
+    "resolve_repair": "resolve-repair",
     "write_acceptance_tests": "acceptance-tests",
 }
 

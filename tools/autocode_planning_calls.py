@@ -37,6 +37,7 @@ RENEWING_KINDS = frozenset(
 )
 PEOPLE = frozenset({"user_cli", "user_intervention"})
 INVESTIGATOR = "investigate_stuck"
+RESOLVE_REPAIR = "resolve_repair"
 REPAIR_SUFFIX = "_report_repair"
 
 
@@ -101,6 +102,16 @@ def used(state: RunState) -> int:
             continue
         if _counts(_time(entry.get("requested_at")), since):
             calls += 1
+    for entry in _records(state, "resolve_repair_history"):
+        if (
+            not isinstance(entry, dict)
+            or not entry.get("model")
+            or entry.get("counted_in_stages")
+            or not planning_stage(entry.get("stage"))
+        ):
+            continue
+        if _counts(_time(entry.get("requested_at")), since):
+            calls += 1
     return calls
 
 
@@ -109,6 +120,8 @@ def launching(state: RunState) -> bool:
     stage = state.get("next_stage")
     if stage == INVESTIGATOR:
         return planning_stage((state.get("stuck_investigation") or {}).get("stage"))
+    if stage == RESOLVE_REPAIR:
+        return planning_stage((state.get("resolve_repair_request") or {}).get("stage"))
     return planning_stage(stage)
 
 

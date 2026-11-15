@@ -398,12 +398,13 @@ def _decision(state: RunState, proposal):
         return "recover", "A permitted bounded recovery remains; do not ask the user yet"
     # These references must be constructed from recorded runner evidence, not
     # copied from model output. Their concrete pins are rechecked by the caller.
-    if proposal["origin"].get("stage") == "resolve" and evidence.get("diagnosis") and evidence.get("output"):
+    origin_stage = proposal["origin"].get("stage")
+    if origin_stage in ("resolve", "resolve_repair") and evidence.get("diagnosis") and evidence.get("output"):
         resolved = next(
             (
                 row
                 for row in reversed(state.get("stages", []))
-                if row.get("stage") == "resolve"
+                if row.get("stage") == origin_stage
                 and row.get("output") == evidence["output"]
                 and row.get("exit_code") == 0
                 and not row.get("rejected")

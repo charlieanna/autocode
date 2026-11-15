@@ -60,6 +60,11 @@ def admit(state: RunState, stage: str, status: str, seen: list[dict], *, at: str
     """Run ``stage`` again after another rejection, below ``LIMIT``; True when the run is running again."""
     if status != STATUS or state.get("active_stage") or not _retried(seen):
         return False
+    if any(
+        isinstance(row, dict) and row.get("kind") == "report_repair" and row.get("stage") == stage
+        for row in state.get("resolve_repair_history") or ()
+    ):
+        return False
     rows = failures.episode_rejections(state, stage)
     entry = (state.get("failure_history") or {}).get(rows[0].get("failure_key")) if rows else None
     if not entry or len(rows) >= LIMIT:

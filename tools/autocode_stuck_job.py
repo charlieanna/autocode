@@ -83,6 +83,7 @@ try:
     from . import autocode_project_notes_lifecycle as project_notes
     from . import autocode_recovery_accounting as recovery_accounting
     from . import autocode_rejection_retry as rejection_retry
+    from . import autocode_resolve_repair_job as resolve_repair_job
     from . import autocode_roles as roles
     from . import autocode_run_status as run_status
     from . import autocode_stage_access as stage_access
@@ -101,6 +102,7 @@ except ImportError:
     import autocode_project_notes_lifecycle as project_notes
     import autocode_recovery_accounting as recovery_accounting
     import autocode_rejection_retry as rejection_retry
+    import autocode_resolve_repair_job as resolve_repair_job
     import autocode_roles as roles
     import autocode_run_status as run_status
     import autocode_stage_access as stage_access
@@ -155,7 +157,7 @@ BOUNDARY_LIMITS = frozenset(
 PLANNING = roles.ALL_PLANNING_STAGES
 # The Investigator and operational diagnosis cannot investigate themselves. A stuck repair
 # Resolver still needs the independent Investigator, under the same per-problem and run bounds.
-NEVER = (STAGE, "diagnose")
+NEVER = (STAGE, "diagnose", resolve_repair_job.STAGE)
 TEXT = {"type": "string"}
 TEXTS = {"type": "array", "items": TEXT}
 SCHEMA = {
@@ -1092,12 +1094,29 @@ def drive(
                     persist(state)
                 if after:
                     after(state, stage, outcome)
+                resolve_repair_job.settle(state, stage)
                 if investigate:
                     settle(state, stage)
         except paused as error:
             if not investigate:
                 raise
             status, reason = getattr(error, "status", ""), str(error)
+            repair_req = state.get("resolve_repair_request") or {}
+            if repair_req and not repair_req.get("in_force") and state.get("next_stage") == resolve_repair_job.STAGE:
+                if state.get("active_stage"):
+                    raise
+                if status == "PAUSED_REQUESTED" or (
+                    status in BOUNDARY_LIMITS and not resolve_repair_job.launched(state, repair_req)
+                ):
+                    resolve_repair_job.release_route(state)
+                    raise
+                status, reason = resolve_repair_job.abandon(state, reason)
+                if persist:
+                    persist(state)
+                reraised = paused(status, reason)
+                if getattr(error, "quota_worker", None):
+                    reraised.quota_worker = error.quota_worker
+                raise reraised from error
             current = state.get("stuck_investigation") or {}
             if current and not current.get("in_force") and state.get("next_stage") == STAGE:
                 if state.get("active_stage"):
@@ -1121,7 +1140,15 @@ def drive(
             retire(state, status)
             if not fresh():
                 raise
+            if queue and resolve_repair_job.intercept_stall(state, status, reason, before_investigator=True):
+                if persist:
+                    persist(state)
+                continue
             if not queue or not intercept(state, status, reason):
+                if queue and resolve_repair_job.intercept_stall(state, status, reason, before_investigator=False):
+                    if persist:
+                        persist(state)
+                    continue
                 if queue and retry_rejected(state, status):
                     if persist:
                         persist(state)
@@ -1137,6 +1164,18 @@ def drive(
             continue
         if not investigate:
             return state
+        if resolve_repair_job.timed_out(state):
+            context = state.get("recovery_context") or {}
+            cause = context.pop("reason", "") if context.get("stage") == resolve_repair_job.STAGE else ""
+            if context.get("stage") == resolve_repair_job.STAGE:
+                state.pop("recovery_context")
+            jf = state.get("job_failure") or {}
+            status, reason = resolve_repair_job.abandon(state, cause or jf.get("reason", ""))
+            state.pop("job_failure", None)
+            state.pop("job_retry_authorization", None)
+            if persist:
+                persist(state)
+            raise paused(status, reason)
         if timed_out(state):
             # The stop's own cause, without the job runner's offer of an exact retry.
             context = state.get("recovery_context") or {}
@@ -1150,7 +1189,27 @@ def drive(
                 persist(state)
             raise paused(status, reason)
         retire(state, state.get("status"))
+        if (
+            queue
+            and fresh()
+            and resolve_repair_job.intercept_stall(
+                state, cast(str, state.get("status")), state.get("stop_reason") or "", before_investigator=True
+            )
+        ):
+            if persist:
+                persist(state)
+            continue
         if queue and fresh() and intercept(state, cast(str, state.get("status")), state.get("stop_reason") or ""):
+            if persist:
+                persist(state)
+            continue
+        if (
+            queue
+            and fresh()
+            and resolve_repair_job.intercept_stall(
+                state, cast(str, state.get("status")), state.get("stop_reason") or "", before_investigator=False
+            )
+        ):
             if persist:
                 persist(state)
             continue
