@@ -13,6 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import autocode_captured_process as captured
 from providers import env_prep
 
 
@@ -37,22 +38,30 @@ class PreflightOutputPolicyTests(unittest.TestCase):
         self.outcome = "success"
         self.after_write = None
         self.stdlib_run, self.stdlib_popen = subprocess.run, subprocess.Popen
-        backend = self.execute
         self.enterContext(patch("subprocess.Popen", side_effect=AssertionError("No process in output-policy tests")))
-        self.enterContext(patch.object(env_prep, "_STDLIB_RUN", backend))
-        self.enterContext(patch.object(subprocess, "run", backend))
+        self.enterContext(
+            patch.dict(os.environ, {"HOME": str(self.root / "home"), "XDG_STATE_HOME": str(self.root / "state")})
+        )
+        self.enterContext(patch.object(captured, "preflight"))
+        self.enterContext(patch.object(captured, "_linux", self.execute))
+        self.enterContext(patch.object(captured, "_sampled", self.execute))
+        owned = captured.run_metadata
 
-    def execute(self, command, **kwargs):
-        self.calls.append(kwargs)
-        os.write(kwargs["stdout"].fileno(), self.stdout)
-        os.write(kwargs["stderr"].fileno(), self.stderr)
+        def metadata(command, **options):
+            self.requested_timeout = options.get("timeout")
+            return owned(command, **options)
+
+        self.enterContext(patch.object(captured, "run_metadata", side_effect=metadata))
+
+    def execute(self, command, timeout, env, cwd, output, errors, stdin):
+        self.calls.append({"timeout": self.requested_timeout})
+        self.assertGreaterEqual(timeout, 0)
+        self.assertLessEqual(timeout, self.requested_timeout)
+        os.write(output.fileno(), self.stdout)
+        os.write(errors.fileno(), self.stderr)
         if self.after_write:
             self.after_write()
-        if self.outcome == "timeout":
-            raise subprocess.TimeoutExpired(command, kwargs.get("timeout"))
-        if self.outcome == "failure" and kwargs.get("check"):
-            raise subprocess.CalledProcessError(3, command)
-        return subprocess.CompletedProcess(command, 3 if self.outcome == "failure" else 0)
+        return (3 if self.outcome == "failure" else 0), self.outcome == "timeout"
 
     def read(self, **options):
         return env_prep.preflight_run(
@@ -294,13 +303,14 @@ class PreflightOutputPolicyTests(unittest.TestCase):
             # The real constructor checks these options before _execute_child.
             # Keep that actual stdlib comparator while forbidding every launch.
             with (
-                patch.object(env_prep, "_STDLIB_RUN", self.stdlib_run),
                 patch.object(subprocess, "run", self.stdlib_run),
                 patch.object(subprocess, "Popen", self.stdlib_popen),
                 patch.object(
                     self.stdlib_popen, "_execute_child", side_effect=AssertionError("No process may execute")
                 ) as execute,
             ):
+                with self.assertRaisesRegex(subprocess.SubprocessError, "Cannot disambiguate"):
+                    self.stdlib_run(["never-executed"], text=True, universal_newlines=False)
                 for fresh in (False, True):
                     with (
                         self.subTest(fresh=fresh),

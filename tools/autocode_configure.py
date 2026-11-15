@@ -30,6 +30,7 @@ try:
     from . import autocode_adaptive_planning as adaptive
     from . import autocode_base_patch as operator_patch
     from . import autocode_budget_recovery as budget_recovery
+    from . import autocode_captured_process as captured
     from . import autocode_compact_planning as compact_planning
     from . import autocode_design_manifest as design_manifest
     from . import autocode_figma as figma
@@ -65,6 +66,7 @@ except ImportError:
     import autocode_adaptive_planning as adaptive
     import autocode_base_patch as operator_patch
     import autocode_budget_recovery as budget_recovery
+    import autocode_captured_process as captured
     import autocode_compact_planning as compact_planning
     import autocode_design_manifest as design_manifest
     import autocode_figma as figma
@@ -207,6 +209,8 @@ def _listed_levels(provider_mod, workspace, models) -> dict:
         for row in discovery.discover(provider_mod, Path(workspace)).get("candidates") or []:
             if row.get("model") in models and isinstance(row.get("levels"), list):
                 found.setdefault(row["model"], list(row["levels"]))
+    except captured.ProcessError:
+        raise
     except Exception:  # noqa: BLE001 - an unreadable optional listing never blocks a launch
         return {}
     return found
@@ -327,7 +331,9 @@ def _auto_select(
         return soft(f"{untested}.")
     try:
         found = discovery.discover(provider_mod, Path(workspace), inventory=getattr(args, "_model_inventory", None))
-    except Exception as error:  # noqa: BLE001 - any failure of a defaulted listing is a fallback
+    except captured.ProcessError:
+        raise
+    except Exception as error:  # noqa: BLE001 - an ordinary failed defaulted listing is a fallback
         return soft(f"the tool's listings could not be read ({error}).")
     # The run's full role set, not the four DEFAULT_ROLE_MODELS the roles dict
     # holds here: joint planning adds Requirements, Planner and Plan Reviewer.

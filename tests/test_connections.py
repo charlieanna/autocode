@@ -13,6 +13,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import autocode_captured_process as captured
 import autocode_connections as connections
 import autocode_subcommands as subcommands
 from providers import command
@@ -23,7 +24,9 @@ class ConnectionTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        env = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(self.root)})
+        env = mock.patch.dict(
+            os.environ, {"XDG_CONFIG_HOME": str(self.root), "XDG_STATE_HOME": str(self.root / "state")}
+        )
         env.start()
         self.addCleanup(env.stop)
         self.config = command.user_config_path("company")
@@ -60,7 +63,10 @@ class ConnectionTests(unittest.TestCase):
 
     def test_discovery_never_runs_provider_and_does_not_search_workspace(self):
         self.configure()
-        with mock.patch.object(connections.subprocess, "run", side_effect=AssertionError("discovery ran a backend")):
+        with (
+            mock.patch.object(connections.subprocess, "run", side_effect=AssertionError("discovery ran a backend")),
+            mock.patch.object(captured, "run_metadata", side_effect=AssertionError("discovery ran a backend")),
+        ):
             code, output = self.call("list", "--json")
         self.assertEqual(0, code)
         row = next(row for row in json.loads(output)["connections"] if row["id"] == "company")
@@ -180,8 +186,8 @@ class ConnectionTests(unittest.TestCase):
                 with (
                     self.subTest(code=code),
                     mock.patch.object(
-                        connections.subprocess,
-                        "run",
+                        captured,
+                        "run_metadata",
                         return_value=subprocess.CompletedProcess([], code, "Logged in using ChatGPT", ""),
                     ) as run,
                 ):
@@ -198,11 +204,48 @@ class ConnectionTests(unittest.TestCase):
             with (
                 mock.patch.object(connections.shutil, "which", return_value="/kilo"),
                 mock.patch.object(
-                    connections.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, output, "")
+                    captured, "run_metadata", return_value=subprocess.CompletedProcess([], 0, output, "")
                 ),
             ):
                 row = connections.connection_view("kilocode", check=True)
             self.assertEqual(status, row["connection_status"])
+
+    def test_auth_list_errors_are_operational_failures_and_empty_success_requires_sign_in(self):
+        # These list commands succeed even when there are zero saved logins;
+        # their exit 1 is also used for startup/configuration/permission errors.
+        for name in ("kilocode", "opencode"):
+            for exit_code, stdout, stderr, expected in (
+                (0, "0 credentials\n", "", "sign_in_required"),
+                (0, "● Offline fixture api\n", "", "credentials_present"),
+                (1, "", "EACCES: fixture startup failed", "check_failed"),
+                (1, "● Offline fixture api\n", "fixture command failed", "check_failed"),
+                (2, "", "fixture command failed", "check_failed"),
+            ):
+                with (
+                    self.subTest(name=name, exit_code=exit_code, stdout=stdout),
+                    mock.patch.object(connections.shutil, "which", return_value="/owned/backend"),
+                    mock.patch.object(
+                        captured,
+                        "run_metadata",
+                        return_value=subprocess.CompletedProcess([], exit_code, stdout, stderr),
+                    ),
+                ):
+                    row = connections.connection_view(name, check=True)
+                    self.assertEqual(expected, row["connection_status"])
+                    if stderr:
+                        self.assertNotIn(stderr, json.dumps(row))
+
+    def test_registered_status_exit_one_keeps_its_declared_missing_login_contract(self):
+        with (
+            mock.patch.object(
+                connections, "_definition", return_value=("Fixture", "fixture", None, ["fixture", "status"], None)
+            ),
+            mock.patch.object(connections.shutil, "which", return_value="/owned/fixture"),
+            mock.patch.object(captured, "run_metadata", return_value=subprocess.CompletedProcess([], 1, "", "")),
+        ):
+            self.assertEqual(
+                "sign_in_required", connections.connection_view("fixture", check=True)["connection_status"]
+            )
 
     def test_claude_login_that_would_bill_an_api_key_is_not_reported_signed_in(self):
         """A claude.ai login whose key comes from apiKeyHelper paused every run with PAUSED_BILLING_ROUTE
@@ -238,8 +281,8 @@ class ConnectionTests(unittest.TestCase):
                 self.subTest(status=status),
                 mock.patch.object(connections.shutil, "which", return_value="/claude"),
                 mock.patch.object(
-                    connections.subprocess,
-                    "run",
+                    captured,
+                    "run_metadata",
                     return_value=subprocess.CompletedProcess([], 0, json.dumps(status), ""),
                 ),
             ):
@@ -252,10 +295,146 @@ class ConnectionTests(unittest.TestCase):
 
     def test_check_timeout_is_explicit_and_does_not_disclose_errors(self):
         self.configure()
-        with mock.patch.object(connections.subprocess, "run", side_effect=subprocess.TimeoutExpired("SECRET", 15)):
+        with mock.patch.object(captured, "run_metadata", side_effect=subprocess.TimeoutExpired("SECRET", 45)):
             _, output = self.call("check", "--provider", "company", "--json")
         self.assertEqual("check_failed", json.loads(output)["connection_status"])
         self.assertNotIn("SECRET", output)
+
+    def test_check_uses_owned_capture_and_the_existing_engine_allowance(self):
+        self.configure()
+        expected = subprocess.CompletedProcess([], 1, "SECRET account", "SECRET token")
+        with (
+            mock.patch.object(captured, "run_metadata", return_value=expected) as owned,
+            mock.patch.object(subprocess, "run", return_value=expected) as raw,
+        ):
+            _, output = self.call("check", "--provider", "company", "--json")
+        self.assertEqual("sign_in_required", json.loads(output)["connection_status"])
+        owned.assert_called_once_with([sys.executable, str(self.helper), "0"], timeout=45)
+        raw.assert_not_called()
+        self.assertNotIn("SECRET", output)
+
+    def test_unconfirmed_cleanup_is_a_safe_operational_failure(self):
+        self.configure()
+        with (
+            mock.patch.object(captured, "run_metadata", side_effect=captured.ProcessError("SECRET cleanup error")),
+            mock.patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "")),
+        ):
+            _, output = self.call("check", "--provider", "company", "--json")
+        row = json.loads(output)
+        self.assertEqual("check_failed", row["connection_status"])
+        self.assertIn("could not finish", row["detail"])
+        self.assertNotIn("SECRET", output)
+
+    @unittest.skipUnless(os.name == "posix", "Metadata admission uses POSIX file locks")
+    def test_admission_race_reports_not_started_and_fresh_release_restores_offers(self):
+        self.configure()
+        custody = captured.custody
+        root = custody._root(None)
+        root.mkdir(mode=0o700, parents=True)
+        refusals = []
+
+        def refuse(*args, **kwargs):
+            self.assertGreaterEqual(status.call_count, 1, "the initial status allowed this check")
+            try:
+                with custody._acquire(root, custody.util.monotonic()):
+                    self.fail("the second admission unexpectedly acquired the held lock")
+            except captured.ProcessError as error:
+                refusals.append(error)
+                raise
+
+        with mock.patch.object(subprocess, "Popen", side_effect=AssertionError("a pure check launched a process")):
+            with (
+                custody._acquire(root, None),
+                mock.patch.object(custody, "status", return_value=None) as status,
+                mock.patch.object(captured, "run_metadata", side_effect=refuse) as owned,
+            ):
+                code, output = self.call("check", "--provider", "company", "--json")
+            self.assertEqual(0, code)
+            row = json.loads(output)
+            self.assertEqual("check_failed", row["connection_status"])
+            self.assertEqual(custody.BUSY, row["detail"])
+            self.assertNotIn("safely", row["detail"])
+            self.assertNotIn("credentials", row["detail"])
+            self.assertEqual([], row["actions"])
+            self.assertEqual(1, len(refusals))
+            self.assertEqual("MetadataAdmissionBusy", type(refusals[0]).__name__)
+            self.assertIsNone(getattr(refusals[0], "binding", None))
+            owned.assert_called_once_with([sys.executable, str(self.helper), "0"], timeout=45)
+            self.assertFalse((root / "pending.json").exists(), "a refused check never acquired custody")
+
+            with mock.patch.object(captured, "run_metadata", side_effect=AssertionError("discovery ran a check")):
+                fresh = connections.connection_view("company")
+            self.assertEqual("not_checked", fresh["connection_status"])
+            actions = {item["id"]: item["next_command"] for item in fresh["actions"]}
+            self.assertEqual(["connections", "check", "--provider", "company", "--json"], actions["check"])
+            self.assertEqual(["connections", "login", "--provider", "company"], actions["login"])
+            with mock.patch.object(
+                captured, "run_metadata", return_value=subprocess.CompletedProcess([], 0, "SECRET account", "")
+            ) as owned:
+                result = io.StringIO()
+                with contextlib.redirect_stdout(result):
+                    code = subcommands.dispatch(actions["check"])
+            self.assertEqual(0, code)
+            self.assertEqual("credentials_present", json.loads(result.getvalue())["connection_status"])
+            self.assertNotIn("SECRET", result.getvalue())
+            owned.assert_called_once_with([sys.executable, str(self.helper), "0"], timeout=45)
+            self.assertFalse(self.receipt.exists(), "offering login does not perform it")
+
+    @unittest.skipUnless(os.name == "posix", "Metadata admission uses POSIX file locks")
+    def test_observed_custody_uncertainty_outranks_an_admission_race(self):
+        self.configure()
+        custody = captured.custody
+        root = custody._root(None)
+        root.mkdir(mode=0o700, parents=True)
+        refused = False
+
+        def observed_status():
+            return custody.BLOCKED if refused else None
+
+        def refuse(*args, **kwargs):
+            nonlocal refused
+            try:
+                with custody._acquire(root, custody.util.monotonic()):
+                    self.fail("the second admission unexpectedly acquired the held lock")
+            except captured.ProcessError:
+                refused = True
+                raise
+
+        with (
+            mock.patch.object(subprocess, "Popen", side_effect=AssertionError("a pure check launched a process")),
+            custody._acquire(root, None),
+            mock.patch.object(custody, "status", side_effect=observed_status),
+            mock.patch.object(captured, "run_metadata", side_effect=refuse) as owned,
+        ):
+            _, output = self.call("check", "--provider", "company", "--json")
+        row = json.loads(output)
+        self.assertEqual("check_failed", row["connection_status"])
+        self.assertEqual(custody.BLOCKED, row["detail"])
+        self.assertEqual([], row["actions"])
+        owned.assert_called_once_with([sys.executable, str(self.helper), "0"], timeout=45)
+
+    def test_uncertain_and_plain_text_errors_never_become_not_started_results(self):
+        self.configure()
+        custody = captured.custody
+        for error in (
+            custody.CustodyUncertain(),
+            captured.ProcessError(custody.BUSY),
+            captured.ProcessError(custody.BLOCKED),
+        ):
+            with (
+                self.subTest(error=type(error).__name__, message=str(error)),
+                mock.patch.object(subprocess, "Popen", side_effect=AssertionError("a pure check launched a process")),
+                mock.patch.object(custody, "status", return_value=None),
+                mock.patch.object(captured, "run_metadata", side_effect=error) as owned,
+            ):
+                _, output = self.call("check", "--provider", "company", "--json")
+                row = json.loads(output)
+                self.assertEqual("check_failed", row["connection_status"])
+                self.assertIn("could not finish", row["detail"])
+                self.assertNotEqual(custody.BUSY, row["detail"])
+                self.assertNotEqual(custody.BLOCKED, row["detail"])
+                self.assertEqual([], row["actions"])
+                owned.assert_called_once_with([sys.executable, str(self.helper), "0"], timeout=45)
 
     def test_invalid_connection_commands_are_rejected_without_launch(self):
         for table in ('login_command="sh -c dangerous"', "status_command=[]", 'unexpected=["anything"]'):

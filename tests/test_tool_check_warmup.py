@@ -5,13 +5,16 @@ On 2026-11-15 a "hi" in the VS Code chat waited 77 s for a 2.8 s model answer: e
 the stage, then `kilo debug config` and `kilo debug agent` before every stage of every message.
 """
 
+import json
 import os
 import tempfile
+import threading
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
 
-from providers import env_prep, kilocode, kilocode_policy
+from providers import command, env_prep, kilocode, kilocode_policy
 
 # With TOGETHER set, each call waits (up to 10 s) until that many calls have started, then records
 # whether they all did: checks asked one after another never meet.
@@ -153,6 +156,110 @@ class PolicyReuseTests(WarmupTests):
         self.assertEqual(2, self.debug_calls().count("debug config"))
 
 
+@unittest.skipUnless(os.name == "posix", "Linux metadata filesystem and locks")
+class WarmupCustodyTests(unittest.TestCase):
+    @contextmanager
+    def batch(self, *, extended=True, uncertain=None):
+        custody = env_prep.captured.custody
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "run").mkdir()
+            tool = root / "kilo"
+            tool.write_text("# The metadata boundary is replaced; this tool is never executed.\n")
+            tool.chmod(0o700)
+            environment = {"HOME": str(root), "XDG_STATE_HOME": str(root / "state"), "PATH": str(root)}
+            provider = kilocode.load("kilocode") if extended else command.load("kilocode")
+            calls = [(words, options) for words, options in provider._warm_calls(root, environment) if words]
+            together = threading.Barrier(len(calls), timeout=0.5)
+            records, lock = [], threading.Lock()
+
+            def metadata(words, *, env, timeout, **kwargs):
+                with custody.admission(env=env, timeout=timeout) as scope:
+                    stream, nonce = scope.arm()
+                    kind = tuple(words[1:])
+                    with lock:
+                        records.append((kind, scope.group.nonce, nonce, stream.fileno()))
+                    try:
+                        together.wait()
+                    finally:
+                        if kind != uncertain:
+                            stream.write(
+                                json.dumps(
+                                    {
+                                        "schema": 1,
+                                        "nonce": nonce,
+                                        "clean": True,
+                                        "started": True,
+                                        "returncode": 0,
+                                        "expired": False,
+                                    }
+                                ).encode()
+                            )
+                            stream.flush()
+                            os.fsync(stream.fileno())
+                    output = {
+                        ("--version",): "7.8.3\n",
+                        ("auth", "list"): "● OpenAI oauth\n",
+                        ("models",): "openai/gpt-5.6-sol\n",
+                        ("models", "--verbose"): 'openai/gpt-5.6-sol\n{"variants":{"high":{}}}\n',
+                    }[kind]
+                    return env_prep.subprocess.CompletedProcess(words, 0, output, "")
+
+            with (
+                mock.patch.dict(os.environ, environment, clear=True),
+                mock.patch.object(custody.sys, "platform", "linux"),
+                mock.patch.object(custody, "_boot_id", return_value="00000000-0000-4000-8000-000000000001"),
+                mock.patch.object(env_prep.captured, "run_metadata", side_effect=metadata) as native,
+                mock.patch.object(
+                    env_prep.captured.subprocess, "Popen", side_effect=AssertionError("native forbidden")
+                ),
+                env_prep.reuse_checks(root / "run"),
+            ):
+                yield provider, root, environment, calls, records, native
+
+    def test_warm_workers_share_custody_and_each_kept_answer_is_reused(self):
+        custody = env_prep.captured.custody
+        for extended in (False, True):
+            with self.subTest(extended=extended), self.batch(extended=extended) as data:
+                provider, root, environment, calls, records, native = data
+                with mock.patch.object(custody, "group", wraps=custody.group) as groups:
+                    self.assertEqual(len(calls), provider.warm_checks(root, env=environment))
+                self.assertEqual(1, len({row[1] for row in records}), "workers share one explicit authority")
+                self.assertEqual(len(calls), len({row[2] for row in records}), "each command owns its receipt")
+                self.assertEqual(len(calls), len({row[3] for row in records}), "all receipts overlap")
+                groups.assert_called_once_with(
+                    timeout=max(options["timeout"] for _, options in calls) + env_prep.captured.HELPER_RESERVE
+                )
+                for words, options in calls:
+                    self.assertIsInstance(env_prep.preflight_run(words, environment, **options), env_prep.KeptCheck)
+                self.assertEqual(len(calls), native.call_count)
+                store = root / "state/autocode/metadata"
+                self.assertFalse((store / "pending.json").exists())
+                kept = list(env_prep.reuse_folder(root / "run").glob("*.json"))
+                self.assertEqual(
+                    [env_prep.OWNED_CHECK_SCHEMA] * len(calls),
+                    [json.loads(p.read_text())["ownership_schema"] for p in kept],
+                )
+
+    def test_uncertain_warm_member_propagates_after_siblings_settle_and_blocks_cached_reads(self):
+        custody = env_prep.captured.custody
+        with self.batch(uncertain=("models",)) as data:
+            provider, root, environment, calls, records, native = data
+            with self.assertRaises(custody.ProcessError):
+                provider.warm_checks(root, env=environment)
+            store = root / "state/autocode/metadata"
+            pending = json.loads((store / "pending.json").read_text())
+            self.assertEqual(len(calls), len(pending["attempts"]))
+            self.assertEqual(
+                len(calls) - 1, sum(bool((store / row["result_file"]).stat().st_size) for row in pending["attempts"])
+            )
+            self.assertEqual(custody.BLOCKED, custody.status())
+            words, options = calls[0]
+            with self.assertRaises(custody.ProcessError):
+                env_prep.preflight_run(words, environment, **options)
+            self.assertEqual(len(records), native.call_count, "cached success cannot bypass uncertain custody")
+
+
 class WarmTimeoutTests(unittest.TestCase):
     """A warm-up that overran its bound was the listing's first attempt; the listing asks once more."""
 
@@ -170,7 +277,7 @@ class WarmTimeoutTests(unittest.TestCase):
 
         environment = {"PATH": "/usr/bin:/bin"}
         options = {"cwd": temp.name, "capture_output": True, "text": True}
-        with env_prep.reuse_checks(run_dir), mock.patch.object(env_prep.subprocess, "run", side_effect=run):
+        with env_prep.reuse_checks(run_dir), mock.patch.object(env_prep.captured, "run_metadata", side_effect=run):
             with self.assertRaises(env_prep.subprocess.TimeoutExpired):
                 env_prep.preflight_run(["sh", "-c", "true"], environment, warming=True, timeout=30, **options)
             result = env_prep.preflight_listing(["sh", "-c", "true"], environment, timeout=30, **options)

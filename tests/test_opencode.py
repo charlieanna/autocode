@@ -721,7 +721,9 @@ class OpenCodeTests(unittest.TestCase):
 
     def test_model_preflight_uses_target_workspace(self):
         with patch.object(
-            oc.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout="fixture/model\n")
+            oc.env_prep.captured,
+            "run_metadata",
+            return_value=subprocess.CompletedProcess([], 0, stdout="fixture/model\n"),
         ) as call:
             oc.check_models({"tester": {"model": "fixture/model"}}, Path("/target/repo"))
         self.assertEqual(Path("/target/repo"), call.call_args.kwargs["cwd"])
@@ -736,7 +738,11 @@ class OpenCodeTests(unittest.TestCase):
             config.write_text('{"permission":{"bash":"deny"}}')
             with (
                 patch.dict(os.environ, {"OPENCODE_CONFIG_DIR": str(custom)}),
-                patch.object(oc.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout="1.18.31\n")),
+                patch.object(
+                    oc.env_prep.captured,
+                    "run_metadata",
+                    return_value=subprocess.CompletedProcess([], 0, stdout="1.18.31\n"),
+                ),
                 patch.object(oc.shutil, "which", return_value="/bin/opencode"),
             ):
                 first = oc.local_settings(root)
@@ -790,7 +796,7 @@ class OpenCodeTests(unittest.TestCase):
     def test_metadata_timeouts_are_reported_without_launching_an_agent(self):
         with (
             patch.object(oc.shutil, "which", return_value="/bin/opencode"),
-            patch.object(oc.subprocess, "run", side_effect=subprocess.TimeoutExpired("opencode", 15)),
+            patch.object(oc.env_prep.captured, "run_metadata", side_effect=subprocess.TimeoutExpired("opencode", 15)),
         ):
             with self.assertRaisesRegex(RuntimeError, "no agent was launched"):
                 oc.local_settings(Path("/tmp"))
@@ -948,7 +954,11 @@ class OpenCodeTests(unittest.TestCase):
 
             with (
                 patch.object(oc.shutil, "which", return_value="/bin/opencode"),
-                patch.object(oc.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout="1.18.31\n")),
+                patch.object(
+                    oc.env_prep.captured,
+                    "run_metadata",
+                    return_value=subprocess.CompletedProcess([], 0, stdout="1.18.31\n"),
+                ),
                 patch.object(Path, "read_bytes", observed),
                 patch.dict(os.environ, {"XDG_CONFIG_HOME": str(root / "config")}),
             ):

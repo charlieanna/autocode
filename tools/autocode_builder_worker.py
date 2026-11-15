@@ -20,6 +20,7 @@ from pathlib import Path
 try:
     from . import autocode as runner
     from . import autocode_assignment as assignment
+    from . import autocode_operational_block as operational_block
     from . import autocode_process as processes
     from . import autocode_prompt_layout as prompt_layout
     from . import autocode_quota_route as quota_route
@@ -31,6 +32,7 @@ try:
 except ImportError:
     import autocode as runner
     import autocode_assignment as assignment
+    import autocode_operational_block as operational_block
     import autocode_process as processes
     import autocode_prompt_layout as prompt_layout
     import autocode_quota_route as quota_route
@@ -42,6 +44,8 @@ except ImportError:
 
 
 def execute(state: RunState, directory, workspace, mode):
+    operational_block.guard(runner, state, directory, workspace)
+
     def require_running():
         runner.stop_policy.refuse_admission(state)
         if state.get("status") != "RUNNING":
@@ -236,9 +240,14 @@ def save_pause(directory, state: RunState, workspace, error):
     """Record why this Builder stopped: its state, and the result the Orchestrator reads."""
     reason = str(error) or state.get("pending_report_repair", {}).get("error") or type(error).__name__
     interrupted = "PAUSED_INTERRUPTED" if isinstance(error, KeyboardInterrupt) else "PAUSED_ORCHESTRATOR_WORKER"
-    state.update({"status": getattr(error, "status", interrupted), "stop_reason": reason})
+    if not operational_block.record(state, error, run_dir=directory, workspace=workspace):
+        state.update({"status": getattr(error, "status", interrupted), "stop_reason": reason})
+    else:
+        reason = state["stop_reason"]
     runner.write_json(directory / "state.json", state)
     result = {"status": state["status"], "reason": reason}
+    if denial := operational_block.worker_payload(state, directory, workspace):
+        result["operational_block"] = denial
     if state["status"] in quota_route.STATUSES:  # its quota or its provider's content filter (#465)
         worker = worker_quota.payload(state, directory, workspace)
         if worker:

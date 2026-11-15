@@ -20,6 +20,7 @@ try:
     from . import autocode_containment_policy as containment_policy
     from . import autocode_native_role_isolation as native_isolation
     from . import autocode_output_policy as output_policy
+    from . import autocode_process as processes
     from . import autocode_role_transport as role_transport
     from . import autocode_stage_roles as stage_roles
     from . import autocode_tool_containment as containment
@@ -33,6 +34,7 @@ except ImportError:
     import autocode_containment_policy as containment_policy
     import autocode_native_role_isolation as native_isolation
     import autocode_output_policy as output_policy
+    import autocode_process as processes
     import autocode_role_transport as role_transport
     import autocode_stage_roles as stage_roles
     import autocode_tool_containment as containment
@@ -133,6 +135,8 @@ def selected_tools(fallback, state: RunState, workspace, run_dir):
                 env=environment(),
                 capture_command=tool_handoff.capture_command(output_policy.mode(settings)),
             )
+        except processes.ProcessError:
+            raise
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
             # Missing configured permissions cannot be fixed by waiving the
             # kernel boundary, choosing another route, or asking a model.
@@ -161,5 +165,7 @@ def requirements(adapter, state: RunState, workspace):
         return
     try:
         toolchain.discover(workspace, (), environment())
+    except processes.ProcessError:
+        raise
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         raise failure(error, kilo_readonly=policy.kilo_readonly) from error

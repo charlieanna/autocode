@@ -1,4 +1,8 @@
-"""Configured provider credential boundaries through real children and public CLI."""
+"""Configured provider credential boundaries through real children and public CLI.
+
+Linux metadata children also receive the authenticated capture-family context.
+The stage mapping and actual model children retain their credential membrane.
+"""
 
 import json
 import os
@@ -25,9 +29,35 @@ ROLES = "\n[roles]\n" + "\n".join(
     for role in ("task_planner", "builder", "tester", "completion", "planner", "plan_reviewer")
 )
 CANARY = "fixture-secret-value-never-print-975"
-WRAPPER = """import json, os, sys
+WRAPPER = """import json, os, re, socket, stat, struct, sys
+def metadata_family_owned():
+    raw = os.environ.get('AUTOCODE_CAPTURE_FAMILY')
+    if raw is None:
+        return None
+    try:
+        rows = json.loads(raw)
+        if not isinstance(rows, list) or not 1 <= len(rows) <= 32:
+            return False
+        for row in rows:
+            if (not isinstance(row, dict) or set(row) != {'endpoint', 'nonce'}
+                or not isinstance(row['nonce'], str) or not re.fullmatch('[0-9a-f]{32}', row['nonce'])
+                or not isinstance(row['endpoint'], str) or not os.path.isabs(row['endpoint'])):
+                return False
+            endpoint, directory = os.lstat(row['endpoint']), os.lstat(os.path.dirname(row['endpoint']))
+            if (not stat.S_ISSOCK(endpoint.st_mode) or not stat.S_ISDIR(directory.st_mode)
+                or endpoint.st_uid != os.geteuid() or directory.st_uid != os.geteuid()
+                or endpoint.st_mode & 0o077 or directory.st_mode & 0o077):
+                return False
+        with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as channel:
+            channel.settimeout(1)
+            channel.connect(rows[-1]['endpoint'])
+            pid, uid, _ = struct.unpack('3i', channel.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+        return pid == os.getppid() and uid == os.geteuid()
+    except (OSError, ValueError, TypeError, KeyError):
+        return False
 with open(os.environ['AUTOCODE_TEST_ENV_LOG'], 'a') as log:
-    log.write(json.dumps({'args': sys.argv[1:], 'names': sorted(os.environ)}) + '\\n')
+    log.write(json.dumps({'args': sys.argv[1:], 'names': sorted(os.environ),
+                         'metadata_family_owned': metadata_family_owned()}) + '\\n')
 if sys.argv[1:] == ['--version']:
     if os.environ.get('AUTOCODE_TEST_VERSION_REQUIRES') and 'FIXTURE_API_KEY' not in os.environ:
         raise SystemExit(1)
@@ -104,6 +134,14 @@ class ConfiguredEnvironmentTests(unittest.TestCase):
     def calls(self):
         return [json.loads(line) for line in self.log.read_text().splitlines()]
 
+    def assert_metadata_environment(self, expected, call):
+        if sys.platform == "linux":
+            self.assertIs(call["metadata_family_owned"], True, "private context belongs to the capture parent")
+            expected = {*expected, "AUTOCODE_CAPTURE_FAMILY"}
+        else:
+            self.assertIsNone(call["metadata_family_owned"])
+        self.assertEqual(set(expected), set(call["names"]) - {"LC_CTYPE", "__CF_USER_TEXT_ENCODING"})
+
     def preflight(self, **kwargs):
         self.provider.local_settings(self.root, **kwargs)
         self.assertEqual({"demo/builder", "demo/reviewer"}, self.provider.available_models(self.root, **kwargs))
@@ -116,7 +154,7 @@ class ConfiguredEnvironmentTests(unittest.TestCase):
         expected = set(agent_env.scrubbed(self.mapping))
         for call in self.calls():
             with self.subTest(call=call["args"]):
-                self.assertEqual(expected, set(call["names"]) - {"LC_CTYPE", "__CF_USER_TEXT_ENCODING"})
+                self.assert_metadata_environment(expected, call)
 
     def test_implicit_launch_matches_preflight_projection_and_explicit_pass(self):
         for passed in ("", "FIXTURE_API_KEY,AUTOCODE_RESOLVER_TOKEN"):
@@ -128,7 +166,7 @@ class ConfiguredEnvironmentTests(unittest.TestCase):
                 )
             self.assertEqual(agent_env.scrubbed(mapping), launched)
             for call in self.calls()[-3:]:
-                self.assertEqual(set(launched), set(call["names"]) - {"LC_CTYPE", "__CF_USER_TEXT_ENCODING"})
+                self.assert_metadata_environment(set(launched), call)
             self.assertNotIn("OTHER_PASSWORD", launched)
             self.assertNotIn("AUTOCODE_RESOLVER_TOKEN", launched)
             self.assertEqual(bool(passed), "FIXTURE_API_KEY" in launched)
@@ -143,7 +181,7 @@ class ConfiguredEnvironmentTests(unittest.TestCase):
         self.assertEqual(before, self.mapping)
         self.assertEqual(before, launched)
         for call in self.calls():
-            self.assertEqual(set(before), set(call["names"]) - {"LC_CTYPE", "__CF_USER_TEXT_ENCODING"})
+            self.assert_metadata_environment(set(before), call)
 
     def test_explicit_pass_reaches_all_preflights_without_private_control_tokens(self):
         mapping = {**self.mapping, "AUTOCODE_PASS_ENV": "FIXTURE_API_KEY,AUTOCODE_RESOLVER_TOKEN"}
@@ -197,7 +235,7 @@ class ConfiguredEnvironmentTests(unittest.TestCase):
         expected = set(agent_env.scrubbed(before))
         self.assertEqual(3, len(self.calls()))
         for call in self.calls():
-            self.assertEqual(expected, set(call["names"]) - {"LC_CTYPE", "__CF_USER_TEXT_ENCODING"})
+            self.assert_metadata_environment(expected, call)
 
     def test_conformance_rejects_explicit_forbidden_input_before_any_child(self):
         provider_config(self.path, self.root / "provider", forbidden=("FIXTURE_API_KEY",))

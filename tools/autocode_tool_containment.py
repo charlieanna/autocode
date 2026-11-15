@@ -23,14 +23,17 @@ import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
+from contextvars import copy_context
 from pathlib import Path
 
 try:
+    from . import autocode_captured_process as captured
     from . import autocode_native_conformance as native_conformance
     from . import autocode_util as util
     from .autocode_process import interruption_handler
     from .autocode_source_privacy import SECRET_NAME
 except ImportError:
+    import autocode_captured_process as captured
     import autocode_native_conformance as native_conformance
     import autocode_util as util
     from autocode_process import interruption_handler
@@ -150,7 +153,7 @@ def _bubblewrap_problem():
             f"{BWRAP}; this machine is {sys.platform} without {BWRAP}"
         )
     try:
-        probe = subprocess.run(
+        probe = captured.run_metadata(
             [
                 BWRAP,
                 "--unshare-all",
@@ -209,7 +212,7 @@ def backend_version(name):
     """The backend's own version for the transport identity: bwrap's, or macOS's for Seatbelt."""
     if name == BUBBLEWRAP:
         try:
-            result = subprocess.run([BWRAP, "--version"], capture_output=True, text=True, timeout=15)
+            result = captured.run_metadata([BWRAP, "--version"], capture_output=True, text=True, timeout=15)
         except (OSError, subprocess.SubprocessError):
             return None
         version = result.stdout.strip()
@@ -235,7 +238,7 @@ def unavailable(workspace=None, environment=None):
     if not executable:
         return opencode_problem(None)
     try:
-        result = subprocess.run(
+        result = captured.run_metadata(
             [executable, "--version"], env=env, cwd=workspace, capture_output=True, text=True, timeout=15
         )
     except (OSError, subprocess.SubprocessError) as error:
@@ -1135,7 +1138,7 @@ def prepare(
     shell.write_text(script)
     shell.chmod(0o500)
     profile.chmod(0o400)
-    probe = subprocess.run([str(shell), "-c", "exit 0"], cwd=root, capture_output=True, text=True, timeout=10)
+    probe = captured.run_metadata([str(shell), "-c", "exit 0"], cwd=root, capture_output=True, text=True, timeout=10)
     if probe.returncode:
         raise RuntimeError(
             f"Strict native tool sandbox is unavailable (exit {probe.returncode}): " + probe.stderr.strip()
@@ -1222,22 +1225,12 @@ def _resolved_kilo_shell_policy(policy, definition):
 def _native_debug(prefix, workspace, child, *, supervised=False):
     """Model-free ``debug agent``; serial setup stays live, supervised startup uses a snapshot."""
     if supervised:
-        try:
-            from . import autocode_captured_process as captured_process
-        except ImportError:
-            import autocode_captured_process as captured_process
-
-        # Parallel startup checks share one final configuration, never the
-        # mutable setup environment used by the earlier serial safety probes.
+        # Parallel checks share the final configuration; serial setup reads its
+        # current environment again after each safety probe.
         prefix, child = tuple(prefix), dict(child)
 
     def debug(args=()):
-        if supervised:
-            result = captured_process.run([*prefix, *args], cwd=workspace, env=child, timeout=60)
-        else:
-            result = subprocess.run(
-                [*prefix, *args], cwd=workspace, env=child, capture_output=True, text=True, timeout=60
-            )
+        result = captured.run_metadata([*prefix, *args], cwd=workspace, env=child, timeout=60)
         if result.returncode:
             if "The user has specified a rule which prevents you from using this specific tool call" in result.stderr:
                 # Native diagnostics can include private config/rules. Classify the known
@@ -1508,8 +1501,11 @@ def _parallel_toolchain_checks(debug, workspace, probes):
     with ExitStack() as stack:
         if threading.current_thread() is threading.main_thread():
             stack.enter_context(interruption_handler())
+        stack.enter_context(captured.custody.group(timeout=(60 + captured.HELPER_RESERVE) * ((len(probes) + 2) // 3)))
         workers = stack.enter_context(ThreadPoolExecutor(max_workers=3))
-        pending = [workers.submit(_toolchain_checks, debug, workspace, (probe,)) for probe in probes]
+        pending = [
+            workers.submit(copy_context().run, _toolchain_checks, debug, workspace, (probe,)) for probe in probes
+        ]
         # Input order preserves both receipt order and earliest failing index.
         # ExitStack joins all dispatched workers even on failure/interruption;
         # each supervised debug call separately settles its owned process tree.
@@ -1637,7 +1633,7 @@ def configure(
     executable = shutil.which(command[0], path=environment.get("PATH", ""))
     if not executable:
         raise RuntimeError("Strict native tool containment cannot find the provider executable")
-    version = subprocess.run(
+    version = captured.run_metadata(
         [executable, "--version"], env=environment, cwd=workspace, capture_output=True, text=True, timeout=15
     )
     if version.returncode or version.stdout.strip() != supported_version:

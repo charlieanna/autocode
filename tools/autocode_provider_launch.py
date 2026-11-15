@@ -20,6 +20,7 @@ try:
     from . import autocode_native_locators as native_locators
     from . import autocode_native_role_isolation as native_isolation
     from . import autocode_output_cap as output_cap
+    from . import autocode_process as processes
     from . import autocode_prompts as prompts
     from . import autocode_proof_projection as proof_projection
     from . import autocode_route_evidence as route_evidence
@@ -35,6 +36,7 @@ except ImportError:
     import autocode_native_locators as native_locators
     import autocode_native_role_isolation as native_isolation
     import autocode_output_cap as output_cap
+    import autocode_process as processes
     import autocode_prompts as prompts
     import autocode_proof_projection as proof_projection
     import autocode_route_evidence as route_evidence
@@ -274,6 +276,8 @@ def prepare(
             if not containment:
                 raise util.Paused("PAUSED_TRANSPORT_UNVERIFIED", str(error)) from error
             raise tool_admission.failure(error, kilo_readonly=kilo_readonly, isolation=native_role_isolation) from error
+        except processes.ProcessError:
+            raise
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
             if not containment:
                 if type(adapter) is KiloProvider and (planning or not allow_write):

@@ -16,6 +16,7 @@ from pathlib import Path
 
 try:
     from . import autocode_agent_env as agent_env
+    from . import autocode_captured_process as captured
     from . import autocode_process as processes
     from . import autocode_provider_env as provider_env
     from . import autocode_providers as providers
@@ -26,6 +27,7 @@ try:
     from .providers import command, env_prep
 except ImportError:
     import autocode_agent_env as agent_env
+    import autocode_captured_process as captured
     import autocode_process as processes
     import autocode_provider_env as provider_env
     import autocode_providers as providers
@@ -79,10 +81,10 @@ def preflight(name, model, adapter, workspace, env, *, fake=False):
         config = tomllib.loads(path.read_text()) if path.exists() else {}
         if config.get("model_provider") not in (None, "openai") or config.get("openai_base_url"):
             raise RuntimeError("Codex subscription probe requires the default OpenAI route")
-    version = subprocess.run(
+    version = captured.run_metadata(
         [executable, "--version"], env=env, cwd=workspace, capture_output=True, text=True, timeout=15, check=True
     )
-    login = subprocess.run(
+    login = captured.run_metadata(
         [executable, "login", "status"], env=env, cwd=workspace, capture_output=True, text=True, timeout=15
     )
     if login.returncode or "using ChatGPT" not in login.stdout + login.stderr:

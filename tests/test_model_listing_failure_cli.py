@@ -2,10 +2,10 @@
 
 The provider is the actual CommandProvider, with NAME ``kilocode`` and the exact
 plain ``["kilo", "models"]`` producer. Only its model/report executables are
-offline fixtures. The fault narrows those two actual listing subprocesses to a
-zero-second fixture timeout; the producer still requests its unchanged 30/60
-allowances. subprocess.run really kills and reaps each direct child. This proves
-neither descendant cleanup nor a successful stage, so the outcome stays Blocked.
+offline fixtures. The fault narrows those two listing attempts to a zero-second fixture budget;
+the producer still requests its unchanged 30/60 allowances. The real captured
+runner verifies each timeout before returning it. Descendant cleanup and a
+successful stage are separate qualifications; the outcome stays Blocked.
 
 All source/config/marker/report paths are allocated below this test's fresh root.
 No live credentials, provider, model, frozen fixture or private-state mutation.
@@ -17,7 +17,6 @@ actual public plan approval, and take one public Continue through the extension.
 import copy
 import json
 import os
-import subprocess
 import sys
 import tomllib
 import unittest
@@ -199,19 +198,19 @@ class ModelListingFailureCLI(unittest.TestCase):
         # through its real identity rule, without deleting cache/private state.
         self.marker.write_text('{"fixture_timeout": true}\n')
         requested_bounds = []
-        real_run = subprocess.run
+        real_run = command.env_prep.captured.run_metadata
 
         def roster_timeout(argv, *args, **kwargs):
             if argv == ["kilo", "models"]:
                 requested_bounds.append(kwargs["timeout"])
                 # Keep the public producer's configured30/60 bounds unchanged.
-                # Only this exact owned blocking fixture child gets an immediate
-                # actual timeout, followed by subprocess.run's kill/wait cleanup.
+                # Only this fixture listing attempt gets a zero execution budget.
+                # The real captured runner verifies its timeout; no fabricated result.
                 return real_run(argv, *args, **{**kwargs, "timeout": 0})
             return real_run(argv, *args, **kwargs)
 
         identity = ["--workspace", str(self.project), "--run-dir", str(run.run_dir)]
-        with patch.object(subprocess, "run", side_effect=roster_timeout):
+        with patch.object(command.env_prep.captured, "run_metadata", side_effect=roster_timeout):
             failed = self.public(*identity, "--no-chat", "--json", codes=(2,))
             self.assertIn("AutoCode is blocked", failed.stdout + failed.stderr)
             held = self.document(run)

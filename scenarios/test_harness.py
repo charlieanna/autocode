@@ -1084,14 +1084,21 @@ class HarnessOwnerLossTests(unittest.TestCase):
 
     def fault(self, target, *, barrier="settings"):
         # The fake provider blocks at its first call that is not `--version`.
-        # A fresh run's first such call is the unsupervised `codex login status`
-        # settings check, a plain child of the CLI. Answering it moves the
+        # A fresh run's first such call is the captured `codex login status`
+        # settings check. Its parent is a private reaper; the harness's call
+        # record identifies the CLI to fault. Answering the settings check moves the
         # barrier into the first provider stage, behind its pre-exec keeper.
-        # Settings have no nested workers to settle. Declare a short fixture
-        # grace there, while provider-stage faults retain the production grace.
+        # Settings have no provider-stage keeper. Keep the short fixture grace
+        # there, while provider-stage faults retain the production grace.
         kill_after = 0.25 if barrier == "settings" else processes.CLI_KILL_AFTER_SECONDS
         with tempfile.TemporaryDirectory(prefix="harness-owner-loss-") as tmp:
             root = Path(tmp)
+            home, state = root / "home", root / "user-state"
+            home.mkdir()
+            state.mkdir()
+            # These tests intentionally kill ownership. Any unresolved metadata
+            # remains evidence of this fixture, without blocking another run's user.
+            environment = {**os.environ, "HOME": str(home), "XDG_STATE_HOME": str(state)}
             ready = root / "provider-ready"
             os.mkfifo(ready)
             reader = os.open(ready, os.O_RDONLY | os.O_NONBLOCK)
@@ -1108,7 +1115,7 @@ class HarnessOwnerLossTests(unittest.TestCase):
                 f"{login}"
                 "signal.signal(signal.SIGTERM,signal.SIG_IGN)\n"
                 "fd=os.open(os.environ['OWNER_READY'],os.O_WRONLY)\n"
-                "os.write(fd,(json.dumps({'provider':os.getpid(),'cli':os.getppid(),'call':sys.argv[1]})+'\\n').encode()); os.close(fd)\n"
+                "os.write(fd,(json.dumps({'provider':os.getpid(),'parent':os.getppid(),'call':sys.argv[1]})+'\\n').encode()); os.close(fd)\n"
                 "signal.pause()\n"
             )
             script = f"""import argparse,json,sys
@@ -1139,6 +1146,7 @@ print(json.dumps({{'verdict':result['verdict']}}),flush=True)
                 stderr=subprocess.PIPE,
                 text=True,
                 start_new_session=True,
+                env=environment,
             )
             owned = []
             try:
@@ -1146,7 +1154,6 @@ print(json.dumps({{'verdict':result['verdict']}}),flush=True)
                 event = json.loads(os.read(reader, 4096))
                 self.assertEqual({"settings": "login", "stage": "exec"}[barrier], event["call"])
                 owned.extend(processes.psutil.Process(harness.pid).children(recursive=True))
-                cli = next(process for process in owned if process.pid == event["cli"])
                 provider_process = next(process for process in owned if process.pid == event["provider"])
                 (evidence,) = (root / "results").iterdir()
                 admission = attempts.read(evidence / "attempt.json")
@@ -1157,7 +1164,11 @@ print(json.dumps({{'verdict':result['verdict']}}),flush=True)
                     if attempts.read(path).get("kind") == "cli_call"
                 ]
                 call = attempts.read(call_path)
+                cli = next(process for process in owned if process.pid == call["cli"]["pid"])
                 self.assertEqual(cli.pid, call["cli"]["pid"])
+                self.assertEqual(attempts.native_birth(cli), call["cli"]["birth_identity"])
+                self.assertTrue(attempts.owner_alive(call["cli"]), call)
+                self.assertIn(cli.pid, [ancestor.pid for ancestor in provider_process.parents()])
                 self.assertEqual("running", call["phase"])
                 self.assertEqual(kill_after, call["kill_after_seconds"])
                 # Retain the enclosing keeper's provider-discovery barrier (#555)

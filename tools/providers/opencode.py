@@ -65,6 +65,7 @@ except ImportError:
 
 # 1.x prints ``1.18.33``. 2.x prints ``opencode v2.0.20``. Other majors are refused.
 _VERSION_TEXT = re.compile(r"(?:opencode\s+v|v)?(\d+)\.(\d+)\.(\d+)([-+][0-9A-Za-z.-]+)?\Z", re.IGNORECASE)
+MODEL_LISTING_SECONDS = 180
 
 
 def parse_opencode_version(text):
@@ -320,7 +321,12 @@ def available_models(workspace=None, *, env=None):
         raise RuntimeError("OpenCode is not on PATH; no agent was launched")
     try:
         result = env_prep.preflight_run(
-            ["opencode", "models"], effective, cwd=workspace, capture_output=True, text=True, timeout=180
+            ["opencode", "models"],
+            effective,
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            timeout=MODEL_LISTING_SECONDS,
         )
     except subprocess.TimeoutExpired as error:
         raise RuntimeError("OpenCode model listing timed out; no agent was launched") from error

@@ -11,12 +11,14 @@ import contextlib
 import io
 import json
 import os
+import select
 import shlex
 import signal
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -424,69 +426,110 @@ class RunTests(unittest.TestCase):
                 self.assertEqual(before, signal.getsignal(signal.SIGTERM))
 
     def test_timeout_and_sigterm_stop_detached_helpers_before_down_and_preserve_sentinel(self):
-        import autocode_grader_process as supervisor
-
         for interrupted in (False, True):
             with self.subTest(interrupted=interrupted):
                 ws = Workspace(self, {"api": service()}, smoke(*NOTE_STEPS))
                 pidfile = ws.workdir / "helper.pid"
                 pidfile.parent.mkdir(parents=True, exist_ok=True)
                 script = (
-                    "import subprocess,sys,time; from pathlib import Path; "
-                    "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'],start_new_session=True); "
-                    f"Path({str(pidfile)!r}).write_text(str(p.pid)); time.sleep(60)"
+                    "import json,os,psutil,subprocess,sys; from pathlib import Path; "
+                    "p=subprocess.Popen([sys.executable,'-c','import os; r,w=os.pipe(); os.read(r,1)'],"
+                    "start_new_session=True); "
+                    f"Path({str(pidfile)!r}).write_text(json.dumps({{'pid':p.pid,'birth':psutil.Process(p.pid)._ident[1]}})); "
+                    "r,w=os.pipe(); os.read(r,1)"
                 )
                 sentinel = subprocess.Popen(
-                    [sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True
+                    [sys.executable, "-c", "import sys; sys.stdin.read()"],
+                    stdin=subprocess.PIPE,
+                    start_new_session=True,
                 )
                 docker, stopped_at_down = FakeDocker({}), []
-                sent = False
-                real_clock = supervisor.time
+                stopped, sent = threading.Event(), threading.Event()
+                watcher = None
+
+                def owned_process():
+                    try:
+                        identity = json.loads(pidfile.read_text())
+                        process = psutil.Process(identity["pid"])
+                        return process if process._ident[1] == identity["birth"] else None
+                    except (FileNotFoundError, ValueError, psutil.NoSuchProcess):
+                        return None
 
                 def alive():
                     try:
-                        process = psutil.Process(int(pidfile.read_text()))
-                        return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
-                    except (FileNotFoundError, psutil.NoSuchProcess):
+                        process = owned_process()
+                        return process is not None and process.status() != psutil.STATUS_ZOMBIE
+                    except psutil.NoSuchProcess:
                         return False
 
-                def clock_tick():
-                    nonlocal sent
-                    if interrupted and pidfile.exists() and not sent:
-                        sent = True
-                        signal.raise_signal(signal.SIGTERM)
-                    return real_clock.monotonic()
+                def interrupt_when_ready():
+                    until = time.monotonic() + 5
+                    while not stopped.wait(0.01) and time.monotonic() < until:
+                        if alive() and not stopped.is_set():
+                            sent.set()
+                            os.kill(os.getpid(), signal.SIGTERM)
+                            return
 
                 def runner(argv, timeout):
+                    nonlocal watcher
                     if argv[6:7] == ["up"]:
-                        return lr.subprocess_runner([sys.executable, "-c", script], 2)
+                        if interrupted:
+                            watcher = threading.Thread(target=interrupt_when_ready, daemon=True)
+                            watcher.start()
+                        try:
+                            return lr.subprocess_runner([sys.executable, "-c", script], 2)
+                        finally:
+                            stopped.set()
+                            if watcher is not None:
+                                # Join before LocalRun restores its signal handler.
+                                watcher.join(timeout=5)
                     if argv[6:7] == ["down"]:
                         stopped_at_down.append(not alive())
                     return docker(argv, timeout)
 
-                clock = mock.Mock(wraps=real_clock)
-                clock.monotonic.side_effect = clock_tick
                 before = signal.getsignal(signal.SIGTERM)
                 try:
-                    with mock.patch.object(supervisor.util, "monotonic", clock.monotonic):
-                        if interrupted:
-                            with self.assertRaises(KeyboardInterrupt):
-                                ws.run(runner)
-                        else:
-                            summary, _ = ws.run(runner)
-                            self.assertEqual("failed", summary["status"])
+                    if interrupted:
+                        with self.assertRaises(KeyboardInterrupt):
+                            ws.run(runner)
+                        self.assertTrue(sent.is_set(), "fixture readiness did not trigger SIGTERM")
+                    else:
+                        summary, _ = ws.run(runner)
+                        self.assertEqual("failed", summary["status"])
                     self.assertTrue(pidfile.is_file())
+                    self.assertEqual({"pid", "birth"}, json.loads(pidfile.read_text()).keys())
                     self.assertEqual([True], stopped_at_down)
                     self.assertFalse(alive())
                     self.assertIsNone(sentinel.poll())
                     self.assertEqual(before, signal.getsignal(signal.SIGTERM))
                 finally:
-                    sentinel.kill()
-                    sentinel.wait(timeout=5)
-                    if alive():
-                        process = psutil.Process(int(pidfile.read_text()))
-                        process.kill()
-                        process.wait(timeout=5)
+                    stopped.set()
+                    if watcher is not None:
+                        watcher.join(timeout=5)
+                    try:
+                        sentinel.stdin.close()
+                        try:
+                            sentinel.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            sentinel.kill()
+                            sentinel.wait(timeout=5)
+                            raise
+                    finally:
+                        process = owned_process()
+                        if process is not None:
+                            with contextlib.suppress(psutil.NoSuchProcess, ProcessLookupError):
+                                if hasattr(os, "pidfd_open"):
+                                    descriptor = os.pidfd_open(process.pid)
+                                    try:
+                                        if owned_process() is not None:
+                                            signal.pidfd_send_signal(descriptor, signal.SIGKILL)
+                                            self.assertTrue(select.select([descriptor], [], [], 5)[0])
+                                    finally:
+                                        os.close(descriptor)
+                                else:
+                                    process.kill()
+                                    process.wait(timeout=5)
+                    self.assertTrue(watcher is None or not watcher.is_alive(), "fixture watcher did not stop")
 
     def test_layers_start_in_order_each_after_the_previous_is_ready_and_the_smoke_check_passes(self):
         server = start_server(self)

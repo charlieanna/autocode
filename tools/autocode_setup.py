@@ -29,12 +29,14 @@ import subprocess
 import sys
 
 try:
+    from . import autocode_captured_process as captured
     from . import autocode_connected_engine as connected_engine
     from . import autocode_connections as connections
     from . import autocode_providers as providers
     from . import autocode_stage_choices as stage_choices
     from . import autocode_stages_cli as stages_cli
 except ImportError:
+    import autocode_captured_process as captured
     import autocode_connected_engine as connected_engine
     import autocode_connections as connections
     import autocode_providers as providers
@@ -282,7 +284,7 @@ def _get_node() -> str:
 def _npm_bin() -> str | None:
     """npm's global bin folder (``npm prefix -g`` + /bin), or None when npm cannot say."""
     try:
-        prefix = subprocess.run(
+        prefix = captured.run_metadata(
             ["npm", "prefix", "-g"], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30
         ).stdout.strip()
     except (OSError, subprocess.TimeoutExpired):

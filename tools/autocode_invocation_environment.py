@@ -7,7 +7,7 @@ Do not drop arbitrary CODEX_* variables: those can select real tool settings.
 
 from collections.abc import Mapping
 
-CALL_MARKERS = frozenset({"CODEX_TOOL_CALL_ID"})
+CALL_MARKERS = frozenset({"CODEX_TOOL_CALL_ID", "AUTOCODE_CAPTURE_FAMILY"})
 
 
 def without_call_markers(environment: Mapping[str, str]) -> dict[str, str]:

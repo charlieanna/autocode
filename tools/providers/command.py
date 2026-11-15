@@ -21,7 +21,6 @@ except ImportError:
     import autocode_provider_env as provider_env
 
 
-import contextlib
 import hashlib
 import json
 import os
@@ -29,6 +28,7 @@ import re
 import subprocess
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from pathlib import Path
 
 try:
@@ -172,9 +172,10 @@ class CommandProvider:
 
         The first of those checks a run asks calls this, once per run (env_prep.once_in_run), so an
         invocation that asks none (a held run's resume) starts no tool. Decides nothing: an answer is kept
-        only as env_prep keeps any check's (a whole, successful one), a failure is dropped here, a timeout
+        only as env_prep keeps any check's (a whole, successful one), a command failure is dropped here, a timeout
         counts as a listing's first attempt (preflight_listing), and each check still judges its own
-        answer. Does nothing while checks are not being kept. Returns how many checks it asked."""
+        answer. Unconfirmed process custody still blocks the batch. Does nothing while checks are not
+        being kept. Returns how many checks it asked."""
         calls = [(command, options) for command, options in self._warm_calls(workspace, env) if command]
         if len(calls) < 2:
             return 0
@@ -182,12 +183,19 @@ class CommandProvider:
 
         def ask(call):
             command, options = call
-            with contextlib.suppress(Exception):
+            try:
                 env_prep.preflight_run(command, effective, warming=True, **options)
+            except env_prep.captured.ProcessError:
+                raise
+            except Exception:
+                pass
 
         def warm():
-            with ThreadPoolExecutor(max_workers=len(calls)) as pool:
-                list(pool.map(ask, calls))
+            allowance = max(options["timeout"] for _, options in calls) + env_prep.captured.HELPER_RESERVE
+            with env_prep.captured.custody.group(timeout=allowance), ThreadPoolExecutor(max_workers=len(calls)) as pool:
+                pending = [pool.submit(copy_context().run, ask, call) for call in calls]
+                for future in pending:
+                    future.result()
 
         return len(calls) if env_prep.once_in_run(("warm", self.NAME, str(workspace), env is None), warm) else 0
 
@@ -476,7 +484,7 @@ class CommandProvider:
                     config_sha256 = hashlib.sha256(self._path.read_bytes()).hexdigest()
                 except OSError:
                     config_sha256 = None
-                # subprocess.run has killed/reaped each timed-out listing child.
+                # The preflight runner settled each timed-out attempt before retrying.
                 # No stage request has been constructed or launched by this check.
                 raise model_listing_failure.ModelListingTimeout(
                     message, workspace=workspace, config_sha256=config_sha256

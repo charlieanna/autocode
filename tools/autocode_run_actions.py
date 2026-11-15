@@ -41,6 +41,7 @@ try:
     from . import autocode_jobs as jobs
     from . import autocode_model_listing_failure as model_listing_failure
     from . import autocode_model_listing_failure_recovery as model_listing_recovery
+    from . import autocode_operational_block as operational_block
     from . import autocode_operational_information as operational_information
     from . import autocode_planning as planning
     from . import autocode_project_delivery as project_delivery
@@ -71,6 +72,7 @@ except ImportError:
     import autocode_jobs as jobs
     import autocode_model_listing_failure as model_listing_failure
     import autocode_model_listing_failure_recovery as model_listing_recovery
+    import autocode_operational_block as operational_block
     import autocode_operational_information as operational_information
     import autocode_planning as planning
     import autocode_project_delivery as project_delivery
@@ -310,6 +312,14 @@ def read_shown_tokens(runner, args, parser, state: RunState, state_path, run_dir
     return None
 
 
+def hold_operational_block(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
+    if stop.pending_stop(run_dir) is not None and runner.consume_interventions(state, run_dir, workspace):
+        runner.write_json(state_path, state)
+        return 2
+    operational_block.guard(runner, state, run_dir, workspace)
+    return None
+
+
 # handle()'s steps, in the order they take precedence. Each returns an exit code to end the
 # invocation, or None to go on; one that sets decided.dispatch sends the run straight to the build.
 STEPS = (
@@ -318,6 +328,7 @@ STEPS = (
     honor_stops,  # an applied or pending stop, and a bound retry mixed with other actions
     action_stage_model.apply,  # --stage-model: one stage's route on a started run, between stages; no launch
     action_discrepancy.apply,  # --report-discrepancy: a report against the approved plan, kept for the Tester; no launch
+    hold_operational_block,  # advancement only; stops and nonadvancing records keep their existing precedence
     action_decisions.preflight,  # invalid approval cannot reconcile or migrate a stopped attempt
     action_edits.apply,  # a standalone edit: design revision, dependency, report recovery, repair handoff
     action_recovery.gate_failures,  # a classification or job failure, and its exact retry

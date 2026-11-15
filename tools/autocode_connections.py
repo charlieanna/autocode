@@ -17,12 +17,14 @@ import subprocess
 import sys
 
 try:
+    from . import autocode_captured_process as captured
     from . import autocode_connected_engine as connected_engine
     from . import autocode_direct_config as direct
     from . import autocode_project_config as project_config
     from . import autocode_providers as providers
     from .providers import claude, command, env_prep
 except ImportError:
+    import autocode_captured_process as captured
     import autocode_connected_engine as connected_engine
     import autocode_direct_config as direct
     import autocode_project_config as project_config
@@ -97,6 +99,10 @@ def connection_view(name, *, check=False):
         if not shutil.which(executable):
             row["detail"] = "Backend executable is not on PATH. Install it in the AutoCode CLI environment."
             return row
+        blocked = captured.custody.status()
+        if blocked:
+            row.update(connection_status="check_failed", detail=blocked)
+            return row
         row.update(
             connection_status="not_checked",
             detail="Installed. Login has not been checked; model access is verified when a run starts.",
@@ -124,14 +130,15 @@ def connection_view(name, *, check=False):
         if not check:
             return row
         try:
-            result = subprocess.run(status, capture_output=True, text=True, timeout=15, shell=False)
+            result = captured.run_metadata(status, timeout=connected_engine.CHECK_TIMEOUT)
         except (OSError, subprocess.TimeoutExpired):
             row.update(
                 connection_status="check_failed",
-                detail="Connection check could not finish. Open the backend to diagnose it.",
+                detail="The connection check did not finish within its limit.",
             )
             return row
         refusal = None
+        auth_list = name in ("kilocode", "opencode")
         if name == "claude":
             try:
                 status_json = json.loads(result.stdout)
@@ -143,7 +150,7 @@ def connection_view(name, *, check=False):
             # echoing the account details the status carries.
             refusal = claude.billing_refusal(status_json) if ready else None
             ready = ready and not refusal
-        elif name in ("kilocode", "opencode"):
+        elif auth_list:
             # Their auth-list command succeeds even with no saved credentials.
             # Do not mistake an empty list for a signed-in account, or echo it.
             output = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", result.stdout + result.stderr)
@@ -154,10 +161,12 @@ def connection_view(name, *, check=False):
             # Registered status_command contract: 0 credentials present, 1 no
             # login, other exits operational failure. No model call is allowed.
             ready = result.returncode == 0
-        if result.returncode not in (0, 1):
+        # An auth-list command reports an empty login set with exit 0. Every
+        # nonzero exit is an operational failure, including startup errors.
+        if result.returncode != 0 and (auth_list or result.returncode != 1):
             row.update(
                 connection_status="check_failed",
-                detail="Backend connection check failed. Use its own terminal diagnostics.",
+                detail="The backend could not complete its connection check.",
             )
         elif ready:
             row.update(
@@ -175,6 +184,8 @@ def connection_view(name, *, check=False):
                 connection_status="sign_in_required",
                 detail="No saved login was confirmed. Sign in with the backend, then check again.",
             )
+    except captured.ProcessError:
+        raise
     except (OSError, ValueError, RuntimeError):
         row["detail"] = "Provider configuration could not be loaded. Check its user-level TOML configuration."
     return row
@@ -257,6 +268,8 @@ def routes(provider=None):
     try:
         with env_prep.reuse_workspace_checks("."):
             found = model_catalogue.preview(provider=provider)
+    except captured.ProcessError:
+        raise
     except (RuntimeError, ValueError, OSError) as error:
         return {"tool": None, "routes": [], "routes_lines": [], "routes_stop": str(error)}
     return {
@@ -354,11 +367,28 @@ def cli(argv):
             result["new_runs"] = None
             result["new_runs_next_command"] = ["connections", "list", "--new-runs", "--json"]
     elif args.action == "check":
-        result = connection_view(args.provider, check=True)
+        try:
+            result = connection_view(args.provider, check=True)
+        except captured.custody.MetadataAdmissionBusy:
+            result = connection_view(args.provider, check=False)
+            # A newly observed custody refusal is stronger than this attempt's
+            # unadmitted check. Contention itself authenticates no owner.
+            if result.get("detail") != captured.custody.BLOCKED:
+                result.update(connection_status="check_failed", detail=captured.custody.BUSY, actions=[])
+        except captured.ProcessError:
+            # A single explicit check can report failure. Batch discovery must
+            # retain the exception and stop before checking another backend.
+            result = connection_view(args.provider, check=False)
+            result.update(
+                connection_status="check_failed", detail="Connection check could not finish safely.", actions=[]
+            )
     else:
         # Resolve again at execution time. The client cannot supply arbitrary
         # executables or credential material in this public action.
         try:
+            if blocked := captured.custody.status():
+                print(blocked)
+                return 2
             _, executable, login, _, _ = _definition(args.provider)
             if not login or not shutil.which(executable):
                 print("Backend login is unavailable; configure its login_command or install the backend.")

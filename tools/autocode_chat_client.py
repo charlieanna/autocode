@@ -53,6 +53,7 @@ from datetime import datetime
 from pathlib import Path
 
 try:
+    from . import autocode_captured_process as captured
     from . import autocode_chat_attention as attention
     from . import autocode_chat_attention_discovery as attention_discovery
     from . import autocode_chat_boot as boot
@@ -75,6 +76,7 @@ try:
     from . import autocode_events_command as events
     from .autocode_util import redact
 except ImportError:
+    import autocode_captured_process as captured
     import autocode_chat_attention as attention
     import autocode_chat_attention_discovery as attention_discovery
     import autocode_chat_boot as boot
@@ -172,12 +174,13 @@ class History:
     def read(self, argv: list[str]) -> dict:
         """One of the listings the chat may read (`modes list`, `connections list`), as JSON."""
         try:
-            proc = subprocess.run(
+            # Connection checks include the backend's own cold start and owned
+            # cleanup. Ordinary public listings keep the short polling bound.
+            timeout = 60 if list(argv[:2]) == ["connections", "check"] else polling.READ_TIMEOUT
+            proc = captured.run(
                 [*self.command, *argv],
-                capture_output=True,
-                text=True,
                 env=self.env,
-                timeout=polling.READ_TIMEOUT,
+                timeout=timeout,
             )
         except subprocess.TimeoutExpired:
             raise actions.ClientGap(

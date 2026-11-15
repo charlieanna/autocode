@@ -14,13 +14,11 @@ try:
     from . import autocode_cost as cost
     from . import autocode_escalation_view as escalation_view
     from . import autocode_failures as failures
+    from . import autocode_internal_failure_view as operational_block
     from . import autocode_launch_inputs as launch_inputs
-    from . import autocode_model_listing_failure as model_listing_failure
     from . import autocode_review_result as review_result
     from . import autocode_source_scope as source_scope
-    from . import autocode_startup_timeout_view as startup_timeout_view
     from . import autocode_status_summary as status_summary
-    from . import autocode_verification_failure as verification_failure
 except ImportError:
     import autocode_answer_output as answer_output
     import autocode_chat_activity as chat_activity
@@ -30,13 +28,11 @@ except ImportError:
     import autocode_cost as cost
     import autocode_escalation_view as escalation_view
     import autocode_failures as failures
+    import autocode_internal_failure_view as operational_block
     import autocode_launch_inputs as launch_inputs
-    import autocode_model_listing_failure as model_listing_failure
     import autocode_review_result as review_result
     import autocode_source_scope as source_scope
-    import autocode_startup_timeout_view as startup_timeout_view
     import autocode_status_summary as status_summary
-    import autocode_verification_failure as verification_failure
 
 import json
 import sys
@@ -144,11 +140,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
             needs=runner.run_view.needs(state),
             held_cause=pause_authority.answered_cause(state),
             ready=(owner or {}).get("kind") == "ready",
-            internal_failure=(
-                verification_failure.presentation(state)
-                or model_listing_failure.presentation(state)
-                or startup_timeout_view.presentation(state)
-            ),
+            internal_failure=(operational_block.presentation(state)),
         )
         print(text["what_happened"])
         print()
@@ -370,11 +362,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         stage=stage_name,
         following=following_name,
         controller_running=(owner or {}).get("kind") == "running",
-        internal_failure=(
-            verification_failure.presentation(state)
-            or model_listing_failure.presentation(state)
-            or startup_timeout_view.presentation(state)
-        ),
+        internal_failure=(operational_block.presentation(state)),
     )
     # A finished run whose verification no longer covers the current checkout names
     # a re-verification action: resume re-checks completion against the source on disk.

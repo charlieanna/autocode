@@ -226,6 +226,19 @@ class ConfiguredRouteOriginTests(unittest.TestCase):
         previous_provider = os.environ.pop("AUTOCODE_PROVIDER", None)
         if previous_provider is not None:
             self.addCleanup(os.environ.__setitem__, "AUTOCODE_PROVIDER", previous_provider)
+        # Route-origin assertions use an empty fixture inventory, including
+        # configure calls made directly after the public argument parser.
+        levels = patch.object(autocode_configure, "_listed_levels", return_value={})
+        discovery = patch(
+            "autocode_route_discovery.discover", return_value={"tool": "opencode", "candidates": [], "accounts": []}
+        )
+        no_metadata = patch(
+            "autocode_captured_process.run_metadata",
+            side_effect=AssertionError("Route-origin fixtures must not invoke a metadata CLI"),
+        )
+        for boundary in (levels, discovery, no_metadata):
+            boundary.start()
+            self.addCleanup(boundary.stop)
 
     configure_args = test_planning.PlanningTests.configure_args
 
