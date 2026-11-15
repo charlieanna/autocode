@@ -2322,7 +2322,7 @@
 
 
 <h1 id="workflow-planning-approval-and-handoffs">Workflow: planning, approval, and handoffs<a class="headerlink" href="#workflow-planning-approval-and-handoffs" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/bab0048d61bac02c7a300a9c17395d6be7c3c0d2/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/b8f56f956cb1faa20a8fd1f14aeb66787f961b8b/README.md">← Back to README</a></p>
 <p>This page covers the end-to-end conversation flow: how a rough idea becomes an
 approved plan, how that plan is implemented and reviewed, and what Autopilot
 coordinates along the way.</p>
@@ -2838,10 +2838,16 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.</p>
   does not stop to ask for a longer limit or a narrower command: it runs
   instead with the original tests nearest the change (changed tests the base
   already holds, and base tests named after a changed file, such as
-  <code>test_calc.py</code> for <code>calc.py</code>, plus existing Python tests that import changed
+  <code>test_calc.py</code> for <code>calc.py</code> or <code>calc_spec.rb</code> for <code>calc.rb</code>, plus existing Python tests that import changed
   product modules directly or transitively). Import selection reads the pinned original
   code, keeps every ambiguous target and conservatively includes uncertain imports.
-  It records the decision, the timed-out command and
+  The proof does the same when the detected whole suite runs no test that passes on the
+  original code (RSpec runs no example at all when one spec file cannot be loaded) and
+  those nearest tests do pass there; when they pass none either, the whole suite stays
+  the baseline and the proof is judged as before. Unlike a timeout, that is checked again
+  at every proof.
+  It records the decision, the whole suite's command, what it did there
+  (<code>whole_suite_outcome</code>: <code>timed_out</code> or <code>no_passing_test</code>) and
   the reason as the proof's <code>suite_fallback</code>, a note and a review reason. A later
   proof of the same run goes straight to those tests while the original code, the
   whole suite's command and its limit are unchanged, even when the test environment
@@ -3108,7 +3114,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   root, normally the package (<code>test_greet.TestGreet.test_x</code>), and a node:test file there that runs another test runner is still not named
   proof (#380). A feature that adds the first Go module in the package, on a
   base with no Go project, is not held to a base Go suite that cannot exist,
-  as at the root (<a href="https://github.com/charlieanna/autocode/blob/bab0048d61bac02c7a300a9c17395d6be7c3c0d2/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
+  as at the root (<a href="https://github.com/charlieanna/autocode/blob/b8f56f956cb1faa20a8fd1f14aeb66787f961b8b/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
 <li>Only the package's existing tests are retained as
   <a href="../protected-tests/">original test gates</a>, with the package suite as their
   command unless <code>--test-command</code> gives one, so a large repository does not bind
@@ -3186,7 +3192,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   also leaves a change outside the package <code>UNVERIFIED</code>, because the package
   suite never ran it.</p>
 <p>The <code>feature-monorepo-package</code> scenario
-(<a href="https://github.com/charlieanna/autocode/blob/bab0048d61bac02c7a300a9c17395d6be7c3c0d2/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
+(<a href="https://github.com/charlieanna/autocode/blob/b8f56f956cb1faa20a8fd1f14aeb66787f961b8b/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
 one package of a two-package repository with <code>--package</code> and the scripted
 model. Its reference completes; its broken variant, which also edits the other
 package, stops with each of those files named in the open <code>runner</code> finding.
@@ -3514,7 +3520,7 @@ it is generated from the front matter so reviewers can read the plan.</p>
 holds it. A plan read back from the file has the same goal hash as the run's. The scenario runner
 (<code>scenarios/run.py</code>) checks this at every plan approval its catalog runs reach: it exports the plan
 and reads the file back with <code>--check</code> before it approves the plan
-(<a href="https://github.com/charlieanna/autocode/blob/bab0048d61bac02c7a300a9c17395d6be7c3c0d2/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
+(<a href="https://github.com/charlieanna/autocode/blob/b8f56f956cb1faa20a8fd1f14aeb66787f961b8b/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
 committing it approves nothing. Text that looks like a credential is masked before the file is
 written, with the same policy as <code>autocode bundle</code>; the export then says that the file's goal hash
 differs from the run's.</p>
