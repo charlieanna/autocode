@@ -68,10 +68,14 @@ class RepeatedTesterTimeoutCliTests(unittest.TestCase):
         self.assertEqual(1, stages.count("builder"), stages)
         self.assertEqual(2, stages.count("tester"), stages)
         self.assertEqual(1, stages.count("investigate_stuck"), stages)
-        self.assertEqual(["tester", "investigate_stuck"], stages[-2:])
+        # The bounded Resolver examines a repeated failure after the Investigator.
+        # A hold must retain the diagnosis without another Tester attempt.
+        self.assertEqual(1, stages.count("resolve_repair"), stages)
+        self.assertEqual(["tester", "investigate_stuck", "resolve_repair"], stages[-3:])
         self.assertTrue(all(row["timed_out"] for row in models if row["stage"] == "tester"))
         self.assertFalse(view["done"])
         self.assertIn("Offline fixture: it cannot diagnose", view["stop_reason"])
+        self.assertIn("Resolver (held)", view["stop_reason"])
         retained = (self.project / "greet.py").read_bytes()
 
         reopened = run.advance()
