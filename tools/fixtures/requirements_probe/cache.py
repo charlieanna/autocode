@@ -4,7 +4,7 @@ import time
 
 TTL_SECONDS = 3600  # entries older than an hour are recomputed
 
-_entries = {}
+_entries: dict = {}
 
 
 def get(key, compute, now=time.time):

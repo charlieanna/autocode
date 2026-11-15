@@ -114,7 +114,7 @@ def qualifies(result, role="requirements") -> bool:
 
 def rank(results, role="requirements") -> list:
     """One row per model, best first: ``{"model", "effort", "qualified", "summary", "reason"}``."""
-    by_model = {}
+    by_model: dict = {}
     for item in results:
         by_model.setdefault(model_identity.identity(item["model"]), []).append(item)
     rows = []
