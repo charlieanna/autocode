@@ -70,6 +70,122 @@ class ChoiceTests(unittest.TestCase):
         )
 
 
+class ClassSelectorTests(unittest.TestCase):
+    """Maven and Gradle select tests by class, so a command of theirs names its tests that way."""
+
+    CORE = "core/src/test/java/example/core/PagerTest.java"
+    APP = "app/src/test/java/example/app/ReportTest.java"
+    ROUNDING = "app/src/test/java/example/app/ReportRoundingTest.java"
+    KOTLIN = "app/src/test/kotlin/example/app/LabelTest.kt"
+    TESTS = (CORE, APP, ROUNDING, KOTLIN, "tests/PagerTest.py", "tests/ReportTest.sh")
+
+    def named(self, command):
+        return sorted(plan_command.test_files(command, self.TESTS))
+
+    def test_a_selector_names_the_files_of_its_classes(self):
+        for command, files in (
+            (
+                "mvn -q -pl app -am test -Dtest=PagerTest,ReportTest -Dsurefire.failIfNoSpecifiedTests=false",
+                [self.APP, self.CORE],
+            ),
+            ("mvn -B -q test -Dtest=PagerTest#exactMultiple+nothing", [self.CORE]),
+            ("mvn -B -q test -Dtest=example.core.PagerTest", [self.CORE]),
+            ("mvn -B -q test -Dtest='Report*Test'", [self.ROUNDING, self.APP]),
+            ("./gradlew test --tests example.app.ReportTest.headingNamesThePage", [self.APP]),
+            ("gradle --no-daemon -q test --tests='*PagerTest' --tests LabelTest", [self.KOTLIN, self.CORE]),
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(sorted(files), self.named(command))
+
+    def test_a_module_names_its_test_classes(self):
+        for command, files in (
+            ("mvn -q -pl core test", [self.CORE]),
+            ("mvn -q -pl app -am test", [self.APP, self.ROUNDING, self.KOTLIN]),
+            ("mvn -B -q --projects core,app test", [self.CORE, self.APP, self.ROUNDING, self.KOTLIN]),
+            ("mvn -B -q --projects=core verify", [self.CORE]),
+            ("gradle --no-daemon -q :core:test", [self.CORE]),
+            ("./gradlew app:test", [self.APP, self.ROUNDING, self.KOTLIN]),
+            ("mvn -q -pl app test -Dtest=PagerTest,ReportTest", [self.APP]),  # only the module's classes run
+            ("gradle :app:test --tests '*Test'", [self.APP, self.ROUNDING, self.KOTLIN]),
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(sorted(files), self.named(command))
+        for command in (
+            "mvn -q -pl docs test",  # a module with no test class
+            "mvn -q -pl '!core' test",  # every module but this one
+            "mvn -q -pl :core test",  # an artifact, not a directory
+            "mvn -q -pl ../core test",
+            "mvn -q test -pl",
+            "mvn -q -pl core compile",  # runs no test
+            "gradle :core:build",
+            "perl -pl core test",
+            "make :core:test",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual([], self.named(command))
+
+    def test_a_command_that_runs_every_test_names_every_test_class(self):
+        # The project's suite is the command AutoCode detected, `mvn -B -q test`: a real refactor guarded with
+        # `mvn -q test`, the same tests, and its plan report was refused (2026-11-15).
+        every = sorted([self.CORE, self.APP, self.ROUNDING, self.KOTLIN])
+        for command in (
+            "mvn -q test",
+            "mvn test",
+            "./mvnw -B -q -o verify",
+            "mvn -B -q test -Dtests=PagerTest",  # not Maven's selector: every test runs
+            "cd shop && mvn -q test",
+            "JAVA_HOME=/opt/jdk17 MAVEN_OPTS=-Xmx1g ./mvnw -q test",
+            "mvn -q test; echo done",
+            "gradle test",
+            "./gradlew --no-daemon -q check",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(every, self.named(command))
+
+    def test_a_selector_names_nothing_it_does_not_run(self):
+        for command in (
+            "mvn -B -q test -Dtest=NoSuchTest",
+            "mvn -B -q test -Dtest='!PagerTest'",  # an exclusion runs every class but this one
+            "mvn -B -q test -Dtest=pagertest",  # class names are case-sensitive
+            "mvn -B -q test -Dtest=example.core.NoSuchTest",  # its package is no class
+            "gradle test --tests example.app.NoSuchTest.heading",
+            "mvn -B -q compile",
+            "mvn -B -q package -DskipTests",
+            "mvn -B -q verify -Dmaven.test.skip=true",
+            "mvn -B -q -Dtest=PagerTest compile",
+            "gradle test --tests",
+            "gradle build -x test",
+            "gradle assemble",
+            "echo PagerTest",
+            "echo mvn test -Dtest=PagerTest > notes.txt; true",
+            "mvn -q compile && echo test",
+            "mvn -v | grep test",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual([], self.named(command))
+        # A class is a JVM source file: a file of another language with the same stem is not selected.
+        self.assertEqual([self.CORE], self.named("mvn test -Dtest=PagerTest"))
+        # A selector's package and method are not its class.
+        lower = ["core/src/test/java/example/core.java", "core/src/test/java/example/heading.java"]
+        for command in (
+            "mvn test -Dtest=example.core.NoSuchTest#heading",
+            "gradle test --tests example.core.X.heading",
+        ):
+            self.assertEqual(set(), plan_command.test_files(command, lower), command)
+
+    def test_a_selected_class_takes_the_roles_a_named_file_takes(self):
+        guard = "mvn -B -q test -Dtest=PagerTest,ReportTest"
+        self.assertEqual(
+            {"command": guard, "suite": guard, "regression": None},
+            plan_command.choose([guard], original_tests=[self.CORE, self.APP], changed_tests=[self.ROUNDING]),
+        )
+        new = "mvn -B -q test -Dtest=ReportRoundingTest"
+        self.assertEqual(
+            {"command": new, "suite": None, "regression": new},
+            plan_command.choose([new], original_tests=[self.CORE, self.APP], changed_tests=[self.ROUNDING]),
+        )
+
+
 class ProofTests(unittest.TestCase):
     def setUp(self):
         self.project = Project(SEED)

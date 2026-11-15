@@ -15,8 +15,10 @@ file, the change is coverage of existing behavior, as a change guarded by named 
 (autocode_regression.preserve_only): it needs no new test. Changed product lines still need the Tester's
 evidence (autocode_changed_code), and a bug fix still needs a test that fails without it.
 
-The command must run tests the project already has: it names a test file of the original code, or it is
-the suite AutoCode detects. A project whose runner names its tests keeps naming them:
+The command must run tests the project already has: it names a test file of the original code, it is a
+Maven or Gradle command that runs existing test classes (``-Dtest=PagerTest``, ``--tests PagerTest``, a
+module's tests with ``-pl core``, or all of them; autocode_plan_proof_command), or it is the suite AutoCode
+detects. A project whose runner names its tests keeps naming them:
 a command guard there is refused when the plan is drafted and ignored by the proof.
 """
 
@@ -61,9 +63,14 @@ def due(state: RunState, *, all_due: bool = False) -> list[dict]:
     ]
 
 
+# How a guard is written where the build tool selects tests by class.
+_CLASS_GUARDS = {"maven": "mvn -B -q test -Dtest=PagerTest", "gradle": "gradle --no-daemon -q test --tests PagerTest"}
+
+
 def runs_existing_tests(command, framework, original_tests) -> bool:
-    """Whether ``command`` runs tests the original code has: it names one of ``original_tests``, or it is
-    ``framework``'s suite. A command that also names a test the change adds fails on the original code."""
+    """Whether ``command`` runs tests the original code has: it names one of ``original_tests``, by its path
+    or as a class a Maven or Gradle command runs, or it is ``framework``'s suite. A command that also names a
+    test the change adds fails on the original code."""
     if framework is not None and " ".join(command.split()) == " ".join(str(framework.suite or "").split()):
         return True
     return bool(plan_command.test_files(command, original_tests))
@@ -93,13 +100,18 @@ def problem(guards, framework, original_tests, *, per_test: bool | None = None) 
     unusable = [guard for guard in guards if not runs_existing_tests(guard["command"], framework, original_tests)]
     if not unusable:
         return None
+    by_class = _CLASS_GUARDS.get(framework.name) if framework is not None else None
     return (
         "A guard's command must run tests the project already has, so it can pass on the original code: "
         + "; ".join(f"{guard['id']} `{guard['command']}`" for guard in unusable)
-        + " names no existing test file"
+        + (" selects no existing test class" if by_class else " names no existing test file")
         + (f" and is not the project's suite `{framework.suite}`" if framework is not None else "")
-        + '. Write the command that runs the existing test file ("guard: run `ruby test/pager_test.rb`"), or '
-        "give the criterion an ordinary verification_method"
+        + (
+            f'. Write the command that runs existing test classes ("guard: run `{by_class}`"), or '
+            if by_class
+            else '. Write the command that runs the existing test file ("guard: run `ruby test/pager_test.rb`"), or '
+        )
+        + "give the criterion an ordinary verification_method"
     )
 
 

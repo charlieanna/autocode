@@ -99,6 +99,7 @@ class DeclarationTests(unittest.TestCase):
             ("sh pager.sh", make, False),
             ("sh tests/test_new.sh", None, False),
             ("sh tests/test_pager.sh", pytest, False),
+            ("mvn -B -q test -Dtest=PagerTest", Framework("maven", "mvn -B -q test"), False),  # no such class here
         ):
             with self.subTest(command=command, framework=framework and framework.name):
                 self.assertEqual(
@@ -241,6 +242,47 @@ class PlanCheckTests(unittest.TestCase):
         refusal = r"A guard's command must run tests the project already has.*C1 `sh tests/test_new.sh` names no"
         with self.assertRaisesRegex(ValueError, refusal):
             lifecycle.validate_body(self.state(SEED), self.body("guard: run `sh tests/test_new.sh`"), ready=True)
+
+    def test_a_guard_that_selects_existing_test_classes_is_accepted(self):
+        # On a real bug fix across two Maven modules (2026-11-14) three planning reports were refused in a row,
+        # because the guard `mvn -B -q test -Dtest=PagerTest,ReportTest` "names no existing test file".
+        java = {
+            "pom.xml": "<project/>\n",
+            "core/src/main/java/example/core/Pager.java": "",
+            "core/src/test/java/example/core/PagerTest.java": "",
+            "app/src/test/java/example/app/ReportTest.java": "",
+        }
+        state = self.state(java)
+        for command in (
+            "mvn -B -q test -Dtest=PagerTest,ReportTest",
+            "mvn -q -pl app -am test -Dtest=PagerTest,ReportTest -Dsurefire.failIfNoSpecifiedTests=false",
+            "mvn -B -q test",
+            # A refactor of the same project (2026-11-15) guarded each module with its own tests, and the
+            # report was refused: a module's tests are existing test classes too.
+            "mvn -q -pl core test",
+            "mvn -q -pl app -am test",
+            # And then with the whole suite, written without one of the options of the detected command.
+            "mvn -q test",
+        ):
+            with self.subTest(command=command):
+                lifecycle.validate_body(state, self.body(f"guard: run `{command}`"), ready=True)
+        refusal = (
+            r"C1 `mvn -B -q test -Dtest=PagerRoundingTest` selects no existing test class and is not the "
+            r"project's suite `mvn -B -q test`\. Write the command that runs existing test classes "
+            r'\("guard: run `mvn -B -q test -Dtest=PagerTest`"\)'
+        )
+        with self.assertRaisesRegex(ValueError, refusal):
+            lifecycle.validate_body(
+                state, self.body("guard: run `mvn -B -q test -Dtest=PagerRoundingTest`"), ready=True
+            )
+        with self.assertRaisesRegex(ValueError, r"C1 `mvn -q -pl docs test` selects no existing test class"):
+            lifecycle.validate_body(state, self.body("guard: run `mvn -q -pl docs test`"), ready=True)
+        gradle = {name: text for name, text in java.items() if name != "pom.xml"} | {"build.gradle": ""}
+        state = self.state(gradle)
+        lifecycle.validate_body(state, self.body("guard: run `gradle test --tests PagerTest`"), ready=True)
+        lifecycle.validate_body(state, self.body("guard: run `gradle -q :core:test`"), ready=True)
+        with self.assertRaisesRegex(ValueError, r'"guard: run `gradle --no-daemon -q test --tests PagerTest`"'):
+            lifecycle.validate_body(state, self.body("guard: run `gradle test --tests NoSuchTest`"), ready=True)
 
     def test_a_project_whose_runner_names_its_tests_keeps_naming_them(self):
         python = {"pager.py": "def page_count(total, size):\n    return total // size\n", "tests/test_pager.py": ""}
