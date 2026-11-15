@@ -174,6 +174,66 @@ pub mod inline_suite {
             rust_inline.splice_bytes(b"mod other {\n    pub fn f() {}\n}\n", nested_cand)
 
 
+class KeptTests(unittest.TestCase):
+    """rust_inline.tests_kept and kept: a Rust file keeps the tests written beside its code."""
+
+    CODE = b"pub fn double(n: i32) -> i32 { n * 2 }\n"
+    TESTS = b"\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn doubles() { assert_eq!(super::double(2), 4); }\n}\n"
+    MORE = b"\n#[cfg(test)]\nmod more {\n    #[test]\n    fn again() { assert_eq!(super::double(1), 2); }\n}\n"
+
+    def test_the_same_modules_are_kept_whatever_the_code_around_them_does(self):
+        self.assertTrue(rust_inline.tests_kept(self.CODE, self.CODE.replace(b"n * 2", b"n + n")))
+        self.assertTrue(rust_inline.tests_kept(b"<<<<<<< HEAD\n" + self.CODE + self.TESTS, self.CODE + self.TESTS))
+        self.assertTrue(rust_inline.tests_kept(self.CODE + self.TESTS, self.CODE + self.TESTS + self.MORE))
+
+    def test_a_module_that_is_removed_or_edited_is_not_kept(self):
+        both = self.CODE + self.TESTS + self.MORE
+        self.assertFalse(rust_inline.tests_kept(both, self.CODE + self.TESTS))
+        self.assertFalse(rust_inline.tests_kept(both, self.CODE))
+        self.assertFalse(rust_inline.tests_kept(both, self.CODE + self.TESTS.replace(b", 4)", b", 5)") + self.MORE))
+        self.assertFalse(rust_inline.tests_kept(self.CODE + self.TESTS, b""))
+
+    def test_a_test_item_outside_a_module_is_not_judged(self):
+        for item in (
+            b"#[test]\nfn top() {}\n",
+            b"#[tokio::test]\nasync fn top() {}\n",
+            b"# [ test ]\nfn top() {}\n",
+            b"#[cfg(test)]\nuse std::fmt;\n",
+            b"#[cfg(test)]\nfn helper() {}\n",
+            b"#[cfg(all(test, unix))]\nfn helper() {}\n",
+            b"#[cfg_attr(test, derive(Debug))]\nstruct Kept;\n",
+        ):
+            with self.subTest(item=item):
+                self.assertFalse(rust_inline.tests_kept(self.CODE + item, self.CODE + item))
+                self.assertFalse(rust_inline.tests_kept(self.CODE, self.CODE + item))
+                self.assertFalse(rust_inline.tests_kept(self.CODE + item, self.CODE))
+        self.assertTrue(rust_inline.tests_kept(self.CODE + b"#[inline]\nfn fast() {}\n", self.CODE))
+
+    def test_a_file_the_scanner_cannot_read_is_not_shown_to_keep_its_tests(self):
+        # One side of the conflict opens a block the other closes: the module is no longer at the top.
+        unbalanced = (
+            b"<<<<<<< HEAD\npub fn double(n: i32) -> i32 {\n=======\npub fn twice(n: i32) -> i32 {\n>>>>>>> feature\n"
+            b"    n * 2\n}\n" + self.TESTS
+        )
+        self.assertFalse(rust_inline.tests_kept(unbalanced, self.CODE))
+
+    def test_every_rust_file_the_change_edits_or_deletes_must_keep_them(self):
+        tested = (self.CODE + self.TESTS).decode()
+        project = Project({"src/lib.rs": tested, "src/other.rs": tested, "notes.txt": "#[test]\n"})
+        self.addCleanup(project.close)
+        kept = lambda changes: rust_inline.kept(project.root, project.base, changes)  # noqa: E731
+        self.assertTrue(kept({}))
+        self.assertTrue(kept({"src/lib.rs": "modified", "notes.txt": "deleted"}))
+        project.write({"src/new.rs": "#[test]\nfn top() {}\n"})
+        self.assertTrue(kept({"src/new.rs": "added"}))
+        self.assertFalse(kept({"src/new.rs": "modified"}))  # the original code has no such file
+        project.write({"src/lib.rs": self.CODE.decode()})
+        self.assertFalse(kept({"src/lib.rs": "modified"}))
+        self.assertFalse(kept({"src/other.rs": "deleted"}))
+        self.assertTrue(changed_tests.inline_tests_kept(project.root, project.base, {"src/other.rs": "modified"}))
+        self.assertFalse(changed_tests.inline_tests_kept(project.root, project.base, {"src/lib.rs": "modified"}))
+
+
 class ProofIntegrationTests(unittest.TestCase):
     def test_inventory_excludes_inline_test_lines_on_rs_product_files(self):
         with tempfile.TemporaryDirectory() as folder:

@@ -320,7 +320,15 @@ own: their tests cannot run on such code either, so they count in the same way
 (`tools/autocode_first_suite.py`, `loaded` and `reloaded`). A change that edits one of the
 project's test files is judged as before, and so is any change to code that loads: a bug
 fix's new test must run and fail
-on the original code. A Mocha suite, Minitest files, PHPUnit, Perl's `prove`, Maven, Gradle, a test script the approved plan names, and a
+on the original code. `cargo test` builds every target before it runs a test, and names the
+target that did not build (`amounts (lib)`), not a test file, while its test names name no
+crate. So in a Cargo project every test of the run is one that could not run, those of a
+workspace's other crates among them, and one the project already had must pass now. Rust
+keeps tests beside the code, where removing one is no edit of a test file, and on code that
+did not build none ran to be missed: the repair must leave each `#[cfg(test)]` module of
+the files it edits or deletes as it was. It may add a module, as it may add a test file,
+and a file with a test item outside such a module is not shown to keep its tests
+(`autocode_rust_inline_tests.tests_kept`). A Mocha suite, Minitest files, PHPUnit, Perl's `prove`, Maven, Gradle, a test script the approved plan names, and a
 Jest command AutoCode leaves as written report only an exit code, so there the suite shows the repair as a whole: it
 failed on the original code and passes with the change. That counts when the change is
 code alone and touches no test, and the suite's own files (its tests, manifests and

@@ -3,6 +3,7 @@
 A documentation-only tree, or a tree with no Go project when the suite is Go.
 """
 
+import re
 import subprocess
 from pathlib import PurePosixPath
 
@@ -381,17 +382,25 @@ def unloaded(base_suite, suite_command):
     return sorted(results.get("uncollected", results.get("collection_errors")) or [])
 
 
+# A Cargo target that did not build: ``amounts (lib)``, ``amounts (lib test)``, ``amounts (test "pager")``.
+_CARGO_TARGET = re.compile(r"[^\s:]+ \((?:lib|bin|test|example|bench|build script)\b[^)]*\)")
+
+
 def _owns(module, test) -> bool:
     """Whether ``test`` is a test of the module the base could not load, by the ids the result parsers give:
     ``::pkg.mod`` and ``pkg.mod::test`` (pytest), ``unittest.loader._FailedTest.mod`` and ``mod.Class.test``
     (unittest), ``FILE::[collection]`` or ``PACKAGE::[build failed]`` and ``FILE::test`` (Node, Jest, RSpec,
     Minitest, Go). A JUnit test that errored before it ran is its own id and a failure there, so it is
-    never a test that could not run."""
+    never a test that could not run.
+
+    ``cargo test`` builds every target before it runs a test, so a target that did not build
+    (``CRATE (lib)::[build failed]``) stopped every test of the run, and Cargo's test ids
+    (``src/lib.rs::tests::one``, ``tests/pager.rs::one``) do not name a crate: every test is one it stopped."""
     for prefix in ("unittest.loader._FailedTest.", "unittest.loader.ModuleImportFailure."):
         if module.startswith(prefix):
             return test.startswith(module[len(prefix) :] + ".")
     key = module.removeprefix("::").partition("::[")[0]
-    return test.startswith(key + "::")
+    return bool(_CARGO_TARGET.fullmatch(key)) or test.startswith(key + "::")
 
 
 def loaded(base_results, candidate, modules, added=()):
@@ -422,11 +431,12 @@ def _added_tests(run):
     when that cannot be told: no targeted command of its own, or no per-test results.
 
     Go and Cargo run an added file with the rest of its package, so there only the tests the change itself
-    defines are its own (autocode_changed_tests.changed_filter).
+    defines are its own (autocode_changed_tests.changed_filter); Cargo's targeted command is the whole
+    suite's, and that filter still tells them apart.
     """
     commands = run.commands
     results = (run.checks.get("regression_on_candidate") or {}).get("results")
-    if not commands["regression"] or commands["regression"] == commands["suite"] or not isinstance(results, dict):
+    if not commands["regression"] or not isinstance(results, dict):
         return None
     reported = {*results["passed"], *results["failed"], *(results.get("skipped") or [])}
 
@@ -437,7 +447,9 @@ def _added_tests(run):
         return shown.stdout
 
     changed = changed_tests.changed_filter(run, git)
-    return {test for test in reported if changed(test)} if changed else reported
+    if changed:
+        return {test for test in reported if changed(test)}
+    return None if commands["regression"] == commands["suite"] else reported
 
 
 def suite_on_candidate(run, trees, run_suite):
@@ -472,7 +484,10 @@ def reloaded(run, on_candidate) -> list[str]:
     if not gone or run.existing_failures or not (candidate or {}).get("complete") or on_candidate.get("timed_out"):
         return []
     tests, added = run.roles.partition(run.changes)[0], _added_tests(run)
-    if not tests or added is None or any(run.changes[path] != "added" for path in tests):
+    # A Rust file may hold the change's new tests beside its code (run.runnable_tests): its own stay as they were.
+    if not (tests or run.runnable_tests) or added is None or any(run.changes[path] != "added" for path in tests):
+        return []
+    if not changed_tests.inline_tests_kept(run.workspace, run.base, run.changes):
         return []
     return loaded(run.base_suite["receipt"]["results"], candidate, gone, added)
 
@@ -489,10 +504,14 @@ def flip(run, on_candidate) -> None:
     """What the whole suite on the candidate adds to the fail-to-pass proof: the repair the base suite's own
     failing tests show (existing_flip), or the tests a repair of unloadable code let run (``reloaded``)."""
     if run.existing_failures:
+        failing = run.existing_failures
+        if not changed_tests.inline_tests_kept(run.workspace, run.base, run.changes):
+            # A Rust file lost or changed tests written beside its code: no module counts as repaired.
+            failing = sorted(set(failing) - set(unloaded(run.base_suite, run.commands["suite"])))
         existing_flip(
             on_candidate,
             run.base_suite,
-            run.existing_failures,
+            failing,
             run.proof,
             run.fail,
             run.unverified,

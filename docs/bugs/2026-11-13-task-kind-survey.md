@@ -1483,6 +1483,59 @@ the root whose root suite is another language's; a project the change itself add
 the original tree); changed original tests in two projects at once, which no one command runs; and the
 root's `unittest discover`, bound as the original-test command although it runs no test there.
 
+## 46. A Rust crate that does not build: the person is asked to set a test command (fixed)
+
+Section 37's request in three more projects: "Someone committed `FILE` with merge conflict markers in it,
+so the crate does not build. Resolve it: keep both sides. The tests already cover both." Real runs, Claude
+models as in section 37, 2026-11-15, each with one plan approval.
+
+| Project | Runner | Result | Bundle manifest |
+| --- | --- | --- | --- |
+| Rust, a crate with `src/lib.rs` and four tests in `tests/amounts.rs` | master `5273f1c` | `WAITING_FOR_USER`, 10 stages, 173 s, $1.15. The fix is right and every test passes | `ba79d4040bd6fec7abd047dfdb58f3f3faf289c4ff2278fb60912c09cfa027ed` |
+| the same | this fix | `TASK_COMPLETE`, 8 stages, 124 s, $0.80 | `ebab11c9fcc5a7ec73d92d91bf7b784bed54ee495a82c2d177b23d8fcf8bbdcd` |
+| Java, Maven and JUnit 5 | this fix (nothing in it applies) | `TASK_COMPLETE`, 8 stages, 140 s, $0.74. The plan's criterion was "run `mvn -q -B test` ...; it fails on the original code with a compile error", and the proof rested on the suite's exit code (section 33) | `7f968540d1b29b6b5f1034701e614bbac21ee2dc3e67f7217644c77e4048617e` |
+| TypeScript, Vitest | this fix (nothing in it applies) | `TASK_COMPLETE`, 8 stages, 116 s, $0.75. The four existing tests, which could not load, are the proof (section 38) | `2f20fb58f8d0493a718512415a7acbd104f824970907a1b93a9376793ca471f9` |
+
+**Rust on master.** The plan changed `src/lib.rs` alone and named the four existing tests. Both proofs
+failed with "No regression test was added or changed, and no test that fails on the original code passes
+with the change, so the bug is not shown to be reproduced" and "The base suite has collection errors;
+preservation is unproven: amounts (lib test)::[build failed], amounts (lib)::[build failed]", and the
+Resolver asked the person: "Set the saved regression verification command through the operator command
+correction to `cargo test --test amounts`. It must fail on base (the build fails because of the conflict
+markers) and pass on the candidate ... Alternatively, accept that a build-break fix is proven by the suite
+on the candidate alone."
+
+Section 38's rule already covers code that cannot be loaded, and asks that each module the original code
+could not load has a test the project already had that passes now. It knows a module's tests by their
+names (`tests.test_amounts::...`, `example.com/pkg::TestOne`). `cargo test` names the target that did not
+build (`amounts (lib)`), not a test file, and its test names (`tests/amounts.rs::a_percentage`) name no
+crate, so no test was ever the target's own. Found without a model first: the same repair is proven in a
+Python, Go, Node or Minitest project.
+
+Fixed, in three parts.
+
+- **A Cargo target that did not build stopped every test of the run** (`autocode_first_suite._owns`):
+  `cargo test` builds every target before it runs a test. Every test that could not run on the original
+  code and passes now counts, and one of them must be a test the project already had. In a workspace
+  that includes the tests of the other crates, which could not run either.
+- **A new test beside the repair is told apart** (`_added_tests`): Cargo's targeted command is the whole
+  suite's, so the tests the change adds were not known and a repair with a new test file was refused with
+  "the new tests only fail to import or collect". The tests the change itself defines are now read from
+  its files, as they are for Go. A new `#[cfg(test)]` module in the repaired file counts the same way.
+- **The tests written beside the code must stay as they were** (`autocode_rust_inline_tests.tests_kept`):
+  Rust keeps tests inside the product file, where removing one is no edit of a test file, and on code that
+  did not build none of them ran, so no later check would miss one. Without this, a "repair" that deletes
+  a test module that does not compile, or the tests beside the code it repairs, was proven by the crate's
+  other tests. The repair must leave every `#[cfg(test)]` module of the files it edits or deletes text
+  for text, and a file with a test item outside such a module is not judged.
+
+The same task on the fix: the first proof is `PASS` with "No test changed, and the original code could not
+be loaded by its tests (amounts (lib test)::[build failed], amounts (lib)::[build failed]): the tests the
+project already had run and pass with the change: tests/amounts.rs::a_negative_number, ...".
+
+Still open: a repair of Rust tests that do not compile is a change of tests alone ("Only test files
+changed; a fix must change product code"), as before; and `make test` and CMake with CTest (section 33).
+
 ## Also seen, not yet run on real models
 
 - **Claude Code refuses to edit some directories inside the stage's own directory.** With Edit and
