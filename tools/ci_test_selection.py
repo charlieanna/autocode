@@ -94,6 +94,10 @@ SCENARIO_SELECTION_INPUTS = {
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
+        "tools/ci_tested_source.py",
+        ("tests.test_ci_tested_source", "tests.test_attribute_failure", "tests.test_attribute_failure_source"),
+    ),
+    (
         "tools/autocode_codex_settings.py",
         (
             "tests.test_autocode_support",

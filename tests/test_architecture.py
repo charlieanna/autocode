@@ -588,6 +588,7 @@ class ArchitectureTests(unittest.TestCase):
         for module in ("autocode_util", "autocode_output_decoding", "autocode_attempt_ledger"):
             with self.subTest(module=module):
                 self.assertEqual(set(), graph[module])
+        self.assertEqual({"autocode_util"}, graph["ci_tested_source"])
 
     def test_the_effort_fit_rule_lives_in_one_module(self):
         # #2057: every derived effort is fitted by one function, so a new tier is not a new place to forget.

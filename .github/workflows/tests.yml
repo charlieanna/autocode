@@ -172,7 +172,16 @@ jobs:
           .venv/bin/python scenarios/harness/java_toolchain.py --root .scenario-runs/issue-696-java-toolchain
           echo "$PWD/.scenario-runs/issue-696-java-toolchain/bin" >> "$GITHUB_PATH"
 
+      - name: Record the checkout the suite will test
+        if: needs.scope.outputs.suite == 'true' && github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          .venv/bin/python tools/ci_tested_source.py --expected-head "$PR_HEAD" --event-base "$BASE" --out .suite-source.json || echo "Source capture unavailable; attribution will remain unresolved."
+
       - name: Run the suite gate
+        id: suite_gate
         if: needs.scope.outputs.suite == 'true'
         # tools/run_suite.py wraps the same discovery as
         # `python -m unittest discover -s tests -t . -p 'test_*.py'`, minus
@@ -198,17 +207,37 @@ jobs:
       - name: Attribute red to base or head
         # A red suite does not say whose failure it is, so an agent debugs its own
         # breakage and somebody else's alike (#2603). Run only the failing modules
-        # against the event's pinned base and say which are introduced here and which
-        # were already red there. Informational: ci-required is what blocks the merge.
-        if: ${{ failure() && github.event_name == 'pull_request' }}
+        # against the captured checkout's verified comparison base. The event base
+        # still selects tests; it need not be a merge checkout's actual first parent.
+        # Informational: ci-required is what blocks the merge.
+        if: ${{ failure() && github.event_name == 'pull_request' && steps.suite_gate.outcome == 'failure' }}
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
         run: |
-          .venv/bin/python tools/attribute_failure.py --base "$BASE" --failed .suite-failed.json | tee .attribution.md
-          cat .attribution.md >> "$GITHUB_STEP_SUMMARY"
-          gh pr comment "$PR" --body-file .attribution.md || echo "could not post the attribution comment"
+          .venv/bin/python tools/attribute_failure.py --base "$BASE" --expected-head "$PR_HEAD" --tested-source .suite-source.json --failed .suite-failed.json --json .attribution.json | tee .attribution.md
+          if [ -s .attribution.md ]; then
+            cat .attribution.md >> "$GITHUB_STEP_SUMMARY"
+            gh pr comment "$PR" --body-file .attribution.md || echo "could not post the attribution comment"
+          else
+            echo "Failure attribution is incomplete; no comment was posted." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Preserve suite attribution receipts
+        uses: actions/upload-artifact@v4
+        if: ${{ always() && github.event_name == 'pull_request' && steps.suite_gate.outcome == 'failure' }}
+        with:
+          name: suite-attribution-${{ matrix.os }}
+          path: |
+            .suite-source.json
+            .suite-failed.json
+            .attribution.json
+            .attribution.md
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 7
 
   scenario-harness:
     needs: scope
