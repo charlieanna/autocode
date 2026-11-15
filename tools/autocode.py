@@ -614,7 +614,7 @@ def run_role(
     if current_task:
         record["task_id"] = current_task["id"]
     if dry_run:
-        record.update({"dry_run": True, "finished_at": now(), "exit_code": 0})
+        record.update(dry_run=True, finished_at=now(), exit_code=0, prompt_bytes=len(prompt.encode("utf-8")))
         return {"status": "DRY_RUN"}, record
 
     started = time.monotonic()
@@ -642,7 +642,7 @@ def run_role(
             save(base.with_suffix(".before.json"), before)
             record["before_ref"] = str(base.with_suffix(".before.json"))
             network_retry.bind_attempt(state, record, before, workspace)
-            record["context"] = state.pop("pending_context_metrics", {})
+            role_launch.bind_prompt_metrics(state, record, prompt)
             job_source.capture(workspace, base, record, before)
             with interventions.admission(run_dir):
                 native_prepared = role_launch.admit_launch(

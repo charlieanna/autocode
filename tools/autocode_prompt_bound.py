@@ -17,11 +17,38 @@ import json
 STATUS = "PAUSED_PROMPT_SIZE"
 # About half a million tokens: far above any healthy stage prompt, below the largest model windows.
 STAGE_PROMPT_BYTES = 2 * 1024 * 1024
+STABLE_MARKER = "\nSTABLE HANDOFF DATA\n"
 HANDOFF_MARKER = "CURRENT HANDOFF DATA\n"
 
 
 def _size(value) -> int:
     return len(json.dumps(value, ensure_ascii=False).encode("utf-8"))
+
+
+def _decode_handoff(prompt: str, marker: str) -> dict | None:
+    _, found, rest = prompt.partition(marker)
+    if not found:
+        return None
+    try:
+        value, _ = json.JSONDecoder().raw_decode(rest.lstrip())
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def top_fields(prompt: str, limit: int = 3) -> list[dict[str, int | str]]:
+    """Return up to ``limit`` largest top-level handoff keys across stable/current JSON blocks."""
+    if limit <= 0:
+        return []
+    totals: dict[str, int] = {}
+    for marker in (STABLE_MARKER, HANDOFF_MARKER):
+        block = _decode_handoff(prompt, marker)
+        if not block:
+            continue
+        for key, value in block.items():
+            totals[str(key)] = totals.get(str(key), 0) + _size(value)
+    ranked = sorted(totals.items(), key=lambda item: (-item[1], item[0]))[:limit]
+    return [{"field": field, "bytes": byte_len} for field, byte_len in ranked]
 
 
 def largest_field(prompt: str) -> tuple[str, int] | None:
@@ -30,13 +57,11 @@ def largest_field(prompt: str) -> tuple[str, int] | None:
     It descends while one child holds more than half of its parent; None when the prompt carries no
     readable handoff.
     """
-    _, marker, rest = prompt.partition(HANDOFF_MARKER)
-    if not marker:
+    stable = _decode_handoff(prompt, STABLE_MARKER)
+    current = _decode_handoff(prompt, HANDOFF_MARKER)
+    if stable is None and current is None:
         return None
-    try:
-        value, _ = json.JSONDecoder().raw_decode(rest.lstrip())
-    except ValueError:
-        return None
+    value: object = {**(stable or {}), **(current or {})}
     path: list[str] = []
     size = _size(value)
     while isinstance(value, (dict, list)) and value:

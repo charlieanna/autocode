@@ -681,8 +681,8 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(0, self.invoke("--answer", "Q1=CLI"))
         self.assertEqual("CLI", self.state["answers"]["Q1"]["text"])
         prompt, _ = stage_context.context_packet(self.state, "draft_plan", self.run / "state.json")
-        self.assertIn('"Q1"', prompt)
-        self.assertIn('"text": "CLI"', prompt)
+        packet = json.loads(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual("CLI", packet["saved_answers"]["Q1"]["text"])
         with self.assertRaisesRegex(ValueError, "already answered"):
             self.draft(questions=True)
 

@@ -360,8 +360,12 @@ def _claude(args):
         return
     assert args[:2] == ["-p", "--json-schema"], args[:2]
     assert args[args.index("--output-format") + 1] == "stream-json" and "--dir" not in args
+    sys_prompt = args[args.index("--append-system-prompt") + 1] if "--append-system-prompt" in args else ""
     prompt = sys.stdin.read()
-    data = json.loads(prompt.rsplit("\nCURRENT HANDOFF DATA\n", 1)[1])
+    stable_data = (
+        json.loads(sys_prompt.split("\nSTABLE HANDOFF DATA\n", 1)[1]) if "\nSTABLE HANDOFF DATA\n" in sys_prompt else {}
+    )
+    data = {**stable_data, **json.loads(prompt.rsplit("\nCURRENT HANDOFF DATA\n", 1)[1])}
     workspace = Path(data["workspace"])
     assert Path.cwd() == workspace
     session = args[args.index("--resume") + 1] if "--resume" in args else str(uuid.uuid4())

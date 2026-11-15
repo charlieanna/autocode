@@ -64,6 +64,52 @@ PARTIAL_LIMIT = 128 * 1024
 REJECTED_LIMIT = 64 * 1024
 RESULT_TEXT_LIMIT = 64 * 1024
 SCHEMA_LIMIT = 120_000  # Linux MAX_ARG_STRLEN is 128 KiB per argv string
+SYSTEM_PROMPT_LIMIT = 120_000
+
+# Must match tools/autocode_prompt_layout.py:CONTRACT_PURE_KEYS verbatim.
+SYSTEM_HANDOFF_KEYS: tuple[str, ...] = (
+    "acceptance_criteria",
+    "approved_design",
+    "architecture_runtime_contract",
+    "baseline_compare_command",
+    "capture_command",
+    "context_policy",
+    "contract_author_rules",
+    "coordinated_member",
+    "criteria_revision",
+    "design_readiness",
+    "design_readiness_instruction",
+    "execution_engine",
+    "execution_limits",
+    "figma_file",
+    "goal_contract",
+    "linked_issues",
+    "linked_issues_note",
+    "output_transport",
+    "package",
+    "project_memory",
+    "project_notes",
+    "regression_reference",
+    "reply_budget",
+    "requirements",
+    "requirements_reply_budget",
+    "retained_contract",
+    "retained_criteria",
+    "saved_answers",
+    "source_catalog",
+    "source_inventory",
+    "source_sentences",
+    "stage",
+    "state_file",
+    "task",
+    "tool_containment",
+    "visual_capture_command",
+    "workspace",
+    "write_scope",
+)
+_SYSTEM_HANDOFF_SET = frozenset(SYSTEM_HANDOFF_KEYS)
+_STABLE_SYSTEM_MARKER = "\nSTABLE HANDOFF DATA\n"
+_CURRENT_HANDOFF_MARKER = "\nCURRENT HANDOFF DATA\n"
 RAW_LIMIT = 64 * 1024 * 1024
 STDERR_LIMIT = 16 * 1024
 # Claude Code 2.1.299 reports exit code 1 of grep/rg/find/diff/test as a non-error with one of
@@ -292,6 +338,7 @@ class Translator:
         self._message: str | None = None
         self._streamed: set[str] = set()
         self._usage: dict[str, dict] = {}
+        self._assistant_count = 0
         self._blocks: dict[tuple, dict] = {}
         self._progress: dict[Any, dict] = {}
         self._tools: dict[str, dict] = {}
@@ -521,6 +568,10 @@ class Translator:
             return []
         if message.get("stop_reason") == "refusal":
             self._refused = True
+        self._assistant_count += 1
+        msg_id = message.get("id")
+        if isinstance(msg_id, str) and msg_id and msg_id not in self._usage and isinstance(message.get("usage"), dict):
+            self._usage[msg_id] = dict(message["usage"])
         streamed = message.get("id") in self._streamed
         rows: list[dict] = []
         for block in message.get("content") or []:
@@ -719,12 +770,21 @@ class Translator:
         kept = FAILED_DIAGNOSTICS if failed else values
         return {key: value for key, value in values.items() if value is not None and key in kept}
 
+    def _first_request_usage(self) -> dict | None:
+        if self._usage:
+            return usage_of(next(iter(self._usage.values())))
+        result = self._result
+        if result and self._assistant_count <= 1:
+            return usage_of(result.get("usage"))
+        return None
+
     def _terminal(self, exit_code: int, error: dict | None = None) -> dict:
         result = self._result
         values = {
             "type": "turn.failed" if error else "turn.completed",
             "error": error,
             "usage": usage_of(result.get("usage")) if result else None,
+            "first_request_usage": self._first_request_usage(),
             "cost_usd": self._cost(),
             "cost_state": self._cost_state(),
             "claude": self._diagnostics(exit_code, failed=bool(error)),
@@ -1008,6 +1068,38 @@ def _write_ledger(ledger: Path, translator: Translator) -> None:
                 os.unlink(temporary)
 
 
+def split_system_and_user_prompt(base_system: str, raw_prompt: str) -> tuple[str, str]:
+    """Move static instructions, output contract, and contract-pure handoff keys to system prompt.
+
+    Enforces ``SYSTEM_PROMPT_LIMIT`` so a single ``--append-system-prompt`` argv entry never
+    exceeds the OS argv bound; falls back cleanly to instructions-only or unchanged stdin.
+    """
+    if _CURRENT_HANDOFF_MARKER not in raw_prompt:
+        return base_system, raw_prompt
+    before, _, after = raw_prompt.partition(_CURRENT_HANDOFF_MARKER)
+    stripped_after = after.lstrip()
+    if not stripped_after:
+        return base_system, raw_prompt
+    try:
+        handoff, end = json.JSONDecoder().raw_decode(stripped_after)
+    except ValueError:
+        return base_system, raw_prompt
+    if not isinstance(handoff, dict) or stripped_after[end:].strip():
+        return base_system, raw_prompt
+
+    sys_handoff = {k: handoff[k] for k in sorted(handoff) if k in _SYSTEM_HANDOFF_SET}
+    user_handoff = {k: v for k, v in handoff.items() if k not in _SYSTEM_HANDOFF_SET}
+    parts = [part for part in (base_system.strip(), before.strip()) if part]
+    instr_system = "\n\n".join(parts)
+    if sys_handoff:
+        candidate = instr_system + _STABLE_SYSTEM_MARKER + _compact(sys_handoff)
+        if len(candidate.encode("utf-8")) <= SYSTEM_PROMPT_LIMIT:
+            return candidate, _CURRENT_HANDOFF_MARKER + _compact(user_handoff) + "\n"
+    if len(instr_system.encode("utf-8")) <= SYSTEM_PROMPT_LIMIT:
+        return instr_system, _CURRENT_HANDOFF_MARKER + _compact(handoff) + "\n"
+    return base_system, raw_prompt
+
+
 def _run(arguments: list[str]) -> int:
     options, claude = _parse(arguments)
     try:
@@ -1030,13 +1122,30 @@ def _run(arguments: list[str]) -> int:
     translator = Translator(resumed=resumed, previous_cost=previous, native_projects=_native_projects())
     raw = _Sidecar(options.get("--raw"))
     try:
-        try:
-            child = subprocess.Popen(command, stdin=None, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        except OSError as error:
-            _emit(translator.start_failure(claude[0], error))
-            raw.write({"type": "exit", "code": None, "error": str(error)[:500]})
-            return 127 if isinstance(error, FileNotFoundError) else 126
-        return _supervise(child, translator, raw, ledger)
+        with contextlib.ExitStack() as stack:
+            stdin_file = None
+            if (
+                resumed is None
+                and "--resume" not in command
+                and "--append-system-prompt" in command
+                and sys.stdin is not None
+                and not sys.stdin.isatty()
+            ):
+                sys_idx = command.index("--append-system-prompt")
+                if sys_idx + 1 < len(command):
+                    raw_prompt = sys.stdin.read()
+                    new_system, new_user = split_system_and_user_prompt(command[sys_idx + 1], raw_prompt)
+                    command[sys_idx + 1] = new_system
+                    stdin_file = stack.enter_context(tempfile.TemporaryFile(mode="w+", encoding="utf-8"))
+                    stdin_file.write(new_user)
+                    stdin_file.seek(0)
+            try:
+                child = subprocess.Popen(command, stdin=stdin_file, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            except OSError as error:
+                _emit(translator.start_failure(claude[0], error))
+                raw.write({"type": "exit", "code": None, "error": str(error)[:500]})
+                return 127 if isinstance(error, FileNotFoundError) else 126
+            return _supervise(child, translator, raw, ledger)
     finally:
         raw.close()
 

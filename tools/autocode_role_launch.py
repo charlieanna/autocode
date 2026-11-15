@@ -37,6 +37,7 @@ try:
     from . import autocode_planning as planning
     from . import autocode_planning_recovery_policy as planning_recovery_policy
     from . import autocode_progressive_state as progressive_state
+    from . import autocode_prompt_layout as prompt_layout
     from . import autocode_provider_auth as provider_auth
     from . import autocode_provider_env as provider_env
     from . import autocode_provider_launch as provider_launch
@@ -73,6 +74,7 @@ except ImportError:
     import autocode_planning as planning
     import autocode_planning_recovery_policy as planning_recovery_policy
     import autocode_progressive_state as progressive_state
+    import autocode_prompt_layout as prompt_layout
     import autocode_provider_auth as provider_auth
     import autocode_provider_env as provider_env
     import autocode_provider_launch as provider_launch
@@ -604,3 +606,10 @@ def record_after(state: RunState, record, workspace, base, before, events, *, sa
     support.summarize_events(events, summary_path)
     record["tool_evidence"] = str(summary_path)
     return after
+
+
+def bind_prompt_metrics(state: RunState, record: dict[str, Any], prompt: str) -> None:
+    """Record exact UTF-8 prompt byte splits and top handoff fields on the launch record (#3347)."""
+    metrics = prompt_layout.refresh_metrics(prompt, state.pop("pending_context_metrics", {}))
+    record["prompt_bytes"] = metrics["prompt_bytes"]
+    record["context"] = metrics

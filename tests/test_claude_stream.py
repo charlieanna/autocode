@@ -1115,6 +1115,121 @@ class ProcessTests(TempMixin, unittest.TestCase):
         self.assertEqual([report], [json.loads(item["text"]) for item in delivered])
         self.assertEqual("turn.completed", rows[-1]["type"])
 
+    def test_split_system_and_user_prompt_enforces_system_limit_and_fallbacks(self):
+        from unittest import mock
+
+        base_sys = "CLAUDE CODE OUTPUT CONTRACT\n"
+        handoff = {
+            "acceptance_criteria": ["AC1"],
+            "stage": "builder",
+            "workspace": "/repo",
+            "current_task": {"id": "T1"},
+            "validation": {"verdict": "FAIL"},
+        }
+        raw = "Stage body.\n\nCURRENT HANDOFF DATA\n" + json.dumps(handoff, separators=(",", ":"))
+        sys_out, user_out = claude_stream.split_system_and_user_prompt(base_sys, raw)
+        self.assertIn("CLAUDE CODE OUTPUT CONTRACT", sys_out)
+        self.assertIn("Stage body.", sys_out)
+        self.assertIn("\nSTABLE HANDOFF DATA\n", sys_out)
+        sys_handoff = json.loads(sys_out.split("\nSTABLE HANDOFF DATA\n", 1)[1])
+        self.assertEqual({"acceptance_criteria", "stage", "workspace"}, set(sys_handoff))
+        self.assertTrue(user_out.startswith("\nCURRENT HANDOFF DATA\n"))
+        user_handoff = json.loads(user_out.split("\nCURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual({"current_task", "validation"}, set(user_handoff))
+
+        # Fall back to instructions-only in system prompt when stable handoff pushes over limit.
+        oversized = {"stage": "builder", "workspace": "w" * 500, "validation": {"x": 1}}
+        raw_over = "Stage body.\n\nCURRENT HANDOFF DATA\n" + json.dumps(oversized, separators=(",", ":"))
+        with mock.patch.object(claude_stream, "SYSTEM_PROMPT_LIMIT", 120):
+            sys_fb, user_fb = claude_stream.split_system_and_user_prompt(base_sys, raw_over)
+            self.assertNotIn("\nSTABLE HANDOFF DATA\n", sys_fb)
+            self.assertIn("Stage body.", sys_fb)
+            self.assertEqual(oversized, json.loads(user_fb.split("\nCURRENT HANDOFF DATA\n", 1)[1]))
+
+        # Fall back to unchanged (base_sys, raw) if even instructions exceed SYSTEM_PROMPT_LIMIT,
+        # or if prompt has no valid CURRENT HANDOFF DATA JSON object.
+        with mock.patch.object(claude_stream, "SYSTEM_PROMPT_LIMIT", 10):
+            self.assertEqual((base_sys, raw_over), claude_stream.split_system_and_user_prompt(base_sys, raw_over))
+        self.assertEqual(
+            (base_sys, "plain prompt"), claude_stream.split_system_and_user_prompt(base_sys, "plain prompt")
+        )
+
+    def test_first_request_usage_tracks_cold_first_message_and_ignores_rate_limit_digits(self):
+        msg1 = {
+            "type": "assistant",
+            "message": {
+                "id": "msg_1",
+                "usage": {
+                    "input_tokens": 50,
+                    "cache_creation_input_tokens": 20429,
+                    "cache_read_input_tokens": 2000,
+                    "output_tokens": 100,
+                },
+                "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "true"}}],
+            },
+        }
+        msg2 = {
+            "type": "assistant",
+            "message": {
+                "id": "msg_2",
+                "usage": {
+                    "input_tokens": 30,
+                    "cache_creation_input_tokens": 500,
+                    "cache_read_input_tokens": 40000,
+                    "output_tokens": 150,
+                },
+                "content": [{"type": "text", "text": "done"}],
+            },
+        }
+        final = result(
+            usage={
+                "input_tokens": 80,
+                "cache_creation_input_tokens": 20929,
+                "cache_read_input_tokens": 42000,
+                "output_tokens": 250,
+            },
+            structured_output={"ok": True},
+        )
+        rows, code = translate([init(), msg1, msg2, final])
+        self.assertEqual(0, code)
+        terminal = rows[-1]
+        self.assertEqual("turn.completed", terminal["type"])
+        self.assertEqual(2000, terminal["first_request_usage"]["cached_input_tokens"])
+        self.assertEqual(20429, terminal["first_request_usage"]["cache_write_tokens"])
+        self.assertEqual(42000, terminal["usage"]["cached_input_tokens"])
+
+        metrics = autocode_event_metrics.summarize(rows, None, None)
+        self.assertEqual(2000, metrics["first_request_tokens"]["cached_input_tokens"])
+        self.assertEqual(20429, metrics["first_request_tokens"]["cache_write_tokens"])
+
+        # Numbers like 429 in first_request_usage on turn.failed must never misclassify a generic failure.
+        failed_msg = {
+            "type": "assistant",
+            "message": {
+                "id": "msg_fail",
+                "usage": {
+                    "input_tokens": 1,
+                    "cache_creation_input_tokens": 429,
+                    "cache_read_input_tokens": 0,
+                    "output_tokens": 10,
+                },
+                "content": [{"type": "text", "text": "stopped"}],
+            },
+        }
+        failed_result = result(
+            is_error=True,
+            subtype="error_during_execution",
+            result="ordinary backend crash",
+            usage={
+                "input_tokens": 1,
+                "cache_creation_input_tokens": 429,
+                "cache_read_input_tokens": 0,
+                "output_tokens": 10,
+            },
+        )
+        failed_rows, _ = translate([init(), failed_msg, failed_result], exit_code=1)
+        self.assertNotEqual("PAUSED_RATE_LIMIT", support.failure_status(self.write(failed_rows)))
+
 
 if __name__ == "__main__":
     unittest.main()

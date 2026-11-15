@@ -14,6 +14,7 @@ try:
     from .. import autocode_check_replay as check_replay
     from .. import autocode_goals as goals
     from .. import autocode_names as names
+    from .. import autocode_prompt_layout as prompt_layout
     from .. import autocode_stage_access as stage_access
     from .. import autocode_stage_context as stage_context
     from .. import autocode_support as support
@@ -27,6 +28,7 @@ except ImportError:
     import autocode_check_replay as check_replay
     import autocode_goals as goals
     import autocode_names as names
+    import autocode_prompt_layout as prompt_layout
     import autocode_stage_access as stage_access
     import autocode_stage_context as stage_context
     import autocode_support as support
@@ -94,12 +96,12 @@ def execution_request(state: "RunState", stage, state_path, schema_dir, *, repor
             state.get("current_task"),
             notes=test_cases.builder_note(state) + acceptance_tests.builder_note(state) + assignment.BUILD_OUTPUT_NOTE,
         )
-        metrics = {**metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4}
+        metrics = prompt_layout.refresh_metrics(prompt, metrics)
     if stage == "tester":
         prompt = prompt.replace(
             "\nCURRENT HANDOFF DATA\n",
             check_replay.VALIDATOR_NOTE + "\nCURRENT HANDOFF DATA\n",
             1,
         )
-        metrics = {**metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4}
+        metrics = prompt_layout.refresh_metrics(prompt, metrics)
     return ModelRequest(role, autoplanner.route_for(state, stage, role), prompt, metrics, schema, role == "builder")

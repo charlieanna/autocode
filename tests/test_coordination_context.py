@@ -135,7 +135,7 @@ class CoordinationContextTests(unittest.TestCase):
         for stage in ("requirements_gather", "draft_plan", "review_plan", "revise_plan", "finalize_plan"):
             with self.subTest(stage=stage):
                 prompt, _ = autoplanner.context(self.state, stage, self.run / "state.json")
-                packets = [json.loads(line) for line in prompt.splitlines() if line.startswith('{"task":')]
+                packets = [json.loads(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[1])]
                 self.assertEqual(receipt, packets[-1]["coordinated_member"]["scope_assignment"])
                 repaired = repair.clarification_context(self.state, stage)
                 self.assertEqual(receipt, repaired["coordinated_member"]["scope_assignment"])
@@ -299,7 +299,7 @@ class CoordinationContextTests(unittest.TestCase):
                 self.assertNotIn("REAL JOINT PROOF IS NOT A LOCAL PROXY", prompt)
                 self.assertNotIn("coordinated_member", repair.clarification_context(joint, stage))
         prompt, _ = runtime.context_packet(joint, "builder", self.run / "state.json")
-        packets = [json.loads(line) for line in prompt.splitlines() if line.startswith('{"task":')]
+        packets = [json.loads(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[1])]
         self.assertNotIn("coordinated_member", packets[-1])
 
     def test_member_context_lists_only_producers_by_authenticated_role_not_name(self):
@@ -356,10 +356,10 @@ class CoordinationContextTests(unittest.TestCase):
         for stage in ("requirements_gather", "draft_plan", "review_plan"):
             with self.subTest(stage=stage):
                 prompt, _ = autoplanner.context(self.state, stage, self.run / "state.json")
-                packets = [json.loads(line) for line in prompt.splitlines() if line.startswith('{"task":')]
+                packets = [json.loads(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[1])]
                 self.assertEqual(expected, packets[-1]["coordinated_member"])
         prompt, _ = runtime.context_packet(self.state, "builder", self.run / "state.json")
-        packets = [json.loads(line) for line in prompt.splitlines() if line.startswith('{"task":')]
+        packets = [json.loads(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[1])]
         self.assertEqual(expected, packets[-1]["coordinated_member"])
         repaired = repair.clarification_context(self.state, "requirements_gather")
         self.assertEqual(expected, repaired["coordinated_member"])

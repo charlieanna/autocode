@@ -631,6 +631,7 @@ def _aggregate_stage_prompts(rows: list[dict[str, Any]]) -> dict[str, Any]:
     recorded_runs = 0
     not_recorded_runs = 0
     by_job: dict[str, dict[str, Any]] = {}
+    all_overages: dict[str, int] = {}
     for row in rows:
         prompts = row.get("stage_prompts")
         if not isinstance(prompts, list):
@@ -640,44 +641,99 @@ def _aggregate_stage_prompts(rows: list[dict[str, Any]]) -> dict[str, Any]:
         for raw_entry in prompts:
             entry = _dict(raw_entry)
             job = str(entry.get("job") or entry.get("stage") or "Other")
-            bucket = by_job.setdefault(job, {"bytes": [], "cache_read": [], "cache_write": [], "attempts": 0})
+            bucket = by_job.setdefault(
+                job,
+                {
+                    "bytes": [],
+                    "instr_bytes": [],
+                    "stable_bytes": [],
+                    "changing_bytes": [],
+                    "cache_read": [],
+                    "cache_write": [],
+                    "overages": {},
+                    "top_fields": {},
+                    "attempts": 0,
+                },
+            )
             bucket["attempts"] += 1
-            pbytes = _nonneg_int(entry.get("prompt_bytes"))
-            if pbytes is not None:
-                bucket["bytes"].append(float(pbytes))
+            for src_key, dst_key in (
+                ("prompt_bytes", "bytes"),
+                ("instruction_bytes", "instr_bytes"),
+                ("stable_handoff_bytes", "stable_bytes"),
+                ("changing_handoff_bytes", "changing_bytes"),
+            ):
+                val = _nonneg_int(entry.get(src_key))
+                if val is not None:
+                    bucket[dst_key].append(float(val))
             cread = _nonneg_int(entry.get("first_request_cache_read_tokens"))
             if cread is not None:
                 bucket["cache_read"].append(float(cread))
             cwrite = _nonneg_int(entry.get("first_request_cache_write_tokens"))
             if cwrite is not None:
                 bucket["cache_write"].append(float(cwrite))
+            budgeted = entry.get("budgeted_fields")
+            if isinstance(budgeted, list):
+                for field in budgeted:
+                    if isinstance(field, str) and field:
+                        bucket["overages"][field] = bucket["overages"].get(field, 0) + 1
+                        all_overages[field] = all_overages.get(field, 0) + 1
+            top_fields = entry.get("top_handoff_fields")
+            if isinstance(top_fields, list):
+                for item in top_fields:
+                    if not isinstance(item, dict) or not isinstance(item.get("field"), str):
+                        continue
+                    fbytes = _nonneg_int(item.get("bytes"))
+                    if fbytes is not None:
+                        bucket["top_fields"].setdefault(item["field"], []).append(float(fbytes))
 
     jobs_out = []
     for job, bucket in by_job.items():
         byte_stats = _stats(bucket["bytes"], digits=1)
         read_stats = _stats(bucket["cache_read"], digits=1)
         write_stats = _stats(bucket["cache_write"], digits=1)
+        total_read = int(sum(bucket["cache_read"])) if bucket["cache_read"] else 0
+        total_write = int(sum(bucket["cache_write"])) if bucket["cache_write"] else 0
+        denom = total_read + total_write
+        cache_hit_share = round(total_read / denom, 4) if denom > 0 else None
+        top_summary = sorted(
+            (
+                {
+                    "field": field,
+                    "count": len(vals),
+                    "median_bytes": _stats(vals, digits=1)["median"],
+                }
+                for field, vals in bucket["top_fields"].items()
+            ),
+            key=lambda item: (-(item["median_bytes"] or 0.0), -item["count"], item["field"]),
+        )[:3]
         jobs_out.append(
             {
                 "job": job,
                 "attempts": bucket["attempts"],
                 "prompt_bytes": byte_stats,
+                "instruction_bytes": _stats(bucket["instr_bytes"], digits=1),
+                "stable_handoff_bytes": _stats(bucket["stable_bytes"], digits=1),
+                "changing_handoff_bytes": _stats(bucket["changing_bytes"], digits=1),
                 "first_request_cache_read_tokens": {
                     "count": read_stats["count"],
                     "median": read_stats["median"],
-                    "total": int(sum(bucket["cache_read"])) if bucket["cache_read"] else None,
+                    "total": total_read if bucket["cache_read"] else None,
                 },
                 "first_request_cache_write_tokens": {
                     "count": write_stats["count"],
                     "median": write_stats["median"],
-                    "total": int(sum(bucket["cache_write"])) if bucket["cache_write"] else None,
+                    "total": total_write if bucket["cache_write"] else None,
                 },
+                "first_request_cache_hit_share": cache_hit_share,
+                "field_budget_overages": dict(sorted(bucket["overages"].items())),
+                "top_handoff_fields": top_summary,
             }
         )
     jobs_out.sort(key=lambda item: (-(item["prompt_bytes"]["median"] or 0.0), item["job"]))
     return {
         "recorded_runs": recorded_runs,
         "not_recorded_runs": not_recorded_runs,
+        "field_budget_overages": dict(sorted(all_overages.items())),
         "by_job": jobs_out,
     }
 
@@ -897,6 +953,19 @@ def format_report(payload: dict[str, Any]) -> str:
                 f"    {size:<12} n={group['completed_runs']} calls_med={_fmt_num(mc['median'])} "
                 f"wall_med={_fmt_num(ws['median'], 's')} spent_med={spent_str}"
             )
+
+        sp_summary = cohort["stage_prompts"]
+        if sp_summary["by_job"]:
+            lines.append(f"  Stage prompts ({sp_summary['recorded_runs']} runs):")
+            for item in sp_summary["by_job"][:8]:
+                lines.append(
+                    f"    {item['job']:<22} n={item['attempts']} bytes_med={_fmt_num(item['prompt_bytes']['median'])} "
+                    f"stable_med={_fmt_num(item['stable_handoff_bytes']['median'])} "
+                    f"cache_hit={_fmt_pct(item['first_request_cache_hit_share'])}"
+                )
+            if sp_summary["field_budget_overages"]:
+                overages = ", ".join(f"{k}={v}" for k, v in sp_summary["field_budget_overages"].items())
+                lines.append(f"  Field budget overages: {overages}")
 
         tm = cohort["targets"]["metrics"]
         lines.append("  Targets (observational only):")

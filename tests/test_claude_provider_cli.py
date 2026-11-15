@@ -169,6 +169,7 @@ class ClaudeProviderCliTests(unittest.TestCase):
         prints = self.prints()
         self.assertGreater(len(prints), 5)
         for call in prints:
+            self.assertTrue(call.get("has_stable_system_handoff"), call)
             argv = call["argv"]
             self.assertEqual(["-p", "--json-schema"], argv[:2])
             self.assertNotIn("--resume", argv)  # every ordinary stage starts a fresh session
@@ -215,6 +216,8 @@ class ClaudeProviderCliTests(unittest.TestCase):
             call for call in prints if call["prompt_head"].startswith("Your previous final message could not be parsed")
         ]
         self.assertEqual((1, 1), (len(tester), len(correction)))
+        self.assertTrue(tester[0].get("has_stable_system_handoff"), tester[0])
+        self.assertFalse(correction[0].get("has_stable_system_handoff"), correction[0])
         first = self.events(self.attempts(view, "tester")[0])[0]["thread_id"]
         argv = correction[0]["argv"]
         self.assertEqual(first, argv[argv.index("--resume") + 1])
