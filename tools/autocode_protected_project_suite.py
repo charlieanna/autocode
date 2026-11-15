@@ -22,7 +22,7 @@ the bound runner.
 from __future__ import annotations
 
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 try:
     from . import autocode_package_scope as package_scope
@@ -103,3 +103,30 @@ def python_command(invocation, bound, names, workspace) -> str | None:
         return None
     targeted = found.targeted(names)
     return None if targeted == found.suite else targeted
+
+
+def python_parts(invocation, bound, names, workspace) -> list[str] | None:
+    """One command for each project that holds some of the test modules ``names``, when they are in more
+    than one below a root that is no project of its own, or None.
+
+    One change may fix ``api/`` and ``worker/``, two Python projects side by side. The proof proves each
+    project's tests with its own suite (autocode_companion_suites.test_suites); one command from the root
+    could import neither project's code, and the gate failed on both (checked without a model, 2026-11-15).
+    Modules outside every project run from the root, narrowed as before. None when any of them cannot be
+    run that way: the bound command then runs where it was bound.
+    """
+    if package_scope.is_project(workspace) or not _moves(invocation):
+        return None
+    groups: dict[str, list[str]] = {}
+    for name in names:
+        around = package_scope.projects_around(workspace, PurePosixPath(name).parent)
+        groups.setdefault(around[0] if around else "", []).append(name)
+    if len(groups) < 2:
+        return None
+    parts = []
+    for project, files in sorted(groups.items()):
+        part = python_command(invocation, bound, files, workspace) if project else invocation.targeted(files)
+        if not part or part == bound:
+            return None
+        parts.append(part)
+    return parts

@@ -371,13 +371,14 @@ def for_tests(root, framework, tests, detect_in) -> PackageFramework | None:
     tests = sorted(tests)
     if not tests:
         return None
-    if framework is not None and framework.targeted(tests) and _is_project(Path(root)):
+    if framework is not None and framework.targeted(tests) and is_project(root):
         return None
     return enclosing(root, tests, detect_in)
 
 
-def _is_project(directory: Path) -> bool:
-    return _has(directory, MANIFESTS)
+def is_project(root) -> bool:
+    """Whether the repository root holds a manifest of its own."""
+    return _has(Path(root), MANIFESTS)
 
 
 def link_node_modules(tree, roots) -> None:

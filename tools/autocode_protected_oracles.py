@@ -41,6 +41,7 @@ try:
     from . import autocode_protected_store as store
     from . import autocode_python_test_roles as test_roles
     from . import autocode_python_tests as python_tests
+    from . import autocode_scratch_suites as scratch_suites
     from . import autocode_superseded_tests as superseded_tests
     from . import autocode_test_role_correction as role_correction
     from . import autocode_test_role_inventory as role_inventory
@@ -56,6 +57,7 @@ except ImportError:
     import autocode_protected_store as store
     import autocode_python_test_roles as test_roles
     import autocode_python_tests as python_tests
+    import autocode_scratch_suites as scratch_suites
     import autocode_superseded_tests as superseded_tests
     import autocode_test_role_correction as role_correction
     import autocode_test_role_inventory as role_inventory
@@ -322,6 +324,16 @@ def replay_command(command, changed, workspace, *, detected=True):
     return nested or invocation.targeted(names) or command
 
 
+def replay_parts(command, changed, workspace, *, detected=True) -> list:
+    """The commands that together run the changed tests: ``replay_command``'s one, or one for each project
+    when that command was narrowed to Python test modules of several projects below a root that is no
+    project of its own (autocode_protected_project_suite.python_parts)."""
+    single = replay_command(command, changed, workspace, detected=detected)
+    if detected and single and single != command and (invocation := python_tests.parse(command)):
+        return project_suite.python_parts(invocation, command, sorted(changed), workspace) or [single]
+    return [single] if single else []
+
+
 def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=None):
     """Run the changed original tests on the candidate and with the original tests overlaid.
 
@@ -355,7 +367,8 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
         return result
     directory = Path(out) / "protected-tests" / uuid.uuid4().hex
     original = record["command"] or _plan_suite(state, record)
-    command = replay_command(original, changed, workspace, detected=project_suite.detected(state))
+    parts = replay_parts(original, changed, workspace, detected=project_suite.detected(state))
+    command = " ; ".join(parts)
     if not command:
         result.update(
             verdict="NOT_VERIFIED", error="No original suite command was available; explicit user revision required"
@@ -374,17 +387,25 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
             "superseded": _listed(replaced, changed),
         }
 
-        def run(label, **overlays):
+        def run_part(part, folder, label, overlays):
             def execute(folder):
-                return scratch_run(workspace, folder, command=command, timeout=timeout, **overlays)
+                return scratch_run(workspace, folder, command=part, timeout=timeout, **overlays)
 
             if run_check is None:
-                return execute(directory / label)
+                return execute(folder)
             return run_check(
                 label,
                 execute,
-                policy=policy,
+                policy={**policy, "command": part},
                 accepted_failure=lambda row: superseded_tests.excused(row, replaced, changed) is not None,
+            )
+
+        def run(label, **overlays):
+            if len(parts) == 1:
+                return run_part(command, directory / label, label, overlays)
+            # One run for each project's changed tests; the half fails when any of them does.
+            return scratch_suites.merged(
+                run_part(part, directory / label / str(index), label, overlays) for index, part in enumerate(parts)
             )
 
         result["candidate"] = run("candidate")
@@ -443,6 +464,8 @@ def _plan_suite(state: RunState, record):
 
 
 def _failed(row):
+    if isinstance(row, dict) and row.get("suites"):
+        return any(_failed(run) for run in row["suites"])
     return (
         not isinstance(row, dict)
         or row.get("exit_code") != 0

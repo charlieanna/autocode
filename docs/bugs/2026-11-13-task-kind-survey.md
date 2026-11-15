@@ -1480,7 +1480,8 @@ tests put back.
 
 Still open: the Tester's acceptance-test job still judges its files by path alone; a Python project below
 the root whose root suite is another language's; a project the change itself adds (its manifest is not in
-the original tree); changed original tests in two projects at once, which no one command runs; and the
+the original tree); changed original tests in two projects at once, which no one command runs (section 49
+fixes this for two Python projects); and the
 root's `unittest discover`, bound as the original-test command although it runs no test there
 (section 47 fixes what that cost a bug fix in `api/`).
 
@@ -1631,6 +1632,68 @@ and, seen while checking this one without a model, a Python tool folder inside a
 (`package.json` at the root, `scripts/pyproject.toml`): its fix is proven with its own suite, but the gate of
 the original tests runs the root's `npm test`, which runs none of them, so a weakened original assertion
 there is not caught by that gate.
+
+## 49. One bug fixed in two Python projects of a repository: both test files are edited to get past the proof, and the person is still asked (fixed)
+
+A repository of `api/` and `worker/`, each a Python project with its own `pyproject.toml` and unittest tests
+that import its own code (`from orders import page_count`; the README says `cd api && python3 -m unittest
+discover -s tests`, and the same for `worker/`), with no manifest at the root. The request: "Eleven orders at
+five a page come out as 2 pages, in the API's orders listing and in the worker's digest of jobs. Eleven need
+three pages. Fix page_count in both and add a regression test to each."
+
+**On master** the run ended `WAITING_FOR_USER` after 20 stages (505 s, $3.45; bundle manifest
+`2372b7f5f913d3720e6bd25a544ce815fb3c4a73b0839ca733a8bba8716f1c51`). Both fixes and both tests were right at
+the first attempt. The proof ran the two projects' tests with one command from the root, `python3 -m unittest
+-v api/tests/test_orders.py worker/tests/test_jobs.py`, where neither `orders` nor `jobs` can be imported,
+and failed twice: "The regression command ran no passing tests", "On the unfixed code the new tests only fail
+to import or collect (unittest.loader._FailedTest.test_jobs, unittest.loader._FailedTest.test_orders), so no
+test shows the bug". The Builder was sent back and added `sys.path.insert(0, ...)` to both projects' test
+files. The third proof was then `UNVERIFIED` ("The project suite exited 5 on the candidate with no failing
+test reported": the root's `python3 -m unittest discover -v` finds no test), and the Resolver asked: "Correct
+the saved suite verification command. Replace `python3 -m unittest discover -v` with the per-project suites
+documented in README.md: `cd api && python3 -m unittest discover -v -s tests` and `cd worker && ...`", with
+making both projects packages as the other choice.
+
+A change in one of the two projects is proven from inside it (sections 47 and 48): the proof gives the changed
+tests to the project around them. With tests in two projects no one project is around them, so the proof fell
+back to the root's suite. Tests of another kind in a second project are already proven by that project's own
+suite (section 27), because the root's runner cannot run them; a Python runner at the root can name another
+Python project's files, so they were never handed over. The gate of the original tests had the same fault
+(section 47 left "two projects" to the bound command): it ran both files from the root and failed on the
+change and with the original tests put back.
+
+Fix, in two parts:
+
+- **The proof** (`autocode_companion_suites.test_suites`, `_apart`): below a root that is no project of its
+  own, a changed test that belongs to a project whose own suite runs it is proven by that suite, as a test of
+  another kind is. The proof's suite is the first project's, and each other project's tests are proven as a
+  change to that project alone is (its suite on the original code, its changed tests on both sides, their
+  repeats, its whole suite with the change).
+- **The gate of the original tests** (`autocode_protected_project_suite.python_parts`,
+  `autocode_protected_oracles.replay_parts`): where the changed test modules are in more than one project, or
+  in one and at the root, it runs one command for each, inside each project, on the change and again with the
+  original tests put back. Each must pass; the receipt keeps the runs under `suites` and their commands in
+  `replayed_command`.
+
+A root that is a project of its own, a command the person typed, a runner that names something by where it
+runs and a single project are as before. No gate is weakened: a project whose new test passes on the original
+code is still not proven, and a weakened original assertion in either project still fails the gate (both have
+tests).
+
+**With the fix** the same task is `TASK_COMPLETE` with one plan approval and no question (11 stages, 197 s,
+$1.57; manifest `cc7e690032289f3ad7fbc38ba40b7817a15554a6ac3a273cf306b0d5de3758ef`): the proof passed at its
+first attempt, with `cd api && python3 -m unittest discover -v -s tests` as its suite and the note "The
+changed tests worker/tests/test_jobs.py are in worker/ ... so that project's own suite `cd worker && ...`
+proves them as it would alone"; the gate passed with `cd api && python3 -m unittest -v tests/test_orders.py ;
+cd worker && python3 -m unittest -v tests/test_jobs.py`, exit codes 0 and 0 on the change and with the
+original tests put back; and neither test file got anything but its new tests.
+
+Still open: the Tester's acceptance tests written before the Builder (`--spec-first`) choose their suites the
+old way (`autocode_scratch_suites.suites`), so tests in two Python projects there would still run from the
+root; a test the approved plan replaces, in a change across two projects, is excused from the joined results
+of both runs; and a directory of code and tests that declares nothing (section 48), where the proof fails the
+same way for unittest tests in `tests/` or beside the code and for pytest tests in `tests/` (checked without
+a model).
 
 ## Also seen, not yet run on real models
 

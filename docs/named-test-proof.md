@@ -781,6 +781,13 @@ below it, the gate runs them inside that project with the bound runner
 of the original tests' command) runs where they typed it, and so does a runner that names something
 by where it runs: an environment set before it, an interpreter named by a relative path, a pytest
 option that names a path (`--rootdir`, `-c`, `--ignore`).
+Where the changed test modules are in more than one such project (`api/` and `worker/`), or in
+one and at the root, the gate runs one command for each, inside each project, on the change and
+again with the original tests put back (`cd api && python3 -m unittest -v tests/test_orders.py ;
+cd worker && python3 -m unittest -v tests/test_jobs.py`; `python_parts`). Each must pass: the
+receipt keeps the runs under `suites`, and one that fails with the original tests fails the gate.
+The proof runs the same tests the same way: a project's changed tests are proven by its own suite
+(`autocode_companion_suites.test_suites`), not by a root runner that could only name the files.
 An original internal test link also retains a declared oracle outside test roots
 when packaging, runtime imports and dynamic uncertainty do not give it a conflicting
 role. A candidate-added link cannot promote an original product or unknown endpoint.
