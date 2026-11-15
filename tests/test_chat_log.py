@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -568,7 +569,7 @@ class ProjectTests(unittest.TestCase):
         # Owner decision 2026-11-05: a small, clear task's review runs one level below the stage choice.
         lowered = {"level": "medium", "ceiling": "high", "lowered": True, "reason": "small_clear"}
         self.state["active_stage"].update(stage="review_plan", started_at="2026-11-05T11:35:55Z", effort_choice=lowered)
-        note, thought = self.project()
+        note, _start, thought = self.project()
         self.assertEqual(
             {
                 "id": "effort:2026-11-05T11:35:55Z",
@@ -580,7 +581,40 @@ class ProjectTests(unittest.TestCase):
         )
         self.assertEqual(("Plan Reviewer", "thinking"), (thought["agent"], thought["kind"]))
         self.state["active_stage"]["effort_choice"] = {**lowered, "level": "high", "lowered": False}
-        self.assertEqual(["thinking"], [entry["kind"] for entry in self.project()], "a kept level says nothing")
+        self.assertEqual(
+            ["message", "thinking"], [entry["kind"] for entry in self.project()], "a kept level says nothing"
+        )
+
+    def test_a_model_that_has_not_answered_yet_is_shown_starting_with_the_time_waited(self):
+        # 2026-11-15: a "hi" showed only "Requirements working" for 27 s while Kilo started, then glm-5.3
+        # answered in 3 s. Before the first event, the log says the model is starting and for how long.
+        self.events.write_text("")
+        self.state["active_stage"].update(
+            stage="requirements_gather", started_at="2026-11-15T03:11:31+00:00", model="zai-coding-plan/glm-5.3"
+        )
+        clock = datetime(2026, 11, 15, 3, 11, 55, tzinfo=UTC)
+        with patch.object(log, "_clock", return_value=clock):
+            [note] = self.project()
+        self.assertEqual(
+            {
+                "id": "start:2026-11-15T03:11:31+00:00",
+                "agent": "Requirements",
+                "kind": "message",
+                "text": "Starting zai-coding-plan/glm-5.3 and waiting for its first reply (24 s so far).",
+            },
+            note,
+        )
+        write(self.events, [codex("item.completed", "r1", type="reasoning", text="The task is just hi")])
+        started, thought = self.project()
+        self.assertEqual((note["id"], "Started zai-coding-plan/glm-5.3."), (started["id"], started["text"]))
+        self.assertEqual("thinking", thought["kind"])
+
+    def test_an_attempt_without_a_start_time_or_model_still_reads_plainly(self):
+        self.events.write_text("")
+        self.assertEqual([], self.project(), "no start time, no note")
+        self.state["active_stage"]["started_at"] = "not a time"
+        [note] = self.project()
+        self.assertEqual("Starting the model and waiting for its first reply.", note["text"])
 
     def test_an_attempt_that_cannot_be_confirmed_or_is_over_shows_nothing(self):
         self.assertEqual([], self.project(finished=True))
