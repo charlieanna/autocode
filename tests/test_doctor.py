@@ -21,6 +21,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 def fake_runner(outputs):
     """A command runner answering from a table: tuple(cmd) -> (exit code, stdout)."""
+    outputs = {(sys.executable, "-E", "-c", "import psutil"): (0, ""), **outputs}
 
     def runner(cmd, cwd=None):
         code, out = outputs.get(tuple(cmd), (127, ""))
@@ -34,6 +35,39 @@ def on_path(*names):
 
 
 class KeeperDependencyTests(unittest.TestCase):
+    def test_missing_process_dependency_skips_linux_containment_and_every_dependent_probe(self):
+        for detail in ("controller import is missing", "keeper interpreter import is missing"):
+            with self.subTest(detail=detail), tempfile.TemporaryDirectory() as folder:
+                dependency = doctor.Check("psutil", doctor.MISSING, detail, "reinstall AutoCode")
+                found = {}
+                is_file = Path.is_file
+                with (
+                    mock.patch.object(doctor, "psutil_check", return_value=dependency),
+                    mock.patch.object(
+                        doctor.tool_containment, "backend", return_value=doctor.tool_containment.BUBBLEWRAP
+                    ),
+                    mock.patch.object(
+                        doctor.tool_containment.Path,
+                        "is_file",
+                        lambda path: True if str(path) == doctor.tool_containment.BWRAP else is_file(path),
+                    ),
+                    mock.patch.object(
+                        doctor.captured, "run", side_effect=ModuleNotFoundError("psutil", name="psutil")
+                    ) as capture,
+                    mock.patch.object(doctor, "connected_choice", return_value=None) as connected,
+                    mock.patch.object(doctor, "local_compose_checks") as docker,
+                ):
+                    runner = mock.Mock(return_value=subprocess.CompletedProcess([], 127, "", ""))
+                    checks = doctor.all_checks(Path(folder), which=on_path(), runner=runner, found=found)
+                self.assertEqual({"connected": None, "containment": None}, found)
+                self.assertFalse(doctor.passed(checks))
+                self.assertIs(dependency, {row.name: row for row in checks}["psutil"])
+                self.assertIn("reinstall AutoCode", "\n".join(doctor.check_lines(checks)))
+                runner.assert_not_called()
+                capture.assert_not_called()
+                connected.assert_not_called()
+                docker.assert_not_called()
+
     def test_pythonpath_only_psutil_is_missing_for_the_keeper(self):
         import venv
 

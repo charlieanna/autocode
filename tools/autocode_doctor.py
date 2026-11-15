@@ -924,6 +924,22 @@ def all_checks(
     """``found``, when given, receives ``containment``: the containment_status() the checks show, or
     None when the run launches no built-in OpenCode stage (Codex, Claude Code, a configured provider),
     which then has no containment row."""
+    dependency = psutil_check(runner)
+    if dependency.status != OK:
+        # Provider, workspace and sandbox checks all launch owned commands.
+        # Diagnose their prerequisite before any of them can run.
+        if found is not None:
+            found.update(connected=None, containment=None)
+        return [
+            python_check(),
+            dependency,
+            Check(
+                "engine",
+                MISSING,
+                "Startup checks were skipped because safe process supervision is unavailable",
+                dependency.fix,
+            ),
+        ]
     # Read once, in the workspace as run setup reads it: the engine and containment checks both use it,
     # so an OpenCode that does not answer costs one timeout.
     opencode_version = (
@@ -958,7 +974,7 @@ def all_checks(
         found["containment"] = containment
     return [
         python_check(),
-        psutil_check(runner),
+        dependency,
         git_check(which, runner),
         *checks,
         verdict,
