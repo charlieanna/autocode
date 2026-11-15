@@ -27,7 +27,7 @@ visual-test = ["Pillow>=11.3,<13", "playwright>=1.56,<2"]
 
 # Only autocode is public; the other scripts remain internal compatibility aliases.
 [project.scripts]
-autocode = "autocode_cli.autocode:cli"
+autocode = "autocode_cli.autocode_entry:cli"
 
 [tool.autocode.cli]
 public-entry-points = ["autocode"]

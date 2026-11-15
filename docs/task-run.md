@@ -22,6 +22,29 @@ workspace where someone else may also run AutoCode, note `TaskRun.runs_in(worksp
 before the start and pass it as `attach(workspace, exclude=...)`, so that only a run
 created since can be adopted.
 
+### Warm local CLI host
+
+Clients stay thin: they invoke `autocode` as a normal argument array with no shell
+and never speak a custom socket protocol. On POSIX systems, when
+`AUTOCODE_SOURCE_HOST=1` is set in `autocode`'s environment (which the VS Code
+extension and `autocode chat` set automatically unless `AUTOCODE_SOURCE_HOST` is
+already set; `AUTOCODE_SOURCE_HOST=0` disables it), a stdlib-only entry layer routes
+read-only polls (`--status`, `status`, `--explain`, `--version`, `stages list --json`,
+`modes list --json`, `connections list --json`, `registry list --json`,
+`registry location --json`, `worktrees list --json`, and `runs --json`) over a
+`0700` per-user Unix-domain socket to a warm local host (`autocode_source_host`,
+#1707, #3618).
+
+The warm host keeps both the imported CLI modules and in-memory workspace
+`ContentHashes`, applies each caller's `cwd` and environment under a request lock,
+and keys its socket path on the Python runtime, Git/config environment, and a
+metadata digest of `tools/` and `pyproject.toml` so code edits never hit stale code.
+If no host is running yet, the caller starts one in the background and runs in-process
+transparently. Operators and scripts can also run or inspect the warm host directly
+with `autocode serve [--idle-seconds S]`, `autocode serve --status [--json]`, and
+`autocode serve --stop [--json]`. Mutating, interactive, and lifeline-guarded
+invocations always execute directly in their own process.
+
 ## Automatic coordination from chat
 
 For an unresolved bug with grounded external scope, `view.coordination` names
