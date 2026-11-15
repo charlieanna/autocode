@@ -244,6 +244,28 @@ function heldCostView(token = 'cost:current', operational = false) {
 }
 
 for (const surface of ['chat', 'Run details']) {
+  test(`a boundary pause in ${surface} can raise the per-step limit and resume`, async (t) => {
+    const ownController = new RunController(host.log);
+    const view = heldCostView('pause:current');
+    view.status = 'PAUSED_INTERVENTION';
+    view.needs.command_inputs[0] = {
+      id: 'max_stage_seconds', kind: 'integer', flag: '--max-stage-seconds', placeholder: 'N', arg_index: 2,
+      label: 'Time per step (seconds)', current: 600, used: 600, minimum: 601, maximum: 2147483647,
+      command: `AUTOCODE_EXPECTED_RECOVERY_TOKEN=pause:current autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused --max-stage-seconds N --expected-recovery-token -`,
+    };
+    const ui = surface === 'chat' ? await openChat(t, view, run, { controller: ownController }) : await openPanel(t, view, undefined, ownController);
+    const field = ui.document.querySelector('[data-question="raise:max_stage_seconds"]');
+    assert.ok(field);
+    assert.ok(ui.document.body.textContent.includes('Saved time per step: 600 seconds'));
+    field.value = '1200'; field.dispatchEvent(new ui.window.Event('input'));
+    const launch = t.mock.method(cli, 'stream', async () => ok);
+    const confirm = t.mock.method(host.vscode.window, 'showWarningMessage', async (_title, _opts, button) => button);
+    ui.document.querySelector('#raise-bound').click(); await flush();
+    assert.ok(confirm.mock.calls[0].arguments[1].detail.includes('later step'));
+    const [, args, env] = launch.mock.calls[0].arguments;
+    assert.deepEqual(args, ['--resume-paused', '--max-stage-seconds', '1200', '--expected-recovery-token', '-', '--workspace', run.workspace, '--run-dir', run.runDir]);
+    assert.deepEqual(env, { AUTOCODE_EXPECTED_RECOVERY_TOKEN: 'pause:current' });
+  });
   for (const operational of [false, true]) {
     test(`a limit held ${operational ? 'by an AutoResolver request' : 'behind a plain resume'} in ${surface} takes a typed raise through its named command`, async (t) => {
       host.config.set('confirmPersonOnly', false);

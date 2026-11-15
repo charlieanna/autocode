@@ -236,6 +236,7 @@ def named(view: dict, workspace: Path, run_dir: Path) -> NamedCommand:
 # current value can be fractional. A row for any other flag is refused, as is one that disagrees here.
 INTEGER_INPUTS = {
     "--max-seconds": ("max_seconds", "Total active time (seconds)", "elapsed", True),
+    "--max-stage-seconds": ("max_stage_seconds", "Time per step (seconds)", "used", False),
     "--max-cost-usd": ("max_cost_usd", "Cost cap (whole USD)", "used", True),
     "--max-iterations": ("max_iterations", "Total iterations", "used", False),
     "--max-milestone-seconds": ("max_milestone_seconds", "Milestone active time (seconds)", "used", True),
@@ -284,7 +285,7 @@ def check_input(view: dict, row, command: NamedCommand) -> dict:
         limits = (
             bounded
             and _count(used, fractional=fractional)
-            and maximum == MAX_SAFE_INTEGER
+            and maximum == (2147483647 if flag == "--max-stage-seconds" else MAX_SAFE_INTEGER)
             and _count(current, fractional=fractional and flag != "--max-seconds")
             and minimum == int(max(current, used)) + 1
         )
@@ -295,6 +296,7 @@ def check_input(view: dict, row, command: NamedCommand) -> dict:
         or row.get("kind") != "integer"
         or row.get("placeholder") != "N"
         or row.get("arg_index") not in ((1, 2) if flag == "--planning-review-call-limit" else (2,))
+        or (flag == "--max-stage-seconds" and current != used)
         or not _count(current, fractional=fractional and flag != "--max-seconds")
         or (current == 0 and flag != "--max-iterations")
         or need.get("new_run_required")

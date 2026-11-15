@@ -1823,6 +1823,12 @@ does not authorize a retry. The job issues a new token, so a client must read a
 fresh view before offering or taking any subsequent action. The VS Code sidebar
 and Run Details accept an explicit number for each row and confirm the save.
 
+At an idle intervention boundary, `needs.command_inputs` can also name a
+separate, pause-token-bound increase to the per-step time limit. This action
+resumes the run as well as saving the limit for later steps; its confirmation
+states both effects. It is not offered while a stage, runner check, report
+repair or uncertain artifact is active.
+
 `needs.command_inputs` describes the one number a pause leaves to a person, so a
 client can ask for it instead of handing the command off (#2044). Every bound a
 budget pause names is described, with the same row shape:

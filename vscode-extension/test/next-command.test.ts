@@ -176,6 +176,26 @@ test("a bound held behind a plain resume names its raise separately, bound to th
   assert.throws(() => boundOffer(elsewhere, own), ClientGap);
 });
 
+test("a boundary pause can increase the per-step limit and resume only with its current token", () => {
+  const view = costOffer(true);
+  view.status = "PAUSED_INTERVENTION";
+  view.needs!.command_inputs![0] = {
+    id: "max_stage_seconds", kind: "integer", flag: "--max-stage-seconds", placeholder: "N",
+    arg_index: 2, label: "Time per step (seconds)", current: 600, used: 600, minimum: 601,
+    maximum: 2147483647,
+    command: `AUTOCODE_EXPECTED_RECOVERY_TOKEN=current autocode --workspace ${WS} --run-dir ${RUN} --resume-paused --max-stage-seconds N --expected-recovery-token -`,
+  };
+  const offer = boundOffer(view, own)!;
+  assert.deepEqual(applyDecisions(offer.named.argv, { max_stage_seconds: "1200" }, [offer.input]),
+    ["--resume-paused", "--max-stage-seconds", "1200", "--expected-recovery-token", "-"]);
+  const stale = structuredClone(view);
+  stale.recovery!.token = "other";
+  assert.throws(() => boundOffer(stale, own), ClientGap);
+  const changed = structuredClone(view);
+  changed.needs!.command_inputs![0]!.used = 599;
+  assert.throws(() => boundOffer(changed, own), ClientGap);
+});
+
 test("splitCommandLine keeps quoted words whole", () => {
   assert.deepEqual(splitCommandLine(`autocode --feedback "keep the retry logic"`), [
     "autocode",

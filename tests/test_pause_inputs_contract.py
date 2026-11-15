@@ -71,6 +71,7 @@ def paused(status, **more):
                 "iteration_ceiling": 5,
                 "no_progress_batches": 3,
                 "planning_calls": 2,
+                "stage_timeout_seconds": 600,
             },
             "budget_origins": {key: "user_explicit" for key in ("max_seconds", "max_cost_usd", "iteration_ceiling")},
             "roles": {},

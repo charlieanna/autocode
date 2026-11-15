@@ -717,6 +717,7 @@ export async function confirmJobTime(state: PanelState, id: string, value: strin
 
 /** What raising a bound changes, and what it leaves alone. */
 export function boundEffect(input: IntegerCommandInput): string {
+  if (input.id === "max_stage_seconds") return "This changes the time limit for each later step and resumes the run. Saved work and model choices are kept.";
   if (input.id === "grant_recovery") {
     return "This replenishes spent recovery slots under the existing fixed allowance. Recovery history is retained; excess is not banked. Other saved limits and model routes stay the same. It does not approve a plan.";
   }
@@ -2080,6 +2081,8 @@ function formatBoundMetric(value) {
 function numericHelp(input) {
   const used = formatBoundMetric(input.used);
   const elapsed = formatBoundMetric(input.elapsed);
+  if (input.id === 'max_stage_seconds') return 'Saved time per step: ' + input.current
+    + ' seconds. Enter at least ' + input.minimum + ' seconds; this also applies to later steps.';
   if (input.id === 'grant_recovery') return 'Automatic recovery allowance: ' + input.current
     + '. Counted recoveries used: ' + used + '. Enter 1 to ' + input.maximum
     + ' additional recoveries. A grant replenishes spent slots; history is kept.';
