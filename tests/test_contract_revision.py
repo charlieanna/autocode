@@ -270,6 +270,17 @@ class DraftVerificationRevisionTests(unittest.TestCase):
                 {**base, "item": "milestones[M1].objective"}, duplicated, after, set(), revision.PROTECTED_LISTS
             )
         )
+        # A valid path on just one side is not evidence of an authorized
+        # change, even when the other body has a non-list milestone field.
+        malformed = copy.deepcopy(after)
+        malformed["milestones"] = {"M1": malformed["milestones"][0]}
+        for old, new in ((before, malformed), (malformed, after)):
+            with self.subTest(malformed_on="before" if old is malformed else "after"):
+                self.assertFalse(
+                    delta.engineering_delta(
+                        {**base, "item": "milestones[M1].objective"}, old, new, set(), revision.PROTECTED_LISTS
+                    )
+                )
 
     def suite_criterion_report(self):
         """The Plan Reviewer asked for a whole-suite check; AC4's runner-checked proof may not become it.
