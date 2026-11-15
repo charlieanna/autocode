@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -140,6 +141,30 @@ class MetadataCaptureTests(unittest.TestCase):
             with self.assertRaises(captured.ProcessError):
                 kilocode_policy.effective_agent(argv, self.env, self.root, cache=cache)
             self.assertEqual(1, run.call_count, "a kept policy must not bypass unresolved metadata ownership")
+
+    @unittest.skipUnless(os.name == "posix", "Linux metadata filesystem and locks")
+    def test_policy_workers_share_admission_and_resolve_both_reads_concurrently(self):
+        custody = captured.custody
+        together = threading.Barrier(2, timeout=2)
+
+        def metadata(words, **kwargs):
+            # Exercise the real admission contract below the injected backend.
+            # An unrelated worker cannot acquire the coordinator's lock.
+            with custody.admission(timeout=0):
+                together.wait()
+                value = {"default_agent": "code"} if words[-1] == "config" else {"permission": []}
+                return subprocess.CompletedProcess(words, 0, json.dumps(value), "")
+
+        with (
+            patch.dict(os.environ, {"HOME": str(self.root), "XDG_STATE_HOME": str(self.root / "state")}),
+            patch.object(custody.sys, "platform", "linux"),
+            patch.object(custody, "_boot_id", return_value="00000000-0000-4000-8000-000000000001"),
+            patch.object(captured, "run_metadata", side_effect=metadata) as run,
+        ):
+            _, policy = kilocode_policy.effective_agent([str(self.tool), "run"], self.env, self.root)
+            self.assertEqual({"permission": []}, policy)
+            self.assertEqual(2, run.call_count)
+            self.assertIsNone(custody.status())
 
     def test_metadata_bypasses_use_the_same_owned_runner_and_bounds(self):
         expected = subprocess.CompletedProcess([], 0, "using ChatGPT\n", "")
