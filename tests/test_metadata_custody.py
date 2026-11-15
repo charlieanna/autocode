@@ -63,6 +63,255 @@ class MetadataCustodyTests(unittest.TestCase):
         self.assertIsNone(custody.current())
         return scope
 
+    def bound_hold(self):
+        with self.assertRaises(custody.ProcessError) as caught:
+            with custody.admission(timeout=1) as scope:
+                scope.arm()
+        self.assertEqual("CustodyUncertain", type(caught.exception).__name__)
+        binding = getattr(caught.exception, "binding", None)
+        self.assertIsInstance(binding, dict)
+        return scope, binding
+
+    def test_uncertain_error_freezes_exact_metadata_identity_without_command_authority(self):
+        scope, binding = self.bound_hold()
+        self.assertEqual(
+            {"schema": 1, "scope": "metadata_check", "root": str(scope.root), "pending": custody._pending(scope.root)},
+            json.loads(json.dumps(binding)),
+        )
+        scope.group.members.append({"nonce": "0" * 32, "result_file": "result-" + "0" * 32 + ".json"})
+        self.assertEqual(1, len(binding["pending"]["attempts"]), "later membership cannot rewrite saved evidence")
+        self.assertFalse(custody.recover(binding))
+
+    def test_advancement_revalidates_primary_after_exact_journal_archive_without_writes(self):
+        scope, binding = self.bound_hold()
+        scope.result_path.write_text(json.dumps(self.response(scope.nonce)))
+        before = {path.name: path.read_bytes() for path in scope.root.iterdir()}
+        self.assertTrue(custody.recover(binding))
+        self.assertEqual(before, {path.name: path.read_bytes() for path in scope.root.iterdir()})
+        with custody.admission(timeout=1):
+            pass
+        archive = scope.root / ("collected-" + scope.group.nonce + ".json")
+        self.assertEqual(binding["pending"], json.loads(archive.read_text()))
+        self.assertTrue(scope.result_path.is_file(), "archiving retains the proof it depends on")
+        with patch.dict(os.environ, {"HOME": str(self.home / "another-user-store")}):
+            self.assertIsNone(custody.status())
+            self.assertTrue(custody.recover(binding), "recovery reads the original store, not global status")
+        scope.result_path.write_text(json.dumps(self.response(scope.nonce, clean=False)))
+        self.assertFalse(custody.recover(binding), "an archive alone is no cleanup stamp")
+
+    def test_advancement_accepts_retained_ancestor_proof_without_fabricating_command_result(self):
+        scope, binding = self.bound_hold()
+        ancestor = "a" * 32
+        path = scope.root / f"family-result-{scope.nonce}-{ancestor}.json"
+        packet = {
+            "schema": 1,
+            "family_clean": True,
+            "attempt_nonce": scope.nonce,
+            "ancestor_nonce": ancestor,
+            "boot_id": BOOT,
+        }
+        path.write_text(json.dumps(packet))
+        path.chmod(0o600)
+        self.assertTrue(custody.recover(binding))
+        with custody.admission(timeout=1):
+            pass
+        self.assertTrue(custody.recover(binding))
+        self.assertEqual(b"", scope.result_path.read_bytes(), "family settlement grants no old command result")
+        path.write_text(json.dumps({**packet, "family_clean": 1}))
+        self.assertFalse(custody.recover(binding))
+
+    def test_erasure_and_unrelated_success_never_release_original_hold(self):
+        scope, binding = self.bound_hold()
+        (scope.root / "pending.json").unlink()
+        with custody.admission(timeout=1) as other:
+            other.arm()
+            self.publish(other)
+        self.assertIsNone(custody.status())
+        self.assertFalse(custody.recover(binding))
+        with patch.object(custody, "_boot_id", return_value=NEXT_BOOT):
+            self.assertFalse(custody.recover(binding), "even a different boot needs the retained original journal")
+
+    def test_advancement_refuses_wrong_family_members_boot_root_and_malformed_bindings(self):
+        scope, binding = self.bound_hold()
+        scope.result_path.write_text(json.dumps(self.response(scope.nonce)))
+        self.assertTrue(custody.recover(binding))
+        variants = [None, {}, {**binding, "schema": True}, {**binding, "scope": "model_listing"}]
+        for key, value in (
+            ("group_nonce", "b" * 32),
+            ("boot_id", NEXT_BOOT),
+            ("uid", os.geteuid() + 1),
+            ("attempts", [{"nonce": "c" * 32, "result_file": "result-" + "c" * 32 + ".json"}]),
+        ):
+            variants.append({**binding, "pending": {**binding["pending"], key: value}})
+        variants.extend(({**binding, "root": str(self.home / "elsewhere")}, {**binding, "pending": {}}))
+        for bad in variants:
+            with self.subTest(binding=bad):
+                self.assertFalse(custody.recover(bad))
+        pending = scope.root / "pending.json"
+        original = pending.read_bytes()
+        pending.write_text(json.dumps({**binding["pending"], "attempts": []}))
+        self.assertFalse(custody.recover(binding))
+        pending.write_bytes(original)
+        archive = scope.root / ("collected-" + scope.group.nonce + ".json")
+        archive.write_bytes(original)
+        archive.chmod(0o600)
+        self.assertFalse(custody.recover(binding), "duplicate journals are ambiguous")
+
+    def test_only_actual_kernel_boot_change_releases_preserved_original_identity(self):
+        scope, binding = self.bound_hold()
+        self.assertFalse(custody.recover(binding))
+        with patch.object(custody, "_boot_id", return_value=NEXT_BOOT):
+            self.assertTrue(custody.recover(binding))
+            with custody.admission(timeout=1):
+                pass
+            self.assertTrue(custody.recover(binding))
+        self.assertFalse(custody.recover(binding), "a recorded previous-boot label grants no boot authority")
+
+    def test_advancement_requires_every_original_group_member_without_partial_membership(self):
+        with self.assertRaises(custody.ProcessError) as caught:
+            with custody.group(timeout=2):
+                with custody.admission(timeout=1) as first:
+                    first.arm()
+                    self.publish(first)
+                with custody.admission(timeout=1) as second:
+                    second.arm()
+        self.assertEqual("CustodyUncertain", type(caught.exception).__name__)
+        binding = caught.exception.binding
+        self.assertEqual(2, len(binding["pending"]["attempts"]))
+        self.assertFalse(custody.recover(binding))
+        second.result_path.write_text(json.dumps(self.response(second.nonce)))
+        self.assertTrue(custody.recover(binding))
+        partial = {**binding, "pending": {**binding["pending"], "attempts": binding["pending"]["attempts"][:1]}}
+        self.assertFalse(custody.recover(partial))
+        (second.root / "pending.json").write_text(json.dumps(partial["pending"]))
+        self.assertFalse(custody.recover(binding))
+
+    def test_missing_or_swapped_journal_retains_original_error_identity_without_release(self):
+        for swapped in (False, True):
+            with self.subTest(swapped=swapped), patch.dict(os.environ, {"HOME": str(self.home / str(swapped))}):
+                with self.assertRaises(custody.ProcessError) as caught:
+                    with custody.admission(timeout=1) as scope:
+                        scope.arm()
+                        pending = scope.root / "pending.json"
+                        original = json.loads(pending.read_text())
+                        if swapped:
+                            pending.write_text(json.dumps({**original, "group_nonce": "d" * 32}))
+                        else:
+                            pending.unlink()
+                        self.publish(scope)
+                self.assertEqual("CustodyUncertain", type(caught.exception).__name__)
+                self.assertEqual(original, caught.exception.binding["pending"])
+                self.assertFalse(custody.recover(caught.exception.binding))
+
+    def test_busy_healthy_lock_has_no_uncertainty_binding_and_corrupt_journal_stays_unbindable(self):
+        def busy():
+            with custody.admission(timeout=0):
+                self.fail("A separate context acquired a healthy held lock")
+
+        with custody.group(timeout=1):
+            with self.assertRaises(custody.ProcessError) as caught:
+                contextvars.Context().run(busy)
+            self.assertNotEqual("CustodyUncertain", type(caught.exception).__name__)
+            self.assertIsNone(getattr(caught.exception, "binding", None))
+        scope = self.leave_pending()
+        (scope.root / "pending.json").write_text("{")
+        with self.assertRaises(custody.ProcessError) as caught:
+            self.enter_once()
+        self.assertEqual("CustodyUncertain", type(caught.exception).__name__)
+        self.assertIsNone(caught.exception.binding)
+        self.assertFalse(custody.recover(caught.exception.binding))
+
+    def test_known_preparation_failure_without_committed_targets_is_not_permanent_custody(self):
+        with (
+            patch.object(custody.family, "register_backup", side_effect=OSError("PRIVATE preparation failed")),
+            self.assertRaises(custody.ProcessError) as caught,
+        ):
+            with custody.admission(timeout=1) as scope:
+                scope.prepare()
+        self.assertEqual("ProcessError", type(caught.exception).__name__)
+        self.assertNotIn("PRIVATE", str(caught.exception))
+        self.assertFalse((scope.root / "pending.json").exists())
+        self.assertIsNone(custody.status())
+        with custody.admission(timeout=1):
+            pass
+
+    def test_preparation_failure_survives_settlement_of_already_dispatched_sibling(self):
+        prepared, commit = threading.Event(), threading.Event()
+        original = custody.ProcessError("Metadata preparation was refused")
+        prepare = custody.Group.prepare
+        successful = []
+
+        def controlled_prepare(owner, scope):
+            if scope not in successful:
+                raise original
+            return prepare(owner, scope)
+
+        def sibling():
+            with custody.admission(timeout=2) as scope:
+                successful.append(scope)
+                scope.prepare()
+                prepared.set()
+                self.assertTrue(commit.wait(2))
+                scope.arm()
+                self.publish(scope)
+
+        def refused():
+            self.assertTrue(prepared.wait(2))
+            with custody.admission(timeout=2) as scope:
+                scope.prepare()
+
+        with self.assertRaises(custody.ProcessError) as caught:
+            with custody.group(timeout=3), patch.object(custody.Group, "prepare", controlled_prepare):
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    good = pool.submit(contextvars.copy_context().run, sibling)
+                    bad = pool.submit(contextvars.copy_context().run, refused)
+                    error = bad.exception(timeout=2)
+                    commit.set()
+                    good.result(timeout=2)
+                raise error
+        self.assertIs(original, caught.exception, "settling siblings must preserve the preparation failure")
+        self.assertEqual("ProcessError", type(caught.exception).__name__)
+        self.assertFalse((successful[0].root / "pending.json").exists())
+        self.assertIsNone(custody.status())
+
+    def test_only_group_exit_binds_uncertainty_after_every_dispatched_member_settles(self):
+        first_armed, second_armed, finish_second = threading.Event(), threading.Event(), threading.Event()
+        scopes = []
+
+        def uncertain():
+            with custody.admission(timeout=2) as scope:
+                scopes.append(scope)
+                scope.arm()
+                first_armed.set()
+                self.assertTrue(second_armed.wait(2))
+
+        def collected():
+            self.assertTrue(first_armed.wait(2))
+            with custody.admission(timeout=2) as scope:
+                scopes.append(scope)
+                scope.arm()
+                second_armed.set()
+                self.assertTrue(finish_second.wait(2))
+                self.publish(scope)
+
+        with self.assertRaises(custody.ProcessError) as caught:
+            with custody.group(timeout=3):
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    first = pool.submit(contextvars.copy_context().run, uncertain)
+                    second = pool.submit(contextvars.copy_context().run, collected)
+                    error = first.exception(timeout=2)
+                    self.assertEqual("ProcessError", type(error).__name__, "member refusal is not the settled group")
+                    finish_second.set()
+                    self.assertIsInstance(second.exception(timeout=2), custody.ProcessError)
+                raise error
+        self.assertEqual("CustodyUncertain", type(caught.exception).__name__)
+        binding = caught.exception.binding
+        self.assertEqual(custody._pending(scopes[0].root), binding["pending"])
+        self.assertEqual(2, len(binding["pending"]["attempts"]))
+        self.assertFalse(custody.recover(binding))
+        scopes[0].result_path.write_text(json.dumps(self.response(scopes[0].nonce)))
+        self.assertTrue(custody.recover(binding))
+
     def test_cache_only_admission_creates_no_pending_native_attempt(self):
         with custody.admission(timeout=5) as scope:
             self.assertIs(scope, custody.current())

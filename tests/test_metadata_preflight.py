@@ -214,11 +214,13 @@ class MetadataCaptureTests(unittest.TestCase):
                     self.assertEqual(60, run.call_args.kwargs["timeout"])
 
     def test_native_agent_resolution_does_not_cache_private_config(self):
+        self.env["KILO_CONFIG_CONTENT"] = json.dumps({"fixture": "private-noncredential-fixture-value"})
+        before = dict(self.env)
         expected = subprocess.CompletedProcess([], 0, '{"permission": []}', "")
         with (
             patch.object(kilocode_policy.shutil, "which", return_value=str(self.tool)),
             patch.object(captured, "run_metadata", return_value=expected) as run,
-            patch.object(env_prep, "preflight_run", side_effect=AssertionError("private policy entered reuse")),
+            patch.object(env_prep, "preflight_run", wraps=env_prep.preflight_run) as preflight,
         ):
             argv, policy = kilocode_policy.effective_agent(["kilo", "run", "--agent", "review"], self.env, self.root)
         self.assertEqual("review", argv[-1])
@@ -231,6 +233,20 @@ class MetadataCaptureTests(unittest.TestCase):
             text=True,
             timeout=run.call_args.kwargs["timeout"],
         )
+        preflight.assert_called_once_with(
+            [str(self.tool), "debug", "agent", "review"],
+            self.env,
+            complete=kilocode_policy._policy_answer,
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            timeout=run.call_args.kwargs["timeout"],
+        )
+        self.assertGreater(run.call_args.kwargs["timeout"], 0)
+        self.assertLessEqual(run.call_args.kwargs["timeout"], kilocode_policy.kilocode_probe.FIRST_ATTEMPT_SECONDS)
+        self.assertEqual(before, self.env)
+        self.assertFalse(env_prep.reuse_folder(self.root / "run").exists())
+        self.assertEqual([], list(self.root.rglob("*.json")), "outside a run no policy answer is retained")
 
     def test_codex_conformance_metadata_preserves_check_and_explicit_environment(self):
         def answer(command, **kwargs):

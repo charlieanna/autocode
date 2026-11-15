@@ -109,7 +109,7 @@ esac
 @unittest.skipUnless(os.name == "posix", "Linux metadata filesystem and locks")
 class RouteDiscoveryCustodyTests(unittest.TestCase):
     @contextmanager
-    def metadata_batch(self, *, name="kilocode", uncertain=None):
+    def metadata_batch(self, *, name="kilocode", uncertain=None, facade="command", warming=False):
         custody = discovery.captured.custody
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -118,9 +118,20 @@ class RouteDiscoveryCustodyTests(unittest.TestCase):
             tool.write_text("# Not executed: metadata boundary is replaced.\n")
             tool.chmod(0o700)
             environment = {"HOME": str(root), "XDG_STATE_HOME": str(root / "state"), "PATH": str(root)}
-            provider = command.load("kilocode")
+            if facade == "kilo":
+                from providers import kilocode
+
+                provider = kilocode.load("kilocode")
+            else:
+                self.assertEqual("command", facade)
+                provider = command.load("kilocode")
             provider.NAME = provider._config["name"] = name
-            together = threading.Barrier(3, timeout=1)
+            warm_kinds = (
+                {tuple(words[1:]) for words, _options in provider._warm_calls(root, environment) if words}
+                if warming
+                else None
+            )
+            together = threading.Barrier(len(warm_kinds) if warming else 3, timeout=1)
             records, lock = [], threading.Lock()
 
             def metadata(words, *, env, timeout, **kwargs):
@@ -132,8 +143,12 @@ class RouteDiscoveryCustodyTests(unittest.TestCase):
                             {"kind": kind, "group": scope.group.nonce, "nonce": nonce, "fd": stream.fileno()}
                         )
                     try:
-                        together.wait()
+                        if warming and kind not in warm_kinds:
+                            self.assertEqual(("models", "--verbose"), kind)
+                        else:
+                            together.wait()
                         output = {
+                            ("--version",): "7.8.12\n",
                             ("auth", "list"): KILO_AUTH_LISTING,
                             ("models",): "zai-coding-plan/glm-5.3\n",
                             ("models", "--verbose"): 'zai-coding-plan/glm-5.3\n{"variants":{"high":{}}}\n',
@@ -165,13 +180,9 @@ class RouteDiscoveryCustodyTests(unittest.TestCase):
                 yield provider, root, environment, records
 
     def test_discovery_workers_share_admission_and_keep_distinct_receipts(self):
-        from providers import env_prep
-
         for name in ("kilocode", "registered_connection"):
             with self.subTest(name=name), self.metadata_batch(name=name) as (provider, root, environment, records):
-                with env_prep.reuse_checks(root / "run"):
-                    found = discovery.discover(provider, root, env=environment)
-                    self.assertEqual(found, discovery.discover(provider, root, env=environment))
+                found = discovery.discover(provider, root, env=environment)
                 self.assertEqual(
                     {("auth", "list"), ("models",), ("models", "--verbose")}, {row["kind"] for row in records}
                 )
@@ -189,6 +200,47 @@ class RouteDiscoveryCustodyTests(unittest.TestCase):
                 self.assertFalse((store / "pending.json").exists())
                 [receipt] = store.glob("collected-*.json")
                 self.assertEqual(3, len(json.loads(receipt.read_text())["attempts"]))
+
+    def test_warm_discovery_keeps_each_facades_actual_owned_waves_and_reuses_all_answers(self):
+        from providers import env_prep
+
+        for name, facade, sizes in (("kilocode", "kilo", [4]), ("registered_connection", "command", [1, 3])):
+            with (
+                self.subTest(name=name),
+                self.metadata_batch(name=name, facade=facade, warming=True) as (provider, root, environment, records),
+            ):
+                with env_prep.reuse_checks(root / "run"):
+                    found = discovery.discover(provider, root, env=environment)
+                    self.assertEqual(found, discovery.discover(provider, root, env=environment))
+                self.assertEqual(name, found["tool"])
+                self.assertEqual(
+                    {("--version",), ("auth", "list"), ("models",), ("models", "--verbose")},
+                    {row["kind"] for row in records},
+                )
+                self.assertEqual(4, len(records), "the next discovery must reuse every completed answer")
+                self.assertEqual(4, len({row["nonce"] for row in records}))
+                groups = {
+                    group: [row for row in records if row["group"] == group]
+                    for group in {row["group"] for row in records}
+                }
+                self.assertEqual(sizes, sorted(len(wave) for wave in groups.values()))
+                for wave in groups.values():
+                    self.assertEqual(len(wave), len({row["fd"] for row in wave}))
+                    self.assertEqual(len(wave), len({row["nonce"] for row in wave}))
+                warm_group = next(row["group"] for row in records if row["kind"] == ("--version",))
+                self.assertEqual(
+                    {tuple(words[1:]) for words, _options in provider._warm_calls(root, environment) if words},
+                    {row["kind"] for row in groups[warm_group]},
+                )
+                store = root / "state/autocode/metadata"
+                self.assertFalse((store / "pending.json").exists())
+                collected = [json.loads(path.read_text()) for path in store.glob("collected-*.json")]
+                self.assertEqual(sizes, sorted(len(row["attempts"]) for row in collected))
+                self.assertEqual(set(groups), {row["group_nonce"] for row in collected})
+                self.assertEqual(
+                    {row["nonce"] for row in records},
+                    {member["nonce"] for row in collected for member in row["attempts"]},
+                )
 
     def test_uncertain_member_settles_siblings_and_blocks_fresh_discovery(self):
         custody = discovery.captured.custody

@@ -29,11 +29,13 @@ from pathlib import Path
 try:
     from . import autocode_cost as cost
     from . import autocode_interaction_timing as interaction_timing
+    from . import autocode_operational_block as operational_block
     from . import autocode_planning_calls as planning_calls
     from . import autocode_roles as roles
 except ImportError:
     import autocode_cost as cost
     import autocode_interaction_timing as interaction_timing
+    import autocode_operational_block as operational_block
     import autocode_planning_calls as planning_calls
     import autocode_roles as roles
 
@@ -969,17 +971,11 @@ def run_locked(
         keep_awake.hold()  # a sleeping Mac cannot supervise a stage (#1717)
         if runner.stop_policy.applied_stop(state):
             return runner.stop_policy.refuse_before_configure(runner.write_json, state, state_path) or 0
-        if native is None:
+        try:
             state = load_locked(runner, args, parser, state, state_path, run_dir, workspace)
             warning = runner.util.runner_changed(state.get("runner"), runner.util.runner_identity())
             if warning:
                 print(f"warning: {warning}", file=sys.stderr)
-        try:
-            if native is not None:
-                state = load_locked(runner, args, parser, state, state_path, run_dir, workspace)
-                warning = runner.util.runner_changed(state.get("runner"), runner.util.runner_identity())
-                if warning:
-                    print(f"warning: {warning}", file=sys.stderr)
             if native is not None:
                 native.require_supported_action(args, state)
             owner = ownership.enter_context(controller_owner.Owner(state, run_dir, runner.write_json))
@@ -1018,18 +1014,20 @@ def run_locked(
             print(str(error), file=sys.stderr)
             return owned_result(2, ready=state.get("status") == "RUNNING")
         except (runner.support.Paused, ValueError, RuntimeError, OSError) as error:
-            run_status.pause(
-                state,
-                getattr(error, "status", "PAUSED_INVALID_OUTPUT"),
-                str(error),
-                paused_at=runner.now(),
-            )
-            if native is None and isinstance(error, runner.support.Paused) and error.status != "PAUSED_JOB_FAILURE":
-                runner.resolver_runtime.record_operational_exhaustion(runner, state, run_dir, error)
+            blocked = operational_block.record(state, error, run_dir=run_dir, workspace=workspace)
+            if not blocked:
+                run_status.pause(
+                    state,
+                    getattr(error, "status", "PAUSED_INVALID_OUTPUT"),
+                    str(error),
+                    paused_at=runner.now(),
+                )
+                if native is None and isinstance(error, runner.support.Paused) and error.status != "PAUSED_JOB_FAILURE":
+                    runner.resolver_runtime.record_operational_exhaustion(runner, state, run_dir, error)
             runner.write_json(state_path, state)
             print(
                 f"{state['status']}: {error}"
-                f"{runner.pause_command.recovery(state.get('needs'), run_dir=run_dir, workspace=workspace)}",
+                f"{'' if blocked else runner.pause_command.recovery(state.get('needs'), run_dir=run_dir, workspace=workspace)}",
                 file=sys.stderr,
             )
             return owned_result(2)

@@ -38,6 +38,20 @@ _GROUP: ContextVar[Group | None] = ContextVar("metadata_custody_group", default=
 _NONCE = re.compile(r"[0-9a-f]{32}\Z")
 
 
+class CustodyUncertain(ProcessError):
+    """A metadata family has no verified settlement; never a backend result.
+
+    ``binding`` is runner evidence of the original journal, not replay or
+    command-result authority. Reconciliation binds final committed membership;
+    a known preparation refusal keeps its ordinary error. An unbindable prior
+    custody record remains held.
+    """
+
+    def __init__(self, binding=None):
+        super().__init__(BLOCKED)
+        self.binding = binding
+
+
 def _root(env):
     # Command environments can contain an isolated HOME for tool containment.
     # Only Core's ambient user configuration owns this cross-invocation store.
@@ -121,6 +135,13 @@ def _pending(root):
         row = _json(root / "pending.json")
     except FileNotFoundError:
         return None
+    return _validated_pending(row)
+
+
+def _validated_pending(row):
+    """One identity validator for journals, retained archives and error bindings."""
+    if not isinstance(row, dict):
+        raise ValueError("Invalid pending metadata identity")
     if (
         type(row.get("schema")) is not int
         or type(row["uid"]) is not int
@@ -163,6 +184,53 @@ def _pending(root):
     return row
 
 
+def _record(group_nonce, members, boot):
+    if not members:
+        return None
+    return {
+        "schema": 2,
+        "group_nonce": group_nonce,
+        "boot_id": boot,
+        "uid": os.geteuid(),
+        "attempts": members,
+    }
+
+
+def _binding(root, pending):
+    if root is None or pending is None:
+        return None
+    # Freeze the exact original membership; later appends must not rewrite an
+    # already recorded denial. No command, environment or backend name is saved.
+    pending = _validated_pending(json.loads(json.dumps(pending)))
+    return {"schema": 1, "scope": "metadata_check", "root": str(root), "pending": pending}
+
+
+def _uncertain(root=None, pending=None):
+    binding = None
+    try:
+        if root is not None and _private_root(root, create=False):
+            binding = _binding(root, pending)
+    except (OSError, ValueError, TypeError, KeyError, ProcessError):
+        pass
+    return CustodyUncertain(binding)
+
+
+def _observed_uncertain(root):
+    try:
+        pending = _pending(root)
+    except (OSError, ValueError, TypeError, KeyError, ProcessError):
+        pending = None
+    return _uncertain(root, pending)
+
+
+def _guard_failure(root, error):
+    try:
+        pending = _pending(root)
+    except (OSError, ValueError, TypeError, KeyError, ProcessError):
+        return CustodyUncertain()
+    return _uncertain(root, pending) if pending is not None else error
+
+
 def _clean(root, pending):
     row = _json(root / pending["result_file"])
     if (
@@ -199,6 +267,66 @@ def _settled(root, pending, boot):
     return family.backup_clean(root, pending["nonce"], boot)
 
 
+def recover(binding):
+    """Check advancement of one recorded hold, without repairing or retrying it.
+
+    Reconciliation retains the original journal as ``collected-<group>.json``
+    or ``previous-boot-<group>.json`` and preserves every primary/backup file.
+    The archive alone is no cleanup stamp: same-boot advancement revalidates
+    the original members' kernel receipts. Erasure and unrelated work prove
+    nothing. A real different kernel boot also requires that retained journal.
+    """
+    if sys.platform != "linux":
+        return False
+    handle = None
+    try:
+        if (
+            not isinstance(binding, dict)
+            or set(binding) != {"schema", "scope", "root", "pending"}
+            or type(binding["schema"]) is not int
+            or binding["schema"] != 1
+            or binding["scope"] != "metadata_check"
+            or not isinstance(binding["root"], str)
+            or len(json.dumps(binding)) > MAX_RECORD
+        ):
+            return False
+        root = Path(binding["root"])
+        if not root.is_absolute() or str(root) != binding["root"] or root.resolve() != root:
+            return False
+        pending = binding["pending"]
+        if not isinstance(pending, dict) or pending.get("schema") != 2:
+            return False
+        original = _validated_pending(pending)
+        if not _private_root(root, create=False):
+            return False
+        handle = _open(root / "admission.lock", os.O_RDWR)
+        util.lock_file(handle)  # A healthy concurrent owner is no uncertainty proof.
+        boot = _boot_id()
+        current_pending = _pending(root)
+        archives = [
+            root / (reason + "-" + original["group_nonce"] + ".json") for reason in ("collected", "previous-boot")
+        ]
+        present = [path for path in archives if path.exists()]
+        if current_pending == original:
+            if present:
+                return False
+        else:
+            if current_pending is not None and current_pending["group_nonce"] == original["group_nonce"]:
+                return False
+            if len(present) != 1 or _validated_pending(_json(present[0])) != original:
+                return False
+            if present[0] == archives[1] and boot == original["boot_id"]:
+                return False
+        return boot != original["boot_id"] or all(
+            _settled(root, member, original["boot_id"]) for member in original["attempts"]
+        )
+    except (OSError, ValueError, TypeError, KeyError, ProcessError, family.FamilyError):
+        return False
+    finally:
+        if handle is not None:
+            handle.close()
+
+
 def _matches(pending, group_nonce, members, boot=None):
     if pending is None:
         return not members
@@ -211,8 +339,9 @@ def _matches(pending, group_nonce, members, boot=None):
 
 def _reconcile(root, boot, mutate, expected_group=None, expected_members=None):
     pending = _pending(root)
+    original = _record(expected_group, expected_members, boot) if expected_group is not None else pending
     if expected_group is not None and not _matches(pending, expected_group, expected_members, boot):
-        raise ProcessError(BLOCKED)
+        raise _uncertain(root, original)
     if pending is None:
         return
     reason = (
@@ -226,11 +355,11 @@ def _reconcile(root, boot, mutate, expected_group=None, expected_members=None):
         else None
     )
     if reason is None:
-        raise ProcessError(BLOCKED)
+        raise _uncertain(root, original)
     if mutate:
         destination = root / (reason + "-" + pending["group_nonce"] + ".json")
         if destination.exists():
-            raise ProcessError(BLOCKED)
+            raise _uncertain(root, original)
         os.replace(root / "pending.json", destination)
         _sync(root)
 
@@ -238,8 +367,10 @@ def _reconcile(root, boot, mutate, expected_group=None, expected_members=None):
 def _checked_reconcile(root, boot, mutate, expected_group=None, expected_members=None):
     try:
         _reconcile(root, boot, mutate, expected_group, expected_members)
-    except (OSError, ValueError, TypeError, KeyError, family.FamilyError):
-        raise ProcessError(BLOCKED) from None
+    except (OSError, ValueError, TypeError, KeyError, ProcessError, family.FamilyError):
+        if expected_group is None:
+            raise _observed_uncertain(root) from None
+        raise _uncertain(root, _record(expected_group, expected_members, boot)) from None
 
 
 def _deadline(timeout):
@@ -251,7 +382,10 @@ def _deadline(timeout):
 
 
 def _acquire(root, deadline):
-    handle = _open(root / "admission.lock", os.O_CREAT | os.O_RDWR)
+    try:
+        handle = _open(root / "admission.lock", os.O_CREAT | os.O_RDWR)
+    except (OSError, ProcessError) as error:
+        raise _guard_failure(root, error) from None
     try:
         while True:
             try:
@@ -443,8 +577,8 @@ def group(env=None, timeout=None):
     deadline = _deadline(timeout)
     try:
         root = _root(env)
-    except (OSError, ValueError, TypeError):
-        raise ProcessError(BLOCKED) from None
+    except (OSError, ValueError, TypeError, ProcessError):
+        raise CustodyUncertain() from None
     owner = _GROUP.get()
     if owner is not None:
         if owner.root != root or current() is not None:
@@ -457,14 +591,16 @@ def group(env=None, timeout=None):
         return
     try:
         _private_root(root, create=True)
-        handle = _acquire(root, deadline)
-    except (OSError, ValueError, TypeError):
-        raise ProcessError(BLOCKED) from None
+    except ProcessError:
+        raise _observed_uncertain(root) from None
+    except (OSError, ValueError, TypeError) as error:
+        raise _guard_failure(root, error) from None
+    handle = _acquire(root, deadline)
     try:
         try:
             boot = _boot_id()
         except (OSError, ValueError):
-            raise ProcessError(BLOCKED) from None
+            raise _observed_uncertain(root) from None
         _checked_reconcile(root, boot, mutate=True)
         owner = Group(root, deadline, boot)
         token = _GROUP.set(owner)
