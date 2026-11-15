@@ -36,7 +36,7 @@ def _text(path, data):
 
 
 def _git(workspace, *args):
-    result = subprocess.run(["git", "-C", str(workspace), *args], capture_output=True)
+    result = subprocess.run(["git", "-C", str(workspace), *args], capture_output=True, env=util.git_environment())
     if result.returncode:
         raise ValueError("Cannot read the original role inventory: " + result.stderr.decode("utf-8", errors="replace"))
     return result.stdout

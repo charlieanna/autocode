@@ -286,7 +286,10 @@ def bootstrap(selected, *, in_place: bool = False):
     if not selected.is_dir():
         raise ValueError(f"workspace does not exist: {selected}")
     inside = subprocess.run(
-        ["git", "-C", str(selected), "rev-parse", "--show-toplevel"], capture_output=True, text=True
+        ["git", "-C", str(selected), "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        env=util.git_environment(),
     )
     if inside.returncode == 0:
         raise ValueError(

@@ -27,6 +27,7 @@ try:
     from . import autocode_failure_attribution as attribution
     from . import autocode_github as github
     from . import autocode_names as names
+    from . import autocode_util as util
     from .autocode_arena_store import ArenaError, Store, digest, encode, read_json, write_json
     from .autocode_issue import brief
     from .autocode_oracle_process import run as run_oracle
@@ -36,6 +37,7 @@ except ImportError:
     import autocode_failure_attribution as attribution
     import autocode_github as github
     import autocode_names as names
+    import autocode_util as util
     from autocode_arena_store import ArenaError, Store, digest, encode, read_json, write_json
     from autocode_issue import brief
     from autocode_oracle_process import run as run_oracle
@@ -48,7 +50,9 @@ BULK_GIT_TIMEOUT = 600
 
 
 def git(repo: Path, *args: str, timeout: int = 60) -> str:
-    proc = subprocess.run(["git", "-C", str(repo), *args], text=True, capture_output=True, timeout=timeout)
+    proc = subprocess.run(
+        ["git", "-C", str(repo), *args], text=True, capture_output=True, timeout=timeout, env=util.git_environment()
+    )
     if proc.returncode:
         raise ArenaError(proc.stderr.strip())
     return proc.stdout.strip()
@@ -61,6 +65,7 @@ def checkout(repo: Path, commit: str, workspace: Path) -> None:
         capture_output=True,
         check=True,
         timeout=BULK_GIT_TIMEOUT,
+        env=util.git_environment(),
     ).stdout
     workspace.mkdir(parents=True)
     if git(repo, "ls-tree", "-r", "--name-only", commit):

@@ -22,6 +22,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import autocode_changed_code_trigger as changed_code_trigger
 import autocode_goal_lifecycle as lifecycle
 import autocode_plan_command_roles as roles
 import autocode_protected_oracles as guard
@@ -463,6 +464,434 @@ class PlanCheckTests(unittest.TestCase):
             lifecycle.validate_body(
                 self.state(SEED), plan_tests.named("test: test_partial", "tests/test_pager.sh"), ready=True
             )
+
+
+# A project that keeps its checks where no path rule looks.
+CHECKS_RUNNER = RUNNER.replace("tests/test_*.sh", "checks/*.sh")
+CHECKS = {"pager.sh": BUG, "checks/pager.sh": CHECK, "run_checks.sh": CHECKS_RUNNER}
+CHECKS_FLIP = FLIPS.format("./run_checks.sh")
+# The other way a plan says which command runs the project's tests: a command guard.
+CHECKS_GUARD = "guard: run `./run_checks.sh`"
+# A criterion that says no such thing.
+CHECKS_RUN = "run `./run_checks.sh` and see it pass"
+BROKEN = "page_count() { echo $(( ($1 + $2) / $2 )); }\n"
+NO_TEST = "No regression test was added or changed, so the bug is not shown to be reproduced"
+ALSO_PASS = "The regression tests also pass on the unfixed base code, so they do not reproduce the bug"
+
+
+class Probe:
+    """A scripted ``probe``: the exit code for each (path, how), and what was asked."""
+
+    def __init__(self, **codes):
+        self.codes, self.asked = codes, []
+
+    def __call__(self, command, path, how, where):
+        self.asked.append((path, how, where))
+        return self.codes.get(path.replace("/", "_").replace(".", "_"), {}).get(how, 0)
+
+
+class FindTestsTests(unittest.TestCase):
+    """Which files are tests a command runs, with scripted looks."""
+
+    LEAF = {roles.UNLOADED: 2, roles.EMPTIED: 0}
+    NEEDED = {roles.UNLOADED: 2, roles.EMPTIED: 1}
+
+    def setUp(self):
+        self.tree = Path(tempfile.mkdtemp(prefix="roles-"))
+        self.addCleanup(shutil.rmtree, self.tree, True)
+        for name in ("run_checks.sh", "lint.sh"):
+            (self.tree / name).write_text("#!/bin/sh\n")
+            (self.tree / name).chmod(0o755)
+
+    def find(self, state, plan, seen, probe, files, commands=("./run_checks.sh",), beside=()):
+        looks = {"files": files, "beside": beside, "tree": self.tree, "observe": seen, "probe": probe}
+        return roles.find_tests(state, "base", plan, commands=commands, **looks)
+
+    def test_a_file_the_command_runs_and_nothing_else_needs_is_a_test(self):
+        probe = Probe(checks_pager_sh=self.LEAF, pager_sh=self.NEEDED, notes_sh={roles.UNLOADED: 0})
+        files = {"checks/pager.sh": ORIGINAL, "pager.sh": ORIGINAL, "notes.sh": ORIGINAL}
+        found = roles.leaves("./run_checks.sh", files, probe)
+        self.assertEqual({"checks/pager.sh": {"where": ORIGINAL, roles.UNLOADED: 2, roles.EMPTIED: 0}}, found)
+        # A file the command never loads is not emptied: one look says it is no test.
+        self.assertNotIn(("notes.sh", roles.EMPTIED, ORIGINAL), probe.asked)
+
+    def test_a_file_the_command_names_is_the_program_and_is_not_looked_at(self):
+        for command in ("sh pager.sh", "./pager.sh --pages", "env N=1 ./pager.sh"):
+            with self.subTest(command=command):
+                probe = Probe(pager_sh=self.LEAF)
+                self.assertEqual({}, roles.leaves(command, {"pager.sh": ORIGINAL}, probe))
+                self.assertEqual([], probe.asked)
+        # Named from inside a directory of the project, it is the same file.
+        probe = Probe(backend_run_sh=self.LEAF, backend_checks_a_sh=self.LEAF)
+        files = {"backend/run.sh": ORIGINAL, "backend/checks/a.sh": ORIGINAL}
+        self.assertEqual(["backend/checks/a.sh"], list(roles.leaves("cd backend && ./run.sh", files, probe)))
+
+    def test_a_look_that_did_not_finish_finds_no_test(self):
+        for codes in ({roles.UNLOADED: None}, {roles.UNLOADED: 2, roles.EMPTIED: None}):
+            with self.subTest(codes=codes):
+                self.assertEqual({}, roles.leaves("./run_checks.sh", {"a.sh": ORIGINAL}, Probe(a_sh=codes)))
+
+    def test_one_look_tries_a_bounded_number_of_files(self):
+        probe = Probe()
+        files = dict.fromkeys((f"src/{n}.sh" for n in range(roles.MAX_FILES + 3)), ORIGINAL)
+        self.assertEqual({}, roles.leaves("./run_checks.sh", files, probe))
+        self.assertEqual(roles.MAX_FILES, len(probe.asked))
+
+    def test_the_command_that_runs_a_changed_file_as_a_test_takes_the_empty_roles(self):
+        state, plan = {}, contract("run `./lint.sh` and see it pass", CHECKS_FLIP)
+        seen = Seen()
+        probe = Probe(checks_pager_sh=self.LEAF, pager_sh=self.NEEDED)
+        files = {"checks/pager.sh": ORIGINAL, "pager.sh": ORIGINAL}
+        both = ("./lint.sh", "./run_checks.sh")
+        found = self.find(state, plan, seen, lambda c, *rest: probe(c, *rest) if "checks" in c else 0, files, both)
+        self.assertEqual(["checks/pager.sh"], list(found))
+        self.assertEqual(found, roles.tests(state, "base", plan))
+        chosen = roles.adopted(state, "base", plan, original_tests=list(found), changed_tests=list(found))
+        self.assertEqual(("./run_checks.sh", "./run_checks.sh"), (chosen["suite"], chosen["regression"]))
+        self.assertEqual({"./run_checks.sh": roles.OBSERVED_TESTS}, chosen["observed"])
+        self.assertIn("runs files it shows to be tests", roles.note(chosen))
+        self.assertEqual({"./run_checks.sh"}, roles.runs_tests(state, plan))
+        said = roles.tests_note(state, "base", plan)
+        self.assertIn("No rule says checks/pager.sh is a test file. AutoCode ran `./run_checks.sh` to see", said)
+        self.assertIn("the approved plan says that command runs this project's tests", said)
+        self.assertIn("The changed lines there are still checked as code", said)
+        self.assertEqual(found, roles.kept(state)["tests"])
+
+    def test_a_command_that_fails_on_the_original_code_is_not_looked_with(self):
+        state, plan, probe = {}, contract(CHECKS_FLIP), Probe(checks_pager_sh=self.LEAF)
+        self.assertEqual(
+            {}, self.find(state, plan, Seen(run_checks_sh={ORIGINAL: 1}), probe, {"checks/pager.sh": ORIGINAL})
+        )
+        self.assertEqual([], probe.asked)
+        self.assertIsNone(roles.tests_note(state, "base", plan))
+        self.assertIsNone(roles.adopted(state, "base", plan, original_tests=[], changed_tests=[]))
+
+    def test_the_original_code_is_looked_at_once_and_the_changed_code_each_time(self):
+        state, plan, seen = {}, contract(CHECKS_FLIP), Seen()
+        probe = Probe(checks_pager_sh=self.LEAF, checks_new_sh=self.LEAF)
+        files = {"checks/new.sh": roles.CHANGE, "checks/pager.sh": ORIGINAL}
+        self.assertEqual(sorted(files), sorted(self.find(state, plan, seen, probe, files)))
+        first = len(probe.asked)
+        self.assertEqual(sorted(files), sorted(self.find(state, plan, seen, probe, files)))
+        self.assertEqual(
+            [("checks/new.sh", roles.UNLOADED, roles.CHANGE), ("checks/new.sh", roles.EMPTIED, roles.CHANGE)],
+            probe.asked[first:],
+        )
+        self.assertEqual([("./run_checks.sh", ORIGINAL)], seen.asked)
+        # Only a test of the original code shows that the command runs tests the project already has.
+        only_new: dict = {}
+        self.find(only_new, plan, Seen(), probe, {"checks/new.sh": roles.CHANGE})
+        self.assertEqual(set(), roles.runs_tests(only_new, plan))
+
+    def test_a_file_that_is_a_test_no_longer_takes_its_commands_roles_with_it(self):
+        state, plan = {}, contract(CHECKS_FLIP)
+        self.find(state, plan, Seen(), Probe(checks_new_sh=self.LEAF), {"checks/new.sh": roles.CHANGE})
+        self.assertEqual("./run_checks.sh", state["plan_command_roles"]["regression"])
+        self.find(state, plan, Seen(), Probe(checks_new_sh=self.NEEDED), {"checks/new.sh": roles.CHANGE})
+        self.assertEqual({}, roles.tests(state, "base", plan))
+        self.assertEqual(
+            (None, None), (state["plan_command_roles"]["suite"], state["plan_command_roles"]["regression"])
+        )
+
+    def test_the_plan_says_which_command_runs_the_tests(self):
+        says = (
+            CHECKS_FLIP,
+            "run `./run_checks.sh` fails (exit 1) on the original code and passes (exit 0) with the fix",
+            "Run `./run_checks.sh`: it FAILS before the change and PASSES after it",
+            CHECKS_GUARD,
+        )
+        for method in says:
+            with self.subTest(method=method):
+                self.assertEqual(["./run_checks.sh"], roles.declared(contract(method)["body"], self.tree))
+        silent = (
+            CHECKS_RUN,
+            "run `./run_checks.sh`: it passes and never fails",
+            "test: run `./run_checks.sh`: it fails on the original code and passes with the fix",
+            "the checks fail on the original code and pass with the fix",
+        )
+        for method in silent:
+            with self.subTest(method=method):
+                self.assertEqual([], roles.declared(contract(method)["body"], self.tree))
+        review = contract(CHECKS_FLIP)["body"]
+        review["acceptance_criteria"][0]["human_review"] = True
+        self.assertEqual([], roles.declared(review, self.tree))
+        self.assertEqual([], roles.declared(None, self.tree))
+
+    def test_only_a_command_the_plan_says_runs_tests_is_looked_with(self):
+        # What a command does cannot tell a test from a program's own entry file, so the plan says.
+        state, plan, probe = {}, contract(CHECKS_FLIP), Probe(checks_pager_sh=self.LEAF)
+        self.assertEqual({}, self.find(state, plan, Seen(), probe, {"checks/pager.sh": ORIGINAL}, commands=()))
+        self.assertEqual([], probe.asked)
+        self.assertEqual(set(), roles.runs_tests(state, plan))
+
+    def test_a_new_test_beside_one_of_the_original_code_shows_the_command_runs_existing_tests(self):
+        state, plan = {}, contract(CHECKS_FLIP)
+        probe = Probe(checks_new_sh=self.LEAF, checks_pager_sh=self.LEAF, checks_support_sh=self.NEEDED)
+        files, beside = {"checks/new.sh": roles.CHANGE}, ["checks/support.sh", "checks/pager.sh", "checks/more.sh"]
+        self.assertEqual(["checks/new.sh"], list(self.find(state, plan, Seen(), probe, files, beside=beside)))
+        self.assertEqual({"./run_checks.sh"}, roles.runs_tests(state, plan))
+        self.assertEqual("checks/pager.sh", roles.kept(state)["existing_test"])
+        # The first one found is enough, and it is no test of the change.
+        self.assertNotIn(("checks/more.sh", roles.UNLOADED, ORIGINAL), probe.asked)
+        self.assertEqual(["checks/new.sh"], list(roles.tests(state, "base", plan)))
+
+    def test_a_look_at_no_file_drops_what_an_earlier_one_found(self):
+        state, plan = {}, contract(CHECKS_FLIP)
+        self.find(state, plan, Seen(), Probe(checks_pager_sh=self.LEAF), {"checks/pager.sh": ORIGINAL})
+        self.assertTrue(roles.has_tests(state))
+        self.assertEqual(
+            {}, roles.find_tests(state, "base", plan, commands=(), files={}, tree=self.tree, observe=None, probe=None)
+        )
+        self.assertFalse(roles.has_tests(state))
+        self.assertEqual({}, roles.tests(state, "base", plan))
+
+    def test_a_settling_keeps_what_a_look_for_tests_found(self):
+        state, plan = {}, contract(CHECKS_FLIP)
+        found = self.find(state, plan, Seen(), Probe(checks_pager_sh=self.LEAF), {"checks/pager.sh": ORIGINAL})
+        tests = {"original_tests": list(found), "changed_tests": list(found)}
+        roles.settle(state, "base", plan, **tests, tree=self.tree, observe=Seen())
+        self.assertEqual(found, roles.tests(state, "base", plan))
+
+    def test_a_replay_takes_the_recorded_tests(self):
+        recorded, plan = {}, contract(CHECKS_FLIP)
+        found = self.find(recorded, plan, Seen(), Probe(checks_pager_sh=self.LEAF), {"checks/pager.sh": ORIGINAL})
+        state: dict = {}
+        roles.restore(state, roles.kept(recorded), "another-commit", plan)
+        self.assertEqual(found, roles.tests(state, "another-commit", plan))
+
+
+class ObservedTestsProofTests(unittest.TestCase):
+    """Real proofs in a shell project whose checks are in ``checks/``, a directory no path rule calls
+    tests, run by ``./run_checks.sh``, which the plan says fails on the original code and passes with
+    the fix. No runner is detected."""
+
+    PLAN = contract(CHECKS_FLIP)
+
+    def prove(self, change, seed=CHECKS, plan=None):
+        state: dict = {}
+        made = project(self, seed, ("run_checks.sh",))
+        made.write(change)
+        state.update(run_state(made, plan or self.PLAN))
+        with mock.patch.object(verify.diff_coverage, "collect", return_value=None):
+            return regression.prove(state, made.root, made.root.parent / "run"), state
+
+    def test_a_bug_fix_with_a_check_added_to_the_existing_check_file_is_proven(self):
+        proof, state = self.prove({"pager.sh": FIXED, "checks/pager.sh": CHECK + PARTIAL})
+        self.assertEqual(("PASS", [], []), (proof["verdict"], proof["failures"], proof["unverified"]))
+        self.assertEqual("./run_checks.sh", proof["commands"]["regression"])
+        seen = proof["plan_command_roles"]["tests"]
+        self.assertEqual({"checks/pager.sh": {"where": ORIGINAL, roles.UNLOADED: 2, roles.EMPTIED: 0}}, seen)
+        said = "No rule says checks/pager.sh is a test file. AutoCode ran `./run_checks.sh` to see"
+        self.assertTrue(any(said in note for note in proof["notes"]), proof["notes"])
+        self.assertTrue(any(said in note for note in proof["review_reasons"]), proof["review_reasons"])
+        # The file is still code for the evidence of changed lines, which no longer reads "The project
+        # has no test command and no test files" from the paths.
+        self.assertIn("checks/pager.sh", proof["source_files"])
+        self.assertIsNone(changed_code_trigger.unmeasurable(state))
+        self.assertEqual(
+            changed_code_trigger.UNMEASURABLE, changed_code_trigger.unmeasurable({**state, "plan_command_roles": {}})
+        )
+        self.assertIn("regression_on_base", proof["checks"])
+
+    def test_a_new_check_file_the_runner_picks_up_is_seen_on_the_changed_code(self):
+        proof, _ = self.prove({"pager.sh": FIXED, "checks/partial.sh": ". ./pager.sh\n" + PARTIAL})
+        self.assertEqual(("PASS", [], []), (proof["verdict"], proof["failures"], proof["unverified"]))
+        self.assertEqual(roles.CHANGE, proof["plan_command_roles"]["tests"]["checks/partial.sh"]["where"])
+
+    def test_a_script_the_command_names_is_the_program_and_no_test(self):
+        # `sh selftest.sh` runs selftest.sh and nothing else needs it, as `sh pager.sh` does pager.sh: no
+        # look tells a script of checks from the program, so a file the command names is never its test.
+        seed = {"pager.sh": BUG, "selftest.sh": "#!/bin/sh\nset -e\n" + CHECK}
+        change = {"pager.sh": FIXED, "selftest.sh": "#!/bin/sh\nset -e\n" + CHECK + PARTIAL}
+        proof, _ = self.prove(change, seed, contract(FLIPS.format("sh selftest.sh"), "guard: run `sh selftest.sh`"))
+        self.assertEqual(("FAIL", [NO_TEST]), (proof["verdict"], proof["failures"]))
+        self.assertIn("Guard AC2's command `sh selftest.sh` was not seen to run a test", " ".join(proof["unverified"]))
+
+    def test_a_project_in_a_directory_below_the_root_is_proven_the_same_way(self):
+        seed = {f"backend/{path}": text for path, text in CHECKS.items()}
+        change = {"backend/pager.sh": FIXED, "backend/checks/pager.sh": CHECK + PARTIAL}
+        command = "cd backend && ./run_checks.sh"
+        state: dict = {}
+        made = project(self, seed, ("backend/run_checks.sh",))
+        made.write(change)
+        state.update(run_state(made, contract(FLIPS.format(command), f"guard: run `{command}`")))
+        with mock.patch.object(verify.diff_coverage, "collect", return_value=None):
+            proof = regression.prove(state, made.root, made.root.parent / "run")
+        self.assertEqual(("PASS", [], []), (proof["verdict"], proof["failures"], proof["unverified"]))
+        self.assertEqual(["backend/checks/pager.sh"], list(proof["plan_command_roles"]["tests"]))
+
+    def test_a_fix_with_no_check_still_has_no_test(self):
+        proof, state = self.prove({"pager.sh": FIXED})
+        self.assertEqual(("FAIL", [NO_TEST]), (proof["verdict"], proof["failures"]))
+
+    def test_a_later_proof_with_a_test_the_rules_name_forgets_the_files_seen_before(self):
+        state: dict = {}
+        made = project(self, CHECKS, ("run_checks.sh",))
+        made.write({"pager.sh": FIXED, "checks/pager.sh": CHECK + PARTIAL})
+        state.update(run_state(made, self.PLAN))
+        with mock.patch.object(verify.diff_coverage, "collect", return_value=None):
+            regression.prove(state, made.root, made.root.parent / "run")
+            self.assertTrue(roles.has_tests(state))
+            made.write({"tests/test_pager.sh": CHECK + PARTIAL})
+            regression.prove(state, made.root, made.root.parent / "run")
+        self.assertFalse(roles.has_tests(state))
+        self.assertEqual({}, roles.tests(state, state["plan_command_roles"]["base"], self.PLAN))
+
+    def test_a_check_that_passes_on_the_original_code_still_fails_the_proof(self):
+        proof, _ = self.prove({"pager.sh": FIXED, "checks/pager.sh": CHECK + CHECK.split("\n", 1)[1]})
+        self.assertEqual(("FAIL", [ALSO_PASS]), (proof["verdict"], proof["failures"]))
+
+    def test_two_code_files_that_need_each_other_are_no_test(self):
+        # Each alone breaks the command, and that is no check: other code needs what the file defines.
+        change = {
+            "pager.sh": '. ./round.sh\npage_count() { round_up "$1" "$2"; }\n',
+            "round.sh": "round_up() { echo $(( ($1 + $2 - 1) / $2 )); }\n",
+        }
+        proof, _ = self.prove(change)
+        self.assertEqual(("FAIL", [NO_TEST]), (proof["verdict"], proof["failures"]))
+
+    def test_a_file_the_command_loads_and_nothing_uses_is_taken_with_the_tests_and_proves_nothing(self):
+        # A settings file passes for a test by what the command does. Taken with the tests, it has to
+        # make the command fail on the original code, which it does not.
+        seed = {**CHECKS, "settings.sh": "PAGE_SIZE=5\n", "checks/pager.sh": ". ./settings.sh\n" + CHECK}
+        proof, _ = self.prove({"pager.sh": FIXED, "settings.sh": "PAGE_SIZE=10\n"}, seed)
+        self.assertEqual(("FAIL", [ALSO_PASS]), (proof["verdict"], proof["failures"]))
+        self.assertEqual(["settings.sh"], list(proof["plan_command_roles"]["tests"]))
+        self.assertIn("settings.sh", proof["source_files"])
+
+    def test_a_change_that_drops_a_check_it_breaks_fails_on_the_original_checks(self):
+        # The original check file is kept as the original code has it and run with the change.
+        proof, _ = self.prove({"pager.sh": BROKEN, "checks/pager.sh": ". ./pager.sh\n" + PARTIAL})
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertTrue(proof["failures"][0].startswith("The base suite definition fails against the candidate code"))
+
+    def test_a_project_with_no_check_at_all_has_no_test(self):
+        command = "sh -c '. ./pager.sh; [ \"$(page_count 11 5)\" = 3 ]'"
+        proof, _ = self.prove({"pager.sh": FIXED}, {"pager.sh": BUG}, contract(FLIPS.format(command)))
+        self.assertEqual(("FAIL", [NO_TEST]), (proof["verdict"], proof["failures"]))
+
+    def test_without_the_plans_word_no_file_is_taken_for_a_test(self):
+        change = {"pager.sh": FIXED, "checks/pager.sh": CHECK + PARTIAL}
+        proof, state = self.prove(change, plan=contract(CHECKS_RUN))
+        self.assertEqual(("FAIL", [NO_TEST]), (proof["verdict"], proof["failures"]))
+        self.assertNotIn("tests", state.get("plan_command_roles") or {})
+
+    def test_a_guard_is_the_plans_word_too(self):
+        change = {"pager.sh": FIXED, "checks/pager.sh": CHECK + PARTIAL}
+        proof, _ = self.prove(change, plan=contract(CHECKS_RUN, CHECKS_GUARD))
+        self.assertEqual(("PASS", [], []), (proof["verdict"], proof["failures"], proof["unverified"]))
+        self.assertEqual(0, proof["checks"]["guard_command_on_base:AC2"]["exit_code"])
+
+    def test_a_programs_own_entry_file_is_no_test(self):
+        # `./app.sh` runs app.sh, and nothing else needs it: what a test looks like to a command. Edited to
+        # use a file the change adds, it fails on the original code and passes with the change, with no
+        # check anywhere. Even a plan that says `./app.sh` runs the tests does not make it one: the
+        # command names it, so it is the program.
+        app = '#!/bin/sh\ncd "$(dirname "$0")"\n. ./pager.sh\necho "pages: $(page_count 10 5)"\n'
+        uses = app.replace("echo", ". ./fmt.sh; fmt_pages")
+        change = {"app.sh": uses, "fmt.sh": 'fmt_pages() { echo "$1"; }\n'}
+        state: dict = {}
+        made = project(self, {"pager.sh": BUG, "app.sh": app}, ("app.sh",))
+        made.write(change)
+        state.update(run_state(made, contract(FLIPS.format("./app.sh"), "guard: run `./app.sh`")))
+        with mock.patch.object(verify.diff_coverage, "collect", return_value=None):
+            proof = regression.prove(state, made.root, made.root.parent / "run")
+        self.assertEqual(("FAIL", [NO_TEST]), (proof["verdict"], proof["failures"]))
+
+
+class ObservedTestsPlanCheckTests(unittest.TestCase):
+    """The plan check no longer says "the project has no tests yet" of a project whose command shows it has."""
+
+    def state(self, files):
+        made = project(self, files, ("run_checks.sh",))
+        run_dir = Path(tempfile.mkdtemp(prefix="plan-check-"))
+        self.addCleanup(shutil.rmtree, run_dir, True)
+        return {**plan_tests.CheckTests.state(self, made), "base_commit": made.base, "run_dir": str(run_dir)}
+
+    def body(self, method, *paths, guard=None):
+        body = plan_tests.plan(*paths)
+        body["milestones"][0]["affected_paths"] = list(paths)
+        body["acceptance_criteria"][0]["verification_method"] = method
+        if guard:
+            row = {**body["acceptance_criteria"][0], "id": "G1", "verification_method": guard}
+            body["acceptance_criteria"].append(row)
+            body["milestones"][0]["acceptance_criteria"].append("G1")
+        return body
+
+    def test_a_plan_that_says_the_command_fails_first_and_edits_a_check_it_runs_is_accepted(self):
+        lifecycle.validate_body(self.state(CHECKS), self.body(CHECKS_FLIP, "pager.sh", "checks/pager.sh"), ready=True)
+
+    def test_so_is_one_that_adds_a_check_beside_one(self):
+        lifecycle.validate_body(self.state(CHECKS), self.body(CHECKS_FLIP, "pager.sh", "checks/partial.sh"), ready=True)
+
+    def test_so_is_one_that_guards_with_the_command(self):
+        body = self.body(CHECKS_RUN, "pager.sh", "checks/pager.sh", guard=CHECKS_GUARD)
+        lifecycle.validate_body(self.state(CHECKS), body, ready=True)
+
+    def test_a_plan_of_code_alone_is_still_refused(self):
+        with self.assertRaisesRegex(ValueError, r"This plan changes code \(pager\.sh\) and plans no test"):
+            lifecycle.validate_body(self.state(CHECKS), self.body(CHECKS_FLIP, "pager.sh"), ready=True)
+
+    def test_a_plan_that_does_not_say_so_is_refused_and_told_how_to_say_it(self):
+        # The look alone accepts nothing: it cannot tell a test from a program's own entry file.
+        told = (
+            r"plans no test, and the project has no tests yet.*`\./run_checks\.sh` runs checks/pager\.sh as a "
+            r"test is run.*write the criterion the new check shows as \"run `\./run_checks\.sh`: it fails on the "
+            r"original code and passes with the fix\".*plan a new test file"
+        )
+        with self.assertRaisesRegex(ValueError, told):
+            lifecycle.validate_body(
+                self.state(CHECKS), self.body(CHECKS_RUN, "pager.sh", "checks/pager.sh"), ready=True
+            )
+
+    def test_a_guard_whose_command_runs_no_file_the_plan_is_about_is_refused(self):
+        told = r"G1 `\./run_checks\.sh` names no existing test file.*Name the file that gets the change's check"
+        with self.assertRaisesRegex(ValueError, told):
+            lifecycle.validate_body(
+                self.state(CHECKS), self.body(CHECKS_RUN, "pager.sh", guard=CHECKS_GUARD), ready=True
+            )
+
+    def test_a_guard_with_a_check_of_its_own_is_refused_and_the_plan_stands_without_it(self):
+        # A live Planner guarded with a one-line check of its own beside the fail-first criterion. The
+        # guard is refused as before; with an ordinary method in its place the plan is accepted.
+        inline = "guard: run `sh -c '. ./pager.sh; [ \"$(page_count 10 5)\" = 2 ]'`"
+        body = self.body(CHECKS_FLIP, "pager.sh", "checks/pager.sh", guard=inline)
+        with self.assertRaisesRegex(ValueError, "G1 .* names no existing test file.*or give the criterion an ordinary"):
+            lifecycle.validate_body(self.state(CHECKS), body, ready=True)
+        body["acceptance_criteria"][1]["verification_method"] = inline.removeprefix("guard: ")
+        lifecycle.validate_body(self.state(CHECKS), body, ready=True)
+
+    def test_a_project_with_no_check_is_refused_whatever_the_plan_says(self):
+        files = {"pager.sh": BUG, "run_checks.sh": "#!/bin/sh\nexit 0\n"}
+        # The runner is named by the command, so it is the program and no test of the project.
+        with self.assertRaisesRegex(ValueError, "plans no test, and the project has no tests yet") as refused:
+            lifecycle.validate_body(self.state(files), self.body(CHECKS_FLIP, "pager.sh", "lib.sh"), ready=True)
+        self.assertNotIn("as a test is run", str(refused.exception))
+
+    def test_a_run_with_nowhere_to_look_keeps_the_refusal(self):
+        state = self.state(CHECKS)
+        del state["run_dir"]
+        with self.assertRaisesRegex(ValueError, "plans no test, and the project has no tests yet"):
+            lifecycle.validate_body(state, self.body(CHECKS_FLIP, "pager.sh", "checks/pager.sh"), ready=True)
+        body = self.body(CHECKS_RUN, "pager.sh", "checks/pager.sh", guard=CHECKS_GUARD)
+        with self.assertRaisesRegex(ValueError, "names no existing test file"):
+            lifecycle.validate_body(state, body, ready=True)
+
+    def test_a_replay_runs_nothing_and_reads_what_the_recorded_proof_found(self):
+        import autocode_command_looks as command_looks
+        import autocode_replay_checks as recorded_checks
+
+        state = self.state(CHECKS)
+        body = self.body(CHECKS_FLIP, "pager.sh", "checks/pager.sh")
+        found = {"tests_command": "./run_checks.sh", "existing_test": "checks/pager.sh"}
+        with (
+            mock.patch.object(recorded_checks, "simulated", return_value=True),
+            mock.patch.object(command_looks, "looker", side_effect=AssertionError("a replay runs nothing")),
+        ):
+            with mock.patch.object(recorded_checks, "kept", return_value=found):
+                lifecycle.validate_body(state, body, ready=True)
+            with mock.patch.object(recorded_checks, "kept", return_value=None), self.assertRaises(ValueError):
+                lifecycle.validate_body(state, body, ready=True)
 
 
 class ReplayTests(unittest.TestCase):

@@ -27,7 +27,7 @@ class CommandSupervisionTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="command-supervision-")
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        self.root = Path(temporary.name).resolve()
 
     def command(self, source):
         # exec preserves the actual shell child's native PID when Python starts.
@@ -203,13 +203,46 @@ class CommandSupervisionTests(unittest.TestCase):
         for internal in ("secret-nonce-42", "birth_identity", "birth_time", "mach-owner-id", "{'schema'"):
             self.assertNotIn(internal, message)
 
+    @unittest.skipUnless(os.name == "posix", "POSIX directory symlinks")
+    def test_symlinked_ancestor_root_authenticates_capture_while_symlink_root_or_child_is_refused(self):
+        physical = self.root / "physical"
+        physical.mkdir()
+        alias_parent = self.root / "platform-alias"
+        alias_parent.symlink_to(physical, target_is_directory=True)
+        workspace = alias_parent / "workspace"
+        workspace.mkdir()
+        result = verify.run_command(self.command("print('ok')"), workspace, workspace / "normal.log")
+        self.assertEqual(0, result["exit_code"])
+        for candidate_root in (workspace, workspace.resolve()):
+            with self.subTest(root=candidate_root):
+                self.assertTrue(receipts.completed(result, root=candidate_root))
+                self.assertTrue(schedule.intact(result, root=candidate_root))
+                self.assertTrue(measurement.known_capture(result, candidate_root))
+        symlink_root = self.root / "symlink-root"
+        symlink_root.symlink_to(workspace.resolve(), target_is_directory=True)
+        self.assertFalse(receipts.completed(result, root=symlink_root))
+        self.assertFalse(schedule.intact(result, root=symlink_root))
+        self.assertFalse(measurement.known_capture(result, symlink_root))
+        real_sub = workspace.resolve() / "real-sub"
+        real_sub.mkdir()
+        copied = real_sub / "copied.log"
+        copied.write_bytes(Path(result["output"]).read_bytes())
+        linked_sub = workspace.resolve() / "linked-sub"
+        linked_sub.symlink_to(real_sub, target_is_directory=True)
+        for redirected_path in (workspace / "linked-sub" / "copied.log", linked_sub / "copied.log"):
+            redirected = {**result, "output": str(redirected_path)}
+            for candidate_root in (workspace, workspace.resolve()):
+                with self.subTest(redirected=redirected_path, root=candidate_root):
+                    self.assertFalse(schedule.intact(redirected, root=candidate_root))
+                    self.assertFalse(measurement.known_capture(redirected, candidate_root))
+
 
 @patch.dict(os.environ, {"AUTOCODE_RUN_PROCESS": "run_process_handler"})
 class InProcessCommandSeamTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="command-seam-")
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        self.root = Path(temporary.name).resolve()
         self.bin = self.root / "bin"
         self.bin.mkdir()
         self.provider = self.bin / "fixture-provider"
@@ -346,7 +379,7 @@ class InProcessSeamTests(unittest.TestCase):
     def test_a_python_command_run_in_process_returns_its_text_output(self):
         # #931: the #704 seam built its output as text and then called .decode on it.
         with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
+            root = Path(folder).resolve()
             provider = root / "fixture-provider"
             provider.write_text(
                 "#!/usr/bin/env python3\nimport sys\nprint('hello from the fixture', sys.argv[1:])\n"

@@ -73,7 +73,7 @@ COMPLETE = "TASK_COMPLETE"
 
 def _git(root, *args, env=None, check=True):
     result = subprocess.run(
-        ["git", "-C", str(root), *args], capture_output=True, text=True, env={**os.environ, **(env or {})}
+        ["git", "-C", str(root), *args], capture_output=True, text=True, env=util.git_environment(env)
     )
     if check and result.returncode:
         raise ValueError(result.stderr.strip() or f"git {' '.join(args)} failed")
@@ -129,7 +129,7 @@ def deliver(state: RunState, workspace) -> str:
             capture_output=True,
             text=True,
             check=True,
-            env={**os.environ, **IDENTITY},
+            env=util.git_environment(IDENTITY),
         ).stdout.strip()
         _git(workspace, "update-ref", f"refs/heads/{branch}", commit, tip)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:

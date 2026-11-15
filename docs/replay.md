@@ -190,7 +190,10 @@ The same holds in a project with no runner AutoCode detects, where a live proof
 finds which of the plan's commands runs the project's tests by running them (see
 [named test proof](named-test-proof.md)): a simulated proof takes that answer from
 the recorded receipt (`plan_command_roles`), for the same plan, and its commands
-are compared with the recording's as above.
+are compared with the recording's as above. The receipt also holds the files that
+command was seen to run as tests where no path rule names one (`tests`,
+`tests_command`, `existing_test`); the plan check, which runs the plan's guard
+command to see that on a live run, reads the recorded answer too.
 
 ## Public task-run interface
 

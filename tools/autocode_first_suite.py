@@ -11,11 +11,13 @@ try:
     from . import autocode_changed_tests as changed_tests
     from . import autocode_project_inventory as project_inventory
     from . import autocode_project_kinds as project_kinds
+    from . import autocode_util as util
     from . import autocode_verification_schedule as schedule
 except ImportError:
     import autocode_changed_tests as changed_tests
     import autocode_project_inventory as project_inventory
     import autocode_project_kinds as project_kinds
+    import autocode_util as util
     import autocode_verification_schedule as schedule
 
 
@@ -150,7 +152,12 @@ def blob_reader(workspace, revision):
     """``read(path)``: the bytes of path at revision, or None when Git cannot show it."""
 
     def read(path):
-        shown = subprocess.run(["git", "cat-file", "blob", f"{revision}:{path}"], cwd=workspace, capture_output=True)
+        shown = subprocess.run(
+            ["git", "cat-file", "blob", f"{revision}:{path}"],
+            cwd=workspace,
+            capture_output=True,
+            env=util.git_environment(),
+        )
         return shown.stdout if shown.returncode == 0 else None
 
     return read
@@ -442,7 +449,13 @@ def _added_tests(run):
 
     def git(workspace, *arguments, check=False):
         shown = subprocess.run(
-            ["git", *arguments], cwd=workspace, capture_output=True, encoding="utf-8", errors="replace", check=check
+            ["git", *arguments],
+            cwd=workspace,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            check=check,
+            env=util.git_environment(),
         )
         return shown.stdout
 

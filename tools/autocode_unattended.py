@@ -35,8 +35,10 @@ import sys
 from pathlib import Path
 
 try:
+    from . import autocode_util as util
     from .autocode_decision_flags import DECISION_FLAGS
 except ImportError:
+    import autocode_util as util
     from autocode_decision_flags import DECISION_FLAGS
 
 # Subcommands that submit interventions or run other flows.
@@ -133,6 +135,7 @@ def git(workspace: Path, *args: str) -> str:
         encoding="utf-8",
         errors="replace",
         check=False,
+        env=util.git_environment(),
     )
     return result.stdout if result.returncode == 0 else f"(git {' '.join(args)} failed: {result.stderr.strip()})\n"
 
@@ -343,6 +346,7 @@ def analyze(run_dir: Path, out: Path | None) -> int:
                 encoding="utf-8",
                 errors="replace",
                 check=False,
+                env=util.git_environment(),
             ).stdout
     lines += [
         "",

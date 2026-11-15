@@ -7,8 +7,10 @@ from pathlib import Path
 
 try:
     from . import autocode_source_snapshot as snapshots
+    from . import autocode_util as util
 except ImportError:
     import autocode_source_snapshot as snapshots
+    import autocode_util as util
 
 
 def write(workspace, destination, source, *, prefix=""):
@@ -27,12 +29,13 @@ def write(workspace, destination, source, *, prefix=""):
                     "HEAD",
                 ],
                 cwd=workspace,
+                env=util.git_environment(),
                 stdout=output,
                 check=True,
             )
         return
     with tempfile.TemporaryDirectory(prefix="source-diff-", dir=destination.parent) as directory:
-        env = {**os.environ, "GIT_INDEX_FILE": str(Path(directory) / "index")}
+        env = util.git_environment({"GIT_INDEX_FILE": str(Path(directory) / "index")})
 
         def git(*args, data=None):
             return subprocess.run(

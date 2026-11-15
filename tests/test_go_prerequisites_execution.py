@@ -197,13 +197,17 @@ def acceptance_tests(data):
 _original_lazy_citations = lazy_citations
 def lazy_citations(report):
     import hashlib
+    from fake_changed_code import _review_data
     report = _original_lazy_citations(report)
     if "changed_code_exceptions" not in OUTPUT_SCHEMA.get("properties", {}):
         return report
     source = Path("app.go").read_text()
     if source != EXPECTED_GO_SOURCE or Path("regression_test.go").read_text() != EXPECTED_GO_TEST:
         return report
-    proof = DATA.get("regression_proof") or {}
+    full_data = _review_data(DATA)
+    if full_data is None:
+        return report
+    proof = full_data.get("regression_proof") or {}
     digest = hashlib.sha256(source.encode()).hexdigest()
     for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
         if (row.get("path") == "app.go" and row.get("sha256") == digest and row.get("line") == 2
