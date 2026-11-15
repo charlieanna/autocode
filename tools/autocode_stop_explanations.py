@@ -328,6 +328,10 @@ TABLE: dict[str, tuple[str, str]] = {
         "--resume-paused re-checks; --abandon-stage ATTEMPT if it is stuck.",
     ),
     "PAUSED_PROCESS_CHECK": ("A process check is uncertain.", "--resume-paused re-checks."),
+    "PAUSED_METADATA_ADMISSION": (
+        "An internal check did not start within its existing admission allowance.",
+        "Saved work and usage are retained. AutoCode has not retried the check or accepted a result; no recovery decision is requested from you.",
+    ),
     "PAUSED_CONTROLLER_EXIT": (
         "The controller ended before advancing the saved running checkpoint; saved work is retained.",
         "--resume-paused continues from the last saved step after ownership is checked.",

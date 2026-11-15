@@ -23,15 +23,18 @@ try:
     from . import autocode_metadata_custody as custody
     from . import autocode_operational_block_view as block_view
     from . import autocode_run_status as run_status
+    from . import autocode_stop as stop
     from . import autocode_util as util
 except ImportError:
     import autocode_metadata_custody as custody
     import autocode_operational_block_view as block_view
     import autocode_run_status as run_status
+    import autocode_stop as stop
     import autocode_util as util
 
 METADATA = block_view.METADATA
 WORKER_EVIDENCE = block_view.WORKER_EVIDENCE
+ADMISSION = block_view.ADMISSION
 STATUS = "PAUSED_PROCESS_CLEANUP"
 receipt = block_view.receipt
 presentation = block_view.presentation
@@ -42,10 +45,7 @@ class BlockedOperation(util.Paused):
 
     def __init__(self, record, *, persisted=False, worker=None):
         scope = record["receipt"]["scope"]
-        super().__init__(
-            "PAUSED_ORCHESTRATOR_WORKER" if scope == WORKER_EVIDENCE else STATUS,
-            record.get("summary") or custody.BLOCKED,
-        )
+        super().__init__(block_view.POLICY[scope]["status"], record.get("summary") or _summary(scope))
         self.record = deepcopy(record)
         self.persisted = persisted
         self.worker = deepcopy(worker)
@@ -54,27 +54,58 @@ class BlockedOperation(util.Paused):
 class WorkerEvidenceUncertain(util.Paused):
     """The parent could not authenticate a relay; the claim grants nothing."""
 
+    MESSAGE = "AutoCode could not authenticate the stopped worker's evidence; work and usage are retained."
+
     def __init__(self, worker):
         super().__init__(
             "PAUSED_ORCHESTRATOR_WORKER",
-            "AutoCode could not authenticate the stopped worker's evidence; work and usage are retained.",
+            self.MESSAGE,
         )
         self.worker = deepcopy(worker)
 
 
-def error(value):
-    """Keep typed provenance through ordinary Core exception wrappers."""
+def _summary(scope):
+    return {METADATA: custody.BLOCKED, ADMISSION: custody.BUSY, WORKER_EVIDENCE: WorkerEvidenceUncertain.MESSAGE}[scope]
+
+
+def _scope(value):
+    if isinstance(value, custody.MetadataAdmissionBusy):
+        return ADMISSION
+    if isinstance(value, custody.CustodyUncertain):
+        return METADATA
+    if isinstance(value, WorkerEvidenceUncertain):
+        return WORKER_EVIDENCE
+    if isinstance(value, BlockedOperation):
+        return value.record["receipt"]["scope"]
+    return None
+
+
+def strongest(values):
+    """Select one effective denial without discarding any retained evidence."""
+    found = [value for value in values if _scope(value) is not None]
+    return max(found, key=lambda value: block_view.priority(_scope(value)), default=None)
+
+
+def _errors(value, *, preload=False):
+    """Read all observed typed facts before applying shared precedence."""
     seen = set()
     pending = [value]
+    found = []
     while pending and len(seen) < 32:
         current = pending.pop()
         if not isinstance(current, BaseException) or id(current) in seen:
             continue
         seen.add(id(current))
-        if isinstance(current, (custody.CustodyUncertain, BlockedOperation, WorkerEvidenceUncertain)):
-            return current
+        scope = _scope(current)
+        if scope is not None and (not preload or block_view.POLICY[scope]["preload"]):
+            found.append(current)
         pending.extend((current.__context__, current.__cause__))
-    return None
+    return found
+
+
+def error(value, *, preload=False):
+    """Keep the strongest observed typed provenance through Core wrappers."""
+    return strongest(_errors(value, preload=preload))
 
 
 def raise_if_blocked(value):
@@ -112,17 +143,14 @@ def _append(state: RunState, record):
     return records[identity]
 
 
-def record(state: RunState, value, *, run_dir, workspace):
-    """Retain the actual typed refusal before generic model-output recovery."""
-    found = error(value)
-    if found is None:
-        return False
+def _retain(state: RunState, found, *, run_dir, workspace):
     if isinstance(found, BlockedOperation) and found.persisted:
-        return True
-    scope = WORKER_EVIDENCE if isinstance(found, WorkerEvidenceUncertain) else METADATA
-    reason = str(found) if scope == WORKER_EVIDENCE else custody.BLOCKED
+        return
+    scope = _scope(found)
+    assert scope is not None
+    reason = _summary(scope)
     evidence = {
-        "operation": "worker_evidence" if scope == WORKER_EVIDENCE else "metadata_check",
+        "operation": block_view.POLICY[scope]["operation"],
         "binding": _binding(state, run_dir, workspace),
     }
     if scope == METADATA:
@@ -134,6 +162,8 @@ def record(state: RunState, value, *, run_dir, workspace):
         evidence["custody_binding"] = deepcopy(binding)
     elif isinstance(found, WorkerEvidenceUncertain):
         evidence["worker"] = deepcopy(found.worker)
+    if scope == ADMISSION:
+        evidence["admission"] = "not_admitted"
     if isinstance(found, BlockedOperation) and found.worker is not None:
         evidence["worker"] = deepcopy(found.worker)
     previous = receipt(state, scope)
@@ -154,7 +184,21 @@ def record(state: RunState, value, *, run_dir, workspace):
                 "receipt": {"scope": scope, "callbacks_used": [], "evidence": evidence},
             },
         )
-    run_status.pause(state, "PAUSED_ORCHESTRATOR_WORKER" if scope == WORKER_EVIDENCE else STATUS, reason)
+
+
+def record(state: RunState, value, *, run_dir, workspace):
+    """Retain every typed refusal before selecting the effective denial."""
+    found = _errors(value)
+    if not found:
+        return False
+    for denial in found:
+        _retain(state, denial, run_dir=run_dir, workspace=workspace)
+    if stop.applied_stop(state) is not None:
+        return True
+    selected = worker_receipt(state)
+    assert selected is not None
+    kind = selected["receipt"]["scope"]
+    run_status.pause(state, block_view.POLICY[kind]["status"], selected.get("summary") or _summary(kind))
     return True
 
 
@@ -165,10 +209,13 @@ def guard(runtime, state: RunState, run_dir, workspace):
     retained kernel receipt. The nonce is a locator, never evidence by itself.
     This changes no active result, model route, budget, approval or retry bound.
     """
+    stop.refuse_admission(state)
     if rejected := receipt(state, WORKER_EVIDENCE):
         raise BlockedOperation(rejected, persisted=True)
     current = receipt(state, METADATA)
     if current is None:
+        if admitted := receipt(state, ADMISSION):
+            raise BlockedOperation(admitted, persisted=True)
         return
     if current["receipt"]["scope"] == METADATA:
         evidence = current["receipt"].get("evidence") or {}
@@ -182,13 +229,27 @@ def guard(runtime, state: RunState, run_dir, workspace):
             }
             recovered["receipt"]["recovered_receipt_id"] = current["receipt"]["id"]
             _append(state, recovered)
+            admitted = receipt(state, ADMISSION)
+            if admitted is not None:
+                run_status.pause(state, block_view.POLICY[ADMISSION]["status"], _summary(ADMISSION))
             runtime.write_json(Path(run_dir) / "state.json", state)
+            if admitted is not None:
+                raise BlockedOperation(admitted, persisted=True)
             return
     raise BlockedOperation(current, persisted=True)
 
 
+def worker_receipt(state: RunState):
+    candidates = [receipt(state, scope) for scope in block_view.POLICY]
+    return max(
+        (row for row in candidates if row is not None),
+        key=lambda row: block_view.priority(row["receipt"]["scope"]),
+        default=None,
+    )
+
+
 def worker_payload(state: RunState, directory, workspace):
-    current = receipt(state, METADATA)
+    current = worker_receipt(state)
     if current is None:
         return None
     evidence = current["receipt"].get("evidence")
@@ -233,7 +294,7 @@ def worker_error(state: RunState, batch, row, result, child, *, run_dir, source_
     if payload is None:
         return None
     worker_state = cast("RunState", child) if isinstance(child, dict) else None
-    current = receipt(worker_state, METADATA) if worker_state is not None else None
+    current = worker_receipt(worker_state) if worker_state is not None else None
     valid = (
         isinstance(payload, dict)
         and set(payload) == {"schema", "receipt_id", "receipt_sha256", "run_dir", "workspace"}

@@ -17,6 +17,7 @@ import autocode_run_view as run_view
 import autocode_util as util
 
 from . import test_recovery_view as view_fixtures
+from .test_operational_block import admission_failure
 
 
 class RunSetupBoundaryTests(unittest.TestCase):
@@ -88,6 +89,7 @@ class RunSetupBoundaryTests(unittest.TestCase):
             util.Paused("PAUSED_REGISTRY", "registry has already recorded its own failure"),
             custody.ProcessError(custody.BLOCKED),
             custody.ProcessError(custody.BUSY),
+            admission_failure(),
             KeyboardInterrupt(),
             uncertain,
         )
@@ -119,9 +121,25 @@ class RunSetupBoundaryTests(unittest.TestCase):
         with self.assertRaises(RuntimeError) as caught:
             self.run_locked()
         self.assertIs(failure, caught.exception)
+
         self.assertEqual(original, self.state)
         self.runtime.write_json.assert_not_called()
         self.owner_factory.assert_not_called()
+
+    def test_admission_preload_keeps_exact_exception_checkpoint_and_cleanup(self):
+        failure = admission_failure()
+        self.load.side_effect = failure
+        util.atomic_json(self.path, self.state)
+        saved = self.path.read_bytes()
+        original = copy.deepcopy(self.state)
+        with self.assertRaises(custody.ProcessError) as caught:
+            self.run_locked()
+        self.assertIs(failure, caught.exception)
+        self.assertEqual(saved, self.path.read_bytes())
+        self.assertEqual(original, self.state)
+        self.runtime.write_json.assert_not_called()
+        self.owner_factory.assert_not_called()
+        self.runtime.resolver_runtime.record_operational_exhaustion.assert_not_called()
 
     def test_public_launch_refusal_still_cleans_unsaved_run_and_unused_worktree(self):
         self.args._fresh_task_worktree = {
@@ -201,6 +219,20 @@ class RunSetupBoundaryTests(unittest.TestCase):
         self.assertEqual(2, self.run_locked(native=native))
         self.assertEqual("PAUSED_INVALID_OUTPUT", util.read(self.path)["status"])
         native.require_supported_action.assert_not_called()
+
+    def test_native_preload_admission_is_an_actionless_refused_attempt(self):
+        self.load.side_effect = admission_failure()
+        native = SimpleNamespace(require_supported_action=Mock())
+        self.assertEqual(2, self.run_locked(native=native))
+        saved = util.read(self.path)
+        self.assertEqual("PAUSED_METADATA_ADMISSION", saved["status"])
+        public = run_view.view(saved, workspace=self.workspace, run_dir=self.run)
+        self.assertIsNone(public["needs"])
+        self.assertIsNone(public["next_command"])
+        self.assertEqual("blocked", public["recovery"]["category"])
+        native.require_supported_action.assert_not_called()
+        self.owner_factory.assert_not_called()
+        self.runtime.pause_command.recovery.assert_not_called()
         self.runtime.resolver_runtime.record_operational_exhaustion.assert_not_called()
 
     def test_ordinary_errors_after_preload_still_use_the_runtime_pause_handler(self):

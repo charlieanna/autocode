@@ -30,7 +30,7 @@ except ImportError:
     from autocode_process import ProcessError
 
 BLOCKED = "Connection checks are unavailable because an earlier check could not be confirmed stopped safely."
-BUSY = "Another connection check is still running."
+BUSY = "The internal check did not start because admission was unavailable within its existing allowance."
 MAX_RECORD = 65536
 POLL_SECONDS = 0.02
 _ACTIVE: ContextVar[Admission | None] = ContextVar("metadata_custody_admission", default=None)
@@ -50,6 +50,13 @@ class CustodyUncertain(ProcessError):
     def __init__(self, binding=None):
         super().__init__(BLOCKED)
         self.binding = binding
+
+
+class MetadataAdmissionBusy(ProcessError):
+    """This attempt never acquired admission; no owner or family fact follows."""
+
+    def __init__(self):
+        super().__init__(BUSY)
 
 
 def _root(env):
@@ -394,7 +401,7 @@ def _acquire(root, deadline):
             except BlockingIOError:
                 remaining = None if deadline is None else deadline - util.monotonic()
                 if remaining is None or remaining <= 0:
-                    raise ProcessError(BUSY) from None
+                    raise MetadataAdmissionBusy() from None
                 util.sleep(min(POLL_SECONDS, remaining))
     except BaseException:
         handle.close()

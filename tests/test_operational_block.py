@@ -17,11 +17,28 @@ import autocode_operational_block_view as block_view
 import autocode_recovery_dispatch as dispatch
 import autocode_run_actions as actions
 import autocode_run_view as run_view
+import autocode_stop as stop
 import autocode_util as util
 import autocode_verification_failure as verification
 
 from . import test_metadata_custody as custody_fixtures
 from . import test_recovery_view as view_fixtures
+
+
+def admission_failure():
+    """Use the real admission decision; no subtype-only seam is needed on base."""
+    handle = Mock()
+    with (
+        patch.object(custody, "_open", return_value=handle),
+        patch.object(custody.util, "lock_file", side_effect=BlockingIOError),
+        patch.object(custody.util, "monotonic", return_value=1),
+    ):
+        try:
+            custody._acquire(Path("/unused-private-store"), 1)
+        except custody.ProcessError as failure:
+            handle.close.assert_called_once()
+            return failure
+    raise AssertionError("The contended attempt was incorrectly admitted")
 
 
 class OperationalBlockTests(unittest.TestCase):
@@ -83,6 +100,75 @@ class OperationalBlockTests(unittest.TestCase):
         self.assertEqual("metadata_check", held["receipt"]["evidence"]["operation"])
         self.assertEqual(0, held["runner_calls"])
         self.assertNotIn("provider_request_started", held["receipt"]["evidence"], "earlier model work is not denied")
+
+    def test_admission_is_typed_only_at_actual_origin_and_never_recovers_custody(self):
+        failure = admission_failure()
+        self.assertEqual("MetadataAdmissionBusy", type(failure).__name__)
+        self.assertIsNone(getattr(failure, "binding", None))
+        held = self.retain(failure)
+        evidence = held["receipt"]["evidence"]
+        self.assertEqual("metadata_admission", held["receipt"]["scope"])
+        self.assertEqual("not_admitted", evidence["admission"])
+        self.assertNotIn("custody_binding", evidence)
+        self.assertNotIn("owner", evidence)
+        with (
+            patch.object(custody, "recover", side_effect=AssertionError("No family was admitted")) as recovery,
+            patch.object(custody, "status", side_effect=AssertionError("No status-based retry")) as status,
+            self.assertRaises(util.Paused),
+        ):
+            block.guard(self.runtime, self.state, self.run, self.workspace)
+        recovery.assert_not_called()
+        status.assert_not_called()
+        replay = Mock(return_value=True)
+        with patch.object(dispatch, "RECOVERY_CHAIN", (("would_replay", replay),)):
+            self.assertIsNone(dispatch.recover(self.runtime, self.state, self.run, self.workspace, failure))
+        replay.assert_not_called()
+
+    def test_unknown_denials_dominate_admission_in_chains_and_saved_receipts(self):
+        busy = admission_failure()
+        for stronger in (
+            self.failure,
+            block.worker_refusal({"id": "b"}, {"run_dir": self.run, "workspace": self.workspace, "task": {"id": "t"}}),
+        ):
+            for order in ((busy, stronger), (stronger, busy)):
+                with self.subTest(stronger=type(stronger).__name__, first=type(order[0]).__name__):
+                    wrapper = RuntimeError("outer wrapper")
+                    wrapper.__cause__, wrapper.__context__ = order
+                    self.assertIs(stronger, block.error(wrapper))
+                    state = copy.deepcopy(self.state)
+                    self.assertTrue(block.record(state, wrapper, run_dir=self.run, workspace=self.workspace))
+                    current = block.receipt(state)
+                    self.assertNotEqual("metadata_admission", current["receipt"]["scope"])
+                    expected = (
+                        "PAUSED_ORCHESTRATOR_WORKER"
+                        if isinstance(stronger, block.WorkerEvidenceUncertain)
+                        else block.STATUS
+                    )
+                    self.assertEqual(expected, state["status"])
+                    self.assertEqual(2, len(state["resolver"]["operational_receipts"]))
+        self.assertIs(busy, block.error(busy))
+
+    def test_authenticated_custody_recovery_does_not_retry_an_unadmitted_attempt(self):
+        wrapper = RuntimeError("wrapped failures")
+        wrapper.__cause__ = self.failure
+        wrapper.__context__ = admission_failure()
+        self.retain(wrapper)
+        with (
+            patch.object(custody, "recover", return_value=True) as recovery,
+            self.assertRaises(util.Paused),
+        ):
+            block.guard(self.runtime, self.state, self.run, self.workspace)
+        recovery.assert_called_once_with(None)
+        self.assertIsNone(block.receipt(self.state, block.METADATA))
+        self.assertEqual("metadata_admission", block.receipt(self.state)["receipt"]["scope"])
+        self.assertIsNone(run_view.view(self.state)["next_command"])
+
+    def test_saved_uncertainty_without_summary_still_dominates_new_admission(self):
+        held = self.retain()
+        del held["summary"]
+        self.assertTrue(block.record(self.state, admission_failure(), run_dir=self.run, workspace=self.workspace))
+        self.assertEqual("PAUSED_PROCESS_CLEANUP", self.state["status"])
+        self.assertEqual("metadata_custody", block.receipt(self.state)["receipt"]["scope"])
 
     def test_typed_refusal_never_enters_the_model_or_retry_recovery_chain(self):
         recover = Mock(return_value=True)
@@ -146,7 +232,7 @@ class OperationalBlockTests(unittest.TestCase):
         self.assertEqual(original, self.state)
         self.runtime.write_json.assert_not_called()
 
-    def test_a_pending_person_stop_is_consumed_before_the_advancement_hold(self):
+    def assert_pending_stop_precedes_hold(self):
         self.retain()
         self.runtime.consume_interventions = Mock(return_value=True)
         with (
@@ -166,6 +252,53 @@ class OperationalBlockTests(unittest.TestCase):
         self.assertEqual(2, code)
         self.runtime.consume_interventions.assert_called_once_with(self.state, self.run, self.workspace)
         self.assertIsNotNone(block.receipt(self.state), "a person stop does not certify metadata cleanup")
+
+    def test_a_pending_person_stop_is_consumed_before_the_advancement_hold(self):
+        self.assert_pending_stop_precedes_hold()
+
+    def test_a_pending_stop_precedes_an_unadmitted_attempt_without_retry(self):
+        self.failure = admission_failure()
+        self.assert_pending_stop_precedes_hold()
+
+    def test_applied_stop_retains_all_typed_facts_without_replacing_its_public_outcome(self):
+        for value in (admission_failure(), self.failure):
+            for chained in (False, True):
+                with self.subTest(failure=type(value).__name__, chained=chained):
+                    state = copy.deepcopy(self.state)
+                    state["applied_interventions"] = [{"id": "stop", "kind": "stop", "actor": "person"}]
+                    stop.assert_stopped(state)
+                    saved = {
+                        key: copy.deepcopy(state.get(key))
+                        for key in ("status", "phase", "stop_reason", "applied_interventions", "history", "stages")
+                    }
+                    if chained:
+                        wrapper = RuntimeError("both observed facts")
+                        wrapper.__cause__, wrapper.__context__ = (
+                            value,
+                            self.failure if value is not self.failure else admission_failure(),
+                        )
+                        current = wrapper
+                    else:
+                        current = value
+                    self.assertTrue(block.record(state, current, run_dir=self.run, workspace=self.workspace))
+                    for key, original in saved.items():
+                        self.assertEqual(original, state.get(key), key)
+                    self.assertIsNotNone(block.receipt(state), "the refusal remains evidence even after Stop")
+                    self.run.mkdir(parents=True, exist_ok=True)
+                    writer = stop.state_writer(util.atomic_json, util.atomic_json)
+                    writer(self.run / "state.json", state)
+                    public = run_view.view(util.read(self.run / "state.json"))
+                    self.assertEqual("stopped", public["recovery"]["category"])
+                    self.assertEqual("Stopped at your request", public["recovery"]["title"])
+                    self.assertIsNone(public["next_command"])
+                    self.assertIsNone(public["needs"])
+                    with (
+                        patch.object(custody, "recover", side_effect=AssertionError("Stop cannot recover")) as recover,
+                        self.assertRaises(util.Paused) as caught,
+                    ):
+                        block.guard(self.runtime, state, self.run, self.workspace)
+                    self.assertEqual(stop.STOP_STATUS, caught.exception.status)
+                    recover.assert_not_called()
 
     def test_legacy_blocks_keep_their_existing_advancement_policy(self):
         self.state["resolver"] = {

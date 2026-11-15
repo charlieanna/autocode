@@ -3085,6 +3085,18 @@ reconcile the run, permit a retry or establish passing evidence.
 
 ## Connections for clients
 
+Metadata admission and uncertain cleanup are distinct internal outcomes. A check
+that cannot acquire admission within its existing allowance has not started;
+contention establishes nothing about another owner's health or cleanup. Core
+keeps that refused runtime attempt as `PAUSED_METADATA_ADMISSION`, with saved
+work and usage, no Resume offer, report repair, provider retry or new allowance.
+Uncertain custody and unauthenticated worker evidence take precedence. Views
+only project the recorded outcome: polling or later lock release does not retry
+it, and there is no background continuation mechanism for this saved refusal.
+An ordinary non-native setup refusal before run ownership keeps its existing
+no-save cleanup boundary. Fresh connection requests still use normal admission;
+after the contention ends they regain the usual named Check and Login offers.
+
 Connection setup is a core interface alongside task runs. A client may read
 `autocode connections list --json` before starting a task. The version-1 object
 contains `connections`, each with `id`, `label`, `connection_status`, `detail`, and `actions`.

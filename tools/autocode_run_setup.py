@@ -988,7 +988,7 @@ def run_locked(
                 # Ordinary setup refusals retain their original CLI/cleanup
                 # boundary. Only typed operational evidence enters the run's
                 # persisted denial path; prose never changes that authority.
-                preload_denial = operational_block.error(error)
+                preload_denial = operational_block.error(error, preload=True)
                 if preload_denial is None:
                     raise
         try:

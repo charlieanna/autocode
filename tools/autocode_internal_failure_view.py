@@ -14,12 +14,16 @@ if TYPE_CHECKING:
 try:
     from . import autocode_operational_block_view as blocked
     from . import autocode_startup_timeout_view as startup
+    from . import autocode_stop as stop
 except ImportError:
     import autocode_operational_block_view as blocked
     import autocode_startup_timeout_view as startup
+    import autocode_stop as stop
 
 receipt = blocked.receipt
 
 
 def presentation(state: RunState):
+    if stop.applied_stop(state) is not None:
+        return None
     return blocked.presentation(state) or startup.presentation(state)

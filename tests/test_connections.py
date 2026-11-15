@@ -325,6 +325,117 @@ class ConnectionTests(unittest.TestCase):
         self.assertIn("could not finish", row["detail"])
         self.assertNotIn("SECRET", output)
 
+    @unittest.skipUnless(os.name == "posix", "Metadata admission uses POSIX file locks")
+    def test_admission_race_reports_not_started_and_fresh_release_restores_offers(self):
+        self.configure()
+        custody = captured.custody
+        root = custody._root(None)
+        root.mkdir(mode=0o700, parents=True)
+        refusals = []
+
+        def refuse(*args, **kwargs):
+            self.assertGreaterEqual(status.call_count, 1, "the initial status allowed this check")
+            try:
+                with custody._acquire(root, custody.util.monotonic()):
+                    self.fail("the second admission unexpectedly acquired the held lock")
+            except captured.ProcessError as error:
+                refusals.append(error)
+                raise
+
+        with mock.patch.object(subprocess, "Popen", side_effect=AssertionError("a pure check launched a process")):
+            with (
+                custody._acquire(root, None),
+                mock.patch.object(custody, "status", return_value=None) as status,
+                mock.patch.object(captured, "run_metadata", side_effect=refuse) as owned,
+            ):
+                code, output = self.call("check", "--provider", "company", "--json")
+            self.assertEqual(0, code)
+            row = json.loads(output)
+            self.assertEqual("check_failed", row["connection_status"])
+            self.assertEqual(custody.BUSY, row["detail"])
+            self.assertNotIn("safely", row["detail"])
+            self.assertNotIn("credentials", row["detail"])
+            self.assertEqual([], row["actions"])
+            self.assertEqual(1, len(refusals))
+            self.assertEqual("MetadataAdmissionBusy", type(refusals[0]).__name__)
+            self.assertIsNone(getattr(refusals[0], "binding", None))
+            owned.assert_called_once_with([sys.executable, str(self.helper), "0"], timeout=45)
+            self.assertFalse((root / "pending.json").exists(), "a refused check never acquired custody")
+
+            with mock.patch.object(captured, "run_metadata", side_effect=AssertionError("discovery ran a check")):
+                fresh = connections.connection_view("company")
+            self.assertEqual("not_checked", fresh["connection_status"])
+            actions = {item["id"]: item["next_command"] for item in fresh["actions"]}
+            self.assertEqual(["connections", "check", "--provider", "company", "--json"], actions["check"])
+            self.assertEqual(["connections", "login", "--provider", "company"], actions["login"])
+            with mock.patch.object(
+                captured, "run_metadata", return_value=subprocess.CompletedProcess([], 0, "SECRET account", "")
+            ) as owned:
+                result = io.StringIO()
+                with contextlib.redirect_stdout(result):
+                    code = subcommands.dispatch(actions["check"])
+            self.assertEqual(0, code)
+            self.assertEqual("credentials_present", json.loads(result.getvalue())["connection_status"])
+            self.assertNotIn("SECRET", result.getvalue())
+            owned.assert_called_once_with([sys.executable, str(self.helper), "0"], timeout=45)
+            self.assertFalse(self.receipt.exists(), "offering login does not perform it")
+
+    @unittest.skipUnless(os.name == "posix", "Metadata admission uses POSIX file locks")
+    def test_observed_custody_uncertainty_outranks_an_admission_race(self):
+        self.configure()
+        custody = captured.custody
+        root = custody._root(None)
+        root.mkdir(mode=0o700, parents=True)
+        refused = False
+
+        def observed_status():
+            return custody.BLOCKED if refused else None
+
+        def refuse(*args, **kwargs):
+            nonlocal refused
+            try:
+                with custody._acquire(root, custody.util.monotonic()):
+                    self.fail("the second admission unexpectedly acquired the held lock")
+            except captured.ProcessError:
+                refused = True
+                raise
+
+        with (
+            mock.patch.object(subprocess, "Popen", side_effect=AssertionError("a pure check launched a process")),
+            custody._acquire(root, None),
+            mock.patch.object(custody, "status", side_effect=observed_status),
+            mock.patch.object(captured, "run_metadata", side_effect=refuse) as owned,
+        ):
+            _, output = self.call("check", "--provider", "company", "--json")
+        row = json.loads(output)
+        self.assertEqual("check_failed", row["connection_status"])
+        self.assertEqual(custody.BLOCKED, row["detail"])
+        self.assertEqual([], row["actions"])
+        owned.assert_called_once_with([sys.executable, str(self.helper), "0"], timeout=45)
+
+    def test_uncertain_and_plain_text_errors_never_become_not_started_results(self):
+        self.configure()
+        custody = captured.custody
+        for error in (
+            custody.CustodyUncertain(),
+            captured.ProcessError(custody.BUSY),
+            captured.ProcessError(custody.BLOCKED),
+        ):
+            with (
+                self.subTest(error=type(error).__name__, message=str(error)),
+                mock.patch.object(subprocess, "Popen", side_effect=AssertionError("a pure check launched a process")),
+                mock.patch.object(custody, "status", return_value=None),
+                mock.patch.object(captured, "run_metadata", side_effect=error) as owned,
+            ):
+                _, output = self.call("check", "--provider", "company", "--json")
+                row = json.loads(output)
+                self.assertEqual("check_failed", row["connection_status"])
+                self.assertIn("could not finish", row["detail"])
+                self.assertNotEqual(custody.BUSY, row["detail"])
+                self.assertNotEqual(custody.BLOCKED, row["detail"])
+                self.assertEqual([], row["actions"])
+                owned.assert_called_once_with([sys.executable, str(self.helper), "0"], timeout=45)
+
     def test_invalid_connection_commands_are_rejected_without_launch(self):
         for table in ('login_command="sh -c dangerous"', "status_command=[]", 'unexpected=["anything"]'):
             self.config.write_text(self.base + "\n[connection]\n" + table)

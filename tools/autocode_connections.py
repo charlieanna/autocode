@@ -369,6 +369,12 @@ def cli(argv):
     elif args.action == "check":
         try:
             result = connection_view(args.provider, check=True)
+        except captured.custody.MetadataAdmissionBusy:
+            result = connection_view(args.provider, check=False)
+            # A newly observed custody refusal is stronger than this attempt's
+            # unadmitted check. Contention itself authenticates no owner.
+            if result.get("detail") != captured.custody.BLOCKED:
+                result.update(connection_status="check_failed", detail=captured.custody.BUSY, actions=[])
         except captured.ProcessError:
             # A single explicit check can report failure. Batch discovery must
             # retain the exception and stop before checking another backend.

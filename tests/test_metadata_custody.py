@@ -212,7 +212,9 @@ class MetadataCustodyTests(unittest.TestCase):
             with self.assertRaises(custody.ProcessError) as caught:
                 contextvars.Context().run(busy)
             self.assertNotEqual("CustodyUncertain", type(caught.exception).__name__)
+            self.assertEqual("MetadataAdmissionBusy", type(caught.exception).__name__)
             self.assertIsNone(getattr(caught.exception, "binding", None))
+            self.assertFalse((self.root() / "pending.json").exists())
         scope = self.leave_pending()
         (scope.root / "pending.json").write_text("{")
         with self.assertRaises(custody.ProcessError) as caught:

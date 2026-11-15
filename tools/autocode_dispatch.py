@@ -458,13 +458,12 @@ def run_workers(state: RunState, run_dir, batch):
             writers.remove(fd)
             os.close(fd)
 
+    if any(worker_block_claim(row) for row in batch["workers"]) and (denial := batch_denial(state, run_dir, batch)):
+        raise denial
     for row in batch["workers"]:
         if worker_alive(row):
             raise still_running(row)
         s.assert_no_legacy_process(Path(row["run_dir"]), Path(row["workspace"]))
-    if unrelayed := _unrelayed_worker(batch):
-        account_workers(state, run_dir, batch)
-        raise operational_block.worker_refusal(batch, unrelayed)
     try:
         with processes.interruption_handler():
             for row in batch["workers"]:
@@ -595,35 +594,71 @@ def worker_block_claim(row):
         child = s.read(Path(row["run_dir"]) / "state.json")
     except (OSError, ValueError, TypeError):
         return None
-    if isinstance(child, dict) and operational_block.receipt(child, operational_block.METADATA) is not None:
+    if isinstance(child, dict) and operational_block.worker_receipt(child) is not None:
         return "child"
     return None
 
 
-def _unrelayed_worker(batch):
-    return next((row for row in batch["workers"] if worker_block_claim(row) == "child"), None)
+def batch_denial(state: RunState, run_dir, batch):
+    """Authenticate every claim before any recovery or result acceptance.
+
+    A complete envelope does not authorize a recovery Core. All observed
+    denials are retained; an unadmitted read cannot hide unknown ownership.
+    """
+    denials = account_workers(state, run_dir, batch, defer_denials=True)
+    for row in batch["workers"]:
+        claim = worker_block_claim(row)
+        if claim is None:
+            continue
+        if claim == "child":
+            denials.append(operational_block.worker_refusal(batch, row))
+            continue
+        try:
+            directory = Path(row["run_dir"])
+            result = s.read(directory / "result.json")
+            child = s.read(directory / "state.json")
+            source_head = source_scope.snapshot(Path(row["workspace"]), state, base_snapshot=s.snapshot)["head"]
+            denial = operational_block.worker_error(
+                state, batch, row, result, child, run_dir=run_dir, source_head=source_head
+            )
+            if denial is None:
+                denial = operational_block.worker_refusal(batch, row)
+        except (OSError, ValueError, KeyError, TypeError, processes.ProcessError) as error:
+            denial = operational_block.worker_refusal(batch, row)
+            denial.__cause__ = error
+        except operational_block.WorkerEvidenceUncertain as error:
+            denial = error
+        denials.append(denial)
+    for denial in denials:
+        operational_block.record(state, denial, run_dir=run_dir, workspace=state["workspace"])
+    if denials:
+        current = operational_block.worker_receipt(state)
+        assert current is not None
+        return operational_block.BlockedOperation(current, persisted=True)
+    return None
 
 
-def account_workers(state: RunState, run_dir, batch):
+def account_workers(state: RunState, run_dir, batch, *, defer_denials=False):
     """Charge finished attempts once, even when another member blocks integration."""
     accounted = set(batch.get("accounted_attempts", []))
-    refused = None
+    refused = []
+    claims = {id(row): worker_block_claim(row) for row in batch["workers"]}
+    blocked = any(claims.values())
     for row in batch["workers"]:
-        claimed = worker_block_claim(row)
         try:
             child = s.read(Path(row["run_dir"]) / "state.json")
             records = child.get("stages", []) + ([child["active_stage"]] if child.get("active_stage") else [])
         except (OSError, ValueError, TypeError, AttributeError):
-            if not claimed:
+            if not blocked:
                 raise
-            refused = refused or operational_block.worker_refusal(batch, row, usage_unconfirmed=True)
+            refused.append(operational_block.worker_refusal(batch, row, usage_unconfirmed=True))
             continue
         for record in records:
             try:
                 if not record.get("accounted"):
                     continue
                 duration = record.get("duration_seconds") or 0
-                if claimed and (
+                if blocked and (
                     type(record["iteration"]) is not int
                     or not all(isinstance(record[key], str) and record[key] for key in ("stage", "started_at"))
                     or type(duration) not in (int, float)
@@ -633,9 +668,9 @@ def account_workers(state: RunState, run_dir, batch):
                     raise ValueError("Worker accounting cannot be authenticated")
                 identity = f"{batch['id']}:{row['milestone_id']}:{record['iteration']}:{record['stage']}:{record['started_at']}"
             except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
-                if not claimed:
+                if not blocked:
                     raise
-                refused = refused or operational_block.worker_refusal(batch, row, usage_unconfirmed=True)
+                refused.append(operational_block.worker_refusal(batch, row, usage_unconfirmed=True))
                 continue
             entry = {
                 **record,
@@ -654,12 +689,15 @@ def account_workers(state: RunState, run_dir, batch):
             state["active_seconds"] = state.get("active_seconds", 0) + duration
             accounted.add(identity)
         key = f"{batch['contract_hash']}:{row['milestone_id']}"
-        if not claimed and key in child.get("milestone_progress", {}):
+        if not blocked and key in child.get("milestone_progress", {}):
             state.setdefault("milestone_progress", {})[key] = copy.deepcopy(child["milestone_progress"][key])
     batch["accounted_attempts"] = sorted(accounted)
     autocode_status.persist(run_dir / "state.json", state)
-    if refused is not None:
-        raise refused
+    if refused and not defer_denials:
+        selected = operational_block.strongest(refused)
+        assert selected is not None
+        raise selected
+    return refused
 
 
 def check_deferred_checkout(batch, row):
@@ -692,9 +730,8 @@ def retire_deferred(batch, workspace):
 
 
 def collect(state: RunState, workspace, run_dir, batch):
-    account_workers(state, run_dir, batch)
-    if unrelayed := _unrelayed_worker(batch):
-        raise operational_block.worker_refusal(batch, unrelayed)
+    if denial := batch_denial(state, run_dir, batch):
+        raise denial
     patches = []
     changed: set = set()
     deferred = []
@@ -708,17 +745,6 @@ def collect(state: RunState, workspace, run_dir, batch):
         if not result_path.is_file():
             raise s.Paused("PAUSED_ORCHESTRATOR_WORKER", f"Builder {row['milestone_id']} needs inspection: {directory}")
         result = s.read(result_path)
-        if result.get("operational_block") is not None:
-            try:
-                child = s.read(directory / "state.json")
-                source_head = source_scope.snapshot(Path(row["workspace"]), state, base_snapshot=s.snapshot)["head"]
-            except (OSError, ValueError, KeyError, TypeError, processes.ProcessError) as error:
-                raise operational_block.worker_refusal(batch, row) from error
-            denial = operational_block.worker_error(
-                state, batch, row, result, child, run_dir=run_dir, source_head=source_head
-            )
-            if denial is not None:
-                raise denial
         if result.get("status") == builder_policy.SERIAL:
             deferred.append((row, deferred_worker(batch, row)))
             continue
@@ -906,6 +932,12 @@ def dispatch(state: RunState, workspace, run_dir):
     if not enabled(state):
         raise ValueError("Orchestration is not enabled for this run")
     batch = state.get("orchestration_batch")
+    if (
+        batch
+        and any(worker_block_claim(row) for row in batch["workers"])
+        and (denial := batch_denial(state, run_dir, batch))
+    ):
+        raise denial
     if batch and batch["contract_hash"] != cast(dict, state["goal_contract"])["hash"]:
         for row in batch["workers"]:
             if worker_alive(row):
@@ -919,8 +951,8 @@ def dispatch(state: RunState, workspace, run_dir):
                     pass
         if batch["status"] == "DEFERRING":
             retire_deferred(batch, workspace)
-        elif batch["status"] != "PREPARING":
-            account_workers(state, run_dir, batch)
+        elif batch["status"] != "PREPARING" and (denial := batch_denial(state, run_dir, batch)):
+            raise denial
         batch.update(superseded_status=batch["status"], status="SUPERSEDED", finished_at=s.now())
         state.setdefault("orchestration_history", []).append(copy.deepcopy(batch))
         state.pop("orchestration_batch")
@@ -942,7 +974,8 @@ def dispatch(state: RunState, workspace, run_dir):
         if batch["status"] == "BUILDING":
             if source_scope.snapshot(workspace, state, base_snapshot=s.snapshot) != batch["baseline"]:
                 raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Parent source changed before Builder dispatch")
-            account_workers(state, run_dir, batch)
+            if denial := batch_denial(state, run_dir, batch):
+                raise denial
             run_workers(state, run_dir, batch)
             # A saved RUNNING worker is never replayed; collect only terminal evidence.
             collect(state, workspace, run_dir, batch)
