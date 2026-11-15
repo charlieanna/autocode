@@ -85,7 +85,33 @@ no way to tell a delimiter from content. Five are prose or a code fragment with 
 trailing commas, which the existing rule already covers, and two leaked tool-call or
 `</system_warning>` markup.
 
-## Not yet addressed
+## The timeouts, measured (2026-11-14)
 
-Provider timeouts (16.23 h) are the largest single cause and are untouched here. Whether they
-cluster on one provider or route has not been measured.
+The 16.23 h above was read from the archive's rejection text, which every stop the runner makes
+shares. Split by the `timeout_kind` each launch recorded, over the same runs extended to
+2026-11-13 (77 runs, 1,161 launches, 176.1 h), the runner's own stops are 69 launches and 19.8 h,
+11.2% of stage time:
+
+| what stopped the launch | launches | hours | where |
+| --- | --- | --- | --- |
+| provider went quiet (300 s) after 24–48 minutes of work | 12 | 7.70 | Tester on `zai-coding-plan/glm-5.3` at high, 2026-11-05 and 11-06, three runs |
+| the 3600 s stage limit | 8 | 8.01 | 2026-11-06 to 11-11, mostly self-build runs: Builder 5, Tester 2, Requirements 1 |
+| the 1800 s tool limit | 2 | 1.55 | two self-build runs |
+| the bug Investigator's stage limit (a stage since removed) | 2 | 0.67 | one run, 2026-11-01 |
+| short limits in `stall-test*` fault injection, by design | 44 | 1.73 | |
+| provider went quiet, acceptance-test writer | 1 | 0.13 | |
+
+So 24 launches hold 90% of the time, and they are two episodes, not a steady rate. No Tester on
+that model went quiet in its 45 later launches. Timeouts took 15.6% of `glm-5.3`'s hours and 10.7%
+of `mimo-v2.6-pro`'s; Claude and GPT models had none, in 97 launches and about 10 h. Every model
+launch but one went through `kilocode`, so this sample cannot tell the provider from the model.
+
+Both episodes are fixed: a stalled Tester's completed tool calls are carried into its relaunch
+(#3309), and a Builder stopped at the stage limit goes back to the Builder (#3284). No saved run
+finished after those merged, so their effect on real runs is not observed here. One case is covered
+by neither: a Requirements stage stopped at 3600 s while still working (31 tool calls, last event
+0.17 s before the stop), which paused the run for intervention.
+
+Two of the launches counted as provider timeouts were steps a person stopped. `autocode usage report`
+now classes a stop by the kind the runner recorded (`autocode_rejection_classes.KIND_CLASSES`): a
+person's stop is `other`, and a stage limit or the Requirements reply budget is `stage_wall`.
