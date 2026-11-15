@@ -1,4 +1,4 @@
-"""Pinned guard tests can be submitted unchanged for fresh independent review."""
+"""Recognize accepted independent test input for fresh review, never completion."""
 
 from __future__ import annotations
 
@@ -22,12 +22,111 @@ except ImportError:
     import autocode_util as util
 
 
-def candidate(state: RunState, record, revision):
-    """Recognize exact spec-first preservation input, never grant proof or completion.
+def _passing_inputs(receipts, cases):
+    observed = {cid for row in receipts for cid in row.get("case_ids", [])}
+    known = {case["id"]: case for case in cases}
+    if not observed or not observed <= known.keys():
+        return False
+    for cid in observed:
+        values = {row.get("results", {}).get(cid) for row in receipts if cid in row.get("case_ids", [])}
+        expected = (
+            {"passes"} if known[cid].get("kind") == "preserve" else {acceptance.CANDIDATE_FAIL_FIRST, "already passes"}
+        )
+        if len(values) != 1 or not values <= expected:
+            return False
+    return True
 
-    Only authenticated coordinated producers with an approved all-guard assignment
-    qualify. The receipt, archive, live files and unchanged Builder snapshots must
-    agree. Ordinary product repairs retain their normal no-progress handling.
+
+def _writer_progress(state: RunState, record, before, receipts, cases, owned):
+    """Trace this task's writer snapshots from assignment to the unchanged candidate.
+
+    A red TDD input is not ready for review. The runner must already have observed
+    these exact cases pass on the candidate and accepted any required original
+    reference failure. That observation still grants no review PASS.
+    """
+    task = state.get("current_task") or {}
+    contract = state.get("goal_contract") or {}
+    revision = before["revision"]
+    if (
+        not task.get("source_revision")
+        or record.get("contract_hash") != contract["hash"]
+        or record.get("contract_revision") != contract["revision"]
+        or record.get("accounted") is not True
+        or type(record.get("exit_code")) is not int
+        or record["exit_code"] != 0
+        or any(
+            record.get(key)
+            for key in ("rejected", "rolled_back", "timed_out", "interrupted", "abandoned", "report_only", "dry_run")
+        )
+        or any(
+            row.get("task_id") == task["id"]
+            and row.get("source_revision") == revision
+            and row.get("accepted_test_writer")
+            for row in state.get("retained_candidate_handoffs") or []
+        )
+    ):
+        return None
+    reached = {task["source_revision"]: (None, None)}
+    for writer in state.get("stages") or []:
+        if (
+            (writer.get("original_stage") or writer.get("stage")) != acceptance.STAGE
+            or writer.get("task_id") != task["id"]
+            or writer.get("contract_hash") != contract["hash"]
+            or writer.get("contract_revision") != contract["revision"]
+            or type(writer.get("exit_code")) is not int
+            or writer["exit_code"] != 0
+            or writer.get("accounted") is not True
+            or any(
+                writer.get(key)
+                for key in (
+                    "rejected",
+                    "rolled_back",
+                    "timed_out",
+                    "interrupted",
+                    "abandoned",
+                    "report_only",
+                    "dry_run",
+                )
+            )
+        ):
+            continue
+        start = util.read_object(writer["before_ref"])
+        end = util.read_object(writer["after_ref"])
+        if (
+            start.get("revision") not in reached
+            or not isinstance(start.get("files"), dict)
+            or not isinstance(end.get("files"), dict)
+            or end.get("revision") != writer.get("source_revision")
+            or start.get("head") != end.get("head")
+            or end.get("head") != before.get("head")
+        ):
+            continue
+        origin, previous = reached[start["revision"]]
+        if previous is not None and previous != start:
+            continue
+        origin = origin or start
+        changed = sorted(
+            name
+            for name in origin["files"].keys() | end["files"].keys()
+            if origin["files"].get(name) != end["files"].get(name)
+        )
+        if not changed or any(
+            not any(name == root.rstrip("/") or name.startswith(root.rstrip("/") + "/") for root in owned)
+            for name in changed
+        ):
+            continue
+        reached[end["revision"]] = (origin, end)
+        matching = [row for row in receipts if row.get("output") == writer.get("output")]
+        if end == before and _passing_inputs(matching, cases):
+            return {"retained_paths": changed, "accepted_test_writer": writer["output"]}
+    return None
+
+
+def candidate(state: RunState, record, revision):
+    """Accepted writer work or coordinated guards may reach fresh independent review.
+
+    Both consume the same source/receipt integrity checks. Ordinary red TDD input,
+    stale source and an already consumed writer handoff retain no-progress handling.
     """
     task = state.get("current_task") or {}
     contract = state.get("goal_contract") or {}
@@ -35,9 +134,7 @@ def candidate(state: RunState, record, revision):
     if (
         not all(key in contract for key in ("task_id", "revision", "body"))
         or not contracts.approved(state)
-        or not coordination.context(state)
         or not cases
-        or any(case.get("kind") != "preserve" for case in cases)
         or task.get("contract_hash") != contract.get("hash")
         or task.get("kind") != "implement"
         or task.get("rolled_back")
@@ -59,10 +156,16 @@ def candidate(state: RunState, record, revision):
             for row in acceptance.receipts(state).values()
             if row.get("contract_hash") == contract["hash"] and row.get("source_revision") == revision
         ]
-        if not {case["id"] for case in cases} <= {cid for row in receipts for cid in row.get("case_ids", [])}:
+        owned = task.get("affected_paths") or []
+        writer = _writer_progress(state, record, before, receipts, cases, owned)
+        preservation = coordination.context(state) and all(case.get("kind") == "preserve" for case in cases)
+        if writer:
+            receipts = [row for row in receipts if row.get("output") == writer["accepted_test_writer"]]
+        elif not preservation or not {case["id"] for case in cases} <= {
+            cid for row in receipts for cid in row.get("case_ids", [])
+        }:
             return None
         files = {path: entry for row in receipts for path, entry in row.get("files", {}).items()}
-        owned = task.get("affected_paths") or []
         if not files or any(
             not any(path == root.rstrip("/") or path.startswith(root.rstrip("/") + "/") for root in owned)
             for path in files
@@ -80,6 +183,10 @@ def candidate(state: RunState, record, revision):
                 or after["files"].get(path) != entry["sha256"]
             ):
                 return None
+        if writer:
+            return {"source_revision": revision, **writer}
+        if preservation:
+            return {"source_revision": revision, "retained_paths": sorted(files), "acceptance_guards": True}
     except (OSError, KeyError, TypeError, ValueError, AttributeError, RuntimeError):
         return None
-    return {"source_revision": revision, "retained_paths": sorted(files), "acceptance_guards": True}
+    return None

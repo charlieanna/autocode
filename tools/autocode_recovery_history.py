@@ -83,6 +83,7 @@ def project(state: RunState) -> list[dict[str, Any]]:
         *_report_repairs(state),
         *_test_role_corrections(state),
         *_sent_back(state),
+        *_retained_candidates(state),
         *investigations,
         *_resolver(state),
     ]
@@ -338,11 +339,30 @@ def _sent_back(state: RunState):
         )
 
 
+def _retained_candidates(state: RunState):
+    for row in state.get("retained_candidate_handoffs") or []:
+        if not row.get("accepted_test_writer"):
+            continue
+        yield _entry(
+            "candidate_retained",
+            row.get("at"),
+            "builder",
+            state,
+            headline="Accepted test changes retained",
+            problem="The Builder left the independently written tests unchanged.",
+            action="AutoCode counted those source changes and sent the candidate to fresh independent verification.",
+            by="AutoCode",
+            handled=True,
+        )
+
+
 def _investigations(state: RunState):
     """A stage that stopped converging, handed to the Investigator, and what it found."""
     for row in state.get("stuck_investigations") or []:
         if not isinstance(row, dict) or not row.get("stage"):
             continue
+        if row.get("outcome") == "candidate_retained":
+            continue  # The handoff above explains why no Investigator was launched.
         job = roles.screen_name(row["stage"], state)
         finished = bool(row.get("finished_at"))
         if not finished:

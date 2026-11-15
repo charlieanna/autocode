@@ -298,6 +298,8 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
             # corrupt that archived count and always fail those guards.
             if not information_admitted and not getattr(decided, "evidence_reconciled", False):
                 runner.reset_report_repair_for_resume(state)
+        if args.resume_paused and state.get("no_progress_reports"):
+            runner.autopilot.recover_retained_candidate(state, workspace, bound_only=True)
         runner.reconcile_active(state, run_dir, workspace)
     except runner.ReportRepairQueued:
         pass  # Durable pending repair is dispatched below, not original work.

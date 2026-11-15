@@ -354,7 +354,7 @@ def _verdicts(
                     else _guard_not_passing(case, rows[case["id"]]["file"], run, results)
                 )
         elif case["id"] in retained and passed[case["id"]]:
-            verdicts[case["id"]] = "passes candidate; fails original reference"
+            verdicts[case["id"]] = acceptance.CANDIDATE_FAIL_FIRST
         elif case["id"] in inherited and passed[case["id"]]:
             verdicts[case["id"]] = "already passes"
         elif case["id"] in already:
