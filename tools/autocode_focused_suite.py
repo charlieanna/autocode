@@ -4,7 +4,8 @@ A detected suite is the whole project's. When its run on the original code times
 has nothing to compare the candidate with. AutoCode used to leave the proof UNVERIFIED there, and a
 Resolver then asked a person for a longer timeout or a narrower test command: a question about its
 own machinery (#3158). The proof now chooses the narrower command itself, deterministically, and
-records the choice and its reason in its evidence.
+records the choice and its reason in its evidence. The same holds when the whole suite runs no test
+that passes on the original code (``unusable``) while the tests nearest the change do pass there.
 
 The focused suite is the framework's own targeted command over the existing tests nearest the change:
 
@@ -25,16 +26,21 @@ import copy
 from pathlib import PurePosixPath
 
 try:
+    from . import autocode_command_receipt as command_receipt
     from . import autocode_python_test_roles as policy
     from . import autocode_suite_definition_inputs as definition_inputs
     from . import autocode_test_role_inventory as inventory
 except ImportError:
+    import autocode_command_receipt as command_receipt
     import autocode_python_test_roles as policy
     import autocode_suite_definition_inputs as definition_inputs
     import autocode_test_role_inventory as inventory
 
-VERSION = 2
+VERSION = 3
 DECISION = "focused_suite"
+# What the whole suite did on the original code (``whole_suite_outcome``). A record without it is a timeout.
+TIMED_OUT = "timed_out"
+NO_PASSING_TEST = "no_passing_test"
 
 
 def _named_after(product: str) -> frozenset[str]:
@@ -47,6 +53,7 @@ def _named_after(product: str) -> frozenset[str]:
             f"test_{stem}",
             f"{stem}_test",
             f"{stem}_tests",
+            f"{stem}_spec",
             f"{stem}.test",
             f"{stem}.spec",
             f"{stem}Test",
@@ -136,6 +143,41 @@ def timed_out(baseline) -> bool:
     return bool(baseline and (baseline.get("receipt") or {}).get("timed_out") is True)
 
 
+def ran_no_passing_test(baseline) -> bool:
+    """Whether a whole-suite baseline ended on its own, not at its time limit or interrupted, with no test
+    that passed: the runner reported nothing, or only files it could not load.
+
+    RSpec runs no example at all when one spec file cannot be loaded. In a Rails backend four specs required
+    a file from a repository kept beside the project, which no copy AutoCode tests in has: the whole suite
+    reported "0 examples, 4 errors occurred outside of examples" in 23 seconds on the original code, so every
+    proof there would have ended UNVERIFIED and asked the person for a test command (2026-11-14). A run that
+    stopped reporting after some tests passed, one that was interrupted, and a command that could not be
+    started (exit 126 or 127, which the nearest tests' command would not be either) are not this, and are
+    judged as before.
+    """
+    receipt = (baseline or {}).get("receipt") or {}
+    return bool(
+        baseline
+        and baseline.get("health") == "broken"
+        and not receipt.get("timed_out")
+        and command_receipt.completed(receipt)
+        and isinstance(receipt.get("exit_code"), int)
+        and receipt["exit_code"] not in (126, 127)
+        and not (receipt.get("results") or {}).get("passed")
+    )
+
+
+def unusable(baseline) -> bool:
+    """Whether a whole-suite baseline (autocode_verify.baseline) gives the change nothing to be compared
+    with: it ended at its time limit, or it ran no test that passed."""
+    return timed_out(baseline) or ran_no_passing_test(baseline)
+
+
+def usable(baseline) -> bool:
+    """Whether a baseline ran tests that passed on the original code, so a change can be compared with it."""
+    return bool(baseline) and baseline.get("health") in ("passing", "failing_tests")
+
+
 def framework_for(framework, command):
     """A copy of ``framework`` whose whole suite is the focused ``command``; targeting is unchanged."""
     focused = copy.copy(framework)
@@ -144,18 +186,25 @@ def framework_for(framework, command):
 
 
 def record(focus, whole, timeout) -> dict:
-    """The evidence for the decision: what timed out, what replaced it, and why."""
+    """The evidence for the decision: what the whole suite did, what replaced it, and why."""
     limit = f"{timeout} seconds" if timeout else "its time limit"
+    outcome = TIMED_OUT if timed_out(whole) else NO_PASSING_TEST
+    happened = (
+        f"did not finish on the original code within {limit}"
+        if outcome == TIMED_OUT
+        else "ran no test that passed on the original code"
+    )
     return {
         "version": VERSION,
         "decision": DECISION,
         "whole_suite": whole["command"],
         "whole_suite_output": (whole.get("receipt") or {}).get("output"),
+        "whole_suite_outcome": outcome,
         "timeout_seconds": timeout,
         "command": focus["command"],
         "tests": list(focus["tests"]),
         "reason": (
-            f"The detected whole suite did not finish on the original code within {limit}, so existing "
+            f"The detected whole suite {happened}, so existing "
             "behavior was checked with the original tests selected by changed tests, filenames and Python "
             "imports (including transitive and uncertain imports): " + ", ".join(focus["tests"])
         ),
@@ -163,7 +212,8 @@ def record(focus, whole, timeout) -> dict:
 
 
 def review_reason(fallback) -> str:
+    happened = "ran no test that passed" if fallback.get("whole_suite_outcome") == NO_PASSING_TEST else "timed out"
     return (
         "the no-regression check ran only the original tests nearest the change, because the whole suite "
-        "timed out on the original code: " + fallback["command"]
+        f"{happened} on the original code: " + fallback["command"]
     )

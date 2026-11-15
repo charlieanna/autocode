@@ -513,10 +513,16 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.
   does not stop to ask for a longer limit or a narrower command: it runs
   instead with the original tests nearest the change (changed tests the base
   already holds, and base tests named after a changed file, such as
-  `test_calc.py` for `calc.py`, plus existing Python tests that import changed
+  `test_calc.py` for `calc.py` or `calc_spec.rb` for `calc.rb`, plus existing Python tests that import changed
   product modules directly or transitively). Import selection reads the pinned original
   code, keeps every ambiguous target and conservatively includes uncertain imports.
-  It records the decision, the timed-out command and
+  The proof does the same when the detected whole suite runs no test that passes on the
+  original code (RSpec runs no example at all when one spec file cannot be loaded) and
+  those nearest tests do pass there; when they pass none either, the whole suite stays
+  the baseline and the proof is judged as before. Unlike a timeout, that is checked again
+  at every proof.
+  It records the decision, the whole suite's command, what it did there
+  (`whole_suite_outcome`: `timed_out` or `no_passing_test`) and
   the reason as the proof's `suite_fallback`, a note and a review reason. A later
   proof of the same run goes straight to those tests while the original code, the
   whole suite's command and its limit are unchanged, even when the test environment

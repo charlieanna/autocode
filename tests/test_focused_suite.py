@@ -1,7 +1,9 @@
 """A whole detected suite that times out on the original code falls back to the tests nearest the change (#3158).
 
 The proof chooses the bounded command itself and records why; it never leaves the proof UNVERIFIED for a
-person to pick a timeout or a test command.
+person to pick a timeout or a test command. A whole suite that runs no test that passes on the original code
+(RSpec with one spec file that cannot be loaded, 2026-11-14) falls back the same way, when those tests do
+pass there.
 """
 
 import json
@@ -57,22 +59,34 @@ class FocusedFallbackProofTests(unittest.TestCase):
             "goal_contract": {"body": {"task_kind": "bugfix"}},
         }
 
-    def prove(self, state, *, timeout_all=False):
-        """Prove with real commands, except that the whole discovered suite times out without waiting."""
+    def prove(self, state, *, timeout_all=False, loads_nothing=None):
+        """Prove with real commands, except that the whole discovered suite times out without waiting.
+
+        With ``loads_nothing`` it ends at once with no test run instead, as RSpec does when a spec file cannot
+        be loaded: ``"whole"`` for the discovered suite alone, ``"all"`` for the nearest tests on the original
+        code as well.
+        """
         real = verify.run_suite
 
         def run(framework, command, tree, directory, label, **options):
-            if "discover" not in command and not timeout_all:
+            whole = "discover" in command
+            nearest_on_base = label == "suite-on-base" and not whole
+            loads_none = bool(loads_nothing) and (whole or (loads_nothing == "all" and nearest_on_base))
+            if not loads_none and not whole and not timeout_all:
                 return real(framework, command, tree, directory, label, **options)
             self.whole_runs.append(label)
             output = Path(directory) / (label + ".log")
             output.parent.mkdir(parents=True, exist_ok=True)
-            output.write_text("test_calc ... ok\n(timed out)\n")
+            output.write_text(
+                "0 examples, 0 failures, 1 error occurred outside of examples\n"
+                if loads_none
+                else "test_calc ... ok\n(timed out)\n"
+            )
             return guarded_command_receipt(
                 {
                     "command": command,
-                    "exit_code": None,
-                    "timed_out": True,
+                    "exit_code": 1 if loads_none else None,
+                    "timed_out": not loads_none,
                     "output": str(output),
                     "output_sha256": util.file_hash(output),
                     "tail": "",
@@ -114,6 +128,63 @@ class FocusedFallbackProofTests(unittest.TestCase):
         self.assertEqual(["suite-on-base"], self.whole_runs)
         self.assertEqual(verify.PASS, again["verdict"], again)
         self.assertEqual(fallback["command"], again["suite_fallback"]["command"])
+
+    def test_whole_suite_that_runs_no_passing_test_is_replaced_by_the_nearest_tests_and_recorded(self):
+        state = self.state(test_timeout=1800)
+        proof = self.prove(state, loads_nothing="whole")
+        self.assertEqual(["suite-on-base"], self.whole_runs)
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        fallback = proof["suite_fallback"]
+        self.assertEqual(["test_calc.py"], fallback["tests"])
+        self.assertEqual("no_passing_test", fallback["whole_suite_outcome"])
+        self.assertIn("discover", fallback["whole_suite"])
+        self.assertEqual(fallback["command"], proof["commands"]["suite"])
+        self.assertEqual(fallback["command"], state["regression_baseline"]["command"])
+        self.assertIn("The detected whole suite ran no test that passed on the original code", fallback["reason"])
+        self.assertIn(fallback["reason"], proof["notes"])
+        reason = focused_suite.review_reason(fallback)
+        self.assertIn("because the whole suite ran no test that passed on the original code", reason)
+        self.assertIn(reason, proof["review_reasons"])
+        self.assertEqual([], proof["unverified"])
+        self.assertTrue(any(test.endswith("test_add") for test in proof["fail_to_pass"]), proof["fail_to_pass"])
+
+        # Unlike a timeout, this is checked again at the next proof: what kept the suite from running
+        # (a service that was down, a file another change restores) may be gone by then.
+        self.project.write({"calc.py": "def add(a, b):\n    return a + b\n"})
+        again = self.prove(state, loads_nothing="whole")
+        self.assertEqual(["suite-on-base", "suite-on-base"], self.whole_runs)
+        self.assertEqual(verify.PASS, again["verdict"], again)
+        self.assertEqual(fallback["command"], again["suite_fallback"]["command"])
+
+    def test_whole_suite_that_runs_no_passing_test_stays_the_baseline_when_the_nearest_tests_pass_none_either(self):
+        # A base on which nothing runs is not evidence (#479): the proof keeps the whole suite and is judged as
+        # it was before, with the whole suite's baseline as the run's saved one.
+        state = self.state(test_timeout=1800)
+        proof = self.prove(state, loads_nothing="all")
+        self.assertEqual(["suite-on-base", "suite-on-base", "suite-on-candidate"], self.whole_runs)
+        self.assertEqual(verify.UNVERIFIED, proof["verdict"], proof)
+        self.assertIsNone(proof["suite_fallback"])
+        self.assertIn("discover", proof["commands"]["suite"])
+        self.assertIn("discover", state["regression_baseline"]["command"])
+        self.assertEqual("broken", state["regression_baseline"]["health"])
+        self.assertFalse(any("nearest the change" in reason for reason in proof["review_reasons"]))
+
+    def test_nearest_tests_that_time_out_after_the_whole_suite_ran_nothing_are_not_timed_again(self):
+        state = self.state(test_timeout=1800)
+        for attempt in range(2):
+            self.project.write({"calc.py": f"# attempt {attempt}\ndef add(a, b): return a + b\n"})
+            proof = self.prove(state, loads_nothing="whole", timeout_all=True)
+            self.assertEqual(verify.UNVERIFIED, proof["verdict"])
+            self.assertIsNone(proof["suite_fallback"])
+            self.assertIn("discover", state["regression_baseline"]["command"])
+        # The whole suite at each proof, and the nearest tests on the original code only once.
+        self.assertEqual(3, self.whole_runs.count("suite-on-base"), self.whole_runs)
+
+    def test_explicit_test_command_is_kept_even_when_it_runs_no_passing_test(self):
+        command = shlex.quote(sys.executable) + " -m unittest discover -v"
+        proof = self.prove(self.state(test_command=command), loads_nothing="whole")
+        self.assertEqual(verify.UNVERIFIED, proof["verdict"])
+        self.assertIsNone(proof["suite_fallback"])
 
     def test_a_later_proof_does_not_time_the_whole_suite_out_again_when_the_runtime_changed(self):
         # The runtime a proof binds can change between proofs (a shared virtualenv) or be one the cache cannot
@@ -312,6 +383,56 @@ class NearestTestsTests(unittest.TestCase):
         changes = {"calc.py": "modified", "test_suite.py": "modified"}
         self.assertIsNone(focused_suite.choose(whole, base_files, changes, self.roles(project, changes)))
 
+    def test_an_rspec_spec_is_named_after_the_file_it_tests(self):
+        project = Project(
+            {
+                "app/services/grader.rb": "class Grader\nend\n",
+                "app/services/roster.rb": "class Roster\nend\n",
+                "spec/services/grader_spec.rb": "RSpec.describe(Grader) {}\n",
+                "spec/services/roster_spec.rb": "RSpec.describe(Roster) {}\n",
+            }
+        )
+        self.addCleanup(project.close)
+        project.write({"app/services/grader.rb": "class Grader\n  LIMIT = 2\nend\n"})
+        changes = {"app/services/grader.rb": "modified"}
+        base_files = role_inventory.entries(project.root, project.base)
+        roles = self.roles(project, changes)
+        self.assertEqual(["spec/services/grader_spec.rb"], focused_suite.nearest_tests(base_files, changes, roles))
+        framework = verify.Framework("rspec", "bundle exec rspec", runner="bundle exec rspec")
+        chosen = focused_suite.choose(framework, base_files, changes, roles)
+        self.assertEqual("bundle exec rspec spec/services/grader_spec.rb", chosen["command"])
+
+    def test_a_whole_suite_is_unusable_when_it_timed_out_or_ran_no_passing_test(self):
+        ended = {"timed_out": False, "exit_code": 1, "results": None}
+        loaded_nothing = {**ended, "results": {"passed": [], "failed": ["spec/linked_spec.rb::[collection]"]}}
+        self.assertTrue(
+            focused_suite.unusable({"receipt": {"timed_out": True, "exit_code": None}, "health": "timeout"})
+        )
+        self.assertTrue(focused_suite.unusable({"receipt": ended, "health": "broken"}))
+        self.assertTrue(focused_suite.unusable({"receipt": loaded_nothing, "health": "broken"}))
+        # Tests passed before it stopped reporting, or it never ended on its own: judged as before.
+        some_passed = {**ended, "results": {"passed": ["test_calc.py::test_zero"], "failed": []}}
+        self.assertFalse(focused_suite.unusable({"receipt": some_passed, "health": "broken"}))
+        self.assertFalse(focused_suite.unusable({"receipt": {**ended, "exit_code": None}, "health": "broken"}))
+        # A command that could not be started is not replaced by another command of the same runner.
+        self.assertFalse(focused_suite.unusable({"receipt": {**ended, "exit_code": 127}, "health": "broken"}))
+        for health in ("passing", "failing_tests", "failing"):
+            with self.subTest(health=health):
+                self.assertFalse(focused_suite.unusable({"receipt": ended, "health": health}))
+        self.assertFalse(focused_suite.unusable(None))
+        # A focused baseline replaces it only when tests passed there; an exit code alone names none.
+        self.assertTrue(focused_suite.usable({"receipt": ended, "health": "passing"}))
+        self.assertTrue(focused_suite.usable({"receipt": ended, "health": "failing_tests"}))
+        for health in ("failing", "broken", "timeout"):
+            with self.subTest(health=health):
+                self.assertFalse(focused_suite.usable({"receipt": ended, "health": health}))
+        self.assertFalse(focused_suite.usable(None))
+
+    def test_a_record_saved_before_the_outcome_was_recorded_reads_as_a_timeout(self):
+        self.assertIn(
+            "timed out on the original code: pytest t.py", focused_suite.review_reason({"command": "pytest t.py"})
+        )
+
     def test_timed_out_reads_only_a_settled_timeout(self):
         self.assertTrue(focused_suite.timed_out({"receipt": {"timed_out": True}}))
         self.assertFalse(focused_suite.timed_out({"receipt": {"timed_out": False}}))
@@ -319,10 +440,21 @@ class NearestTestsTests(unittest.TestCase):
 
     def test_record_without_a_limit_says_so(self):
         fallback = focused_suite.record(
-            {"command": "pytest t.py", "tests": ["t.py"]}, {"command": "pytest", "receipt": {"output": "o"}}, None
+            {"command": "pytest t.py", "tests": ["t.py"]},
+            {"command": "pytest", "receipt": {"output": "o", "timed_out": True}},
+            None,
         )
         self.assertIn("within its time limit", fallback["reason"])
         self.assertEqual("o", fallback["whole_suite_output"])
+
+    def test_record_says_what_the_whole_suite_did(self):
+        focus = {"command": "pytest t.py", "tests": ["t.py"]}
+        timed_out = focused_suite.record(focus, {"command": "pytest", "receipt": {"timed_out": True}}, 900)
+        self.assertEqual("timed_out", timed_out["whole_suite_outcome"])
+        self.assertIn("did not finish on the original code within 900 seconds", timed_out["reason"])
+        broken = focused_suite.record(focus, {"command": "pytest", "receipt": {"timed_out": False}}, 900)
+        self.assertEqual("no_passing_test", broken["whole_suite_outcome"])
+        self.assertNotIn("900 seconds", broken["reason"])
 
 
 if __name__ == "__main__":
