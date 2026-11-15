@@ -45,11 +45,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 try:
+    from . import autocode_util as util
     from .autocode_component_design import ComponentDesign, validate_engine
     from .autocode_component_runtime import ComponentRuntime, brief_lines, near_miss_runtime_key, start_layers
     from .autocode_taskrun import TaskRun, TaskRunError
     from .autocode_workspaces import keep_out_of_git
 except ImportError:
+    import autocode_util as util
     from autocode_component_design import ComponentDesign, validate_engine
     from autocode_component_runtime import ComponentRuntime, brief_lines, near_miss_runtime_key, start_layers
     from autocode_taskrun import TaskRun, TaskRunError
@@ -345,10 +347,8 @@ class MultiComponentBuild:
         """Attach canonical report digests to this coordinator's owned manifest."""
         try:
             from . import autocode_evidence_export as evidence_export
-            from . import autocode_util as util
         except ImportError:
             import autocode_evidence_export as evidence_export
-            import autocode_util as util
         with self._manifest_lock:
             self._check_architecture()
             saved = _read_json(self.manifest_path)
@@ -682,16 +682,24 @@ def _differences(target: Path, commit: str, paths: list[str], prefix: str) -> li
 
 
 def _git(cwd: Path, *args: str, env: dict | None = None) -> str:
-    full_env = {**os.environ, **env} if env else {**os.environ}
     return subprocess.run(
-        ["git", *GIT_IDENTITY, *args], cwd=cwd, check=True, env=full_env, capture_output=True, text=True
+        ["git", *GIT_IDENTITY, *args],
+        cwd=cwd,
+        check=True,
+        env=util.git_environment(env),
+        capture_output=True,
+        text=True,
     ).stdout.strip()
 
 
 def _git_bytes(cwd: Path, *args: str, env: dict | None = None, input: bytes | None = None) -> bytes:
-    full_env = {**os.environ, **env} if env else None
     return subprocess.run(
-        ["git", *GIT_IDENTITY, *args], cwd=cwd, check=True, env=full_env, input=input, capture_output=True
+        ["git", *GIT_IDENTITY, *args],
+        cwd=cwd,
+        check=True,
+        env=util.git_environment(env),
+        input=input,
+        capture_output=True,
     ).stdout
 
 

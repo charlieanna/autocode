@@ -27,10 +27,58 @@ class HelloTests(unittest.TestCase):
 """
 
 
+def _review_data(data):
+    """Read the runner's pinned full rows before judging summarized proof detail."""
+    fields = {
+        "regression_proof_mutation_files": ("mutation_check", "files"),
+        "regression_proof_obligations": ("changed_code_evidence", "obligations"),
+    }
+    artifact = data.get("context_artifact") or {}
+    if not isinstance(artifact, dict):
+        return None
+    declared = artifact.get("fields") or {}
+    if not isinstance(declared, dict):
+        return None
+    requested = fields.keys() & declared.keys()
+    if requested:
+        try:
+            raw = Path(artifact["path"]).read_bytes()
+            if hashlib.sha256(raw).hexdigest() != artifact["sha256"]:
+                return None
+            saved = json.loads(raw)
+            result = copy.deepcopy(data)
+            proof = result.get("regression_proof") or {}
+            for name in requested:
+                rows = saved[name]
+                if (
+                    not isinstance(rows, list)
+                    or not all(isinstance(row, dict) for row in rows)
+                    or declared[name].get("total") != len(rows)
+                ):
+                    return None
+                holder, key = fields[name]
+                proof.setdefault(holder, {})[key] = rows
+            result["regression_proof"] = proof
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            return None
+    else:
+        result = data
+    proof = result.get("regression_proof") or {}
+    for row in (proof.get("mutation_check") or {}).get("files") or []:
+        if not isinstance(row, dict) or not isinstance(row.get("mutants", []), list):
+            return None  # A count without readable full rows is not mutation evidence.
+    for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
+        if not isinstance(row, dict) or "gaps" in row or "tested_lines" in row:
+            return None  # Grouped handles cannot substitute for the pinned gap identities.
+    return result
+
+
 def quote_changed_lines(data, rows):
     """Each decision with its gap's source_line from the handoff, as a Tester quotes the line it decides (#2977)."""
+    resolved = _review_data(data)
+    source = data if resolved is None else resolved
     texts = {}
-    evidence = ((data.get("regression_proof") or {}).get("changed_code_evidence") or {}).get("obligations") or []
+    evidence = ((source.get("regression_proof") or {}).get("changed_code_evidence") or {}).get("obligations") or []
     for row in evidence if isinstance(evidence, list) else []:
         for gap in [row, *(row.get("gaps") or [])] if isinstance(row, dict) else []:
             for key in ("gap_id", "handle"):
@@ -47,6 +95,9 @@ def scripted_changed_code_reasons(spec, data):
     Builder wrote, bound to the gap, file and line, and never for a file it did not script or a
     line a mutant reached (that line's evidence is the mutant's outcome).
     """
+    data = _review_data(data)
+    if data is None:
+        return []
     proof = data.get("regression_proof") or {}
     if not proof.get("path"):
         return []

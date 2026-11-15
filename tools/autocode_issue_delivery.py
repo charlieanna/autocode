@@ -20,7 +20,9 @@ except ImportError:
 
 
 def git(root, *args, binary=False):
-    result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=not binary)
+    result = subprocess.run(
+        ["git", "-C", str(root), *args], capture_output=True, text=not binary, env=util.git_environment()
+    )
     if result.returncode:
         raise ValueError("Cannot authenticate issue delivery Git state")
     return result.stdout if binary else result.stdout.strip()

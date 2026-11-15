@@ -19,15 +19,16 @@ Imports only autocode_plan_file (pure) and the standard library.
 
 from __future__ import annotations
 
-import os
 import subprocess
 import tempfile
 from pathlib import Path, PurePosixPath
 
 try:
     from . import autocode_plan_file as plan_file
+    from . import autocode_util as util
 except ImportError:
     import autocode_plan_file as plan_file
+    import autocode_util as util
 
 FIELD = "plan_pr"  # the issue record's entry for its plan pull request
 NOT_IN_REPOSITORY = (".git", ".autocode")  # Git's own directory, and the run data autocode issue never commits
@@ -148,7 +149,7 @@ def commit(project: Path, parent: str, path: str, source: Path, message: str) ->
     """
     blob = _git(project, "hash-object", "-w", f"--path={path}", "--", str(source))
     with tempfile.TemporaryDirectory(prefix="autocode-issue-index-") as temporary:
-        environment = {**os.environ, "GIT_INDEX_FILE": str(Path(temporary) / "index")}
+        environment = util.git_environment({"GIT_INDEX_FILE": str(Path(temporary) / "index")})
         _git(project, "read-tree", parent, env=environment)
         _git(project, "update-index", "--add", "--cacheinfo", "100644", blob, path, env=environment)
         tree = _git(project, "write-tree", env=environment)
@@ -201,8 +202,9 @@ def _object(root: Path, name: str) -> str:
 
 
 def _git(root: Path, *args: str, check: bool = True, env: dict | None = None) -> str:
+    git_env = util.git_environment() if env is None else env
     result = subprocess.run(
-        ["git", "-C", str(root), *args], capture_output=True, text=True, stdin=subprocess.DEVNULL, env=env
+        ["git", "-C", str(root), *args], capture_output=True, text=True, stdin=subprocess.DEVNULL, env=git_env
     )
     if check and result.returncode:
         raise ValueError(f"git {' '.join(args[:2])}: {(result.stderr or result.stdout).strip()}")

@@ -36,6 +36,7 @@ def run_in_host() -> int:
 
 
 def cli(unit=None):
+    source_host.drop_git_repository_variables()
     if unit is None:
         served = source_host.cli_fast_path(sys.argv[1:])
         if served is not None:
