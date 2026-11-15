@@ -4,6 +4,7 @@ import contextlib
 import copy
 import io
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,6 +25,7 @@ from . import test_metadata_custody as custody_fixtures
 from . import test_recovery_view as view_fixtures
 
 
+@unittest.skipUnless(os.name == "posix", "Linux metadata filesystem and locks")
 class MetadataOperationalBlockTests(unittest.TestCase):
     def setUp(self):
         # Existing journal fixture: no helper/backend process or new API is

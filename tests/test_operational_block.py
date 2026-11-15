@@ -3,6 +3,7 @@
 import ast
 import copy
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -182,6 +183,7 @@ class OperationalBlockTests(unittest.TestCase):
             block.guard(self.runtime, self.state, self.run, self.workspace)
         self.assertIsNotNone(block.receipt(self.state))
 
+    @unittest.skipUnless(os.name == "posix", "Linux metadata filesystem and locks")
     def test_clearing_revalidates_exact_real_receipt_and_retains_the_unaccepted_result(self):
         producer = custody_fixtures.MetadataCustodyTests()
         producer.setUp()
