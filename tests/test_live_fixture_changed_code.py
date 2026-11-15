@@ -3,6 +3,7 @@
 import contextlib
 import copy
 import hashlib
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -73,6 +74,123 @@ class GreetingReasonsTests(unittest.TestCase):
                 (self.root / name).write_text("# altered or weakened fixture\n")
                 self.assertEqual([], self.decisions())
                 (self.root / name).write_text(original)
+
+    def test_compacted_tester_and_checkpoint_proofs_restore_full_rows_and_fail_closed(self):
+        lines = fixture.GREET_PY.splitlines()
+        padded = copy.deepcopy(self.data)
+        for index, row in enumerate(padded["regression_proof"]["changed_code_evidence"]["obligations"], start=1):
+            row["handle"] = f"L{index}"
+            row["source_line"] = lines[row["line"] - 1].strip()
+            row["evidence"] = ["runner.log"] * 1200
+        expected = fixture._quote_changed_lines(padded, self.decisions(padded))
+        for stage in ("tester", "review_checkpoint"):
+            state_path = self.root / stage / "state.json"
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+            packet, _, _ = context.compact_with_metrics(
+                {**copy.deepcopy(padded), "stage": stage}, state_path, stage=stage
+            )
+            with contextlib.chdir(self.root):
+                actual = fixture._quote_changed_lines(packet, fixture._changed_code_reasons(packet))
+            self.assertEqual(expected, actual)
+
+        self.assertEqual([], fixture._changed_code_reasons([]))
+        self.assertIsNone(fixture._review_data([]))
+        self.assertIsNone(fixture._review_data({"context_artifact": []}))
+        self.assertIsNone(fixture._review_data({"context_artifact": {"fields": []}}))
+        self.assertIsNone(
+            fixture._review_data({"regression_proof": {"details_artifact": {"field": "regression_proof"}}})
+        )
+        self.assertIsNone(fixture._review_data({"regression_proof": {"mutation_check": {"files": [{"mutants": 1}]}}}))
+        self.assertIsNone(
+            fixture._review_data({"regression_proof": {"changed_code_evidence": {"obligations": [{"gaps": []}]}}})
+        )
+        art_path = self.root / "bad.json"
+        art_path.write_bytes(b"[]")
+        self.assertIsNone(
+            fixture._review_data(
+                {
+                    "context_artifact": {
+                        "path": str(art_path),
+                        "sha256": hashlib.sha256(b"[]").hexdigest(),
+                        "fields": {"regression_proof": {"total": 1}},
+                    }
+                }
+            )
+        )
+        raw = json.dumps({"regression_proof": {"path": "p"}}).encode()
+        art_path.write_bytes(raw)
+        digest = hashlib.sha256(raw).hexdigest()
+        self.assertIsNone(
+            fixture._review_data(
+                {
+                    "context_artifact": {
+                        "path": str(art_path),
+                        "sha256": "0" * 64,
+                        "fields": {"regression_proof": {"total": 1}},
+                    }
+                }
+            )
+        )
+        self.assertIsNone(
+            fixture._review_data(
+                {
+                    "context_artifact": {
+                        "path": str(art_path),
+                        "sha256": digest,
+                        "fields": {"regression_proof": {"total": 2}},
+                    }
+                }
+            )
+        )
+        raw_rows = json.dumps({"regression_proof_obligations": [{"gap_id": "g"}]}).encode()
+        art_path.write_bytes(raw_rows)
+        digest_rows = hashlib.sha256(raw_rows).hexdigest()
+        self.assertIsNone(
+            fixture._review_data(
+                {
+                    "regression_proof": ["bad"],
+                    "context_artifact": {
+                        "path": str(art_path),
+                        "sha256": digest_rows,
+                        "fields": {"regression_proof_obligations": {"total": 1}},
+                    },
+                }
+            )
+        )
+        self.assertIsNone(
+            fixture._review_data(
+                {
+                    "regression_proof": {"path": "p"},
+                    "context_artifact": {
+                        "path": str(art_path),
+                        "sha256": digest_rows,
+                        "fields": {"regression_proof_obligations": {"total": 2}},
+                    },
+                }
+            )
+        )
+        restored = fixture._review_data(
+            {
+                "regression_proof": {"path": "p"},
+                "context_artifact": {
+                    "path": str(art_path),
+                    "sha256": digest_rows,
+                    "fields": {"regression_proof_obligations": {"total": 1}},
+                },
+            }
+        )
+        self.assertEqual([{"gap_id": "g"}], restored["regression_proof"]["changed_code_evidence"]["obligations"])
+        self.assertIsNone(
+            fixture._review_data(
+                {
+                    "context_artifact": {
+                        "path": str(art_path) + ".missing",
+                        "sha256": digest_rows,
+                        "fields": {"regression_proof_obligations": {"total": 1}},
+                    }
+                }
+            )
+        )
 
     def test_compacted_obligations_restore_gap_ids_and_quoted_lines_or_fail_closed(self):
         source = fixture.GREET_PY.splitlines()

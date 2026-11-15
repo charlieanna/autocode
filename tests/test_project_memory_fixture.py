@@ -1,6 +1,7 @@
 """The memory qualification tests its CLI and justifies only its exact scripted lines."""
 
 import copy
+import hashlib
 import json
 import shutil
 import subprocess
@@ -138,3 +139,118 @@ class ProjectMemoryFixtureTests(unittest.TestCase):
         candidate = subprocess.run(command, cwd=self.workspace, capture_output=True, text=True, timeout=30)
         self.assertEqual(0, candidate.returncode, candidate.stdout + candidate.stderr)
         self.assertIn("Ran 3 tests", candidate.stderr)
+
+    def test_compacted_tester_and_checkpoint_proofs_restore_full_rows_and_fail_closed(self):
+        import autocode_context as context
+
+        padded = copy.deepcopy(self.data)
+        for index, row in enumerate(padded["regression_proof"]["changed_code_evidence"]["obligations"], start=1):
+            row["handle"] = f"L{index}"
+            row["evidence"] = ["runner.log"] * 2000
+        expected = self.judgments(padded)
+        for stage in ("tester", "review_checkpoint"):
+            state_path = self.root / stage / "state.json"
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+            packet, _, _ = context.compact_with_metrics(
+                {**copy.deepcopy(padded), "stage": stage}, state_path, stage=stage
+            )
+            self.assertEqual(expected, self.judgments(packet))
+
+        self.assertEqual([], self.judgments([]))
+        self.assertIsNone(provider._review_data([]))
+        self.assertIsNone(provider._review_data({"context_artifact": []}))
+        self.assertIsNone(provider._review_data({"context_artifact": {"fields": []}}))
+        self.assertIsNone(
+            provider._review_data({"regression_proof": {"details_artifact": {"field": "regression_proof"}}})
+        )
+        self.assertIsNone(provider._review_data({"regression_proof": {"mutation_check": {"files": [{"mutants": 1}]}}}))
+        self.assertIsNone(
+            provider._review_data({"regression_proof": {"changed_code_evidence": {"obligations": [{"gaps": []}]}}})
+        )
+        art_path = self.root / "bad.json"
+        art_path.write_bytes(b"[]")
+        self.assertIsNone(
+            provider._review_data(
+                {
+                    "context_artifact": {
+                        "path": str(art_path),
+                        "sha256": hashlib.sha256(b"[]").hexdigest(),
+                        "fields": {"regression_proof": {"total": 1}},
+                    }
+                }
+            )
+        )
+        raw = json.dumps({"regression_proof": {"path": "p"}}).encode()
+        art_path.write_bytes(raw)
+        digest = hashlib.sha256(raw).hexdigest()
+        self.assertIsNone(
+            provider._review_data(
+                {
+                    "context_artifact": {
+                        "path": str(art_path),
+                        "sha256": "0" * 64,
+                        "fields": {"regression_proof": {"total": 1}},
+                    }
+                }
+            )
+        )
+        self.assertIsNone(
+            provider._review_data(
+                {
+                    "context_artifact": {
+                        "path": str(art_path),
+                        "sha256": digest,
+                        "fields": {"regression_proof": {"total": 2}},
+                    }
+                }
+            )
+        )
+        raw_rows = json.dumps({"regression_proof_obligations": [{"gap_id": "g"}]}).encode()
+        art_path.write_bytes(raw_rows)
+        digest_rows = hashlib.sha256(raw_rows).hexdigest()
+        self.assertIsNone(
+            provider._review_data(
+                {
+                    "regression_proof": ["bad"],
+                    "context_artifact": {
+                        "path": str(art_path),
+                        "sha256": digest_rows,
+                        "fields": {"regression_proof_obligations": {"total": 1}},
+                    },
+                }
+            )
+        )
+        self.assertIsNone(
+            provider._review_data(
+                {
+                    "regression_proof": {"path": "p"},
+                    "context_artifact": {
+                        "path": str(art_path),
+                        "sha256": digest_rows,
+                        "fields": {"regression_proof_obligations": {"total": 2}},
+                    },
+                }
+            )
+        )
+        restored = provider._review_data(
+            {
+                "regression_proof": {"path": "p"},
+                "context_artifact": {
+                    "path": str(art_path),
+                    "sha256": digest_rows,
+                    "fields": {"regression_proof_obligations": {"total": 1}},
+                },
+            }
+        )
+        self.assertEqual([{"gap_id": "g"}], restored["regression_proof"]["changed_code_evidence"]["obligations"])
+        self.assertIsNone(
+            provider._review_data(
+                {
+                    "context_artifact": {
+                        "path": str(art_path) + ".missing",
+                        "sha256": digest_rows,
+                        "fields": {"regression_proof_obligations": {"total": 1}},
+                    }
+                }
+            )
+        )
