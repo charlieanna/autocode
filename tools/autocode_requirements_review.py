@@ -519,7 +519,9 @@ def answered_since_handoff(state: RunState) -> list[str]:
     seen = set(handoff.get("answers_seen") or [])
     answered = state.get("answers") or {}
     open_questions, _ = without_summary_confirmations(state, handoff.get("report") or {})
-    return [row.get("id") for row in open_questions if row.get("id") in answered and row.get("id") not in seen]
+    return [
+        qid for row in open_questions if isinstance(qid := row.get("id"), str) and qid in answered and qid not in seen
+    ]
 
 
 def after_answers(state: RunState, *, queue=None) -> None:
