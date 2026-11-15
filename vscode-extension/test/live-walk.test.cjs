@@ -845,7 +845,7 @@ test('walk: pausing a working chat stops the run and shows its pause card', { sk
 
   // The person pauses: the real intervention lands in the run's inbox.
   pause.click();
-  await waitFor(() => dom.window.document.querySelector('#pause-run').textContent === 'Pausing after this step…', 30000);
+  await waitFor(() => dom.window.document.querySelector('#pause-run').textContent === 'Pausing…', 30000);
   assert.ok(true, 'the chat says the pause waits for the step to be saved');
 
   // The step ends at the boundary — the write a controller makes when a step finishes.
@@ -1086,7 +1086,7 @@ test("walk: pausing a working run mid-walk and resuming it brings the run back t
   // "Pausing" mark shows while the action is in flight and while the pause waits in the
   // inbox, so the landed inbox is the only honest sign the submit finished.
   pause().click();
-  await waitFor(() => dom.window.document.querySelector('#pause-run').textContent === 'Pausing after this step…', 30000);
+  await waitFor(() => dom.window.document.querySelector('#pause-run').textContent === 'Pausing…', 30000);
   await waitFor(() => fs.existsSync(path.join(runDir, 'interventions.json')), 30000);
   assert.ok(fs.existsSync(path.join(runDir, 'interventions.json')),
     'the pause intervention landed in the run\'s inbox: ' + dom.window.document.querySelector('#chat-error').textContent);

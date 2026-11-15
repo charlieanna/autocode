@@ -205,6 +205,78 @@ class DraftVerificationRevisionTests(unittest.TestCase):
         revision_guard(state, after, changes, "revise_plan")
         self.assertEqual(retained, (state, after, changes))
 
+    def suite_criterion_report(self):
+        """The Plan Reviewer asked for a whole-suite check; AC4's runner-checked proof may not become it.
+
+        The refusal hint tells the Planner to put the suite run in its own criterion, so the revision adds AC9
+        and lists it under M1. A live run (2026-11-15) declared that as it would read in prose and the guard
+        took the labels for protected items, so the person was asked to authorize extending M1's criteria.
+        """
+        state, after = self.inputs()
+        before = state["goal_contract"]["body"]
+        before["acceptance_criteria"].append(
+            {
+                "id": "AC4",
+                "criterion": "greet() upper-cases the name",
+                "verification_method": "test: test_uppercase_greeting",
+                "human_review": False,
+            }
+        )
+        before["milestones"] = [{"id": "M1", "objective": "Greeting", "acceptance_criteria": ["AC4", "AC5"]}]
+        after = copy.deepcopy(before)
+        after["acceptance_criteria"][0]["verification_method"] = "Run python3 -m unittest discover -s tests -t ."
+        after["acceptance_criteria"].append(
+            {
+                "id": "AC9",
+                "criterion": "The whole project suite passes",
+                "verification_method": "python3 -m unittest discover",
+                "human_review": False,
+            }
+        )
+        after["milestones"][0]["acceptance_criteria"].append("AC9")
+        return state, after
+
+    def test_a_new_criterion_and_its_milestone_are_the_planners_own_however_they_are_named(self):
+        for items in (
+            ("AC9", "M1.acceptance_criteria"),
+            ("AC9 (aggregate suite)", "M1 acceptance_criteria"),
+            ("acceptance_criteria.AC9", "milestones.M1.acceptance_criteria"),
+            ("new criterion AC9", "milestone M1's acceptance_criteria (AC4, AC5, AC9)"),
+        ):
+            with self.subTest(items=items):
+                state, after = self.suite_criterion_report()
+                changes = [
+                    {"item": item, "change": "reworded", "basis": "agent_proposed", "answer_id": ""} for item in items
+                ]
+                retained = copy.deepcopy((state, after))
+                revision_guard(state, after, changes, "revise_plan")
+                self.assertEqual(retained, (state, after))
+
+    def test_naming_a_new_criterion_or_milestone_does_not_authorize_a_protected_change(self):
+        changes = [
+            {"item": item, "change": "reworded", "basis": "agent_proposed", "answer_id": ""}
+            for item in ("AC9", "M1.acceptance_criteria", "M1 and AC4")
+        ]
+        for mutation in ("proof", "behavior", "required", "approved", "quoted"):
+            with self.subTest(mutation=mutation):
+                state, after = self.suite_criterion_report()
+                rows = copy.deepcopy(changes)
+                if mutation == "proof":
+                    after["acceptance_criteria"][1]["verification_method"] = "python3 -m unittest discover"
+                elif mutation == "behavior":
+                    after["acceptance_criteria"][1]["criterion"] = "greet() returns the name"
+                elif mutation == "required":
+                    after["required_behaviors"] = []
+                    rows.append(dict(rows[0], item="M1: Preserve the current output exactly"))
+                elif mutation == "approved":
+                    state["goal_contract"]["approval_status"] = "approved"
+                    after["acceptance_criteria"][1]["verification_method"] = "python3 -m unittest discover"
+                else:
+                    after["acceptance_criteria"][1]["criterion"] = "greet() returns the name"
+                    rows = [dict(rows[0], item="AC9 replaces " + "x" * 90 + " greet() upper-cases the name")]
+                with self.assertRaises(ValueError):
+                    revision_guard(state, after, rows, "revise_plan")
+
     def test_engineering_delta_alias_does_not_authorize_a_protected_change(self):
         for mutation in ("behavior", "permission", "required", "approved", "user_set", "history", "marker"):
             with self.subTest(mutation=mutation):
