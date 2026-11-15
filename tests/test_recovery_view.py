@@ -776,6 +776,36 @@ class StoppedRunProjectionTests(unittest.TestCase):
         self.assertEqual("AutoCode could not finish this task", public["recovery"]["title"])
         self.assertEqual("autocode", public["pause_category"])
 
+    def test_terminal_notice_and_explanation_share_the_recorded_recovery_presentation(self):
+        for actor, status in itertools.product(("user_cli", stop.RUNNER_ACTOR), ("RUNNING", "PAUSED_INTERVENTION")):
+            with self.subTest(actor=actor, status=status):
+                state = self.state()
+                self.apply_stop(state, actor)
+                state["status"] = status
+                public = self.assert_terminal(state)
+                card = public["recovery"]
+                self.assertEqual(card["what_happened"], public["chat"]["notice"])
+                self.assertEqual(card["what_happened"], public["explanation"]["what_happened"])
+                self.assertEqual(card["retained"], public["explanation"]["what_it_means"])
+                self.assertIn("Nothing continues this run", public["explanation"]["what_the_command_does"])
+                self.assertNotIn("--resume-paused", public["explanation"]["explanation"])
+
+    def test_user_stop_never_promises_a_saved_success_for_an_unverified_attempt(self):
+        attempts = (
+            None,
+            {"stage": "requirements_gather", "exit_code": 1, "finished_at": "ended"},
+            {"stage": "builder", "timed_out": True, "exit_code": -15, "finished_at": "ended"},
+            {"stage": "tester", "exit_code": 0, "finished_at": "ended"},
+            {"stage": "builder", "started_at": "started"},
+        )
+        for status, attempt in itertools.product(("RUNNING", "PAUSED_INTERVENTION"), attempts):
+            with self.subTest(status=status, attempt=attempt):
+                state = self.state(status=status, active_stage=attempt)
+                self.apply_stop(state)
+                card = self.assert_terminal(state)["recovery"]
+                self.assertEqual("This conversation was stopped. It will launch no more stages.", card["what_happened"])
+                self.assertIn("partial work still needs verification", card["retained"])
+
     def test_terminal_stop_keeps_ended_attempts_counted_without_claiming_live_work(self):
         endings = (
             {"finished_at": "2026-11-15T12:00:01+00:00", "accounted": True, "exit_code": 1},

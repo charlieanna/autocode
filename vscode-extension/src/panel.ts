@@ -1489,7 +1489,12 @@ function renderHeader(data) {
   details.hidden = !headerOpen;
   details.textContent = '';
   if (!headerOpen) return;
-  header.sections.forEach((section) => {
+  renderDetailSections(details, header.sections);
+}
+
+/** Both detail views render the same public evidence sections, including retained failures. */
+function renderDetailSections(host, sections) {
+  sections.forEach((section) => {
     const box = el('div', 'detail-section');
     box.dataset.section = section.id;
     const head = el('div', 'detail-head');
@@ -1501,7 +1506,7 @@ function renderHeader(data) {
       const depth = line.startsWith('    ') ? 2 : line.startsWith('  ') ? 1 : 0;
       box.appendChild(el('div', 'detail-line' + (depth ? ' sub' : '') + (depth === 2 ? ' sub2' : ''), line.slice(depth * 2)));
     });
-    details.appendChild(box);
+    host.appendChild(box);
   });
 }
 
@@ -1759,12 +1764,13 @@ function render(state) {
     state.workflow ? state.workflow + ' workflow' : null,
     state.turn ? 'turn ' + state.turn : null,
     state.iteration ? 'iteration ' + state.iteration : null,
-    state.nextStage ? 'next: ' + state.nextStage : null,
-    state.pause ? 'pause: ' + state.pause : null,
+    state.nextStage && !state.stopped && !state.done ? 'next: ' + state.nextStage : null,
+    state.pause && !state.stopped ? 'pause: ' + state.pause : null,
     state.usage,
   ].filter(Boolean);
   app.appendChild(el('div', 'meta', meta.join('  ·  ')));
   if (state.stopped) renderStopped(state.stopped);
+  if (state.header) renderDetailSections(app, state.header.sections);
 
   if (state.task) {
     app.appendChild(el('h2', null, 'Request'));

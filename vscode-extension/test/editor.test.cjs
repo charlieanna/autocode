@@ -4148,6 +4148,46 @@ for (const surface of ['chat', 'Run details']) {
   });
 }
 
+for (const category of ['stopped', 'blocked', 'working', 'paused', 'done']) {
+  for (const surface of ['chat', 'Run details']) {
+    test(`public attempt evidence stays inspectable in ${surface} when ${category}`, async (t) => {
+      const terminal = ['stopped', 'blocked'].includes(category);
+      const view = {
+        status: terminal ? 'PAUSED_INTERVENTION' : category === 'done' ? 'DONE' : category === 'paused' ? 'PAUSED_TIME_LIMIT' : 'RUNNING',
+        done: category === 'done', needs: terminal ? null : { kind: 'continue' }, next_command: null,
+        next_stage: 'requirements_gather', pause_category: 'your_decision', pause_category_label: 'Your decision',
+        recovery: terminal ? { category, title: 'Retained outcome', what_happened: 'No continuation.',
+          actions: [{ kind: 'inspect', label: 'Inspect saved work' }] } : null,
+        usage: { accounting: { attempts: [{ job: 'Requirements', model: 'retained-failed-model',
+          exit_code: 1, active: false, finished_at: '2026-11-15T12:00:00Z', tokens: { input_tokens: 37 } }] } },
+      };
+      const launch = t.mock.method(cli, 'stream', async () => ok);
+      const ui = surface === 'chat' ? await openChat(t, view) : await openPanel(t, view);
+      if (surface === 'chat') ui.document.querySelector('#header-toggle').click();
+      const evidence = () => ui.document.querySelector('[data-section="usage"]');
+      assert.ok(evidence(), 'The existing public usage section must be inspectable on both surfaces');
+      for (const expected of ['Attempts', 'Requirements', 'exit 1', 'retained-failed-model', '37']) {
+        assert.ok(evidence().textContent.includes(expected), expected);
+      }
+      const changed = structuredClone(view);
+      changed.usage.accounting.attempts[0].exit_code = 7;
+      await ui.poll(changed);
+      assert.ok(evidence().textContent.includes('exit 7'), 'fresh public evidence replaces the previous outcome');
+      assert.ok(!evidence().textContent.includes('exit 1'));
+      if (surface === 'Run details') {
+        const meta = ui.document.querySelector('.meta').textContent;
+        assert.equal(meta.includes('next: requirements_gather'), ['working', 'paused'].includes(category));
+        assert.equal(meta.includes('pause: Your decision'), category === 'paused');
+      }
+      if (terminal) {
+        assert.equal(ui.document.querySelector('#take-action'), null);
+        if (surface === 'chat') assert.equal(ui.document.querySelector('#send-message').disabled, true);
+      }
+      assert.equal(launch.mock.callCount(), 0, 'inspection must not launch a task or provider');
+    });
+  }
+}
+
 for (const surface of ['chat', 'Run details']) {
   test(`durable Stop is explained in ${surface} without offering a resume`, async (t) => {
     const view = {
