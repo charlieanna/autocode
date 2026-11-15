@@ -44,7 +44,7 @@ DERIVED_ROLES: dict[str, tuple[str, ...]] = {
     "architect": ("plan_reviewer", "task_planner"),
     "acceptance_tester": ("tester",),
     "resolver": ("task_planner",),
-    "repair_resolver": ("resolver", "plan_reviewer", "task_planner"),
+    "repair_resolver": ("task_planner", "plan_reviewer"),
     "stuck_investigator": ("plan_reviewer", "task_planner"),
 }
 

@@ -299,13 +299,8 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
                 )
                 current["settings"]["transport_identity"] = current_settings
         if current.get("pending_report_repair"):
-            if (
-                getattr(runner, "native_calls", None) is None
-                and resolve_repair_job.eligible_report_repair(current)
-                and resolve_repair_job.queue_from_pending(current, run_dir)
-            ):
-                runner.write_json(state_path, current)
-                return runner.orchestrator.SKIP
+            # The bounded same-model repairs run first; the Resolver takes a report only once they are
+            # spent (PAUSED_REPORT_REPAIR_LIMIT below), in place of that pause.
             record_resume(runner, args, current, state_path)
             try:
                 runner.execute_report_repair(current, run_dir, workspace)
