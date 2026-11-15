@@ -905,6 +905,8 @@ const ICONS = {
   chip: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5" /><path d="M10 3.5v3.5M14 3.5v3.5M10 17v3.5M14 17v3.5M3.5 10H7M3.5 14H7M17 10h3.5M17 14h3.5" /></svg>`,
   chevron: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14.5l5-5 5 5" /></svg>`,
   tune: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M19 7h1M4 17h1M11 17h9" /><circle cx="16" cy="7" r="2.25" /><circle cx="8" cy="17" r="2.25" /></svg>`,
+  pause: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5.5v13M15 5.5v13" /></svg>`,
+  stop: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="1.5" fill="currentColor" stroke="none" /></svg>`,
 };
 
 function iconButton(id: string, label: string, svg: string, disabled = false): string {
@@ -984,7 +986,21 @@ export function panelHtml(chat = false): string {
   .range-hint { font-size: .76rem; color: var(--vscode-errorForeground); margin-top: 3px; }
   .range-hint:empty { display: none; }
   ${chat ? chatStyles : ""}
-  ${chat ? "#composer .chip[hidden] { display: none; }" : ""}
+  ${chat ? `#composer .chip[hidden] { display: none; }
+  /* Pause and Stop now wear the pickers' chip shape with their own icon and word. Stop now is
+     the one control that ends work mid-step, so it carries the danger tone; Pause stays calm. */
+  #composer .run-control { flex: none; gap: 5px; color: var(--vscode-foreground);
+    transition: background .12s ease, color .12s ease; }
+  #composer .run-control span { max-width: 96px; }
+  #composer #stop-now-run { color: var(--vscode-errorForeground, #c72e2e); }
+  #composer #stop-now-run:hover:not(:disabled) { background: var(--vscode-inputValidation-errorBackground, rgba(161, 38, 13, .14)); }
+  #composer .run-control:active:not(:disabled) { transform: translateY(1px); }
+  #composer .run-control.busy svg { animation: run-control-pulse 1.1s ease-in-out infinite; }
+  @keyframes run-control-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) {
+    #composer .run-control { transition: none; }
+    #composer .run-control.busy svg { animation: none; }
+  }` : ""}
   ${chat ? METER_STYLES : ""}
 </style>
 </head>
@@ -999,7 +1015,7 @@ ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messag
 <textarea id="message" aria-label="Message AutoCode" aria-describedby="keyboard-hint" placeholder="Ask AutoCode to work on this project…"></textarea>
 <div id="chat-error" role="alert"></div>
 <div class="actions"><button type="button" id="engine-picker" class="chip" title="Engine for new chats" aria-label="Engine for new chats">${ICONS.tune}<span id="engine-name">opencode</span></button><button type="button" id="mode-picker" class="chip" title="Run mode for new chats" aria-label="Run mode for new chats" hidden>${ICONS.route}<span id="mode-name"></span></button><button type="button" id="models-picker" class="chip" title="This chat's models" aria-label="This chat's models" hidden>${ICONS.chip}<span id="models-name">Models</span></button><span id="keyboard-hint" class="keyboard-hint">Enter to send · Shift+Enter for newline</span>
-<button type="button" id="stop-now-run" hidden>Stop now</button><button type="button" id="pause-run" hidden>Pause</button><button type="submit" id="send-message" disabled>Send</button></div></form>` : ""}
+<button type="button" id="pause-run" class="chip run-control" hidden>${ICONS.pause}<span>Pause</span></button><button type="button" id="stop-now-run" class="chip run-control" hidden>${ICONS.stop}<span>Stop now</span></button><button type="submit" id="send-message" disabled>Send</button></div></form>` : ""}
 <script>
 const vscode = acquireVsCodeApi();
 const app = document.getElementById('app');
@@ -2067,7 +2083,8 @@ function updateComposer() {
   const pauseButton = document.getElementById('pause-run');
   pauseButton.hidden = !pause;
   pauseButton.disabled = !pause || pausing || unreadable;
-  pauseButton.textContent = pausing ? 'Pausing after this step…' : 'Pause';
+  pauseButton.querySelector('span').textContent = pausing ? 'Pausing…' : 'Pause';
+  pauseButton.classList.toggle('busy', pausing);
   pauseButton.setAttribute('aria-label', pause ? (pausing ? 'Pausing after this step' : pause.label) : 'Pause');
   pauseButton.title = pause && pause.effect ? pause.effect : '';
   // Stop now ends the running step at once (#3263), so a runaway step stops costing; only where the view names it.
@@ -2076,7 +2093,8 @@ function updateComposer() {
   const stopButton = document.getElementById('stop-now-run');
   stopButton.hidden = !stopNow;
   stopButton.disabled = !stopNow || stopping || Boolean(chatEnvelope.pausing) || unreadable;
-  stopButton.textContent = stopping ? 'Stopping…' : (stopNow ? stopNow.label : 'Stop now');
+  stopButton.querySelector('span').textContent = stopping ? 'Stopping…' : (stopNow ? stopNow.label : 'Stop now');
+  stopButton.classList.toggle('busy', stopping);
   stopButton.setAttribute('aria-label', stopping ? 'Stopping the running step' : (stopNow ? stopNow.label : 'Stop now'));
   stopButton.title = stopNow && stopNow.effect ? stopNow.effect : '';
   // A message the view takes while the run works is saved for the next stage boundary (#3259): the

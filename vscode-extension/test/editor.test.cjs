@@ -4740,8 +4740,11 @@ test('while the run works, Pause takes Send\'s place and runs only the named pau
   const send = () => ui.document.querySelector('#send-message');
   assert.equal(pause().hidden, false);
   assert.equal(pause().disabled, false);
+  assert.ok(pause().classList.contains('chip'), 'Pause wears the composer chip shape');
+  assert.ok(pause().querySelector('svg'), 'Pause carries its own icon');
   assert.equal(pause().textContent, 'Pause');
   assert.equal(pause().getAttribute('aria-label'), 'Pause after this step');
+  assert.match(pause().title, /finishes and is saved/, 'the tooltip says what the boundary pause does');
   assert.equal(send().hidden, true, 'Pause sits where Send was');
   ui.type('a draft');
   assert.equal(send().disabled, true, 'Enter cannot send through the hidden button');
@@ -4755,7 +4758,9 @@ test('while the run works, Pause takes Send\'s place and runs only the named pau
   assert.deepEqual(argv.slice(8), ['--kind', 'pause', '--json']);
   await ui.poll(pauseView({ pause: { label: 'Pause after this step', requested: true, next_command: null } }));
   assert.equal(pause().disabled, true);
-  assert.equal(pause().textContent, 'Pausing after this step…');
+  assert.equal(pause().textContent, 'Pausing…');
+  assert.ok(pause().classList.contains('busy'), 'the pending pause pulses its icon');
+  assert.equal(pause().getAttribute('aria-label'), 'Pausing after this step');
   assert.ok(ui.document.querySelector('#send-hint').textContent.includes('pauses once this step is saved'));
   await ui.poll({ status: 'PAUSED_INTERVENTION', done: false, liveness: { kind: 'unknown' }, needs: { kind: 'resume' }, pause: null,
     next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused` });
@@ -4883,6 +4888,8 @@ test('Stop now ends the running step through the named request, beside Pause (#3
   const stop = () => ui.document.querySelector('#stop-now-run');
   assert.equal(stop().hidden, false);
   assert.equal(stop().disabled, false);
+  assert.ok(stop().classList.contains('chip'), 'Stop now wears the composer chip shape');
+  assert.ok(stop().querySelector('svg'), 'Stop now carries its own icon');
   assert.equal(stop().textContent, 'Stop now');
   assert.match(stop().title, /ends now/);
   assert.equal(ui.document.querySelector('#pause-run').hidden, false, 'the boundary pause stays offered');
@@ -4902,11 +4909,13 @@ test('Stop now ends the running step through the named request, beside Pause (#3
   await ui.poll(stopping);
   assert.equal(stop().disabled, true);
   assert.equal(stop().textContent, 'Stopping…');
+  assert.ok(stop().classList.contains('busy'), 'the pending stop pulses its icon');
   assert.match(ui.document.querySelector('#send-hint').textContent, /ending this step now; its partial work is kept/);
   await ui.poll({ status: 'PAUSED_INTERVENTION', done: false, liveness: { kind: 'unknown' }, needs: { kind: 'resume' }, pause: null,
     stop_reason: 'Stopped by you. The step that was running was ended; its partial work and logs are kept. Resume runs it again.',
     next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused` });
   assert.equal(stop().hidden, true, 'a paused run has nothing to stop');
+  assert.equal(stop().classList.contains('busy'), false, 'the pulse ends with the offer');
 });
 
 test('Stop now refuses a command outside its exact grammar, and an older runner shows only Pause (#3263)', async (t) => {
@@ -4918,6 +4927,10 @@ test('Stop now refuses a command outside its exact grammar, and an older runner 
   await flush(); await flush();
   assert.equal(launch.mock.callCount(), 0);
   assert.match(ui.document.querySelector('#chat-error').textContent, /Unsupported Stop now action/);
+  const renamed = stopNowView();
+  renamed.pause.stop_now.label = 'End the step';
+  await ui.poll(renamed);
+  assert.equal(ui.document.querySelector('#stop-now-run').textContent, 'End the step', 'the chip shows the label the view names');
   await ui.poll(pauseView());
   assert.equal(ui.document.querySelector('#stop-now-run').hidden, true, 'no Stop now without a named offer');
   assert.equal(ui.document.querySelector('#pause-run').hidden, false);
