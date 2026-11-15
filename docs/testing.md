@@ -111,6 +111,25 @@ For example, this existing fake CLI regression needs no model account:
   tests.test_job_route.JobModelRouteTests.test_a_model_opencode_does_not_list_is_refused_and_changes_nothing
 ```
 
+#### Executable helpers in live Kilo fixtures
+
+An isolated live Kilo fixture needs an executable native cache. In a Kilo 7.8.3
+trial, Glob received `Permission denied` when starting
+`/home/autocode/.cache/kilo/bin/rg`: the fixture mounted its home `noexec`.
+Backend version and model discovery had passed. This was a separate tool setup
+failure from the trial's [Stop now classification defect](bugs/2026-11-14-workflow-job-stop-now.md)
+(bundle manifest `8f3ab7bd87b435791e038587c20a5b74ad06af12f716d8ccc5b029a230a2a97e`).
+
+Provision the backend's own cache on executable native storage owned by the
+fixture user. A separate cache mount can keep the parent home `noexec`, with
+`nosuid,nodev` on the cache and account/configuration mounts read-only. Verify
+the actual mount options and execute the exact cached `rg --version` with a
+bounded wait under the final UID, environment and mounts before admitting a
+task or model call. Record the helper path, file hash and exit status. A PATH
+`rg`, `kilo --version`, login listing or model catalogue alone does not establish
+that this cached helper can execute. An absent or refused helper leaves tool
+readiness unverified until provisioning and execution succeed.
+
 #### One focused Linux fake run from macOS
 
 A macOS contributor with Docker Desktop running Linux containers can execute one
