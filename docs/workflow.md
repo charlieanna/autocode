@@ -516,13 +516,29 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.
   `test_calc.py` for `calc.py` or `calc_spec.rb` for `calc.rb`, plus existing Python tests that import changed
   product modules directly or transitively). Import selection reads the pinned original
   code, keeps every ambiguous target and conservatively includes uncertain imports.
-  The proof does the same when the detected whole suite runs no test that passes on the
-  original code (RSpec runs no example at all when one spec file cannot be loaded) and
-  those nearest tests do pass there; when they pass none either, the whole suite stays
-  the baseline and the proof is judged as before. Unlike a timeout, that is checked again
-  at every proof.
+  A project may hold test files that cannot be loaded before the task begins: a spec
+  that requires a repository kept beside the project, a module whose dependency is not
+  installed. The whole suite on the original code names them, and the proof leaves them
+  out instead of calling the comparison unproven: when the change touches none of them
+  and a run of them on the changed code shows that none loads there either, the suite
+  without them is the proof's suite, on the original code and with the change
+  (`tools/autocode_unloadable_tests.py`). RSpec and pytest are told which files to pass
+  over (`--exclude-pattern`, `--ignore`); another runner is given by name the files the
+  whole suite ran. That suite must load completely
+  on the original code and pass every test the whole suite passed there, and it is
+  judged as any suite is; otherwise the whole suite stays and the proof is judged as
+  before. A file the change repairs is never left out: the tests that could not run
+  before prove that repair ([named test proof](named-test-proof.md)). The runner does
+  not matter. RSpec runs no example at all beside a spec file it cannot load, and
+  unittest and Node run the other files; each proof used to end UNVERIFIED.
+  When the whole suite runs no test that passes on the original code and no file can be
+  left out (the runner names none, or the suite without them cannot be used), the proof
+  runs the nearest tests as it does after a timeout, when they do pass there; when they
+  pass none either, the whole suite stays the baseline and the proof is judged as
+  before. Unlike a timeout, that is checked again at every proof.
   It records the decision, the whole suite's command, what it did there
-  (`whole_suite_outcome`: `timed_out` or `no_passing_test`) and
+  (`whole_suite_outcome`: `timed_out`, `no_passing_test` or `unloadable_tests`, with the
+  files left out as `left_out`) and
   the reason as the proof's `suite_fallback`, a note and a review reason. A later
   proof of the same run goes straight to those tests while the original code, the
   whole suite's command and its limit are unchanged, even when the test environment
