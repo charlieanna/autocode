@@ -468,6 +468,11 @@ def _review_question(state: RunState, previous: dict, body: dict, items, message
                 "approved_proof": str(old.get("verification_method") or ""),
                 "proposed_proof": str(new.get("verification_method") or ""),
                 "concern": concern,
+                **(
+                    {"approved_review": old.get("human_review"), "proposed_review": new.get("human_review")}
+                    if old.get("human_review") != new.get("human_review")
+                    else {}
+                ),
             }
         )
     if rows:
@@ -638,11 +643,32 @@ def revision_guard(state: RunState, body, changes, origin):
             item = row["item"]
             assumption = decision_rows(previous).get(item)
             proposed = str(row.get("replacement") or "").strip()
+            old_criterion, new_criterion = old_rows.get(item), new_rows.get(item)
+            if old_criterion is not None and new_criterion is not None:
+                # The declaration is model-written commentary, not the plan to
+                # approve. A proof-only change is a repair, not a question
+                # about criterion wording.
+                if (
+                    old_criterion.get("criterion") == new_criterion.get("criterion")
+                    and old_criterion.get("human_review") == new_criterion.get("human_review")
+                ):
+                    continue
+                proposed = str(new_criterion.get("criterion") or "").strip()
             if row["change"] == "removed" and assumption is not None and assumption.get("basis") in PERSON_TEXT_BASES:
                 proposed = proposed or DROP_ASSUMPTION
             if row["change"] not in ("reworded", "removed") or not proposed:
                 continue
             entry = {"item": item, "approved": rewording.approved_text(previous, item), "proposed": proposed}
+            if old_criterion is not None and new_criterion is not None:
+                old_proof = str(old_criterion.get("verification_method") or "")
+                new_proof = str(new_criterion.get("verification_method") or "")
+                if old_proof != new_proof:
+                    entry.update(approved_proof=old_proof, proposed_proof=new_proof)
+                if old_criterion.get("human_review") != new_criterion.get("human_review"):
+                    entry.update(
+                        approved_review=old_criterion.get("human_review"),
+                        proposed_review=new_criterion.get("human_review"),
+                    )
             if assumption is not None:
                 entry["traced"] = True
             rewordings.append(entry)

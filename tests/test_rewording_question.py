@@ -398,6 +398,56 @@ class AskTests(unittest.TestCase):
     tearDown = base.RetrofitTest.tearDown
     stage_record = test_report_repair.RepairTests.stage_record
 
+    def test_approved_proof_only_change_is_not_presented_as_criterion_wording(self):
+        approved = contract(approval_status="approved", approval_event={"kind": "goal_approval"})
+        state = {"goal_contract": approved}
+        after = copy.deepcopy(approved["body"])
+        after["acceptance_criteria"][0]["verification_method"] = "guard: test_total"
+        changes = [{"item": "AC2", "change": "reworded", "basis": "agent_proposed", "answer_id": "",
+                    "replacement": "guard: test_total"}]
+        with self.assertRaises(ValueError) as caught:
+            revision_guard(state, after, changes, "revise_plan")
+        self.assertNotIsInstance(caught.exception, rewording.ProtectedRewording)
+
+    def test_approved_question_shows_actual_criterion_and_proof_not_declared_summary(self):
+        approved = contract(approval_status="approved", approval_event={"kind": "goal_approval"})
+        state = {"goal_contract": approved}
+        after, changes = revised(approved["body"])
+        after["acceptance_criteria"][0]["verification_method"] = "guard: test_total"
+        changes[0]["replacement"] = "a model-written summary, not the proposed criterion"
+        with self.assertRaises(rewording.ProtectedRewording) as caught:
+            revision_guard(state, after, changes, "revise_plan")
+        [row] = caught.exception.rewordings
+        self.assertEqual(PROPOSED, row["proposed"])
+        self.assertEqual("guard: test_total", row["proposed_proof"])
+        self.assertEqual(approved["body"]["acceptance_criteria"][0]["verification_method"], row["approved_proof"])
+
+    def test_proof_only_change_cannot_be_bundled_with_a_real_wording_question(self):
+        approved = contract(approval_status="approved", approval_event={"kind": "goal_approval"})
+        second = {**copy.deepcopy(approved["body"]["acceptance_criteria"][0]), "id": "AC3"}
+        approved["body"]["acceptance_criteria"].append(second)
+        state = {"goal_contract": approved}
+        after, changes = revised(approved["body"])
+        after["acceptance_criteria"][1]["verification_method"] = "guard: test_total"
+        changes.append({"item": "AC3", "change": "reworded", "basis": "agent_proposed", "answer_id": "",
+                        "replacement": "guard: test_total"})
+        with self.assertRaises(ValueError) as caught:
+            revision_guard(state, after, changes, "revise_plan")
+        self.assertNotIsInstance(caught.exception, rewording.ProtectedRewording)
+
+    def test_a_changed_review_requirement_is_shown_in_the_question(self):
+        approved = contract(approval_status="approved", approval_event={"kind": "goal_approval"})
+        state = {"goal_contract": approved}
+        after = copy.deepcopy(approved["body"])
+        after["acceptance_criteria"][0]["human_review"] = True
+        changes = [{"item": "AC2", "change": "reworded", "basis": "agent_proposed", "answer_id": "",
+                    "replacement": APPROVED}]
+        with self.assertRaises(rewording.ProtectedRewording) as caught:
+            revision_guard(state, after, changes, "revise_plan")
+        text = rewording.question(state, caught.exception.rewordings)["question"]
+        self.assertIn("AC2 approved human review: false", text)
+        self.assertIn("AC2 proposed human review: true", text)
+
     def test_the_person_is_asked_and_their_answer_backs_the_next_revision(self):
         approved = contract(approval_status="approved", approval_event={"kind": "goal_approval"})
         self.state.update(
