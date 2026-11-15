@@ -4440,7 +4440,7 @@ test('an all-changes action the view did not name exactly is refused without a C
   assert.equal(invoke.mock.callCount(), 0);
 });
 
-test('chat renders decision card and sticky action strip without button restlessness on poll', async (t) => {
+test('chat renders plan and action without button restlessness on poll', async (t) => {
   const ui = await openChat(t, approvalView());
   const card = ui.document.querySelector('#app .decision-card');
   assert.ok(card, 'decision card renders in app');
@@ -4458,6 +4458,15 @@ test('chat renders decision card and sticky action strip without button restless
   pollView.usage = { accounting: { tokens: { input_tokens: 5000, output_tokens: 200 } } };
   await ui.poll(pollView);
   assert.equal(ui.document.querySelector('#take-action'), actionButton, 'polling usage preserves action button identity');
+});
+
+test('plan approval stays with the plan instead of sticking over earlier messages', async (t) => {
+  const ui = await openChat(t, chatView());
+  const strip = ui.document.querySelector('#action-strip');
+  assert.ok(strip.classList.contains('plan-approval'));
+  assert.equal(ui.window.getComputedStyle(strip).position, 'static');
+  assert.ok(ui.document.querySelector('#app .decision-card').textContent.includes('Plan to approve'));
+  assert.equal(strip.querySelector('#take-action').disabled, false);
 });
 
 test('chat renders review criteria in decision card with sticky action strip', async (t) => {
