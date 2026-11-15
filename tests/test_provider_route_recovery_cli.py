@@ -60,6 +60,9 @@ class ProviderRouteRecoveryCliTests(unittest.TestCase):
             timeout=180,
         )
         view = run.status()
+        self.assertEqual("WAITING_FOR_USER", view["status"])
+        run.answer("Q1", "CLI", resolver_token=view["needs"]["resolver_token"])
+        view = run.advance_until_input()
         self.assertEqual("PAUSED_CROSS_MODEL", view["status"])
         question = view["needs"]["questions"][0]
         self.assertEqual("route-tester", question["id"])

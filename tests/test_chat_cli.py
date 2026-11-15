@@ -187,13 +187,17 @@ class ChatCliTests(unittest.TestCase):
         self.assertFalse((self.workspace / "greet.py").exists(), "Requirements approval cannot start implementation")
         run.approve_plan(reviewed["needs"]["token"])
         self.assertEqual("TASK_COMPLETE", run.advance_until_input()["status"])
-        # A later request in the same chat is gathered again (then confirmed at plan approval),
-        # not planned straight from the previous turn's handoff.
+        # A later request in the same spec-first chat is gathered again, confirmed at its own
+        # Requirements review (#3603), and then confirmed at plan approval.
         gathered = count("requirements-gather")
         run.follow_up("Keep the greeting CLI and also add a --shout option.")
         again = run.advance_until_input()
-        self.assertEqual("approve_plan", again["needs"]["kind"], again.get("needs"))
+        self.assertEqual("answer", again["needs"]["kind"], again.get("needs"))
+        self.assertTrue(again["needs"]["questions"][-1]["id"].startswith("requirements-review-"))
         self.assertEqual(gathered + 1, count("requirements-gather"), "The follow-up must not skip Requirements")
+        run.answer(again["needs"]["questions"][-1]["id"], "plan", resolver_token=again["needs"]["resolver_token"])
+        replanned = run.advance_until_input()
+        self.assertEqual("approve_plan", replanned["needs"]["kind"], replanned.get("needs"))
 
     def test_chat_named_feedback_and_followup_keep_one_run_and_require_fresh_approval(self):
         run = taskrun.TaskRun.start(
