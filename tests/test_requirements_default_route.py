@@ -42,3 +42,42 @@ class RequirementsDefaultRouteTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def offered(model, account, billing="subscription"):
+    return {"model": model, "tool": "kilocode", "account": account, "billing": billing, "levels": None, "probe": None}
+
+
+GLM = offered("zai-coding-plan/glm-5.3", "Z.AI Coding Plan")
+OPUS = offered("anthropic/claude-opus-5-5", "Claude subscription")
+SOL = offered("openai/gpt-6.1-sol", "ChatGPT login")
+
+
+class RequirementsFallbackOrderTests(unittest.TestCase):
+    """When GLM-5.3 is missing or its quota ran out, Requirements moves down one ranked list on its own."""
+
+    def chosen(self, candidates):
+        return route_selector.select(["requirements"], candidates)["routes"]["requirements"]
+
+    def test_selection_takes_the_first_connected_model_in_rank_order(self):
+        self.assertEqual(("zai-coding-plan/glm-5.3", "low"), self._pair(self.chosen([SOL, OPUS, GLM])))
+        self.assertEqual(("anthropic/claude-opus-5-5", "medium"), self._pair(self.chosen([SOL, OPUS])))
+        self.assertEqual(("openai/gpt-6.1-sol", "medium"), self._pair(self.chosen([SOL])))
+
+    def test_a_quota_stop_moves_requirements_to_the_next_ranked_model_without_asking(self):
+        offers = [SOL, OPUS, GLM]
+        selection = route_selector.select(["requirements"], offers)
+        selection["candidates"] = route_selector.permitted_set(offers)
+        after_glm = route_selector.next_route(selection, "requirements", GLM["model"])
+        self.assertEqual(("anthropic/claude-opus-5-5", "medium"), self._pair(after_glm))
+        after_opus = route_selector.next_route(selection, "requirements", OPUS["model"], failed_models=(GLM["model"],))
+        self.assertEqual(("openai/gpt-6.1-sol", "medium"), self._pair(after_opus))
+        self.assertIsNone(
+            route_selector.next_route(
+                selection, "requirements", SOL["model"], failed_models=(GLM["model"], OPUS["model"])
+            )
+        )
+
+    @staticmethod
+    def _pair(route):
+        return (route["model"], route["reasoning_effort"])
