@@ -198,7 +198,7 @@ class CliSurfaceTests(unittest.TestCase):
         policy = package["tool"]["autocode"]["cli"]
         self.assertEqual(["autocode"], policy["public-entry-points"])
         self.assertEqual([], policy["internal-entry-points"])
-        self.assertEqual({"autocode": "autocode_cli.autocode:cli"}, package["project"]["scripts"])
+        self.assertEqual({"autocode": "autocode_cli.autocode_entry:cli"}, package["project"]["scripts"])
         for unit in ("autoplanner", "autocode", "autoreview", "autoresolver"):
             with self.subTest(unit=unit):
                 self.assertEqual(
