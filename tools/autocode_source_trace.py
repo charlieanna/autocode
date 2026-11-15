@@ -221,6 +221,9 @@ def _normalize_entries(value, label, records):
     such a waiver excuses nothing and is kept as the reviewer wrote it. A Plan Reviewer waived "Nothing in the
     prepared plan says a goal was dropped." and its whole answer, 54 minutes of review, was refused for it
     (2026-11-15).
+
+    An entry that repeats an earlier one's source and quote excuses nothing more, so it merges into the first
+    as a criterion's repeated citation does (``_without_repeats``), and the first entry's reason is kept.
     """
     if not isinstance(value, list):
         raise ValueError(f"source_trace {label} must be an array")
@@ -237,7 +240,7 @@ def _normalize_entries(value, label, records):
             raise ValueError(f"source_trace {label} entry for {entry['source_id']} needs a reason")
         key = (entry["source_id"], quote)
         if key in seen:
-            raise ValueError(f"source_trace {label} repeats {entry['source_id']}")
+            continue
         seen.add(key)
         normalized.append({"source_id": entry["source_id"], "quote": quote, "reason": str(entry["reason"]).strip()})
     return normalized
