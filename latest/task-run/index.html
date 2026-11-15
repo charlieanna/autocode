@@ -1486,6 +1486,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-requirements-reading-time-overlap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Requirements reading-time overlap
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#controller-ownership-and-recovery" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2390,6 +2401,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-requirements-reading-time-overlap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Requirements reading-time overlap
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#controller-ownership-and-recovery" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2898,7 +2920,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/e91bc6760f3ca8fbf4910dd5c801cf3ead481814/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/ac8314ef7d8ff352b620d155aa7d7a9734b1cfee/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3707,6 +3729,56 @@ rejection remain visible. Only that rejected, unapplied message leaves the
 pending batch; saved actions, active or unknown delivery, and unattempted inputs
 cannot be replaced. Refresh the correction with a new request ID and the current
 question/token. A stale supplied token is refused before a request is sealed.</p>
+<h2 id="the-requirements-reading-time-overlap">The Requirements reading-time overlap<a class="headerlink" href="#the-requirements-reading-time-overlap" title="Permanent link">&para;</a></h2>
+<p>A chat run paused on Requirements' blocking questions asked the model nothing
+while the person read: the full Requirements pass started only after the answer
+arrived. Now the controller starts one full pass at the pause, assuming each
+question's offered default, and keeps its report when the answers turn out to
+match. This is one bounded call owned by the existing controller inside
+<code>chat_checkpoint</code>, never a second controller or a cross-run layer.</p>
+<p><strong>Eligibility.</strong> It runs for a live ordinary terminal chat paused on the
+Requirements handoff's own unresolved blocking or open questions, where every
+question offers a nonempty proposed default. That covers a triage handoff's
+questions, a <code>--spec-first</code> handoff's open questions and the default flow's
+business questions, and a small brief (<code>workflows.brief_size == "small"</code>) too.
+Everywhere else today's flow runs with no background call: a question with no
+default to assume (keep or discard cannot be judged exactly without the answer),
+a pause that is not the handoff's own questions (the spec-first review
+confirmation, a scope decision, a Resolver question), a run under an approved
+goal contract, a native visual run, or a run with no live chat process —
+<code>--no-chat</code>, durable and resumed-later runs.</p>
+<p><strong>Caps.</strong> The background call counts against the run's existing caps, so it does
+not start when it could exceed one: a finite cost cap disables it, because the
+accounting exposes estimates rather than an enforceable maximum for one call, and
+a finite active-time cap admits it only when the enforced stage deadline plus its
+bounded termination allowance fits what remains. A pass refused this way is
+recorded with its reason.</p>
+<p><strong>Keep or discard.</strong> Every typed answer equal to its offered default keeps the
+background report and no second pass runs; any difference discards it and the
+ordinary full pass runs with the real answers. The comparison is literal, at the
+chat input boundary, before whitespace stripping or offered-choice
+canonicalization, and <code>/default</code> selects the default exactly. A kept report binds
+a digest of the question ids and answer values it assumed, and the Requirements
+handoff refuses a report whose digest differs from what the person actually
+answered, so the handoff always reflects the real answers. A refused adoption
+re-annotates the attempt it had marked kept, and charges it once.</p>
+<p><strong>Spend.</strong> A discarded background call still spent what it spent. Its stage
+attempt carries <code>{"speculative": true, "outcome": "kept" | "discarded",
+"reason": …}</code>, and the status view shows those three beside the tokens and cost
+that attempt observed (<code>usage.accounting.attempts</code>), so a discarded pass appears
+in the run's evidence instead of vanishing. Usage the attempt's events cannot
+establish stays an explicit recorded uncertainty; no spend is invented. See
+<a href="#status-view">Status view</a>.</p>
+<p><strong>Stopping and resume.</strong> A Stop or a boundary pause taken while the person reads
+cancels the background call through the verified process-identity boundary — a
+reused PID is never signalled — adopts no report, and accounts its observed spend
+once. A run that crashes or resumes with a pass that never finished discards it:
+its report is never adopted or replayed, the attempt is authenticated against its
+recorded process identity before anything is signalled, and a repeated resume is
+a no-op.</p>
+<p>Nothing about the pause changes for the person: the same questions, options and
+proposed defaults are shown, and no new CLI flag, confirmation or question is
+offered.</p>
 <h2 id="controller-ownership-and-recovery">Controller ownership and recovery<a class="headerlink" href="#controller-ownership-and-recovery" title="Permanent link">&para;</a></h2>
 <p><code>status()["controller"]</code> reports the current invocation's birth-bound owner,
 last saved checkpoint and completed stage, declared CLI return code, and ready
@@ -4141,7 +4213,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/e91bc6760f3ca8fbf4910dd5c801cf3ead481814/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/ac8314ef7d8ff352b620d155aa7d7a9734b1cfee/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -4930,7 +5002,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/e91bc6760f3ca8fbf4910dd5c801cf3ead481814/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/ac8314ef7d8ff352b620d155aa7d7a9734b1cfee/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
