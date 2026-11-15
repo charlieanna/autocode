@@ -1834,7 +1834,7 @@
 
 
 <h1 id="replay-a-saved-run">Replay a saved run<a class="headerlink" href="#replay-a-saved-run" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/79cfac8de57797ec7bc4b64c9e13c310a125d716/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/a6a0eb8e3a14a35723e4cf19ae9f0de1b81c7f2f/README.md">← Back to README</a></p>
 <p>Replay drives a fresh AutoCode task run with a saved brief, model routes and
 provider events. It makes no model calls. Normal replay runs the current
 verification checks again; a previous PASS cannot establish a current PASS.
@@ -1998,7 +1998,10 @@ A recording made while the two-project and <code>requirements.txt</code> rules e
 finds which of the plan's commands runs the project's tests by running them (see
 <a href="../named-test-proof/">named test proof</a>): a simulated proof takes that answer from
 the recorded receipt (<code>plan_command_roles</code>), for the same plan, and its commands
-are compared with the recording's as above.</p>
+are compared with the recording's as above. The receipt also holds the files that
+command was seen to run as tests where no path rule names one (<code>tests</code>,
+<code>tests_command</code>, <code>existing_test</code>); the plan check, which runs the plan's guard
+command to see that on a live run, reads the recorded answer too.</p>
 <h2 id="public-task-run-interface">Public task-run interface<a class="headerlink" href="#public-task-run-interface" title="Permanent link">&para;</a></h2>
 <p>The CLI uses <a href="../task-run/"><code>TaskRun</code></a>, including its ordinary approval and
 answer methods. Status adds <code>replay_progress</code> with the recording digest, check

@@ -2333,7 +2333,34 @@ order, each for at most five minutes; what a command does on the original code i
 kept for the run (<code>plan_command_roles</code> in its state and in the proof's receipt),
 and the gate of the original tests runs them with the command found. Finding a
 command's role proves nothing about the change: the proof still runs it on the
-original code, there with the change's tests, and with the change. Do
+original code, there with the change's tests, and with the change.</p>
+<p>Which files are tests is a rule over paths (<code>tests/</code>, <code>test_*.py</code>, <code>*_spec.rb</code>), and
+a project that keeps its checks elsewhere (<code>checks/pager_check.rb</code> run by
+<code>ruby run_checks.rb</code>) has no test by it. There the approved plan says which command
+runs the project's tests, and AutoCode checks it by running that command. The plan
+says so with the criterion it is asked to write where no runner names a test,
+"run <code>ruby run_checks.rb</code>: it fails on the original code and passes with the fix",
+or with a command guard (<code>guard: run `ruby run_checks.rb`</code>). A code file of the
+change is then a test the command runs when the command passes on the original
+code, fails once the file is made unloadable (it runs the file) and passes once the
+file is emptied (nothing else needs it). A file the change edits is looked at on the
+original code and one it adds on the changed code, at most six files. Such a file is
+taken with the change's tests: the original code the command must fail on holds it,
+and the check of the original tests keeps it as the original code has it. It stays
+code for the evidence of changed lines. A guard there needs a test of the original
+code, which is the edited file or one beside a new file. What was seen is in the
+proof (<code>plan_command_roles.tests</code>, <code>tests_command</code>, <code>existing_test</code>) and in its notes
+and review reasons.</p>
+<p>The looks alone never make a file a test. A program's own entry file passes both of
+them, and so does a module a program loads when it is there, so a command the plan
+only asks to be run ("run <code>./app.sh</code> and see the new line") is not looked with, and
+a file the command names (<code>sh pager.sh</code>, <code>./app.sh</code>) is the program and never its
+test. A draft in such a project that plans no test is refused as before
+(<code>untested_code</code>), unless it says which command runs the tests and that command is
+seen to run a file the plan names, or one beside a file it adds, as a test is run;
+when another of its commands is seen to, the Planner is told how the plan says so
+(<code>tools/autocode_plan_test_suite.py</code>, <code>seen_to_run_tests</code>). A guard there is usable
+when its command is seen to run such a file. Do
 not downgrade an approved named criterion to prose to make a run finish. A
 draft whose test files the proof's suite would never run, such as RSpec specs in
 a repository whose root suite is Node, is refused when it is drafted unless one
