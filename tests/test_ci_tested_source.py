@@ -180,12 +180,21 @@ class SourceContextTests(unittest.TestCase):
 
     def test_capture_rejects_oversized_or_failed_tracked_source_observation(self):
         valid_row = TESTED + " " + ACTUAL + " " + HEAD + "\n"
+        oversized_valid_row = " ".join([TESTED, *([ACTUAL, HEAD] * 100)]) + "\n"
+        self.assertGreater(len(oversized_valid_row), 8192)
         cases = (
-            [subprocess.CompletedProcess([], 0, stdout="private-token-fixture" * 500)],
-            [subprocess.CompletedProcess([], 0, stdout=valid_row), subprocess.CompletedProcess([], 2)],
-            [subprocess.CompletedProcess([], 0, stdout=valid_row), subprocess.CompletedProcess([], -15)],
+            ([subprocess.CompletedProcess([], 0, stdout=oversized_valid_row), subprocess.CompletedProcess([], 0)], 1),
+            (
+                [
+                    subprocess.CompletedProcess([], 0, stdout="private-token-fixture" * 500),
+                    subprocess.CompletedProcess([], 0),
+                ],
+                1,
+            ),
+            ([subprocess.CompletedProcess([], 0, stdout=valid_row), subprocess.CompletedProcess([], 2)], 2),
+            ([subprocess.CompletedProcess([], 0, stdout=valid_row), subprocess.CompletedProcess([], -15)], 2),
         )
-        for answers in cases:
+        for answers, expected_calls in cases:
             with self.subTest(answers=answers), patch.object(source.subprocess, "run", side_effect=answers) as command:
                 record = self.informational(source.capture, HEAD, EVENT, repo=self.root)
                 self.assertIsNone(record.tested_revision)
@@ -194,7 +203,7 @@ class SourceContextTests(unittest.TestCase):
                 self.assertEqual(source.UNAVAILABLE, record.error)
                 self.assertIsNone(record.resolution()[0])
                 self.assertNotIn("private-token-fixture", json.dumps(record.as_dict()))
-                self.assertEqual(len(answers), command.call_count)
+                self.assertEqual(expected_calls, command.call_count)
 
     def test_capture_cli_errors_are_informational_and_do_not_expose_private_details(self):
         path = self.root / "private-output-token"
