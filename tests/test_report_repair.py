@@ -2468,6 +2468,8 @@ if data.get('report_repair') and ({mode!r} == 'all' or output.stem.endswith('-01
     if {mode!r} == 'changed':
         Path('unexpected.txt').write_text('changed source')
     print(json.dumps({{'type': 'thread.started', 'thread_id': 'timeout-fixture'}}), flush=True)
+    if {mode!r} == 'changed':
+        raise SystemExit(0)
     time.sleep(30)
 raise SystemExit(subprocess.run([sys.executable, {str(real)!r}, *sys.argv[1:]], input=prompt, text=True).returncode)
 """)
@@ -2486,7 +2488,31 @@ raise SystemExit(subprocess.run([sys.executable, {str(real)!r}, *sys.argv[1:]], 
 
     def test_cli_changed_source_escalates_without_replaying_repair(self):
         self.timeout_provider("changed")
-        self.launch(["Build greeting", "--no-chat", "--max-stage-seconds", "2"], 2)
+        # Advance the actual monitor clock only for the completed report repair.
+        # A two-second limit on every stage can time out discovery first when
+        # subprocess coverage or a busy runner slows provider startup.
+        wrapper = self.root / "repair-timeout.py"
+        wrapper.write_text(
+            "import sys, runpy\n"
+            f"sys.path.insert(0, {str(test_subprocess.TOOLS)!r})\n"
+            "import autocode_process as processes\n"
+            "wait = processes.wait_for_stage\n"
+            "def deadline(child, seconds, checkpoint, *, activity=None, **kwargs):\n"
+            "    code, timed_out = wait(child, seconds, checkpoint, activity=activity, **kwargs)\n"
+            "    if activity is None or 'report-repair' not in activity.path.name:\n"
+            "        return code, timed_out\n"
+            "    assert not timed_out and child.poll() is not None\n"
+            "    later = activity.clock() + activity.idle_limit + 1\n"
+            "    activity.clock = lambda: later\n"
+            "    activity.timeout = activity.expired()\n"
+            "    assert activity.timeout is not None\n"
+            "    return code, True\n"
+            "processes.wait_for_stage = deadline\n"
+            f"sys.argv[0] = {str(test_subprocess.TOOLS / 'autocode.py')!r}\n"
+            "runpy.run_path(sys.argv[0], run_name='__main__')\n"
+        )
+        self.entry = [sys.executable, str(wrapper)]
+        self.launch(["Build greeting", "--no-chat"], 2)
         _, state = self.saved()
         self.assertEqual("WAITING_FOR_USER", state["status"])
         self.assertEqual("operational_exhaustion", runner.resolver_human.current(state)["scope"])

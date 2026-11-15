@@ -196,9 +196,9 @@ pathlib.Path(sys.argv[2]).write_text(''.join(json.dumps(row)+'\\n' for row in ro
             environment=environment,
             options=options,
             receipt_path=base.with_suffix(".supervision.json"),
-            timeout=15,
+            timeout=first.LAUNCH_TIMEOUT,
         ) as (child, on_root):
-            code, expired = processes.wait_for_stage(child, 15, lambda _: None, on_root=on_root)
+            code, expired = processes.wait_for_stage(child, first.LAUNCH_TIMEOUT, lambda _: None, on_root=on_root)
         self.assertEqual((0, False), (code, expired))
         self.assertFalse(processes.live_processes([child.supervision["provider"]]))
         after = source_scope.snapshot(self.root, self.state)
@@ -344,10 +344,12 @@ pathlib.Path(sys.argv[2]).write_text(''.join(json.dumps(row)+'\\n' for row in ro
                 environment=self.environment,
                 options=options,
                 receipt_path=self.run / "repair.supervision.json",
-                timeout=15,
+                timeout=first.LAUNCH_TIMEOUT,
             ) as (child, on_root):
                 try:
-                    code, expired = processes.wait_for_stage(child, 15, lambda _: None, on_root=on_root)
+                    code, expired = processes.wait_for_stage(
+                        child, first.LAUNCH_TIMEOUT, lambda _: None, on_root=on_root
+                    )
                 except supervision.SupervisionError as error:
                     try:
                         metadata = deepcopy(child.supervision)
@@ -356,7 +358,7 @@ pathlib.Path(sys.argv[2]).write_text(''.join(json.dumps(row)+'\\n' for row in ro
                             "test": self.id(),
                             "error_type": type(error).__name__,
                             "error": str(error),
-                            "launch_timeout_seconds": 15,
+                            "launch_timeout_seconds": first.LAUNCH_TIMEOUT,
                             "supervision": {
                                 key: metadata.get(key)
                                 for key in ("schema", "nonce", "owner", "keeper", "provider", "receipt", "started_at")

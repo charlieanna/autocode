@@ -8,7 +8,6 @@ approval screen list the row instead of showing it as full coverage.
 
 import copy
 import unittest
-from pathlib import Path
 
 import autocode_approval_view as approval_view
 import autocode_goal_lifecycle as lifecycle
@@ -18,6 +17,8 @@ import autocode_trace_coverage as trace_coverage
 import autocode_util as util
 from goal_fixtures import body
 from units import autoplanner as planner
+
+from tests import context_fixtures
 
 REQUIREMENT = {
     "id": "R1",
@@ -121,7 +122,7 @@ class ProxiedTraceTests(unittest.TestCase):
         )
 
     def test_the_planner_prompt_explains_proxied_and_its_question(self):
-        prompt, _ = planner.context(state(), "revise_plan", Path("/run/state.json"))
+        prompt, _ = planner.context(state(), "revise_plan", context_fixtures.state_path(self))
         self.assertIn("disposition proxied is for a user-visible requirement", prompt)
         self.assertIn("open_blocking_questions entry of kind decision", prompt)
 
@@ -130,7 +131,7 @@ class ProxiedTraceTests(unittest.TestCase):
         # requirement's own text copied exactly. "A required_behaviors entry
         # copied exactly" never said the copy comes from the contract, not from
         # the requirement, so the rule must refuse the requirement's own words.
-        prompt, _ = planner.context(state(), "revise_plan", Path("/run/state.json"))
+        prompt, _ = planner.context(state(), "revise_plan", context_fixtures.state_path(self))
         self.assertIn("requirement's own text is not evidence, even copied exactly", prompt)
 
     def test_the_planner_schema_offers_proxied_and_a_nullable_reason(self):

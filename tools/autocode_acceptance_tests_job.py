@@ -620,7 +620,14 @@ def apply(
         )
         return
     verification_retry.finish(state)
-    already = {row["case_id"]: row for row in value["already_passing"] if row["case_id"] not in inherited}
+    preserve = {case["id"] for case in cases if case.get("kind") == "preserve"}
+    # A guard is required to pass on the original code; the runner has just
+    # verified that above. Only a new-behavior test passing early needs replan.
+    already = {
+        row["case_id"]: row
+        for row in value["already_passing"]
+        if row["case_id"] not in inherited and row["case_id"] not in preserve
+    }
     if already:
         names = {row["case_id"]: row["test_name"] for row in value["tests"] if row["case_id"] in already}
         # A bug's reproduction that already passes disagrees with its diagnosis: only the user can settle that.

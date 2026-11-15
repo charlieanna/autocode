@@ -15,6 +15,7 @@ import autocode_builder_policy as builder_policy
 import autocode_code_checkpoints as code_checkpoints
 import autocode_goal_lifecycle as lifecycle
 import autocode_goals as goals
+import autocode_plan_retention as retention
 import autocode_planning_calls as planning_calls
 import autocode_rejection_retry as rejection_retry
 import autocode_rejection_route as rejection_route
@@ -282,6 +283,52 @@ class ResolveRepairTests(unittest.TestCase):
                 "provider_tokens": {"input_tokens": 100, "output_tokens": 20},
             },
         }
+
+    def test_repaired_compact_plan_uses_the_pinned_nullable_reference_rules(self):
+        token = retention.token(self.state)
+        schema = {
+            "type": "object",
+            "properties": {
+                "contract": {
+                    "anyOf": [
+                        {
+                            "properties": {
+                                "revise_contract": {"enum": [token]},
+                                "changes": {
+                                    "properties": {"deliverables": {"anyOf": [{"type": "array"}, {"type": "null"}]}}
+                                },
+                            }
+                        }
+                    ]
+                }
+            },
+        }
+        original = self._stage_files("revise", stage="revise_plan", role="planner", report_obj={}, schema_obj=schema)
+        self._queue_after_one_local_repair(original)
+        self.assertTrue(resolve_repair_job.queue_from_pending(self.state, self.run_dir))
+        report = {"contract": {"revise_contract": token, "changes": {"deliverables": None}}}
+        expected = self.state["goal_contract"]["body"]["deliverables"]
+
+        def apply_plan(state, stage, value, record, workspace, run_dir):
+            expanded = retention.expand(state, stage, value)
+            self.assertEqual(expected, expanded["contract"]["deliverables"])
+
+        runtime, calls = self._stub_runtime(fail_apply=apply_plan)
+        record = self._resolve_record("res-revision")
+        resolve_repair_job.apply(
+            runtime,
+            self.state,
+            {
+                "action": "repair_report",
+                "diagnosis": "Correct the revision",
+                "repaired_report_json": json.dumps(report),
+            },
+            record,
+            self.root,
+            self.run_dir,
+        )
+        self.assertEqual({}, calls[0][1]["contract"]["changes"])
+        self.assertIsNone(report["contract"]["changes"]["deliverables"])
 
     def test_direct_report_fix_across_planning_builder_tester_provenance_and_single_charge(self):
         # 1. draft_plan direct JSON repair -> repair_provenance.witness + single cost + 0 blind re-runs

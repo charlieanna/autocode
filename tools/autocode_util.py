@@ -35,6 +35,40 @@ _WINDOWS = sys.platform == "win32"
 # units/common caps read-only routes along it, so no layer invents a second order.
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
+# Where git says the repository is (`git rev-parse --local-env-vars` minus GIT_CONFIG_COUNT),
+# whatever directory `-C` or `cwd` names (#3504, #3505).
+GIT_REPOSITORY_VARIABLES = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_COMMON_DIR",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_GRAFT_FILE",
+    "GIT_SHALLOW_FILE",
+    "GIT_PREFIX",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_CONFIG",
+    "GIT_CONFIG_PARAMETERS",
+)
+
+
+def drop_git_repository_variables(environ=None) -> list[str]:
+    """Remove inherited repository-location variables in place; return the names removed."""
+    target = os.environ if environ is None else environ
+    return [name for name in GIT_REPOSITORY_VARIABLES if target.pop(name, None) is not None]
+
+
+def git_environment(overrides=None, *, base=None) -> dict[str, str]:
+    """``base`` (default ``os.environ``) without repository-location variables, plus ``overrides``."""
+    source = os.environ if base is None else base
+    environment = {key: value for key, value in source.items() if key not in GIT_REPOSITORY_VARIABLES}
+    if overrides:
+        environment.update(overrides)
+    return environment
+
 
 def now():
     return dt.datetime.now(dt.UTC).isoformat()
@@ -104,7 +138,7 @@ def source_commit() -> str | None:
     """
     import subprocess as _sp
 
-    env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
+    env = git_environment({"GIT_OPTIONAL_LOCKS": "0"})
 
     def git(*args):
         try:
@@ -222,6 +256,12 @@ def file_hash(path):
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def runtime_source_digest(root=None):
+    """Identify the runtime's Python sources independently of its checkout path."""
+    root = Path(root) if root is not None else Path(__file__).resolve().parent
+    return digest({str(path.relative_to(root)): file_hash(path) for path in sorted(root.rglob("*.py"))})
 
 
 class JSONCommitUncertain(OSError):
@@ -495,8 +535,9 @@ def git(root, *args, timeout=None, env=None, input=None, check=True):
     """
     seconds = GIT_TIMEOUT if timeout is None else timeout
     command = ["git", "-c", "core.hooksPath=" + os.devnull, "-C", str(root), *map(str, args)]
+    environment = git_environment() if env is None else env
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=seconds, env=env, input=input)
+        result = subprocess.run(command, capture_output=True, text=True, timeout=seconds, env=environment, input=input)
     except subprocess.TimeoutExpired:
         raise ValueError(f"git {' '.join(map(str, args[:2]))} did not finish in {seconds} seconds") from None
     if check and result.returncode:
@@ -619,7 +660,9 @@ def _other_entry(path, unborn_ok=True):
 
 def _snapshot_git(root, *args, text=False):
     try:
-        return subprocess.check_output(["git", *args], cwd=root, text=text, stderr=subprocess.PIPE)
+        return subprocess.check_output(
+            ["git", *args], cwd=root, text=text, stderr=subprocess.PIPE, env=git_environment()
+        )
     except (subprocess.CalledProcessError, OSError) as error:
         detail = getattr(error, "stderr", None) or str(error)
         if isinstance(detail, bytes):
@@ -634,7 +677,9 @@ def _snapshot_git(root, *args, text=False):
 def _unborn(root):
     """Whether ``root`` is a Git repository with no commit yet (``git init`` and nothing more)."""
     try:
-        found = subprocess.run(["git", "rev-parse", "--verify", "--quiet", "HEAD"], cwd=root, capture_output=True)
+        found = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", "HEAD"], cwd=root, capture_output=True, env=git_environment()
+        )
     except OSError:
         return False
     return found.returncode == 1 and not found.stdout and not found.stderr

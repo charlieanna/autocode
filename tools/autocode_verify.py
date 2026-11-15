@@ -181,9 +181,20 @@ def is_code_path(path: str) -> bool:
     return PurePosixPath(path).suffix in CODE_SUFFIXES
 
 
+def _scratch_env(workspace, scratch, *, keep_objects=False):
+    env = util.git_environment({"GIT_INDEX_FILE": str(Path(scratch, "index"))})
+    if not keep_objects:
+        objects = Path(workspace, _git(workspace, "rev-parse", "--git-path", "objects").strip()).resolve()
+        obj_dir = Path(scratch, "objects")
+        obj_dir.mkdir()
+        env.update(GIT_OBJECT_DIRECTORY=str(obj_dir), GIT_ALTERNATE_OBJECT_DIRECTORIES=str(objects))
+    return env
+
+
 def _git(cwd, *args, check=True, env=None, input=None):
+    git_env = util.git_environment() if env is None else env
     result = subprocess.run(
-        ["git", *args], cwd=cwd, capture_output=True, encoding="utf-8", errors="replace", env=env, input=input
+        ["git", *args], cwd=cwd, capture_output=True, encoding="utf-8", errors="replace", env=git_env, input=input
     )
     if check and result.returncode:
         raise RuntimeError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
@@ -323,15 +334,7 @@ def _staged(workspace, base=None, *, keep=False):
     Plumbing only, never `git add`: it refuses a pathspec that names an ignored path (a gitignored
     .autocode, AutoCode's own info/exclude rule) and `add -u -- .` an index with no files."""
     with tempfile.TemporaryDirectory(prefix="autocode-index-") as scratch:
-        env = {**os.environ, "GIT_INDEX_FILE": str(Path(scratch) / "index")}
-        if not keep:
-            objects = Path(workspace, _git(workspace, "rev-parse", "--git-path", "objects").strip()).resolve()
-            alternates = filter(None, (str(objects), os.environ.get("GIT_ALTERNATE_OBJECT_DIRECTORIES")))
-            env.update(
-                GIT_OBJECT_DIRECTORY=str(Path(scratch, "objects")),
-                GIT_ALTERNATE_OBJECT_DIRECTORIES=os.pathsep.join(alternates),
-            )
-            Path(env["GIT_OBJECT_DIRECTORY"]).mkdir()
+        env = _scratch_env(workspace, scratch, keep_objects=keep)
         real = Path(workspace, _git(workspace, "rev-parse", "--git-path", "index").strip())
         if real.is_file():
             shutil.copy2(real, env["GIT_INDEX_FILE"])  # with its timestamp: a racily clean entry stays racy
@@ -1060,7 +1063,10 @@ def make_tree(
     try:
         if patch:
             applied = subprocess.run(
-                ["git", "-C", str(destination), "apply", str(patch)], capture_output=True, text=True
+                ["git", "-C", str(destination), "apply", str(patch)],
+                capture_output=True,
+                text=True,
+                env=util.git_environment(),
             )
             if applied.returncode:
                 raise ValueError(f"git apply {patch} failed: {(applied.stderr or applied.stdout).strip()[-300:]}")
@@ -1098,7 +1104,7 @@ def make_tree(
 def patch_applies(repo, base, patch) -> str:
     """ "" when ``patch`` applies cleanly to ``base``, else why not. Uses a scratch index, no worktree."""
     with tempfile.TemporaryDirectory() as scratch:
-        env = {**os.environ, "GIT_INDEX_FILE": str(Path(scratch) / "index")}
+        env = _scratch_env(repo, scratch, keep_objects=True)
         read = subprocess.run(["git", "-C", str(repo), "read-tree", base], capture_output=True, text=True, env=env)
         check = (
             read
@@ -1172,16 +1178,7 @@ def _effective_base(workspace, base, patch=None):
     """
     workspace = Path(workspace)
     with tempfile.TemporaryDirectory(prefix="autocode-base-definition-") as scratch:
-        objects = Path(workspace, _git(workspace, "rev-parse", "--git-path", "objects").strip()).resolve()
-        env = {
-            **os.environ,
-            "GIT_INDEX_FILE": str(Path(scratch, "index")),
-            "GIT_OBJECT_DIRECTORY": str(Path(scratch, "objects")),
-            "GIT_ALTERNATE_OBJECT_DIRECTORIES": os.pathsep.join(
-                filter(None, (str(objects), os.environ.get("GIT_ALTERNATE_OBJECT_DIRECTORIES")))
-            ),
-        }
-        Path(scratch, "objects").mkdir()
+        env = _scratch_env(workspace, scratch)
         if subprocess.run(
             ["git", "-C", str(workspace), "read-tree", str(base)], capture_output=True, env=env
         ).returncode:
@@ -2165,7 +2162,7 @@ def _run_suite_base_definition(
     }
     try:
         definition_inputs.check_parents(overlay, definition)
-        if not found.changed:
+        if not found.changed and not set(listing) & set(reviewed):
             return {"run": None, "boundary": ""}
         with definition_inputs.isolated_folder(workspace) as holder:
             tree = make_tree(
@@ -2676,7 +2673,7 @@ def verify(
     if roles is None or not role_inventory.matches(roles, workspace, changes):
         roles = role_inventory.from_git(workspace, base, is_test_path, changes=changes)
     tests, sources, ambiguous = roles.partition(changes)
-    runnable_tests, sources = changed_tests.inline_tests(workspace, base, tests, sources, changes)
+    runnable_tests, sources = changed_tests.proving(workspace, base, tests, sources, changes, test_side, is_code_path)
     if framework is not None:
         framework = copy.copy(framework)
         framework.test_roles = roles

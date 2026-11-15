@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shlex
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -58,17 +57,11 @@ def response(state: RunState) -> str:
 
 
 def delivery(state: RunState) -> str:
-    """Where a task-worktree run's finished work is and the commands that take it: the branch, the
-    merge and the clean-up, as the runner prints them (#2344). Empty for an in-place run."""
+    """Where a task-worktree run's finished work is. Empty for an in-place run."""
     branch, project, workspace = (state.get(key) for key in ("task_branch", "project_workspace", "workspace"))
     if not (isinstance(branch, str) and branch and isinstance(project, str) and isinstance(workspace, str)):
         return ""
-    return (
-        f"Delivered on branch {branch}; your checkout is unchanged until you merge it:\n"
-        f"  autocode merge --workspace {shlex.quote(project)} {shlex.quote(workspace)}\n"
-        f"then remove the task worktree with:\n"
-        f"  autocode clean-worktrees --workspace {shlex.quote(project)} --yes"
-    )
+    return f"Delivered on branch {branch}. Merge that branch into your project when you are ready."
 
 
 def _approved_plan(state: RunState, event) -> str | None:

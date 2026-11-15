@@ -794,6 +794,37 @@ class ApplyTests(unittest.TestCase):
 
 
 class GuidanceTests(unittest.TestCase):
+    def test_runtime_source_digest_tracks_python_bytes_not_checkout_location(self):
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            for directory in (first, second):
+                Path(directory, "engine.py").write_text("value = 1\n")
+            original = util.runtime_source_digest(first)
+            self.assertEqual(original, util.runtime_source_digest(second))
+            Path(second, "note.txt").write_text("unrelated")
+            self.assertEqual(original, util.runtime_source_digest(second))
+            Path(second, "engine.py").write_text("value = 2\n")
+            self.assertNotEqual(original, util.runtime_source_digest(second))
+
+    def test_runner_change_expires_guidance_without_losing_attempt_history_or_retry(self):
+        for stage in ("draft_plan", "tester"):
+            with self.subTest(stage=stage):
+                with patch.object(util, "runtime_source_digest", return_value="old"):
+                    state = self.in_force(stage)
+                    self.assertIn("INVESTIGATOR GUIDANCE", stuck.with_guidance(state, stage, self.request()).prompt)
+                before = copy.deepcopy(state)
+                with patch.object(util, "runtime_source_digest", return_value="new"):
+                    self.assertEqual(self.request(), stuck.with_guidance(state, stage, self.request()))
+                self.assertEqual(before, state)
+
+    def test_runner_change_does_not_reuse_old_report_lessons(self):
+        with patch.object(util, "runtime_source_digest", return_value="old"):
+            state = {"stuck_investigations": [self.history()]}
+            self.assertIn("EARLIER PLANNING CORRECTIONS", stuck.guidance(state, "draft_plan"))
+        before = copy.deepcopy(state)
+        with patch.object(util, "runtime_source_digest", return_value="new"):
+            self.assertEqual("", stuck.guidance(state, "draft_plan"))
+        self.assertEqual(before, state)
+
     def test_execution_guidance_handles_a_saved_snapshot_path_without_reading_it(self):
         state = state_for(next_stage="tester", source_snapshot="/saved/source-1.json")
         stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "x")

@@ -25,14 +25,16 @@ from collections.abc import Mapping
 
 try:
     from .autocode_control_tokens import CONTROL_TOKEN_ENV_VARS
+    from .autocode_util import GIT_REPOSITORY_VARIABLES
 except ImportError:
     from autocode_control_tokens import CONTROL_TOKEN_ENV_VARS
+    from autocode_util import GIT_REPOSITORY_VARIABLES
 
 PASS_VARIABLE = "AUTOCODE_PASS_ENV"
-# Runner-only daemon toggles: an agent or test subprocess inheriting AUTOCODE_SOURCE_HOST=1
-# can spawn a 30-minute snapshot host inside the stage's ProcessTree, keeping process_fallback
-# active after tools exit and killing the client's warm host on stage cleanup.
-RUNNER_ONLY_ENV_VARS = frozenset({"AUTOCODE_SOURCE_HOST"})
+# Runner-only daemon toggles and inherited Git repository redirects: agents and
+# test subprocesses must never inherit AUTOCODE_SOURCE_HOST=1 or an outer
+# hook/bisect GIT_DIR redirection.
+RUNNER_ONLY_ENV_VARS = frozenset({"AUTOCODE_SOURCE_HOST", *GIT_REPOSITORY_VARIABLES})
 # A whole underscore-separated word of the name, e.g. SSH_AUTH_SOCK or OPENAI_API_KEY.
 SECRET_WORDS = {"KEY", "AUTH", "PAT", "PRIVATE", "COOKIE"}
 # The end of a word, e.g. GH_TOKEN, AZURE_CLIENT_SECRET, GOOGLE_APPLICATION_CREDENTIALS, MYAPIKEY.

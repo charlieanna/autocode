@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import autocode_context as context
 import live_fixture_provider as fixture
 
 
@@ -72,3 +73,32 @@ class GreetingReasonsTests(unittest.TestCase):
                 (self.root / name).write_text("# altered or weakened fixture\n")
                 self.assertEqual([], self.decisions())
                 (self.root / name).write_text(original)
+
+    def test_compacted_obligations_restore_gap_ids_and_quoted_lines_or_fail_closed(self):
+        source = fixture.GREET_PY.splitlines()
+        compact_rows = [
+            {
+                **row,
+                "gap_id": f"changed-code:{row['line']}:" + "c" * 50,
+                "handle": f"L{row['line']}",
+                "source_line": source[row["line"] - 1].strip(),
+                "evidence": ["runner.log"] * 6000,
+            }
+            for row in copy.deepcopy(self.rows)
+        ]
+        compact_data = {
+            "stage": "tester",
+            "regression_proof": {"path": "runner-proof.json", "changed_code_evidence": {"obligations": compact_rows}},
+        }
+        with contextlib.chdir(self.root):
+            expected = fixture._quote_changed_lines(compact_data, fixture._changed_code_reasons(compact_data))
+            self.assertEqual(7, len(expected))
+            self.assertTrue(all(row["source_line"] for row in expected))
+            packet, moved = context.compact(compact_data, self.root / "run/state.json")
+            self.assertIn("regression_proof_obligations", moved)
+            self.assertIn("gaps", packet["regression_proof"]["changed_code_evidence"]["obligations"][0])
+            self.assertEqual(expected, fixture._quote_changed_lines(packet, fixture._changed_code_reasons(packet)))
+            packet["context_artifact"]["sha256"] = "0" * 64
+            self.assertEqual([], fixture._changed_code_reasons(packet))
+            packet.pop("context_artifact")
+            self.assertEqual([], fixture._changed_code_reasons(packet))

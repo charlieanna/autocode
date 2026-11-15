@@ -1953,6 +1953,85 @@ Still open:
   original code with the change's tests. A refactor whose new test of existing behavior is listed in a
   `Makefile` should read this answer there too.
 
+## 54. Tests kept where no path rule looks: "the project has no tests yet", then a question about a test command (fixed)
+
+A bug fix in a Ruby project that keeps its checks in `checks/pager_check.rb` and runs them with
+`ruby run_checks.rb` ("Pager.page_count says eleven items at five a page are 2 pages. Eleven items need
+three pages. Fix it and add a regression check."). The first plan named `lib/pager.rb` and
+`checks/pager_check.rb`, with the criterion "run `ruby run_checks.rb`: it fails on the original code and
+passes with the fix". It was refused: "This plan changes code (checks/pager_check.rb, lib/pager.rb) and
+plans no test, and the project has no tests yet". The Planner then added a second kind of test to the
+project, `test/pager_test.rb`; Minitest was detected for it, the proofs came back unverified, and the run
+ended asking the person to "Correct the saved regression suite command. Replace the detected minitest
+suite command … Set the regression suite command to `ruby run_checks.rb`" (18 stages, 553 s, $3.65;
+bundle manifest `d2ce205791350755d5db0e24a436ea8dc6d975a6a547980b98aa719202bceac7`).
+
+**The shared cause.** Which files are tests is a rule over paths (`tests/`, `test_*.py`, `*_spec.rb`),
+read in three places: the plan check ("the project has no tests yet"), the proof ("No regression test was
+added or changed") and the note on changed lines ("The project has no test command and no test files").
+A project that keeps its checks in `checks/`, `verify/` or `e2e/`, in any language, has no test by that
+rule, whatever its own test command runs. Without a model, through `autocode_regression.prove`, a bug fix
+with its check added to the project's own check file failed with "No regression test was added or
+changed" in a shell project with `checks/*.sh`, the same project in `backend/`, and with a new check file
+beside the old one.
+
+**What can be seen, and what cannot.** Running the project's test command shows two things about a file:
+the command fails when the file is made unloadable (it runs the file), and passes when the file is
+emptied (nothing else needs it). The first version of this fix took such a file for a test, and the same
+real task finished with no question (8 stages, 184 s, $0.99; manifest
+`f5b12be2dbf56b887e8699c8db9934d613c388ba7d81795a368de3fe2023e4cf`). Its own tests then showed what the
+looks cannot tell: a program's entry file passes both, as does a module a program loads when it is there.
+A change that edited `app.sh` to use a new file, with `./app.sh` as the plan's command and no check
+anywhere, passed its proof, where master fails it with "No regression test was added or changed". No run
+tells a file that checks the code from a file that is the code, so that version was not opened.
+
+**The fix.** The plan says which command runs the project's tests, and AutoCode checks it by running
+(`autocode_plan_command_roles.declared`, `find_tests`):
+
+- the plan's word is the criterion a plan is already asked to write where no runner names a test, "run
+  `ruby run_checks.rb`: it fails on the original code and passes with the fix", or a command guard. The
+  person approves it with the plan. A criterion to "run `./app.sh` and see the new line" says no such
+  thing, and its command is not looked with;
+- the looks then show that this command runs a code file of the change and that nothing else needs it. A
+  file the command names (`sh pager.sh`, `./app.sh`) is the program and never its test;
+- such a file is taken with the change's tests: the original code the command must fail on holds it, and
+  the check of the original tests keeps it as the original code has it. It stays code for the evidence of
+  changed lines;
+- the plan check, the proof and the note on changed lines read that one answer. A draft that says which
+  command runs the tests, where the command is seen to run a file the plan names or one beside a file it
+  adds, is no longer refused; one that does not say so is refused as before, and is told how to say it
+  when one of its commands is seen to run such a file.
+
+A second version took only a command guard for the plan's word. On the real task the Plan Reviewer read a
+guard and a fail-first criterion on one command as a contradiction, planning was drafted four times, and
+the person was asked whether a second check file may be added (22 model calls, 610 s, $5.43; manifest
+`cc68f427b5f8202b2758585da5de3219ca233569da28104fe2738afa6438c0a3`). The fail-first criterion is what
+planners wrote unprompted in all three runs, so it is the plan's word, and a guard remains one.
+
+The same real task on the fix: the first draft was accepted, the proof passed the first time with
+`checks/pager_check.rb` taken with the tests, and the run completed with no question (8 stages, 176 s,
+$0.97; manifest `91a80360e22daf565c4ade88cf9f2fc6009b52a068d8741966a63245045fa148`).
+
+**Gates are as strict as they were.** The command must still fail on the original code with the change's
+checks and pass with the change, and the original checks must still pass with the change. Without a
+model: a fix with no check, a check that passes on the original code, two code files that need each
+other, a settings file the command loads and nothing uses, a change that drops a check it breaks, a
+project with no check at all, a plan that does not say which command runs the tests, a program's own
+entry file and a script of checks that is itself the command all still fail.
+
+**Still open.**
+
+- A project whose checks are one script that is itself the command (`sh selftest.sh`,
+  `python3 check_pager.py`): the command names the file, and nothing tells it from the program. Such a
+  project is handled as before.
+- A module a program loads when it is there, in a plan that says the program's own command fails first:
+  the plan's word is wrong there, and the looks cannot show it. The proof still needs the command to fail
+  on the original code and pass with the change, and the changed lines still need the Tester's evidence.
+- A change that alters no behavior in such a project: a guard needs a test of the original code among the
+  files the change edits or beside the ones it adds, and a refactor edits no check.
+- Compiled checks (an emptied C file does not build), more than six code files in a change, and a change
+  that also touches a file the path rules call a test are not looked at.
+
 ## Also seen, not yet run on real models
 
 - **Claude Code refuses to edit some directories inside the stage's own directory.** With Edit and
