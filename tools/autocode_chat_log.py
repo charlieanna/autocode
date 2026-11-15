@@ -17,6 +17,7 @@ import hashlib
 import json
 import re
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -330,6 +331,33 @@ def _dispatch_note(state: RunState) -> list[dict]:
     return []
 
 
+def _clock() -> datetime:
+    return datetime.now(UTC)
+
+
+def _start_note(active: dict, agent: str, *, started: bool) -> list[dict]:
+    """One message saying the stage's model is starting, and how long its first reply has taken so far.
+
+    Before the provider writes its first event the log was empty and the chat showed only "Requirements
+    working": a Kilo launch on macOS spent 27 s starting before glm-5.3 answered "hi" in 3 s (2026-11-15).
+    The entry keeps its id, so once the model answers it reads as started rather than as still waiting."""
+    at, model = active.get("started_at"), str(active.get("model") or "").strip()
+    if not isinstance(at, str):
+        return []
+    who = model or "the model"
+    if started:
+        text = f"Started {who}."
+    else:
+        try:
+            began = datetime.fromisoformat(at.replace("Z", "+00:00"))
+            seconds = max(0, int((_clock() - began).total_seconds())) if began.tzinfo else None
+        except ValueError:
+            seconds = None
+        waited = f" ({seconds} s so far)" if seconds is not None else ""
+        text = f"Starting {who} and waiting for its first reply{waited}."
+    return [{"id": f"start:{at}", "agent": agent, "kind": "message", "text": text}]
+
+
 def _effort_note(active: dict, agent: str) -> list[dict]:
     """One message when the running review works one level below the person's saved level, saying why
     (autocode_review_effort); the attempt's own entries follow it."""
@@ -366,5 +394,7 @@ def project(
         milestone = (state.get("current_task") or {}).get("milestone_id")
         agent = _agent(str(active.get("stage") or ""), state, milestone)
         found.extend(_effort_note(active, agent))
-        found.extend(_attempt(active, Path(run_dir), workspace, agent))
+        entries = _attempt(active, Path(run_dir), workspace, agent)
+        found.extend(_start_note(active, agent, started=bool(entries)))
+        found.extend(entries)
     return found + _workers(state, workspace, supervised)

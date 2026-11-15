@@ -402,6 +402,21 @@ def require_supported(state: RunState):
             )
 
 
+def test_homes(state: RunState):
+    """The homes the recording's next regression proof kept for its changed tests, or None.
+
+    A live proof finds where a changed test loads by running it (autocode_test_homes) and derives its
+    commands from that. A replay runs nothing, so it reads what the recorded proof found, from the
+    authenticated receipt it is about to be compared with. The homes decide only which commands the
+    replay derives; ``regression`` still refuses a recording whose commands differ from them.
+    """
+    tape = transport.selected(state["settings"])
+    used = (state.get("replay_result") or {}).get("consumed_checks", [])
+    rows = tape.document["checks"][len(used) if isinstance(used, list) else 0 :]
+    row = next((row for row in rows if row["purpose"] == "regression_proof"), None)
+    return authenticated(tape, row)[2].get("test_homes") if row else None
+
+
 def regression(state: RunState, workspace, *, case_ids, suite, regression_command):
     require_supported(state)
     # A repeated pre-review guard may reuse only a freshly reauthenticated

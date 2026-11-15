@@ -619,11 +619,18 @@ class PackageSuite(unittest.TestCase):
                 checks[label]["command"],
             )
 
-    def test_without_the_package_the_same_fix_cannot_be_proven(self):
-        # The motivation, kept as a control: from the repository root the package's tests cannot find greet.py.
+    def test_without_the_package_the_same_fix_is_proven_where_its_tests_load(self):
+        # From the repository root the package's tests cannot find greet.py, which was why a run had to name
+        # the package. The proof now runs the changed tests, sees that, and proves them from the directory
+        # where they load (autocode_test_homes), with the commands a --package run uses.
         self.project.write(FIX)
         proof = regression.prove(bugfix_state(self.project, package=None), self.project.root, self.run_dir)
-        self.assertNotEqual(verify.PASS, proof["verdict"])
+        self.assertEqual(verify.PASS, proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual(["test_greet.TestGreet.test_blank_name_rejected"], proof["fail_to_pass"])
+        self.assertTrue(proof["commands"]["suite"].startswith("cd packages/greet && "), proof["commands"])
+        self.assertTrue(proof["commands"]["regression"].startswith("cd packages/greet && "), proof["commands"])
+        self.assertEqual([f"{GREET}/test_greet.py"], sorted(proof["test_homes"]))
+        self.assertEqual(proof["test_homes"], util.read(proof["path"])["test_homes"])
 
     def test_a_change_outside_the_package_leaves_the_proof_unverified(self):
         self.project.write({**FIX, f"{OTHER}/other.py": "def answer():\n    return 41 + 1\n"})
@@ -1145,19 +1152,56 @@ class TestsInTwoProjects(unittest.TestCase):
         self.assertTrue(commands[1].startswith("cd backend && "), commands)
         self.assertIn("tests/test_grader.py", commands[1])
 
-    def test_a_file_no_suite_there_runs_is_refused_by_name(self):
-        # Without backend/'s manifest no project around the Python test has a suite, and the root's cannot run it.
+    REFUSED = (
+        "no test command runs these files: backend/tests/test_grader.py (the detected node suite "
+        "`npm test --silent` cannot run them)"
+    )
+
+    def test_a_file_no_suite_of_the_rules_runs_is_run_where_it_loads(self):
+        # Without backend/'s manifest the rules know no project around the Python test, and the root's suite
+        # cannot run it. The run looks for itself (autocode_test_homes): the file loads from backend/.
         project = self.project({path: text for path, text in SPLIT.items() if path != "backend/pyproject.toml"})
         root = self.detect(project.root)
-        self.assertEqual(
-            "no test command runs these files: backend/tests/test_grader.py (the detected node suite "
-            "`npm test --silent` cannot run them)",
-            scratch_suites.suites(project.root, root, SPLIT_TESTS, self.detect),
-        )
+        self.assertEqual(self.REFUSED, scratch_suites.suites(project.root, root, SPLIT_TESTS, self.detect))
         with tempfile.TemporaryDirectory() as run_dir:
             receipt = verify.scratch_run(project.root, Path(run_dir), tests=SPLIT_TESTS)
-        self.assertEqual((None, scratch_suites.suites(project.root, root, SPLIT_TESTS, self.detect)), (
-            receipt["results"], receipt["error"]))  # fmt: skip
+        self.assertFalse(receipt.get("error"), receipt.get("error"))
+        commands = [run["command"] for run in receipt["suites"]]
+        self.assertRegex(commands[0], r"^node .* --test frontend/routing\.test\.mjs$")
+        self.assertRegex(commands[1], r"^cd backend && \S+ -m unittest -v tests/test_grader\.py$")
+        # The Python test that fails on today's code has loaded: it is reported from where it ran.
+        self.assertEqual(([0, 1], 3), ([run["exit_code"] for run in receipt["suites"]], receipt["results"]["total"]))
+        self.assertEqual([], receipt["results"]["collection_errors"])
+
+    def test_a_file_that_loads_nowhere_is_refused_by_name(self):
+        project = self.project({path: text for path, text in SPLIT.items() if path != "backend/pyproject.toml"})
+        project.write({"backend/tests/test_grader.py": SPLIT_TEST.replace("from grader import", "from graders import")})
+        with tempfile.TemporaryDirectory() as run_dir:
+            receipt = verify.scratch_run(project.root, Path(run_dir), tests=SPLIT_TESTS)
+        self.assertEqual((None, self.REFUSED), (receipt["results"], receipt["error"]))
+
+    def test_python_tests_in_a_directory_the_rules_do_not_know_run_where_they_load(self):
+        # No manifest anywhere: the rules run backend/'s tests from the root, where they cannot import pager.
+        test = "import unittest\n\nfrom pager import pages\n\n\nclass PagerTest(unittest.TestCase):\n"
+        test += "    def test_pages(self):\n        self.assertEqual(2, pages(10, 5))\n"
+        seed = {
+            "backend/pager.py": "def pages(total, size):\n    return total // size\n",
+            "backend/tests/test_pager.py": test,
+        }
+        project = Project(seed)
+        self.addCleanup(project.close)
+        with tempfile.TemporaryDirectory() as run_dir:
+            receipt = verify.scratch_run(project.root, Path(run_dir), tests=["backend/tests/test_pager.py"])
+        self.assertRegex(receipt["command"], r"^cd backend && \S+ -m unittest -v tests/test_pager\.py$")
+        self.assertEqual(
+            (0, ["tests.test_pager.PagerTest.test_pages"]), (receipt["exit_code"], receipt["results"]["passed"])
+        )
+        # One that fails where it loads has loaded: it is reported from there, not looked for further.
+        project.write({"backend/pager.py": "def pages(total, size):\n    return 0\n"})
+        with tempfile.TemporaryDirectory() as run_dir:
+            receipt = verify.scratch_run(project.root, Path(run_dir), tests=["backend/tests/test_pager.py"])
+        self.assertRegex(receipt["command"], r"^cd backend && ")
+        self.assertEqual(["tests.test_pager.PagerTest.test_pages"], receipt["results"]["failed"])
 
     def test_one_suite_that_runs_every_file_is_kept(self):
         project = self.project()

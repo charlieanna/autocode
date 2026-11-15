@@ -255,10 +255,12 @@ class FocusedFallbackProofTests(unittest.TestCase):
             self.assertEqual(verify.UNVERIFIED, proof["verdict"])
             self.assertNotIn("regression_on_candidate", proof["checks"])
             self.assertEqual(["test_calc.py"], proof["suite_fallback"]["tests"])
-            self.assertEqual(["suite-on-base", "suite-on-base"], self.whole_runs)
+            # The first proof also runs the changed test once to see where it loads (autocode_test_homes).
+            # That run timed out as well: the test stays where it is, and the look is not repeated.
+            self.assertEqual(["scratch-command", "suite-on-base", "suite-on-base"], self.whole_runs)
         state["settings"]["regression"]["test_timeout"] = 3600
         self.prove(state, timeout_all=True)
-        self.assertEqual(4, len(self.whole_runs))
+        self.assertEqual(["scratch-command", *["suite-on-base"] * 4], self.whole_runs)
 
     def test_no_fallback_does_not_relaunch_a_known_baseline_timeout(self):
         state = self.state(test_timeout=1800)

@@ -1577,9 +1577,8 @@ $0.92; manifest `289097101dab8a22c6b2865a3d2edc8a83d9f9b03aa48cbdbe78f5f41bf0887
 is `PASS` with `replayed_command: "cd api && /usr/local/bin/python3 -m unittest -v tests/test_orders.py"`
 and exit code 0 on the change and with the original tests put back.
 
-Still open: a directory of code and tests with no manifest below such a root (`api/` with only `orders.py`
-and `tests/`): the proof itself fails there (checked without a model; section 48 fixes it where the directory
-declares its dependencies); and a Python project below a root that is another language's project.
+Both open items of this section (a directory of code and tests with no manifest below such a root, and a
+Python project below a root that is another language's project) are closed by section 50.
 
 ## 48. A backend with only `requirements.txt`: the project's test file is edited to get past the proof, and the person is still asked (fixed)
 
@@ -1627,11 +1626,11 @@ first attempt with suite `cd backend && python3 -m pytest -q -p no:cacheprovider
 --continue-on-collection-errors`, the gate of the original tests passed with `cd backend && ...
 tests/test_orders.py`, and the project's test file got the new tests and nothing else.
 
-Still open: a directory of code and tests that declares nothing (`api/` with only `orders.py` and `tests/`);
-and, seen while checking this one without a model, a Python tool folder inside another language's project
-(`package.json` at the root, `scripts/pyproject.toml`): its fix is proven with its own suite, but the gate of
-the original tests runs the root's `npm test`, which runs none of them, so a weakened original assertion
-there is not caught by that gate.
+The rule this section added was replaced by one mechanism for every layout (section 50), which also closed
+its two open items: a directory of code and tests that declares nothing, and a Python folder inside another
+language's project (`package.json` at the root, `scripts/pyproject.toml`), whose fix was proven with its own
+suite while the gate of the original tests ran the root's `npm test`, which runs none of its tests, so a
+weakened original assertion there was not caught by that gate.
 
 ## 49. One bug fixed in two Python projects of a repository: both test files are edited to get past the proof, and the person is still asked (fixed)
 
@@ -1688,12 +1687,85 @@ proves them as it would alone"; the gate passed with `cd api && python3 -m unitt
 cd worker && python3 -m unittest -v tests/test_jobs.py`, exit codes 0 and 0 on the change and with the
 original tests put back; and neither test file got anything but its new tests.
 
-Still open: the Tester's acceptance tests written before the Builder (`--spec-first`) choose their suites the
-old way (`autocode_scratch_suites.suites`), so tests in two Python projects there would still run from the
-root; a test the approved plan replaces, in a change across two projects, is excused from the joined results
-of both runs; and a directory of code and tests that declares nothing (section 48), where the proof fails the
-same way for unittest tests in `tests/` or beside the code and for pytest tests in `tests/` (checked without
-a model).
+The rule this section added was replaced by one mechanism for every layout (section 50), which also closed
+two of its open items: the Tester's own tests on a scratch copy, and a directory of code and tests that
+declares nothing. Still open: a test the approved plan replaces, in a change across two projects, is excused
+from the joined results of both runs.
+
+## 50. Where a project's tests run: one mechanism in place of a rule for each layout (fixed)
+
+Sections 45 and 47 to 49 are one defect, fixed four times. AutoCode chose the directory and the suite for a
+changed test from the repository's layout (a manifest beside it, a `requirements.txt`, what its code imports,
+whether the root holds a manifest), and each layout the rules did not know failed the same way: the tests ran
+from a directory where they cannot import their code, the proof said "the new tests only fail to import or
+collect", the Builder was sent back and edited the project's tests to suit the proof, and the person was
+asked to correct the test commands. The owner asked for one fix in their place ("fixes that fix AutoCode on a
+whole and not just tiny small temp fixes per small issue", 2026-11-15), and `AGENTS.md` now has the rule
+("Fix the shared cause, not each case").
+
+**The shared cause.** Where a test runs was guessed, in three places that had to be taught each layout
+separately (the proof, the check of the original tests, the plan check) and a fourth that was not taught
+(a scratch run of the Tester's own tests). Nothing has to be guessed: every runner AutoCode reads reports a
+test file it could not load the same way (`collection_errors`, `uncollected`, or no test at all), in every
+language.
+
+**The fix** (`autocode_test_homes`). The proof runs the changed tests once, on the changed code, where the
+rules put them. A file that does not load there, or that no suite there runs, is run from each directory
+around it, innermost first, and then from the root, with the suite detected there; it runs from the first
+place where it loads. What is found is kept for the run (`test_homes` in its state and in the proof's
+receipt) and read by every reader:
+
+- the proof places each moved test in the suite of its home, and says so in a note;
+- the check of the original tests runs a test that loads anywhere but the root with the command the proof
+  used (`autocode_protected_oracles.replay_parts`), instead of working out again where it runs;
+- a scratch run of given test files (the Tester's own tests) looks the same way when they do not load
+  (`autocode_scratch_suites.run_tests`);
+- the plan check accepts a planned test when a directory around it has a suite of its kind, with or
+  without a manifest (`autocode_plan_test_suite`);
+- a replay, which runs nothing, takes the homes the recorded proof kept.
+
+The `requirements.txt` rule (section 48), the two-project rule and the gate's per-project commands (section
+49) are removed; their tests are kept as tests of the mechanism. The manifest rules of sections 45 and 47
+stay as the first place the proof looks. Choosing where a test runs proves nothing: it must still fail on the
+original code and pass with the change, under one command for both, and the original tests are still put
+back and run. A test that loads nowhere stays where the rules put it and fails as before.
+
+**Cases checked beyond the reported ones**, without a model, with the rules deleted: 16 layouts (unittest
+and pytest; tests in `tests/` and beside the code; `requirements.txt`, `Pipfile`, `pyproject.toml` and
+nothing; a `conftest.py`, a `pytest.ini`, a package imported by name, which stay at the root because they
+load there) all pass the proof and the check of the original tests. Three that no rule covered and that
+failed on master:
+
+- a directory of code and tests that declares nothing (the open item of section 49);
+- a Python directory inside a Node project. On master the proof failed, the check of the original tests ran
+  the root's `npm test`, which runs no Python test, so a weakened original assertion there passed it (also
+  where the directory has a manifest, the open item of section 48), and the plan check refused every plan
+  that named a test there ("The regression proof would never run the
+  plan's tests backend/tests/test_grader.py"), which the Planner cannot settle;
+- a package of a repository without `--package` (`packages/greet/`), which was the reason that flag had to
+  be typed.
+
+**Real runs with the fix** (Claude Code, `claude-tiers`), each `TASK_COMPLETE` with one plan approval and no
+question, the proof `PASS` at its first attempt, and nothing added to a test file but its new tests:
+
+| Task | Result | What ran | Bundle manifest |
+| --- | --- | --- | --- |
+| The paging bug fix in `backend/` (code and pytest tests, no manifest, no `requirements.txt`) beside `frontend/` | 10 stages, 190 s, $1.34 | "The changed test backend/tests/test_orders.py does not load from the repository root (`python3 -m pytest -q -p no:cacheprovider backend/tests/test_orders.py`); it loads from backend/ (`cd backend && python3 -m pytest -q -p no:cacheprovider tests/test_orders.py`), so that is where it runs"; the check of the original tests ran the same command, exit 0 on the change and with the original tests put back | `6f05935e06429c810a73007c7762c2efdae8f44a86f09dc14a515905dd31dcab` |
+| The same fix in `backend/` (unittest) inside a Node project with `package.json` at the root | 8 stages, 133 s, $0.86 | "The changed test backend/tests/test_orders.py is run by no suite of the repository root; it loads from backend/ (`cd backend && python3 -m unittest -v tests/test_orders.py`), so that is where it runs"; the root's `npm test --silent` ran on the original code and with the change; the check of the original tests ran `cd backend && ...`, exit 0 and 0 | `69e8ff8ca9c8d57cca3f0995bab6c2d33a6395b5617d8b1dcd3f64001e456a17` |
+| Section 49's task (one bug in `api/` and `worker/`), now without its rule | 9 stages, 206 s, $1.35 | both tests "do not load from the repository root" and load from `api/` and `worker/`; the check of the original tests ran `cd api && python3 -m unittest -v tests/test_orders.py ; cd worker && python3 -m unittest -v tests/test_jobs.py`, exit 0 and 0 | `75315cbb3c5a1216020cc85a01e1dfa108e323e6bf1f744598059c28ef72e717` |
+
+No run was made on master for the first two: the proof's failure there and the plan check's refusal are
+shown by tests that need no model.
+
+Costs: one more targeted run of the changed tests in a run's first proof, and at most 12 commands of five
+minutes when tests have to be looked for. A run that timed out is not repeated.
+
+Still open, found on the way: a Node `test/` directory with no `package.json` beside it is not read as tests
+at all ("No regression test was added or changed"), which is a rule about what a test is
+(`autocode_project_kinds.project_roots`), not about where it runs; a unittest file that imports a helper
+beside it loads under `discover -s tests` and not when named by its path, so it is found nowhere; a home is
+not looked for again when a later change of the same run moves the code away from it; a test the approved
+plan replaces, in a change across two projects, is excused from the joined results of both runs.
 
 ## Also seen, not yet run on real models
 
